@@ -1,1 +1,35 @@
- 
+Nginx push module - redirect a request body to other waiting requests
+
+If you want a long-polling server but don't want to wait on idle connections
+via upstream proxies, use this module to have nginx accept client connections.
+Communication with clients is done via a different location, one only accessible
+to your application.
+
+Example conf:
+
+	#message source server
+	server {
+        listen       localhost:8089; 
+        location / {
+			default_type  text/plain;
+            set $push_id $arg_id; #/?id=239aff3 or somesuch
+			push_source;
+        }
+    }
+
+	#long-polling client server
+	server {
+        listen       8088;
+        location / {
+			default_type  text/plain;
+            set $push_id $arg_id; #/?id=239aff3 or somesuch
+			push_destination;
+        }
+    }	
+	
+Clients will connect to http://example.com:8088/?id=... and have the 
+response delayed until a message is POSTed to http://localhost:8089/?id=...
+Messages can be sent to clients that have not yet connected, i.e. they are queued.
+
+It's a damn good idea to make sure the push_source location is not visible
+publically, as it is intended for use only by your application.
