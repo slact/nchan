@@ -12,8 +12,8 @@ static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void 
 static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t * r);
 
 typedef struct {
-	ngx_str_t			 id;
-	ngx_shm_zone_t		 *shm_zone;
+	ngx_int_t                  	index;
+	ngx_shm_zone_t		 		*shm_zone;
 } ngx_http_push_loc_conf_t;
 
 //message queue
@@ -53,38 +53,26 @@ static void ngx_http_push_cleanup_destination_request(ngx_http_push_request_clea
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf);
 static ngx_int_t ngx_http_push_send_to_destination(ngx_http_push_node_t * node, ngx_slab_pool_t *shpool);
 static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
-static char * ngx_http_push_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
     { ngx_string("push_source"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
       ngx_http_push_source,
-      0,
+      NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
 	
     { ngx_string("push_destination"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
       ngx_http_push_destination,
-      0,
-      0,
-      NULL },
-	  
-	{ ngx_string("push_id"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_http_push_id,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
 
       ngx_null_command
 };
-static char * ngx_http_push_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-	ngx_http_compile_complex_value_t   ccv;
-	ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
-	if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
-}
+
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
 #define ngx_queue_insert_tail(h, x)                                           \
@@ -111,8 +99,8 @@ get_node(	ngx_str_t 			* id,
     uint32_t                         hash;
     ngx_rbtree_node_t               *node, *sentinel;
     ngx_int_t                        rc;
-    ngx_http_push_node_t  			*up, *trash;
-	u_char							 nodes_collected=0;
+    ngx_http_push_node_t  			*up;
+	ngx_http_push_node_t			*trash = NULL;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0, "push module: find_node %V", id);
 
@@ -134,12 +122,11 @@ get_node(	ngx_str_t 			* id,
         }
 
 		//every search is responsible for deleting one empty node, if it comes across one
-		if (nodes_collected<1) {
+		if (trash!=NULL) {
 			up = (ngx_http_push_node_t *) node;
-			if(ngx_queue_empty(&up->message_queue->queue) && ngx_queue_empty(&up->request_queue->queue)  ) {
+			if(ngx_queue_empty(&up->message_queue->queue) && ngx_queue_empty(&up->request_queue->queue)) {
 				ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0, "push module: found an empty node to trash");
 				trash = (ngx_http_push_node_t *) node;
-				nodes_collected++;
 			}
 		}
 		
@@ -152,7 +139,7 @@ get_node(	ngx_str_t 			* id,
 
             if (rc == 0) {
                 ngx_log_debug0(NGX_LOG_DEBUG_HTTP, log, 0, "push module: found node");
-				if(nodes_collected>0 && trash != up){ //take out the trash
+				if(trash !=NULL && trash != up){ //take out the trash
 					ngx_rbtree_delete(ctx->rbtree, (ngx_rbtree_node_t *) trash);
 					ngx_slab_free_locked(shpool, trash);
 				}				
@@ -171,7 +158,7 @@ get_node(	ngx_str_t 			* id,
 	up = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_node_t) + id->len); //dirty dirty
 	if (up == NULL) {
 		//a failed malloc ain't the end of the world. take out the trash anyway
-		if(nodes_collected>0){
+		if(trash!=NULL){
 			ngx_rbtree_delete(ctx->rbtree, (ngx_rbtree_node_t *) trash);
 			ngx_slab_free_locked(shpool, trash);
 		}
@@ -189,7 +176,7 @@ get_node(	ngx_str_t 			* id,
 	ngx_queue_init(&up->request_queue->queue);
 	ngx_queue_init(&up->message_queue->queue);
 
-	if(nodes_collected>0 && up!=trash){ //take out your trash
+	if(trash != NULL && up!=trash){ //take out your trash
 		ngx_rbtree_delete(ctx->rbtree, (ngx_rbtree_node_t *) trash);
 		ngx_slab_free_locked(shpool, trash);
 	}
@@ -277,19 +264,37 @@ ngx_http_push_compare_rbtree_node(	const ngx_rbtree_node_t *v_left,
 
 //enough declarations for now
 
+static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable
+#define ngx_http_push_handlermaker(handler_callback)                          \
+	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); \
+	ngx_http_push_loc_conf_t *plcf = conf;                                    \
+    clcf->handler = (handler_callback);                                       \
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         \
+    if (plcf->index == NGX_ERROR) {                                           \
+        return NGX_CONF_ERROR;                                                \
+    }                                                                         \
+    return NGX_CONF_OK
 static char *ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_core_loc_conf_t  *clcf;
-    clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-    clcf->handler = ngx_http_push_source_handler;
+	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
+	ngx_http_push_loc_conf_t *plcf = conf;                                    
+    clcf->handler = ngx_http_push_source_handler;                                       
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
+    if (plcf->index == NGX_ERROR) {                                           
+        return NGX_CONF_ERROR;                                                
+    }                                                                         
     return NGX_CONF_OK;
 }
 
 static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_core_loc_conf_t  *clcf;
-    clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-    clcf->handler = ngx_http_push_destination_handler;
+	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
+	ngx_http_push_loc_conf_t *plcf = conf;                                    
+    clcf->handler = ngx_http_push_destination_handler;                                       
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
+    if (plcf->index == NGX_ERROR) {                                           
+        return NGX_CONF_ERROR;                                                
+    }                                                                         
     return NGX_CONF_OK;
 }
 
@@ -324,7 +329,8 @@ ngx_module_t  ngx_http_push_module = {
     NGX_MODULE_V1_PADDING
 };
 
-ngx_str_t shm_name = ngx_string("push_module");
+static ngx_str_t shm_name = ngx_string("push_module");
+
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	//create shared memory
 	ngx_http_push_loc_conf_t 	*lcf;
@@ -387,10 +393,20 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 }
 
 // here go the handlers
+#define ngx_http_push_set_id(id, vv, r, cf, log, ret_err)                     \
+    (vv) = ngx_http_get_indexed_variable(r, (cf)->index);                     \
+    if ((vv) == NULL || (vv)->not_found || (vv)->len == 0) {                  \
+        ngx_log_error(NGX_LOG_ERR, log, 0,                                    \
+                      "the \"$push_id\" variable is not set");                \
+        return ret_err;                                                       \
+    }                                                                         \
+	id.data=vv->data;\
+	id.len=vv->len
 
 static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 {
     ngx_str_t                        id;
+	ngx_http_variable_value_t		*vv;
     ngx_slab_pool_t                 *shpool;
     ngx_http_push_loc_conf_t		*cf;
     ngx_http_push_ctx_t 			*ctx;
@@ -400,12 +416,8 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	//TODO: r->method _= NGX_HTTP_DELETE
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-    if (&cf->id == NULL) {
-        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "push module: no id found in POST upload req");
-        return NGX_ERROR;
-    }
-	id = cf->id;
+    
+	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, NGX_ERROR);
 
     if (cf->shm_zone == NULL) {
         ngx_log_error(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "push module: no shm zone found");
@@ -512,14 +524,14 @@ static ngx_int_t ngx_http_push_send_to_destination(ngx_http_push_node_t * node, 
 	ngx_slab_free(shpool, msg);
 	return NGX_OK;
 }
-ngx_str_t all_is_well = ngx_string("yes.");
+
 static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
     ngx_slab_pool_t                 *shpool;
     ngx_http_push_loc_conf_t		*cf;
     ngx_http_push_ctx_t 			*ctx;
     ngx_http_push_node_t  			*pushed;
-	
+	ngx_http_variable_value_t		*vv;
 	ngx_http_request_body_t			*body;
     /* Is it a POST connection */
     if (r->method != NGX_HTTP_POST) {
@@ -530,13 +542,8 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	//TODO: r->method _= NGX_HTTP_DELETE
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	if (&cf->id==NULL) {
-        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "push module: no id found in POST upload req");
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-		return;
-    }
-	id = cf->id;
+	
+	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
 
     if (cf->shm_zone == NULL) {
         ngx_log_error(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "push module: no shm zone found");
