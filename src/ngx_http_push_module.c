@@ -265,15 +265,6 @@ ngx_http_push_compare_rbtree_node(	const ngx_rbtree_node_t *v_left,
 //enough declarations for now
 
 static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable
-#define ngx_http_push_handlermaker(handler_callback)                          \
-	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); \
-	ngx_http_push_loc_conf_t *plcf = conf;                                    \
-    clcf->handler = (handler_callback);                                       \
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         \
-    if (plcf->index == NGX_ERROR) {                                           \
-        return NGX_CONF_ERROR;                                                \
-    }                                                                         \
-    return NGX_CONF_OK
 static char *ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
 	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
@@ -303,13 +294,10 @@ static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void 
 static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */
     NULL,                                  /* postconfiguration */
-
     NULL,				         		   /* create main configuration */
     NULL,                                  /* init main configuration */
-
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
-
     ngx_http_push_create_loc_conf,         /* create location configuration */
     NULL                                   /* merge location configuration */
 };
@@ -444,19 +432,20 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	ngx_queue_insert_tail(&pushed->request_queue->queue, &pending_request->queue);
 	ngx_shmtx_unlock(&shpool->mutex);
 	
+	ngx_http_discard_request_body(r); //don't care about the rest of the request
+	
 	//set up request cleanup callbacks
 	ngx_http_cleanup_t * cln = (ngx_http_cleanup_t *) ngx_http_cleanup_add(r, sizeof(ngx_http_push_request_cleanup_t));
 	ngx_http_push_request_cleanup_t * cleanup_data = (ngx_http_push_request_cleanup_t *) cln->data;
 	cleanup_data->req=pending_request;
 	cleanup_data->shpool=shpool;
-	
 	cln->handler=(ngx_http_cleanup_pt) ngx_http_push_cleanup_destination_request;
 	
 	return ngx_http_push_send_to_destination(pushed, shpool);
 }
 
 static void ngx_http_push_cleanup_destination_request(ngx_http_push_request_cleanup_t * cln) {
-	if (cln->req->queue.next != NULL) {
+	if (cln->req != NULL) {
 		ngx_queue_remove(&cln->req->queue);
 		ngx_slab_free(cln->shpool, cln->req);
 		//TODO: delete from the tree if no more requests.
@@ -486,7 +475,8 @@ static ngx_int_t ngx_http_push_send_to_destination(ngx_http_push_node_t * node, 
 		req_item = ngx_queue_data(qr, ngx_http_push_request_t, queue);
 		r=req_item->request;
 		ngx_queue_remove(qr);
-		ngx_slab_free(shpool, req_item);
+		
+		//ngx_slab_free(shpool, req_item); //do this in the cleanup
 		
 		//write the request headers
 		r->headers_out.status=NGX_HTTP_OK;
