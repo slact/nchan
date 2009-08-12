@@ -24,11 +24,6 @@ typedef struct {
 	ngx_str_t				str;
 } ngx_http_push_msg_t;
 
-typedef struct {
-	ngx_queue_t				 queue;
-	ngx_http_request_t		*request;
-} ngx_http_push_request_t;
-
 typedef struct ngx_http_push_node_s ngx_http_push_node_t;
 struct ngx_http_push_node_s {
 	ngx_rbtree_key_t       			 key;
@@ -36,7 +31,7 @@ struct ngx_http_push_node_s {
 	ngx_rbtree_node_t				*right;
 	ngx_rbtree_node_t     			*parent;
     ngx_http_push_msg_t				*message_queue;
-	ngx_http_push_request_t			*request_queue;
+	ngx_http_request_t				*request;
 	ngx_str_t						 id;
 };
 
@@ -50,16 +45,7 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t 
 	ngx_queue_remove(qmsg);
 	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
-static ngx_http_push_request_t * ngx_http_push_dequeue_request(ngx_http_push_node_t * node)
-{
-	ngx_queue_t *sentinel = &node->request_queue->queue;
-	if(ngx_queue_empty(sentinel)) {
-		return NULL;
-	}
-	ngx_queue_t 			*qmsg = ngx_queue_head(sentinel);
-	ngx_queue_remove(qmsg);
-	return ngx_queue_data(qmsg, ngx_http_push_request_t, queue);
-}
+
 static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg);
 
 
@@ -68,9 +54,7 @@ typedef struct {
 } ngx_http_push_ctx_t;
 
 static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_http_request_t * r);
-
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf);
-static ngx_int_t ngx_http_push_broadcast(ngx_http_push_node_t * node, ngx_slab_pool_t *shpool);
 static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 
 static ngx_command_t  ngx_http_push_commands[] = {
@@ -143,8 +127,9 @@ find_node(	ngx_str_t 			* id,
 
 		//every search is responsible for deleting one empty node, if it comes across one
 		if (trash==NULL) {
-			up = (ngx_http_push_node_t *) node;
-			if(ngx_queue_empty(&up->message_queue->queue) && ngx_queue_empty(&up->request_queue->queue)) {
+			if(ngx_queue_empty(& ((ngx_http_push_node_t *) node)->message_queue->queue)
+				&& ((ngx_http_push_node_t *) node)->request==NULL )
+			{
 				ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0, "push module: found an empty node to trash");
 				trash = (ngx_http_push_node_t *) node;
 			}
@@ -206,10 +191,9 @@ get_node(	ngx_str_t 			* id,
 	up->key = ngx_crc32_short(id->data, id->len);
 	ngx_rbtree_insert(ctx->rbtree, (ngx_rbtree_node_t *) up);
 
+	up->request=NULL;
 	//initialize queues
-	up->request_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_request_t));
 	up->message_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_msg_t));
-	ngx_queue_init(&up->request_queue->queue);
 	ngx_queue_init(&up->message_queue->queue);
 	return up;
 }
@@ -436,20 +420,23 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	node = get_node(&id, ctx, shpool, r->connection->log);
 	ngx_shmtx_unlock(&shpool->mutex);
 	
-    if (node == NULL) { //node exists 
+    if (node == NULL) { //unable to allocate node
 		return NGX_ERROR;
-    } 
+    }
 	ngx_http_discard_request_body(r); //don't care about the rest of the request
+	
+	if (node->request!=NULL) { //oh shit, someone's already waiting for a message on this id.
+		//TODO: add settings for this sort of thing.
+		ngx_http_finalize_request(node->request, NGX_HTTP_CONFLICT); //bump the old request
+		node->request=NULL;
+	}
 	
 	ngx_http_push_msg_t				*msg = ngx_http_push_dequeue_message(node);
 	if (msg==NULL) //message queue is empty
 	{
 		//this means we must wait for a message.
-		ngx_http_push_request_t			*pending_request;
 		ngx_shmtx_lock(&shpool->mutex);
-		pending_request = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_request_t)); 
-		pending_request->request = r;
-		ngx_queue_insert_tail(&node->request_queue->queue, &pending_request->queue);
+		node->request = r;
 		ngx_shmtx_unlock(&shpool->mutex);
 		cf->read_event_handler = r->read_event_handler;
 		r->read_event_handler = ngx_http_push_destination_request_closed_prematurely_handler;
@@ -511,12 +498,10 @@ static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_htt
 	ngx_shmtx_unlock(&shpool->mutex);
 	
 	if (mynode!=NULL) {
-		ngx_queue_t *req_sentinel = &mynode->request_queue->queue;
-		if(!ngx_queue_empty(req_sentinel)) {
-			ngx_queue_t *qreq = ngx_queue_head(req_sentinel);
-			ngx_queue_remove(qreq);
-			ngx_slab_free(shpool, ngx_queue_data(qreq, ngx_http_push_request_t, queue));
+		if(mynode->request != r) {
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: tried deleting a waiting request, but turned out someone else was waiting instead.");
 		}
+		mynode->request=NULL;
 	}
 	cf->read_event_handler(r); //Danger Will Robinson! Are we certain another request hadn't overwritten this event handler while we were away?
 }
@@ -580,16 +565,14 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			return;
 		}
 		
-		if(!ngx_queue_empty(&node->request_queue->queue))
+		if(node->request != NULL)
 		{ //we've got some requests to take care of.
-			ngx_http_push_request_t * req;
-			while((req = ngx_http_push_dequeue_request(node))) {
-				ngx_http_finalize_request(req->request, ngx_http_push_send_message_to_destination_request(req->request, msg));
-			}
+			ngx_http_finalize_request(node->request, ngx_http_push_send_message_to_destination_request(node->request, msg));
+			node->request = NULL;
 			ngx_slab_free(shpool, msg);
 			r->headers_out.status=NGX_HTTP_CREATED;
 		}
-		else { //no requests. queue it up!
+		else { //no requests waiting. queue it up!
 			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
 			r->headers_out.status=NGX_HTTP_OK;
 			r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
