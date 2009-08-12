@@ -20,6 +20,8 @@ typedef struct {
 //message queue
 typedef struct {
     ngx_queue_t				queue;
+	ngx_str_t				content_type;
+	ngx_str_t				charset;
 	unsigned				is_file:1;
 	ngx_str_t				str;
 } ngx_http_push_msg_t;
@@ -473,6 +475,14 @@ static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_requ
 	}
 	out.buf = b;
 	out.next = NULL;
+	
+	//set the content-type, if present
+	if (msg->content_type.data!=NULL) {
+		r->headers_out.content_type.len=msg->content_type.len;
+		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
+		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
+	}
+	
 	ngx_http_send_header(r);
 	return ngx_http_output_filter(r, &out);	
 }
@@ -542,15 +552,28 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 
 		//create a new message
 		ngx_shmtx_lock(&shpool->mutex);
-		msg = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_msg_t) + len);
+		msg = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_msg_t) + len + (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len));
 		if(msg == NULL) {
 			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 			return;
 		}
+		//store the body
 		msg->is_file=is_file;
 		msg->str.len = len;
 		msg->str.data = (u_char *) msg + sizeof(ngx_http_push_msg_t);
 		ngx_memcpy(msg->str.data, offset, len);
+		
+		//store the content-type
+		if(r->headers_in.content_type!=NULL) {
+			msg->content_type.len=r->headers_in.content_type->value.len;
+			msg->content_type.data=(u_char *) msg + sizeof(ngx_http_push_msg_t) + len;
+			ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
+		}
+		else {
+			msg->content_type.len=0;
+			msg->content_type.data=NULL;
+		}
+		
 		//get the node while we're at it.
 		ngx_http_push_node_t  			*node = get_node(&id, ctx, shpool, r->connection->log);
 		ngx_shmtx_unlock(&shpool->mutex);
