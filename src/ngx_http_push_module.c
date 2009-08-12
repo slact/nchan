@@ -106,7 +106,6 @@ find_node(	ngx_str_t 			* id,
     ngx_http_push_node_t  			*up;
 	ngx_http_push_node_t			*trash = NULL;
 
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0, "push module: find_node %V", id);
 
     hash = ngx_crc32_short(id->data, id->len);
 
