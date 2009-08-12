@@ -106,7 +106,6 @@ find_node(	ngx_str_t 			* id,
     ngx_http_push_node_t  			*up;
 	ngx_http_push_node_t			*trash = NULL;
 
-
     hash = ngx_crc32_short(id->data, id->len);
 
     node = ctx->rbtree->root;
@@ -129,7 +128,6 @@ find_node(	ngx_str_t 			* id,
 			if(ngx_queue_empty(& ((ngx_http_push_node_t *) node)->message_queue->queue)
 				&& ((ngx_http_push_node_t *) node)->request==NULL )
 			{
-				ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0, "push module: found an empty node to trash");
 				trash = (ngx_http_push_node_t *) node;
 			}
 		}
@@ -142,7 +140,6 @@ find_node(	ngx_str_t 			* id,
             rc = ngx_memn2cmp(id->data, up->id.data, id->len, up->id.len);
 
             if (rc == 0) {
-                ngx_log_debug0(NGX_LOG_DEBUG_HTTP, log, 0, "push module: found node");
 				if(trash !=NULL && trash != up){ //take out the trash
 					ngx_rbtree_delete(ctx->rbtree, (ngx_rbtree_node_t *) trash);
 					ngx_slab_free_locked(shpool, trash);
