@@ -39,8 +39,10 @@ static void 		ngx_http_push_source_body_handler(ngx_http_request_t * r);
 //destination stuff
 static char *		ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_destination hook
 static ngx_int_t 	ngx_http_push_destination_handler(ngx_http_request_t * r);
-static void 		ngx_http_push_destination_request_closed_prematurely_handler(ngx_http_request_t * r); //read_event thief
 static ngx_int_t 	ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg);
+
+//cleaning stuff
+static void 		ngx_http_push_destination_request_cleanup(ngx_http_push_node_t * data); //request pool cleaner
 
 //misc stuff
 static void * 		ngx_http_push_create_loc_conf(ngx_conf_t *cf);

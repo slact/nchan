@@ -185,20 +185,27 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	
 	if (node->request!=NULL) { //oh shit, someone's already waiting for a message on this id.
 		//TODO: add settings for this sort of thing.
-		ngx_http_finalize_request(node->request, NGX_HTTP_CONFLICT); //bump the old request
-		node->request=NULL;
+		ngx_http_finalize_request(node->request, NGX_HTTP_CONFLICT); //bump the old request. 
+		node->request=NULL; //finalize_request probably set node->request to NULL on cleanup anyway, but just to be sure.
 	}
 	
 	ngx_http_push_msg_t				*msg = ngx_http_push_dequeue_message(node);
-	if (msg==NULL) //message queue is empty
-	{
+	if (msg==NULL) { //message queue is empty
 		//this means we must wait for a message.
+		
+		//clean that shit afterwards
+		ngx_pool_cleanup_t              *cln = ngx_pool_cleanup_add(r->pool, sizeof(u_char));
+		if (cln == NULL) { //make sure we can.
+			return NGX_HTTP_INTERNAL_SERVER_ERROR;
+		}
+		cln->handler= (ngx_pool_cleanup_pt) ngx_http_push_destination_request_cleanup;
+		cln->data = node;
+		
 		ngx_shmtx_lock(&shpool->mutex);
 		node->request = r;
 		ngx_shmtx_unlock(&shpool->mutex);
-		cf->read_event_handler = r->read_event_handler;
-		r->read_event_handler = ngx_http_push_destination_request_closed_prematurely_handler;
-		//any read event at this point will be treated as a read-closed event.
+		r->read_event_handler = ngx_http_test_reading; //definitely test to see if the connection got closed or something	
+		
 		return NGX_DONE; //and wait.
 	}
 	else {
@@ -208,8 +215,6 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		return rc;
 	}
 }
-
-
 
 static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
@@ -285,7 +290,6 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		if(node->request != NULL)
 		{ //we've got some requests to take care of.
 			ngx_http_finalize_request(node->request, ngx_http_push_send_message_to_destination_request(node->request, msg));
-			node->request = NULL;
 			ngx_slab_free(shpool, msg);
 			r->headers_out.status=NGX_HTTP_CREATED;
 		}
@@ -362,26 +366,8 @@ static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_requ
 	return ngx_http_output_filter(r, &out);	
 }
 
-static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_http_request_t * r) {
-	
-	ngx_str_t                        id;
-	ngx_http_variable_value_t       *vv;
-	ngx_http_push_loc_conf_t        *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
-	ngx_http_push_node_t            *mynode;
-	
-	//find the request all over again
-	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
-
-    ngx_shmtx_lock(&shpool->mutex);
-	mynode = find_node(&id, (ngx_rbtree_t *) cf->shm_zone->data, shpool, r->connection->log);
-	ngx_shmtx_unlock(&shpool->mutex);
-	
-	if (mynode!=NULL) {
-		if(mynode->request != r) {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: tried deleting a waiting request, but turned out someone else was waiting instead.");
-		}
-		mynode->request=NULL;
+static void ngx_http_push_destination_request_cleanup(ngx_http_push_node_t * node) {
+	if (node!=NULL) {
+		node->request=NULL;
 	}
-	cf->read_event_handler(r); //Danger Will Robinson! Are we certain another request hadn't overwritten this event handler while we were away?
 }
