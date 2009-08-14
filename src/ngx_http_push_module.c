@@ -94,7 +94,7 @@ static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment n
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	//create shared memory
 	ngx_http_push_loc_conf_t 	*lcf;
-	ngx_http_push_ctx_t 		*ctx;
+	ngx_rbtree_t		 		*tree;
 	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
 	if(lcf == NULL) {
 		return NGX_CONF_ERROR;
@@ -107,11 +107,11 @@ static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	
 	if(lcf->shm_zone->data==NULL) //first time
 	{
-		ctx = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_ctx_t));
-		if (ctx == NULL) {
+		tree = ngx_pcalloc(cf->pool, sizeof(ngx_rbtree_t));
+		if (tree == NULL) {
 			return NGX_CONF_ERROR;
 		}
-		lcf->shm_zone->data = ctx;
+		lcf->shm_zone->data = tree;
 		lcf->shm_zone->init = ngx_http_push_init_shm_zone;
 	}
 	return lcf;
@@ -127,14 +127,14 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 
     ngx_slab_pool_t                 *shpool;
     ngx_rbtree_node_t               *sentinel;
-    ngx_http_push_ctx_t   			*ctx;
+    ngx_rbtree_t   					*tree;
 
-    ctx = shm_zone->data;
+    tree = shm_zone->data;
 
     shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 
-    ctx->rbtree = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
-    if (ctx->rbtree == NULL) {
+    tree = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
+    if (tree == NULL) {
         return NGX_ERROR;
     }
 
@@ -145,9 +145,9 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 
     ngx_rbtree_sentinel_init(sentinel);
 
-    ctx->rbtree->root = sentinel;
-    ctx->rbtree->sentinel = sentinel;
-    ctx->rbtree->insert = ngx_http_push_rbtree_insert;
+    tree->root = sentinel;
+    tree->sentinel = sentinel;
+    tree->insert = ngx_http_push_rbtree_insert;
 
     return NGX_OK;
 }
@@ -168,14 +168,14 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	ngx_http_variable_value_t		*vv;
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
     ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
-    ngx_http_push_ctx_t 			*ctx = cf->shm_zone->data;;
+    ngx_rbtree_t 					*tree = cf->shm_zone->data;
 	ngx_str_t                        id;
     ngx_http_push_node_t  			*node;
 	
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, NGX_ERROR);
 
     ngx_shmtx_lock(&shpool->mutex);
-	node = get_node(&id, ctx, shpool, r->connection->log);
+	node = get_node(&id, tree, shpool, r->connection->log);
 	ngx_shmtx_unlock(&shpool->mutex);
 	
     if (node == NULL) { //unable to allocate node
@@ -215,7 +215,6 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                 *shpool =  (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
-    ngx_http_push_ctx_t 			*ctx = cf->shm_zone->data;
 	ngx_http_variable_value_t		*vv;
 	ngx_http_request_body_t			*body;
     /* Is it a POST connection */
@@ -274,7 +273,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		}
 		
 		//get the node while we're at it.
-		ngx_http_push_node_t  			*node = get_node(&id, ctx, shpool, r->connection->log);
+		ngx_http_push_node_t  			*node = get_node(&id, (ngx_rbtree_t *) cf->shm_zone->data, shpool, r->connection->log);
 		ngx_shmtx_unlock(&shpool->mutex);
 		
 		if (node == NULL) {
@@ -368,7 +367,6 @@ static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_htt
 	ngx_str_t                        id;
 	ngx_http_variable_value_t       *vv;
 	ngx_http_push_loc_conf_t        *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	ngx_http_push_ctx_t             *ctx = cf->shm_zone->data;
 	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
 	ngx_http_push_node_t            *mynode;
 	
@@ -376,7 +374,7 @@ static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_htt
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
 
     ngx_shmtx_lock(&shpool->mutex);
-	mynode = find_node(&id, ctx, shpool, r->connection->log);
+	mynode = find_node(&id, (ngx_rbtree_t *) cf->shm_zone->data, shpool, r->connection->log);
 	ngx_shmtx_unlock(&shpool->mutex);
 	
 	if (mynode!=NULL) {

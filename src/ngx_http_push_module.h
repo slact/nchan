@@ -31,12 +31,6 @@ struct ngx_http_push_node_s {
 	ngx_str_t						 id;
 };
 
-//shared rbtree
-typedef struct {
-    ngx_rbtree_t                   *rbtree;
-} ngx_http_push_ctx_t;
-
-
 //source stuff
 static char *		ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_source hook
 static 	ngx_int_t 	ngx_http_push_source_handler(ngx_http_request_t * r);
