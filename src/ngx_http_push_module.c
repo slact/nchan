@@ -361,7 +361,7 @@ static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_requ
 		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
 		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
 	}
-	
+	r->headers_out.status=NGX_HTTP_OK;
 	ngx_http_send_header(r);
 	return ngx_http_output_filter(r, &out);	
 }
