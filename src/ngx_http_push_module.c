@@ -2,62 +2,8 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-//with the declarations
-
-static char *ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r);
-static void ngx_http_push_source_body_handler(ngx_http_request_t * r);
-
-static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t * r);
-
-typedef struct {
-	ngx_int_t                  	index;
-	ngx_http_event_handler_pt	read_event_handler;
-	ngx_shm_zone_t		 		*shm_zone;
-} ngx_http_push_loc_conf_t;
-
-//message queue
-typedef struct {
-    ngx_queue_t				queue;
-	ngx_str_t				content_type;
-	ngx_str_t				charset;
-	unsigned				is_file:1;
-	ngx_str_t				str;
-} ngx_http_push_msg_t;
-
-typedef struct ngx_http_push_node_s ngx_http_push_node_t;
-struct ngx_http_push_node_s {
-	ngx_rbtree_key_t       			 key;
-	ngx_rbtree_node_t				*left;
-	ngx_rbtree_node_t				*right;
-	ngx_rbtree_node_t     			*parent;
-    ngx_http_push_msg_t				*message_queue;
-	ngx_http_request_t				*request;
-	ngx_str_t						 id;
-};
-
-static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node)
-{
-	ngx_queue_t *sentinel = &node->message_queue->queue; 
-	if(ngx_queue_empty(sentinel)) {
-		return NULL;
-	}
-	ngx_queue_t 			*qmsg = ngx_queue_head(sentinel);
-	ngx_queue_remove(qmsg);
-	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
-}
-
-static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg);
-
-
-typedef struct {
-    ngx_rbtree_t                   *rbtree;
-} ngx_http_push_ctx_t;
-
-static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_http_request_t * r);
-static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf);
-static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
+#include <ngx_http_push_module.h>
+#include <ngx_http_push_rbtree_util.c>
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
@@ -77,230 +23,6 @@ static ngx_command_t  ngx_http_push_commands[] = {
 
       ngx_null_command
 };
-
-//missing in nginx < 0.7.?
-#ifndef ngx_queue_insert_tail
-#define ngx_queue_insert_tail(h, x)                                           \
-    (x)->prev = (h)->prev;                                                    \
-    (x)->prev->next = x;                                                      \
-    (x)->next = h;                                                            \
-    (h)->prev = x
-#endif
-
-/********************************
- **** Red-black tree stuff
- *******************************/
-static ngx_http_push_node_t * get_node(ngx_str_t * id, ngx_http_push_ctx_t * ctx, ngx_slab_pool_t * shpool, ngx_log_t * log);
-static ngx_http_push_node_t * find_node(ngx_str_t * id, ngx_http_push_ctx_t * ctx, ngx_slab_pool_t * shpool, ngx_log_t * log);
-static void ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
-static void ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
-static int ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
- 
- static ngx_http_push_node_t * 
-find_node(	ngx_str_t 			* id, 
-			ngx_http_push_ctx_t	* ctx, 
-			ngx_slab_pool_t		* shpool, 
-			ngx_log_t 			* log)
-{
-    uint32_t                         hash;
-    ngx_rbtree_node_t               *node, *sentinel;
-    ngx_int_t                        rc;
-    ngx_http_push_node_t  			*up;
-	ngx_http_push_node_t			*trash = NULL;
-
-    hash = ngx_crc32_short(id->data, id->len);
-
-    node = ctx->rbtree->root;
-    sentinel = ctx->rbtree->sentinel;
-
-    while (node != sentinel) {
-
-        if (hash < node->key) {
-            node = node->left;
-            continue;
-        }
-
-        if (hash > node->key) {
-            node = node->right;
-            continue;
-        }
-
-		//every search is responsible for deleting one empty node, if it comes across one
-		if (trash==NULL) {
-			if(ngx_queue_empty(& ((ngx_http_push_node_t *) node)->message_queue->queue)
-				&& ((ngx_http_push_node_t *) node)->request==NULL )
-			{
-				trash = (ngx_http_push_node_t *) node;
-			}
-		}
-		
-        /* hash == node->key */
-
-        do {
-            up = (ngx_http_push_node_t *) node;
-
-            rc = ngx_memn2cmp(id->data, up->id.data, id->len, up->id.len);
-
-            if (rc == 0) {
-				if(trash !=NULL && trash != up){ //take out the trash
-					ngx_rbtree_delete(ctx->rbtree, (ngx_rbtree_node_t *) trash);
-					ngx_slab_free_locked(shpool, trash);
-				}				
-				return up;
-            }
-
-            node = (rc < 0) ? node->left : node->right;
-
-        } while (node != sentinel && hash == node->key);
-
-        break;
-    }
-	//not found
-	
-	if(trash != NULL && up!=trash){ //take out your trash
-		ngx_rbtree_delete(ctx->rbtree, (ngx_rbtree_node_t *) trash);
-		ngx_slab_free_locked(shpool, trash);
-	}
-	return NULL;
-}
-
-//find a node. if node not found, make one, insert it, and return that.
- static ngx_http_push_node_t * 
-get_node(	ngx_str_t 			* id, 
-			ngx_http_push_ctx_t	* ctx, 
-			ngx_slab_pool_t		* shpool, 
-			ngx_log_t 			* log)
-{
-	ngx_http_push_node_t  			*up=NULL;
-	up = find_node(id, ctx, shpool, log);
-	if(up != NULL) { //we found our node
-		return up;
-	}
-	up = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_node_t) + id->len); //dirty dirty
-	if (up == NULL) {
-		//a failed malloc ain't the end of the world. take out the trash anyway
-		return NULL;
-	}
-	
-	
-	up->id.data = (u_char *) up + sizeof(ngx_http_push_node_t); //contiguous piggy
-	up->id.len = (u_char) id->len;
-	ngx_memcpy(up->id.data, id->data, up->id.len);
-	up->key = ngx_crc32_short(id->data, id->len);
-	ngx_rbtree_insert(ctx->rbtree, (ngx_rbtree_node_t *) up);
-
-	up->request=NULL;
-	//initialize queues
-	up->message_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_msg_t));
-	ngx_queue_init(&up->message_queue->queue);
-	return up;
-}
-
-
-static void 
-ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, 
-							ngx_rbtree_node_t *node, 
-							ngx_rbtree_node_t *sentinel, 
-							int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right))
-{
-    for ( ;; ) {
-        if (node->key < temp->key) {
-
-            if (temp->left == sentinel) {
-                temp->left = node;
-                break;
-            }
-
-            temp = temp->left;
-
-        } else if (node->key > temp->key) {
-
-            if (temp->right == sentinel) {
-                temp->right = node;
-                break;
-            }
-
-            temp = temp->right;
-
-        } else { /* node->key == temp->key */
-            if (compare(node, temp) < 0) {
-
-                if (temp->left == sentinel) {
-                    temp->left = node;
-                    break;
-                }
-
-                temp = temp->left;
-
-            } else {
-
-                if (temp->right == sentinel) {
-                    temp->right = node;
-                    break;
-                }
-
-                temp = temp->right;
-            }
-        }
-    }
-
-    node->parent = temp;
-    node->left = sentinel;
-    node->right = sentinel;
-    ngx_rbt_red(node);
-}
-
-
-static void
-ngx_http_push_rbtree_insert(	ngx_rbtree_node_t *temp, 
-										ngx_rbtree_node_t *node, 
-										ngx_rbtree_node_t *sentinel) 
-{
-    ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
-}
-
-static int 
-ngx_http_push_compare_rbtree_node(	const ngx_rbtree_node_t *v_left,
-									const ngx_rbtree_node_t *v_right)
-{
-    ngx_http_push_node_t *left, *right;
-    left = (ngx_http_push_node_t *) v_left;
-    right = (ngx_http_push_node_t *) v_right;
-	
-	return ngx_memn2cmp(left->id.data, right->id.data, left->id.len, right->id.len);
-}
-
-/***********************************
- **** end Red-black tree stuff 
- ***********************************/
-
-//enough declarations for now
-
-static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable
-static char *ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
-	ngx_http_push_loc_conf_t *plcf = conf;                                    
-    clcf->handler = ngx_http_push_source_handler;                                       
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
-    if (plcf->index == NGX_ERROR) {                                           
-        return NGX_CONF_ERROR;                                                
-    }                                                                         
-    return NGX_CONF_OK;
-}
-
-static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
-	ngx_http_push_loc_conf_t *plcf = conf;                                    
-    clcf->handler = ngx_http_push_destination_handler;                                       
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
-    if (plcf->index == NGX_ERROR) {                                           
-        return NGX_CONF_ERROR;                                                
-    }                                                                         
-    return NGX_CONF_OK;
-}
-
 
 
 static ngx_http_module_t  ngx_http_push_module_ctx = {
@@ -329,8 +51,46 @@ ngx_module_t  ngx_http_push_module = {
     NGX_MODULE_V1_PADDING
 };
 
-static ngx_str_t shm_name = ngx_string("push_module");
+static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node) //does NOT free associated memory.
+{
+	ngx_queue_t *sentinel = &node->message_queue->queue; 
+	if(ngx_queue_empty(sentinel)) {
+		return NULL;
+	}
+	ngx_queue_t 			*qmsg = ngx_queue_head(sentinel);
+	ngx_queue_remove(qmsg);
+	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
+}
 
+static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable name
+static char *ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
+	ngx_http_push_loc_conf_t *plcf = conf;                                    
+    clcf->handler = ngx_http_push_source_handler;                                       
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
+    if (plcf->index == NGX_ERROR) {                                           
+        return NGX_CONF_ERROR;                                                
+    }                                                                         
+    return NGX_CONF_OK;
+}
+
+static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
+	ngx_http_push_loc_conf_t *plcf = conf;                                    
+    clcf->handler = ngx_http_push_destination_handler;                                       
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
+    if (plcf->index == NGX_ERROR) {                                           
+        return NGX_CONF_ERROR;                                                
+    }                                                                         
+    return NGX_CONF_OK;
+}
+
+
+
+
+static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment name
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	//create shared memory
 	ngx_http_push_loc_conf_t 	*lcf;
@@ -448,69 +208,8 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		return rc;
 	}
 }
-static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg)
-{
-	ngx_buf_t         			*b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
-	ngx_chain_t        			 out;
-	if (b == NULL) {
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
-			"Failed to allocate response buffer.");
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
-	}
-		
-	//now the body...
-	if (!msg->is_file) {
-		ngx_str_t	* body = ngx_pcalloc(r->pool, sizeof(ngx_str_t) + msg->str.len);
-		body->len = msg->str.len;
-		body->data = (u_char *) body + sizeof(ngx_str_t);
-		ngx_memcpy(body->data, msg->str.data, body->len);
-		b->pos = body->data;
-		b->last = body->data + body->len;
-		b->memory=1; //read-only
-		b->last_buf=1;
-	}
-	else {
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "Reading from file not yet implemented");
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
-	}
-	out.buf = b;
-	out.next = NULL;
-	
-	//set the content-type, if present
-	if (msg->content_type.data!=NULL) {
-		r->headers_out.content_type.len=msg->content_type.len;
-		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
-		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
-	}
-	
-	ngx_http_send_header(r);
-	return ngx_http_output_filter(r, &out);	
-}
 
-static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_http_request_t * r) {
-	
-	ngx_str_t                        id;
-	ngx_http_variable_value_t       *vv;
-	ngx_http_push_loc_conf_t        *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	ngx_http_push_ctx_t             *ctx = cf->shm_zone->data;
-	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
-	ngx_http_push_node_t            *mynode;
-	
-	//find the request all over again
-	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
 
-    ngx_shmtx_lock(&shpool->mutex);
-	mynode = find_node(&id, ctx, shpool, r->connection->log);
-	ngx_shmtx_unlock(&shpool->mutex);
-	
-	if (mynode!=NULL) {
-		if(mynode->request != r) {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: tried deleting a waiting request, but turned out someone else was waiting instead.");
-		}
-		mynode->request=NULL;
-	}
-	cf->read_event_handler(r); //Danger Will Robinson! Are we certain another request hadn't overwritten this event handler while we were away?
-}
 
 static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
@@ -623,4 +322,68 @@ ngx_http_push_source_handler(ngx_http_request_t * r)
 		return rc;
 	}
 	return NGX_DONE;
+}
+
+static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg)
+{
+	ngx_buf_t         			*b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
+	ngx_chain_t        			 out;
+	if (b == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"Failed to allocate response buffer.");
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+		
+	//now the body...
+	if (!msg->is_file) {
+		ngx_str_t	* body = ngx_pcalloc(r->pool, sizeof(ngx_str_t) + msg->str.len);
+		body->len = msg->str.len;
+		body->data = (u_char *) body + sizeof(ngx_str_t);
+		ngx_memcpy(body->data, msg->str.data, body->len);
+		b->pos = body->data;
+		b->last = body->data + body->len;
+		b->memory=1; //read-only
+		b->last_buf=1;
+	}
+	else {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "Reading from file not yet implemented");
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+	out.buf = b;
+	out.next = NULL;
+	
+	//set the content-type, if present
+	if (msg->content_type.data!=NULL) {
+		r->headers_out.content_type.len=msg->content_type.len;
+		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
+		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
+	}
+	
+	ngx_http_send_header(r);
+	return ngx_http_output_filter(r, &out);	
+}
+
+static void ngx_http_push_destination_request_closed_prematurely_handler(ngx_http_request_t * r) {
+	
+	ngx_str_t                        id;
+	ngx_http_variable_value_t       *vv;
+	ngx_http_push_loc_conf_t        *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+	ngx_http_push_ctx_t             *ctx = cf->shm_zone->data;
+	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
+	ngx_http_push_node_t            *mynode;
+	
+	//find the request all over again
+	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
+
+    ngx_shmtx_lock(&shpool->mutex);
+	mynode = find_node(&id, ctx, shpool, r->connection->log);
+	ngx_shmtx_unlock(&shpool->mutex);
+	
+	if (mynode!=NULL) {
+		if(mynode->request != r) {
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: tried deleting a waiting request, but turned out someone else was waiting instead.");
+		}
+		mynode->request=NULL;
+	}
+	cf->read_event_handler(r); //Danger Will Robinson! Are we certain another request hadn't overwritten this event handler while we were away?
 }
