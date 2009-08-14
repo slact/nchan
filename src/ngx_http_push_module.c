@@ -129,11 +129,10 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
     ngx_rbtree_node_t               *sentinel;
     ngx_rbtree_t   					*tree;
 
-    tree = shm_zone->data;
-
     shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 
-    tree = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
+    shm_zone->data = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
+	tree = shm_zone->data;
     if (tree == NULL) {
         return NGX_ERROR;
     }
@@ -143,11 +142,7 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
         return NGX_ERROR;
     }
 
-    ngx_rbtree_sentinel_init(sentinel);
-
-    tree->root = sentinel;
-    tree->sentinel = sentinel;
-    tree->insert = ngx_http_push_rbtree_insert;
+	ngx_rbtree_init(tree, sentinel, ngx_http_push_rbtree_insert);
 
     return NGX_OK;
 }
