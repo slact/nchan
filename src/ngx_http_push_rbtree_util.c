@@ -107,6 +107,11 @@ get_node(	ngx_str_t 			* id,
 	up->request=NULL;
 	//initialize queues
 	up->message_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_msg_t));
+	if (up->message_queue==NULL)
+	{
+		ngx_slab_free_locked(shpool, up);
+		return NULL;
+	}
 	ngx_queue_init(&up->message_queue->queue);
 	return up;
 }
