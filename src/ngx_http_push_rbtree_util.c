@@ -101,7 +101,7 @@ get_node(	ngx_str_t 			* id,
 	up->id.data = (u_char *) up + sizeof(ngx_http_push_node_t); //contiguous piggy
 	up->id.len = (u_char) id->len;
 	ngx_memcpy(up->id.data, id->data, up->id.len);
-	up->key = ngx_crc32_short(id->data, id->len);
+	up->node.key = ngx_crc32_short(id->data, id->len);
 	ngx_rbtree_insert(tree, (ngx_rbtree_node_t *) up);
 
 	up->request=NULL;

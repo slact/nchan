@@ -22,14 +22,10 @@ typedef struct {
 //our typecast-friendly rbtree node
 typedef struct ngx_http_push_node_s ngx_http_push_node_t;
 struct ngx_http_push_node_s {
-	ngx_rbtree_key_t       			 key;
-	ngx_rbtree_node_t				*left;
-	ngx_rbtree_node_t				*right;
-	ngx_rbtree_node_t     			*parent;
-	u_char							color;
+	ngx_rbtree_node_t                node;
+	ngx_str_t						 id;
     ngx_http_push_msg_t				*message_queue;
 	ngx_http_request_t				*request;
-	ngx_str_t						 id;
 };
 
 //source stuff
