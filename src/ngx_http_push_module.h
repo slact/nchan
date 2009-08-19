@@ -15,8 +15,7 @@ typedef struct {
     ngx_queue_t				queue;
 	ngx_str_t				content_type;
 	ngx_str_t				charset;
-	unsigned				is_file:1;
-	ngx_str_t				str;
+	ngx_buf_t				buf;
 } ngx_http_push_msg_t;
 
 //our typecast-friendly rbtree node
@@ -36,10 +35,20 @@ static void 		ngx_http_push_source_body_handler(ngx_http_request_t * r);
 //destination stuff
 static char *		ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_destination hook
 static ngx_int_t 	ngx_http_push_destination_handler(ngx_http_request_t * r);
-static ngx_int_t 	ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg);
+static ngx_int_t 	ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg, ngx_slab_pool_t *shpool);
 
 //cleaning stuff
-static void 		ngx_http_push_destination_request_cleanup(ngx_http_push_node_t * data); //request pool cleaner
+typedef struct {
+	ngx_http_push_msg_t				*msg;
+	ngx_slab_pool_t					*shpool;
+}  ngx_http_push_source_cleanup_t;
+static void 		ngx_http_push_source_cleanup(ngx_http_push_source_cleanup_t * data); //request pool cleaner
+
+typedef struct {
+	ngx_http_request_t				*request;
+	ngx_http_push_node_t			*node;
+}  ngx_http_push_destination_cleanup_t;
+static void 		ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t * data); //request pool cleaner
 
 //misc stuff
 static void * 		ngx_http_push_create_loc_conf(ngx_conf_t *cf);

@@ -181,31 +181,34 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	if (node->request!=NULL) { //oh shit, someone's already waiting for a message on this id.
 		//TODO: add settings for this sort of thing.
 		ngx_http_finalize_request(node->request, NGX_HTTP_CONFLICT); //bump the old request. 
+		ngx_shmtx_lock(&shpool->mutex);
 		node->request=NULL; //finalize_request probably set node->request to NULL on cleanup anyway, but just to be sure.
+		ngx_shmtx_unlock(&shpool->mutex);
 	}
 	
 	ngx_http_push_msg_t				*msg = ngx_http_push_dequeue_message(node);
 	if (msg==NULL) { //message queue is empty
 		//this means we must wait for a message.
 		
-		//clean that shit afterwards
-		ngx_pool_cleanup_t              *cln = ngx_pool_cleanup_add(r->pool, sizeof(u_char));
-		if (cln == NULL) { //make sure we can.
-			return NGX_HTTP_INTERNAL_SERVER_ERROR;
-		}
-		cln->handler= (ngx_pool_cleanup_pt) ngx_http_push_destination_request_cleanup;
-		cln->data = node;
-		
 		ngx_shmtx_lock(&shpool->mutex);
 		node->request = r;
 		ngx_shmtx_unlock(&shpool->mutex);
 		r->read_event_handler = ngx_http_test_reading; //definitely test to see if the connection got closed or something	
+		//attach a cleaner to remove the request from the node, if need be
+		
+		ngx_pool_cleanup_t              *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_destination_cleanup_t));
+		if (cln == NULL) { //make sure we can.
+			return NGX_ERROR;
+		}
+		cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_destination_cleanup;
+		((ngx_http_push_destination_cleanup_t *) cln->data)->node = node;
+		((ngx_http_push_destination_cleanup_t *) cln->data)->request = r;
 		
 		return NGX_DONE; //and wait.
 	}
 	else {
 		//output the message
-		ngx_int_t		rc = ngx_http_push_send_message_to_destination_request(r, msg);
+		ngx_int_t		rc = ngx_http_push_send_message_to_destination_request(r, msg, shpool);
 		ngx_slab_free(shpool, msg);
 		return rc;
 	}
@@ -216,7 +219,8 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                 *shpool =  (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
 	ngx_http_variable_value_t		*vv;
-	ngx_http_request_body_t			*body;
+	ngx_buf_t						*buf;
+	ngx_http_push_node_t  			*node;
     /* Is it a POST connection */
     if (r->method != NGX_HTTP_POST) {
         ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
@@ -226,74 +230,85 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	//TODO: r->method _= NGX_HTTP_DELETE
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
 
+	ngx_shmtx_lock(&shpool->mutex);
+	node = get_node(&id, (ngx_rbtree_t *) cf->shm_zone->data, shpool, r->connection->log);
+	ngx_shmtx_unlock(&shpool->mutex);
+	
+	if (node == NULL) {
+		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate new node");
+		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+		return;
+	}
+	
 	//save the freaking body
-	body = r->request_body;
-	if (body!=NULL) {
-		u_char 					len, *offset;
-		unsigned				is_file;
-		ngx_http_push_msg_t		*msg;
-		
-		if (body->temp_file) {
-			len = body->temp_file->file.name.len;
-			offset = body->temp_file->file.name.data;
-			is_file=1;
-		}
-		else if (body->buf) {
-			len = body->buf->last - body->buf->pos;
-			offset = body->buf->pos;
-			is_file=0;
-		}
-		else {
-			//not yet
-			return;
-		}
-
-		//create a new message
+	buf = r->request_body->bufs->buf;
+	if (buf==NULL) {
+		return; //not yet i think?
+	}
+	u_char 					 len;
+	ngx_http_push_msg_t		*msg;
+	u_char 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
+	ngx_http_request_t		*r_client = node->request;
+	
+	if (r_client==NULL) { //queuing action
 		ngx_shmtx_lock(&shpool->mutex);
-		msg = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_msg_t) + len + (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len));
-		if(msg == NULL) {
-			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+	}
+	if (ngx_buf_in_memory_only(buf)) {
+		len = ngx_buf_size(buf);
+		if (r_client==NULL) { //queuing action
+			msg = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_msg_t) + len + content_type_len);
+		}
+		else { //use the request pool
+			msg = ngx_palloc(r->pool, sizeof(ngx_http_push_msg_t) + len + content_type_len);
+		}
+		
+		if (msg==NULL) {
+			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate message buffer");
 			return;
 		}
-		//store the body
-		msg->is_file=is_file;
-		msg->str.len = len;
-		msg->str.data = (u_char *) msg + sizeof(ngx_http_push_msg_t);
-		ngx_memcpy(msg->str.data, offset, len);
+		msg->buf.pos = ((u_char *) msg) + sizeof(ngx_http_push_msg_t);
+		msg->buf.last = msg->buf.pos + len;
 		
-		//store the content-type
-		if(r->headers_in.content_type!=NULL) {
-			msg->content_type.len=r->headers_in.content_type->value.len;
-			msg->content_type.data=(u_char *) msg + sizeof(ngx_http_push_msg_t) + len;
-			ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
-		}
-		else {
-			msg->content_type.len=0;
-			msg->content_type.data=NULL;
-		}
+		msg->buf.start=msg->buf.pos; //are .start and .end needed at all here?
+		msg->buf.end = msg->buf.start + len;
 		
-		//get the node while we're at it.
-		ngx_http_push_node_t  			*node = get_node(&id, (ngx_rbtree_t *) cf->shm_zone->data, shpool, r->connection->log);
+		ngx_memcpy(msg->buf.pos, buf->pos, len); //copy the buffer, yeah?
+		
+		msg->buf.memory=1;
+		msg->buf.last_buf=1; //for output.
+	}
+	else{ //file, i think
+		//not yet implemented
+		return;
+	}
+			
+	//store the content-type
+	if(r->headers_in.content_type!=NULL) {
+		msg->content_type.len=r->headers_in.content_type->value.len;
+		msg->content_type.data=(u_char *) msg + sizeof(ngx_http_push_msg_t) + len;
+		ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
+	}
+	else {
+		msg->content_type.len=0;
+		msg->content_type.data=NULL;
+	}
+	
+	if(r_client == NULL) //queue up the message
+	{ 
+		ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
 		ngx_shmtx_unlock(&shpool->mutex);
+		r->headers_out.status=NGX_HTTP_OK;
+		r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
+		r->headers_out.status_line.data=(u_char *) "202 Accepted";
+	}
+	else {  //send to this request
+		ngx_shmtx_lock(&shpool->mutex);
+		node->request = NULL;
+		ngx_shmtx_unlock(&shpool->mutex);
+		ngx_http_finalize_request(r_client, ngx_http_push_send_message_to_destination_request(r_client, msg, shpool));
 		
-		if (node == NULL) {
-			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate new node");
-			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-			return;
-		}
-		
-		if(node->request != NULL)
-		{ //we've got some requests to take care of.
-			ngx_http_finalize_request(node->request, ngx_http_push_send_message_to_destination_request(node->request, msg));
-			ngx_slab_free(shpool, msg);
-			r->headers_out.status=NGX_HTTP_CREATED;
-		}
-		else { //no requests waiting. queue it up!
-			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
-			r->headers_out.status=NGX_HTTP_OK;
-			r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
-			r->headers_out.status_line.data=(u_char *) "202 Accepted";
-		}
+		//r_client = NULL;
+		r->headers_out.status=NGX_HTTP_CREATED;
 	}
 	
 	r->headers_out.content_length_n = 0;
@@ -322,47 +337,45 @@ ngx_http_push_source_handler(ngx_http_request_t * r)
 	return NGX_DONE;
 }
 
-static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t * msg)
+static ngx_int_t ngx_http_push_send_message_to_destination_request(ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool)
 {
-	ngx_buf_t         			*b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
 	ngx_chain_t        			 out;
-	if (b == NULL) {
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
-			"Failed to allocate response buffer.");
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
-	}
-		
-	//now the body...
-	if (!msg->is_file) {
-		ngx_str_t	* body = ngx_pcalloc(r->pool, sizeof(ngx_str_t) + msg->str.len);
-		body->len = msg->str.len;
-		body->data = (u_char *) body + sizeof(ngx_str_t);
-		ngx_memcpy(body->data, msg->str.data, body->len);
-		b->pos = body->data;
-		b->last = body->data + body->len;
-		b->memory=1; //read-only
-		b->last_buf=1;
-	}
-	else {
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "Reading from file not yet implemented");
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
-	}
-	out.buf = b;
-	out.next = NULL;
 	
 	//set the content-type, if present
 	if (msg->content_type.data!=NULL) {
 		r->headers_out.content_type.len=msg->content_type.len;
 		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
+		if(r->headers_out.content_type.data==NULL) {
+			return NGX_HTTP_INTERNAL_SERVER_ERROR;
+		}
 		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
 	}
 	r->headers_out.status=NGX_HTTP_OK;
+	
+	//clean that shit afterwards
+	ngx_pool_cleanup_t              *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_source_cleanup_t));
+	if (cln == NULL) { //make sure we can.
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+	cln->handler= (ngx_pool_cleanup_pt) ngx_http_push_source_cleanup;
+	((ngx_http_push_source_cleanup_t *) cln->data)->shpool = shpool;
+	((ngx_http_push_source_cleanup_t *) cln->data)->msg = msg;
+	
+	out.buf = &msg->buf;
+	out.next = NULL;
 	ngx_http_send_header(r);
 	return ngx_http_output_filter(r, &out);	
 }
 
-static void ngx_http_push_destination_request_cleanup(ngx_http_push_node_t * node) {
-	if (node!=NULL) {
-		node->request=NULL;
+static void ngx_http_push_source_cleanup(ngx_http_push_source_cleanup_t *data) {
+	if(data->msg!=NULL) {
+		ngx_slab_free(data->shpool, data->msg);
 	}
 }
+
+static void ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t *data) {
+	if(data->node->request == data->request) {
+		data->node->request=NULL;
+	}
+}
+
