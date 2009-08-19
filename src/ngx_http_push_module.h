@@ -47,6 +47,7 @@ static void 		ngx_http_push_source_cleanup(ngx_http_push_source_cleanup_t * data
 typedef struct {
 	ngx_http_request_t				*request;
 	ngx_http_push_node_t			*node;
+	ngx_slab_pool_t					*shpool;
 }  ngx_http_push_destination_cleanup_t;
 static void 		ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t * data); //request pool cleaner
 

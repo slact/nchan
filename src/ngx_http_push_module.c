@@ -203,6 +203,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_destination_cleanup;
 		((ngx_http_push_destination_cleanup_t *) cln->data)->node = node;
 		((ngx_http_push_destination_cleanup_t *) cln->data)->request = r;
+		((ngx_http_push_destination_cleanup_t *) cln->data)->shpool = shpool;
 		
 		return NGX_DONE; //and wait.
 	}
@@ -374,8 +375,10 @@ static void ngx_http_push_source_cleanup(ngx_http_push_source_cleanup_t *data) {
 }
 
 static void ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t *data) {
+	ngx_shmtx_lock(&data->shpool->mutex);
 	if(data->node->request == data->request) {
 		data->node->request=NULL;
 	}
+	ngx_shmtx_unlock(&data->shpool->mutex);
 }
 
