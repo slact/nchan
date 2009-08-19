@@ -245,9 +245,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	if (buf==NULL) {
 		return; //not yet i think?
 	}
-	u_char 					 len;
+	size_t 					 len;
 	ngx_http_push_msg_t		*msg;
-	u_char 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
+	size_t 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
 	ngx_http_request_t		*r_client = node->request;
 	
 	if (r_client==NULL) { //queuing action
