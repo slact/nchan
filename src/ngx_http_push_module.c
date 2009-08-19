@@ -259,7 +259,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			msg = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_msg_t) + len + content_type_len);
 		}
 		else { //use the request pool
-			msg = ngx_palloc(r->pool, sizeof(ngx_http_push_msg_t) + len + content_type_len);
+			msg = ngx_pcalloc(r->pool, sizeof(ngx_http_push_msg_t) + len + content_type_len);
 		}
 		
 		if (msg==NULL) {
