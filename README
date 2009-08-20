@@ -63,8 +63,9 @@ push_source:
 	was a waiting request identified by $push_id), the response will have a 201 Created status. 
 	If the message is queued, a 202 Accepted status is sent back.
 	
-	(NOT IMPLEMENTED YET) Requesting a PUT notifies the server to expect connections from 
-	$push_id. 
+	A PUT request behaves identically to a POST with the exception that messages will NOT be queued.
+	Instead, if this request is sent while there is no waiting request identified by $push_id,
+	the message will be lost, and the server will return a 200 OK status code.
 	
 	(NOT IMPLEMENTED YET) a DELETE deletes all messages intended for $push_id. If there is a waiting
 	request on push_destination identified by $push_id, it will be immediately responded to with a
@@ -73,6 +74,7 @@ push_source:
 -----------------------------
 
 TODO: 
+	- Handle large push_source request bodies that get temporarily stored as a file.
 	- Implelent DELETE for push_source. 
 	- Add a push_accomodate_strangers setting (presently defaulting to on). When set to off, requests
 	  with a previously-unseen $push_id will be rejected. 

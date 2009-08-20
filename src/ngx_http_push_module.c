@@ -264,7 +264,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	ngx_http_push_node_t  			*node;
 	ngx_http_request_t				*r_client;
     /* Is it a POST connection */
-    if (r->method != NGX_HTTP_POST) {
+    if (r->method != NGX_HTTP_POST && r->method!=NGX_HTTP_PUT) {
         ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
 		return;
     }
@@ -291,7 +291,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	ngx_http_push_msg_t		*msg;
 	size_t 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
 	
-	if (r_client==NULL) { //no clients are waiting for the message. create the message in shared mempry for storage
+	if (r_client==NULL && r->method == NGX_HTTP_POST) { //no clients are waiting for the message. create the message in shared memory for storage
 		msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
 		if (msg==NULL) {
 			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate message in shared memory");
@@ -327,7 +327,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
 		r->headers_out.status_line.data=(u_char *) "202 Accepted";
 	}
-	else{
+	else if(r_client!=NULL){
 		ngx_shmtx_lock(&shpool->mutex);
 		node->request = NULL;
 		ngx_shmtx_unlock(&shpool->mutex);
@@ -350,6 +350,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		
 		r->headers_out.status=NGX_HTTP_CREATED;
 	}
+	else {	//r_client==NULL && r->method == NGX_HTTP_PUT is all that remains
+		r->headers_out.status=NGX_HTTP_OK;
+	}
 	
 	r->headers_out.content_length_n = 0;
 	r->header_only = 1;
@@ -366,7 +369,7 @@ static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r)
        body entirely in a memory buffer or in a file */
     r->request_body_in_single_buf = 1;
     r->request_body_in_persistent_file = 1;
-    r->request_body_in_clean_file = 1;
+    r->request_body_in_clean_file = 0;
     r->request_body_file_log_level = 0;
 
 	rc = ngx_http_read_client_request_body(r, ngx_http_push_source_body_handler);
