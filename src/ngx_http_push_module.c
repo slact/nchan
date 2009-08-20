@@ -189,8 +189,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	ngx_http_request_t				*existing_request;
 	
 	if (r->method != NGX_HTTP_POST) {
-        ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
-		return;
+		return NGX_HTTP_NOT_ALLOWED;
     }
 	
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, NGX_ERROR);
