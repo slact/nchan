@@ -74,7 +74,6 @@ push_source:
 -----------------------------
 
 TODO: 
-	- Handle large push_source request bodies that get temporarily stored as a file.
 	- Implelent DELETE for push_source. 
 	- Add a push_accomodate_strangers setting (presently defaulting to on). When set to off, requests
 	  with a previously-unseen $push_id will be rejected. 

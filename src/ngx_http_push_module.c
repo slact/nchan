@@ -171,10 +171,11 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 			(cbuf)->memory=ngx_buf_in_memory_only((buf)) ? 1 : 0;			  \
 		}																	  \
 		if ((buf)->in_file) {												  \
-			cbuf->file_pos = (buf)->file_pos;								  \
-			cbuf->file_pos = (buf)->file_pos;								  \
-			cbuf->temp_file = (buf)->temp_file;								  \
-			cbuf->file = (buf)->file; 										  \
+			(cbuf)->file_pos = (buf)->file_pos;								  \
+			(cbuf)->file_last = (buf)->file_last;							  \
+			(cbuf)->temp_file = (buf)->temp_file;							  \
+			(cbuf)->file = (buf)->file; 									  \
+			(cbuf)->in_file = 1;											  \
 		}																	  \
 	}
 	
@@ -241,8 +242,38 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		ngx_chain_t		*out; //output chain
 		ngx_int_t		rc;
 		ngx_shmtx_lock(&shpool->mutex);
+		ngx_file_t      *file = NULL;
+		if(msg->buf->in_file){
+			ngx_file_t      *bfile = msg->buf->file;
+			file = ngx_pcalloc(r->pool, sizeof(ngx_file_t) + bfile->name.len + 1);
+			if(file==NULL){
+				ngx_shmtx_unlock(&shpool->mutex);
+				return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			}
+			file->offset=bfile->offset;
+			file->sys_offset=bfile->sys_offset;
+			file->name.len=bfile->name.len;
+			file->name.data=(u_char *) file + sizeof(ngx_file_t);
+			ngx_memcpy(file->name.data, bfile->name.data, file->name.len); //the null at the end please
+			ngx_slab_free_locked(shpool, bfile); 
+			ngx_shmtx_unlock(&shpool->mutex);
+			
+			file->log=r->connection->log;
+			file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS); //assumes file->name.data is already null-terminated
+			if(file->fd!=NGX_INVALID_FILE){
+				ngx_http_push_add_pool_cleaner_delete_file(r->pool, file);
+			}
+			else {
+				ngx_slab_free(shpool, msg->buf);
+				ngx_slab_free(shpool, msg); 
+				return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			}
+			
+			ngx_shmtx_lock(&shpool->mutex);
+		}
 		rc = ngx_http_push_set_destination_header(r, &msg->content_type); //content type is copied
 		out = ngx_http_push_create_output_chain(r, msg->buf); 	//buffer is copied
+		out->buf->file=file;
 		//we no longer need the message and can free its shm slab.
 		ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
 		ngx_slab_free_locked(shpool, msg); 
@@ -288,9 +319,22 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	}
 	
 	//save the freaking body
-	buf = r->request_body->bufs->buf;
-	if (buf==NULL) {
-		return; //not yet i think?
+	if(r->request_body->temp_file==NULL) //everything in the first buffer
+	{
+		buf=r->request_body->bufs->buf;
+	}
+	else if(r->request_body->bufs->next!=NULL) {
+		buf=r->request_body->bufs->next->buf;
+	}
+	else{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer not found");
+		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+		return; 
+	}
+	if (buf==NULL) { //why no buffer?...
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer is null");
+		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+		return; 
 	}
 	ngx_http_push_msg_t		*msg;
 	size_t 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
@@ -298,7 +342,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	if (r_client==NULL && r->method == NGX_HTTP_POST) { //no clients are waiting for the message. create the message in shared memory for storage
 		msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
 		if (msg==NULL) {
-			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate message in shared memory");
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate message in shared memory");
 			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 			return;
 		}
@@ -307,11 +351,27 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
 		ngx_shmtx_unlock(&shpool->mutex);
 		if (buf_copy==NULL) {
-			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate buffer in shared memory");
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer in shared memory");
 			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 			return;
 		}
 		ngx_shmtx_lock(&shpool->mutex);
+		if (buf_copy->in_file) {
+			ngx_file_t      *file = ngx_slab_alloc_locked(shpool, sizeof(ngx_file_t) + buf->file->name.len + 1); //the +1 is for the null byte at the end
+			if(file==NULL){
+				ngx_shmtx_unlock(&shpool->mutex);
+				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+				return;
+			}
+			file->fd=NGX_INVALID_FILE;
+			file->log=NULL;
+			file->offset=buf->file->offset;
+			file->sys_offset=buf->file->sys_offset;
+			file->name.len=buf->file->name.len;
+			file->name.data=(u_char *) file + sizeof(ngx_file_t);
+			ngx_memcpy(file->name.data, buf->file->name.data, file->name.len);
+			buf_copy->file=file;
+		}
 		msg->buf=buf_copy;
 		ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
 
@@ -348,6 +408,11 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			ngx_http_finalize_request(r_client, rc);
 			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 			return;
+		}
+		
+		if(buf->in_file && buf->file->fd!=NGX_INVALID_FILE){ 
+			//delete file when the push_source request finishes
+			ngx_http_push_add_pool_cleaner_delete_file(r->pool, buf->file);
 		}
 		
 		ngx_http_finalize_request(r_client, ngx_http_push_set_destination_body(r_client, ngx_http_push_create_output_chain(r_client, buf)));
@@ -429,4 +494,18 @@ static void ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_
 		data->node->request=NULL;
 	}
 	ngx_shmtx_unlock(&data->shpool->mutex);
+}
+
+static ngx_int_t ngx_http_push_add_pool_cleaner_delete_file(ngx_pool_t *pool, ngx_file_t *file) {
+	ngx_pool_cleanup_t       *cln = ngx_pool_cleanup_add(pool, sizeof(ngx_pool_cleanup_file_t));
+	ngx_pool_cleanup_file_t  *clnf;
+	if (cln == NULL) {
+		return NGX_ERROR;
+	}
+	cln->handler = ngx_pool_delete_file;
+	clnf = cln->data;
+	clnf->fd = file->fd;
+	clnf->name = file->name.data;
+	clnf->log = file->log;
+	return NGX_OK;
 }

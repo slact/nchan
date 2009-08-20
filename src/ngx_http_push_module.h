@@ -40,6 +40,7 @@ static ngx_int_t	ngx_http_push_set_destination_header(ngx_http_request_t *r, ngx
 static ngx_chain_t*	ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf);
 static ngx_int_t	ngx_http_push_set_destination_body(ngx_http_request_t *r, ngx_chain_t *out);
 
+static ngx_int_t	ngx_http_push_add_pool_cleaner_delete_file(ngx_pool_t *pool, ngx_file_t *file);
 typedef struct {
 	ngx_http_request_t				*request;
 	ngx_http_push_node_t			*node;
