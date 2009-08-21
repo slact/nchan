@@ -7,7 +7,14 @@
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
-    { ngx_string("push_source"),
+	{ ngx_string("push_shm_size"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_http_push_set_shm_size,
+      0,
+      0,
+      NULL },
+
+	{ ngx_string("push_source"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
       ngx_http_push_source,
       NGX_HTTP_LOC_CONF_OFFSET,
@@ -27,8 +34,8 @@ static ngx_command_t  ngx_http_push_commands[] = {
 
 static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */
-    NULL,                                  /* postconfiguration */
-    ngx_http_push_create_main_conf,		   /* create main configuration */
+    ngx_http_push_set_up_shm,              /* postconfiguration */
+    NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
@@ -87,19 +94,51 @@ static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void 
     return NGX_CONF_OK;
 }
 
+static char *	ngx_http_push_set_shm_size(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) // Thanks, Grzegorz Nosek
+{
+    ssize_t                         new_shm_size;
+    ngx_str_t                      *value;
 
+    value = cf->args->elts;
+
+    new_shm_size = ngx_parse_size(&value[1]);
+    if (new_shm_size == NGX_ERROR) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Invalid memory area size `%V'", &value[1]);
+        return NGX_CONF_ERROR;
+    }
+
+    new_shm_size = ngx_align(new_shm_size, ngx_pagesize);
+
+    if (new_shm_size < 8 * (ssize_t) ngx_pagesize) {
+        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_shm_size value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
+        new_shm_size = 8 * ngx_pagesize;
+    }
+
+    if (ngx_http_push_shm_size &&
+        ngx_http_push_shm_size != (ngx_uint_t) new_shm_size) {
+        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
+    } else {
+        ngx_http_push_shm_size = new_shm_size;
+    }
+    ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "Using %udKiB of shared memory for push module", new_shm_size >> 10);
+
+    return NGX_CONF_OK;
+}
 
 
 static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment name
-static void * ngx_http_push_create_main_conf(ngx_conf_t *cf)
+static ngx_int_t ngx_http_push_set_up_shm(ngx_conf_t *cf)
 {
-    ngx_shm_zone_t *		shm_zone = ngx_shared_memory_add(cf, &shm_name, 128 * ngx_pagesize, &ngx_http_push_module);
-    if (shm_zone == NULL) {
-        return NGX_CONF_ERROR;
+	if (ngx_http_push_shm_size == 0) {
+		ngx_http_push_shm_size = ngx_align(3145728, ngx_pagesize); //3Mb, please (!)
+	}
+    ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &shm_name, ngx_http_push_shm_size, &ngx_http_push_module);
+    if (ngx_http_push_shm_zone == NULL) {
+        return NGX_ERROR;
     }
-	shm_zone->init = ngx_http_push_init_shm_zone;
-	shm_zone->data = (void *) 1;
-    return shm_zone;
+	ngx_http_push_shm_zone->init = ngx_http_push_init_shm_zone;
+	ngx_http_push_shm_zone->data = (void *) 1;
+    return NGX_OK;
 }
 
 // shared memory zone initializer
@@ -177,8 +216,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 {
 	ngx_http_variable_value_t		*vv;
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-    ngx_shm_zone_t                 	*shm_zone = ngx_http_push_get_shm_zone(r);
-	ngx_slab_pool_t					*shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
+	ngx_slab_pool_t					*shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_str_t                        id;
     ngx_http_push_node_t  			*node;
 	ngx_http_push_msg_t				*msg;
@@ -191,7 +229,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, NGX_ERROR);
 
     ngx_shmtx_lock(&shpool->mutex);
-	node = get_node(&id, shm_zone->data, shpool, r->connection->log);
+	node = get_node(&id, ngx_http_push_shm_zone->data, shpool, r->connection->log);
 	if (node == NULL) { //unable to allocate node
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
@@ -286,8 +324,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	ngx_shm_zone_t                 	*shm_zone = ngx_http_push_get_shm_zone(r);
-	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
+	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_http_variable_value_t		*vv;
 	ngx_buf_t						*buf, *buf_copy;
 	ngx_http_push_node_t  			*node;
@@ -302,12 +339,12 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
 
 	ngx_shmtx_lock(&shpool->mutex);
-	node = get_node(&id, (ngx_rbtree_t *) shm_zone->data, shpool, r->connection->log);
+	node = get_node(&id, (ngx_rbtree_t *) ngx_http_push_shm_zone->data, shpool, r->connection->log);
 	r_client = node->request;
 	ngx_shmtx_unlock(&shpool->mutex);
 	
 	if (node == NULL) {
-		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "push module: unable to allocate new node");
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate new node");
 		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 		return;
 	}

@@ -6,26 +6,31 @@ Communication with clients is done via a different location, one only accessible
 to your application.
 
 Example conf:
+http {
+	#maximum amount of memory the push module is allowed to use 
+	#for buffering and stuff
+	push_shm_size	12M; #default is 3M
 
 	#message source server
 	server {
-        listen       localhost:8089; 
-        location / {
+	listen       localhost:8089; 
+		location / {
 			default_type  text/plain;
-            set $push_id $arg_id; #/?id=239aff3 or somesuch
+			set $push_id $arg_id; #/?id=239aff3 or somesuch
 			push_source;
-        }
-    }
+		}
+	}
 
 	#long-polling client server
 	server {
-        listen       8088;
-        location / {
+		listen       8088;
+		location / {
 			default_type  text/plain;
-            set $push_id $arg_id; #/?id=239aff3 or somesuch
+			set $push_id $arg_id; #/?id=239aff3 or somesuch
 			push_destination;
-        }
-    }	
+		}
+	}
+}	
 	
 Clients will connect to http://example.com:8088/?id=... and have the 
 response delayed until a message is POSTed to http://localhost:8089/?id=...
@@ -35,7 +40,7 @@ Upon sending a request to a push_source location, the server will respond with
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
 destination id is presently connected), a 202 Accepted will be sent.
 
- ---- ---
+ -------
  
 It's a damn good idea to make sure the push_source location is not visible
 publically, as it is intended for use only by your application.
@@ -45,7 +50,7 @@ publically, as it is intended for use only by your application.
 Let push_source refer to a location (or server) configured with the push_source; option.
 Let push_destination refer to a location (or server) configured with the push_destination; option.
 
-push_destination:
+at push_destination:
 	Only POST requests are allowed to this location. The response will be delayed until a message
 	for the $push_id of said requests becomes available, at which point its contents will be sent
 	in the body of the response with a 200 OK status code.
@@ -54,7 +59,7 @@ push_destination:
 	newer of the two. The older request receives an immediate response with a 409 Conflict status
 	code.
 	
-push_source:
+at push_source:
 	POST, PUT, and DELETE requests are allowed at this location.
 	A POST request will have its body ("the message"), sent to the request identified by 
 	$push_id, with the Content-Type header forwarded. If no such request exists, the message 
@@ -70,7 +75,8 @@ push_source:
 	(NOT IMPLEMENTED YET) a DELETE deletes all messages intended for $push_id. If there is a waiting
 	request on push_destination identified by $push_id, it will be immediately responded to with a
 	204 No Content status code.
-	
+
+
 -----------------------------
 
 TODO: 
