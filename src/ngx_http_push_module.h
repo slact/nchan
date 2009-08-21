@@ -6,7 +6,6 @@
 //with the declarations
 typedef struct {
 	ngx_int_t                  	index;
-	ngx_http_event_handler_pt	read_event_handler;
 	ngx_shm_zone_t		 		*shm_zone;
 } ngx_http_push_loc_conf_t;
 
