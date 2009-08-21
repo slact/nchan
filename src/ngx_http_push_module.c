@@ -99,12 +99,13 @@ static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 		return NGX_CONF_ERROR;
 	}
 	
-	lcf->shm_zone = ngx_shared_memory_add(cf, &shm_name, 128 * ngx_pagesize, &ngx_http_push_module);
+	lcf->shm_zone = ngx_shared_memory_add(cf, &shm_name, 4 * ngx_pagesize, &ngx_http_push_module);
     if (lcf->shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
 	lcf->shm_zone->init = ngx_http_push_init_shm_zone;
-	return NGX_CONF_OK;
+	lcf->shm_zone->data = (void *) 1;
+	return lcf;
 }
 
 // shared memory zone initializer
