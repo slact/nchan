@@ -94,7 +94,6 @@ static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment n
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	//create shared memory
 	ngx_http_push_loc_conf_t 	*lcf;
-	ngx_rbtree_t		 		*tree;
 	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
 	if(lcf == NULL) {
 		return NGX_CONF_ERROR;
@@ -104,23 +103,14 @@ static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
     if (lcf->shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
-	
-	if(lcf->shm_zone->data==NULL) //first time
-	{
-		tree = ngx_pcalloc(cf->pool, sizeof(ngx_rbtree_t));
-		if (tree == NULL) {
-			return NGX_CONF_ERROR;
-		}
-		lcf->shm_zone->data = tree;
-		lcf->shm_zone->init = ngx_http_push_init_shm_zone;
-	}
-	return lcf;
+	lcf->shm_zone->init = ngx_http_push_init_shm_zone;
+	return NGX_CONF_OK;
 }
 
 // shared memory zone initializer
 static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data)
 {
-	if (data) { /* we're being reloaded, propagate the data "cookie" */
+	if (data) { /* zone already initialized */
 		shm_zone->data = data;
 		return NGX_OK;
 	}
@@ -130,7 +120,7 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
     ngx_rbtree_t   					*tree;
 
     shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
-
+	
     shm_zone->data = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
 	tree = shm_zone->data;
     if (tree == NULL) {
@@ -200,21 +190,20 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	if (node == NULL) { //unable to allocate node
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
-    }
-	existing_request=node->request;
+    }	
 	ngx_shmtx_unlock(&shpool->mutex);
 	
 	ngx_http_discard_request_body(r); //don't care about the rest of this request
 	
-	if (existing_request!=NULL) { //oh shit, someone's already waiting for a message on this id.
-		//TODO: add settings for this sort of thing.
-		ngx_http_finalize_request(existing_request, NGX_HTTP_CONFLICT); //bump the old request. 
-		ngx_shmtx_lock(&shpool->mutex);
+	ngx_shmtx_lock(&shpool->mutex);
+	if (node->request!=NULL) { //oh shit, someone's already waiting for a message on this id.
+		existing_request = node->request;
 		node->request=NULL; //finalize_request cleanup will do this anyway, but we want it done now.
 		ngx_shmtx_unlock(&shpool->mutex);
+		ngx_http_finalize_request(existing_request, NGX_HTTP_CONFLICT); //bump the old request. 
+		ngx_shmtx_lock(&shpool->mutex);
 	}
 	
-	ngx_shmtx_lock(&shpool->mutex);
 	msg = ngx_http_push_dequeue_message(node);
 	ngx_shmtx_unlock(&shpool->mutex);
 	if (msg==NULL) { //message queue is empty
