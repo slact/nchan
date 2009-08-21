@@ -28,7 +28,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
 static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */
     NULL,                                  /* postconfiguration */
-    NULL,				         		   /* create main configuration */
+    ngx_http_push_create_main_conf,		   /* create main configuration */
     NULL,                                  /* init main configuration */
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
@@ -91,21 +91,15 @@ static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void 
 
 
 static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment name
-static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
-	//create shared memory
-	ngx_http_push_loc_conf_t 	*lcf;
-	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
-	if(lcf == NULL) {
-		return NGX_CONF_ERROR;
-	}
-	
-	lcf->shm_zone = ngx_shared_memory_add(cf, &shm_name, 4 * ngx_pagesize, &ngx_http_push_module);
-    if (lcf->shm_zone == NULL) {
+static void * ngx_http_push_create_main_conf(ngx_conf_t *cf)
+{
+    ngx_shm_zone_t *		shm_zone = ngx_shared_memory_add(cf, &shm_name, 128 * ngx_pagesize, &ngx_http_push_module);
+    if (shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
-	lcf->shm_zone->init = ngx_http_push_init_shm_zone;
-	lcf->shm_zone->data = (void *) 1;
-	return lcf;
+	shm_zone->init = ngx_http_push_init_shm_zone;
+	shm_zone->data = (void *) 1;
+    return shm_zone;
 }
 
 // shared memory zone initializer
@@ -116,11 +110,9 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 		return NGX_OK;
 	}
 
-    ngx_slab_pool_t                 *shpool;
+    ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
     ngx_rbtree_node_t               *sentinel;
     ngx_rbtree_t   					*tree;
-
-    shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 	
     shm_zone->data = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
 	tree = shm_zone->data;
@@ -132,10 +124,21 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
     if (sentinel == NULL) {
         return NGX_ERROR;
     }
-
+	
 	ngx_rbtree_init(tree, sentinel, ngx_http_push_rbtree_insert);
 
     return NGX_OK;
+}
+
+
+static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
+	//create shared memory
+	ngx_http_push_loc_conf_t 	*lcf;
+	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
+	if(lcf == NULL) {
+		return NGX_CONF_ERROR;
+	}
+	return lcf;
 }
 
 // here go the handlers
@@ -174,7 +177,8 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 {
 	ngx_http_variable_value_t		*vv;
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-    ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
+    ngx_shm_zone_t                 	*shm_zone = ngx_http_push_get_shm_zone(r);
+	ngx_slab_pool_t					*shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 	ngx_str_t                        id;
     ngx_http_push_node_t  			*node;
 	ngx_http_push_msg_t				*msg;
@@ -187,7 +191,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, NGX_ERROR);
 
     ngx_shmtx_lock(&shpool->mutex);
-	node = get_node(&id, cf->shm_zone->data, shpool, r->connection->log);
+	node = get_node(&id, shm_zone->data, shpool, r->connection->log);
 	if (node == NULL) { //unable to allocate node
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
@@ -279,11 +283,11 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		return ngx_http_push_set_destination_body(r, out);
 	}
 }
-
 static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
     ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	ngx_slab_pool_t                 *shpool =  (ngx_slab_pool_t *) cf->shm_zone->shm.addr;
+	ngx_shm_zone_t                 	*shm_zone = ngx_http_push_get_shm_zone(r);
+	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 	ngx_http_variable_value_t		*vv;
 	ngx_buf_t						*buf, *buf_copy;
 	ngx_http_push_node_t  			*node;
@@ -298,7 +302,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
 
 	ngx_shmtx_lock(&shpool->mutex);
-	node = get_node(&id, (ngx_rbtree_t *) cf->shm_zone->data, shpool, r->connection->log);
+	node = get_node(&id, (ngx_rbtree_t *) shm_zone->data, shpool, r->connection->log);
 	r_client = node->request;
 	ngx_shmtx_unlock(&shpool->mutex);
 	
