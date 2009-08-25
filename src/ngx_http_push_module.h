@@ -8,6 +8,11 @@ typedef struct {
 	ngx_int_t                  	index;
 } ngx_http_push_loc_conf_t;
 
+typedef struct {
+	size_t                  shm_size;
+	time_t                  buffer_timeout;
+} ngx_http_push_main_conf_t;
+
 //message queue
 typedef struct {
     ngx_queue_t				queue;
@@ -48,11 +53,11 @@ static void 		ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanu
 
 //misc stuff
 ngx_shm_zone_t * 	ngx_http_push_shm_zone = NULL;
-static ngx_uint_t	ngx_http_push_shm_size = 0;
 static void * 		ngx_http_push_create_loc_conf(ngx_conf_t *cf);
-static ngx_int_t	ngx_http_push_set_up_shm(ngx_conf_t *cf);
+static void *       ngx_http_push_create_main_conf(ngx_conf_t *cf);
+static ngx_int_t	ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t 	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
-static char *		ngx_http_push_set_shm_size(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf);
 
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node); // doesn't free associated memory
 

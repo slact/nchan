@@ -7,11 +7,18 @@
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
-	{ ngx_string("push_shm_size"),
+    { ngx_string("push_buffer_timeout"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_http_push_set_shm_size,
-      0,
-      0,
+      ngx_conf_set_sec_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_push_main_conf_t, buffer_timeout),
+      NULL },
+	
+    { ngx_string("push_shm_size"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_push_main_conf_t, shm_size),
       NULL },
 
 	{ ngx_string("push_source"),
@@ -34,8 +41,8 @@ static ngx_command_t  ngx_http_push_commands[] = {
 
 static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */
-    ngx_http_push_set_up_shm,              /* postconfiguration */
-    NULL,                                  /* create main configuration */
+    ngx_http_push_postconfig,              /* postconfiguration */
+    ngx_http_push_create_main_conf,        /* create main configuration */
     NULL,                                  /* init main configuration */
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
@@ -94,45 +101,24 @@ static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void 
     return NGX_CONF_OK;
 }
 
-static char *	ngx_http_push_set_shm_size(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) // Thanks, Grzegorz Nosek
-{
-    ssize_t                         new_shm_size;
-    ngx_str_t                      *value;
-
-    value = cf->args->elts;
-
-    new_shm_size = ngx_parse_size(&value[1]);
-    if (new_shm_size == NGX_ERROR) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Invalid memory area size `%V'", &value[1]);
-        return NGX_CONF_ERROR;
-    }
-
-    new_shm_size = ngx_align(new_shm_size, ngx_pagesize);
-
-    if (new_shm_size < 8 * (ssize_t) ngx_pagesize) {
+static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
+	ngx_http_push_main_conf_t	*conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
+	size_t                       shm_size = ngx_align(conf->shm_size, ngx_pagesize);
+	if (shm_size < 8 * ngx_pagesize) {
         ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_shm_size value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
-        new_shm_size = 8 * ngx_pagesize;
+        shm_size = 8 * ngx_pagesize;
     }
-
-    if (ngx_http_push_shm_size &&
-        ngx_http_push_shm_size != (ngx_uint_t) new_shm_size) {
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
-    } else {
-        ngx_http_push_shm_size = new_shm_size;
-    }
-    ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "Using %udKiB of shared memory for push module", new_shm_size >> 10);
-
-    return NGX_CONF_OK;
+	if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
+		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
+	}
+	ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
+	return ngx_http_push_set_up_shm(cf, shm_size);
 }
 
-
 static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment name
-static ngx_int_t ngx_http_push_set_up_shm(ngx_conf_t *cf)
+static ngx_int_t ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size)
 {
-	if (ngx_http_push_shm_size == 0) {
-		ngx_http_push_shm_size = ngx_align(3145728, ngx_pagesize); //3Mb, please (!)
-	}
-    ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &shm_name, ngx_http_push_shm_size, &ngx_http_push_module);
+    ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &shm_name, shm_size, &ngx_http_push_module);
     if (ngx_http_push_shm_zone == NULL) {
         return NGX_ERROR;
     }
@@ -169,9 +155,17 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
     return NGX_OK;
 }
 
+static void * ngx_http_push_create_main_conf(ngx_conf_t *cf) {
+	ngx_http_push_main_conf_t        *mcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_main_conf_t));
+	if(mcf == NULL) {
+		return NGX_CONF_ERROR;
+	}
+	mcf->buffer_timeout=3600; //1 hour
+	mcf->shm_size=3145728; //3megabytes
+	return mcf;
+}
 
 static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
-	//create shared memory
 	ngx_http_push_loc_conf_t 	*lcf;
 	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
 	if(lcf == NULL) {
