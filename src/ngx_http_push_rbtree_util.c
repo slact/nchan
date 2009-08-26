@@ -8,6 +8,7 @@ static void     ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, ngx_rbtree_n
 static void     ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 static int      ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
 static ngx_int_t ngx_http_push_delete_node(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool);
+static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_pool_t * shpool);
 
 static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_pool_t * shpool) {
 	ngx_queue_t                 *sentinel = &node->message_queue->queue;
@@ -16,6 +17,7 @@ static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_p
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
+			node->message_queue_len--;
 			ngx_queue_remove((&msg->queue));
 			ngx_slab_free_locked(shpool, msg);
 		}

@@ -185,6 +185,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	ngx_http_request_t             *r_client = NULL;
 	ngx_uint_t                      method = r->method;
 	
+	time_t                          last_seen = 0;
+	ngx_uint_t                      queue_len = 0;
+	
 	if(ngx_http_push_set_id(&id, r, cf) !=NGX_OK) {
 		return;
 	}
@@ -203,6 +206,8 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	}
 	if (node!=NULL) {
 		r_client = node->request;
+		queue_len = node->message_queue_len;
+		last_seen = node->last_seen;
 	}
 	ngx_shmtx_unlock(&shpool->mutex);
 	
@@ -268,6 +273,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			msg->buf=buf_copy;
 			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
 			node->message_queue_len++;
+			queue_len = node->message_queue_len;
 
 			//store the content-type
 			if(content_type_len>0) {
@@ -313,7 +319,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_http_finalize_request(r_client, ngx_http_push_set_destination_body(r_client, ngx_http_push_create_output_chain(r_client, buf)));
 			
-			r->headers_out.status=NGX_HTTP_CREATED;
+			r->headers_out.status=NGX_HTTP_OK;
+			r->headers_out.status_line.len =sizeof("201 Created")- 1;
+			r->headers_out.status_line.data=(u_char *) "201 Created";
 		}
 		else {	//r_client==NULL && r->method == NGX_HTTP_PUT is all that remains
 			r->headers_out.status=NGX_HTTP_OK;
@@ -348,14 +356,48 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		}
 		else {
 			r->headers_out.status=NGX_HTTP_NOT_FOUND;
+			r->header_only = 1;
 		}
 	}
-	
-	r->headers_out.content_length_n = 0;
-	r->header_only = 1;
-	
-	ngx_http_finalize_request(r, ngx_http_send_header(r));
+	else {
+		ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
+		return;
+	}
+	if (r->header_only || node==NULL) {
+		r->header_only = 1;
+		r->headers_out.content_length_n = 0;
+		ngx_http_finalize_request(r, ngx_http_send_header(r));	
+	} 
+	else {
+		ngx_http_finalize_request(r, ngx_http_push_node_info(r, queue_len, last_seen));
+	}
 	return;
+}
+
+static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue_len, time_t last_seen) {
+	ngx_buf_t                      *b;
+	ngx_uint_t                      len;
+	len = sizeof("queued: \r\n") + NGX_INT_T_LEN + sizeof("requested: \r\n") + NGX_INT_T_LEN;
+	
+	b = ngx_create_temp_buf(r->pool, len);
+	if (b == NULL) {
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+	b->last = ngx_sprintf(b->last, "queued: %ui\r\n", queue_len);
+	if(last_seen==0){
+		b->last = ngx_cpymem(b->last, "requested: never\r\n", sizeof("requested: never\r\n") - 1);
+	}
+	else {
+		b->last = ngx_sprintf(b->last, "requested: %ui\r\n", ngx_time() - last_seen);
+	}
+	
+	r->headers_out.content_type.len = sizeof("text/plain") - 1;
+    r->headers_out.content_type.data = (u_char *) "text/plain";
+	if (ngx_http_send_header(r) > NGX_HTTP_SPECIAL_RESPONSE) {
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+	
+	return ngx_http_push_set_destination_body(r, ngx_http_push_create_output_chain(r, b));
 }
 
 static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r) {

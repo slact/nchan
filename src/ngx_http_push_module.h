@@ -48,6 +48,7 @@ struct ngx_http_push_node_s {
 static char *       ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_source hook
 static 	ngx_int_t   ngx_http_push_source_handler(ngx_http_request_t * r);
 static void         ngx_http_push_source_body_handler(ngx_http_request_t * r);
+static ngx_int_t    ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue_len, time_t last_seen);
 
 //destination stuff
 static char *       ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_destination hook
