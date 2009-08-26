@@ -58,13 +58,13 @@ static ngx_int_t ngx_http_push_set_id(ngx_str_t *id, ngx_http_request_t *r, ngx_
 		}                                                                     \
 	}
 
-#define ngx_http_push_remove_destination_request_locked(node)                 \
+#define ngx_http_push_remove_client_request_locked(node)                 \
 	(node)->request = NULL;                                                   \
 	if((node)->cleanup!=NULL) {                                               \
 		(node)->cleanup->node=NULL;                                           \
 	}
 	
-static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
+static ngx_int_t ngx_http_push_client_handler(ngx_http_request_t *r) {
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_str_t                       id;
@@ -91,7 +91,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
 	if (node->request!=NULL) { //oh shit, someone's already waiting for a message on this id.
 		ngx_shmtx_lock(&shpool->mutex);
 		existing_request = node->request;
-		ngx_http_push_remove_destination_request_locked(node);
+		ngx_http_push_remove_client_request_locked(node);
 		ngx_shmtx_unlock(&shpool->mutex);
 		ngx_http_finalize_request(existing_request, NGX_HTTP_CONFLICT); //bump the old request. 
 	}
@@ -108,17 +108,17 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
 		r->read_event_handler = ngx_http_test_reading; //definitely test to see if the connection got closed or something.
 		
 		//attach a cleaner to remove the request from the node, if need be
-		ngx_pool_cleanup_t         *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_destination_cleanup_t));
+		ngx_pool_cleanup_t         *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_client_cleanup_t));
 		if (cln == NULL) { //make sure we can.
 			return NGX_ERROR;
 		}
 		ngx_shmtx_lock(&shpool->mutex);
-		node->cleanup = ((ngx_http_push_destination_cleanup_t *) cln->data);
+		node->cleanup = ((ngx_http_push_client_cleanup_t *) cln->data);
 		ngx_shmtx_unlock(&shpool->mutex);
-		cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_destination_cleanup;
-		((ngx_http_push_destination_cleanup_t *) cln->data)->node = node;
-		((ngx_http_push_destination_cleanup_t *) cln->data)->request = r;
-		((ngx_http_push_destination_cleanup_t *) cln->data)->shpool = shpool;
+		cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_client_cleanup;
+		((ngx_http_push_client_cleanup_t *) cln->data)->node = node;
+		((ngx_http_push_client_cleanup_t *) cln->data)->request = r;
+		((ngx_http_push_client_cleanup_t *) cln->data)->shpool = shpool;
 		
 		return NGX_DONE; //and wait.
 	}
@@ -157,7 +157,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
 			
 			ngx_shmtx_lock(&shpool->mutex);
 		}
-		rc = ngx_http_push_set_destination_header(r, &msg->content_type); //content type is copied
+		rc = ngx_http_push_set_client_header(r, &msg->content_type); //content type is copied
 		out = ngx_http_push_create_output_chain(r, msg->buf); 	//buffer is copied
 		out->buf->file=file;
 		//we no longer need the message and can free its shm slab.
@@ -172,11 +172,11 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
 			return rc;
 		}
 		
-		return ngx_http_push_set_destination_body(r, out);
+		return ngx_http_push_set_client_body(r, out);
 	}
 }
 
-static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
+static void ngx_http_push_server_body_handler(ngx_http_request_t * r) {
 	ngx_str_t                       id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
@@ -289,14 +289,14 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			time_t                      timeout = cf->buffer_timeout;
 			msg->expires= timeout==0 ? 0 : (ngx_time() + timeout);
 			ngx_shmtx_unlock(&shpool->mutex);
-			//okay, done storing. now respond to the source request
+			//okay, done storing. now respond to the server request
 			r->headers_out.status=NGX_HTTP_OK;
 			r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
 			r->headers_out.status_line.data=(u_char *) "202 Accepted";
 		}
 		else if(r_client!=NULL) {
 			ngx_int_t                   rc;
-			rc = ngx_http_push_set_destination_header(r_client, (content_type_len>0 ? &r->headers_in.content_type->value : NULL));
+			rc = ngx_http_push_set_client_header(r_client, (content_type_len>0 ? &r->headers_in.content_type->value : NULL));
 			if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
 				ngx_http_finalize_request(r_client, rc);
 				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -310,14 +310,14 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			}
 			
 			if(buf->in_file && buf->file->fd!=NGX_INVALID_FILE){
-				//delete file when the push_source request finishes
+				//delete file when the push_server request finishes
 				ngx_http_push_add_pool_cleaner_delete_file(r->pool, buf->file);
 			}
 			ngx_shmtx_lock(&shpool->mutex);
-			//we don't want the destination request cleanup to accidentally access an already freed node on cleanup
-			ngx_http_push_remove_destination_request_locked(node);
+			//we don't want the client request cleanup to accidentally access an already freed node on cleanup
+			ngx_http_push_remove_client_request_locked(node);
 			ngx_shmtx_unlock(&shpool->mutex);
-			ngx_http_finalize_request(r_client, ngx_http_push_set_destination_body(r_client, ngx_http_push_create_output_chain(r_client, buf)));
+			ngx_http_finalize_request(r_client, ngx_http_push_set_client_body(r_client, ngx_http_push_create_output_chain(r_client, buf)));
 			
 			r->headers_out.status=NGX_HTTP_OK;
 			r->headers_out.status_line.len =sizeof("201 Created")- 1;
@@ -338,12 +338,12 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 				ngx_slab_free_locked(shpool, msg);
 			};
 			r_client = node->request;
-			ngx_http_push_remove_destination_request_locked(node);
+			ngx_http_push_remove_client_request_locked(node);
 			ngx_http_push_delete_node((ngx_rbtree_t *) ngx_http_push_shm_zone->data, (ngx_rbtree_node_t *) node, shpool);
 			ngx_shmtx_unlock(&shpool->mutex);
 			
 			if(r_client!=NULL) {
-				//respond to the destination request with a 410
+				//respond to the client request with a 410
 				r_client->headers_out.status=NGX_HTTP_NOT_FOUND;
 				r_client->headers_out.status_line.len =sizeof("410 Gone")- 1;
 				r_client->headers_out.status_line.data=(u_char *) "410 Gone";
@@ -397,10 +397,10 @@ static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 	
-	return ngx_http_push_set_destination_body(r, ngx_http_push_create_output_chain(r, b));
+	return ngx_http_push_set_client_body(r, ngx_http_push_create_output_chain(r, b));
 }
 
-static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r) {
+static ngx_int_t ngx_http_push_server_handler(ngx_http_request_t * r) {
 	ngx_int_t                       rc;
 	
 	/* Instruct ngx_http_read_client_request_body to store the request
@@ -410,14 +410,14 @@ static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r) {
 	r->request_body_in_clean_file = 0;
 	r->request_body_file_log_level = 0;
 
-	rc = ngx_http_read_client_request_body(r, ngx_http_push_source_body_handler);
+	rc = ngx_http_read_client_request_body(r, ngx_http_push_server_body_handler);
 	if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
 		return rc;
 	}
 	return NGX_DONE;
 }
 
-static ngx_int_t ngx_http_push_set_destination_header(ngx_http_request_t *r, ngx_str_t *content_type) {
+static ngx_int_t ngx_http_push_set_client_header(ngx_http_request_t *r, ngx_str_t *content_type) {
 	//content-type is _copied_
 	if (content_type!=NULL && content_type->data!=NULL && content_type->len > 0) {
 		r->headers_out.content_type.len=content_type->len;
@@ -447,7 +447,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 	return out;	
 }
 
-static ngx_int_t ngx_http_push_set_destination_body(ngx_http_request_t *r, ngx_chain_t *out)
+static ngx_int_t ngx_http_push_set_client_body(ngx_http_request_t *r, ngx_chain_t *out)
 {
 	if (out==NULL) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -455,7 +455,7 @@ static ngx_int_t ngx_http_push_set_destination_body(ngx_http_request_t *r, ngx_c
 	return ngx_http_output_filter(r, out);	
 }
 
-static void ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t *data) {
+static void ngx_http_push_client_cleanup(ngx_http_push_client_cleanup_t *data) {
 	if(data->node!=NULL) {
 		ngx_shmtx_lock(&data->shpool->mutex);
 		if(data->node->request == data->request) {

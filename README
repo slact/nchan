@@ -11,39 +11,39 @@ http {
 	#for buffering and stuff
 	push_shm_size	12M; #default is 3M
 
-	#message source server
+	#push_server
 	server {
 	listen       localhost:8089; 
 		location / {
 			default_type  text/plain;
 			set $push_id $arg_id; #/?id=239aff3 or somesuch
-			push_source;
+			push_server;
 			push_buffer_timeout 2h; #buffered messages expire after 2 hours
 		}
 	}
 
-	#long-polling client server
+	#long-polling client
 	server {
 		listen       8088;
 		location / {
 			default_type  text/plain;
 			set $push_id $arg_id; #/?id=239aff3 or somesuch
-			push_destination;
+			push_client;
 		}
 	}
 }	
 
 -- Configuration options & variables --
 Options:
-push_source (no arguments,  server or location config)
-defines a server or location as the push_source, described below.
+push_server (no arguments,  server or location config)
+defines a server or location as the push_server, described below.
 
-push_destination (no arguments, in server or location config)
-defines a push_destination server or location
+push_client (no arguments, in server or location config)
+defines a push_client server or location
 
 push_queue_messages (on|off (default to on), anywhere)
 Whether or not message queuing is enabled. If set to off, 
-messages will be delivered only if a destination connection is already 
+messages will be delivered only if a push_client connection is already 
 present for the id.
 
 push_message_timeout (time (default to 1h), anywhere)
@@ -56,7 +56,7 @@ buffering.
 
 Variables:
 $push_id
-The id associated with a push_source or push_destination.
+The id associated with a push_server or push_client.
 set $push_id $arg_id would set $push_id to the url parameter "id"
 
 ------------ Operation ----------------	
@@ -65,18 +65,18 @@ Clients will connect to http://example.com:8088/?id=... and have the
 response delayed until a message is POSTed to http://localhost:8089/?id=...
 Messages can be sent to clients that have not yet connected, i.e. they are queued.
 
-Upon sending a request to a push_source location, the server will respond with 
+Upon sending a request to a push_server location, the server will respond with 
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
-destination id is presently connected), a 202 Accepted will be sent.
+push_client id is presently connected), a 202 Accepted will be sent.
  
-It's a damn good idea to make sure the push_source location is not visible
+It's a damn good idea to make sure the push_server location is not visible
 publically, as it is intended for use only by your application.
 
 --------- "Protocol" spec -------------
-Let push_source refer to a location (or server) configured with the push_source; option.
-Let push_destination refer to a location (or server) configured with the push_destination; option.
+Let push_server refer to a location (or server) configured with the push_server; option.
+Let push_client refer to a location (or server) configured with the push_client; option.
 
-at push_destination:
+at push_client:
 	Only POST requests are allowed to this location. The response will be delayed until a message
 	for the $push_id of said requests becomes available, at which point its contents will be sent
 	in the body of the response with a 200 OK status code.
@@ -85,7 +85,7 @@ at push_destination:
 	newer of the two. The older request receives an immediate response with a 409 Conflict status
 	code.
 	
-at push_source:
+at push_server:
 	POST, PUT, and DELETE requests are allowed at this location.
 	A POST request will have its body ("the message"), sent to the request identified by 
 	$push_id, with the Content-Type header forwarded. If no such request exists, the message 
@@ -99,16 +99,16 @@ at push_source:
 	the message will be lost, and the server will return a 200 OK status code.
 	
 	(NOT IMPLEMENTED YET) a DELETE deletes all messages intended for $push_id. If there is a waiting
-	request on push_destination identified by $push_id, it will be immediately responded to with a
+	request on push_client identified by $push_id, it will be immediately responded to with a
 	204 No Content status code.
 
 
 -----------------------------
 
 TODO: 
-	- Implelent DELETE for push_source. 
+	- Implelent DELETE for push_server. 
 	- Add a push_accomodate_strangers setting (presently defaulting to on). When set to off, requests
 	  with a previously-unseen $push_id will be rejected. 
-	- When POSTing to push_source, if Content-Type is "message/http", the response sent to $push_id 
+	- When POSTing to push_server, if Content-Type is "message/http", the response sent to $push_id 
 	  should be created from the body of the request.
 
