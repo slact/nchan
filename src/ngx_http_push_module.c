@@ -1,245 +1,76 @@
+/*
+ *	Copyright 2009 Leo Ponomarev.
+ */
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 #include <ngx_http_push_module.h>
 #include <ngx_http_push_rbtree_util.c>
+#include <ngx_http_push_module_setup.c>
 
-static ngx_command_t  ngx_http_push_commands[] = {
-
-    { ngx_string("push_message_timeout"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_sec_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, buffer_timeout),
-      NULL },
-
-    { ngx_string("push_queue_messages"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
-      ngx_conf_set_flag_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, buffer_enabled),
-      NULL },
-
-    { ngx_string("push_buffer_size"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_size_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_push_main_conf_t, shm_size),
-      NULL },
-
-	{ ngx_string("push_source"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
-      ngx_http_push_source,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      0,
-      NULL },
-
-    { ngx_string("push_destination"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
-      ngx_http_push_destination,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      0,
-      NULL },
-
-      ngx_null_command
-};
-
-
-static ngx_http_module_t  ngx_http_push_module_ctx = {
-    NULL,                                  /* preconfiguration */
-    ngx_http_push_postconfig,              /* postconfiguration */
-    ngx_http_push_create_main_conf,        /* create main configuration */
-    NULL,                                  /* init main configuration */
-    NULL,                                  /* create server configuration */
-    NULL,                                  /* merge server configuration */
-    ngx_http_push_create_loc_conf,         /* create location configuration */
-    ngx_http_push_merge_loc_conf,          /* merge location configuration */
-};
-
-ngx_module_t  ngx_http_push_module = {
-    NGX_MODULE_V1,
-    &ngx_http_push_module_ctx,             /* module context */
-    ngx_http_push_commands,                /* module directives */
-    NGX_HTTP_MODULE,                       /* module type */
-    NULL,                                  /* init master */
-    NULL,					               /* init module */
-    NULL,                                  /* init process */
-    NULL,                                  /* init thread */
-    NULL,                                  /* exit thread */
-    NULL,                                  /* exit process */
-    NULL,                                  /* exit master */
-    NGX_MODULE_V1_PADDING
-};
-
-static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node) //does NOT free associated memory.
-{
-	ngx_queue_t *sentinel = &node->message_queue->queue; 
+static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node){ //does NOT free associated memory.
+	ngx_queue_t                    *sentinel = &node->message_queue->queue; 
 	if(ngx_queue_empty(sentinel)) {
 		return NULL;
 	}
-	ngx_queue_t 			*qmsg = ngx_queue_head(sentinel);
+	ngx_queue_t                    *qmsg = ngx_queue_head(sentinel);
 	ngx_queue_remove(qmsg);
 	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
 
-static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable name
-static char *ngx_http_push_source(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-	ngx_http_core_loc_conf_t	*clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
-	ngx_http_push_loc_conf_t	*plcf = conf;                                    
-    clcf->handler = ngx_http_push_source_handler;                                       
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
-    if (plcf->index == NGX_ERROR) {                                           
-        return NGX_CONF_ERROR;                                                
-    }                                                                         
-    return NGX_CONF_OK;
-}
-
-static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-	ngx_http_core_loc_conf_t  *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
-	ngx_http_push_loc_conf_t *plcf = conf;                                    
-    clcf->handler = ngx_http_push_destination_handler;                                       
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
-    if (plcf->index == NGX_ERROR) {                                           
-        return NGX_CONF_ERROR;                                                
-    }                                                                         
-    return NGX_CONF_OK;
-}
-
-static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
-	ngx_http_push_main_conf_t	*conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
-	size_t                       shm_size;
-	if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
-		conf->shm_size=3145728; //3megabytes
-	}
-	shm_size = ngx_align(conf->shm_size, ngx_pagesize);
-	if (shm_size < 8 * ngx_pagesize) {
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_shm_size value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
-        shm_size = 8 * ngx_pagesize;
-    }
-	if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
-		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
-	}
-	ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
-	return ngx_http_push_set_up_shm(cf, shm_size);
-}
-
-static ngx_str_t shm_name = ngx_string("push_module"); //shared memory segment name
-static ngx_int_t ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size)
-{
-    ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &shm_name, shm_size, &ngx_http_push_module);
-    if (ngx_http_push_shm_zone == NULL) {
+static ngx_int_t ngx_http_push_set_id(ngx_str_t *id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
+    if (vv == NULL || vv->not_found || vv->len == 0) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "http_push module: the \"$push_id\" variable is required but is not set");
         return NGX_ERROR;
     }
-	ngx_http_push_shm_zone->init = ngx_http_push_init_shm_zone;
-	ngx_http_push_shm_zone->data = (void *) 1;
-    return NGX_OK;
-}
-
-// shared memory zone initializer
-static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data)
-{
-	if (data) { /* zone already initialized */
-		shm_zone->data = data;
+	if (id!=NULL){
+		id->data=vv->data; //no need to copy anything? ok...
+		id->len=vv->len;
 		return NGX_OK;
+	} else {
+		return NGX_ERROR;
 	}
-
-    ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
-    ngx_rbtree_node_t               *sentinel;
-    ngx_rbtree_t   					*tree;
-	
-    shm_zone->data = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
-	tree = shm_zone->data;
-    if (tree == NULL) {
-        return NGX_ERROR;
-    }
-
-    sentinel = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_node_t));
-    if (sentinel == NULL) {
-        return NGX_ERROR;
-    }
-	
-	ngx_rbtree_init(tree, sentinel, ngx_http_push_rbtree_insert);
-
-    return NGX_OK;
 }
 
-static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf) {
-	ngx_http_push_main_conf_t        *mcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_main_conf_t));
-	if(mcf == NULL) {
-		return NGX_CONF_ERROR;
-	}
-	mcf->shm_size=NGX_CONF_UNSET_SIZE;
-	return mcf;
-}
-
-static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
-	ngx_http_push_loc_conf_t 	*lcf;
-	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
-	if(lcf == NULL) {
-		return NGX_CONF_ERROR;
-	}
-	lcf->buffer_timeout=NGX_CONF_UNSET;
-	lcf->buffer_enabled=NGX_CONF_UNSET;
-	return lcf;
-}
-static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child){
-	ngx_http_push_loc_conf_t *prev = parent;
-	ngx_http_push_loc_conf_t *conf = child;
-	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
-	ngx_conf_merge_value(conf->buffer_enabled, prev->buffer_enabled, 1);
-	return NGX_CONF_OK;
-}
-
-
-// here go the handlers
-#define ngx_http_push_set_id(id, vv, r, cf, log, ret_err)                     \
-    (vv) = ngx_http_get_indexed_variable(r, (cf)->index);                     \
-    if ((vv) == NULL || (vv)->not_found || (vv)->len == 0) {                  \
-        ngx_log_error(NGX_LOG_ERR, log, 0,                                    \
-                      "the \"$push_id\" variable is not set");                \
-        return ret_err;                                                       \
-    }                                                                         \
-	id.data=vv->data;\
-	id.len=vv->len
-
-	
-#define ngx_http_push_create_buf_copy(buf, cbuf, pool, pool_alloc)			  \
+//this is a macro because i don't want to mess with the alloc_function function pointer
+#define ngx_http_push_create_buf_copy(buf, cbuf, pool, pool_alloc)            \
 	(cbuf) = pool_alloc((pool), sizeof(ngx_buf_t) + (ngx_buf_in_memory((buf)) ? ngx_buf_size((buf)) : 0));\
-	if ((cbuf)!=NULL) {														  \
-		if(ngx_buf_in_memory((buf))) {										  \
-			(cbuf)->pos = ((u_char *) (cbuf)) + sizeof(ngx_buf_t);			  \
-			(cbuf)->last = (cbuf)->pos + ngx_buf_size((buf));				  \
-			(cbuf)->start=(cbuf)->pos; 										  \
-			(cbuf)->end = (cbuf)->start + ngx_buf_size((buf));				  \
-			ngx_memcpy((cbuf)->pos, (buf)->pos, ngx_buf_size((buf))); 		  \
-			(cbuf)->memory=ngx_buf_in_memory_only((buf)) ? 1 : 0;			  \
-		}																	  \
-		if ((buf)->in_file) {												  \
-			(cbuf)->file_pos = (buf)->file_pos;								  \
-			(cbuf)->file_last = (buf)->file_last;							  \
-			(cbuf)->temp_file = (buf)->temp_file;							  \
-			(cbuf)->file = (buf)->file; 									  \
-			(cbuf)->in_file = 1;											  \
-		}																	  \
+	if ((cbuf)!=NULL) {                                                       \
+		if(ngx_buf_in_memory((buf))) {                                        \
+			(cbuf)->pos = ((u_char *) (cbuf)) + sizeof(ngx_buf_t);            \
+			(cbuf)->last = (cbuf)->pos + ngx_buf_size((buf));                 \
+			(cbuf)->start=(cbuf)->pos;                                        \
+			(cbuf)->end = (cbuf)->start + ngx_buf_size((buf));                \
+			ngx_memcpy((cbuf)->pos, (buf)->pos, ngx_buf_size((buf)));         \
+			(cbuf)->memory=ngx_buf_in_memory_only((buf)) ? 1 : 0;             \
+		}                                                                     \
+		if ((buf)->in_file) {                                                 \
+			(cbuf)->file_pos = (buf)->file_pos;                               \
+			(cbuf)->file_last = (buf)->file_last;                             \
+			(cbuf)->temp_file = (buf)->temp_file;                             \
+			(cbuf)->file = (buf)->file;                                       \
+			(cbuf)->in_file = 1;                                              \
+		}                                                                     \
 	}
-	
-static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
-{
-	ngx_http_variable_value_t		*vv;
-    ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-	ngx_slab_pool_t					*shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	ngx_str_t                        id;
-    ngx_http_push_node_t  			*node;
-	ngx_http_push_msg_t				*msg;
-	ngx_http_request_t				*existing_request;
+
+static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
+    ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
+	ngx_str_t                       id;
+    ngx_http_push_node_t           *node;
+	ngx_http_push_msg_t            *msg;
+	ngx_http_request_t             *existing_request;
 	if (r->method != NGX_HTTP_POST) {
 		return NGX_HTTP_NOT_ALLOWED;
     }
 	
-	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, NGX_ERROR);
+	if(ngx_http_push_set_id(&id, r, cf) !=NGX_OK) {
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
 
     ngx_shmtx_lock(&shpool->mutex);
 	node = get_node(&id, ngx_http_push_shm_zone->data, shpool, r->connection->log);
@@ -260,7 +91,6 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		ngx_shmtx_lock(&shpool->mutex);
 	}
 	
-
 	msg = ngx_http_push_dequeue_message(node); //expired messages are removed from queue during get_node()
 
 	ngx_shmtx_unlock(&shpool->mutex);
@@ -273,7 +103,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		r->read_event_handler = ngx_http_test_reading; //definitely test to see if the connection got closed or something.
 		
 		//attach a cleaner to remove the request from the node, if need be
-		ngx_pool_cleanup_t              *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_destination_cleanup_t));
+		ngx_pool_cleanup_t         *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_destination_cleanup_t));
 		if (cln == NULL) { //make sure we can.
 			return NGX_ERROR;
 		}
@@ -286,12 +116,12 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 	}
 	else {
 		//output the message		
-		ngx_chain_t		*out; //output chain
-		ngx_int_t		rc;
+		ngx_chain_t                *out; //output chain
+		ngx_int_t                   rc;
 		ngx_shmtx_lock(&shpool->mutex);
-		ngx_file_t      *file = NULL;
+		ngx_file_t                 *file = NULL;
 		if(msg->buf->in_file){
-			ngx_file_t      *bfile = msg->buf->file;
+			ngx_file_t             *bfile = msg->buf->file;
 			file = ngx_pcalloc(r->pool, sizeof(ngx_file_t) + bfile->name.len + 1);
 			if(file==NULL){
 				ngx_shmtx_unlock(&shpool->mutex);
@@ -306,7 +136,8 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 			ngx_shmtx_unlock(&shpool->mutex);
 			
 			file->log=r->connection->log;
-			file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS); //assumes file->name.data is already null-terminated
+			//the following assumes file->name.data is already null-terminated
+			file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS); 
 			if(file->fd!=NGX_INVALID_FILE){
 				ngx_http_push_add_pool_cleaner_delete_file(r->pool, file);
 			}
@@ -338,12 +169,11 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 }
 static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     ngx_str_t                       id;
-    ngx_http_push_loc_conf_t		*cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+    ngx_http_push_loc_conf_t        *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                 *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	ngx_http_variable_value_t		*vv;
-	ngx_buf_t						*buf, *buf_copy;
-	ngx_http_push_node_t  			*node;
-	ngx_http_request_t				*r_client;
+	ngx_buf_t                       *buf, *buf_copy;
+	ngx_http_push_node_t            *node;
+	ngx_http_request_t              *r_client;
     /* Is it a POST connection */
     if (r->method != NGX_HTTP_POST && r->method!=NGX_HTTP_PUT) {
         ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
@@ -351,7 +181,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
     }
 	
 	//TODO: r->method _= NGX_HTTP_DELETE
-	ngx_http_push_set_id(id, vv, r, cf, r->connection->log, );
+	if(ngx_http_push_set_id(&id, r, cf) !=NGX_OK) {
+		return;
+	}
 
 	ngx_shmtx_lock(&shpool->mutex);
 	node = get_node(&id, (ngx_rbtree_t *) ngx_http_push_shm_zone->data, shpool, r->connection->log);
@@ -371,7 +203,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	else if(r->request_body->bufs->next!=NULL) {
 		buf=r->request_body->bufs->next->buf;
 	}
-	else{
+	else {
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer not found");
 		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 		return; 
@@ -381,8 +213,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 		return; 
 	}
-	ngx_http_push_msg_t		*msg;
-	size_t 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
+	ngx_http_push_msg_t            *msg;
+	size_t                          content_type_len; 
+	content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
 	
 	if (r_client==NULL && r->method == NGX_HTTP_POST && cf->buffer_enabled!=0) {
 	//no clients are waiting for the message, and buffers are not disabled. create the message in shared memory for storage
@@ -404,7 +237,9 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		}
 		ngx_shmtx_lock(&shpool->mutex);
 		if (buf_copy->in_file) {
-			ngx_file_t      *file = ngx_slab_alloc_locked(shpool, sizeof(ngx_file_t) + buf->file->name.len + 1); //the +1 is for the null byte at the end
+			ngx_file_t             *file;
+			file = ngx_slab_alloc_locked(shpool, sizeof(ngx_file_t) + buf->file->name.len + 1);
+			//the +1 is for the null byte at the end --------------------------------------^^
 			if(file==NULL){
 				ngx_shmtx_unlock(&shpool->mutex);
 				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -433,7 +268,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			msg->content_type.data=NULL;
 		}
 		//set the expiration time
-		time_t            timeout = cf->buffer_timeout;
+		time_t                      timeout = cf->buffer_timeout;
 		msg->expires= timeout==0 ? 0 : (ngx_time() + timeout);
 		ngx_shmtx_unlock(&shpool->mutex);
 		//okay, done storing. now respond to the source request
@@ -441,12 +276,12 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
 		r->headers_out.status_line.data=(u_char *) "202 Accepted";
 	}
-	else if(r_client!=NULL){
+	else if(r_client!=NULL) {
 		ngx_shmtx_lock(&shpool->mutex);
 		node->request = NULL;
 		ngx_shmtx_unlock(&shpool->mutex);
 				
-		ngx_int_t		rc;
+		ngx_int_t                   rc;
 		rc = ngx_http_push_set_destination_header(r_client, (content_type_len>0 ? &r->headers_in.content_type->value : NULL));
 		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
 			ngx_http_finalize_request(r_client, rc);
@@ -480,9 +315,8 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	return;
 }
 
-static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r)
-{
-	ngx_int_t				rc;
+static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r) {
+	ngx_int_t                       rc;
 	
 	/* Instruct ngx_http_read_client_request_body to store the request
        body entirely in a memory buffer or in a file */
@@ -500,7 +334,7 @@ static ngx_int_t ngx_http_push_source_handler(ngx_http_request_t * r)
 
 static ngx_int_t ngx_http_push_set_destination_header(ngx_http_request_t *r, ngx_str_t *content_type) {
 	//content-type is _copied_
-	if (content_type!=NULL && content_type->data!=NULL) {
+	if (content_type!=NULL && content_type->data!=NULL && content_type->len > 0) {
 		r->headers_out.content_type.len=content_type->len;
 		r->headers_out.content_type.data = ngx_palloc(r->pool, content_type->len);
 		if(r->headers_out.content_type.data==NULL) {
@@ -512,11 +346,10 @@ static ngx_int_t ngx_http_push_set_destination_header(ngx_http_request_t *r, ngx
 	return NGX_OK;
 }
 
-static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf)
-{
+static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf) {
 	//buffer is _copied_
-	ngx_chain_t		*out = ngx_pcalloc(r->pool, sizeof(ngx_chain_t));
-	ngx_buf_t		*buf_copy;
+	ngx_chain_t                    *out = ngx_pcalloc(r->pool, sizeof(ngx_chain_t));
+	ngx_buf_t                      *buf_copy;
 	ngx_http_push_create_buf_copy(buf, buf_copy, r->pool, ngx_pcalloc);
 	
 	if (out==NULL || buf_copy==NULL) {
@@ -547,8 +380,8 @@ static void ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_
 }
 
 static ngx_int_t ngx_http_push_add_pool_cleaner_delete_file(ngx_pool_t *pool, ngx_file_t *file) {
-	ngx_pool_cleanup_t       *cln = ngx_pool_cleanup_add(pool, sizeof(ngx_pool_cleanup_file_t));
-	ngx_pool_cleanup_file_t  *clnf;
+	ngx_pool_cleanup_t             *cln = ngx_pool_cleanup_add(pool, sizeof(ngx_pool_cleanup_file_t));
+	ngx_pool_cleanup_file_t        *clnf;
 	if (cln == NULL) {
 		return NGX_ERROR;
 	}

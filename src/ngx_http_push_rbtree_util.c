@@ -4,11 +4,11 @@
 
 static ngx_http_push_node_t * get_node(ngx_str_t * id, ngx_rbtree_t * tree, ngx_slab_pool_t * shpool, ngx_log_t * log);
 static ngx_http_push_node_t * find_node(ngx_str_t * id, ngx_rbtree_t * tree, ngx_slab_pool_t * shpool, ngx_log_t * log);
-static void ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
-static void ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
-static int ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
+static void     ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
+static void     ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+static int      ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
 
-static ngx_http_push_node_t * clean_node(ngx_http_push_node_t * node, ngx_slab_pool_t * shpool) {
+static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_pool_t * shpool) {
 	ngx_queue_t                 *sentinel = &node->message_queue->queue;
 	time_t                       now = ngx_time();
 	ngx_http_push_msg_t			*msg=NULL;
@@ -26,19 +26,20 @@ static ngx_http_push_node_t * clean_node(ngx_http_push_node_t * node, ngx_slab_p
 	return node->request==NULL ? node : NULL; //if no request, return this node to be deleted
 }
 
-static ngx_http_push_node_t * 
-find_node(	ngx_str_t           *id, 
-			ngx_rbtree_t        *tree, 
-			ngx_slab_pool_t     *shpool, 
-			ngx_log_t           *log)
+static ngx_http_push_node_t *	find_node(
+			ngx_str_t              *id, 
+			ngx_rbtree_t           *tree, 
+			ngx_slab_pool_t        *shpool, 
+			ngx_log_t              *log)
 {
-    uint32_t                         hash;
-    ngx_rbtree_node_t               *node, *sentinel;
-    ngx_int_t                        rc;
-    ngx_http_push_node_t            *up;
-	ngx_http_push_node_t            *trash = NULL;
-	if (tree==NULL)
+    uint32_t                        hash;
+    ngx_rbtree_node_t              *node, *sentinel;
+    ngx_int_t                       rc;
+    ngx_http_push_node_t           *up;
+	ngx_http_push_node_t           *trash = NULL;
+	if (tree==NULL) {
 		return NULL;
+	}
 	
     hash = ngx_crc32_short(id->data, id->len);
 	
@@ -86,7 +87,7 @@ find_node(	ngx_str_t           *id,
     }
 	//not found
 	
-	if(trash != NULL && up!=trash){ //take out your trash
+	if(trash != NULL && up!=trash) { //take out your trash
 		ngx_rbtree_delete(tree, (ngx_rbtree_node_t *) trash);
 		ngx_slab_free_locked(shpool, trash);
 	}
@@ -94,14 +95,13 @@ find_node(	ngx_str_t           *id,
 }
 
 //find a node. if node not found, make one, insert it, and return that.
- static ngx_http_push_node_t * 
-get_node(	ngx_str_t 			* id, 
-			ngx_rbtree_t	* tree, 
-			ngx_slab_pool_t		* shpool, 
-			ngx_log_t 			* log)
+ static ngx_http_push_node_t *	get_node(
+			ngx_str_t              *id, 
+			ngx_rbtree_t           *tree, 
+			ngx_slab_pool_t        *shpool, 
+			ngx_log_t              *log)
 {
-	ngx_http_push_node_t  			*up=NULL;
-	up = find_node(id, tree, shpool, log);
+	ngx_http_push_node_t           *up=find_node(id, tree, shpool, log);
 	if(up != NULL) { //we found our node
 		return up;
 	}
@@ -110,7 +110,6 @@ get_node(	ngx_str_t 			* id,
 		//a failed malloc ain't the end of the world. take out the trash anyway
 		return NULL;
 	}
-	
 	
 	up->id.data = (u_char *) up + sizeof(ngx_http_push_node_t); //contiguous piggy
 	up->id.len = (u_char) id->len;
@@ -121,8 +120,7 @@ get_node(	ngx_str_t 			* id,
 	up->request=NULL;
 	//initialize queues
 	up->message_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_msg_t));
-	if (up->message_queue==NULL)
-	{
+	if (up->message_queue==NULL) {
 		ngx_slab_free_locked(shpool, up);
 		return NULL;
 	}
@@ -131,11 +129,11 @@ get_node(	ngx_str_t 			* id,
 }
 
 
-static void 
-ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, 
-							ngx_rbtree_node_t *node, 
-							ngx_rbtree_node_t *sentinel, 
-							int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right))
+static void	ngx_rbtree_generic_insert(
+				ngx_rbtree_node_t *temp, 
+				ngx_rbtree_node_t *node, 
+				ngx_rbtree_node_t *sentinel, 
+				int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right))
 {
     for ( ;; ) {
         if (node->key < temp->key) {
@@ -185,17 +183,17 @@ ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp,
 }
 
 
-static void
-ngx_http_push_rbtree_insert(	ngx_rbtree_node_t *temp, 
-										ngx_rbtree_node_t *node, 
-										ngx_rbtree_node_t *sentinel) 
+static void	ngx_http_push_rbtree_insert(
+				ngx_rbtree_node_t *temp, 
+				ngx_rbtree_node_t *node, 
+				ngx_rbtree_node_t *sentinel) 
 {
     ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
 }
 
-static int 
-ngx_http_push_compare_rbtree_node(	const ngx_rbtree_node_t *v_left,
-									const ngx_rbtree_node_t *v_right)
+static int ngx_http_push_compare_rbtree_node(
+				const ngx_rbtree_node_t *v_left,
+				const ngx_rbtree_node_t *v_right)
 {
     ngx_http_push_node_t *left, *right;
     left = (ngx_http_push_node_t *) v_left;
