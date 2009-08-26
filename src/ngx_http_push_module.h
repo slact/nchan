@@ -38,7 +38,9 @@ struct ngx_http_push_node_s {
 	ngx_rbtree_node_t               node;
 	ngx_str_t                       id;
     ngx_http_push_msg_t            *message_queue;
+	ngx_uint_t                      message_queue_len;
 	ngx_http_request_t             *request;
+	time_t                          last_seen;
 	ngx_http_push_destination_cleanup_t *cleanup;
 };
 

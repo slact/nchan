@@ -17,6 +17,7 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t 
 	}
 	ngx_queue_t                    *qmsg = ngx_queue_head(sentinel);
 	ngx_queue_remove(qmsg);
+	node->message_queue_len--;
 	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
 
@@ -97,6 +98,7 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r) {
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	msg = ngx_http_push_dequeue_message(node); //expired messages are already removed from queue during get_node()
+	node->last_seen = ngx_time();
 	ngx_shmtx_unlock(&shpool->mutex);
 	if (msg==NULL) { //message queue is empty
 		//this means we must wait for a message.
@@ -265,6 +267,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			}
 			msg->buf=buf_copy;
 			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
+			node->message_queue_len++;
 
 			//store the content-type
 			if(content_type_len>0) {
