@@ -24,13 +24,22 @@ typedef struct {
 	time_t                          expires;
 } ngx_http_push_msg_t;
 
-//our typecast-friendly rbtree node
 typedef struct ngx_http_push_node_s ngx_http_push_node_t;
+
+//cleaning supplies
+typedef struct {
+	ngx_http_request_t             *request;
+	ngx_http_push_node_t           *node;
+	ngx_slab_pool_t                *shpool;
+}  ngx_http_push_destination_cleanup_t;
+
+//our typecast-friendly rbtree node
 struct ngx_http_push_node_s {
 	ngx_rbtree_node_t               node;
 	ngx_str_t                       id;
     ngx_http_push_msg_t            *message_queue;
 	ngx_http_request_t             *request;
+	ngx_http_push_destination_cleanup_t *cleanup;
 };
 
 //source stuff
@@ -48,11 +57,6 @@ static ngx_int_t    ngx_http_push_set_destination_body(ngx_http_request_t *r, ng
 
 static ngx_int_t    ngx_http_push_add_pool_cleaner_delete_file(ngx_pool_t *pool, ngx_file_t *file);
 
-typedef struct {
-	ngx_http_request_t             *request;
-	ngx_http_push_node_t           *node;
-	ngx_slab_pool_t                *shpool;
-}  ngx_http_push_destination_cleanup_t;
 static void         ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t * data); //request pool cleaner
 
 //misc stuff

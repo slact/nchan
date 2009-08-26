@@ -12,7 +12,7 @@ static ngx_int_t ngx_http_push_delete_node(ngx_rbtree_t *tree, ngx_rbtree_node_t
 static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_pool_t * shpool) {
 	ngx_queue_t                 *sentinel = &node->message_queue->queue;
 	time_t                       now = ngx_time();
-	ngx_http_push_msg_t			*msg=NULL;
+	ngx_http_push_msg_t         *msg=NULL;
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
@@ -42,58 +42,58 @@ static ngx_http_push_node_t *	find_node(
 			ngx_slab_pool_t        *shpool, 
 			ngx_log_t              *log)
 {
-    uint32_t                        hash;
-    ngx_rbtree_node_t              *node, *sentinel;
-    ngx_int_t                       rc;
-    ngx_http_push_node_t           *up;
+	uint32_t                        hash;
+	ngx_rbtree_node_t              *node, *sentinel;
+	ngx_int_t                       rc;
+	ngx_http_push_node_t           *up;
 	ngx_http_push_node_t           *trash = NULL;
 	if (tree==NULL) {
 		return NULL;
 	}
 	
-    hash = ngx_crc32_short(id->data, id->len);
-	
-    node = tree->root;
-    sentinel = tree->sentinel;
+	hash = ngx_crc32_short(id->data, id->len);
 
-    while (node != sentinel) {
+	node = tree->root;
+	sentinel = tree->sentinel;
 
-        if (hash < node->key) {
-            node = node->left;
-            continue;
-        }
+	while (node != sentinel) {
 
-        if (hash > node->key) {
-            node = node->right;
-            continue;
-        }
+		if (hash < node->key) {
+			node = node->left;
+			continue;
+		}
+
+		if (hash > node->key) {
+			node = node->right;
+			continue;
+		}
 
 		//every search is responsible for deleting one empty node, if it comes across one
 		if (trash==NULL) {
 			trash=clean_node((ngx_http_push_node_t *) node, shpool);
 		}
 		
-        /* hash == node->key */
+		/* hash == node->key */
 
-        do {
-            up = (ngx_http_push_node_t *) node;
+		do {
+			up = (ngx_http_push_node_t *) node;
 
-            rc = ngx_memn2cmp(id->data, up->id.data, id->len, up->id.len);
+			rc = ngx_memn2cmp(id->data, up->id.data, id->len, up->id.len);
 
-            if (rc == 0) {
+			if (rc == 0) {
 				if(trash != up){ //take out the trash
 					ngx_http_push_delete_node(tree, (ngx_rbtree_node_t *) trash, shpool);
 				}
 				clean_node(up, shpool);
 				return up;
-            }
+			}
 
-            node = (rc < 0) ? node->left : node->right;
+			node = (rc < 0) ? node->left : node->right;
 
-        } while (node != sentinel && hash == node->key);
+		} while (node != sentinel && hash == node->key);
 
-        break;
-    }
+		break;
+	}
 	//not found	
 	if(trash != up){ //take out the trash
 		ngx_http_push_delete_node(tree, (ngx_rbtree_node_t *) trash, shpool);
@@ -142,51 +142,51 @@ static void	ngx_rbtree_generic_insert(
 				ngx_rbtree_node_t *sentinel, 
 				int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right))
 {
-    for ( ;; ) {
-        if (node->key < temp->key) {
+	for ( ;; ) {
+		if (node->key < temp->key) {
 
-            if (temp->left == sentinel) {
-                temp->left = node;
-                break;
-            }
+			if (temp->left == sentinel) {
+				temp->left = node;
+				break;
+			}
 
-            temp = temp->left;
+			temp = temp->left;
 
-        } else if (node->key > temp->key) {
+		} else if (node->key > temp->key) {
 
-            if (temp->right == sentinel) {
-                temp->right = node;
-                break;
-            }
+			if (temp->right == sentinel) {
+				temp->right = node;
+				break;
+			}
 
-            temp = temp->right;
+			temp = temp->right;
 
-        } else { /* node->key == temp->key */
-            if (compare(node, temp) < 0) {
+		} else { /* node->key == temp->key */
+			if (compare(node, temp) < 0) {
 
-                if (temp->left == sentinel) {
-                    temp->left = node;
-                    break;
-                }
+				if (temp->left == sentinel) {
+					temp->left = node;
+					break;
+				}
 
-                temp = temp->left;
+				temp = temp->left;
 
-            } else {
+			} else {
 
-                if (temp->right == sentinel) {
-                    temp->right = node;
-                    break;
-                }
+				if (temp->right == sentinel) {
+					temp->right = node;
+					break;
+				}
 
-                temp = temp->right;
-            }
-        }
-    }
+				temp = temp->right;
+			}
+		}
+	}
 
-    node->parent = temp;
-    node->left = sentinel;
-    node->right = sentinel;
-    ngx_rbt_red(node);
+	node->parent = temp;
+	node->left = sentinel;
+	node->right = sentinel;
+	ngx_rbt_red(node);
 }
 
 
@@ -195,16 +195,16 @@ static void	ngx_http_push_rbtree_insert(
 				ngx_rbtree_node_t *node, 
 				ngx_rbtree_node_t *sentinel) 
 {
-    ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
+	ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
 }
 
 static int ngx_http_push_compare_rbtree_node(
 				const ngx_rbtree_node_t *v_left,
 				const ngx_rbtree_node_t *v_right)
 {
-    ngx_http_push_node_t *left, *right;
-    left = (ngx_http_push_node_t *) v_left;
-    right = (ngx_http_push_node_t *) v_right;
-	
+	ngx_http_push_node_t *left, *right;
+	left = (ngx_http_push_node_t *) v_left;
+	right = (ngx_http_push_node_t *) v_right;
+
 	return ngx_memn2cmp(left->id.data, right->id.data, left->id.len, right->id.len);
 }
