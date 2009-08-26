@@ -5,29 +5,32 @@
 
 //with the declarations
 typedef struct {
-	ngx_int_t                  	index;
+	ngx_int_t               index;
+	time_t                  buffer_timeout;
+	ngx_flag_t              buffer_enabled;
 } ngx_http_push_loc_conf_t;
+#define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 
 typedef struct {
 	size_t                  shm_size;
-	time_t                  buffer_timeout;
 } ngx_http_push_main_conf_t;
 
 //message queue
 typedef struct {
-    ngx_queue_t				queue;
-	ngx_str_t				content_type;
-	ngx_str_t				charset;
-	ngx_buf_t				*buf;
+    ngx_queue_t              queue;
+	ngx_str_t                content_type;
+	ngx_str_t                charset;
+	ngx_buf_t               *buf;
+	time_t                   expires;
 } ngx_http_push_msg_t;
 
 //our typecast-friendly rbtree node
 typedef struct ngx_http_push_node_s ngx_http_push_node_t;
 struct ngx_http_push_node_s {
-	ngx_rbtree_node_t                node;
-	ngx_str_t						 id;
-    ngx_http_push_msg_t				*message_queue;
-	ngx_http_request_t				*request;
+	ngx_rbtree_node_t               node;
+	ngx_str_t                       id;
+    ngx_http_push_msg_t            *message_queue;
+	ngx_http_request_t             *request;
 };
 
 //source stuff
@@ -52,9 +55,10 @@ typedef struct {
 static void 		ngx_http_push_destination_cleanup(ngx_http_push_destination_cleanup_t * data); //request pool cleaner
 
 //misc stuff
-ngx_shm_zone_t * 	ngx_http_push_shm_zone = NULL;
-static void * 		ngx_http_push_create_loc_conf(ngx_conf_t *cf);
-static void *       ngx_http_push_create_main_conf(ngx_conf_t *cf);
+ngx_shm_zone_t *	ngx_http_push_shm_zone = NULL;
+static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf);
+static void *   	ngx_http_push_create_loc_conf(ngx_conf_t *cf);
+static char *   	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static ngx_int_t	ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t 	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf);

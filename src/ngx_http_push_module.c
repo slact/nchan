@@ -7,14 +7,21 @@
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
-    { ngx_string("push_buffer_timeout"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    { ngx_string("push_message_timeout"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_sec_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_push_main_conf_t, buffer_timeout),
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, buffer_timeout),
       NULL },
-	
-    { ngx_string("push_shm_size"),
+
+    { ngx_string("push_queue_messages"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, buffer_enabled),
+      NULL },
+
+    { ngx_string("push_buffer_size"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
@@ -27,7 +34,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
-	
+
     { ngx_string("push_destination"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
       ngx_http_push_destination,
@@ -47,7 +54,7 @@ static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
     ngx_http_push_create_loc_conf,         /* create location configuration */
-    NULL                                   /* merge location configuration */
+    ngx_http_push_merge_loc_conf,          /* merge location configuration */
 };
 
 ngx_module_t  ngx_http_push_module = {
@@ -103,7 +110,11 @@ static char *ngx_http_push_destination(ngx_conf_t *cf, ngx_command_t *cmd, void 
 
 static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	ngx_http_push_main_conf_t	*conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
-	size_t                       shm_size = ngx_align(conf->shm_size, ngx_pagesize);
+	size_t                       shm_size;
+	if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
+		conf->shm_size=3145728; //3megabytes
+	}
+	shm_size = ngx_align(conf->shm_size, ngx_pagesize);
 	if (shm_size < 8 * ngx_pagesize) {
         ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_shm_size value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
         shm_size = 8 * ngx_pagesize;
@@ -111,7 +122,7 @@ static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
 		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
 	}
-	ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
+	ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
 	return ngx_http_push_set_up_shm(cf, shm_size);
 }
 
@@ -155,24 +166,33 @@ static ngx_int_t ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
     return NGX_OK;
 }
 
-static void * ngx_http_push_create_main_conf(ngx_conf_t *cf) {
+static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf) {
 	ngx_http_push_main_conf_t        *mcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_main_conf_t));
 	if(mcf == NULL) {
 		return NGX_CONF_ERROR;
 	}
-	mcf->buffer_timeout=3600; //1 hour
-	mcf->shm_size=3145728; //3megabytes
+	mcf->shm_size=NGX_CONF_UNSET_SIZE;
 	return mcf;
 }
 
-static void * ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
+static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	ngx_http_push_loc_conf_t 	*lcf;
 	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
 	if(lcf == NULL) {
 		return NGX_CONF_ERROR;
 	}
+	lcf->buffer_timeout=NGX_CONF_UNSET;
+	lcf->buffer_enabled=NGX_CONF_UNSET;
 	return lcf;
 }
+static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child){
+	ngx_http_push_loc_conf_t *prev = parent;
+	ngx_http_push_loc_conf_t *conf = child;
+	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
+	ngx_conf_merge_value(conf->buffer_enabled, prev->buffer_enabled, 1);
+	return NGX_CONF_OK;
+}
+
 
 // here go the handlers
 #define ngx_http_push_set_id(id, vv, r, cf, log, ret_err)                     \
@@ -215,7 +235,6 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
     ngx_http_push_node_t  			*node;
 	ngx_http_push_msg_t				*msg;
 	ngx_http_request_t				*existing_request;
-	
 	if (r->method != NGX_HTTP_POST) {
 		return NGX_HTTP_NOT_ALLOWED;
     }
@@ -241,7 +260,9 @@ static ngx_int_t ngx_http_push_destination_handler(ngx_http_request_t *r)
 		ngx_shmtx_lock(&shpool->mutex);
 	}
 	
-	msg = ngx_http_push_dequeue_message(node);
+
+	msg = ngx_http_push_dequeue_message(node); //expired messages are removed from queue during get_node()
+
 	ngx_shmtx_unlock(&shpool->mutex);
 	if (msg==NULL) { //message queue is empty
 		//this means we must wait for a message.
@@ -344,8 +365,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	}
 	
 	//save the freaking body
-	if(r->request_body->temp_file==NULL) //everything in the first buffer
-	{
+	if(r->request_body->temp_file==NULL) {//everything in the first buffer
 		buf=r->request_body->bufs->buf;
 	}
 	else if(r->request_body->bufs->next!=NULL) {
@@ -364,13 +384,15 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 	ngx_http_push_msg_t		*msg;
 	size_t 					 content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
 	
-	if (r_client==NULL && r->method == NGX_HTTP_POST) { //no clients are waiting for the message. create the message in shared memory for storage
+	if (r_client==NULL && r->method == NGX_HTTP_POST && cf->buffer_enabled!=0) {
+	//no clients are waiting for the message, and buffers are not disabled. create the message in shared memory for storage
 		msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
 		if (msg==NULL) {
 			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate message in shared memory");
 			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 			return;
 		}
+		
 		//create a buffer copy in shared mem
 		ngx_shmtx_lock(&shpool->mutex);
 		ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
@@ -409,7 +431,10 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 		else {
 			msg->content_type.len=0;
 			msg->content_type.data=NULL;
-		}		
+		}
+		//set the expiration time
+		time_t            timeout = cf->buffer_timeout;
+		msg->expires= timeout==0 ? 0 : (ngx_time() + timeout);
 		ngx_shmtx_unlock(&shpool->mutex);
 		//okay, done storing. now respond to the source request
 		r->headers_out.status=NGX_HTTP_OK;
@@ -435,7 +460,7 @@ static void ngx_http_push_source_body_handler(ngx_http_request_t * r) {
 			return;
 		}
 		
-		if(buf->in_file && buf->file->fd!=NGX_INVALID_FILE){ 
+		if(buf->in_file && buf->file->fd!=NGX_INVALID_FILE){
 			//delete file when the push_source request finishes
 			ngx_http_push_add_pool_cleaner_delete_file(r->pool, buf->file);
 		}

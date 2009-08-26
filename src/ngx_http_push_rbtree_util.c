@@ -8,18 +8,35 @@ static void ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, ngx_rbtree_node_
 static void ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 static int ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
 
+static ngx_http_push_node_t * clean_node(ngx_http_push_node_t * node, ngx_slab_pool_t * shpool) {
+	ngx_queue_t                 *sentinel = &node->message_queue->queue;
+	time_t                       now = ngx_time();
+	ngx_http_push_msg_t			*msg=NULL;
+	while(!ngx_queue_empty(sentinel)){
+		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
+		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
+			ngx_queue_remove((&msg->queue));
+			ngx_slab_free_locked(shpool, msg);
+		}
+		else { //definitely a message left to send
+			return NULL;
+		}
+	}
+	//at this point, the queue is empty
+	return node->request==NULL ? node : NULL; //if no request, return this node to be deleted
+}
+
 static ngx_http_push_node_t * 
-find_node(	ngx_str_t 			* id, 
-			ngx_rbtree_t	* tree, 
-			ngx_slab_pool_t		* shpool, 
-			ngx_log_t 			* log)
+find_node(	ngx_str_t           *id, 
+			ngx_rbtree_t        *tree, 
+			ngx_slab_pool_t     *shpool, 
+			ngx_log_t           *log)
 {
     uint32_t                         hash;
     ngx_rbtree_node_t               *node, *sentinel;
     ngx_int_t                        rc;
-    ngx_http_push_node_t  			*up;
-	ngx_http_push_node_t			*trash = NULL;
-
+    ngx_http_push_node_t            *up;
+	ngx_http_push_node_t            *trash = NULL;
 	if (tree==NULL)
 		return NULL;
 	
@@ -42,11 +59,7 @@ find_node(	ngx_str_t 			* id,
 
 		//every search is responsible for deleting one empty node, if it comes across one
 		if (trash==NULL) {
-			if(ngx_queue_empty(& ((ngx_http_push_node_t *) node)->message_queue->queue)
-				&& ((ngx_http_push_node_t *) node)->request==NULL )
-			{
-				trash = (ngx_http_push_node_t *) node;
-			}
+			trash=clean_node((ngx_http_push_node_t *) node, shpool);
 		}
 		
         /* hash == node->key */
@@ -60,7 +73,8 @@ find_node(	ngx_str_t 			* id,
 				if(trash !=NULL && trash != up){ //take out the trash
 					ngx_rbtree_delete(tree, (ngx_rbtree_node_t *) trash);
 					ngx_slab_free_locked(shpool, trash);
-				}				
+				}
+				clean_node(up, shpool);
 				return up;
             }
 
