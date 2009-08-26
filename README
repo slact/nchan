@@ -5,7 +5,7 @@ via upstream proxies, use this module to have nginx accept client connections.
 Communication with clients is done via a different location, one only accessible
 to your application.
 
-Example conf:
+----------- Example Config ------------
 http {
 	#maximum amount of memory the push module is allowed to use 
 	#for buffering and stuff
@@ -18,6 +18,7 @@ http {
 			default_type  text/plain;
 			set $push_id $arg_id; #/?id=239aff3 or somesuch
 			push_source;
+			push_buffer_timeout 2h; #buffered messages expire after 2 hours
 		}
 	}
 
@@ -31,7 +32,35 @@ http {
 		}
 	}
 }	
-	
+
+-- Configuration options & variables --
+Options:
+push_source (no arguments,  server or location config)
+defines a server or location as the push_source, described below.
+
+push_destination (no arguments, in server or location config)
+defines a push_destination server or location
+
+push_queue_messages (on|off (default to on), anywhere)
+Whether or not message queuing is enabled. If set to off, 
+messages will be delivered only if a destination connection is already 
+present for the id.
+
+push_message_timeout (time (default to 1h), anywhere)
+How long a message may be queued before it is considered expired.
+For messages that never expire, set this to 0.
+
+push_shm_size (size (default to 3M), main config)
+The size of the memory chunk this module will use for all message queuing and
+buffering.
+
+Variables:
+$push_id
+The id associated with a push_source or push_destination.
+set $push_id $arg_id would set $push_id to the url parameter "id"
+
+------------ Operation ----------------	
+Assuming the example config given above:
 Clients will connect to http://example.com:8088/?id=... and have the 
 response delayed until a message is POSTed to http://localhost:8089/?id=...
 Messages can be sent to clients that have not yet connected, i.e. they are queued.
@@ -39,14 +68,11 @@ Messages can be sent to clients that have not yet connected, i.e. they are queue
 Upon sending a request to a push_source location, the server will respond with 
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
 destination id is presently connected), a 202 Accepted will be sent.
-
- -------
  
 It's a damn good idea to make sure the push_source location is not visible
 publically, as it is intended for use only by your application.
 
---- "Protocol" spec ---
-
+--------- "Protocol" spec -------------
 Let push_source refer to a location (or server) configured with the push_source; option.
 Let push_destination refer to a location (or server) configured with the push_destination; option.
 
