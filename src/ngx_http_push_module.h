@@ -31,7 +31,7 @@ typedef struct {
 	ngx_http_request_t             *request;
 	ngx_http_push_node_t           *node;
 	ngx_slab_pool_t                *shpool;
-}  ngx_http_push_client_cleanup_t;
+}  ngx_http_push_listener_cleanup_t;
 
 //our typecast-friendly rbtree node
 struct ngx_http_push_node_s {
@@ -41,26 +41,26 @@ struct ngx_http_push_node_s {
 	ngx_uint_t                      message_queue_len;
 	ngx_http_request_t             *request;
 	time_t                          last_seen;
-	ngx_http_push_client_cleanup_t *cleanup;
+	ngx_http_push_listener_cleanup_t *cleanup;
 };
 
-//server stuff
-static char *       ngx_http_push_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_server hook
-static 	ngx_int_t   ngx_http_push_server_handler(ngx_http_request_t * r);
-static void         ngx_http_push_server_body_handler(ngx_http_request_t * r);
+//sender stuff
+static char *       ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_sender hook
+static 	ngx_int_t   ngx_http_push_sender_handler(ngx_http_request_t * r);
+static void         ngx_http_push_sender_body_handler(ngx_http_request_t * r);
 static ngx_int_t    ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue_len, time_t last_seen);
 
-//client stuff
-static char *       ngx_http_push_client(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_client hook
-static ngx_int_t    ngx_http_push_client_handler(ngx_http_request_t * r);
+//listener stuff
+static char *       ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_listener hook
+static ngx_int_t    ngx_http_push_listener_handler(ngx_http_request_t * r);
 
-static ngx_int_t    ngx_http_push_set_client_header(ngx_http_request_t *r, ngx_str_t *content_type);
+static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_str_t *content_type);
 static ngx_chain_t* ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf);
-static ngx_int_t    ngx_http_push_set_client_body(ngx_http_request_t *r, ngx_chain_t *out);
+static ngx_int_t    ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out);
 
 static ngx_int_t    ngx_http_push_add_pool_cleaner_delete_file(ngx_pool_t *pool, ngx_file_t *file);
 
-static void         ngx_http_push_client_cleanup(ngx_http_push_client_cleanup_t * data); //request pool cleaner
+static void         ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t * data); //request pool cleaner
 
 //misc stuff
 ngx_shm_zone_t *    ngx_http_push_shm_zone = NULL;

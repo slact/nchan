@@ -9,7 +9,7 @@ to your application.
 http {
 	#maximum amount of memory the push module is allowed to use 
 	#for buffering and stuff
-	push_shm_size	12M; #default is 3M
+	push_buffer_size	12M; #default is 3M
 
 	#push_server
 	server {
@@ -17,8 +17,8 @@ http {
 		location / {
 			default_type  text/plain;
 			set $push_id $arg_id; #/?id=239aff3 or somesuch
-			push_server;
-			push_buffer_timeout 2h; #buffered messages expire after 2 hours
+			push_source;
+			push_message_timeout 2h; #buffered messages expire after 2 hours
 		}
 	}
 
@@ -28,7 +28,7 @@ http {
 		location / {
 			default_type  text/plain;
 			set $push_id $arg_id; #/?id=239aff3 or somesuch
-			push_client;
+			push_listener;
 		}
 	}
 }	
@@ -73,45 +73,10 @@ It's a damn good idea to make sure the push_server location is not visible
 publically, as it is intended for use only by your application.
 
 --------- "Protocol" spec -------------
-Let push_server refer to a location (or server) configured with the push_server; option.
-Let push_client refer to a location (or server) configured with the push_client; option.
-
-at push_client:
-	Only POST requests are allowed to this location. The response will be delayed until a message
-	for the $push_id of said requests becomes available, at which point its contents will be sent
-	in the body of the response with a 200 OK status code.
-	
-	When two requests to this location have the same $push_id, messages will be delivered to the
-	newer of the two. The older request receives an immediate response with a 409 Conflict status
-	code.
-	
-at push_server:
-	POST, PUT, GET, and DELETE requests are allowed at this location.
-	A POST request will have its body ("the message"), sent to the request identified by 
-	$push_id, with the Content-Type header forwarded. If no such request exists, the message 
-	will be queued until it can be sent. Multiple messages can be queued, and will be received 
-	in a FILO order. When the request results in an immediate sending of the message (i.e. there 
-	was a waiting request identified by $push_id), the response will have a 201 Created status. 
-	If the message is queued, a 202 Accepted status is sent back.
-	
-	A PUT request behaves identically to a POST with the exception that messages will NOT be queued.
-	Instead, if this request is sent while there is no waiting request identified by $push_id,
-	the message will be lost, and the server will return a 200 OK status code.
-	
-	A DELETE deletes all messages intended for $push_id. If there is a waiting
-	request on push_client identified by $push_id, it will be immediately responded to with a
-	410 Gone status code.
-
-	All valid requests will be responded to with a 200 OK (everything went well, and no message was
-	or will be sent), 201 Created (Message was sent), 202 Accepted (message was queued), or 
-	404 Not Found (only for GET, and DELETE, if no such id is known). All 2xx-status responses
-	will contain a body with information about the id -- the # of queued messaged and the number of
-	seconds since a client made a request on that id (or "never" if it was never made or if it had
-	expired)
+see http://wiki.github.com/slact/nginx_http_push_module/queuing-long-poll-relay-protocol
 -----------------------------
 
 TODO: 
-	- Implelent DELETE for push_server. 
 	- Add a push_accomodate_strangers setting (presently defaulting to on). When set to off, requests
 	  with a previously-unseen $push_id will be rejected. 
 	- When POSTing to push_server, if Content-Type is "message/http", the response sent to $push_id 
