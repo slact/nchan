@@ -2,8 +2,7 @@ Nginx push module - redirect a request body to other waiting requests
 
 If you want a long-polling server but don't want to wait on idle connections
 via upstream proxies, use this module to have nginx accept client connections.
-Communication with clients is done via a different location, one only accessible
-to your application.
+Send responses to clients by sending an HTTP request to a different location.
 
 ----------- Example Config ------------
 http {
