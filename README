@@ -65,9 +65,9 @@ Clients will connect to http://example.com:8088/?id=... and have the
 response delayed until a message is POSTed to http://localhost:8089/?id=...
 Messages can be sent to clients that have not yet connected, i.e. they are queued.
 
-Upon sending a request to a push_server location, the server will respond with 
+Upon sending a request to a push_sender location, the server will respond with 
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
-push_client id is presently connected), a 202 Accepted will be sent.
+push_listener with this id is presently connected), a 202 Accepted will be sent.
  
 If you indend to have the push_sender be a server-side application, 
 it's a damn good idea to make sure the push_server location is not visible
