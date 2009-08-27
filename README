@@ -11,18 +11,18 @@ http {
 	#for buffering and stuff
 	push_buffer_size	12M; #default is 3M
 
-	#push_server
+	#sender
 	server {
 	listen       localhost:8089; 
 		location / {
 			default_type  text/plain;
 			set $push_id $arg_id; #/?id=239aff3 or somesuch
-			push_source;
+			push_sender;
 			push_message_timeout 2h; #buffered messages expire after 2 hours
 		}
 	}
 
-	#long-polling client
+	#receiver
 	server {
 		listen       8088;
 		location / {
@@ -31,7 +31,7 @@ http {
 			push_listener;
 		}
 	}
-}	
+}
 
 -- Configuration options & variables --
 Options:
