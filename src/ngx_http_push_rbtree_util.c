@@ -47,7 +47,7 @@ static ngx_http_push_node_t *	find_node(
 	uint32_t                        hash;
 	ngx_rbtree_node_t              *node, *sentinel;
 	ngx_int_t                       rc;
-	ngx_http_push_node_t           *up;
+	ngx_http_push_node_t           *up = NULL;
 	ngx_http_push_node_t           *trash = NULL;
 	if (tree==NULL) {
 		return NULL;
