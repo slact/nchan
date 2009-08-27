@@ -35,10 +35,10 @@ http {
 
 -- Configuration options & variables --
 Options:
-push_server (no arguments,  server or location config)
+push_sender (no arguments,  server or location config)
 defines a server or location as the push_server, described below.
 
-push_client (no arguments, in server or location config)
+push_listener (no arguments, in server or location config)
 defines a push_client server or location
 
 push_queue_messages (on|off (default to on), anywhere)
@@ -50,7 +50,7 @@ push_message_timeout (time (default to 1h), anywhere)
 How long a message may be queued before it is considered expired.
 For messages that never expire, set this to 0.
 
-push_shm_size (size (default to 3M), main config)
+push_buffer_size (size (default to 3M), main config)
 The size of the memory chunk this module will use for all message queuing and
 buffering.
 
@@ -69,7 +69,8 @@ Upon sending a request to a push_server location, the server will respond with
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
 push_client id is presently connected), a 202 Accepted will be sent.
  
-It's a damn good idea to make sure the push_server location is not visible
+If you indend to have the push_sender be a server-side application, 
+it's a damn good idea to make sure the push_server location is not visible
 publically, as it is intended for use only by your application.
 
 --------- "Protocol" spec -------------
