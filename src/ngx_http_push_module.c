@@ -58,7 +58,7 @@ static ngx_int_t ngx_http_push_set_id(ngx_str_t *id, ngx_http_request_t *r, ngx_
 		}                                                                     \
 	}
 
-#define ngx_http_push_remove_listener_request_locked(node)                 \
+#define ngx_http_push_remove_listener_request_locked(node)                    \
 	(node)->request = NULL;                                                   \
 	if((node)->cleanup!=NULL) {                                               \
 		(node)->cleanup->node=NULL;                                           \
@@ -213,19 +213,25 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	
 	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
 		//save the freaking body
-		if(r->request_body->temp_file==NULL) {//everything in the first buffer
-			buf=r->request_body->bufs->buf;
+		if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
+			//empty message. blank buffer, please.
+			buf = ngx_create_temp_buf(r->pool, 0);
 		}
-		else if(r->request_body->bufs->next!=NULL) {
-			buf=r->request_body->bufs->next->buf;
+		else { //non-empty body
+			if(r->request_body->temp_file==NULL) {//everything in the first buffer
+				buf=r->request_body->bufs->buf;
+			}
+			else if(r->request_body->bufs->next!=NULL) {
+				buf=r->request_body->bufs->next->buf;
+			}
+			else {
+				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer not found");
+				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+				return; 
+			}
 		}
-		else {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer not found");
-			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-			return; 
-		}
-		if (buf==NULL) { //why no buffer?...
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer is null");
+		if (buf==NULL) {
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate an empty buffer");
 			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 			return; 
 		}
