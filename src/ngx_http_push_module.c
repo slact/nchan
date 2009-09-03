@@ -17,7 +17,7 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t 
 	}
 	ngx_queue_t                    *qmsg = ngx_queue_head(sentinel);
 	ngx_queue_remove(qmsg);
-	node->message_queue_len--;
+	node->message_queue_size--;
 	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
 
@@ -186,7 +186,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	ngx_uint_t                      method = r->method;
 	
 	time_t                          last_seen = 0;
-	ngx_uint_t                      queue_len = 0;
+	ngx_uint_t                      queue_size = 0;
 	
 	if(ngx_http_push_set_id(&id, r, cf) !=NGX_OK) {
 		return;
@@ -206,7 +206,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	}
 	if (node!=NULL) {
 		r_listener = node->request;
-		queue_len = node->message_queue_len;
+		queue_size = node->message_queue_size;
 		last_seen = node->last_seen;
 	}
 	ngx_shmtx_unlock(&shpool->mutex);
@@ -278,8 +278,8 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			}
 			msg->buf=buf_copy;
 			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
-			node->message_queue_len++;
-			queue_len = node->message_queue_len;
+			node->message_queue_size++;
+			queue_size = node->message_queue_size;
 
 			//store the content-type
 			if(content_type_len>0) {
@@ -375,12 +375,12 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		ngx_http_finalize_request(r, ngx_http_send_header(r));	
 	} 
 	else {
-		ngx_http_finalize_request(r, ngx_http_push_node_info(r, queue_len, last_seen));
+		ngx_http_finalize_request(r, ngx_http_push_node_info(r, queue_size, last_seen));
 	}
 	return;
 }
 
-static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue_len, time_t last_seen) {
+static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue_size, time_t last_seen) {
 	ngx_buf_t                      *b;
 	ngx_uint_t                      len;
 	len = sizeof("queued: \r\n") + NGX_INT_T_LEN + sizeof("requested: \r\n") + NGX_INT_T_LEN;
@@ -389,7 +389,7 @@ static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue
 	if (b == NULL) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
-	b->last = ngx_sprintf(b->last, "queued: %ui\r\n", queue_len);
+	b->last = ngx_sprintf(b->last, "queued: %ui\r\n", queue_size);
 	if(last_seen==0){
 		b->last = ngx_cpymem(b->last, "requested: never\r\n", sizeof("requested: never\r\n") - 1);
 	}
