@@ -17,7 +17,7 @@ static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_p
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-			node->message_queue_len--;
+			node->message_queue_size--;
 			ngx_queue_remove((&msg->queue));
 			ngx_slab_free_locked(shpool, msg);
 		}

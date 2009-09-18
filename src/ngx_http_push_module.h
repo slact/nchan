@@ -22,16 +22,27 @@ typedef struct {
 	ngx_str_t                       charset;
 	ngx_buf_t                      *buf;
 	time_t                          expires;
+	time_t                          message_time; //tag message by time
+	ngx_int_t                       message_tag; //used in conjunction with message_time if more than one message have the same time.
 } ngx_http_push_msg_t;
 
+typedef struct ngx_http_push_listener_s ngx_http_push_listener_t;
 typedef struct ngx_http_push_node_s ngx_http_push_node_t;
 
 //cleaning supplies
 typedef struct {
 	ngx_http_request_t             *request;
-	ngx_http_push_node_t           *node;
+	ngx_http_push_listener_t       *listener;
 	ngx_slab_pool_t                *shpool;
+	ngx_http_push_node_t           *node;
 }  ngx_http_push_listener_cleanup_t;
+
+//listener request queue
+struct ngx_http_push_listener_s {
+    ngx_queue_t                        queue;
+	ngx_http_request_t                *request;
+	ngx_http_push_listener_cleanup_t  *cleanup;
+};
 
 //our typecast-friendly rbtree node
 struct ngx_http_push_node_s {
@@ -39,9 +50,10 @@ struct ngx_http_push_node_s {
 	ngx_str_t                       id;
     ngx_http_push_msg_t            *message_queue;
 	ngx_uint_t                      message_queue_size;
+	ngx_http_push_listener_t       *listener_queue;
+	ngx_uint_t                      listener_queue_size;
 	ngx_http_request_t             *request;
 	time_t                          last_seen;
-	ngx_http_push_listener_cleanup_t *cleanup;
 };
 
 //sender stuff
@@ -54,13 +66,15 @@ static ngx_int_t    ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t qu
 static char *       ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_listener hook
 static ngx_int_t    ngx_http_push_listener_handler(ngx_http_request_t * r);
 
-static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_str_t *content_type);
+static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg);
 static ngx_chain_t* ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf);
 static ngx_int_t    ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out);
 
 static ngx_int_t    ngx_http_push_add_pool_cleaner_delete_file(ngx_pool_t *pool, ngx_file_t *file);
 
 static void         ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t * data); //request pool cleaner
+static void         ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);
+
 
 //misc stuff
 ngx_shm_zone_t *    ngx_http_push_shm_zone = NULL;
@@ -73,6 +87,8 @@ static ngx_int_t    ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void 
 static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
 
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node); // doesn't free associated memory
+static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_node_t * node); //doesn't free associated memory
+static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
 
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
