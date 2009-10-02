@@ -90,6 +90,9 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t 
 static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_node_t * node); //doesn't free associated memory
 static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
 
+static void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node);
+static void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
+
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
 #define ngx_queue_insert_tail(h, x)                                           \
