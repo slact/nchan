@@ -37,6 +37,7 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t 
 	return msg;
 }
 
+//dequeue a listener without freeing its associated memory.
 static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_node_t * node) { //does NOT free associated memory.
 	ngx_queue_t                    *sentinel = &node->listener_queue->queue; 
 	if(ngx_queue_empty(sentinel)) { return NULL; }
@@ -45,6 +46,26 @@ static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_n
 	ngx_queue_remove(qlistener);
 	node->message_queue_size--;
 	return listener;
+}
+
+//remove the message from queue and free associated memory. assumes shpool is already locked.
+static void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
+	ngx_queue_remove((msg->queue));
+	if(msg->buf->file!=NULL) {
+		ngx_delete_file(msg->buf->file->name); //should I care about deletion errors?
+		ngx_close_file(msg->buf->file->fd); //again, carest thou aboutst thine errorests?
+	}
+	ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
+	ngx_slab_free_locked(shpool, msg); 
+}
+
+static void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node) {
+	//remove the oldest message from queue and free associated memory. assumes shpool is already locked.
+	ngx_queue_t                    *sentinel = &node->message_queue->queue; 
+	if(ngx_queue_empty(sentinel)) {
+		return NULL;
+	}
+	return ngx_http_push_delete_message(shpool, node, ngx_queue_last(sentinel));
 }
 
 static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status) {
@@ -206,7 +227,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		
 		return NGX_DONE; //and wait.
 	}
-	else if (msg==NULL && status==NGX_DECLINED) { 
+	else if (msg==NULL && status==NGX_DECLINED) {
 		//listener wants an expired message
 		//TODO: entity-identifiers for oldest available message
 		return NGX_HTTP_NO_CONTENT; 
@@ -249,9 +270,11 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
 		out = ngx_http_push_create_output_chain(r, msg->buf); 	//buffer is copied
 		out->buf->file=file;
+		/*
 		//we no longer need the message and can free its shm slab.
 		ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
 		ngx_slab_free_locked(shpool, msg); 
+		*/
 		ngx_shmtx_unlock(&shpool->mutex);
 		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
 			return rc;
@@ -265,7 +288,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	}
 }
 
-static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
+static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) { 
 	ngx_str_t                       id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
@@ -328,7 +351,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		ngx_http_push_msg_t            *msg=NULL, *previous_msg=NULL;
 		size_t                          content_type_len; 
 		content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
-	
+		
 		if (r->method == NGX_HTTP_POST && cf->buffer_enabled!=0) {
 		//buffers are not disabled. create the message in shared memory for storage
 			msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
@@ -350,7 +373,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_lock(&shpool->mutex);
 			
 			msg->buf=buf_copy;
-			previous_msg = ngx_http_push_get_last_message(node);
+			previous_msg = ngx_http_push_get_latest_message(node);
 			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
 			
 			//Stamp the new message with entity tags
@@ -358,6 +381,12 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			msg->message_tag=(msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;
 			
 			node->message_queue_size++;
+			
+			//now see if the queue is too big
+			if(node->message_queue_size > cf->max_message_queue_size) {
+				ngx_http_push_delete_oldest_message(shpool, node);
+			}
+			
 			queue_size = node->message_queue_size;
 			
 			//store the content-type
@@ -372,7 +401,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			}
 			//set the expiration time
 			time_t                      timeout = cf->buffer_timeout;
-			msg->expires= timeout==0 ? 0 : (ngx_time() + timeout);
+			msg->expires=timeout==0 ? 0 : (ngx_time() + timeout);
 			ngx_shmtx_unlock(&shpool->mutex);
 			//okay, done storing. now respond to the sender request
 			r->headers_out.status=NGX_HTTP_OK;
@@ -562,8 +591,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 	return out;	
 }
 
-static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out)
-{
+static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out) {
 	if (out==NULL) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
@@ -574,6 +602,7 @@ static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *dat
 	if(data->listener!=NULL) {
 		ngx_shmtx_lock(&data->shpool->mutex);
 		ngx_queue_remove(&(data->listener->queue));
+		ngx_slab_free_locked(shpool, data->listener);
 		data->node->listener_queue_size--;
 		ngx_shmtx_unlock(&data->shpool->mutex);
 	}

@@ -54,7 +54,7 @@ struct ngx_http_push_node_s {
 	ngx_uint_t                      listener_queue_size;
 	ngx_http_request_t             *request;
 	time_t                          last_seen;
-};
+}; 
 
 //sender stuff
 static char *       ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_sender hook
