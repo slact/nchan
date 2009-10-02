@@ -436,10 +436,12 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	return;
 }
 
+//print information about a node ( channel )
 static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue_size, time_t last_seen) {
 	ngx_buf_t                      *b;
 	ngx_uint_t                      len;
-	len = sizeof("queued: \r\n") + NGX_INT_T_LEN + sizeof("requested: \r\n") + NGX_INT_T_LEN;
+	time_t                          time_elapsed = ngx_time() - last_seen;
+	len = sizeof("queued: \r\n") + NGX_INT_T_LEN + sizeof("requested:  seconds ago\r\n") + NGX_INT_T_LEN + sizeof("waiting: \r\n") + NGX_INT_T_LEN;;
 	
 	b = ngx_create_temp_buf(r->pool, len);
 	if (b == NULL) {
@@ -449,8 +451,8 @@ static ngx_int_t ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t queue
 	if(last_seen==0){
 		b->last = ngx_cpymem(b->last, "requested: never\r\n", sizeof("requested: never\r\n") - 1);
 	}
-	else {
-		b->last = ngx_sprintf(b->last, "requested: %ui\r\n", ngx_time() - last_seen);
+	else {		
+		b->last = ngx_sprintf(b->last, time_elapsed==1 ? "requested: %ui second ago\r\n" : "requested: %ui seconds ago\r\n", time_elapsed);
 	}
 	
 	r->headers_out.content_type.len = sizeof("text/plain") - 1;
@@ -547,7 +549,6 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 	out->next = NULL;
 	return out;	
 }
-
 
 static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out) {
 	if (out==NULL) {
