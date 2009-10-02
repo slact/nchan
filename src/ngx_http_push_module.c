@@ -367,10 +367,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				rc = ngx_http_push_set_listener_header(r_listener, msg);
 				ngx_shmtx_unlock(&shpool->mutex);
 				rc = ngx_http_send_header(r_listener);
-				
-				ngx_shmtx_lock(&shpool->mutex);
-				
-				ngx_shmtx_unlock(&shpool->mutex);
+				ngx_slab_free(shpool, listener);
 				ngx_http_finalize_request(r_listener, ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf)));
 				
 			}
