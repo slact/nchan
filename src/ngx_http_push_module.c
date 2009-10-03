@@ -49,18 +49,23 @@ static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_n
 	return listener;
 }
 
+static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
+	ngx_shmtx_lock(&shpool->mutex);
+	ngx_http_push_listener_t       *listener = ngx_http_push_queue_listener_request_locked(node, r, shpool);
+	ngx_shmtx_unlock(&shpool->mutex);
+	return listener;
+}
+
 //shpool must be locked.
-static ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
-	ngx_http_push_listener_t       *listener = ngx_slab_alloc(shpool, sizeof(ngx_http_push_listener_t));
+static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
+	ngx_http_push_listener_t       *listener = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_listener_t));
 	if(listener==NULL) { //unable to allocate request queue element
 		return NULL;
 	}
-	ngx_shmtx_lock(&shpool->mutex);
 	ngx_queue_insert_tail(&node->listener_queue->queue, &listener->queue);
 	listener->request = r;
 	node->listener_queue_size++;
 	return listener;
-	
 }
 
 // remove a message from queue and free all associated memory. first lock the shpool, though.
@@ -71,7 +76,7 @@ static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx
 }
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
-static void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
+static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
 	ngx_queue_remove(&msg->queue);
 	if(&msg->buf->file!=NULL) {
 		ngx_delete_file(&msg->buf->file->name); //should I care about deletion errors?
@@ -104,6 +109,7 @@ static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t *no
 	// do we want a future message?
 	msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue); 
 	if(time >= msg->message_time || (time == msg->message_time && tag >= msg->message_tag)) {
+		//don't forget that the only reason queue emptiness needn't be checked is because the sentinel's values are initialized to 0.
 		*status=NGX_DONE;
 		return NULL;
 	}
@@ -205,7 +211,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	//no matching message and it wasn't because an expired message was requested.
 	if (status==NGX_DONE) {
 		//this means we must wait for a message.
-		if(ngx_http_push_queue_listener_request(node, r, shpool)==NULL) {
+		if(ngx_http_push_queue_listener_request_locked(node, r, shpool)==NULL) {
 			//todo: emergency out-of-memory garbage collection, retry
 			ngx_shmtx_unlock(&shpool->mutex);
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -363,7 +369,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				ngx_http_request_t     *r_listener = listener->request;
 				ngx_shmtx_lock(&shpool->mutex);
 				rc = ngx_http_push_set_listener_header(r_listener, msg);
-				ngx_slab_free(shpool, listener);
+				ngx_slab_free_locked(shpool, listener);
 				ngx_shmtx_unlock(&shpool->mutex);
 				rc = ngx_http_send_header(r_listener);
 				ngx_http_finalize_request(r_listener, ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));
