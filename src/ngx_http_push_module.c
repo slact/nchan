@@ -240,11 +240,18 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	}
 }
 
+#define NGX_HTTP_PUSH_SENDER_CHECK(val, fail, errormessage, r)                \
+	if (val == fail) {                                                        \
+		ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
+		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
+		return;                                                               \
+	}
+
 static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) { 
 	ngx_str_t                       id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	ngx_buf_t                      *buf, *buf_copy;
+	ngx_buf_t                      *buf = NULL, *buf_copy;
 	ngx_http_push_node_t           *node;
 	ngx_http_request_t             *r_listener = NULL;
 	ngx_uint_t                      method = r->method;
@@ -257,110 +264,87 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	}
 	
 	ngx_shmtx_lock(&shpool->mutex);
+	//POST requests will need a channel node created if it doesn't yet exist.
 	if(method==NGX_HTTP_POST) {
-		//find or create the node if it doesn't exist
 		node = get_node(&id, (ngx_rbtree_t *) ngx_http_push_shm_zone->data, shpool, r->connection->log);
-		if (node == NULL) {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate new node");
-			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-			return;
-		}
-	}
-	else{
-		//just find the node. if it's not there, NULL.
-		node = find_node(&id, (ngx_rbtree_t *) ngx_http_push_shm_zone->data, shpool, r->connection->log);
-	}
-	if (node!=NULL) {
+		NGX_HTTP_PUSH_SENDER_CHECK(node, NULL, r, "push module: unable to allocate new node");
 		message_queue_size = node->message_queue_size;
 		listener_queue_size = node->listener_queue_size;
 		last_seen = node->last_seen;
 	}
+	//no other request method needs that.
+	else{
+		//just find the node. if it's not there, NULL.
+		node = find_node(&id, (ngx_rbtree_t *) ngx_http_push_shm_zone->data, shpool, r->connection->log);
+	}
 	ngx_shmtx_unlock(&shpool->mutex);
 	
-	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-		//save the freaking body
-		if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
-			//empty message. blank buffer, please.
+	//POST requests are message submissions. queue the request body as a message.
+	if(method==NGX_HTTP_POST) {
+		//empty message. blank buffer, please.
+		if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) { //should that read NGX_CONF_UNSET instead of -1?
 			buf = ngx_create_temp_buf(r->pool, 0);
 		}
-		else { //non-empty body
-			if(r->request_body->temp_file==NULL) {//everything in the first buffer, please
+		//non-empty body. your buffers, please.
+		else {
+			//note: this works only provided mostly because of r->request_body_in_single_buf = 1; which, i suppose, makes this module a little slower than it could be.
+			//this block is a little hacky. might be a thorn for forward-compatibility.
+			if(r->request_body->temp_file==NULL) { //everything in the first buffer, please
 				buf=r->request_body->bufs->buf;
 			}
 			else if(r->request_body->bufs->next!=NULL) {
 				buf=r->request_body->bufs->next->buf;
 			}
-			else {
-				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: request body buffer not found");
-				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-				return; 
-			}
 		}
-		if (buf==NULL) {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate an empty buffer");
-			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-			return; 
-		}
+		NGX_HTTP_PUSH_SENDER_CHECK(buf, NULL, r, "push module: can't find or allocate buffer");
+				
+		//okay, now store the incoming message.
 		ngx_http_push_msg_t            *msg=NULL, *previous_msg=NULL;
-		size_t                          content_type_len; 
-		content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
+		size_t                          content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
+		msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
+		NGX_HTTP_PUSH_SENDER_CHECK(msg, NULL, r, "push module: unable to allocate message in shared memory");
+			
+		//create a buffer copy in shared mem
+		ngx_shmtx_lock(&shpool->mutex);
+		ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
+		ngx_shmtx_unlock(&shpool->mutex);
+		NGX_HTTP_PUSH_SENDER_CHECK(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory");
+		ngx_shmtx_lock(&shpool->mutex);
+		msg->buf=buf_copy;
+		previous_msg = ngx_http_push_get_last_message(node);
+		ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
 		
-		if (r->method == NGX_HTTP_POST) {
-		//buffers are not disabled. create the message in shared memory for storage
-			msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
-			if (msg==NULL) {
-				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate message in shared memory");
-				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-				return;
-			}
-			
-			//create a buffer copy in shared mem
-			ngx_shmtx_lock(&shpool->mutex);
-			ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
-			ngx_shmtx_unlock(&shpool->mutex);
-			if (buf_copy==NULL) {
-				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer in shared memory");
-				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-				return;
-			}
-			ngx_shmtx_lock(&shpool->mutex);
-			
-			msg->buf=buf_copy;
-			previous_msg = ngx_http_push_get_last_message(node);
-			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue);
-			
-			//Stamp the new message with entity tags
-			msg->message_time=ngx_time();
-			msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;
-			node->message_queue_size++;
-			
-			//now see if the queue is too big
-			if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
-				ngx_http_push_delete_oldest_message_locked(shpool, node);
-			}
-			
-			message_queue_size = node->message_queue_size;
-			
-			//store the content-type
-			if(content_type_len>0) {
-				msg->content_type.len=r->headers_in.content_type->value.len;
-				msg->content_type.data=(u_char *) msg + sizeof(ngx_http_push_msg_t);
-				ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
-			}
-			else {
-				msg->content_type.len=0;
-				msg->content_type.data=NULL;
-			}
-			//set the expiration time
-			time_t                      timeout = cf->buffer_timeout;
-			msg->expires=timeout==0 ? 0 : (ngx_time() + timeout);
-			ngx_shmtx_unlock(&shpool->mutex);
-			//okay, done storing. now respond to the sender request
-			r->headers_out.status=NGX_HTTP_OK;
-			r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
-			r->headers_out.status_line.data=(u_char *) "202 Accepted";
+		//Stamp the new message with entity tags
+		msg->message_time=ngx_time();
+		msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;
+		node->message_queue_size++;
+		
+		//now see if the queue is too big
+		if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
+			ngx_http_push_delete_oldest_message_locked(shpool, node);
 		}
 		
+		message_queue_size = node->message_queue_size;
+		
+		//store the content-type
+		if(content_type_len>0) {
+			msg->content_type.len=r->headers_in.content_type->value.len;
+			msg->content_type.data=(u_char *) msg + sizeof(ngx_http_push_msg_t);
+			ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
+		}
+		else {
+			msg->content_type.len=0;
+			msg->content_type.data=NULL;
+		}
+		//set the expiration time
+		time_t                      timeout = cf->buffer_timeout;
+		msg->expires=timeout==0 ? 0 : (ngx_time() + timeout);
+		ngx_shmtx_unlock(&shpool->mutex);
+		//okay, done storing. now respond to the sender request
+		r->headers_out.status=NGX_HTTP_OK;
+		r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
+		r->headers_out.status_line.data=(u_char *) "202 Accepted";
+			
 		//go through all listeners and send them this message
 		ngx_int_t                   rc=NGX_HTTP_OK;
 		ngx_http_push_listener_t   *listener = NULL;
@@ -372,23 +356,13 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				ngx_slab_free_locked(shpool, listener);
 				ngx_shmtx_unlock(&shpool->mutex);
 				rc = ngx_http_send_header(r_listener);
-				ngx_http_finalize_request(r_listener, ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));
-				
+				ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
 			}
-		}
-		//wrong!!
-		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
-			ngx_http_finalize_request(r_listener, rc);
-			ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-			return;
 		}
 		
 		r->headers_out.status=NGX_HTTP_OK;
 		r->headers_out.status_line.len =sizeof("201 Created")- 1;
 		r->headers_out.status_line.data=(u_char *) "201 Created";
-		//else {	//r_listener==NULL && r->method == NGX_HTTP_PUT is all that remains
-		//	r->headers_out.status=NGX_HTTP_OK;
-		//}
 	}
 	else if (method==NGX_HTTP_GET) {
 		r->headers_out.status= node==NULL ? NGX_HTTP_NOT_FOUND : NGX_HTTP_OK;
