@@ -6,10 +6,12 @@
 typedef struct {
 	ngx_int_t                       index;
 	time_t                          buffer_timeout;
-	ngx_flag_t                      buffer_enabled;
+	ngx_int_t                       max_message_queue_size;
 } ngx_http_push_loc_conf_t;
 
+#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
+#define NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE 5
 
 typedef struct {
 	size_t                          shm_size;

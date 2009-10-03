@@ -92,7 +92,7 @@ static ngx_inline void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_
   * @param status NGX_OK for a found message, NGX_DONE for a future message or NGX_DECLINED for a message that no longer exists
   * @param r listener request
   */
-static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status) {
+static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t *node, ngx_http_request_t *r, ngx_int_t *status) {
 	ngx_queue_t                    *sentinel = &node->message_queue->queue;
 	ngx_queue_t                    *cur = sentinel->next;
 	ngx_http_push_msg_t            *msg = NULL;
@@ -299,7 +299,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		size_t                          content_type_len; 
 		content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
 		
-		if (r->method == NGX_HTTP_POST && cf->buffer_enabled!=0) {
+		if (r->method == NGX_HTTP_POST) {
 		//buffers are not disabled. create the message in shared memory for storage
 			msg = ngx_slab_alloc(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
 			if (msg==NULL) {
@@ -329,7 +329,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			node->message_queue_size++;
 			
 			//now see if the queue is too big
-			if(node->message_queue_size > cf->max_message_queue_size) {
+			if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
 				ngx_http_push_delete_oldest_message_locked(shpool, node);
 			}
 			
