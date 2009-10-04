@@ -240,7 +240,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	}
 }
 
-#define NGX_HTTP_PUSH_SENDER_CHECK(val, fail, errormessage, r)                \
+#define NGX_HTTP_PUSH_SENDER_CHECK(val, fail, r, errormessage)                \
 	if (val == fail) {                                                        \
 		ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
 		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
@@ -253,7 +253,6 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_buf_t                      *buf = NULL, *buf_copy;
 	ngx_http_push_node_t           *node;
-	ngx_http_request_t             *r_listener = NULL;
 	ngx_uint_t                      method = r->method;
 	
 	time_t                          last_seen = 0;
