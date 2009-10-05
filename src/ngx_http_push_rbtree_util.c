@@ -17,16 +17,14 @@ static ngx_http_push_node_t *	clean_node(ngx_http_push_node_t * node, ngx_slab_p
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-			node->message_queue_len--;
-			ngx_queue_remove((&msg->queue));
-			ngx_slab_free_locked(shpool, msg);
+			ngx_http_push_delete_message_locked(shpool, node, msg);
 		}
 		else { //definitely a message left to send
 			return NULL;
 		}
 	}
 	//at this point, the queue is empty
-	return node->request==NULL ? node : NULL; //if no request, return this node to be deleted
+	return node->listener_queue_size==0 ? node : NULL; //if no waiting requests, return this node to be deleted
 }
 static ngx_int_t ngx_http_push_delete_node(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool) {
 //assume the shm zone is already locked
@@ -126,7 +124,6 @@ static ngx_http_push_node_t *	find_node(
 	up->node.key = ngx_crc32_short(id->data, id->len);
 	ngx_rbtree_insert(tree, (ngx_rbtree_node_t *) up);
 
-	up->request=NULL;
 	//initialize queues
 	up->message_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_msg_t));
 	if (up->message_queue==NULL) {
@@ -134,6 +131,14 @@ static ngx_http_push_node_t *	find_node(
 		return NULL;
 	}
 	ngx_queue_init(&up->message_queue->queue);
+	up->message_queue_size=0;
+	up->listener_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_listener_t));
+	if (up->listener_queue==NULL) {
+		ngx_slab_free_locked(shpool, up);
+		return NULL;
+	}
+	ngx_queue_init(&up->listener_queue->queue);
+	up->listener_queue_size=0;
 	return up;
 }
 

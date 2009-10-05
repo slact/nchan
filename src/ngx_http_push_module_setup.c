@@ -7,18 +7,26 @@ static ngx_command_t  ngx_http_push_commands[] = {
       offsetof(ngx_http_push_loc_conf_t, buffer_timeout),
       NULL },
 
-    { ngx_string("push_queue_messages"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
-      ngx_conf_set_flag_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, buffer_enabled),
-      NULL },
-
-    { ngx_string("push_buffer_size"),
+    { ngx_string("push_max_reserved_memory"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
       offsetof(ngx_http_push_main_conf_t, shm_size),
+      NULL },
+	  
+	//deprecated and misleading. remove no earlier than november 2009.
+	{ ngx_string("push_max_buffer_size"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_push_main_conf_t, shm_size),
+      NULL },
+	  
+	{ ngx_string("push_channel_buffer_length"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, max_message_queue_size),
       NULL },
 
 	{ ngx_string("push_sender"),
@@ -70,7 +78,7 @@ static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	ngx_http_push_main_conf_t	*conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
 	size_t                       shm_size;
 	if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
-		conf->shm_size=3145728; //3megabytes
+		conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
 	}
 	shm_size = ngx_align(conf->shm_size, ngx_pagesize);
 	if (shm_size < 8 * ngx_pagesize) {
@@ -139,17 +147,16 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 		return NGX_CONF_ERROR;
 	}
 	lcf->buffer_timeout=NGX_CONF_UNSET;
-	lcf->buffer_enabled=NGX_CONF_UNSET;
+	lcf->max_message_queue_size=NGX_CONF_UNSET;
 	return lcf;
 }
+
 static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
-	ngx_http_push_loc_conf_t       *prev = parent;
-	ngx_http_push_loc_conf_t       *conf = child;
+	ngx_http_push_loc_conf_t       *prev = parent, *conf = child;
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
-	ngx_conf_merge_value(conf->buffer_enabled, prev->buffer_enabled, 1);
+	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
 	return NGX_CONF_OK;
 }
-
 
 static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable name
 //sender and listener handlers now.
