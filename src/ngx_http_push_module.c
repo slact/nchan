@@ -331,11 +331,6 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;
 		node->message_queue_size++;
 		
-		//now see if the queue is too big
-		if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
-			ngx_http_push_delete_oldest_message_locked(shpool, node);
-		}
-		
 		message_queue_size = node->message_queue_size;
 		
 		//store the content-type
@@ -352,13 +347,9 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		time_t                      timeout = cf->buffer_timeout;
 		msg->expires=timeout==0 ? 0 : (ngx_time() + timeout);
 		ngx_shmtx_unlock(&shpool->mutex);
-		//okay, done storing. now respond to the sender request
-		r->headers_out.status=NGX_HTTP_OK;
-		r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
-		r->headers_out.status_line.data=(u_char *) "202 Accepted";
-			
+		
 		//go through all listeners and send them this message
-		ngx_int_t                   rc=NGX_HTTP_OK;
+		ngx_int_t                   rc=NGX_HTTP_OK, received=0;
 		ngx_http_push_listener_t   *listener = NULL;
 		if(msg!=NULL) {
 			while ((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
@@ -374,12 +365,27 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				ngx_shmtx_unlock(&shpool->mutex);
 				rc = ngx_http_send_header(r_listener);
 				ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
+				if(!received) {
+					received=1;
+				}
 			}
 		}
 		
+		//status code for the sender response depends on whether the message was sent to any listeners
 		r->headers_out.status=NGX_HTTP_OK;
-		r->headers_out.status_line.len =sizeof("201 Created")- 1;
-		r->headers_out.status_line.data=(u_char *) "201 Created";
+		if(received) {
+			r->headers_out.status_line.len =sizeof("201 Created")- 1;
+			r->headers_out.status_line.data=(u_char *) "201 Created";
+		}
+		else {
+			r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
+			r->headers_out.status_line.data=(u_char *) "202 Accepted";
+		}
+		
+		//now see if the queue is too big -- we do this at the end because message queue size may be set to zero, and we don't want special-case code for that.
+		if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
+			ngx_http_push_delete_oldest_message_locked(shpool, node);
+		}
 	}
 	else if (method==NGX_HTTP_GET) {
 		r->headers_out.status= node==NULL ? NGX_HTTP_NOT_FOUND : NGX_HTTP_OK;
