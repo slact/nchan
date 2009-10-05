@@ -31,7 +31,7 @@ static ngx_http_push_msg_t * ngx_http_push_get_oldest_message(ngx_http_push_node
 }
 
 //shpool must be locked. No memory is freed.
-static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node) { 
+static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node) {
 	ngx_http_push_msg_t            *msg = ngx_http_push_get_oldest_message(node);
 	ngx_queue_remove(&msg->queue);
 	node->message_queue_size--;
@@ -77,7 +77,10 @@ static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
-	ngx_queue_remove(&msg->queue);
+	if(node!=NULL) {
+		ngx_queue_remove(&msg->queue);
+		node->message_queue_size--;
+	}
 	if(msg->buf->file!=NULL) {
 		ngx_delete_file(&msg->buf->file->name); //should I care about deletion errors?
 		ngx_close_file(msg->buf->file->fd); //again, carest thou aboutst thine errorests?
@@ -384,7 +387,9 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		
 		//now see if the queue is too big -- we do this at the end because message queue size may be set to zero, and we don't want special-case code for that.
 		if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
+			ngx_shmtx_lock(&shpool->mutex);
 			ngx_http_push_delete_oldest_message_locked(shpool, node);
+			ngx_shmtx_unlock(&shpool->mutex);
 		}
 	}
 	else if (method==NGX_HTTP_GET) {
