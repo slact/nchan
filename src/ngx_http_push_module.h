@@ -31,10 +31,18 @@ typedef struct {
 typedef struct ngx_http_push_listener_s ngx_http_push_listener_t;
 typedef struct ngx_http_push_node_s ngx_http_push_node_t;
 
+//cleaning supplies
+typedef struct {
+	ngx_http_push_listener_t       *listener;
+	ngx_http_push_node_t           *node;
+	ngx_slab_pool_t                *shpool;
+} ngx_http_push_listener_cleanup_t;
+
 //listener request queue
 struct ngx_http_push_listener_s {
-    ngx_queue_t                        queue;
-	ngx_http_request_t                *request;
+    ngx_queue_t                     queue;
+	ngx_http_request_t             *request;
+	ngx_http_push_listener_cleanup_t *cleanup;
 };
 
 //our typecast-friendly rbtree node
@@ -76,9 +84,11 @@ static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
 
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node); // doesn't free associated memory
 static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
+static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data);
 static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_node_t * node); //doesn't free associated memory
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
+
 //message stuff
 static ngx_http_push_msg_t *ngx_http_push_get_last_message(ngx_http_push_node_t * node);
 static ngx_http_push_msg_t *ngx_http_push_get_oldest_message(ngx_http_push_node_t * node);

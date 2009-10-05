@@ -209,13 +209,28 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	//no matching message and it wasn't because an expired message was requested.
 	if (status==NGX_DONE) {
 		//this means we must wait for a message.
-		if(ngx_http_push_queue_listener_request_locked(node, r, shpool)==NULL) {
+		ngx_http_push_listener_t   *listener;
+		if((listener=ngx_http_push_queue_listener_request_locked(node, r, shpool))==NULL) {
 			//todo: emergency out-of-memory garbage collection, retry
 			ngx_shmtx_unlock(&shpool->mutex);
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
 		ngx_shmtx_unlock(&shpool->mutex);
 		r->read_event_handler = ngx_http_test_reading; //definitely test to see if the connection got closed or something.
+		
+		 //attach a cleaner to remove the request from the node, if need be (if the connection goes dead or something)
+		ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_listener_cleanup_t));
+		if (cln == NULL) { //make sure we can.
+			return NGX_ERROR;
+		}
+		ngx_shmtx_lock(&shpool->mutex);
+		listener->cleanup = ((ngx_http_push_listener_cleanup_t *) cln->data);
+		ngx_shmtx_unlock(&shpool->mutex);
+		cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_listener_cleanup;
+		((ngx_http_push_listener_cleanup_t *) cln->data)->node = node;
+		((ngx_http_push_listener_cleanup_t *) cln->data)->listener = listener;
+		((ngx_http_push_listener_cleanup_t *) cln->data)->shpool = shpool;
+		
 		return NGX_DONE; //and wait.
 	}
 	//listener wants an expired message
@@ -349,8 +364,13 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			while ((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
 				ngx_http_request_t     *r_listener = listener->request;
 				ngx_shmtx_lock(&shpool->mutex);
-				rc = ngx_http_push_set_listener_header(r_listener, msg);
+				
+				/* i'm doing this here instead of waiting for the pool cleanup
+				   because i'm not sure it is called immediately after ngx_http_finalize_request */
+				listener->cleanup->listener=NULL;
 				ngx_slab_free_locked(shpool, listener);
+				
+				rc = ngx_http_push_set_listener_header(r_listener, msg);
 				ngx_shmtx_unlock(&shpool->mutex);
 				rc = ngx_http_send_header(r_listener);
 				ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
@@ -512,7 +532,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 		file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
 		if(shpool!=NULL) { ngx_shmtx_lock(&shpool->mutex); } //back to lockdown
 		if(file->fd==NGX_INVALID_FILE){
-			/* i don't think we need to do any cleanup, since all allocations
+			/* i don't think we need to do any file cleanup, since all allocations
 			here were done in the request pool which gets cleaned all by itself. */
 			return NULL;
 		}
@@ -530,4 +550,14 @@ static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chai
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 	return ngx_http_output_filter(r, out);	
+}
+
+static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data) {
+	if(data->listener!=NULL) {
+		ngx_shmtx_lock(&data->shpool->mutex);
+		ngx_queue_remove(&data->listener->queue);
+		ngx_slab_free_locked(data->shpool, data->listener);
+		data->node->listener_queue_size--;
+		ngx_shmtx_unlock(&data->shpool->mutex);
+	}
 }
