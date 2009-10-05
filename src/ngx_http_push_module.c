@@ -78,7 +78,7 @@ static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
 	ngx_queue_remove(&msg->queue);
-	if(&msg->buf->file!=NULL) {
+	if(msg->buf->file!=NULL) {
 		ngx_delete_file(&msg->buf->file->name); //should I care about deletion errors?
 		ngx_close_file(msg->buf->file->fd); //again, carest thou aboutst thine errorests?
 	}
@@ -151,21 +151,19 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 			ngx_memcpy(cbuf->pos, (buf)->pos, ngx_buf_size(buf));
 			cbuf->memory=ngx_buf_in_memory_only(buf) ? 1 : 0;
 		}
-		if (buf->in_file) {
+		if (buf->in_file &&buf->file!=NULL) {
 			cbuf->file_pos  = buf->file_pos;
 			cbuf->file_last = buf->file_last;
 			cbuf->temp_file = buf->temp_file;
 			cbuf->in_file = 1;
 			cbuf->file = ((ngx_file_t *) cbuf) + sizeof(cbuf) + (ngx_buf_in_memory(buf) ? ngx_buf_size(buf) : 0);
-			if(cbuf->file!=NULL) {
-				cbuf->file->fd=NGX_INVALID_FILE;
-				cbuf->file->log=NULL;
-				cbuf->file->offset=buf->file->offset;
-				cbuf->file->sys_offset=buf->file->sys_offset;
-				cbuf->file->name.len=buf->file->name.len;
-				cbuf->file->name.data=(u_char *) (cbuf->file) + sizeof(ngx_file_t);
-				ngx_memcpy(cbuf->file->name.data, buf->file->name.data, cbuf->file->name.len);
-			}
+			cbuf->file->fd=NGX_INVALID_FILE;
+			cbuf->file->log=NULL;
+			cbuf->file->offset=buf->file->offset;
+			cbuf->file->sys_offset=buf->file->sys_offset;
+			cbuf->file->name.len=buf->file->name.len;
+			cbuf->file->name.data=(u_char *) (cbuf->file) + sizeof(ngx_file_t);
+			ngx_memcpy(cbuf->file->name.data, buf->file->name.data, cbuf->file->name.len);
 		}
 	}
 }
