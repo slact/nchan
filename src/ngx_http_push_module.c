@@ -45,7 +45,7 @@ static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_n
 	ngx_queue_t                    *qlistener = ngx_queue_last(sentinel);
 	ngx_http_push_listener_t       *listener = ngx_queue_data(qlistener, ngx_http_push_listener_t, queue);
 	ngx_queue_remove(qlistener);
-	node->message_queue_size--;
+	node->listener_queue_size--;
 	return listener;
 }
 
