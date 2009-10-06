@@ -399,12 +399,13 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	else if (method==NGX_HTTP_DELETE) {
 		if (node!=NULL) {
 			ngx_http_push_msg_t        *msg;
+			ngx_shmtx_lock(&shpool->mutex);
 			while((msg=ngx_http_push_dequeue_message(node))!=NULL) {
 				//delete all the messages
-				ngx_slab_free(shpool, msg->buf); //separate block, remember?
-				ngx_slab_free(shpool, msg);
+				ngx_http_push_delete_message_locked(shpool, NULL, msg);
 			};
 			node->message_queue_size=0;
+			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_http_push_listener_t   *listener = NULL;
 			while((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
 				//delete all the requests
