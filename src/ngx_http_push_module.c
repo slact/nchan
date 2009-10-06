@@ -101,23 +101,24 @@ static ngx_inline void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_
   * @param r listener request
   */
 static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t *node, ngx_http_request_t *r, ngx_int_t *status) {
+	//TODO: consider using an RBTree for message storage.
 	ngx_queue_t                    *sentinel = &node->message_queue->queue;
-	ngx_queue_t                    *cur = sentinel->next;
+	ngx_queue_t                    *cur = sentinel;
 	ngx_http_push_msg_t            *msg = NULL;
 	ngx_int_t                       tag = 0;
-	time_t                          time;
-	time = (r->headers_in.if_modified_since == NULL) ? 0 :
+	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 :
 		ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
 	// do we want a future message?
-	msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue); 
+	msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
 	if(time >= msg->message_time || (time == msg->message_time && tag >= msg->message_tag)) {
 		//don't forget that the only reason queue emptiness needn't be checked is because the sentinel's values are initialized to 0.
 		*status=NGX_DONE;
 		return NULL;
 	}
 	
-	for(msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue); cur!=sentinel; cur = cur->next) {
+	while((cur=cur->next)!=sentinel) {
+		msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue); 
 		if (time < msg->message_time && msg->message_tag==tag) {
 			*status = NGX_OK;
 			return msg;
@@ -517,7 +518,35 @@ static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_ht
 		}
 		r->headers_out.etag->value.len = ngx_sprintf(r->headers_out.etag->value.data, "%ui", msg->message_tag) - r->headers_out.etag->value.data;
 	}
+	//cache-control header thrown in for good measure.
+	ngx_http_push_add_cache_control(r, &NGX_HTTP_PUSH_CACHE_CONTROL_VALUE);
 	r->headers_out.status=NGX_HTTP_OK;
+	return NGX_OK;
+}
+
+//from ngx_http_headers_filter_module.c
+static ngx_int_t ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_str_t *value)
+{
+	ngx_table_elt_t  *cc, **ccp;
+	ccp = r->headers_out.cache_control.elts;
+	if (ccp == NULL) {
+		if (ngx_array_init(&r->headers_out.cache_control, r->pool, 1, sizeof(ngx_table_elt_t *))!= NGX_OK) {
+			return NGX_ERROR;
+		}
+	}
+	ccp = ngx_array_push(&r->headers_out.cache_control);
+	if (ccp == NULL) {
+		return NGX_ERROR;
+	}
+	cc = ngx_list_push(&r->headers_out.headers);
+	if (cc == NULL) {
+		return NGX_ERROR;
+	}
+	cc->hash = 1;
+	cc->key.len = sizeof("Cache-Control") - 1;
+	cc->key.data = (u_char *) "Cache-Control";
+	cc->value = *value;
+	*ccp = cc;
 	return NGX_OK;
 }
 
