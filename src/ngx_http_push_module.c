@@ -250,9 +250,13 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
 		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
 		ngx_shmtx_unlock(&shpool->mutex);
-		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) { return rc; }
+		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+			return rc; 
+		}
 		rc = ngx_http_send_header(r);
-		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) { return rc; }
+		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) { 
+			return rc; 
+		}
 		return ngx_http_push_set_listener_body(r, out);
 	}
 }

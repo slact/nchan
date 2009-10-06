@@ -154,7 +154,7 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
 	ngx_http_push_loc_conf_t       *prev = parent, *conf = child;
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
-	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
+	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE);
 	return NGX_CONF_OK;
 }
 
