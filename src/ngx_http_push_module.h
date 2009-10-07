@@ -12,7 +12,7 @@ typedef struct {
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 #define NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE 5
-ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("must-revalidate");
+ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 
 typedef struct {
 	size_t                          shm_size;
@@ -66,6 +66,8 @@ static ngx_int_t    ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t me
 //listener stuff
 static char *       ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_listener hook
 static ngx_int_t    ngx_http_push_listener_handler(ngx_http_request_t * r);
+static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r);
+
 
 //response generating stuff
 static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg);

@@ -162,8 +162,9 @@ static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable name
 //sender and listener handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
 	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
-	ngx_http_push_loc_conf_t       *plcf = conf;                                    
-    clcf->handler = handler;                                       
+	ngx_http_push_loc_conf_t       *plcf = conf;
+    clcf->handler = handler;                   
+	clcf->if_modified_since = NGX_HTTP_IMS_OFF;
 	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
     if (plcf->index == NGX_ERROR) {                                           
         return NGX_CONF_ERROR;                                                

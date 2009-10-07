@@ -103,26 +103,47 @@ static ngx_inline void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_
 static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t *node, ngx_http_request_t *r, ngx_int_t *status) {
 	//TODO: consider using an RBTree for message storage.
 	ngx_queue_t                    *sentinel = &node->message_queue->queue;
-	ngx_queue_t                    *cur = sentinel;
+	ngx_queue_t                    *cur = sentinel->next;
 	ngx_http_push_msg_t            *msg = NULL;
-	ngx_int_t                       tag = 0;
-	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 :
-		ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+	ngx_int_t                       tag;
+	ngx_str_t                      *if_none_match;
+	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
 	// do we want a future message?
 	msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
-	if(time >= msg->message_time || (time == msg->message_time && tag >= msg->message_tag)) {
-		//don't forget that the only reason queue emptiness needn't be checked is because the sentinel's values are initialized to 0.
+	if(time <= msg->message_time || msg->message_time==0 ) { //that's an empty check (Sentinel's values are zero)
+		if_none_match = ngx_http_push_listener_get_etag(r);
+		if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
+			tag=0;
+		}
+		if(time == msg->message_time && tag >= msg->message_tag) { //future message
+			*status=NGX_DONE;
+			return NULL;
+		}
+	}
+	else {
 		*status=NGX_DONE;
 		return NULL;
 	}
 	
-	while((cur=cur->next)!=sentinel) {
-		msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue); 
-		if (time < msg->message_time && msg->message_tag==tag) {
+	while(cur!=sentinel) {
+		msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
+		if (time < msg->message_time) {
 			*status = NGX_OK;
 			return msg;
 		}
+		else if(time == msg->message_time) {
+			while (tag >= msg->message_tag  && time == msg->message_time && cur->next!=sentinel) {
+				cur=cur->next;
+				msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
+			}
+			if(time == msg->message_time && tag < msg->message_tag) {
+				*status = NGX_OK;
+				return msg;
+			}
+			continue;
+		}
+		cur=cur->next;
 	}
 	*status = NGX_DECLINED; //message too old and was not found.
 	return NULL;
@@ -553,6 +574,29 @@ static ngx_int_t ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_str_
 	cc->value = *value;
 	*ccp = cc;
 	return NGX_OK;
+}
+
+static ngx_str_t	ngx_http_push_if_none_match = ngx_string("If-None-Match");
+static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
+    ngx_uint_t                       i;
+    ngx_list_part_t                 *part = &r->headers_in.headers.part;
+    ngx_table_elt_t                 *header= part->elts;
+
+    for (i = 0; /* void */ ; i++) {
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+            part = part->next;
+            header = part->elts;
+            i = 0;
+        }
+        if (header[i].key.len == ngx_http_push_if_none_match.len
+            && ngx_strncasecmp(header[i].key.data, ngx_http_push_if_none_match.data, header[i].key.len) == 0) {
+            return &header[i].value;
+        }
+    }
+	return NULL;
 }
 
 /**
