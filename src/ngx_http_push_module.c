@@ -225,7 +225,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
     }
 	
 	ngx_http_discard_request_body(r); //don't care about the rest of this request
-	if(ngx_http_push_handle_listener_concurrency_setting(cf->concurrency, node, r, shpool) == NGX_DECLINED) { //this request was declined for some reason.
+	if(ngx_http_push_handle_listener_concurrency_setting(cf->listener_concurrency, node, r, shpool) == NGX_DECLINED) { //this request was declined for some reason.
 		//status codes and whatnot should have already been written. just get out of here quickly.
 		return NGX_OK;
 	}

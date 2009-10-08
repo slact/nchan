@@ -39,7 +39,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_push_set_listener_concurrency,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, concurrency),
+      offsetof(ngx_http_push_loc_conf_t, listener_concurrency),
       NULL },
 	  
 	//deprecated and misleading. remove no earlier than november 2009.
@@ -154,7 +154,7 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	}
 	lcf->buffer_timeout=NGX_CONF_UNSET;
 	lcf->max_message_queue_size=NGX_CONF_UNSET;
-	lcf->concurrency=NGX_CONF_UNSET;
+	lcf->listener_concurrency=NGX_CONF_UNSET;
 	return lcf;
 }
 
@@ -162,7 +162,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_http_push_loc_conf_t       *prev = parent, *conf = child;
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
 	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE);
-	ngx_conf_merge_value(conf->concurrency, prev->concurrency, NGX_HTTP_PUSH_LISTENER_LASTIN);
+	ngx_conf_merge_value(conf->listener_concurrency, prev->listener_concurrency, NGX_HTTP_PUSH_LISTENER_LASTIN);
 	return NGX_CONF_OK;
 }
 
