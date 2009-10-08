@@ -332,7 +332,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel node created if it doesn't yet exist.
-	if(method==NGX_HTTP_POST) {
+	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
 		node = get_node(&id, (ngx_rbtree_t *) ngx_http_push_shm_zone->data, shpool, r->connection->log);
 		NGX_HTTP_PUSH_SENDER_CHECK(node, NULL, r, "push module: unable to allocate new node");
 		message_queue_size = node->message_queue_size;
@@ -446,7 +446,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_unlock(&shpool->mutex);
 		}
 	}
-	else if (method==NGX_HTTP_GET) {
+	else if (method==NGX_HTTP_GET || method==NGX_HTTP_PUT) {
 		r->headers_out.status= node==NULL ? NGX_HTTP_NOT_FOUND : NGX_HTTP_OK;
 	}
 	else if (method==NGX_HTTP_DELETE) {
