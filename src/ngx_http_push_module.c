@@ -386,12 +386,16 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			while ((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
 				r_listener = listener->request;
 				listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
-				rc = ngx_http_push_set_listener_header(r_listener, msg);
 				ngx_shmtx_unlock(&shpool->mutex);
-				rc = ngx_http_send_header(r_listener);
-				ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
-				if(!received) {
-					received=1;
+				if((rc = ngx_http_push_set_listener_header(r_listener, msg)) < NGX_HTTP_SPECIAL_RESPONSE) {
+					rc = ngx_http_send_header(r_listener);
+					ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
+					if(!received) {
+						received=1;
+					}
+				}
+				else { //something went wrong setting the header
+					ngx_http_finalize_request(r_listener, rc);
 				}
 				ngx_shmtx_lock(&shpool->mutex);
 			}
