@@ -7,12 +7,17 @@ typedef struct {
 	ngx_int_t                       index;
 	time_t                          buffer_timeout;
 	ngx_int_t                       max_message_queue_size;
+	ngx_int_t                       concurrency;
 } ngx_http_push_loc_conf_t;
 
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 #define NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE 5
 ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
+
+#define NGX_HTTP_PUSH_LISTENER_LASTIN 0
+#define NGX_HTTP_PUSH_LISTENER_FIRSTIN 1
+#define NGX_HTTP_PUSH_LISTENER_BROADCAST 2
 
 typedef struct {
 	size_t                          shm_size;
@@ -68,7 +73,6 @@ static char *       ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, v
 static ngx_int_t    ngx_http_push_listener_handler(ngx_http_request_t * r);
 static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r);
 
-
 //response generating stuff
 static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg);
 static ngx_chain_t *ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf, ngx_slab_pool_t *shpool);
@@ -85,6 +89,7 @@ static ngx_int_t    ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t    ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
 static ngx_int_t    ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_str_t *value);
+static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node); // doesn't free associated memory
 static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);

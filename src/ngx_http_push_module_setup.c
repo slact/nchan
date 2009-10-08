@@ -27,10 +27,17 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
-
-    { ngx_string("push_listener"),
+	
+	{ ngx_string("push_listener"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
       ngx_http_push_listener,
+      0,
+      0,
+      NULL },
+	
+    { ngx_string("push_listener_concurrency"),
+      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+      ngx_http_push_set_listener_concurrency,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
@@ -42,8 +49,8 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_MAIN_CONF_OFFSET,
       offsetof(ngx_http_push_main_conf_t, shm_size),
       NULL },
-	  
-      ngx_null_command
+    
+    ngx_null_command
 };
 
 
@@ -82,7 +89,7 @@ static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	}
 	shm_size = ngx_align(conf->shm_size, ngx_pagesize);
 	if (shm_size < 8 * ngx_pagesize) {
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_shm_size value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
+        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_max_reserved_memory value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
         shm_size = 8 * ngx_pagesize;
     }
 	if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
@@ -155,21 +162,39 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_http_push_loc_conf_t       *prev = parent, *conf = child;
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
 	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE);
+	ngx_conf_merge_value(conf->concurrency, prev->concurrency, NGX_HTTP_PUSH_LISTENER_BROADCAST);
 	return NGX_CONF_OK;
 }
 
 static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable name
 //sender and listener handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
-	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
+	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
 	ngx_http_push_loc_conf_t       *plcf = conf;
-    clcf->handler = handler;                   
+    clcf->handler = handler;
 	clcf->if_modified_since = NGX_HTTP_IMS_OFF;
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
-    if (plcf->index == NGX_ERROR) {                                           
-        return NGX_CONF_ERROR;                                                
-    }                                                                      
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);
+    if (plcf->index == NGX_ERROR) {
+        return NGX_CONF_ERROR;
+    }
     return NGX_CONF_OK;
+}
+
+static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	ngx_http_push_loc_conf_t       *plcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
+	char                           *c = NULL;
+	if(ngx_conf_set_str_slot(cf, cmd, c) == NGX_CONF_OK) {
+		if(ngx_strcmp(c, "first")) {
+			plcf->concurrency=NGX_HTTP_PUSH_LISTENER_FIRSTIN;
+		}
+		else if(ngx_strcmp(c, "last")) {
+			plcf->concurrency=NGX_HTTP_PUSH_LISTENER_LASTIN;
+		}
+		else { //broadcast
+			plcf->concurrency=NGX_HTTP_PUSH_LISTENER_BROADCAST;
+		}
+	}
+	return NGX_CONF_OK;
 }
 
 static char *ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
