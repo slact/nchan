@@ -430,11 +430,9 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				ngx_http_push_delete_message_locked(shpool, NULL, msg);
 			};
 			node->message_queue_size=0;
-			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_http_push_listener_t   *listener = NULL;
 			while((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
 				//delete all the requests
-				ngx_shmtx_lock(&shpool->mutex);
 				ngx_http_push_delete_node((ngx_rbtree_t *) ngx_http_push_shm_zone->data, (ngx_rbtree_node_t *) node, shpool);
 				ngx_shmtx_unlock(&shpool->mutex);
 				
@@ -445,6 +443,8 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				listener->request->headers_out.content_length_n = 0;
 				listener->request->header_only = 1;
 				ngx_http_finalize_request(listener->request, ngx_http_send_header(listener->request));
+				
+				ngx_shmtx_lock(&shpool->mutex);
 			}
 			node->listener_queue_size=0;
 			r->headers_out.status=NGX_HTTP_OK;
