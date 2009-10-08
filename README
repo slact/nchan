@@ -124,8 +124,8 @@ publically, as it is intended for use only by your application.
 Traversal through the message buffer by a listener requires proper caching
 support. Make sure your client correctly sends Last-Modified and ETag headers.
 
------------------------ "Protocol" spec --------------------------------------
-see http://wiki.github.com/slact/nginx_http_push_module/queuing-long-poll-relay-protocol
+----------------------- Protocol spec --------------------------------------
+see the file protocol.txt
 
 ---------------------------- todo --------------------------------------------
 - Add other mechanisms of server pushing. The list should include
