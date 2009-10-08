@@ -381,15 +381,11 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		ngx_int_t                   rc=NGX_HTTP_OK, received=0;
 		ngx_http_push_listener_t   *listener = NULL;
 		if(msg!=NULL) {
+			ngx_http_request_t     *r_listener;
+			ngx_shmtx_lock(&shpool->mutex);
 			while ((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
-				ngx_http_request_t     *r_listener = listener->request;
-				ngx_shmtx_lock(&shpool->mutex);
-				
-				/* i'm doing this here instead of waiting for the pool cleanup
-				   because i'm not sure it is called immediately after ngx_http_finalize_request */
-				listener->cleanup->listener=NULL;
-				ngx_slab_free_locked(shpool, listener);
-				
+				r_listener = listener->request;
+				listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
 				rc = ngx_http_push_set_listener_header(r_listener, msg);
 				ngx_shmtx_unlock(&shpool->mutex);
 				rc = ngx_http_send_header(r_listener);
@@ -397,7 +393,9 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				if(!received) {
 					received=1;
 				}
+				ngx_shmtx_lock(&shpool->mutex);
 			}
+			ngx_shmtx_unlock(&shpool->mutex);
 		}
 		
 		//status code for the sender response depends on whether the message was sent to any listeners
@@ -644,12 +642,10 @@ static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chai
 
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data) {
 	if(data->listener!=NULL) {
-		ngx_shmtx_lock(&data->shpool->mutex);
-		ngx_queue_remove(&data->listener->queue);
-		ngx_slab_free_locked(data->shpool, data->listener);
 		if(data->node!=NULL) { 
+			ngx_queue_remove(&data->listener->queue);
 			data->node->listener_queue_size--;
 		}
-		ngx_shmtx_unlock(&data->shpool->mutex);
+		ngx_slab_free(data->shpool, data->listener);
 	}
 }
