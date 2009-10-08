@@ -14,15 +14,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
       offsetof(ngx_http_push_main_conf_t, shm_size),
       NULL },
 	  
-	//deprecated and misleading. remove no earlier than november 2009.
-	{ ngx_string("push_max_buffer_size"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_size_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_push_main_conf_t, shm_size),
-      NULL },
-	  
-	{ ngx_string("push_channel_buffer_length"),
+	{ ngx_string("push_message_buffer_length"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
@@ -42,7 +34,15 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
-
+	  
+	//deprecated and misleading. remove no earlier than november 2009.
+	{ ngx_string("push_buffer_size"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_push_main_conf_t, shm_size),
+      NULL },
+	  
       ngx_null_command
 };
 
@@ -168,7 +168,7 @@ static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t 
 	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);         
     if (plcf->index == NGX_ERROR) {                                           
         return NGX_CONF_ERROR;                                                
-    }                                                                         
+    }                                                                      
     return NGX_CONF_OK;
 }
 
