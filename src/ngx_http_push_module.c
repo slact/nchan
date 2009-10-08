@@ -424,6 +424,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	else if (method==NGX_HTTP_DELETE) {
 		if (node!=NULL) {
 			ngx_http_push_msg_t        *msg;
+			ngx_http_request_t         *r_listener;
 			ngx_shmtx_lock(&shpool->mutex);
 			while((msg=ngx_http_push_dequeue_message(node))!=NULL) {
 				//delete all the messages
@@ -432,21 +433,20 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			node->message_queue_size=0;
 			ngx_http_push_listener_t   *listener = NULL;
 			while((listener=ngx_http_push_dequeue_listener(node))!=NULL) {
-				//delete all the requests
-				ngx_http_push_delete_node((ngx_rbtree_t *) ngx_http_push_shm_zone->data, (ngx_rbtree_node_t *) node, shpool);
+				//send a 410 Gone to everyone waiting for something
+				r_listener=listener->request;
+				listener->cleanup->node=NULL; //the node may be deleted by the time we get to the request pool cleanup.
 				ngx_shmtx_unlock(&shpool->mutex);
-				
-				//respond to the listener request with a 410
-				listener->request->headers_out.status=NGX_HTTP_NOT_FOUND; //play nice, NGINX.
-				listener->request->headers_out.status_line.len =sizeof("410 Gone")- 1;
-				listener->request->headers_out.status_line.data=(u_char *) "410 Gone";
-				listener->request->headers_out.content_length_n = 0;
-				listener->request->header_only = 1;
-				ngx_http_finalize_request(listener->request, ngx_http_send_header(listener->request));
-				
+				//here comes the 410
+				r_listener->headers_out.status=NGX_HTTP_NOT_FOUND; //play nice, NGINX.
+				r_listener->headers_out.status_line.len =sizeof("410 Gone")- 1;
+				r_listener->headers_out.status_line.data=(u_char *) "410 Gone";
+				r_listener->headers_out.content_length_n = 0;
+				r_listener->header_only = 1;
+				ngx_http_finalize_request(r_listener, ngx_http_send_header(r_listener));
 				ngx_shmtx_lock(&shpool->mutex);
 			}
-			node->listener_queue_size=0;
+			ngx_http_push_delete_node((ngx_rbtree_t *) ngx_http_push_shm_zone->data, (ngx_rbtree_node_t *) node, shpool);
 			ngx_shmtx_unlock(&shpool->mutex);
 			r->headers_out.status=NGX_HTTP_OK;
 		}
@@ -647,7 +647,9 @@ static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *dat
 		ngx_shmtx_lock(&data->shpool->mutex);
 		ngx_queue_remove(&data->listener->queue);
 		ngx_slab_free_locked(data->shpool, data->listener);
-		data->node->listener_queue_size--;
+		if(data->node!=NULL) { 
+			data->node->listener_queue_size--;
+		}
 		ngx_shmtx_unlock(&data->shpool->mutex);
 	}
 }
