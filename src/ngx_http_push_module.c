@@ -217,11 +217,12 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
+	//get the node and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	node = get_node(&id, ngx_http_push_shm_zone->data, shpool, r->connection->log);
+	node = (cf->authorize_channel==1 ? find_node : get_node)(&id, ngx_http_push_shm_zone->data, shpool, r->connection->log);
 	ngx_shmtx_unlock(&shpool->mutex);
 	if (node==NULL) { //unable to allocate node
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+		return cf->authorize_channel==1 ? NGX_HTTP_FORBIDDEN : NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 	
 	ngx_http_discard_request_body(r); //don't care about the rest of this request
