@@ -23,6 +23,19 @@ push_listener
   not be responded to until a message for the listener (identified by 
   $push_id) becomes available. See protocol documentation for more info.   
 
+push_listener_concurrency
+
+push_listener_concurrency [ last | first | broadcast ]
+  default: last
+  context: http, server, location
+  Controls how multiple listener requests to the same channel id are handled. 
+  The values work as follows:
+   broadcast: any number of listener requests may be long-polling.
+   last: only the most recent listener request is kept, all others get a 409 
+     Conflict response.
+   first: only the oldest listener request is kept, all others get a 409 
+     Conflict response.
+
 push_message_timeout [ time ]
   default: 1h
   context: http, server, location

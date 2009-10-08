@@ -225,12 +225,14 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
     }
 	
 	ngx_http_discard_request_body(r); //don't care about the rest of this request
-	
+	if(ngx_http_push_handle_listener_concurrency_setting(cf->concurrency, node, r, shpool) == NGX_DECLINED) { //this request was declined for some reason.
+		//status codes and whatnot should have already been written. just get out of here quickly.
+		return NGX_OK;
+	}
 	ngx_shmtx_lock(&shpool->mutex);
 	//expired messages are already removed from queue during get_node()
 	msg = ngx_http_push_find_message(node, r, &status); 
 	node->last_seen = ngx_time();
-	
 	//no matching message and it wasn't because an expired message was requested.
 	if (status==NGX_DONE) {
 		//this means we must wait for a message.
@@ -282,6 +284,35 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	}
 }
 
+static ngx_str_t ngx_http_push_409_Conflict = ngx_string("409 Conflict");
+static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t concurrency, ngx_http_push_node_t *node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
+	if(concurrency==NGX_HTTP_PUSH_LISTENER_BROADCAST) {
+		return NGX_OK;
+	}
+	else{
+		ngx_shmtx_lock(&shpool->mutex);
+		ngx_http_push_listener_t   *listener;
+		ngx_http_request_t         *r_listener;
+		ngx_queue_t                *sentinel = &node->listener_queue->queue;
+		ngx_queue_t                *cur = (concurrency == NGX_HTTP_PUSH_LISTENER_FIRSTIN) ? sentinel->next->next : sentinel->next;
+		if(concurrency == NGX_HTTP_PUSH_LISTENER_FIRSTIN && node->listener_queue_size>0) {
+			ngx_http_push_reply_status_only(r, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
+			return NGX_DECLINED;
+		}
+		while (cur!=sentinel) {
+			//send a 409 Conflict to everyone waiting for something
+			listener = ngx_queue_data(cur, ngx_http_push_listener_t, queue);
+			cur=cur->next;
+			r_listener=listener->request;
+			ngx_shmtx_unlock(&shpool->mutex);
+			ngx_http_push_reply_status_only(r_listener, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
+			ngx_shmtx_lock(&shpool->mutex);
+		}
+		ngx_shmtx_unlock(&shpool->mutex);
+		return NGX_OK;
+	}
+}
+
 #define NGX_HTTP_PUSH_SENDER_CHECK(val, fail, r, errormessage)                \
 	if (val == fail) {                                                        \
 		ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
@@ -289,6 +320,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		return;                                                               \
 	}
 
+static ngx_str_t ngx_http_push_410_Gone = ngx_string("410 Gone");
 static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) { 
 	ngx_str_t                       id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
@@ -439,13 +471,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				r_listener=listener->request;
 				listener->cleanup->node=NULL; //the node may be deleted by the time we get to the request pool cleanup.
 				ngx_shmtx_unlock(&shpool->mutex);
-				//here comes the 410
-				r_listener->headers_out.status=NGX_HTTP_NOT_FOUND; //play nice, NGINX.
-				r_listener->headers_out.status_line.len =sizeof("410 Gone")- 1;
-				r_listener->headers_out.status_line.data=(u_char *) "410 Gone";
-				r_listener->headers_out.content_length_n = 0;
-				r_listener->header_only = 1;
-				ngx_http_finalize_request(r_listener, ngx_http_send_header(r_listener));
+				ngx_http_push_reply_status_only(r_listener, NGX_HTTP_NOT_FOUND, &ngx_http_push_410_Gone);
 				ngx_shmtx_lock(&shpool->mutex);
 			}
 			ngx_http_push_delete_node((ngx_rbtree_t *) ngx_http_push_shm_zone->data, (ngx_rbtree_node_t *) node, shpool);
@@ -652,4 +678,13 @@ static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *dat
 		}
 		ngx_slab_free(data->shpool, data->listener);
 	}
+}
+
+static void ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline) {
+	r->headers_out.status=code;
+	r->headers_out.status_line.len =statusline->len;
+	r->headers_out.status_line.data=statusline->data;
+	r->headers_out.content_length_n = 0;
+	r->header_only = 1;
+	ngx_http_finalize_request(r, ngx_http_send_header(r));
 }

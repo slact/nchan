@@ -31,15 +31,15 @@ static ngx_command_t  ngx_http_push_commands[] = {
 	{ ngx_string("push_listener"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
       ngx_http_push_listener,
-      0,
+      NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
 	
     { ngx_string("push_listener_concurrency"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_push_set_listener_concurrency,
       NGX_HTTP_LOC_CONF_OFFSET,
-      0,
+      offsetof(ngx_http_push_loc_conf_t, concurrency),
       NULL },
 	  
 	//deprecated and misleading. remove no earlier than november 2009.
@@ -148,13 +148,13 @@ static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf) {
 
 //location config stuff
 static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
-	ngx_http_push_loc_conf_t       *lcf;
-	lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
+	ngx_http_push_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
 	if(lcf == NULL) {
 		return NGX_CONF_ERROR;
 	}
 	lcf->buffer_timeout=NGX_CONF_UNSET;
 	lcf->max_message_queue_size=NGX_CONF_UNSET;
+	lcf->concurrency=NGX_CONF_UNSET;
 	return lcf;
 }
 
@@ -162,7 +162,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_http_push_loc_conf_t       *prev = parent, *conf = child;
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
 	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE);
-	ngx_conf_merge_value(conf->concurrency, prev->concurrency, NGX_HTTP_PUSH_LISTENER_BROADCAST);
+	ngx_conf_merge_value(conf->concurrency, prev->concurrency, NGX_HTTP_PUSH_LISTENER_LASTIN);
 	return NGX_CONF_OK;
 }
 
@@ -181,18 +181,17 @@ static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t 
 }
 
 static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-	ngx_http_push_loc_conf_t       *plcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module); 
-	char                           *c = NULL;
-	if(ngx_conf_set_str_slot(cf, cmd, c) == NGX_CONF_OK) {
-		if(ngx_strcmp(c, "first")) {
-			plcf->concurrency=NGX_HTTP_PUSH_LISTENER_FIRSTIN;
-		}
-		else if(ngx_strcmp(c, "last")) {
-			plcf->concurrency=NGX_HTTP_PUSH_LISTENER_LASTIN;
-		}
-		else { //broadcast
-			plcf->concurrency=NGX_HTTP_PUSH_LISTENER_BROADCAST;
-		}
+	ngx_str_t                      *value=&(((ngx_str_t *) cf->args->elts)[1]);
+	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
+
+	if(ngx_strncmp(value->data, "first", 5)==0) {
+		*field=NGX_HTTP_PUSH_LISTENER_FIRSTIN;
+	}
+	else if(ngx_strncmp(value->data, "last", 4)==0) {
+		*field=NGX_HTTP_PUSH_LISTENER_LASTIN;
+	}
+	else { //broadcast
+		*field=NGX_HTTP_PUSH_LISTENER_BROADCAST;
 	}
 	return NGX_CONF_OK;
 }
