@@ -54,6 +54,13 @@ push_message_buffer_length [ number ]
   when a channel's message buffer length exceeds this setting. Set to 0 to
   disable buffering.
 
+push_authorized_channels_only [ on | off ]
+  default: off
+  context: http, server, location
+  Whether or not a listener may create a channel. If set to on, a sender must
+  senda request to some channel (POST or PUT) before a listener. Otherwise, 
+  all listener requests will get a 403 Forbidden response.
+  
 The following directives are DEPRECATED. They will be respected, 
 but may not be around for very long.
 
@@ -121,9 +128,6 @@ support. Make sure your client correctly sends Last-Modified and ETag headers.
 see http://wiki.github.com/slact/nginx_http_push_module/queuing-long-poll-relay-protocol
 
 ---------------------------- todo --------------------------------------------
-- Add a push_accomodate_strangers setting (presently defaulting to on). 
-  When set to off, requests with a previously-unseen $push_id 
-  will be rejected. 
 - Add other mechanisms of server pushing. The list should include
   "long-poll" (default), "interval-poll".
 - When POSTing to push_server, if Content-Type is "message/http", the 
