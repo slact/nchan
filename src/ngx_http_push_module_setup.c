@@ -183,16 +183,26 @@ static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t 
 static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 	ngx_str_t                      *value=&(((ngx_str_t *) cf->args->elts)[1]);
 	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
-
+	if (*field != NGX_CONF_UNSET) {
+		return "is duplicate";
+	}
 	if(ngx_strncmp(value->data, "first", 5)==0) {
 		*field=NGX_HTTP_PUSH_LISTENER_FIRSTIN;
 	}
 	else if(ngx_strncmp(value->data, "last", 4)==0) {
 		*field=NGX_HTTP_PUSH_LISTENER_LASTIN;
 	}
-	else { //broadcast
+	else if(ngx_strncmp(value->data, "broadcast", 9)==0) {
 		*field=NGX_HTTP_PUSH_LISTENER_BROADCAST;
 	}
+	else {
+		ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Unexpected value for push_listener_concurrency.");
+		return NGX_CONF_ERROR;
+	}
+	if (cmd->post) {
+		return ((ngx_conf_post_t *) cmd->post)->post_handler(cf, (ngx_conf_post_t *) cmd->post, field);
+	}
+
 	return NGX_CONF_OK;
 }
 

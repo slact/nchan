@@ -289,28 +289,21 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 	if(concurrency==NGX_HTTP_PUSH_LISTENER_BROADCAST) {
 		return NGX_OK;
 	}
-	else{
-		ngx_shmtx_lock(&shpool->mutex);
-		ngx_http_push_listener_t   *listener;
-		ngx_http_request_t         *r_listener;
-		ngx_queue_t                *sentinel = &node->listener_queue->queue;
-		ngx_queue_t                *cur = (concurrency == NGX_HTTP_PUSH_LISTENER_FIRSTIN) ? sentinel->next->next : sentinel->next;
-		if(concurrency == NGX_HTTP_PUSH_LISTENER_FIRSTIN && node->listener_queue_size>0) {
+	else if(node->listener_queue_size>0){
+		if(concurrency == NGX_HTTP_PUSH_LISTENER_FIRSTIN) {
 			ngx_http_push_reply_status_only(r, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
 			return NGX_DECLINED;
 		}
-		while (cur!=sentinel) {
-			//send a 409 Conflict to everyone waiting for something
-			listener = ngx_queue_data(cur, ngx_http_push_listener_t, queue);
-			cur=cur->next;
-			r_listener=listener->request;
-			ngx_shmtx_unlock(&shpool->mutex);
-			ngx_http_push_reply_status_only(r_listener, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
+		else{ //concurrency == NGX_HTTP_PUSH_LISTENER_LASTIN
 			ngx_shmtx_lock(&shpool->mutex);
+			ngx_http_push_listener_t *listener = ngx_http_push_dequeue_listener(node);
+			listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
+			ngx_shmtx_unlock(&shpool->mutex);
+			ngx_http_push_reply_status_only(listener->request, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
+			return NGX_OK;
 		}
-		ngx_shmtx_unlock(&shpool->mutex);
-		return NGX_OK;
 	}
+	return NGX_OK;
 }
 
 #define NGX_HTTP_PUSH_SENDER_CHECK(val, fail, r, errormessage)                \
