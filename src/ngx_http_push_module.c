@@ -447,6 +447,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				ngx_shmtx_lock(&shpool->mutex);
 			}
 			node->listener_queue_size=0;
+			ngx_shmtx_unlock(&shpool->mutex);
 			r->headers_out.status=NGX_HTTP_OK;
 		}
 		else {
