@@ -23,8 +23,6 @@ push_listener
   not be responded to until a message for the listener (identified by 
   $push_id) becomes available. See protocol documentation for more info.   
 
-push_listener_concurrency
-
 push_listener_concurrency [ last | first | broadcast ]
   default: last
   context: http, server, location
@@ -117,20 +115,17 @@ it's a damn good idea to make sure the push_server location is not visible
 publically, as it is intended for use only by your application.
 
 Traversal through the message buffer by a listener requires proper caching
-support. Make sure your client correctly send Last-Modified and ETag headers.
+support. Make sure your client correctly sends Last-Modified and ETag headers.
 
 ----------------------- "Protocol" spec --------------------------------------
 see http://wiki.github.com/slact/nginx_http_push_module/queuing-long-poll-relay-protocol
 
 ---------------------------- todo --------------------------------------------
-- Add a directive apply to push_listeners regarding what to do when 
-  multiple simultaneous requests with the same $push_id are received.
-  Options will be "unique", "broadcast", "fifo" and "filo".
-- Add other mechanisms of server pushing. The list should include
-  "long-poll" (default), "interval-poll".
 - Add a push_accomodate_strangers setting (presently defaulting to on). 
   When set to off, requests with a previously-unseen $push_id 
   will be rejected. 
+- Add other mechanisms of server pushing. The list should include
+  "long-poll" (default), "interval-poll".
 - When POSTing to push_server, if Content-Type is "message/http", the 
   response sent to $push_id should be created from the body of the request.
 
