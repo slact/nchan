@@ -105,20 +105,18 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_nod
 	ngx_queue_t                    *sentinel = &node->message_queue->queue;
 	ngx_queue_t                    *cur = sentinel->next;
 	ngx_http_push_msg_t            *msg = NULL;
-	ngx_int_t                       tag;
-	ngx_str_t                      *if_none_match;
+	ngx_int_t                       tag = -1;
 	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
 	// do we want a future message?
 	msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
 	if(time <= msg->message_time || msg->message_time==0 ) { //that's an empty check (Sentinel's values are zero)
-		if_none_match = ngx_http_push_listener_get_etag(r);
-		if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
-			tag=0;
-		}
-		if(time == msg->message_time && tag >= msg->message_tag) { //future message
-			*status=NGX_DONE;
-			return NULL;
+		if(time == msg->message_time) {
+			if(tag<0) { tag = ngx_http_push_listener_get_etag_int(r); }
+			if(tag >= msg->message_tag) {
+				*status=NGX_DONE;
+				return NULL;
+			}
 		}
 	}
 	else {
@@ -133,6 +131,7 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_nod
 			return msg;
 		}
 		else if(time == msg->message_time) {
+			if(tag<0) { tag = ngx_http_push_listener_get_etag_int(r); }
 			while (tag >= msg->message_tag  && time == msg->message_time && cur->next!=sentinel) {
 				cur=cur->next;
 				msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
@@ -599,7 +598,15 @@ static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r
 	return h;
 }
 
-static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
+static ngx_int_t ngx_http_push_listener_get_etag_int(ngx_http_request_t * r) {
+	ngx_str_t                      *if_none_match = ngx_http_push_listener_get_etag(r);
+	ngx_int_t                       tag;
+	if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
+		tag=0;
+	}
+	return ngx_abs(tag);
+}
+static ngx_str_t * ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
     ngx_uint_t                       i;
     ngx_list_part_t                 *part = &r->headers_in.headers.part;
     ngx_table_elt_t                 *header= part->elts;

@@ -78,6 +78,7 @@ static ngx_int_t    ngx_http_push_node_info(ngx_http_request_t *r, ngx_uint_t me
 static char *       ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_listener hook
 static ngx_int_t    ngx_http_push_listener_handler(ngx_http_request_t * r);
 static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r);
+static ngx_int_t    ngx_http_push_listener_get_etag_int(ngx_http_request_t * r);
 static ngx_int_t    ngx_http_push_handle_listener_concurrency_setting(ngx_int_t concurrency, ngx_http_push_node_t *node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 
 //response generating stuff
