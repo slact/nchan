@@ -148,7 +148,7 @@ static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
     if(tree == NULL) {
         return NGX_ERROR;
     }
-    sentinel = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_node_t));
+    sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel));
     if(sentinel == NULL) {
         return NGX_ERROR;
     }
@@ -160,7 +160,7 @@ static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 
 //main config
 static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf) {
-	ngx_http_push_main_conf_t      *mcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_main_conf_t));
+	ngx_http_push_main_conf_t      *mcf = ngx_pcalloc(cf->pool, sizeof(*mcf));
 	if(mcf == NULL) {
 		return NGX_CONF_ERROR;
 	}
@@ -170,7 +170,7 @@ static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf) {
 
 //location config stuff
 static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
-	ngx_http_push_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_push_loc_conf_t));
+	ngx_http_push_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(*lcf));
 	if(lcf == NULL) {
 		return NGX_CONF_ERROR;
 	}

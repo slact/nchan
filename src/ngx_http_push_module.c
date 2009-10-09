@@ -169,7 +169,7 @@ static ngx_int_t ngx_http_push_set_id(ngx_str_t *id, ngx_http_request_t *r, ngx_
 static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
 	if (cbuf!=NULL) {
 		if(ngx_buf_in_memory(buf)) {
-			cbuf->pos = ((u_char *) cbuf) + sizeof(ngx_buf_t);
+			cbuf->pos = (u_char *) (cbuf+1);
 			cbuf->last = cbuf->pos + ngx_buf_size(buf);
 			cbuf->start=cbuf->pos;
 			cbuf->end = cbuf->start + ngx_buf_size(buf);
@@ -181,13 +181,13 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 			cbuf->file_last = buf->file_last;
 			cbuf->temp_file = buf->temp_file;
 			cbuf->in_file = 1;
-			cbuf->file = ((ngx_file_t *) cbuf) + sizeof(cbuf) + (ngx_buf_in_memory(buf) ? ngx_buf_size(buf) : 0);
+			cbuf->file = (ngx_file_t *) (cbuf+1) + (ngx_buf_in_memory(buf) ? ngx_buf_size(buf) : 0);
 			cbuf->file->fd=NGX_INVALID_FILE;
 			cbuf->file->log=NULL;
 			cbuf->file->offset=buf->file->offset;
 			cbuf->file->sys_offset=buf->file->sys_offset;
 			cbuf->file->name.len=buf->file->name.len;
-			cbuf->file->name.data=(u_char *) (cbuf->file) + sizeof(ngx_file_t);
+			cbuf->file->name.data=(u_char *) (cbuf->file+1);
 			ngx_memcpy(cbuf->file->name.data, buf->file->name.data, cbuf->file->name.len);
 		}
 	}

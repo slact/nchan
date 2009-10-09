@@ -112,13 +112,13 @@ static ngx_http_push_node_t *	find_node(
 	if(up != NULL) { //we found our node
 		return up;
 	}
-	up = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_node_t) + id->len); //dirty dirty
+	up = ngx_slab_alloc_locked(shpool, sizeof(*up) + id->len); //dirty dirty
 	if (up == NULL) {
 		//a failed malloc ain't the end of the world. take out the trash anyway
 		return NULL;
 	}
 	
-	up->id.data = (u_char *) up + sizeof(ngx_http_push_node_t); //contiguous piggy
+	up->id.data = (u_char *) (up+1); //contiguous piggy
 	up->id.len = (u_char) id->len;
 	ngx_memcpy(up->id.data, id->data, up->id.len);
 	up->node.key = ngx_crc32_short(id->data, id->len);
@@ -132,7 +132,7 @@ static ngx_http_push_node_t *	find_node(
 	}
 	ngx_queue_init(&up->message_queue->queue);
 	up->message_queue_size=0;
-	up->listener_queue = ngx_slab_alloc_locked (shpool, sizeof(ngx_http_push_listener_t));
+	up->listener_queue = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_listener_t));
 	if (up->listener_queue==NULL) {
 		ngx_slab_free_locked(shpool, up);
 		return NULL;
