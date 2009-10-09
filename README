@@ -61,14 +61,16 @@ push_authorized_channels_only [ on | off ]
   senda request to some channel (POST or PUT) before a listener. Otherwise, 
   all listener requests will get a 403 Forbidden response.
   
-The following directives are DEPRECATED. They will be respected, 
-but may not be around for very long.
-
-push_queue_messages [ on | off ]
+push_store_messages [ on | off ]
   default: on
   context: http, server, location
   Whether or not message queuing is enabled. "Off" is equivalent to the setting
   push_channel_buffer_length 0;
+  
+push_queue_messages [ on | off ] (DEPRECATED)
+  default: on
+  context: http, server, location
+  see push_store_messages
   
 Variables:
 $push_id
