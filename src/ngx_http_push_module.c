@@ -269,7 +269,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			if ((etag=ngx_http_push_listener_get_etag(r)) != NULL) {
 				r->headers_out.etag=ngx_http_push_set_response_header(r, &ngx_http_push_Etag, etag);
 			}
-			return NGX_HTTP_NO_CONTENT;
+			return NGX_HTTP_NOT_MODIFIED;
 		}
 		else {
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
