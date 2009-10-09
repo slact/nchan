@@ -236,7 +236,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	//no matching message and it wasn't because an expired message was requested.
 	if (status==NGX_DONE) {
 		if(cf->listener_poll_mechanism==NGX_HTTP_PUSH_LISTENER_LONGPOLL) {
-			//this means we must wait for a message.
+			//long-polling listener. wait for a message.
 			ngx_http_push_listener_t   *listener;
 			ngx_shmtx_lock(&shpool->mutex);
 			listener=ngx_http_push_queue_listener_request_locked(node, r, shpool);
@@ -261,6 +261,14 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			return NGX_DONE; //and wait.
 		}
 		else if(cf->listener_poll_mechanism==NGX_HTTP_PUSH_LISTENER_INTERVALPOLL) {
+			//interval-polling listener requests get a 204 with its entity tags preserved.
+			if (r->headers_in.if_modified_since != NULL) {
+				r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+			}
+			ngx_str_t                  *etag;
+			if ((etag=ngx_http_push_listener_get_etag(r)) != NULL) {
+				r->headers_out.etag=ngx_http_push_set_response_header(r, &ngx_http_push_Etag, etag);
+			}
 			return NGX_HTTP_NO_CONTENT;
 		}
 		else {
@@ -269,18 +277,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	}
 	//listener wants an expired message
 	else if (status==NGX_DECLINED) {
-		ngx_str_t                  *etag;
 		//TODO: maybe respond with entity-identifiers for oldest available message?
-		if (r->headers_in.if_modified_since != NULL) {
-			r->headers_out.last_modified_time = ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-		}
-		if ((etag=ngx_http_push_listener_get_etag(r)) != NULL) {
-			r->headers_out.etag->hash = 1;
-			r->headers_out.etag->key.len = sizeof("Etag") - 1;
-			r->headers_out.etag->key.data = (u_char *) "Etag";
-			r->headers_out.etag->value.len=etag->len;
-			r->headers_out.etag->value.data=etag->data;
-		}
 		return NGX_HTTP_NO_CONTENT; 
 	}
 	//found the message
@@ -289,8 +286,8 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		ngx_int_t                   rc;
 		ngx_shmtx_lock(&shpool->mutex);
 		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
-		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
 		ngx_shmtx_unlock(&shpool->mutex);
+		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
 		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
 			return rc; 
 		}
@@ -574,19 +571,13 @@ static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_ht
 	}
 	if(msg->message_tag) {
 		//etag, if we need one
-		r->headers_out.etag = ngx_list_push(&r->headers_out.headers);
-		if (r->headers_out.etag == NULL) {
+		ngx_str_t                  *etag=ngx_pcalloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN);
+		if (etag==NULL) { return NGX_HTTP_INTERNAL_SERVER_ERROR; }
+		etag->data = (u_char *) (etag+1); 
+		etag->len = ngx_sprintf(etag->data, "%ui", msg->message_tag) - etag->data;
+		if ((r->headers_out.etag=ngx_http_push_set_response_header(r, &ngx_http_push_Etag, etag))==NULL) {
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
-		r->headers_out.etag->hash = 1;
-		r->headers_out.etag->key.len = sizeof("Etag") - 1;
-		r->headers_out.etag->key.data = (u_char *) "Etag";
-		r->headers_out.etag->value.len = NGX_INT_T_LEN;
-		r->headers_out.etag->value.data = ngx_palloc(r->pool, NGX_INT_T_LEN);
-		if(r->headers_out.etag->value.data==NULL) {
-			return NGX_HTTP_INTERNAL_SERVER_ERROR;
-		}
-		r->headers_out.etag->value.len = ngx_sprintf(r->headers_out.etag->value.data, "%ui", msg->message_tag) - r->headers_out.etag->value.data;
 	}
 	//cache-control header thrown in for good measure.
 	ngx_http_push_add_cache_control(r, &NGX_HTTP_PUSH_CACHE_CONTROL_VALUE);
@@ -594,6 +585,20 @@ static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_ht
 	return NGX_OK;
 }
 
+static ngx_table_elt_t * ngx_http_push_set_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value) {
+	ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
+	if (h == NULL) {
+		return NULL;
+	}
+	h->hash = 1;
+	h->key.len = header_name->len;
+	h->key.data = header_name->data;
+	h->value.len = header_value->len;
+	h->value.data = header_value->data;
+	return h;
+}
+	
+	
 //from ngx_http_headers_filter_module.c
 static ngx_int_t ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_str_t *value)
 {
@@ -620,7 +625,6 @@ static ngx_int_t ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_str_
 	return NGX_OK;
 }
 
-static ngx_str_t	ngx_http_push_if_none_match = ngx_string("If-None-Match");
 static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
     ngx_uint_t                       i;
     ngx_list_part_t                 *part = &r->headers_in.headers.part;
@@ -635,8 +639,8 @@ static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
             header = part->elts;
             i = 0;
         }
-        if (header[i].key.len == ngx_http_push_if_none_match.len
-            && ngx_strncasecmp(header[i].key.data, ngx_http_push_if_none_match.data, header[i].key.len) == 0) {
+        if (header[i].key.len == ngx_http_push_If_None_Match.len
+            && ngx_strncasecmp(header[i].key.data, ngx_http_push_If_None_Match.data, header[i].key.len) == 0) {
             return &header[i].value;
         }
     }
