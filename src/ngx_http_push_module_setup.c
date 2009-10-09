@@ -49,12 +49,27 @@ static ngx_command_t  ngx_http_push_commands[] = {
       offsetof(ngx_http_push_loc_conf_t, authorize_channel),
       NULL },
 	  
+	{ ngx_string("push_store_messages"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, store_messages),
+      NULL },
+	  
 	//deprecated and misleading. remove no earlier than november 2009.
 	{ ngx_string("push_buffer_size"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
       offsetof(ngx_http_push_main_conf_t, shm_size),
+      NULL },
+	
+	//deprecated. remove no earlier than november 2009.
+	{ ngx_string("push_queue_messages"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, store_messages),
       NULL },
     
     ngx_null_command
@@ -163,6 +178,7 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->max_message_queue_size=NGX_CONF_UNSET;
 	lcf->listener_concurrency=NGX_CONF_UNSET;
 	lcf->authorize_channel=NGX_CONF_UNSET;
+	lcf->store_messages=NGX_CONF_UNSET;
 	return lcf;
 }
 
@@ -172,6 +188,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE);
 	ngx_conf_merge_value(conf->listener_concurrency, prev->listener_concurrency, NGX_HTTP_PUSH_LISTENER_LASTIN);
 	ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
+	ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
 	return NGX_CONF_OK;
 }
 

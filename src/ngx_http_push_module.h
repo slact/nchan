@@ -9,6 +9,7 @@ typedef struct {
 	ngx_int_t                       max_message_queue_size;
 	ngx_int_t                       listener_concurrency;
 	ngx_int_t                       authorize_channel;
+	ngx_int_t                       store_messages;
 } ngx_http_push_loc_conf_t;
 
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
@@ -94,16 +95,16 @@ static ngx_int_t    ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_s
 static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void         ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline);
 
-static ngx_http_push_msg_t * ngx_http_push_dequeue_message(ngx_http_push_node_t * node); // doesn't free associated memory
-static ngx_http_push_msg_t * ngx_http_push_find_message(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data);
-static ngx_http_push_listener_t * ngx_http_push_dequeue_listener(ngx_http_push_node_t * node); //doesn't free associated memory
+static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http_push_node_t * node); //doesn't free associated memory
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 
 //message stuff
-static ngx_http_push_msg_t *ngx_http_push_get_last_message(ngx_http_push_node_t * node);
-static ngx_http_push_msg_t *ngx_http_push_get_oldest_message(ngx_http_push_node_t * node);
+static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_node_t * node); // doesn't free associated memory
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
+static ngx_http_push_msg_t *ngx_http_push_get_last_message_locked(ngx_http_push_node_t * node, ngx_slab_pool_t *shpool);
+static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_node_t * node);
 static void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node);
 static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
