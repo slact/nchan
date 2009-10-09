@@ -267,7 +267,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			}
 			ngx_str_t                  *etag;
 			if ((etag=ngx_http_push_listener_get_etag(r)) != NULL) {
-				r->headers_out.etag=ngx_http_push_set_response_header(r, &ngx_http_push_Etag, etag);
+				r->headers_out.etag=ngx_http_push_add_response_header(r, &ngx_http_push_Etag, etag);
 			}
 			return NGX_HTTP_NOT_MODIFIED;
 		}
@@ -555,6 +555,7 @@ static ngx_int_t ngx_http_push_sender_handler(ngx_http_request_t * r) {
 	return NGX_DONE;
 }
 
+static ngx_str_t ngx_http_push_Vary_header_value = ngx_string("If-None-Match, If-Modified-Since");
 static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg) {
 	//content-type is _copied_
 	if (&msg->content_type!=NULL && msg->content_type.data!=NULL && msg->content_type.len > 0) {
@@ -575,17 +576,17 @@ static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_ht
 		if (etag==NULL) { return NGX_HTTP_INTERNAL_SERVER_ERROR; }
 		etag->data = (u_char *) (etag+1); 
 		etag->len = ngx_sprintf(etag->data, "%ui", msg->message_tag) - etag->data;
-		if ((r->headers_out.etag=ngx_http_push_set_response_header(r, &ngx_http_push_Etag, etag))==NULL) {
+		if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &ngx_http_push_Etag, etag))==NULL) {
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
 	}
-	//cache-control header thrown in for good measure.
-	ngx_http_push_add_cache_control(r, &NGX_HTTP_PUSH_CACHE_CONTROL_VALUE);
+	//Vary header needed for proper caching.
+	ngx_http_push_add_response_header(r, &ngx_http_push_Vary, &ngx_http_push_Vary_header_value);
 	r->headers_out.status=NGX_HTTP_OK;
 	return NGX_OK;
 }
 
-static ngx_table_elt_t * ngx_http_push_set_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value) {
+static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value) {
 	ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
 	if (h == NULL) {
 		return NULL;
@@ -596,33 +597,6 @@ static ngx_table_elt_t * ngx_http_push_set_response_header(ngx_http_request_t *r
 	h->value.len = header_value->len;
 	h->value.data = header_value->data;
 	return h;
-}
-	
-	
-//from ngx_http_headers_filter_module.c
-static ngx_int_t ngx_http_push_add_cache_control(ngx_http_request_t *r, ngx_str_t *value)
-{
-	ngx_table_elt_t  *cc, **ccp;
-	ccp = r->headers_out.cache_control.elts;
-	if (ccp == NULL) {
-		if (ngx_array_init(&r->headers_out.cache_control, r->pool, 1, sizeof(ngx_table_elt_t *))!= NGX_OK) {
-			return NGX_ERROR;
-		}
-	}
-	ccp = ngx_array_push(&r->headers_out.cache_control);
-	if (ccp == NULL) {
-		return NGX_ERROR;
-	}
-	cc = ngx_list_push(&r->headers_out.headers);
-	if (cc == NULL) {
-		return NGX_ERROR;
-	}
-	cc->hash = 1;
-	cc->key.len = sizeof("Cache-Control") - 1;
-	cc->key.data = (u_char *) "Cache-Control";
-	cc->value = *value;
-	*ccp = cc;
-	return NGX_OK;
 }
 
 static ngx_str_t *  ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
