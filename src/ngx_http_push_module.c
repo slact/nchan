@@ -153,7 +153,7 @@ static ngx_int_t ngx_http_push_set_id(ngx_str_t *id, ngx_http_request_t *r, ngx_
 	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
     if (vv == NULL || vv->not_found || vv->len == 0) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "http_push module: the \"$push_id\" variable is required but is not set");
+            "http_push module: the \"$push_channel_id\" variable is required but is not set");
         return NGX_ERROR;
     }
 	if (id!=NULL){

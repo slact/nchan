@@ -192,18 +192,18 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	return NGX_CONF_OK;
 }
 
-static ngx_str_t  ngx_http_push_id = ngx_string("push_id"); //id variable name
+static ngx_str_t  ngx_http_push_channel_id = ngx_string("push_channel_id"); //channel id variable
 //sender and listener handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
 	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
 	ngx_http_push_loc_conf_t       *plcf = conf;
-    clcf->handler = handler;
+	clcf->handler = handler;
 	clcf->if_modified_since = NGX_HTTP_IMS_OFF;
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_id);
-    if (plcf->index == NGX_ERROR) {
-        return NGX_CONF_ERROR;
-    }
-    return NGX_CONF_OK;
+	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_channel_id);
+	if (plcf->index == NGX_ERROR) {
+		return NGX_CONF_ERROR;
+	}
+	return NGX_CONF_OK;
 }
 
 static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

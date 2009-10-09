@@ -21,7 +21,8 @@ push_listener
   context: server, location
   Defines a server or location as a listener. Requests from a listener will 
   not be responded to until a message for the listener (identified by 
-  $push_id) becomes available. See protocol documentation for more info.   
+  $push_channel_id) becomes available. See protocol documentation for more 
+  info.
 
 push_listener_concurrency [ last | first | broadcast ]
   default: last
@@ -73,11 +74,11 @@ push_queue_messages [ on | off ] (DEPRECATED)
   see push_store_messages
   
 Variables:
-$push_id
-  The id associated with a push_listener or push_sender. Must be present next
-  to said directives.
+$push_channel_id
+  A token uniquely identifying a channel. Must be present in the context of 
+  the push_listener and push_sender directives.
   Example:
-    set $push_id $arg_id #$push_id is now the url parameter "id"
+    set $push_channel_id $arg_id; #channel id is now the url parameter "id"
 
 --------------------------- Example Config -----------------------------------
 http {
@@ -90,7 +91,7 @@ http {
   listen       localhost:8089; 
     location / {
       default_type  text/plain;
-      set $push_id $arg_id; #/?id=239aff3 or somesuch
+      set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
       push_sender;
       push_message_timeout 2h; #buffered messages expire after 2 hours
 	  push_message_buffer_length 10; #store 10 messages.
@@ -102,7 +103,7 @@ http {
     listen       8088;
     location / {
       default_type  text/plain;
-      set $push_id $arg_id; #/?id=239aff3 or somesuch
+      set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
       push_listener;
     }
   }
@@ -132,6 +133,7 @@ see the file protocol.txt
 ---------------------------- todo --------------------------------------------
 - Add other mechanisms of server pushing. The list should include
   "long-poll" (default), "interval-poll".
-- When POSTing to push_server, if Content-Type is "message/http", the 
-  response sent to $push_id should be created from the body of the request.
+- When POSTing to a sender location, if Content-Type is "message/http", the 
+  response sent to $push_channel_id should be created from the body of the 
+  request.
 
