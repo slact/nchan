@@ -108,9 +108,15 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_nod
 	ngx_int_t                       tag = -1;
 	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
+	//channel's message buffer empty?
+	if(node->message_queue_size!=0) {
+		*status=NGX_DONE; //wait.
+		return NULL;
+	}
+	
 	// do we want a future message?
 	msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
-	if(time <= msg->message_time || msg->message_time==0 ) { //that's an empty check (Sentinel's values are zero)
+	if(time <= msg->message_time) { //that's an empty check (Sentinel's values are zero)
 		if(time == msg->message_time) {
 			if(tag<0) { tag = ngx_http_push_listener_get_etag_int(r); }
 			if(tag >= msg->message_tag) {
