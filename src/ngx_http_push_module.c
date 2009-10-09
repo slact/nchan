@@ -207,6 +207,7 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 		ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
 	}
 
+static ngx_str_t ngx_http_push_Allow_GET= ngx_string("GET");
 static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
@@ -215,6 +216,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       status;
 	if (r->method != NGX_HTTP_GET) {
+		ngx_http_push_add_response_header(r, &ngx_http_push_Allow, &ngx_http_push_Allow_GET);
 		return NGX_HTTP_NOT_ALLOWED;
     }
 	
@@ -342,6 +344,7 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 	}
 
 static ngx_str_t ngx_http_push_410_Gone = ngx_string("410 Gone");
+static ngx_str_t ngx_http_push_Allow_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
 static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) { 
 	ngx_str_t                       id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
@@ -501,6 +504,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		}
 	}
 	else {
+		ngx_http_push_add_response_header(r, &ngx_http_push_Allow, &ngx_http_push_Allow_GET_POST_PUT_DELETE);
 		ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
 		return;
 	}

@@ -128,3 +128,4 @@ static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpo
 static ngx_str_t ngx_http_push_Etag = ngx_string("Etag");
 static ngx_str_t ngx_http_push_If_None_Match = ngx_string("If-None-Match");
 static ngx_str_t ngx_http_push_Vary = ngx_string("Vary");
+static ngx_str_t ngx_http_push_Allow = ngx_string("Allow");
