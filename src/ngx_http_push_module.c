@@ -33,8 +33,10 @@ static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_pu
 
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_node_t * node) {
 	ngx_http_push_msg_t            *msg = ngx_http_push_get_oldest_message_locked(node);
-	ngx_queue_remove(&msg->queue);
-	node->message_queue_size--;
+	if(msg!=NULL) {
+		ngx_queue_remove(&msg->queue);
+		node->message_queue_size--;
+	}
 	return msg;
 }
 
