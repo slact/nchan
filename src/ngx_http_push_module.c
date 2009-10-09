@@ -276,6 +276,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	else { //status==NGX_OK
 		ngx_chain_t                *out; //output chain
 		ngx_int_t                   rc;
+		ngx_shmtx_lock(&shpool->mutex)
 		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
 		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
 		ngx_shmtx_unlock(&shpool->mutex);
@@ -639,6 +640,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 	//buffer is _copied_
 	ngx_chain_t                    *out = ngx_pcalloc(r->pool, sizeof(ngx_chain_t));
 	ngx_buf_t                      *buf_copy;
+	if(shpool!=NULL) { ngx_shmtx_lock(&shpool->mutex); }
 	ngx_http_push_create_buf_copy(buf, buf_copy, r->pool, ngx_pcalloc);
 	if (out==NULL || buf_copy==NULL) {
 		return NULL;
@@ -651,14 +653,13 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 		if(shpool!=NULL) { ngx_shmtx_unlock(&shpool->mutex); } //unlock before performing i/o 
 		//the following assumes file->name.data is already null-terminated
 		file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-		if(shpool!=NULL) { ngx_shmtx_lock(&shpool->mutex); } //back to lockdown
 		if(file->fd==NGX_INVALID_FILE){
 			/* i don't think we need to do any file cleanup, since all allocations
 			here were done in the request pool which gets cleaned all by itself. */
 			return NULL;
 		}
-		if(shpool!=NULL) { ngx_shmtx_lock(&shpool->mutex); }
 	}
+	else if(shpool!=NULL) { ngx_shmtx_unlock(&shpool->mutex); } //back to lockdown
 	
 	buf_copy->last_buf = 1; 
 	out->buf = buf_copy;
