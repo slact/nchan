@@ -92,7 +92,7 @@ GET request:
    (last-in-first-out)
  - All but the oldest (including this) request will be sent a 409 Conflict
    response. (first-in-last-out)
- - No additional actions are performed. (broadcase)
+ - No additional actions are performed. (broadcast)
 The server SHOULD make this selection configurable.
 
 4.2 The Sender
