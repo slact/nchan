@@ -269,14 +269,25 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	}
 	//listener wants an expired message
 	else if (status==NGX_DECLINED) {
+		ngx_str_t                  *etag;
 		//TODO: maybe respond with entity-identifiers for oldest available message?
+		if (r->headers_in.if_modified_since != NULL) {
+			r->headers_out.last_modified_time = ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+		}
+		if ((etag=ngx_http_push_listener_get_etag(r)) != NULL) {
+			r->headers_out.etag->hash = 1;
+			r->headers_out.etag->key.len = sizeof("Etag") - 1;
+			r->headers_out.etag->key.data = (u_char *) "Etag";
+			r->headers_out.etag->value.len=etag->len;
+			r->headers_out.etag->value.data=etag->data;
+		}
 		return NGX_HTTP_NO_CONTENT; 
 	}
 	//found the message
 	else { //status==NGX_OK
 		ngx_chain_t                *out; //output chain
 		ngx_int_t                   rc;
-		ngx_shmtx_lock(&shpool->mutex)
+		ngx_shmtx_lock(&shpool->mutex);
 		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
 		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
 		ngx_shmtx_unlock(&shpool->mutex);
