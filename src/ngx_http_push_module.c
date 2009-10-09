@@ -109,7 +109,7 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_nod
 	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
 	//channel's message buffer empty?
-	if(node->message_queue_size!=0) {
+	if(node->message_queue_size==0) {
 		*status=NGX_DONE; //wait.
 		return NULL;
 	}
