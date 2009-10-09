@@ -29,10 +29,10 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NULL },
 	
 	{ ngx_string("push_listener"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1,
       ngx_http_push_listener,
       NGX_HTTP_LOC_CONF_OFFSET,
-      0,
+      offsetof(ngx_http_push_loc_conf_t, listener_poll_mechanism),
       NULL },
 	
     { ngx_string("push_listener_concurrency"),
@@ -177,6 +177,7 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->buffer_timeout=NGX_CONF_UNSET;
 	lcf->max_message_queue_size=NGX_CONF_UNSET;
 	lcf->listener_concurrency=NGX_CONF_UNSET;
+	lcf->listener_poll_mechanism=NGX_CONF_UNSET;
 	lcf->authorize_channel=NGX_CONF_UNSET;
 	lcf->store_messages=NGX_CONF_UNSET;
 	return lcf;
@@ -187,6 +188,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
 	ngx_conf_merge_value(conf->max_message_queue_size, prev->max_message_queue_size, NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE);
 	ngx_conf_merge_value(conf->listener_concurrency, prev->listener_concurrency, NGX_HTTP_PUSH_LISTENER_LASTIN);
+	ngx_conf_merge_value(conf->listener_poll_mechanism, prev->listener_poll_mechanism, NGX_HTTP_PUSH_LISTENER_LONGPOLL);
 	ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
 	ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
 	return NGX_CONF_OK;
@@ -222,7 +224,7 @@ static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_
 		*field=NGX_HTTP_PUSH_LISTENER_BROADCAST;
 	}
 	else {
-		ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Unexpected value for push_listener_concurrency.");
+		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Unexpected value for push_listener_concurrency.");
 		return NGX_CONF_ERROR;
 	}
 	if (cmd->post) {
@@ -237,5 +239,16 @@ static char *ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 }
 
 static char *ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
+	ngx_str_t                      *value = &(((ngx_str_t *) cf->args->elts)[1]);
+	if (*field != NGX_CONF_UNSET) {
+		return "is duplicate";
+	}
+	if(ngx_strncmp(value->data, "interval-poll", 8)==0) {
+		*field=NGX_HTTP_PUSH_LISTENER_INTERVALPOLL;
+	}
+	else {
+		*field=NGX_HTTP_PUSH_LISTENER_LONGPOLL;
+	}
 	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_listener_handler);
 }

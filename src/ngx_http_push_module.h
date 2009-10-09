@@ -8,6 +8,7 @@ typedef struct {
 	time_t                          buffer_timeout;
 	ngx_int_t                       max_message_queue_size;
 	ngx_int_t                       listener_concurrency;
+	ngx_int_t                       listener_poll_mechanism;
 	ngx_int_t                       authorize_channel;
 	ngx_int_t                       store_messages;
 } ngx_http_push_loc_conf_t;
@@ -20,6 +21,9 @@ ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 #define NGX_HTTP_PUSH_LISTENER_LASTIN 0
 #define NGX_HTTP_PUSH_LISTENER_FIRSTIN 1
 #define NGX_HTTP_PUSH_LISTENER_BROADCAST 2
+
+#define NGX_HTTP_PUSH_LISTENER_LONGPOLL 0
+#define NGX_HTTP_PUSH_LISTENER_INTERVALPOLL 1
 
 typedef struct {
 	size_t                          shm_size;

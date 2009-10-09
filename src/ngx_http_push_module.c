@@ -220,51 +220,56 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	//get the node and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
 	node = (cf->authorize_channel==1 ? find_node : get_node)(&id, ngx_http_push_shm_zone->data, shpool, r->connection->log);
-	ngx_shmtx_unlock(&shpool->mutex);
 	if (node==NULL) { //unable to allocate node
+		ngx_shmtx_unlock(&shpool->mutex);
 		return cf->authorize_channel==1 ? NGX_HTTP_FORBIDDEN : NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
+	msg = ngx_http_push_find_message_locked(node, r, &status); 
+	node->last_seen = ngx_time();
+	ngx_shmtx_unlock(&shpool->mutex);
 	
 	ngx_http_discard_request_body(r); //don't care about the rest of this request
 	if(ngx_http_push_handle_listener_concurrency_setting(cf->listener_concurrency, node, r, shpool) == NGX_DECLINED) { //this request was declined for some reason.
 		//status codes and whatnot should have already been written. just get out of here quickly.
 		return NGX_OK;
 	}
-	ngx_shmtx_lock(&shpool->mutex);
-	//expired messages are already removed from queue during get_node()
-	msg = ngx_http_push_find_message_locked(node, r, &status); 
-	node->last_seen = ngx_time();
 	//no matching message and it wasn't because an expired message was requested.
 	if (status==NGX_DONE) {
-		//this means we must wait for a message.
-		ngx_http_push_listener_t   *listener;
-		if((listener=ngx_http_push_queue_listener_request_locked(node, r, shpool))==NULL) {
-			//todo: emergency out-of-memory garbage collection, retry
+		if(cf->listener_poll_mechanism==NGX_HTTP_PUSH_LISTENER_LONGPOLL) {
+			//this means we must wait for a message.
+			ngx_http_push_listener_t   *listener;
+			ngx_shmtx_lock(&shpool->mutex);
+			listener=ngx_http_push_queue_listener_request_locked(node, r, shpool);
 			ngx_shmtx_unlock(&shpool->mutex);
+			if(listener==NULL) { return NGX_HTTP_INTERNAL_SERVER_ERROR; } //todo: emergency out-of-memory garbage collection, retry
+			//test to see if the connection was closed or something.
+			r->read_event_handler = ngx_http_test_reading; 
+			
+			 //attach a cleaner to remove the request from the node, if need be (if the connection goes dead or something)
+			ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_listener_cleanup_t));
+			if (cln == NULL) { //make sure we can.
+				return NGX_ERROR;
+			}
+			ngx_shmtx_lock(&shpool->mutex);
+			listener->cleanup = ((ngx_http_push_listener_cleanup_t *) cln->data);
+			ngx_shmtx_unlock(&shpool->mutex);
+			cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_listener_cleanup;
+			((ngx_http_push_listener_cleanup_t *) cln->data)->node = node;
+			((ngx_http_push_listener_cleanup_t *) cln->data)->listener = listener;
+			((ngx_http_push_listener_cleanup_t *) cln->data)->shpool = shpool;
+		
+			return NGX_DONE; //and wait.
+		}
+		else if(cf->listener_poll_mechanism==NGX_HTTP_PUSH_LISTENER_INTERVALPOLL) {
+			return NGX_HTTP_NO_CONTENT;
+		}
+		else {
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
-		ngx_shmtx_unlock(&shpool->mutex);
-		r->read_event_handler = ngx_http_test_reading; //definitely test to see if the connection got closed or something.
-		
-		 //attach a cleaner to remove the request from the node, if need be (if the connection goes dead or something)
-		ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_listener_cleanup_t));
-		if (cln == NULL) { //make sure we can.
-			return NGX_ERROR;
-		}
-		ngx_shmtx_lock(&shpool->mutex);
-		listener->cleanup = ((ngx_http_push_listener_cleanup_t *) cln->data);
-		ngx_shmtx_unlock(&shpool->mutex);
-		cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_listener_cleanup;
-		((ngx_http_push_listener_cleanup_t *) cln->data)->node = node;
-		((ngx_http_push_listener_cleanup_t *) cln->data)->listener = listener;
-		((ngx_http_push_listener_cleanup_t *) cln->data)->shpool = shpool;
-		
-		return NGX_DONE; //and wait.
 	}
 	//listener wants an expired message
 	else if (status==NGX_DECLINED) {
 		//TODO: maybe respond with entity-identifiers for oldest available message?
-		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_HTTP_NO_CONTENT; 
 	}
 	//found the message
@@ -299,8 +304,9 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 			ngx_shmtx_lock(&shpool->mutex);
 			ngx_http_push_listener_t *listener = ngx_http_push_dequeue_listener_locked(node);
 			listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
+			ngx_http_request_t     *request_l = listener->request;
 			ngx_shmtx_unlock(&shpool->mutex);
-			ngx_http_push_reply_status_only(listener->request, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
+			ngx_http_push_reply_status_only(request_l, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
 			return NGX_OK;
 		}
 	}
