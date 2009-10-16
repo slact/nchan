@@ -12,9 +12,9 @@ local function send(channel, message, callback)
 end
 
 local channeltags = {}
-local function listen(channel, callback, headers)
+local function listen(channel, callback, headers, timeout)
 	if not channeltags[channel] then channeltags[channel] = {} end
-	assert(request{
+	return request{
 		url=listenurl:format(channel),
 		method="get",
 		headers = headers or {
@@ -34,13 +34,30 @@ local function listen(channel, callback, headers)
 				return channel
 			end
 		end
-	})
-	
+	}
 end
 
 local function testqueuing(channel)
 	--part 1: write a bunch of messages.
-	local i=0
+	local s, i, messages = nil, 0, {}
+	local function listener_timeout()
+		print("message buffer length is " .. #messages)
+		if s then
+			httpest.abort_request(s)
+		end
+		for j, v in ipairs(messages) do
+			assert(v==(tostring(i-j) .. " "):rep(20))
+		end
+	end
+	local function listener(resp, status)
+		if resp then
+			table.insert(messages, 1, resp:getbody())
+		end
+		httpest.killtimer(listener_timeout)
+		s = listen(channel, listener)
+		httpest.timer(500, listener_timeout)
+	end
+	
 	local function spawn(resp, status)
 		i=i+1
 		assert(not status, "fail: " .. (status or "?"))
@@ -50,6 +67,8 @@ local function testqueuing(channel)
 		end
 		if i<=50 then
 			send(channel, (tostring(i) .. " "):rep(20), spawn)
+		else
+			listener()
 		end
 		if resp then	
 			return true
@@ -57,8 +76,6 @@ local function testqueuing(channel)
 	end
 	return spawn
 end
-
-
 
 for i=1, 5 do
 	httpest.addtest("queuing " .. i, testqueuing(math.random()))
