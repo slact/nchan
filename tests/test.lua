@@ -41,12 +41,12 @@ local function testqueuing(channel)
 	--part 1: write a bunch of messages.
 	local s, i, messages = nil, 0, {}
 	local function listener_timeout()
-		print("message buffer length is " .. #messages)
+		print("  message buffer length is " .. #messages)
 		if s then
 			httpest.abort_request(s)
 		end
 		for j, v in ipairs(messages) do
-			assert(v==(tostring(i-j) .. " "):rep(20))
+			assert(v==(tostring(i-j) .. " "):rep(20), "v" .. "	" .. (tostring(i-j) .. " "):rep(20) )
 		end
 	end
 	local function listener(resp, status)
