@@ -78,6 +78,11 @@ push_queue_messages [ on | off ] (DEPRECATED)
   default: on
   context: http, server, location
   see push_store_messages
+
+push_buffer_size [ size ] (DEPRECATED)
+  default: 3M
+  context: http
+  see push_max_reserved_memory
   
 Variables:
 $push_channel_id
