@@ -6,6 +6,7 @@
 typedef struct {
 	ngx_int_t                       index;
 	time_t                          buffer_timeout;
+	ngx_int_t                       min_message_queue_size;
 	ngx_int_t                       max_message_queue_size;
 	ngx_int_t                       listener_concurrency;
 	ngx_int_t                       listener_poll_mechanism;
@@ -16,7 +17,8 @@ typedef struct {
 
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
-#define NGX_HTTP_PUSH_DEFAULT_MESSAGE_QUEUE_SIZE 5
+#define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGE_QUEUE_SIZE 5
+#define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGE_QUEUE_SIZE 255
 ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 
 #define NGX_HTTP_PUSH_LISTENER_LASTIN 0

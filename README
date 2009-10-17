@@ -41,12 +41,17 @@ push_max_reserved_memory [ size ]
   The size of the memory chunk this module will use for all message queuing
   and buffering. 
 
-push_message_buffer_length [ number ]
+push_min_message_buffer_length [ number ]
   default: 5
   context: http, server, location
-  The maximum number of messages to store per channel. Old messages are removed
-  when a channel's message buffer length exceeds this setting. Set to 0 to
-  disable buffering.
+  The minimum number of messages to store per channel. A channel's message
+  buffer, will cointain at least this many most recent messages.
+
+push_max_message_buffer_length [ number ]
+  default: 255
+  context: http, server, location
+  The minimum number of messages to store per channel. A channel's message
+  buffer, will cointain at least this many most recent messages.
 
 push_min_message_recipients [ number ]
   default: 0
