@@ -7,6 +7,7 @@ local function send(channel, message, callback)
 		url=sendurl:format(channel),
 		method="post",
 		data=message,
+		headers={['content-type']="text/foo"},
 		complete=function(r, status, sock)
 			assert(not status, "fail: " .. (status or "?"))
 			assert(r.status==201 or r.status==202, tostring(r))
@@ -78,7 +79,7 @@ local function batchlisten(channel, callback, timeout)
 end
 
 local function shortmsg(base)
-	return (tostring(base) .. " "):rep(30)
+	return (tostring("a")):rep(30000)
 end
 
 local function testqueuing(channel, done)
@@ -91,7 +92,7 @@ local function testqueuing(channel, done)
 			httpest.abort_request(s)
 			print("  message buffer length is " .. #messages)
 			for j, v in ipairs(messages) do
-				assert(v==shortmsg(i-j+1), v .. "	" .. shortmsg(i-j))
+				assert(v==shortmsg(i-j+1), #v .. "	" .. #shortmsg(i-j+1))
 			end
 			return nil
 		end
@@ -104,7 +105,7 @@ local function testqueuing(channel, done)
 		end, 
 		nil,
 		function()
-			return batchlisten(channel, listener, 500) 
+			return batchlisten(channel, listener, 100) 
 		end
 	)
 end
@@ -138,7 +139,7 @@ end)
 
 --broadcasting
 local channel=math.random()
-local num = 10
+local num = 200
 httpest.addtest(('broadcast to %s (%s)'):format(num, channel), function()
 	local msg = tostring(math.random()):rep(20)
 	for j=1, num do
