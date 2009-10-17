@@ -15,14 +15,14 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NULL },
 	  
 	{ ngx_string("push_min_message_buffer_length"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, min_message_queue_size),
       NULL },
 	
 	{ ngx_string("push_max_message_buffer_length"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, max_message_queue_size),
@@ -209,6 +209,13 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
 	ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
 	ngx_conf_merge_value(conf->min_message_recipients, prev->min_message_recipients, NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS);
+	//sanity checks
+	if(conf->max_message_queue_size < conf->min_message_queue_size) {
+		//min/max buffer size makes sense?
+		ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "push_max_message_buffer_length cannot be smaller than push_max_message_buffer_length.");
+		return NGX_CONF_ERROR;
+	}
+	
 	return NGX_CONF_OK;
 }
 

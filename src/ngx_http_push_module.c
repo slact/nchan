@@ -288,6 +288,9 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		ngx_chain_t                *out; //output chain
 		ngx_int_t                   rc;
 		ngx_shmtx_lock(&shpool->mutex);
+		if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
+			msg->received++;
+		}
 		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
 		ngx_shmtx_unlock(&shpool->mutex);
 		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
@@ -397,8 +400,8 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		ngx_http_push_msg_t            *previous_msg=ngx_http_push_get_last_message_locked(node, shpool);
 		NGX_HTTP_PUSH_SENDER_CHECK(msg, NULL, r, "push module: unable to allocate message in shared memory");
 		ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
-		msg->buf=buf_copy;
 		NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool);
+		msg->buf=buf_copy;
 		if(cf->store_messages==1) {
 			ngx_queue_insert_tail(&node->message_queue->queue, &msg->queue); //this line ought to appear after NGX_HTTP_PUSH_SENDER_CHECK, but this is easier.
 			node->message_queue_size++;
@@ -432,9 +435,12 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			while ((listener=ngx_http_push_dequeue_listener_locked(node))!=NULL) {
 				r_listener = listener->request;
 				listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
-				msg->received++;
+				if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
+					msg->received++;
+				}
 				ngx_shmtx_unlock(&shpool->mutex);
 				if((rc = ngx_http_push_set_listener_header(r_listener, msg)) < NGX_HTTP_SPECIAL_RESPONSE) {
+					//everything is going as planned
 					rc = ngx_http_send_header(r_listener);
 					ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
 					if(!received) {
