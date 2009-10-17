@@ -288,8 +288,8 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
 			msg->received++;
 		}
-		rc = ngx_http_push_set_listener_header(r, msg); //all the headers are copied
 		ngx_shmtx_unlock(&shpool->mutex);
+		rc = ngx_http_push_set_listener_header(r, msg, shpool); //all the headers are copied
 		out = ngx_http_push_create_output_chain(r, msg->buf, shpool); 	//buffer is copied
 		if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
 			return rc; 
@@ -438,7 +438,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 					msg->received++;
 				}
 				ngx_shmtx_unlock(&shpool->mutex);
-				if((rc = ngx_http_push_set_listener_header(r_listener, msg)) < NGX_HTTP_SPECIAL_RESPONSE) {
+				if((rc = ngx_http_push_set_listener_header(r_listener, msg, shpool)) < NGX_HTTP_SPECIAL_RESPONSE) {
 					//everything is going as planned
 					rc = ngx_http_send_header(r_listener);
 					ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
@@ -575,12 +575,16 @@ static ngx_int_t ngx_http_push_sender_handler(ngx_http_request_t * r) {
 }
 
 static ngx_str_t ngx_http_push_Vary_header_value = ngx_string("If-None-Match, If-Modified-Since");
-static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg) {
+
+//assumes that shpool is unlocked.
+static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
 	//content-type is _copied_
+	ngx_shmtx_lock(&shpool->mutex);
 	if (&msg->content_type!=NULL && msg->content_type.data!=NULL && msg->content_type.len > 0) {
 		r->headers_out.content_type.len=msg->content_type.len;
 		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
 		if(r->headers_out.content_type.data==NULL) {
+			ngx_shmtx_unlock(&shpool->mutex);
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
 		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
@@ -592,13 +596,18 @@ static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_ht
 	if(msg->message_tag) {
 		//etag, if we need one
 		ngx_str_t                  *etag=ngx_pcalloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN);
-		if (etag==NULL) { return NGX_HTTP_INTERNAL_SERVER_ERROR; }
+		if (etag==NULL) { 
+			ngx_shmtx_unlock(&shpool->mutex);
+			return NGX_HTTP_INTERNAL_SERVER_ERROR; 
+		}
 		etag->data = (u_char *) (etag+1); 
 		etag->len = ngx_sprintf(etag->data, "%ui", msg->message_tag) - etag->data;
 		if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &ngx_http_push_Etag, etag))==NULL) {
+			ngx_shmtx_unlock(&shpool->mutex);
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
 	}
+	if(shpool!=NULL) { ngx_shmtx_unlock(&shpool->mutex); }
 	//Vary header needed for proper caching.
 	ngx_http_push_add_response_header(r, &ngx_http_push_Vary, &ngx_http_push_Vary_header_value);
 	r->headers_out.status=NGX_HTTP_OK;
@@ -675,7 +684,9 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 			return NULL;
 		}
 	}
-	else if(shpool!=NULL) { ngx_shmtx_unlock(&shpool->mutex); } //back to lockdown
+	else if(shpool!=NULL) { 
+		ngx_shmtx_unlock(&shpool->mutex); 
+	} //back to lockdown
 	
 	buf_copy->last_buf = 1; 
 	out->buf = buf_copy;
