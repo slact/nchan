@@ -115,8 +115,8 @@ static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request
 //message stuff
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_node_t * node); // doesn't free associated memory
 static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
-static ngx_http_push_msg_t *ngx_http_push_get_last_message_locked(ngx_http_push_node_t * node);
-static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_node_t * node);
+static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_push_node_t * node);
+static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_node_t * node);
 static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
 

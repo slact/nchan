@@ -11,7 +11,7 @@
 #include <ngx_http_push_module_setup.c>
 
 //shpool is assumed to be locked.
-static ngx_http_push_msg_t * ngx_http_push_get_last_message_locked(ngx_http_push_node_t * node){
+static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_push_node_t * node){
 	ngx_queue_t                    *sentinel = &node->message_queue->queue; 
 	if(ngx_queue_empty(sentinel)) {
 		return NULL;
@@ -397,7 +397,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		//create a buffer copy in shared mem
 		ngx_shmtx_lock(&shpool->mutex);	
 		ngx_http_push_msg_t            *msg = ngx_slab_alloc_locked(shpool, sizeof(*msg) + content_type_len);
-		ngx_http_push_msg_t            *previous_msg=ngx_http_push_get_last_message_locked(node);
+		ngx_http_push_msg_t            *previous_msg=ngx_http_push_get_latest_message_locked(node);
 		NGX_HTTP_PUSH_SENDER_CHECK(msg, NULL, r, "push module: unable to allocate message in shared memory");
 		ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
 		NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool);
