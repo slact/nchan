@@ -705,8 +705,10 @@ static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chai
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data) {
 	if(data->listener!=NULL) {
 		if(data->node!=NULL) { 
+			ngx_shmtx_lock(&data->shpool->mutex);
 			ngx_queue_remove(&data->listener->queue);
 			data->node->listener_queue_size--;
+			ngx_shmtx_unlock(&data->shpool->mutex);
 		}
 		ngx_slab_free(data->shpool, data->listener);
 	}
