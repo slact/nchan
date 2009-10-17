@@ -97,25 +97,22 @@ http {
   #for buffering and stuff
   push_max_reserved_memory	12M; #default is 3M
 
-  #sender
   server {
-  listen       localhost:8089; 
+    #sender
     location / {
-      default_type  text/plain;
       set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
       push_sender;
       push_message_timeout 2h; #buffered messages expire after 2 hours
-	  push_message_buffer_length 10; #store 10 messages.
+      push_message_buffer_length 10; #store 10 messages.
     }
-  }
 
-  #receiver
-  server {
-    listen       8088;
+    #receiver
     location / {
-      default_type  text/plain;
-      set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
       push_listener;
+	  push_listener_concurrency broadcast;
+      set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
+	  default_type  text/plain;
+	  
     }
   }
 }
