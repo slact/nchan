@@ -438,6 +438,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			while ((listener=ngx_http_push_dequeue_listener_locked(node))!=NULL) {
 				r_listener = listener->request;
 				listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
+				msg->received++;
 				ngx_shmtx_unlock(&shpool->mutex);
 				if((rc = ngx_http_push_set_listener_header(r_listener, msg)) < NGX_HTTP_SPECIAL_RESPONSE) {
 					rc = ngx_http_send_header(r_listener);

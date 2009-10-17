@@ -36,6 +36,7 @@ typedef struct {
 	ngx_str_t                       charset;
 	ngx_buf_t                      *buf;
 	time_t                          expires;
+	ngx_uint_t                      received;
 	time_t                          message_time; //tag message by time
 	ngx_int_t                       message_tag; //used in conjunction with message_time if more than one message have the same time.
 } ngx_http_push_msg_t;
