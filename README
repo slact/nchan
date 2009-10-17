@@ -48,7 +48,7 @@ push_min_message_buffer_length [ number ]
   buffer, will cointain at least this many most recent messages.
 
 push_max_message_buffer_length [ number ]
-  default: 255
+  default: 50
   context: http, server, location
   The minimum number of messages to store per channel. A channel's message
   buffer, will cointain at least this many most recent messages.
