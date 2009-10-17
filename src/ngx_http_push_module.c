@@ -60,7 +60,7 @@ static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request
 
 //shpool must be locked.
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
-	ngx_http_push_listener_t       *listener = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_listener_t));
+	ngx_http_push_listener_t       *listener = ngx_slab_alloc_locked(shpool, sizeof(*listener));
 	if(listener==NULL) { //unable to allocate request queue element
 		return NULL;
 	}
@@ -395,7 +395,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		size_t                          content_type_len = (r->headers_in.content_type==NULL ? 0 : r->headers_in.content_type->value.len);
 		//create a buffer copy in shared mem
 		ngx_shmtx_lock(&shpool->mutex);	
-		ngx_http_push_msg_t            *msg = ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_msg_t) + content_type_len);
+		ngx_http_push_msg_t            *msg = ngx_slab_alloc_locked(shpool, sizeof(*msg) + content_type_len);
 		ngx_http_push_msg_t            *previous_msg=ngx_http_push_get_last_message_locked(node, shpool);
 		NGX_HTTP_PUSH_SENDER_CHECK(msg, NULL, r, "push module: unable to allocate message in shared memory");
 		ngx_http_push_create_buf_copy(buf, buf_copy, shpool, ngx_slab_alloc_locked);
@@ -413,7 +413,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		//store the content-type
 		if(content_type_len>0) {
 			msg->content_type.len=r->headers_in.content_type->value.len;
-			msg->content_type.data=(u_char *) msg + sizeof(ngx_http_push_msg_t);
+			msg->content_type.data=(u_char *) (msg+1);
 			ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
 		}
 		else {
@@ -654,7 +654,7 @@ static ngx_str_t * ngx_http_push_listener_get_etag(ngx_http_request_t * r) {
  */
 static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf, ngx_slab_pool_t *shpool) {
 	//buffer is _copied_
-	ngx_chain_t                    *out = ngx_pcalloc(r->pool, sizeof(ngx_chain_t));
+	ngx_chain_t                    *out = ngx_pcalloc(r->pool, sizeof(*out));
 	ngx_buf_t                      *buf_copy;
 	if(shpool!=NULL) { ngx_shmtx_lock(&shpool->mutex); }
 	ngx_http_push_create_buf_copy(buf, buf_copy, r->pool, ngx_pcalloc);
