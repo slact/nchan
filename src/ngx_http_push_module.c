@@ -358,7 +358,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	time_t                          last_seen = 0;
 	ngx_uint_t                      message_queue_size = 0, listener_queue_size = 0;
 	
-	NGX_HTTP_PUSH_SENDER_CHECK(ngx_http_push_set_channel_id(&id, r, cf), NGX_ERROR, "can't determine channel id")
+	NGX_HTTP_PUSH_SENDER_CHECK(ngx_http_push_set_channel_id(&id, r, cf), NGX_ERROR, r, "can't determine channel id")
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel node created if it doesn't yet exist.
