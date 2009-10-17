@@ -36,7 +36,7 @@ push_listener_concurrency [ last | first | broadcast ]
      Conflict response.
 
 push_max_reserved_memory [ size ]
-  default: 3M
+  default: 12M
   context: http
   The size of the memory chunk this module will use for all message queuing
   and buffering. 

@@ -15,7 +15,7 @@ typedef struct {
 	ngx_int_t                       min_message_recipients;
 } ngx_http_push_loc_conf_t;
 
-#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
+#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 16777216 //16 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 #define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGE_QUEUE_SIZE 5
 #define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGE_QUEUE_SIZE 255
