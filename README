@@ -50,8 +50,8 @@ push_min_message_buffer_length [ number ]
 push_max_message_buffer_length [ number ]
   default: 50
   context: http, server, location
-  The minimum number of messages to store per channel. A channel's message
-  buffer, will cointain at least this many most recent messages.
+  The maximum number of messages to store per channel. A channel's message
+  buffer, will cointain at last this many most recent messages.
 
 push_min_message_recipients [ number ]
   default: 0
@@ -108,7 +108,7 @@ http {
       set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
       push_sender;
       push_message_timeout 2h; #buffered messages expire after 2 hours
-      push_message_buffer_length 10; #store 10 messages.
+      push_max_message_buffer_length 10; #store 10 messages.
     }
 
     #receiver
