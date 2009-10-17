@@ -156,7 +156,7 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_nod
 	return NULL;
 }
 
-static ngx_int_t ngx_http_push_set_id(ngx_str_t *id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+static ngx_int_t ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
 	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
     if (vv == NULL || vv->not_found || vv->len == 0) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
@@ -222,7 +222,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		return NGX_HTTP_NOT_ALLOWED;
     }
 	
-	if(ngx_http_push_set_id(&id, r, cf) !=NGX_OK) {
+	if(ngx_http_push_set_channel_id(&id, r, cf) !=NGX_OK) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
@@ -358,9 +358,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	time_t                          last_seen = 0;
 	ngx_uint_t                      message_queue_size = 0, listener_queue_size = 0;
 	
-	if(ngx_http_push_set_id(&id, r, cf) !=NGX_OK) {
-		return;
-	}
+	NGX_HTTP_PUSH_SENDER_CHECK(ngx_http_push_set_channel_id(&id, r, cf), NGX_ERROR, "can't determine channel id")
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel node created if it doesn't yet exist.

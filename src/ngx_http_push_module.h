@@ -99,6 +99,8 @@ static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
 static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void         ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline);
 static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value);
+static ngx_int_t    ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
+
 
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data);
 static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http_push_node_t * node); //doesn't free associated memory
