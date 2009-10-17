@@ -11,6 +11,7 @@ typedef struct {
 	ngx_int_t                       listener_poll_mechanism;
 	ngx_int_t                       authorize_channel;
 	ngx_int_t                       store_messages;
+	ngx_int_t                       min_message_recipients;
 } ngx_http_push_loc_conf_t;
 
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 3145728 //3 megs
@@ -25,6 +26,7 @@ ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 #define NGX_HTTP_PUSH_LISTENER_LONGPOLL 0
 #define NGX_HTTP_PUSH_LISTENER_INTERVALPOLL 1
 
+#define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
 typedef struct {
 	size_t                          shm_size;
 } ngx_http_push_main_conf_t;
@@ -113,7 +115,6 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_
 static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
 static ngx_http_push_msg_t *ngx_http_push_get_last_message_locked(ngx_http_push_node_t * node, ngx_slab_pool_t *shpool);
 static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_node_t * node);
-static void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node);
 static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
 

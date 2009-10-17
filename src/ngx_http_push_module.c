@@ -91,13 +91,6 @@ static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpo
 	ngx_slab_free_locked(shpool, msg); 
 }
 
-//remove the oldest message from queue and free associated memory. assumes shpool is already locked.
-static ngx_inline void ngx_http_push_delete_oldest_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node) {
-	ngx_http_push_msg_t            *msg = ngx_http_push_get_oldest_message_locked(node);
-	if(msg==NULL) { return; }
-	return ngx_http_push_delete_message_locked(shpool, node, msg);
-}
-
 /** find message with entity tags matching those of the request r.
   * @param status NGX_OK for a found message, NGX_DONE for a future message or NGX_DECLINED for a message that no longer exists
   * @param r listener request
@@ -469,7 +462,11 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		//now see if the queue is too big -- we do this at the end because message queue size may be set to zero, and we don't want special-case code for that.
 		if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
 			ngx_shmtx_lock(&shpool->mutex);
-			ngx_http_push_delete_oldest_message_locked(shpool, node);
+			ngx_http_push_msg_t    *msg = ngx_http_push_get_oldest_message_locked(node);
+			NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(msg, NULL, r, "push module: oldest message not found", shpool);
+			if(msg->received >= (ngx_uint_t) cf->min_message_recipients) {
+				ngx_http_push_delete_message_locked(shpool, node, msg);
+			}
 			ngx_shmtx_unlock(&shpool->mutex);
 		}
 	}
