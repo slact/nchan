@@ -169,36 +169,33 @@ static ngx_int_t ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t 
 
 static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
 	if (cbuf!=NULL) {
-		if(ngx_buf_in_memory(buf)) {
+		ngx_memcpy(cbuf, buf, sizeof(*buf)); //overkill?
+		if(buf->temporary || buf->memory) { //we don't want to copy mmpapped memory, so no ngx_buf_in_momory(buf)
 			cbuf->pos = (u_char *) (cbuf+1);
 			cbuf->last = cbuf->pos + ngx_buf_size(buf);
 			cbuf->start=cbuf->pos;
 			cbuf->end = cbuf->start + ngx_buf_size(buf);
-			ngx_memcpy(cbuf->pos, (buf)->pos, ngx_buf_size(buf));
+			ngx_memcpy(cbuf->pos, buf->pos, ngx_buf_size(buf));
 			cbuf->memory=ngx_buf_in_memory_only(buf) ? 1 : 0;
 		}
-		if (buf->in_file &&buf->file!=NULL) {
-			cbuf->file_pos  = buf->file_pos;
-			cbuf->file_last = buf->file_last;
-			cbuf->temp_file = buf->temp_file;
-			cbuf->in_file = 1;
-			cbuf->file = (ngx_file_t *) (cbuf+1) + (ngx_buf_in_memory(buf) ? ngx_buf_size(buf) : 0);
+		if (buf->file!=NULL) {
+			cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
 			cbuf->file->fd=NGX_INVALID_FILE;
 			cbuf->file->log=NULL;
 			cbuf->file->offset=buf->file->offset;
 			cbuf->file->sys_offset=buf->file->sys_offset;
 			cbuf->file->name.len=buf->file->name.len;
 			cbuf->file->name.data=(u_char *) (cbuf->file+1);
-			ngx_memcpy(cbuf->file->name.data, buf->file->name.data, cbuf->file->name.len);
+			ngx_memcpy(cbuf->file->name.data, buf->file->name.data, buf->file->name.len);
 		}
 	}
 }
 
 //this is a macro because i don't want to mess with the alloc_function function pointer
 #define ngx_http_push_create_buf_copy(buf, cbuf, pool, pool_alloc)            \
-	(cbuf) = pool_alloc((pool), sizeof(ngx_buf_t) +                           \
-		(ngx_buf_in_memory((buf)) ? ngx_buf_size((buf)) : 0) +                \
-        ((buf)->in_file ? (sizeof(ngx_file_t) + (buf)->file->name.len + 1) : 0)); \
+	(cbuf) = pool_alloc((pool), sizeof(*cbuf) +                           \
+		(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +       \
+        (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0)); \
 	if((cbuf)!=NULL) {                                                        \
 		ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
 	}
@@ -384,9 +381,11 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			//note: this works only provided mostly because of r->request_body_in_single_buf = 1; which, i suppose, makes this module a little slower than it could be.
 			//this block is a little hacky. might be a thorn for forward-compatibility.
 			if(r->request_body->temp_file==NULL) { //everything in the first buffer, please
+				//no file
 				buf=r->request_body->bufs->buf;
 			}
 			else if(r->request_body->bufs->next!=NULL) {
+				//there's probably a file
 				buf=r->request_body->bufs->next->buf;
 			}
 		}
@@ -663,7 +662,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain(ngx_http_request_t *r, ng
 		return NULL;
 	}
 	
-	if(buf->in_file){
+	if (buf->file!=NULL) {
 		//here we go with the file juggling
 		ngx_file_t             *file = buf_copy->file;
 		file->log=r->connection->log;
