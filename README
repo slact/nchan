@@ -99,7 +99,7 @@ http {
 
   server {
     #sender
-    location / {
+    location /send {
       set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
       push_sender;
       push_message_timeout 2h; #buffered messages expire after 2 hours
@@ -107,7 +107,7 @@ http {
     }
 
     #receiver
-    location / {
+    location /listen {
       push_listener;
 	  push_listener_concurrency broadcast;
       set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
@@ -119,8 +119,8 @@ http {
 	
 ---------------------------- Operation ---------------------------------------
 Assuming the example config given above:
-Clients will connect to http://example.com:8088/?id=... and have the 
-response delayed until a message is POSTed to http://localhost:8089/?id=...
+Clients will connect to http://example.com/listen?id=... and have the 
+response delayed until a message is POSTed to http://example.com/send?id=...
 Messages can be sent to clients that have not yet connected, i.e. they are 
 queued.
 
