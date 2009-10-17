@@ -51,13 +51,6 @@ static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http
 	return listener;
 }
 
-static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
-	ngx_shmtx_lock(&shpool->mutex);
-	ngx_http_push_listener_t       *listener = ngx_http_push_queue_listener_request_locked(node, r, shpool);
-	ngx_shmtx_unlock(&shpool->mutex);
-	return listener;
-}
-
 //shpool must be locked.
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
 	ngx_http_push_listener_t       *listener = ngx_slab_alloc_locked(shpool, sizeof(*listener));
@@ -71,14 +64,14 @@ static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request
 }
 
 // remove a message from queue and free all associated memory. first lock the shpool, though.
-static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
+static ngx_inline void ngx_http_push_delete_message(ngx_http_push_node_t *node, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
 	ngx_shmtx_lock(&shpool->mutex);
-	ngx_http_push_delete_message_locked(shpool, node, msg);
+	ngx_http_push_delete_message_locked(node, msg, shpool);
 	ngx_shmtx_unlock(&shpool->mutex);
 }
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
-static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg) {
+static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_node_t *node, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
 	if (msg==NULL) { return; }
 	if(node!=NULL) {
 		ngx_queue_remove(&msg->queue);
@@ -100,7 +93,7 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_nod
 	//TODO: consider using an RBTree for message storage.
 	ngx_queue_t                    *sentinel = &node->message_queue->queue;
 	ngx_queue_t                    *cur = sentinel->next;
-	ngx_http_push_msg_t            *msg = NULL;
+	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       tag = -1;
 	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
@@ -154,17 +147,13 @@ static ngx_int_t ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t 
 	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
     if (vv == NULL || vv->not_found || vv->len == 0) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "http_push module: the \"$push_channel_id\" variable is required but is not set");
+            "push module: the \"$push_channel_id\" variable is required but is not set");
         return NGX_ERROR;
     }
-	if (id!=NULL){
-		//no need to copy anything? ok...
-		id->data=vv->data; 
-		id->len=vv->len;
-		return NGX_OK;
-	} else {
-		return NGX_ERROR;
-	}
+	//no need to copy anything? ok...
+	id->data=vv->data; 
+	id->len=vv->len;
+	return NGX_OK;
 }
 
 static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
@@ -193,12 +182,12 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 
 //this is a macro because i don't want to mess with the alloc_function function pointer
 #define ngx_http_push_create_buf_copy(buf, cbuf, pool, pool_alloc)            \
-	(cbuf) = pool_alloc((pool), sizeof(*cbuf) +                           \
-		(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +       \
+    (cbuf) = pool_alloc((pool), sizeof(*cbuf) +                               \
+        (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +       \
         (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0)); \
-	if((cbuf)!=NULL) {                                                        \
-		ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
-	}
+    if((cbuf)!=NULL) {                                                        \
+        ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
+    }
 
 static ngx_str_t ngx_http_push_Allow_GET= ngx_string("GET");
 static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
@@ -468,7 +457,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		//now see if the queue is too big -- we do this at the end because message queue size may be set to zero, and we don't want special-case code for that.
 		if(node->message_queue_size > (ngx_uint_t) cf->max_message_queue_size) {
 			//exceeeds max queue size. force-delete oldest message
-			ngx_http_push_delete_message(shpool, node, ngx_http_push_get_oldest_message_locked(node));
+			ngx_http_push_delete_message(node, ngx_http_push_get_oldest_message_locked(node), shpool);
 		}
 		if(node->message_queue_size > (ngx_uint_t) cf->min_message_queue_size) {
 			//exceeeds min queue size. maybe delete the oldest message
@@ -477,7 +466,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(msg, NULL, r, "push module: oldest message not found", shpool);
 			if(msg->received >= (ngx_uint_t) cf->min_message_recipients) {
 				//received more than min_message_recipients times
-				ngx_http_push_delete_message_locked(shpool, node, msg);
+				ngx_http_push_delete_message_locked(node, msg, shpool);
 			}
 			ngx_shmtx_unlock(&shpool->mutex);
 		}
@@ -492,7 +481,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_lock(&shpool->mutex);
 			while((msg=ngx_http_push_dequeue_message_locked(node))!=NULL) {
 				//delete all the messages
-				ngx_http_push_delete_message_locked(shpool, NULL, msg);
+				ngx_http_push_delete_message_locked(NULL, msg, shpool);
 			};
 			node->message_queue_size=0;
 			ngx_http_push_listener_t   *listener = NULL;

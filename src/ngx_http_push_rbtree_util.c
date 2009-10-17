@@ -17,7 +17,7 @@ static ngx_http_push_node_t *	ngx_http_push_clean_node_locked(ngx_http_push_node
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-			ngx_http_push_delete_message_locked(shpool, node, msg);
+			ngx_http_push_delete_message_locked(node, msg, shpool);
 		}
 		else { //definitely a message left to send
 			return NULL;

@@ -109,7 +109,6 @@ static ngx_int_t    ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request
 
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data);
 static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http_push_node_t * node); //doesn't free associated memory
-static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 
 //message stuff
@@ -117,8 +116,8 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_
 static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_node_t * node, ngx_http_request_t *r, ngx_int_t *status);
 static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_push_node_t * node);
 static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_node_t * node);
-static ngx_inline void ngx_http_push_delete_message(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
-static ngx_inline void ngx_http_push_delete_message_locked(ngx_slab_pool_t *shpool, ngx_http_push_node_t *node, ngx_http_push_msg_t *msg);
+static ngx_inline void ngx_http_push_delete_message(ngx_http_push_node_t *node, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_node_t *node, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
