@@ -95,7 +95,7 @@ $push_channel_id
 http {
   #maximum amount of memory the push module is allowed to use 
   #for buffering and stuff
-  push_buffer_size	12M; #default is 3M
+  push_max_reserved_memory	12M; #default is 3M
 
   #sender
   server {
