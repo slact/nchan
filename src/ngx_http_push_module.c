@@ -46,6 +46,7 @@ static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http
 	if(ngx_queue_empty(sentinel)) { return NULL; }
 	ngx_queue_t                    *qlistener = ngx_queue_last(sentinel);
 	ngx_http_push_listener_t       *listener = ngx_queue_data(qlistener, ngx_http_push_listener_t, queue);
+	listener->cleanup->node=NULL; //the node may be deleted by the time we get to the request pool cleanup.
 	ngx_queue_remove(qlistener);
 	node->listener_queue_size--;
 	return listener;
@@ -246,17 +247,19 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			r->read_event_handler = ngx_http_test_reading; 
 			
 			 //attach a cleaner to remove the request from the node, if need be (if the connection goes dead or something)
-			ngx_pool_cleanup_t *cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_push_listener_cleanup_t));
+			ngx_http_push_listener_cleanup_t *clndata;
+			ngx_pool_cleanup_t     *cln = ngx_pool_cleanup_add(r->pool, sizeof(*clndata));
 			if (cln == NULL) { //make sure we can.
 				return NGX_ERROR;
 			}
-			ngx_shmtx_lock(&shpool->mutex);
-			listener->cleanup = ((ngx_http_push_listener_cleanup_t *) cln->data);
-			ngx_shmtx_unlock(&shpool->mutex);
 			cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_listener_cleanup;
-			((ngx_http_push_listener_cleanup_t *) cln->data)->node = node;
-			((ngx_http_push_listener_cleanup_t *) cln->data)->listener = listener;
-			((ngx_http_push_listener_cleanup_t *) cln->data)->shpool = shpool;
+			clndata = (ngx_http_push_listener_cleanup_t *) cln->data;
+			clndata->node=node;
+			clndata->listener=listener;
+			clndata->shpool=shpool;
+			ngx_shmtx_lock(&shpool->mutex);
+			listener->cleanup = clndata;
+			ngx_shmtx_unlock(&shpool->mutex);
 		
 			return NGX_DONE; //and wait.
 		}
@@ -315,7 +318,6 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 		else{ //concurrency == NGX_HTTP_PUSH_LISTENER_LASTIN
 			ngx_shmtx_lock(&shpool->mutex);
 			ngx_http_push_listener_t *listener = ngx_http_push_dequeue_listener_locked(node);
-			listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
 			ngx_http_request_t     *request_l = listener->request;
 			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_http_push_reply_status_only(request_l, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
@@ -433,7 +435,6 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_lock(&shpool->mutex);
 			while ((listener=ngx_http_push_dequeue_listener_locked(node))!=NULL) {
 				r_listener = listener->request;
-				listener->cleanup->node=NULL; // so that the cleanup handler won't go dequeuing the request again
 				if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
 					msg->received++;
 				}
