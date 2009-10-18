@@ -693,7 +693,7 @@ static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chai
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	if(data->listener!=NULL) {
-		if(data->channel!=NULL) {
+		if(data->channel!=NULL) { 
 			ngx_shmtx_lock(&shpool->mutex);
 			ngx_queue_remove(&data->listener->queue);
 			data->channel->listener_queue_size--;
