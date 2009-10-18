@@ -52,7 +52,6 @@ typedef struct ngx_http_push_channel_s ngx_http_push_channel_t;
 typedef struct {
 	ngx_http_push_listener_t       *listener;
 	ngx_http_push_channel_t        *channel;
-	ngx_slab_pool_t                *shpool;
 } ngx_http_push_listener_cleanup_t;
 
 //listener request queue

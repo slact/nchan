@@ -189,6 +189,7 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
         ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
     }
 
+	
 static ngx_str_t ngx_http_push_Allow_GET= ngx_string("GET");
 static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
@@ -244,7 +245,6 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			clndata = (ngx_http_push_listener_cleanup_t *) cln->data;
 			clndata->channel=channel;
 			clndata->listener=listener;
-			clndata->shpool=shpool;
 			ngx_shmtx_lock(&shpool->mutex);
 			listener->cleanup = clndata;
 			ngx_shmtx_unlock(&shpool->mutex);
@@ -691,14 +691,15 @@ static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chai
 }
 
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data) {
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	if(data->listener!=NULL) {
-		if(data->channel!=NULL) { 
-			ngx_shmtx_lock(&data->shpool->mutex);
+		if(data->channel!=NULL) {
+			ngx_shmtx_lock(&shpool->mutex);
 			ngx_queue_remove(&data->listener->queue);
 			data->channel->listener_queue_size--;
-			ngx_shmtx_unlock(&data->shpool->mutex);
+			ngx_shmtx_unlock(&shpool->mutex);
 		}
-		ngx_slab_free(data->shpool, data->listener);
+		ngx_slab_free(shpool, data->listener);
 	}
 }
 
