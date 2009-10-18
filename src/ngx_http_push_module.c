@@ -316,18 +316,18 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 }
 
 #define NGX_HTTP_PUSH_SENDER_CHECK(val, fail, r, errormessage)                \
-	if (val == fail) {                                                        \
-		ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-		return;                                                               \
+    if (val == fail) {                                                        \
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
+        return;                                                               \
 	}
 #define NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(val, fail, r, errormessage, shpool) \
-	if (val == fail) {                                                        \
-		ngx_shmtx_unlock(&(shpool)->mutex);                                   \
-		ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-		return;                                                               \
-	}
+    if (val == fail) {                                                        \
+        ngx_shmtx_unlock(&(shpool)->mutex);                                   \
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
+        return;                                                               \
+    }
 
 static ngx_str_t ngx_http_push_410_Gone = ngx_string("410 Gone");
 static ngx_str_t ngx_http_push_Allow_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
