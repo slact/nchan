@@ -198,6 +198,5 @@ static void	ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp,  ngx_rbtree_nod
 static int ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right)
 {
 	ngx_http_push_channel_t *left = (ngx_http_push_channel_t *) v_left, *right = (ngx_http_push_channel_t *) v_right;
-
 	return ngx_memn2cmp(left->id.data, right->id.data, left->id.len, right->id.len);
 }
