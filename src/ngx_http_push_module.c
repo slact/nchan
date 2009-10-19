@@ -59,6 +59,7 @@ static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request
 	}
 	ngx_queue_insert_tail(&channel->listener_queue->queue, &listener->queue);
 	listener->request = r;
+	listener->process_slot=ngx_process_slot;
 	channel->listener_queue_size++;
 	return listener;
 }

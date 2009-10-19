@@ -58,6 +58,7 @@ typedef struct {
 struct ngx_http_push_listener_s {
     ngx_queue_t                     queue;
 	ngx_http_request_t             *request;
+	ngx_int_t                       process_slot;
 	ngx_http_push_listener_cleanup_t *cleanup;
 };
 
