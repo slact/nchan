@@ -1,6 +1,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <ngx_channel.h>
 
 //with the declarations
 typedef struct {
@@ -101,6 +102,7 @@ static char *       ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, v
 static ngx_int_t    ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t    ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
+static ngx_int_t    ngx_http_push_init_process(ngx_cycle_t *cycle);
 static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void         ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline);
 static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value);

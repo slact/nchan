@@ -108,13 +108,23 @@ ngx_module_t  ngx_http_push_module = {
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,					               /* init module */
-    NULL,                                  /* init process */
+    ngx_http_push_init_process,            /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
     NULL,                                  /* exit master */
     NGX_MODULE_V1_PADDING
 };
+
+
+
+static ngx_int_t ngx_http_push_init_process(ngx_cycle_t *cycle) {
+	ngx_socket_t my_channel=ngx_processes[ngx_process_slot].channel[0];
+    if (ngx_add_channel_event(cycle, my_channel, NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+	return NGX_OK;
+}
 
 static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	//initialize shared memory
