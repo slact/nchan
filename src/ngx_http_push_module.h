@@ -86,7 +86,7 @@ typedef struct {
 
 //shared memory
 typedef struct {
-	ngx_rbtree_t                   *tree;
+	ngx_rbtree_t                    tree;
 	ngx_http_push_worker_msg_t     *worker_message_queue;
 } ngx_http_push_shm_data_t;
 
@@ -119,7 +119,7 @@ static char *       ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, v
 static ngx_int_t    ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t    ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
-static ngx_int_t    ngx_http_push_init_process(ngx_cycle_t *cycle);
+static ngx_int_t    ngx_http_push_init_worker(ngx_cycle_t *cycle);
 static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void         ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline);
 static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value);

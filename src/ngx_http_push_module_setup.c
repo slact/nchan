@@ -107,8 +107,8 @@ ngx_module_t  ngx_http_push_module = {
     ngx_http_push_commands,                /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
-    NULL,					               /* init module */
-    ngx_http_push_init_process,            /* init process */
+    NULL,                                  /* init module */
+    ngx_http_push_init_worker,             /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
@@ -116,9 +116,25 @@ ngx_module_t  ngx_http_push_module = {
     NGX_MODULE_V1_PADDING
 };
 
-
-
-static ngx_int_t ngx_http_push_init_process(ngx_cycle_t *cycle) {
+static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
+	
+	ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+	ngx_int_t                       ngx_http_push_worker_processes = ccf->worker_processes;
+	
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
+	ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
+	if(d->worker_message_queue==NULL) {
+		//initialize worker message queues
+		ngx_int_t                   i;
+		if((d->worker_message_queue = ngx_slab_alloc(shpool, sizeof(ngx_http_push_worker_msg_t)*ngx_http_push_worker_processes))==NULL) {
+			return NGX_ERROR;
+		}
+		for (i=0; i<ngx_http_push_worker_processes; i++) {
+			ngx_queue_init((&d->worker_message_queue[i].queue));
+		}
+	}
+	
+	//register channel events for interprocess communication
 	ngx_socket_t my_channel=ngx_processes[ngx_process_slot].channel[0];
     if (ngx_add_channel_event(cycle, my_channel, NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
         return NGX_ERROR;
@@ -145,16 +161,17 @@ static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	return ngx_http_push_set_up_shm(cf, shm_size);
 }
 
+
 //shared memory
 static ngx_str_t	ngx_push_shm_name = ngx_string("push_module"); //shared memory segment name
 static ngx_int_t	ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
-    ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &ngx_push_shm_name, shm_size, &ngx_http_push_module);
-    if (ngx_http_push_shm_zone == NULL) {
-        return NGX_ERROR;
-    }
+	ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &ngx_push_shm_name, shm_size, &ngx_http_push_module);
+	if (ngx_http_push_shm_zone == NULL) {
+		return NGX_ERROR;
+	}
 	ngx_http_push_shm_zone->init = ngx_http_push_init_shm_zone;
 	ngx_http_push_shm_zone->data = (void *) 1;
-    return NGX_OK;
+	return NGX_OK;
 }
 // shared memory zone initializer
 static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data) {
@@ -163,28 +180,22 @@ static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 		return NGX_OK;
 	}
 
-    ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 	ngx_rbtree_node_t              *sentinel;
 	ngx_http_push_shm_data_t       *d;
-	ngx_int_t                       i;
-		
-    if ((d = (ngx_http_push_shm_data_t *)ngx_slab_alloc(shpool, sizeof(*d) + sizeof(ngx_http_push_worker_msg_t[ngx_last_process - 1]))) == NULL) { //shm_data plus an array.
-        return NGX_ERROR;
-    } 
+	
+	if ((d = (ngx_http_push_shm_data_t *)ngx_slab_alloc(shpool, sizeof(*d))) == NULL) { //shm_data plus an array.
+		return NGX_ERROR;
+	} 
 	shm_zone->data = d;
-	
+	d->worker_message_queue=NULL; //not yet
 	//initialize rbtree
-    if ((sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel)))==NULL) {
-        return NGX_ERROR;
-    }
-	ngx_rbtree_init(d->tree, sentinel, ngx_http_push_rbtree_insert);
-	
-	//initialize worker message queues
-	for (i=0; i<ngx_last_process; i++) {
-		ngx_queue_init((&d->worker_message_queue[i].queue));
+	if ((sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel)))==NULL) {
+		return NGX_ERROR;
 	}
-	
-    return NGX_OK;
+	ngx_rbtree_init(&d->tree, sentinel, ngx_http_push_rbtree_insert);
+
+	return NGX_OK;
 }
 
 

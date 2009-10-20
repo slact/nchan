@@ -221,7 +221,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	channel = (cf->authorize_channel==1 ? find_channel : get_channel)(&id, ngx_http_push_shm_zone->data, shpool, r->connection->log);
+	channel = (cf->authorize_channel==1 ? find_channel : get_channel)(&id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
 	if (channel==NULL) { //unable to allocate channel
 		ngx_shmtx_unlock(&shpool->mutex);
 		return cf->authorize_channel==1 ? NGX_HTTP_FORBIDDEN : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -357,7 +357,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel channel created if it doesn't yet exist.
 	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-		channel = get_channel(&id, ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = get_channel(&id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
 		NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 		message_queue_size = channel->message_queue_size;
 		listener_queue_size = channel->listener_queue_size;
@@ -366,7 +366,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 	//no other request method needs that.
 	else{
 		//just find the channel. if it's not there, NULL.
-		channel = find_channel(&id, ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = find_channel(&id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
 	}
 	ngx_shmtx_unlock(&shpool->mutex);
 	
@@ -511,7 +511,7 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				ngx_http_push_reply_status_only(r_listener, NGX_HTTP_NOT_FOUND, &ngx_http_push_410_Gone);
 				ngx_shmtx_lock(&shpool->mutex);
 			}
-			ngx_http_push_delete_node_locked(((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *) channel, shpool);
+			ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *) channel, shpool);
 			ngx_shmtx_unlock(&shpool->mutex);
 			r->headers_out.status=NGX_HTTP_OK;
 		}
