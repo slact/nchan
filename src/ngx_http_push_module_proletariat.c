@@ -68,6 +68,7 @@ static void ngx_http_push_process_listener_message_queue() {
 		}
 		//free stuff.
 		//TODO: don't free anything. instead, set 'dirty' bit to reuse memory. periodically clean the queue with a timer.
+		ngx_queue_remove((&worker_msg->queue));
 		ngx_slab_free_locked(shpool, worker_msg);
 	}
 	ngx_shmtx_unlock(&shpool->mutex);
