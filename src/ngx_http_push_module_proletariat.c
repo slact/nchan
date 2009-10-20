@@ -2,9 +2,19 @@
 
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 8 //some number. (looks hacky)
 
+static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle, ngx_int_t process_slot) {
+	//register channel events for interprocess communication
+	ngx_socket_t my_channel=ngx_processes[process_slot].channel[0]; //use the other one!
+	if (ngx_add_channel_event(cycle, my_channel, NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
+		return NGX_ERROR;
+	}
+	return NGX_OK;
+}
+
 static void ngx_http_push_channel_handler(ngx_event_t *ev) {
     //mostly copied from ngx_channel_handler (os/unix/ngx_process_cycle.c)
-    ngx_int_t          n;
+    //ngx_debug_point();
+	ngx_int_t          n;
     ngx_channel_t      ch;
     ngx_connection_t  *c;
     if (ev->timedout) {
@@ -31,19 +41,20 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
         //the custom command now.
         if (ch.command == NGX_CMD_HTTP_PUSH_CHECK_MESSAGES) {
             //take a look at the message queue for this worker process in shared memory.
-			ngx_http_push_process_listener_message_queue();
+			ngx_http_push_process_worker_message_queue();
         }
     }
 }
 
-static ngx_int_t ngx_http_push_signal_worker(ngx_int_t worker_slot, ngx_log_t *log) {
+static ngx_int_t ngx_http_push_alert_worker(ngx_int_t worker_slot, ngx_log_t *log) {
+	//ngx_debug_point();
 	ngx_channel_t                  ch;
 	ch.command = NGX_CMD_HTTP_PUSH_CHECK_MESSAGES;
-	ch.fd = -1;
-	return ngx_write_channel(ngx_processes[worker_slot].channel[0 /*or 1?*/], &ch, (size_t) sizeof(ch), log);
+	ch.fd = ngx_processes[worker_slot].channel[0]; //really? okay...
+	return ngx_write_channel(ngx_processes[worker_slot].channel[0], &ch, (size_t) sizeof(ch), log);
 }
 
-static void ngx_http_push_process_listener_message_queue() {
+static void ngx_http_push_process_worker_message_queue() {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_queue_t                    *sentinel, *cur;
 	ngx_http_push_worker_msg_t     *worker_msg;

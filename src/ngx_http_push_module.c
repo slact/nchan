@@ -316,7 +316,7 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 			else {
 				//interprocess communication breakdown!
 				if(ngx_http_push_queue_worker_message(listener_process_slot, request_l, NULL, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict)==NGX_OK) {
-					ngx_http_push_signal_worker(listener_process_slot, r->connection->log);
+					ngx_http_push_alert_worker(listener_process_slot, r->connection->log);
 				}
 				else { return NGX_ERROR; }
 			}
@@ -450,8 +450,8 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 				}
 				else {
 					//interprocess communication breakdown
-					NGX_HTTP_PUSH_SENDER_CHECK_LOCKED(ngx_http_push_queue_worker_message(listener_process_slot, r_listener, msg, 0, NULL), NGX_ERROR, r, "push module: error communicating to another worker process", shpool);
-					ngx_http_push_signal_worker(listener_process_slot, r->connection->log);
+					NGX_HTTP_PUSH_SENDER_CHECK(ngx_http_push_queue_worker_message(listener_process_slot, r_listener, msg, 0, NULL), NGX_ERROR, r, "push module: error communicating to another worker process");
+					ngx_http_push_alert_worker(listener_process_slot, r->connection->log);
 				}
 				ngx_shmtx_lock(&shpool->mutex);
 			}

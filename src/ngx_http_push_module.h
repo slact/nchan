@@ -140,9 +140,10 @@ static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_channel
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 
 //commies
+static ngx_int_t    ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle, ngx_int_t process_slot);
 static void         ngx_http_push_channel_handler(ngx_event_t *ev);
-static ngx_int_t    ngx_http_push_signal_worker(ngx_int_t worker_slot, ngx_log_t *log);
-static void         ngx_http_push_process_listener_message_queue();
+static ngx_int_t    ngx_http_push_alert_worker(ngx_int_t worker_slot, ngx_log_t *log);
+static void         ngx_http_push_process_worker_message_queue();
 static ngx_int_t    ngx_http_push_queue_worker_message(ngx_int_t worker_slot, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line);
 
 //missing in nginx < 0.7.?
