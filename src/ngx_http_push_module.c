@@ -297,10 +297,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 
 static ngx_str_t ngx_http_push_409_Conflict = ngx_string("409 Conflict");
 static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t concurrency, ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
-	if(concurrency==NGX_HTTP_PUSH_LISTENER_BROADCAST) {
-		return NGX_OK;
-	}
-	else if(channel->listener_queue_size>0){
+	if(concurrency!=NGX_HTTP_PUSH_LISTENER_BROADCAST && channel->listener_queue_size>0){
 		if(concurrency == NGX_HTTP_PUSH_LISTENER_FIRSTIN) {
 			ngx_http_push_reply_status_only(r, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
 			return NGX_DECLINED;
@@ -309,9 +306,15 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
 			ngx_shmtx_lock(&shpool->mutex);
 			ngx_http_push_listener_t *listener = ngx_http_push_dequeue_listener_locked(channel);
 			ngx_http_request_t     *request_l = listener->request;
+			ngx_int_t               listener_process_slot = listener->process_slot;
 			ngx_shmtx_unlock(&shpool->mutex);
-			ngx_http_push_reply_status_only(request_l, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
-			return NGX_OK;
+			if(listener_process_slot==ngx_process_slot) {
+				ngx_http_push_reply_status_only(request_l, NGX_HTTP_NOT_FOUND, &ngx_http_push_409_Conflict);
+			}
+			else {
+				//interprocess communication breakdown!
+				ngx_http_push_signal_worker(listener_process_slot, r->connection->log);
+			}
 		}
 	}
 	return NGX_OK;
@@ -422,23 +425,32 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		ngx_http_push_listener_t   *listener = NULL;
 		if(msg!=NULL) {
 			ngx_http_request_t     *r_listener;
+			ngx_int_t               listener_process_slot;
 			ngx_shmtx_lock(&shpool->mutex);
 			while ((listener=ngx_http_push_dequeue_listener_locked(channel))!=NULL) {
 				r_listener = listener->request;
 				if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
 					msg->received++;
 				}
+				if(!received) {
+					received=1;
+				}
+				listener_process_slot = listener->process_slot;
 				ngx_shmtx_unlock(&shpool->mutex);
-				if((rc = ngx_http_push_set_listener_header(r_listener, msg, shpool)) < NGX_HTTP_SPECIAL_RESPONSE) {
-					//everything is going as planned
-					rc = ngx_http_send_header(r_listener);
-					ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
-					if(!received) {
-						received=1;
+				if(listener->process_slot == ngx_process_slot) {
+					if((rc = ngx_http_push_set_listener_header(r_listener, msg, shpool)) < NGX_HTTP_SPECIAL_RESPONSE) {
+						//everything is going as planned
+						rc = ngx_http_send_header(r_listener);
+						ngx_http_finalize_request(r_listener, rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r_listener, ngx_http_push_create_output_chain(r_listener, buf, NULL)));				
+						
+					}
+					else { //something went wrong setting the header
+						ngx_http_finalize_request(r_listener, rc);
 					}
 				}
-				else { //something went wrong setting the header
-					ngx_http_finalize_request(r_listener, rc);
+				else {
+					//interprocess communication breakdown
+					ngx_http_push_signal_worker(listener_process_slot, r->connection->log);
 				}
 				ngx_shmtx_lock(&shpool->mutex);
 			}

@@ -31,7 +31,6 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
         //the custom command now.
         if (ch.command == NGX_CMD_HTTP_PUSH_CHECK_MESSAGES) {
             //take a look at the message queue for this worker process in shared memory.
-			n=n;
         }
     }
 }
