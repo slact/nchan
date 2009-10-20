@@ -2,9 +2,20 @@
 
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 8 //some number. (looks hacky)
 
-static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle, ngx_int_t process_slot) {
+#define NGX_HTTP_PUSH_GET_PROCESS_SLOT(pid, worker_slot)                       \
+    if(pid==ngx_pid) {                                                         \
+        return ngx_process_slot;                                               \
+    }                                                                          \
+    while(worker_slot < ngx_http_push_worker_processes && ngx_processes[worker_slot].pid!=pid) { \
+    worker_slot++;                                                             \
+    }                                                                          \
+    if (ngx_processes[worker_slot].pid!=pid) {                                 \
+        return NGX_ERROR;                                                      \
+    }
+
+static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle) {
 	//register channel events for interprocess communication
-	ngx_socket_t my_channel=ngx_processes[process_slot].channel[0]; //use the other one!
+	ngx_socket_t my_channel=ngx_processes[ngx_process_slot].channel[0]; //[1] is probably alrady used.
 	if (ngx_add_channel_event(cycle, my_channel, NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
 		return NGX_ERROR;
 	}
@@ -46,9 +57,11 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
     }
 }
 
-static ngx_int_t ngx_http_push_alert_worker(ngx_int_t worker_slot, ngx_log_t *log) {
+static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_log_t *log) {
 	//ngx_debug_point();
-	ngx_channel_t                  ch;
+	ngx_channel_t                   ch;
+	ngx_int_t                       worker_slot;
+	NGX_HTTP_PUSH_GET_PROCESS_SLOT(pid, worker_slot);
 	ch.command = NGX_CMD_HTTP_PUSH_CHECK_MESSAGES;
 	ch.fd = ngx_processes[worker_slot].channel[0]; //really? okay...
 	return ngx_write_channel(ngx_processes[worker_slot].channel[0], &ch, (size_t) sizeof(ch), log);
@@ -74,8 +87,13 @@ static void ngx_http_push_process_worker_message_queue() {
 				ngx_http_push_free_message_locked(worker_msg->msg, shpool);
 			}
 		}
-		else {
+		else if(worker_msg->pid==ngx_pid) { 
+			/* make sure the message is intended for this worker. This check is
+			necessary since a worker may be terminated and a new one may use
+			 its ngx_process_slot */
+			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_http_push_reply_status_only(worker_msg->request, worker_msg->status_code, worker_msg->status_line);
+			ngx_shmtx_lock(&shpool->mutex);
 		}
 		//free stuff.
 		//TODO: don't free anything. instead, set 'dirty' bit to reuse memory. periodically clean the queue with a timer.
@@ -85,9 +103,11 @@ static void ngx_http_push_process_worker_message_queue() {
 	ngx_shmtx_unlock(&shpool->mutex);
 }
 
-static ngx_int_t ngx_http_push_queue_worker_message(ngx_int_t worker_slot, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line) {
+static ngx_int_t ngx_http_push_queue_worker_message(ngx_pid_t pid, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_queue_t                    *sentinel;
+	ngx_int_t                       worker_slot;
+	NGX_HTTP_PUSH_GET_PROCESS_SLOT(pid, worker_slot);
 	ngx_shmtx_lock(&shpool->mutex);
 	sentinel = (ngx_queue_t *) (((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->worker_message_queue + worker_slot);
 	ngx_http_push_worker_msg_t     *worker_msg = ngx_slab_alloc_locked(shpool, sizeof(*worker_msg));
