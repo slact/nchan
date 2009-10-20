@@ -44,6 +44,7 @@ typedef struct {
 	ngx_uint_t                      received;
 	time_t                          message_time; //tag message by time
 	ngx_int_t                       message_tag; //used in conjunction with message_time if more than one message have the same time.
+	ngx_int_t                       refcount;
 } ngx_http_push_msg_t;
 
 typedef struct ngx_http_push_listener_s ngx_http_push_listener_t;
@@ -136,6 +137,7 @@ static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_pu
 static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel);
 static ngx_inline void ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 
 //commies
 static void         ngx_http_push_channel_handler(ngx_event_t *ev);

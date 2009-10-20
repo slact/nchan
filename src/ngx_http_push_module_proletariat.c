@@ -58,6 +58,10 @@ static void ngx_http_push_process_listener_message_queue() {
 			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_http_push_respond_to_listener_request(worker_msg->request, worker_msg->msg, shpool);
 			ngx_shmtx_lock(&shpool->mutex);
+			if(worker_msg->msg->queue.next==NULL && (--worker_msg->msg->refcount)==0) { 
+				//message was dequeued, and nobody needs it anymore
+				ngx_http_push_free_message_locked(worker_msg->msg, shpool);
+			}
 		}
 		else {
 			ngx_http_push_reply_status_only(worker_msg->request, worker_msg->status_code, worker_msg->status_line);
@@ -80,10 +84,12 @@ static ngx_int_t ngx_http_push_queue_worker_message(ngx_int_t worker_slot, ngx_h
 		return NGX_ERROR;
 	}
 	worker_msg->request=r;
+	worker_msg->msg=msg;
 	worker_msg->status_code=status_code;
 	worker_msg->status_line=status_line;
 	
-	//TODO: increment worker_msg refcount. we're gonna need to keep track of that.
+	msg->refcount++;
+	
 	ngx_queue_insert_tail(sentinel, (&worker_msg->queue));
 	ngx_shmtx_unlock(&shpool->mutex);
 	return NGX_OK;

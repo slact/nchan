@@ -36,6 +36,9 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_
 	if(msg!=NULL) {
 		ngx_queue_remove(&msg->queue);
 		channel->message_queue_size--;
+		
+		//this may be used as a check to see whether the message is still in the channel queue
+		msg->queue.next=NULL;
 	}
 	return msg;
 }
@@ -79,12 +82,19 @@ static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_channel
 		ngx_queue_remove(&msg->queue);
 		channel->message_queue_size--;
 	}
+	if(msg->refcount==0) { //nobody needs this message.
+		ngx_http_push_free_message_locked(msg, shpool);
+	}
+}
+
+//free memory for a message. 
+static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
 	if(msg->buf->file!=NULL) {
 		ngx_delete_file(&msg->buf->file->name); //should I care about deletion errors?
 		ngx_close_file(msg->buf->file->fd); //again, carest thou aboutst thine errorests?
 	}
 	ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
-	ngx_slab_free_locked(shpool, msg); 
+	ngx_slab_free_locked(shpool, msg);
 }
 
 /** find message with entity tags matching those of the request r.
