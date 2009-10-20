@@ -1,6 +1,6 @@
 //worker processes of the world, unite.
 
-#define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 87 //some unlikely number. (looks hacky)
+#define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 8 //some number. (looks hacky)
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev) {
     //mostly copied from ngx_channel_handler (os/unix/ngx_process_cycle.c)
