@@ -74,6 +74,21 @@ struct ngx_http_push_channel_s {
 	time_t                          last_seen;
 }; 
 
+typedef struct {
+	ngx_queue_t                     queue;
+	ngx_http_push_msg_t            *msg;
+	ngx_http_request_t             *request;
+	ngx_int_t                       headers_only:1;
+	ngx_int_t                       status_code;
+	ngx_str_t                       *status_line;
+} ngx_http_push_worker_msg_t;
+
+//shared memory
+typedef struct {
+	ngx_rbtree_t                   *tree;
+	ngx_http_push_worker_msg_t     *worker_message_queue;
+} ngx_http_push_shm_data_t;
+
 //sender stuff
 static char *       ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_sender hook
 static ngx_int_t    ngx_http_push_sender_handler(ngx_http_request_t * r);
@@ -92,6 +107,7 @@ static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx
 static ngx_chain_t *ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf, ngx_slab_pool_t *shpool);
 static void         ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);
 static ngx_int_t    ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out);
+static ngx_int_t    ngx_http_push_respond_to_listener_request(ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 
 //misc stuff
 ngx_shm_zone_t *    ngx_http_push_shm_zone = NULL;
@@ -120,6 +136,12 @@ static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_pu
 static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel);
 static ngx_inline void ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+
+//commies
+static void         ngx_http_push_channel_handler(ngx_event_t *ev);
+static ngx_int_t    ngx_http_push_signal_worker(ngx_int_t worker_slot, ngx_log_t *log);
+static void         ngx_http_push_process_listener_message_queue();
+static ngx_int_t    ngx_http_push_queue_worker_message(ngx_int_t worker_slot, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line);
 
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail

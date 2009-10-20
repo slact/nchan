@@ -164,19 +164,26 @@ static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 	}
 
     ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
-    ngx_rbtree_node_t              *sentinel;
-    ngx_rbtree_t                   *tree;
+	ngx_rbtree_node_t              *sentinel;
+	ngx_http_push_shm_data_t       *d;
+	ngx_int_t                       i;
+		
+    if ((d = (ngx_http_push_shm_data_t *)ngx_slab_alloc(shpool, sizeof(*d) + sizeof(ngx_http_push_worker_msg_t[ngx_last_process - 1]))) == NULL) { //shm_data plus an array.
+        return NGX_ERROR;
+    } 
+	shm_zone->data = d;
 	
-    shm_zone->data = ngx_slab_alloc(shpool, sizeof(ngx_rbtree_t));
-	tree = shm_zone->data;
-    if(tree == NULL) {
+	//initialize rbtree
+    if ((sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel)))==NULL) {
         return NGX_ERROR;
     }
-    sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel));
-    if(sentinel == NULL) {
-        return NGX_ERROR;
-    }
-	ngx_rbtree_init(tree, sentinel, ngx_http_push_rbtree_insert);
+	ngx_rbtree_init(d->tree, sentinel, ngx_http_push_rbtree_insert);
+	
+	//initialize worker message queues
+	for (i=0; i<ngx_last_process; i++) {
+		ngx_queue_init((&d->worker_message_queue[i].queue));
+	}
+	
     return NGX_OK;
 }
 
