@@ -76,8 +76,7 @@ conditions:
     oldest available message in the channel, or will be long-held.
   - GET requests with an If-Modified-Since header will be responded to with 
     the next message in the channel (as identified by the cache information 
-	headers), or will be long-held. The server may also make use of the 
-	If-None-Match header.
+	headers), or will be long-held. The If-None-Match header may also be used.
   - A GET request that is being long-held MUST be responded to with EITHER:
      - 200 OK when a message is received. The Content-Type header MUST be set
        to the same header of the original sender request. 
