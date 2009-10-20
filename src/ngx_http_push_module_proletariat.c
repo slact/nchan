@@ -7,7 +7,7 @@
         return ngx_process_slot;                                               \
     }                                                                          \
     while(worker_slot < ngx_http_push_worker_processes && ngx_processes[worker_slot].pid!=pid) { \
-    worker_slot++;                                                             \
+        worker_slot++;                                                         \
     }                                                                          \
     if (ngx_processes[worker_slot].pid!=pid) {                                 \
         return NGX_ERROR;                                                      \
@@ -26,35 +26,35 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
     //mostly copied from ngx_channel_handler (os/unix/ngx_process_cycle.c)
     //ngx_debug_point();
 	ngx_int_t          n;
-    ngx_channel_t      ch;
-    ngx_connection_t  *c;
-    if (ev->timedout) {
-        ev->timedout = 0;
-        return;
-    }
-    c = ev->data;
-    for ( ;; ) {
-        n = ngx_read_channel(c->fd, &ch, (size_t) sizeof(ch), ev->log);
-        if (n == NGX_ERROR) {
-            if (ngx_event_flags & NGX_USE_EPOLL_EVENT) {
-                ngx_del_conn(c, 0);
-            }
-            ngx_close_connection(c);
-            return;
-        }
-        if ((ngx_event_flags & NGX_USE_EVENTPORT_EVENT) && (ngx_add_event(ev, NGX_READ_EVENT, 0) == NGX_ERROR)) {
-            return;
-        }
-        if (n == NGX_AGAIN) { 
+	ngx_channel_t      ch;
+	ngx_connection_t  *c;
+	if (ev->timedout) {
+		ev->timedout = 0;
+		return;
+	}
+	c = ev->data;
+	for ( ;; ) {
+		n = ngx_read_channel(c->fd, &ch, (size_t) sizeof(ch), ev->log);
+		if (n == NGX_ERROR) {
+			if (ngx_event_flags & NGX_USE_EPOLL_EVENT) {
+				ngx_del_conn(c, 0);
+			}
+			ngx_close_connection(c);
+			return;
+		}
+		if ((ngx_event_flags & NGX_USE_EVENTPORT_EVENT) && (ngx_add_event(ev, NGX_READ_EVENT, 0) == NGX_ERROR)) {
+			return;
+		}
+		if (n == NGX_AGAIN) { 
 			return; 
 		}
-   
-        //the custom command now.
-        if (ch.command == NGX_CMD_HTTP_PUSH_CHECK_MESSAGES) {
-            //take a look at the message queue for this worker process in shared memory.
+
+		//the custom command now.
+		if (ch.command == NGX_CMD_HTTP_PUSH_CHECK_MESSAGES) {
+			//take a look at the message queue for this worker process in shared memory.
 			ngx_http_push_process_worker_message_queue();
-        }
-    }
+		}
+	}
 }
 
 static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_log_t *log) {
@@ -107,7 +107,16 @@ static ngx_int_t ngx_http_push_queue_worker_message(ngx_pid_t pid, ngx_http_requ
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_queue_t                    *sentinel;
 	ngx_int_t                       worker_slot;
-	NGX_HTTP_PUSH_GET_PROCESS_SLOT(pid, worker_slot);
+	//NGX_HTTP_PUSH_GET_PROCESS_SLOT(pid, worker_slot);
+	if(pid==ngx_pid) {                                                         
+        return ngx_process_slot;                                               
+    }                                                                          
+    while(worker_slot < ngx_http_push_worker_processes && ngx_processes[worker_slot].pid!=pid) { 
+        worker_slot++;                                                         
+    }                                                                          
+    if (ngx_processes[worker_slot].pid!=pid) {                                 
+        return NGX_ERROR;                                                      
+    }
 	ngx_shmtx_lock(&shpool->mutex);
 	sentinel = (ngx_queue_t *) (((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->worker_message_queue + worker_slot);
 	ngx_http_push_worker_msg_t     *worker_msg = ngx_slab_alloc_locked(shpool, sizeof(*worker_msg));

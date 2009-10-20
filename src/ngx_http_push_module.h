@@ -147,7 +147,7 @@ static ngx_int_t    ngx_http_push_alert_worker(ngx_int_t worker_slot, ngx_log_t 
 static void         ngx_http_push_process_worker_message_queue();
 static ngx_int_t    ngx_http_push_queue_worker_message(ngx_int_t worker_slot, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line);
 
-static ngx_int_t                    ngx_http_push_worker_processes;
+ngx_int_t           ngx_http_push_worker_processes;
 
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
