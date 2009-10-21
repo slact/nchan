@@ -49,8 +49,8 @@ static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http
 	if(ngx_queue_empty(sentinel)) { return NULL; }
 	ngx_queue_t                    *qlistener = ngx_queue_last(sentinel);
 	ngx_http_push_listener_t       *listener = ngx_queue_data(qlistener, ngx_http_push_listener_t, queue);
-	listener->cleanup->channel=NULL; //the channel may be deleted by the time we get to the request pool cleanup.
 	ngx_queue_remove(qlistener);
+	qlistener->next=NULL; //leave a clue about having been dequeued
 	channel->listener_queue_size--;
 	return listener;
 }
@@ -260,9 +260,6 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			clndata = (ngx_http_push_listener_cleanup_t *) cln->data;
 			clndata->channel=channel;
 			clndata->listener=listener;
-			ngx_shmtx_lock(&shpool->mutex);
-			listener->cleanup = clndata;
-			ngx_shmtx_unlock(&shpool->mutex);
 		
 			return NGX_DONE; //and wait.
 		}
@@ -514,7 +511,6 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 			while((listener=ngx_http_push_dequeue_listener_locked(channel))!=NULL) {
 				//send a 410 Gone to everyone waiting for something
 				r_listener=listener->request;
-				listener->cleanup->channel=NULL; //the channel may be deleted by the time we get to the request pool cleanup.
 				ngx_shmtx_unlock(&shpool->mutex);
 				ngx_http_push_reply_status_only(r_listener, NGX_HTTP_NOT_FOUND, &ngx_http_push_410_Gone);
 				ngx_shmtx_lock(&shpool->mutex);
@@ -718,13 +714,13 @@ static ngx_int_t ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chai
 
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	if(data->channel!=NULL) { 
-		ngx_shmtx_lock(&shpool->mutex);
+	ngx_shmtx_lock(&shpool->mutex);
+	if(data->listener->queue.next!=NULL) { //still queued up
 		ngx_queue_remove(&data->listener->queue);
 		data->channel->listener_queue_size--;
-		ngx_shmtx_unlock(&shpool->mutex);
 	}
-	ngx_slab_free(shpool, data->listener);
+	ngx_slab_free_locked(shpool, data->listener);
+	ngx_shmtx_unlock(&shpool->mutex);
 }
 
 //shpool must be unlocked
