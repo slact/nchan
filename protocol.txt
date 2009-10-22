@@ -1,4 +1,4 @@
-Simplish HTTP Push Relay Protocol, Rev. 2
+Simplish HTTP Push Relay Protocol, Rev. 2.1
 
 1. Introduction
 1.1 Purpose
@@ -63,12 +63,12 @@ mechanism that appropriately reacts to Last-Modified and Etag response headers
 2.2 The Channel ID
 It is not the responsibility of the server to generate IDs.
 
-4 Server Operation
+3 Server Operation
 A sender request functions as notification to the server of a message to send 
 to a listener over some channel. A listener request notifies the server of the 
 listener's intent to receive a message.
 
-4.1 The Listener
+3.1 The Listener
 The server MUST accept all valid HTTP requests to the listener location.
 The server, when sent a listener request, MUST satisfy all of the following
 conditions:
@@ -94,7 +94,7 @@ GET request:
  - No additional actions are performed. (broadcast)
 The server SHOULD make this selection configurable.
 
-4.2 The Sender
+3.2 The Sender
 The server MUST accept all valid HTTP requests to the sender location.
 The server, when sent a sender request, MUST satisfy all of the following
 conditions:
