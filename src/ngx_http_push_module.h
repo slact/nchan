@@ -32,6 +32,7 @@ ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 #define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
 typedef struct {
 	size_t                          shm_size;
+	void                           *ipc;
 } ngx_http_push_main_conf_t;
 
 //message queue
@@ -61,6 +62,7 @@ struct ngx_http_push_listener_s {
     ngx_queue_t                     queue;
 	ngx_http_request_t             *request;
 	ngx_pid_t                       pid;
+	ngx_int_t                       slot; //premature space-time tradeoff. humor me.
 };
 
 //our typecast-friendly rbtree node (channel)
@@ -74,20 +76,10 @@ struct ngx_http_push_channel_s {
 	time_t                          last_seen;
 }; 
 
-typedef struct {
-	ngx_queue_t                     queue;
-	ngx_http_push_msg_t            *msg;
-	ngx_http_request_t             *request;
-	ngx_int_t                       headers_only:1;
-	ngx_int_t                       status_code;
-	ngx_str_t                      *status_line;
-	ngx_pid_t                       pid;
-} ngx_http_push_worker_msg_t;
-
 //shared memory
 typedef struct {
 	ngx_rbtree_t                    tree;
-	ngx_http_push_worker_msg_t     *worker_message_queue;
+	void                           *ipc; //interprocess stuff
 } ngx_http_push_shm_data_t;
 
 //sender stuff
@@ -114,11 +106,13 @@ static ngx_int_t    ngx_http_push_respond_to_listener_request(ngx_http_request_t
 ngx_shm_zone_t *    ngx_http_push_shm_zone = NULL;
 static char *       ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *));
 static void *       ngx_http_push_create_main_conf(ngx_conf_t *cf);
+static char *       ngx_core_module_init_main_conf(ngx_conf_t *cf, void *conf);
 static void *       ngx_http_push_create_loc_conf(ngx_conf_t *cf);
 static char *       ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static ngx_int_t    ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t    ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
+static ngx_int_t    ngx_http_push_init_module(ngx_cycle_t *cycle);
 static ngx_int_t    ngx_http_push_init_worker(ngx_cycle_t *cycle);
 static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void         ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline);
@@ -142,9 +136,7 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
 //commies
 static ngx_int_t    ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle);
 static void         ngx_http_push_channel_handler(ngx_event_t *ev);
-static ngx_int_t    ngx_http_push_alert_worker(ngx_int_t worker_slot, ngx_log_t *log);
 static void         ngx_http_push_process_worker_message_queue();
-static ngx_int_t    ngx_http_push_queue_worker_message(ngx_int_t worker_slot, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line);
 
 ngx_int_t           ngx_http_push_worker_processes;
 

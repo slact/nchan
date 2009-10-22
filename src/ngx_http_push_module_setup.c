@@ -94,7 +94,7 @@ static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_push_postconfig,              /* postconfiguration */
     ngx_http_push_create_main_conf,        /* create main configuration */
-    NULL,                                  /* init main configuration */
+    ngx_core_module_init_main_conf,        /* init main configuration */
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
     ngx_http_push_create_loc_conf,         /* create location configuration */
@@ -107,7 +107,7 @@ ngx_module_t  ngx_http_push_module = {
     ngx_http_push_commands,                /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
-    NULL,                                  /* init module */
+    ngx_http_push_init_module,             /* init module */
     ngx_http_push_init_worker,             /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
@@ -116,28 +116,28 @@ ngx_module_t  ngx_http_push_module = {
     NGX_MODULE_V1_PADDING
 };
 
-static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
+static char * ngx_core_module_init_main_conf(ngx_conf_t *cf, void *conf) {
+	return NGX_CONF_OK;
+}
+
+static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 	ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 	ngx_http_push_worker_processes = ccf->worker_processes;
 	
-	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
-	if(d->worker_message_queue==NULL) {
-		//initialize worker message queues
-		ngx_int_t                   i;
-		if((d->worker_message_queue = ngx_slab_alloc(shpool, sizeof(ngx_http_push_worker_msg_t)*ngx_http_push_worker_processes))==NULL) {
-			return NGX_ERROR;
-		}
-		for (i=0; i<ngx_http_push_worker_processes; i++) {
-			ngx_queue_init((&d->worker_message_queue[i].queue));
-		}
+	//initialize our little IPC
+	return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
+}
+
+static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
+	if((ngx_http_push_init_ipc_shm(ngx_http_push_worker_processes))!=NGX_OK) {
+		return NGX_ERROR;
 	}
 	return ngx_http_push_register_worker_message_handler(cycle);
 }
 
 static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
-	//initialize shared memory
 	ngx_http_push_main_conf_t	*conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
+	//initialize shared memory
 	size_t                       shm_size;
 	if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
 		conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
@@ -181,17 +181,14 @@ static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 		return NGX_ERROR;
 	} 
 	shm_zone->data = d;
-	d->worker_message_queue=NULL; //not yet
+	d->ipc=NULL;
 	//initialize rbtree
 	if ((sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel)))==NULL) {
 		return NGX_ERROR;
 	}
 	ngx_rbtree_init(&d->tree, sentinel, ngx_http_push_rbtree_insert);
-
 	return NGX_OK;
 }
-
-
 
 //main config
 static void * 		ngx_http_push_create_main_conf(ngx_conf_t *cf) {
