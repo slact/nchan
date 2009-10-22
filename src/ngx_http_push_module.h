@@ -106,7 +106,6 @@ static ngx_int_t    ngx_http_push_respond_to_listener_request(ngx_http_request_t
 ngx_shm_zone_t *    ngx_http_push_shm_zone = NULL;
 static char *       ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *));
 static void *       ngx_http_push_create_main_conf(ngx_conf_t *cf);
-static char *       ngx_core_module_init_main_conf(ngx_conf_t *cf, void *conf);
 static void *       ngx_http_push_create_loc_conf(ngx_conf_t *cf);
 static char *       ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static ngx_int_t    ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);

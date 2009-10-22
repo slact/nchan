@@ -94,7 +94,7 @@ static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_push_postconfig,              /* postconfiguration */
     ngx_http_push_create_main_conf,        /* create main configuration */
-    ngx_core_module_init_main_conf,        /* init main configuration */
+    NULL,                                  /* init main configuration */
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
     ngx_http_push_create_loc_conf,         /* create location configuration */
@@ -115,10 +115,6 @@ ngx_module_t  ngx_http_push_module = {
     NULL,                                  /* exit master */
     NGX_MODULE_V1_PADDING
 };
-
-static char * ngx_core_module_init_main_conf(ngx_conf_t *cf, void *conf) {
-	return NGX_CONF_OK;
-}
 
 static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 	ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
