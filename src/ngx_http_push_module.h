@@ -1,6 +1,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <ngx_channel.h>
 
 //with the declarations
 typedef struct {
@@ -31,6 +32,7 @@ ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 #define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
 typedef struct {
 	size_t                          shm_size;
+	void                           *ipc;
 } ngx_http_push_main_conf_t;
 
 //message queue
@@ -43,6 +45,7 @@ typedef struct {
 	ngx_uint_t                      received;
 	time_t                          message_time; //tag message by time
 	ngx_int_t                       message_tag; //used in conjunction with message_time if more than one message have the same time.
+	ngx_int_t                       refcount;
 } ngx_http_push_msg_t;
 
 typedef struct ngx_http_push_listener_s ngx_http_push_listener_t;
@@ -58,8 +61,8 @@ typedef struct {
 struct ngx_http_push_listener_s {
     ngx_queue_t                     queue;
 	ngx_http_request_t             *request;
-	ngx_int_t                       process_slot;
-	ngx_http_push_listener_cleanup_t *cleanup;
+	ngx_pid_t                       pid;
+	ngx_int_t                       slot; //premature space-time tradeoff. humor me.
 };
 
 //our typecast-friendly rbtree node (channel)
@@ -72,6 +75,12 @@ struct ngx_http_push_channel_s {
 	ngx_uint_t                      listener_queue_size;
 	time_t                          last_seen;
 }; 
+
+//shared memory
+typedef struct {
+	ngx_rbtree_t                    tree;
+	void                           *ipc; //interprocess stuff
+} ngx_http_push_shm_data_t;
 
 //sender stuff
 static char *       ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf); //push_sender hook
@@ -91,6 +100,7 @@ static ngx_int_t    ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx
 static ngx_chain_t *ngx_http_push_create_output_chain(ngx_http_request_t *r, ngx_buf_t *buf, ngx_slab_pool_t *shpool);
 static void         ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);
 static ngx_int_t    ngx_http_push_set_listener_body(ngx_http_request_t *r, ngx_chain_t *out);
+static ngx_int_t    ngx_http_push_respond_to_listener_request(ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 
 //misc stuff
 ngx_shm_zone_t *    ngx_http_push_shm_zone = NULL;
@@ -101,6 +111,8 @@ static char *       ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, v
 static ngx_int_t    ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size);
 static ngx_int_t    ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void * data);
 static ngx_int_t    ngx_http_push_postconfig(ngx_conf_t *cf);
+static ngx_int_t    ngx_http_push_init_module(ngx_cycle_t *cycle);
+static ngx_int_t    ngx_http_push_init_worker(ngx_cycle_t *cycle);
 static char *       ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void         ngx_http_push_reply_status_only(ngx_http_request_t *r, ngx_int_t code, ngx_str_t *statusline);
 static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, ngx_str_t *header_name, ngx_str_t *header_value);
@@ -118,6 +130,14 @@ static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_pu
 static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel);
 static ngx_inline void ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+
+//commies
+static ngx_int_t    ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle);
+static void         ngx_http_push_channel_handler(ngx_event_t *ev);
+static void         ngx_http_push_process_worker_message_queue();
+
+ngx_int_t           ngx_http_push_worker_processes;
 
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail

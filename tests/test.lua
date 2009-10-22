@@ -1,4 +1,5 @@
-require "httpest"
+print("The test 'framework' used here is still a touch wonky. A test failure need not mean that things are actually broken...")
+require "httpest" --fyi, the test "framework" used here is still wonky.
 math.randomseed(os.time())
 local request=httpest.request
 local sendurl, listenurl = "http://localhost:8098/send?channel=%s", "http://localhost:8098/listen?channel=%s"
@@ -79,7 +80,7 @@ local function batchlisten(channel, callback, timeout)
 end
 
 local function shortmsg(base)
-	return (tostring("a")):rep(30000)
+	return (tostring(base)):rep(300)
 end
 
 local function testqueuing(channel, done)
@@ -113,7 +114,7 @@ end
 --queuing
 for i=1, 5 do
 	local channel = math.random()
-	httpest.addtest("queuing " .. i, function() testqueuing(channel) end)
+	httpest.addtest("queuing " .. i .. "(10 messages)", function() testqueuing(channel) end)
 end
 
 --deleting
@@ -137,24 +138,33 @@ httpest.addtest("delete", function()
 	end)
 end)
 
+
 --broadcasting
-local channel=math.random()
-local num = 200
-httpest.addtest(('broadcast to %s (%s)'):format(num, channel), function()
-	local msg = tostring(math.random()):rep(20)
-	for j=1, num do
-		batchlisten(channel, function(resp, status, sock)
-			if resp then
-				httpest.abort_request(sock)
-				assert(resp:getbody()==msg)
-				return nil
-			end
-			return true
+local num, reps, observed = 130, 5, 0
+for i=0,reps do
+	local channel=math.random()
+	httpest.addtest(('broadcast to %s (%s)'):format(num, channel), function()
+		local msg = math.random() .. "yesyes"
+		for j=1, num do
+			batchlisten(channel, function(resp, status, sock)
+				if resp then
+					httpest.abort_request(sock)
+					assert(resp:getbody()==msg, "unexpected message: " .. resp:getbody())
+					observed = observed + 1
+					return nil
+				end
+				return true
+			end)
+		end
+		httpest.timer(2000, function()
+			send(channel, msg)
 		end)
-	end
-	httpest.timer(2000, function()
-		send(channel, msg)
 	end)
+end
+httpest.timer(5000*reps, function()
+	local total = reps*num
+
+	assert(responses==total, ("expected %d responses, got %d"):format(total, observed))
 end)
 
 httpest.run()
