@@ -290,10 +290,10 @@ static char *ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 		return "is duplicate";
 	}
 	if(ngx_strncmp(value->data, "interval-poll", 8)==0) {
-		*field=NGX_HTTP_PUSH_LISTENER_INTERVALPOLL;
+		*field=NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL;
 	}
 	else {
-		*field=NGX_HTTP_PUSH_LISTENER_LONGPOLL;
+		*field=NGX_HTTP_PUSH_MECHANISM_LONGPOLL;
 	}
 	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_listener_handler);
 }

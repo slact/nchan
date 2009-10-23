@@ -3,7 +3,30 @@
 #include <ngx_http.h>
 #include <ngx_channel.h>
 
-//with the declarations
+#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 16777216 //16 megs
+#define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
+#define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGE_QUEUE_SIZE 5
+#define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGE_QUEUE_SIZE 50
+
+#define NGX_HTTP_PUSH_LISTENER_LASTIN 0
+#define NGX_HTTP_PUSH_LISTENER_FIRSTIN 1
+#define NGX_HTTP_PUSH_LISTENER_BROADCAST 2
+
+#define NGX_HTTP_PUSH_MECHANISM_LONGPOLL 0
+#define NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL 1
+
+#define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
+
+#ifndef NGX_HTTP_CONFLICT
+#define NGX_HTTP_CONFLICT 409
+#endif
+
+//on with the declarations
+
+typedef struct {
+	size_t                          shm_size;
+} ngx_http_push_main_conf_t;
+
 typedef struct {
 	ngx_int_t                       index;
 	time_t                          buffer_timeout;
@@ -16,39 +39,35 @@ typedef struct {
 	ngx_int_t                       min_message_recipients;
 } ngx_http_push_loc_conf_t;
 
-#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 16777216 //16 megs
-#define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
-#define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGE_QUEUE_SIZE 5
-#define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGE_QUEUE_SIZE 50
-ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
-
-#define NGX_HTTP_PUSH_LISTENER_LASTIN 0
-#define NGX_HTTP_PUSH_LISTENER_FIRSTIN 1
-#define NGX_HTTP_PUSH_LISTENER_BROADCAST 2
-
-#define NGX_HTTP_PUSH_LISTENER_LONGPOLL 0
-#define NGX_HTTP_PUSH_LISTENER_INTERVALPOLL 1
-
-#define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
-typedef struct {
-	size_t                          shm_size;
-	void                           *ipc;
-} ngx_http_push_main_conf_t;
-
 //message queue
 typedef struct {
-    ngx_queue_t                     queue;
+    ngx_queue_t                     queue; //this MUST be first.
 	ngx_str_t                       content_type;
-	ngx_str_t                       charset;
+//	ngx_str_t                       charset;
 	ngx_buf_t                      *buf;
 	time_t                          expires;
 	ngx_uint_t                      received;
 	time_t                          message_time; //tag message by time
-	ngx_int_t                       message_tag; //used in conjunction with message_time if more than one message have the same time.
+	ngx_int_t                       message_tag;  //used in conjunction with message_time if more than one message have the same time.
 	ngx_int_t                       refcount;
 } ngx_http_push_msg_t;
 
-typedef struct ngx_http_push_channel_s ngx_http_push_channel_t;
+typedef struct {
+	ngx_queue_t                     queue;
+	ngx_queue_t                     listener_queue;
+	pid_t                           pid;
+} ngx_http_push_pid_queue_t;
+
+//our typecast-friendly rbtree node (channel)
+typedef struct {
+	ngx_rbtree_node_t               node; //this MUST be first.
+	ngx_str_t                       id;
+    ngx_http_push_msg_t            *message_queue;
+	ngx_uint_t                      message_queue_size;
+	ngx_queue_t                     workers_with_listeners;    //TODO: this should perhaps be an ngx_array_t -- fewer ngx_slab_free()s. maybe.
+	ngx_uint_t                      listener_queue_size;
+	time_t                          last_seen;
+} ngx_http_push_channel_t; 
 
 //cleaning supplies
 typedef struct {
@@ -58,30 +77,14 @@ typedef struct {
 
 //listener request queue
 typedef struct {
-    ngx_queue_t                     queue;
+    ngx_queue_t                     queue; //this MUST be first.
 	ngx_http_request_t             *request;
+	ngx_http_push_listener_cleanup_t *clndata;
 } ngx_http_push_listener_t;
-
-typedef struct {
-	ngx_queue_t                     queue;
-	pid_t                           pid;
-} ngx_http_push_pid_queue_t;
-
-//our typecast-friendly rbtree node (channel)
-struct ngx_http_push_channel_s {
-	ngx_rbtree_node_t               node;
-	ngx_str_t                       id;
-    ngx_http_push_msg_t            *message_queue;
-	ngx_uint_t                      message_queue_size;
-	ngx_http_push_pid_queue_t      *workers_with_listeners;    //TODO: this should be an ngx_array_t -- fewer ngx_slab_free()s
-	ngx_uint_t                      listener_queue_size;
-	time_t                          last_seen;
-}; 
 
 //shared memory
 typedef struct {
 	ngx_rbtree_t                    tree;
-	void                           *ipc; //interprocess stuff
 } ngx_http_push_shm_data_t;
 
 //sender stuff
@@ -123,25 +126,25 @@ static ngx_int_t    ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request
 
 static void ngx_http_push_listener_cleanup(ngx_http_push_listener_cleanup_t *data);
 static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http_push_channel_t * channel); //doesn't free associated memory
-static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_channel_t * channel, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
+static ngx_inline ngx_http_push_listener_t *ngx_http_push_longpoll_listener_request_locked(ngx_http_push_channel_t * channel, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
 
 //message stuff
 static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_channel_t * channel); // doesn't free associated memory
 static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t * channel, ngx_http_request_t *r, ngx_int_t *status);
 static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel);
 static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel);
-static ngx_inline void ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
-static ngx_inline void ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
-static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+static ngx_inline void       ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+static ngx_inline void       ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
+static ngx_inline void       ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 
 //commies
-static ngx_int_t    ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle);
-static void         ngx_http_push_channel_handler(ngx_event_t *ev);
-static void         ngx_http_push_process_worker_message_queue();
+static ngx_int_t             ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle);
+static void                  ngx_http_push_channel_handler(ngx_event_t *ev);
+static void                  ngx_http_push_process_worker_message_queue();
 
 
 ngx_int_t           ngx_http_push_worker_processes;
-ngx_pool_t         *ngx_http_push_listener_pool;
+ngx_pool_t         *ngx_http_push_pool;
 ngx_queue_t        *ngx_http_push_listeners;
 
 //missing in nginx < 0.7.?
@@ -155,7 +158,13 @@ ngx_queue_t        *ngx_http_push_listeners;
 
 //string constants
 //headers
-static ngx_str_t ngx_http_push_Etag = ngx_string("Etag");
-static ngx_str_t ngx_http_push_If_None_Match = ngx_string("If-None-Match");
-static ngx_str_t ngx_http_push_Vary = ngx_string("Vary");
-static ngx_str_t ngx_http_push_Allow = ngx_string("Allow");
+const  ngx_str_t NGX_HTTP_PUSH_HEADER_ETAG = ngx_string("Etag");
+const  ngx_str_t NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH = ngx_string("If-None-Match");
+const  ngx_str_t NGX_HTTP_PUSH_HEADER_VARY = ngx_string("Vary");
+const  ngx_str_t NGX_HTTP_PUSH_HEADER_ALLOW = ngx_string("Allow");
+
+//header values
+const  ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
+
+//status strings
+const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_409 = ngx_string("409 Conflict");

@@ -112,14 +112,13 @@ static ngx_http_push_channel_t * find_channel(
 	if(up != NULL) { //we found our channel
 		return up;
 	}
-	up = ngx_slab_alloc_locked(shpool, sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t) + sizeof(ngx_http_push_listener_t)); //nice and contiguous
+	up = ngx_slab_alloc_locked(shpool, sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)); //nice and contiguous
 	if (up == NULL) {
 		//a failed malloc ain't the end of the world. take out the trash anyway
 		return NULL;
 	}
 	up->id.data = (u_char *) (up+1); //contiguous piggy
 	up->message_queue = (ngx_http_push_msg_t *) (up->id.data + id->len);
-	up->listener_queue = (ngx_http_push_listener_t *) (up->message_queue + 1);
 	
 	up->id.len = (u_char) id->len;
 	ngx_memcpy(up->id.data, id->data, up->id.len);
@@ -128,10 +127,10 @@ static ngx_http_push_channel_t * find_channel(
 
 	//initialize queues
 	ngx_queue_init(&up->message_queue->queue);
-	up->message_queue_size=0;
-	up->listener_queue = (ngx_http_push_listener_t *) (up->message_queue + 1);
-	ngx_queue_init(&up->listener_queue->queue);
-	up->listener_queue_size=0;
+	up->messages=0;
+
+	ngx_queue_init(&up->workers_with_listeners);
+	up->listeners=0;
 	return up;
 }
 
