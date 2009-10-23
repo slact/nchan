@@ -22,7 +22,7 @@ static ngx_http_push_msg_t * ngx_http_push_get_latest_message_locked(ngx_http_pu
 }
 
 //shpool must be locked. No memory is freed.
-static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel){
+static ngx_http_push_msg_t * ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel) {
 	ngx_queue_t                    *sentinel = &channel->message_queue->queue; 
 	if(ngx_queue_empty(sentinel)) {
 		return NULL;
@@ -43,29 +43,19 @@ static ngx_http_push_msg_t * ngx_http_push_dequeue_message_locked(ngx_http_push_
 	return msg;
 }
 
-//shpool must be locked. No memory is freed.
-static ngx_http_push_listener_t * ngx_http_push_dequeue_listener_locked(ngx_http_push_channel_t * channel) {
-	ngx_queue_t                    *sentinel = &channel->listener_queue->queue; 
-	if(ngx_queue_empty(sentinel)) { return NULL; }
-	ngx_queue_t                    *qlistener = ngx_queue_last(sentinel);
-	ngx_http_push_listener_t       *listener = ngx_queue_data(qlistener, ngx_http_push_listener_t, queue);
-	ngx_queue_remove(qlistener);
-	qlistener->next=NULL; //leave a clue about having been dequeued
-	channel->listener_queue_size--;
-	return listener;
-}
-
-//shpool must be locked.
-static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request_locked(ngx_http_push_channel_t * channel, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
-	ngx_http_push_listener_t       *listener = ngx_slab_alloc_locked(shpool, sizeof(*listener));
-	if(listener==NULL) { //unable to allocate request queue element
+//shpool is expected to be locked.
+static ngx_inline ngx_http_push_listener_t *ngx_http_push_queue_listener_request(ngx_http_push_channel_t * channel, ngx_http_request_t *r, ngx_queue_t *sentinel, ngx_slab_pool_t *shpool) {
+	ngx_http_push_listener_t       *listener;
+	if((ngx_palloc(ngx_http_push_pool, sizeof(*listener)))==NULL) { //unable to allocate request queue element
 		return NULL;
 	}
-	ngx_queue_insert_tail(&channel->listener_queue->queue, &listener->queue);
 	listener->request = r;
 	listener->pid=ngx_pid;
 	listener->slot=ngx_process_slot;
+	ngx_shmtx_lock(&shpool->mutex);
+	ngx_queue_insert_tail(sentinel, &listener->queue);
 	channel->listener_queue_size++;
+	ngx_shmtx_unlock(&shpool->mutex);
 	return listener;
 }
 
@@ -244,10 +234,8 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 		if(cf->listener_poll_mechanism==NGX_HTTP_PUSH_LISTENER_LONGPOLL) {
 			//long-polling listener. wait for a message.
 			ngx_http_push_listener_t   *listener;
-			ngx_shmtx_lock(&shpool->mutex);
-			listener=ngx_http_push_queue_listener_request_locked(channel, r, shpool);
-			ngx_shmtx_unlock(&shpool->mutex);
-			if(listener==NULL) { return NGX_HTTP_INTERNAL_SERVER_ERROR; } //todo: emergency out-of-memory garbage collection, retry
+			listener=ngx_http_push_queue_listener_request(channel, r, shpool);
+			if(listener==NULL) { return NGX_HTTP_INTERNAL_SERVER_ERROR; }
 			//test to see if the connection was closed or something.
 			r->read_event_handler = ngx_http_test_reading; 
 			
@@ -341,6 +329,64 @@ static ngx_int_t ngx_http_push_handle_listener_concurrency_setting(ngx_int_t con
         return;                                                               \
     }
 
+static ngx_int_t ngx_http_push_respond_to_listeners(ngx_queue_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line) {
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
+	ngx_shmtx_lock(&shpool->mutex);
+	ngx_queue_t                    *cur = head->next;
+	if(msg!=NULL) {
+		//copy everything we need from
+		ngx_chain_t                *chain = ngx_http_push_create_output_chain_locked(msg->buf, shpool, ngx_http_push_pool);
+		
+		if(chain==NULL) {
+			ngx_shmtx_unlock(&shpool->mutex);
+			//TODO: also free stuff maybe. or decrease refcount or something
+			return NGX_ERROR;
+		}
+		ngx_int_t                   rc;
+		
+		
+		if((ngx_http_push_set_listener_header(r, msg, shpool)) < NGX_HTTP_SPECIAL_RESPONSE) {
+			//everything is going as planned
+			rc = ngx_http_send_header(r);
+			return rc >= NGX_HTTP_SPECIAL_RESPONSE ? rc : ngx_http_push_set_listener_body(r, ngx_http_push_create_output_chain(r, msg->buf, shpool));
+		}
+		else { //something went wrong setting the header
+			return rc;
+		}
+		
+		ngx_shmtx_unlock(&shpool->mutex);
+		while(cur!=head) {
+			ngx_http_push_respond_to_listener_request((ngx_http_push_listener_t *)cur->request, *msg, shpool);
+			cur=cur->next;
+		}
+		//is the message still needed?
+		ngx_shmtx_lock(&shpool->mutex);
+		if(worker_msg->msg->queue.next==NULL && (--worker_msg->msg->refcount)==0) { 
+			//message was dequeued, and nobody needs it anymore
+			ngx_http_push_free_message_locked(worker_msg->msg, shpool);
+		}
+		ngx_shmtx_unlock(&shpool->mutex);
+	}
+	else { 
+		ngx_shmtx_unlock(&shpool->mutex);
+		//headers only probably
+		while(cur!=head) {
+			ngx_http_push_reply_status_only((ngx_http_push_listener_t *)cur->request, status_code, status_line);
+			cur=cur->next;
+		}
+	}
+	
+	while(cur!=head) {
+		//RAM is not a series of tubes. well, actually, it kind of is... much more so than a dump truck, anyway.
+
+		//free stuff.
+		//TODO: don't free anything. instead, set 'dirty' bit to reuse memory. periodically clean the queue with a timer.
+		ngx_queue_remove((&worker_msg->queue));
+		ngx_slab_free_locked(shpool, worker_msg); 
+	}
+	ngx_shmtx_unlock(&shpool->mutex);
+}
+	
 static ngx_str_t ngx_http_push_410_Gone = ngx_string("410 Gone");
 static ngx_str_t ngx_http_push_Allow_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
 static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) { 
@@ -431,45 +477,45 @@ static void ngx_http_push_sender_body_handler(ngx_http_request_t * r) {
 		ngx_int_t                   received=0;
 		ngx_http_push_listener_t   *listener = NULL;
 		if(msg!=NULL) {
-			ngx_http_request_t     *r_listener;
-			ngx_pid_t               listener_pid;
-			static ngx_int_t        listener_slot;
+			ngx_queue_t            *sentinel = channel->workers_with_listeners;
+			ngx_http_push_pid_queue_t *worker = sentinel;
 			ngx_shmtx_lock(&shpool->mutex);
 			if(buf->file!=NULL) {
+				//when we copied the buffer, if it used a file, fd was set to -1.
+				//but the file's still open, so let's use it.
 				msg->buf->file->fd=buf->file->fd;
 			}
-			while ((listener=ngx_http_push_dequeue_listener_locked(channel))!=NULL) {
-				r_listener = listener->request;
-				if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
-					msg->received++;
-				}
-				if(!received) {
-					received=1;
-				}
-				listener_pid = listener->pid;
+			
+			//DON'T FORGET: (change it)
+			if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
+				msg->received++;
+			}
+			if(!received) { received=1; }
+			
+			while((worker=worker->next)!=sentinel) {
+				pid_t               worker_pid = worker->pid;
+				ngx_int_t           worker_slot = worker->slot;
 				ngx_shmtx_unlock(&shpool->mutex);
 				if(listener_pid == ngx_pid) {
+					//my listeners
 					ngx_int_t      rc;
+					
+					
 					if((rc = ngx_http_push_respond_to_listener_request(r_listener, msg, shpool))==NGX_ERROR) {
-						ngx_shmtx_lock(&shpool->mutex);
-						if(msg->received>0) { //no, the message was not received.
-							msg->received--;
-						}
-						ngx_shmtx_unlock(&shpool->mutex);
+						
 					}
 					ngx_http_finalize_request(r_listener, rc);
 				}
-				else {
+				else { 
+					//some other worker's listeners
 					//interprocess communication breakdown
-					ngx_shmtx_lock(&shpool->mutex);
-					listener_slot = listener->slot;
-					ngx_shmtx_unlock(&shpool->mutex);
-					NGX_HTTP_PUSH_SENDER_CHECK(ngx_http_push_queue_worker_message(listener_pid, listener_slot, r_listener, msg, 0, NULL), NGX_ERROR, r, "push module: error communicating to another worker process");
+					NGX_HTTP_PUSH_SENDER_CHECK(ngx_http_push_queue_worker_message(listener_pid, listener_slot, msg, worker, 0, NULL), NGX_ERROR, r, "push module: error communicating to another worker process");
 					ngx_http_push_alert_worker(listener_pid, listener_slot, r->connection->log);
 				}
 				ngx_shmtx_lock(&shpool->mutex);
 			}
 			if(buf->file!=NULL) {
+				//back to square -1.
 				msg->buf->file->fd=NGX_INVALID_FILE;
 			}
 			ngx_shmtx_unlock(&shpool->mutex);
@@ -597,23 +643,23 @@ static ngx_int_t ngx_http_push_sender_handler(ngx_http_request_t * r) {
 static ngx_str_t ngx_http_push_Vary_header_value = ngx_string("If-None-Match, If-Modified-Since");
 
 //assumes that shpool is unlocked.
-static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
+static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_http_push_headers_t *headers, ngx_slab_pool_t *shpool) {
 	//content-type is _copied_
 	ngx_shmtx_lock(&shpool->mutex);
-	if (&msg->content_type!=NULL && msg->content_type.data!=NULL && msg->content_type.len > 0) {
-		r->headers_out.content_type.len=msg->content_type.len;
-		r->headers_out.content_type.data = ngx_palloc(r->pool, msg->content_type.len);
+	if (&headers->content_type!=NULL && headers->content_type.data!=NULL && headers->content_type.len > 0) {
+		r->headers_out.content_type.len=headers->content_type.len;
+		r->headers_out.content_type.data = ngx_palloc(r->pool, headers->content_type.len);
 		if(r->headers_out.content_type.data==NULL) {
 			ngx_shmtx_unlock(&shpool->mutex);
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
-		ngx_memcpy(r->headers_out.content_type.data, msg->content_type.data, msg->content_type.len);
+		ngx_memcpy(r->headers_out.content_type.data, headers->content_type.data, headers->content_type.len);
 	}
-	if(msg->message_time) {
+	if(headers->last_modified_time) {
 		//if-modified-since header
-		r->headers_out.last_modified_time=msg->message_time;
+		r->headers_out.last_modified_time=headers->last_modified_time;
 	}
-	if(msg->message_tag) {
+	if(headers->etag) {
 		//etag, if we need one
 		ngx_str_t                  *etag=ngx_pcalloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN);
 		if (etag==NULL) { 
@@ -621,7 +667,7 @@ static ngx_int_t ngx_http_push_set_listener_header(ngx_http_request_t *r, ngx_ht
 			return NGX_HTTP_INTERNAL_SERVER_ERROR; 
 		}
 		etag->data = (u_char *) (etag+1); 
-		etag->len = ngx_sprintf(etag->data, "%ui", msg->message_tag) - etag->data;
+		etag->len = ngx_sprintf(etag->data, "%ui", headers->message_tag) - etag->data;
 		if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &ngx_http_push_Etag, etag))==NULL) {
 			ngx_shmtx_unlock(&shpool->mutex);
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;

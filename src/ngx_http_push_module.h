@@ -48,7 +48,6 @@ typedef struct {
 	ngx_int_t                       refcount;
 } ngx_http_push_msg_t;
 
-typedef struct ngx_http_push_listener_s ngx_http_push_listener_t;
 typedef struct ngx_http_push_channel_s ngx_http_push_channel_t;
 
 //cleaning supplies
@@ -58,12 +57,15 @@ typedef struct {
 } ngx_http_push_listener_cleanup_t;
 
 //listener request queue
-struct ngx_http_push_listener_s {
+typedef struct {
     ngx_queue_t                     queue;
 	ngx_http_request_t             *request;
-	ngx_pid_t                       pid;
-	ngx_int_t                       slot; //premature space-time tradeoff. humor me.
-};
+} ngx_http_push_listener_t;
+
+typedef struct {
+	ngx_queue_t                     queue;
+	pid_t                           pid;
+} ngx_http_push_pid_queue_t;
 
 //our typecast-friendly rbtree node (channel)
 struct ngx_http_push_channel_s {
@@ -71,7 +73,7 @@ struct ngx_http_push_channel_s {
 	ngx_str_t                       id;
     ngx_http_push_msg_t            *message_queue;
 	ngx_uint_t                      message_queue_size;
-	ngx_http_push_listener_t       *listener_queue;
+	ngx_http_push_pid_queue_t      *workers_with_listeners;    //TODO: this should be an ngx_array_t -- fewer ngx_slab_free()s
 	ngx_uint_t                      listener_queue_size;
 	time_t                          last_seen;
 }; 
@@ -137,7 +139,10 @@ static ngx_int_t    ngx_http_push_register_worker_message_handler(ngx_cycle_t *c
 static void         ngx_http_push_channel_handler(ngx_event_t *ev);
 static void         ngx_http_push_process_worker_message_queue();
 
+
 ngx_int_t           ngx_http_push_worker_processes;
+ngx_pool_t         *ngx_http_push_listener_pool;
+ngx_queue_t        *ngx_http_push_listeners;
 
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
