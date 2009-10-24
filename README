@@ -9,30 +9,30 @@ location.
 
 ---------------- Configuration directives & variables ------------------------
 directives:
-push_sender
+push_publisher
   default: none
   context: server, location
-  Defines a server or location as the sender. Requests from a sender will be 
-  treated as messages to send to listeners.See protocol documentation 
+  Defines a server or location as the publisher. Requests from a publisher will be 
+  treated as messages to send to subscribers.See protocol documentation 
   for more info. 
 
-push_listener
+push_subscriber
   default: none
   context: server, location
-  Defines a server or location as a listener. Requests from a listener will 
-  not be responded to until a message for the listener (identified by 
+  Defines a server or location as a subscriber. Requests from a subscriber will 
+  not be responded to until a message for the subscriber (identified by 
   $push_channel_id) becomes available. See protocol documentation for more 
   info.
 
-push_listener_concurrency [ last | first | broadcast ]
+push_subscriber_concurrency [ last | first | broadcast ]
   default: last
   context: http, server, location
-  Controls how multiple listener requests to the same channel id are handled. 
+  Controls how multiple subscriber requests to the same channel id are handled. 
   The values work as follows:
-   broadcast: any number of listener requests may be long-polling.
-   last: only the most recent listener request is kept, all others get a 409 
+   broadcast: any number of subscriber requests may be long-polling.
+   last: only the most recent subscriber request is kept, all others get a 409 
      Conflict response.
-   first: only the oldest listener request is kept, all others get a 409 
+   first: only the oldest subscriber request is kept, all others get a 409 
      Conflict response.
 
 push_max_reserved_memory [ size ]
@@ -63,15 +63,15 @@ push_message_timeout [ time ]
   default: 1h
   context: http, server, location
   How long a message may be queued before it is considered expired. If you do 
-  not want messages to expire, set this to 0. Applicable only if a push_sender 
+  not want messages to expire, set this to 0. Applicable only if a push_publisher 
   is present in this or a child context. 
   
 push_authorized_channels_only [ on | off ]
   default: off
   context: http, server, location
-  Whether or not a listener may create a channel. If set to on, a sender must
-  senda request to some channel (POST or PUT) before a listener. Otherwise, 
-  all listener requests will get a 403 Forbidden response.
+  Whether or not a subscriber may create a channel. If set to on, a publisher must
+  senda request to some channel (POST or PUT) before a subscriber. Otherwise, 
+  all subscriber requests will get a 403 Forbidden response.
   
 push_store_messages [ on | off ]
   default: on
@@ -92,7 +92,7 @@ push_buffer_size [ size ] (DEPRECATED)
 Variables:
 $push_channel_id
   A token uniquely identifying a channel. Must be present in the context of 
-  the push_listener and push_sender directives.
+  the push_subscriber and push_publisher directives.
   Example:
     set $push_channel_id $arg_id; #channel id is now the url parameter "id"
 
@@ -103,25 +103,25 @@ http {
   push_max_reserved_memory	12M; #default is 3M
 
   server {
-    #sender
+    #publisher
     location /send {
       set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
-      push_sender;
+      push_publisher;
       push_message_timeout 2h; #buffered messages expire after 2 hours
       push_max_message_buffer_length 10; #store 10 messages.
     }
 
     #receiver
     location /listen {
-      push_listener;
-	  push_listener_concurrency broadcast;
+      push_subscriber;
+      push_subscriber_concurrency broadcast;
       set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
-	  default_type  text/plain;
-	  
+      default_type  text/plain;
+      
     }
   }
 }
-	
+
 ---------------------------- Operation ---------------------------------------
 Assuming the example config given above:
 Clients will connect to http://example.com/listen?id=... and have the 
@@ -129,15 +129,15 @@ response delayed until a message is POSTed to http://example.com/send?id=...
 Messages can be sent to clients that have not yet connected, i.e. they are 
 queued.
 
-Upon sending a request to a push_sender location, the server will respond with 
+Upon sending a request to a push_publisher location, the server will respond with 
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
-push_listener with this id is presently connected), a 202 Accepted will be sent.
+push_subscriber with this id is presently connected), a 202 Accepted will be sent.
  
-If you indend to have the push_sender be a server-side application, 
+If you indend to have the push_publisher be a server-side application, 
 it's a damn good idea to make sure the push_server location is not visible
 publically, as it is intended for use only by your application.
 
-Traversal through the message buffer by a listener requires proper caching
+Traversal through the message buffer by a subscriber requires proper caching
 support. Make sure your client correctly sends Last-Modified and ETag headers.
 
 ----------------------- Protocol spec --------------------------------------
@@ -146,7 +146,7 @@ see the file protocol.txt
 ---------------------------- todo --------------------------------------------
 - Add other mechanisms of server pushing. The list should include
   "long-poll" (default), "interval-poll".
-- When POSTing to a sender location, if Content-Type is "message/http", the 
+- When POSTing to a publisher location, if Content-Type is "message/http", the 
   response sent to $push_channel_id should be created from the body of the 
   request.
 
