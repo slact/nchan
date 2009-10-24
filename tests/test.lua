@@ -23,7 +23,7 @@ local channeltags = {}
 local function listen(channel, callback, timeout, headers)
 	if not channeltags[channel] then channeltags[channel] = {} end
 	local s
-	local listener_timeout = function()
+	local subscriber_timeout = function()
 		return callback(nil, "timeout", s)
 	end
 	s = request{
@@ -34,7 +34,7 @@ local function listen(channel, callback, timeout, headers)
 			['if-modified-since']=channeltags[channel]['last-modified']
 		},
 		complete = function(r, status, s)
-			httpest.killtimer(listener_timeout)
+			httpest.killtimer(subscriber_timeout)
 			if not r then 
 				channeltags[channel]=nil
 				return callback(nil, status, s)
@@ -48,7 +48,7 @@ local function listen(channel, callback, timeout, headers)
 			end
 		end
 	}
-	httpest.timer(timeout or 500, listener_timeout)
+	httpest.timer(timeout or 500, subscriber_timeout)
 	return s
 end
 
@@ -67,16 +67,16 @@ end
 
 
 local function batchlisten(channel, callback, timeout)
-	local function listener(r, err, s)
+	local function subscriber(r, err, s)
 		local result
 		if r or err then
 			result = callback(r, err, s)
 		end
 		if (not r and not err) or result then
-			return listen(channel, listener, timeout)
+			return listen(channel, subscriber, timeout)
 		end
 	end
-	return listener()
+	return subscriber()
 end
 
 local function shortmsg(base)
@@ -85,7 +85,7 @@ end
 
 local function testqueuing(channel, done)
 	local s, i, messages = nil, 0, {}
-	local function listener(resp, status, s)
+	local function subscriber(resp, status, s)
 		if resp then
 			table.insert(messages, 1, resp:getbody())
 		end
@@ -106,7 +106,7 @@ local function testqueuing(channel, done)
 		end, 
 		nil,
 		function()
-			return batchlisten(channel, listener, 100) 
+			return batchlisten(channel, subscriber, 100) 
 		end
 	)
 end

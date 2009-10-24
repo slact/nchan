@@ -24,15 +24,15 @@ static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_pus
 		}
 	}
 	//at this point, the queue is empty
-	return channel->listeners==0 ? channel : NULL; //if no waiting requests, return this channel to be deleted
+	return channel->subscribers==0 ? channel : NULL; //if no waiting requests, return this channel to be deleted
 }
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool) {
 //assume the shm zone is already locked
 	if(trash != NULL){ //take out the trash		
 		ngx_rbtree_delete(tree, trash);
 		
-		//delete the worker-listener queue
-		ngx_queue_t                *sentinel = &(((ngx_http_push_channel_t *)trash)->workers_with_listeners);
+		//delete the worker-subscriber queue
+		ngx_queue_t                *sentinel = &(((ngx_http_push_channel_t *)trash)->workers_with_subscribers);
 		ngx_queue_t                *cur = ngx_queue_head(sentinel);
 		ngx_queue_t                *next;
 		while(cur!=sentinel) {
@@ -140,8 +140,8 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 	ngx_queue_init(&up->message_queue->queue);
 	up->messages=0;
 
-	ngx_queue_init(&up->workers_with_listeners);
-	up->listeners=0;
+	ngx_queue_init(&up->workers_with_subscribers);
+	up->subscribers=0;
 	return up;
 }
 

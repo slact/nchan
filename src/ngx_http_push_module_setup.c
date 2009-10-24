@@ -3,14 +3,14 @@ ngx_module_t  ngx_http_push_module;
 static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 	ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 	ngx_http_push_worker_processes = ccf->worker_processes;
-	//initialize listener queues
+	//initialize subscriber queues
 	//pool, please
 	if((ngx_http_push_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) { //I trust the cycle pool size to be a well-tuned one.
 		return NGX_ERROR; 
 	}
 	
-	//listener sentinel
-	ngx_queue_init(&ngx_http_push_listener_sentinel.queue);
+	//subscriber sentinel
+	ngx_queue_init(&ngx_http_push_subscriber_sentinel.queue);
 	
 	//initialize our little IPC
 	return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
@@ -97,8 +97,8 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->buffer_timeout=NGX_CONF_UNSET;
 	lcf->max_messages=NGX_CONF_UNSET;
 	lcf->min_messages=NGX_CONF_UNSET;
-	lcf->listener_concurrency=NGX_CONF_UNSET;
-	lcf->listener_poll_mechanism=NGX_CONF_UNSET;
+	lcf->subscriber_concurrency=NGX_CONF_UNSET;
+	lcf->subscriber_poll_mechanism=NGX_CONF_UNSET;
 	lcf->authorize_channel=NGX_CONF_UNSET;
 	lcf->store_messages=NGX_CONF_UNSET;
 	lcf->min_message_recipients=NGX_CONF_UNSET;
@@ -110,8 +110,8 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
 	ngx_conf_merge_value(conf->max_messages, prev->max_messages, NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGES);
 	ngx_conf_merge_value(conf->min_messages, prev->min_messages, NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES);
-	ngx_conf_merge_value(conf->listener_concurrency, prev->listener_concurrency, NGX_HTTP_PUSH_LISTENER_CONCURRENCY_LASTIN);
-	ngx_conf_merge_value(conf->listener_poll_mechanism, prev->listener_poll_mechanism, NGX_HTTP_PUSH_MECHANISM_LONGPOLL);
+	ngx_conf_merge_value(conf->subscriber_concurrency, prev->subscriber_concurrency, NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN);
+	ngx_conf_merge_value(conf->subscriber_poll_mechanism, prev->subscriber_poll_mechanism, NGX_HTTP_PUSH_MECHANISM_LONGPOLL);
 	ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
 	ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
 	ngx_conf_merge_value(conf->min_message_recipients, prev->min_message_recipients, NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS);
@@ -126,7 +126,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 }
 
 static ngx_str_t  ngx_http_push_channel_id = ngx_string("push_channel_id"); //channel id variable
-//sender and listener handlers now.
+//publisher and subscriber handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
 	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
 	ngx_http_push_loc_conf_t       *plcf = conf;
@@ -139,23 +139,23 @@ static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t 
 	return NGX_CONF_OK;
 }
 
-static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *ngx_http_push_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 	ngx_str_t                      *value=&(((ngx_str_t *) cf->args->elts)[1]);
 	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
 	if (*field != NGX_CONF_UNSET) {
 		return "is duplicate";
 	}
 	if(ngx_strncmp(value->data, "first", 5)==0) {
-		*field=NGX_HTTP_PUSH_LISTENER_CONCURRENCY_FIRSTIN;
+		*field=NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN;
 	}
 	else if(ngx_strncmp(value->data, "last", 4)==0) {
-		*field=NGX_HTTP_PUSH_LISTENER_CONCURRENCY_LASTIN;
+		*field=NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN;
 	}
 	else if(ngx_strncmp(value->data, "broadcast", 9)==0) {
-		*field=NGX_HTTP_PUSH_LISTENER_CONCURRENCY_BROADCAST;
+		*field=NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST;
 	}
 	else {
-		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Unexpected value for push_listener_concurrency.");
+		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Unexpected value for push_subscriber_concurrency.");
 		return NGX_CONF_ERROR;
 	}
 	if (cmd->post) {
@@ -165,11 +165,11 @@ static char *ngx_http_push_set_listener_concurrency(ngx_conf_t *cf, ngx_command_
 	return NGX_CONF_OK;
 }
 
-static char *ngx_http_push_sender(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_sender_handler);
+static char *ngx_http_push_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_publisher_handler);
 }
 
-static char *ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
 	ngx_str_t                      *value = &(((ngx_str_t *) cf->args->elts)[1]);
 	if (*field != NGX_CONF_UNSET) {
@@ -181,7 +181,7 @@ static char *ngx_http_push_listener(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 	else {
 		*field=NGX_HTTP_PUSH_MECHANISM_LONGPOLL;
 	}
-	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_listener_handler);
+	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_subscriber_handler);
 }
 
 
@@ -222,25 +222,25 @@ static ngx_command_t  ngx_http_push_commands[] = {
       offsetof(ngx_http_push_loc_conf_t, min_message_recipients),
       NULL },
 
-	{ ngx_string("push_sender"),
+	{ ngx_string("push_publisher"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
-      ngx_http_push_sender,
+      ngx_http_push_publisher,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
 	
-	{ ngx_string("push_listener"),
+	{ ngx_string("push_subscriber"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1,
-      ngx_http_push_listener,
+      ngx_http_push_subscriber,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, listener_poll_mechanism),
+      offsetof(ngx_http_push_loc_conf_t, subscriber_poll_mechanism),
       NULL },
 	
-    { ngx_string("push_listener_concurrency"),
+    { ngx_string("push_subscriber_concurrency"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_http_push_set_listener_concurrency,
+      ngx_http_push_set_subscriber_concurrency,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, listener_concurrency),
+      offsetof(ngx_http_push_loc_conf_t, subscriber_concurrency),
       NULL },
 	  
 	{ ngx_string("push_authorized_channels_only"),

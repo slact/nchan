@@ -142,7 +142,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	worker_msg = &worker_messages[ngx_process_slot];
 	if(worker_msg->pid!=ngx_pid) { 
 		//that's quite bad you see. a previous worker died with an undelivered message.
-		//but all its listeners' connections presumably got canned, too. so it's not so bad after all.
+		//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
 		ngx_shmtx_unlock(&shpool->mutex);
 		ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: intercepted a message intended for another worker process that probably died");
 		return;
@@ -169,14 +169,14 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 				
 			case 0:
 				ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
-				//let's let the listeners know that something went wrong and they might've missed a message
+				//let's let the subscribers know that something went wrong and they might've missed a message
 				status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
 				
 			default:
 				status_line=NULL;
 		}
 	}
-	ngx_http_push_respond_to_listeners(channel, msg, status_code, status_line);
+	ngx_http_push_respond_to_subscribers(channel, msg, status_code, status_line);
 	return;
 }
 
