@@ -1,15 +1,7 @@
 //worker processes of the world, unite.
-typedef struct {
-	ngx_queue_t                     queue;
-	ngx_http_push_msg_t            *msg;
-	ngx_http_request_t             *request;
-	ngx_int_t                       headers_only:1;
-	ngx_int_t                       status_code;
-	ngx_str_t                      *status_line;
-	ngx_pid_t                       pid; 
-} ngx_http_push_worker_msg_t;
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev);
+static ngx_inline void ngx_http_push_process_worker_message(void);
 
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 49
 
@@ -64,13 +56,12 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	}
 	return NGX_OK;
 }
-
+ 
 //will be called many times
 static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
-	ngx_queue_t                    *worker_message_queue;
-	ngx_int_t                       i;
+	ngx_http_push_worker_msg_t     *worker_messages;
 	ngx_shmtx_lock(&shpool->mutex);
 	if(d->ipc!=NULL) {
 		//already initialized...
@@ -78,14 +69,11 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 		return NGX_OK;
 	}
 	//initialize worker message queues
-	if((worker_message_queue = ngx_slab_alloc_locked(shpool, sizeof(ngx_queue_t)*workers))==NULL) {
+	if((worker_messages = ngx_slab_alloc_locked(shpool, sizeof(ngx_queue_t)*workers))==NULL) {
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
 	}
-	d->ipc=worker_message_queue;
-	for (i=0; i<workers; i++) {
-		ngx_queue_init((&worker_message_queue[i]));
-	}
+	d->ipc=worker_messages;
 	ngx_shmtx_unlock(&shpool->mutex);
 	return NGX_OK;
 }
@@ -128,7 +116,7 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
 		//ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "push module: channel command: %d", ch.command);
 
 		if (ch.command==NGX_CMD_HTTP_PUSH_CHECK_MESSAGES) {
-			ngx_http_push_process_worker_message_queue();
+			ngx_http_push_process_worker_message();
 		}
 	}
 }
@@ -139,46 +127,60 @@ static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_l
 	return ngx_write_channel(ngx_http_push_socketpairs[2*slot], &ch, sizeof(ngx_channel_t), log);
 }
 
-static void ngx_http_push_process_worker_message_queue() {
-	ngx_queue_t                    *sentinel, *cur;
+static ngx_inline void ngx_http_push_process_worker_message(void) {
 	ngx_http_push_worker_msg_t     *worker_msg;
+	const ngx_str_t                *status_line = NULL;
+	ngx_http_push_channel_t        *channel;
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
-	 ngx_http_push_shm_data_t      *d = (ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data;
-	ngx_shmtx_lock(&shpool->mutex);
-	ngx_queue_t                    *worker_message_queue = (ngx_queue_t *)d->ipc; //why did i make ipc void* again?
 	
-	sentinel = &worker_message_queue[ngx_process_slot];
-	cur = sentinel->next;
-	while(cur!=sentinel) {
-		//RAM is not a series of tubes. well, actually, it kind of is... much more so than a dump truck, anyway.
-		worker_msg = (ngx_http_push_worker_msg_t *) cur;
-		cur=cur->next;
-		if(!worker_msg->headers_only) {
-			ngx_shmtx_unlock(&shpool->mutex);
-			ngx_http_push_respond_to_listener_request(worker_msg->request, worker_msg->msg, shpool);
-			ngx_shmtx_lock(&shpool->mutex);
-			if(worker_msg->msg->queue.next==NULL && (--worker_msg->msg->refcount)==0) { 
-				//message was dequeued, and nobody needs it anymore
-				ngx_http_push_free_message_locked(worker_msg->msg, shpool);
-			}
-		}
-		else if(worker_msg->pid==ngx_pid) { 
-			// make sure the message is intended for this worker. This check is
-			// necessary since a worker may be terminated and a new one may use
-			// its ngx_process_slot. i think.
-			ngx_shmtx_unlock(&shpool->mutex);
-			ngx_http_push_reply_status_only(worker_msg->request, worker_msg->status_code, worker_msg->status_line);
-			ngx_shmtx_lock(&shpool->mutex);
-		}
-		//free stuff.
-		//TODO: don't free anything. instead, set 'dirty' bit to reuse memory. periodically clean the queue with a timer.
-		ngx_queue_remove((&worker_msg->queue));
-		ngx_slab_free_locked(shpool, worker_msg); 
+	ngx_shmtx_lock(&shpool->mutex);
+	
+	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc; 
+	ngx_int_t                       status_code;
+	ngx_http_push_msg_t            *msg;
+	
+	worker_msg = &worker_messages[ngx_process_slot];
+	if(worker_msg->pid!=ngx_pid) { 
+		//that's quite bad you see. a previous worker died with an undelivered message.
+		//but all its listeners' connections presumably got canned, too. so it's not so bad after all.
+		ngx_shmtx_unlock(&shpool->mutex);
+		ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: intercepted a message intended for another worker process that probably died");
+		return;
 	}
+	
+	status_code = worker_msg->status_code;
+	msg = worker_msg->msg;
+	channel = worker_msg->channel;
+	
 	ngx_shmtx_unlock(&shpool->mutex);
+	
+	if(msg==NULL) {
+		//just a status line, is all
+		
+		//status code only.
+		switch(status_code) {
+			case NGX_HTTP_CONFLICT:
+				status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
+				break;
+			
+			case NGX_HTTP_GONE:
+				status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
+				break;
+				
+			case 0:
+				ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
+				//let's let the listeners know that something went wrong and they might've missed a message
+				status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
+				
+			default:
+				status_line=NULL;
+		}
+	}
+	ngx_http_push_respond_to_listeners(channel, msg, status_code, status_line);
+	return;
 }
 
-static ngx_int_t ngx_http_push_queue_worker_message(ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_request_t *r, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_str_t *status_line) {
+static ngx_int_t ngx_http_push_send_worker_message(ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_queue_t                    *sentinel;
 	ngx_shmtx_lock(&shpool->mutex);
@@ -189,16 +191,13 @@ static ngx_int_t ngx_http_push_queue_worker_message(ngx_pid_t pid, ngx_int_t wor
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
 	}
-	worker_msg->request=r;
 	worker_msg->msg=msg;
 	worker_msg->status_code=status_code;
-	worker_msg->status_line=status_line;
 	worker_msg->pid = pid;
 	
 	//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 	msg->refcount++; 
 	
-	ngx_queue_insert_tail(sentinel, (&worker_msg->queue));
 	ngx_shmtx_unlock(&shpool->mutex);
 	return NGX_OK;
 }
