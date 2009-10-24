@@ -753,6 +753,10 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 	b->last = ngx_sprintf(b->last, "active listeners: %ui", listeners);
 	r->headers_out.content_type.len = sizeof("text/plain") - 1;
     r->headers_out.content_type.data = (u_char *) "text/plain";
+	
+	//lastly, set the content-length, because if the status code isn't 200, nginx may not do so automatically
+	r->headers_out.content_length_n = ngx_buf_size(b);
+	
 	if (ngx_http_send_header(r) > NGX_HTTP_SPECIAL_RESPONSE) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
