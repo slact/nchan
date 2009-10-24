@@ -173,7 +173,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			return NGX_HTTP_FORBIDDEN;
 		}
 		else {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handler listener concurrency setting");
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate shared memory for channel");
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
 	}
@@ -186,7 +186,7 @@ static ngx_int_t ngx_http_push_listener_handler(ngx_http_request_t *r) {
 			//status codes and whatnot should have already been written. just get out of here quickly.
 			return NGX_OK;
 		case NGX_ERROR:
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handler listener concurrency setting");
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling listener concurrency setting");
 			return NGX_ERROR;
 	}
 
