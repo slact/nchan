@@ -391,6 +391,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 		ngx_int_t       worker_slot = ((ngx_http_push_pid_queue_t *)cur)->slot;
 		received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 		if(msg!=NULL) {
+			//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 			msg->refcount++;
 		}
 		ngx_shmtx_unlock(&shpool->mutex);

@@ -195,9 +195,6 @@ static ngx_int_t ngx_http_push_send_worker_message(ngx_pid_t pid, ngx_int_t work
 	worker_msg->status_code=status_code;
 	worker_msg->pid = pid;
 	
-	//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
-	msg->refcount++; 
-	
 	ngx_shmtx_unlock(&shpool->mutex);
 	return NGX_OK;
 }
