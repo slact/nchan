@@ -135,7 +135,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	
-	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc; 
+	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
 	ngx_int_t                       status_code;
 	ngx_http_push_msg_t            *msg;
 	
@@ -151,6 +151,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	status_code = worker_msg->status_code;
 	msg = worker_msg->msg;
 	channel = worker_msg->channel;
+	//It may be worth it to memzero worker_msg for debugging purposes.
 	
 	ngx_shmtx_unlock(&shpool->mutex);
 	
@@ -181,20 +182,12 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 }
 
 static ngx_int_t ngx_http_push_send_worker_message(ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
-	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	ngx_queue_t                    *sentinel;
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
+	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
 	ngx_shmtx_lock(&shpool->mutex);
-	sentinel = &((ngx_queue_t *)((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->ipc)[worker_slot];
-
-	ngx_http_push_worker_msg_t     *worker_msg = ngx_slab_alloc_locked(shpool, sizeof(*worker_msg));
-	if(worker_msg==NULL) {
-		ngx_shmtx_unlock(&shpool->mutex);
-		return NGX_ERROR;
-	}
-	worker_msg->msg=msg;
-	worker_msg->status_code=status_code;
-	worker_msg->pid = pid;
-	
+	(worker_messages+worker_slot)->msg=msg;
+	(worker_messages+worker_slot)->status_code=status_code;
+	(worker_messages+worker_slot)->pid = pid;
 	ngx_shmtx_unlock(&shpool->mutex);
 	return NGX_OK;
 }
