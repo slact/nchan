@@ -268,9 +268,9 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					subscriber->request = r;
 					subscriber->clndata=clndata;
 					
-					ngx_shmtx_lock(&shpool->mutex);
 					ngx_queue_insert_tail(&ngx_http_push_subscriber_sentinel.queue, &subscriber->queue);
-					channel->subscribers++;
+					ngx_shmtx_lock(&shpool->mutex);
+					channel->subscribers++; // do this only when we know everything went okay.
 					ngx_shmtx_unlock(&shpool->mutex);
 					return NGX_DONE; //and the wait begins.
 					
