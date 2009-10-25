@@ -387,7 +387,9 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 		pid_t           worker_pid  = ((ngx_http_push_pid_queue_t *)cur)->pid;
 		ngx_int_t       worker_slot = ((ngx_http_push_pid_queue_t *)cur)->slot;
 		received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
-		msg->refcount++;
+		if(msg!=NULL) {
+			msg->refcount++;
+		}
 		ngx_shmtx_unlock(&shpool->mutex);
 		if(worker_pid == ngx_pid) {
 			//my subscribers
