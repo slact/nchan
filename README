@@ -87,6 +87,12 @@ push_channel_group [ string ]
   locations and never others. That's where this setting comes in. Think of it
   as a prefix string for the channel id.
 
+push_max_channel_id_length [ number ]
+  default: 512
+  context: main, server, location
+  Maximum permissible channel id length (number of characters). 
+  Longer ids will be truncated.
+  
 push_queue_messages [ on | off ] (DEPRECATED)
   default: on
   context: http, server, location

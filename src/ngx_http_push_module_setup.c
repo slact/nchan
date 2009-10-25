@@ -102,6 +102,7 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->authorize_channel=NGX_CONF_UNSET;
 	lcf->store_messages=NGX_CONF_UNSET;
 	lcf->min_message_recipients=NGX_CONF_UNSET;
+	lcf->max_channel_id_length=NGX_CONF_UNSET;
 	lcf->channel_group.data=NULL;
 	return lcf;
 }
@@ -116,7 +117,9 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
 	ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
 	ngx_conf_merge_value(conf->min_message_recipients, prev->min_message_recipients, NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS);
+	ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH);
 	ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
+	
 	//sanity checks
 	if(conf->max_messages < conf->min_messages) {
 		//min/max buffer size makes sense?
@@ -266,6 +269,14 @@ static ngx_command_t  ngx_http_push_commands[] = {
       offsetof(ngx_http_push_loc_conf_t, channel_group),
       NULL },
 	  
+	{ ngx_string("push_max_channel_id_length"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, max_channel_id_length),
+      NULL },
+
+	  
 	//deprecated and misleading. remove no earlier than november 2009.
 	{ ngx_string("push_buffer_size"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
@@ -284,7 +295,6 @@ static ngx_command_t  ngx_http_push_commands[] = {
     
     ngx_null_command
 };
-
 
 static ngx_http_module_t  ngx_http_push_module_ctx = {
     NULL,                                  /* preconfiguration */

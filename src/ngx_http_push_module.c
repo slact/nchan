@@ -117,7 +117,9 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 
 static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
 	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
-	ngx_str_t                      *prefix;
+	ngx_str_t                      *group = &cf->channel_group;
+	size_t                          group_len = group->len;
+	size_t                          var_len;
 	size_t                          len;
 	ngx_str_t                      *id;
     if (vv == NULL || vv->not_found || vv->len == 0) {
@@ -125,8 +127,9 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
             "push module: the $push_channel_id variable is required but is not set");
         return NULL;
     }
-	prefix = &cf->channel_group;
-	len = prefix->len + 1 + vv->len;
+	//maximum length limiter for channel id
+	var_len = vv->len <= cf->max_channel_id_length ? vv->len : cf->max_channel_id_length; 
+	len = group_len + 1 + var_len;
 	if((id = ngx_palloc(r->pool, sizeof(*id) + len))==NULL) {
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
             "push module: unable to allocate memory for $push_channel_id string");
@@ -134,9 +137,9 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 	}
 	id->len=len;
 	id->data=(u_char *)(id+1);
-	ngx_memcpy(id->data, prefix->data, prefix->len);
-	id->data[prefix->len]='/';
-	ngx_memcpy(id->data + prefix->len + 1, vv->data, id->len);
+	ngx_memcpy(id->data, group->data, group_len);
+	id->data[group_len]='/';
+	ngx_memcpy(id->data + group_len + 1, vv->data, var_len);
 	return id;
 }
 
@@ -460,7 +463,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		//just find the channel. if it's not there, NULL.
 		channel = ngx_http_push_find_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
 	}
-	ngx_pfree(ngx_http_push_pool, id);
 	
 	if(channel!=NULL) {
 		subscribers = channel->subscribers;
