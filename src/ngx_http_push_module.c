@@ -652,9 +652,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
-	ngx_queue_t                    *cur = ngx_queue_head(&ngx_http_push_subscriber_sentinel.queue);
+	ngx_queue_t                    *cur;
 	ngx_int_t                       responded_subscribers=0;
-	
+	cur=&ngx_http_push_subscriber_sentinel.queue;
 	if(msg!=NULL) {
 		//copy everything we need first
 		ngx_str_t                  *content_type=NULL;
@@ -699,38 +699,41 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_shmtx_unlock(&shpool->mutex);
 		
 		//now let's respond to some requests!
-		while(cur!=(ngx_queue_t *)&ngx_http_push_subscriber_sentinel) {
+		while((cur=ngx_queue_next(cur))!=&ngx_http_push_subscriber_sentinel.queue) {
 			//in this block, nothing in shared memory should be dereferenced.
 			ngx_http_request_t     *r;
 			
 			r=((ngx_http_push_subscriber_t *)cur)->request;
 			
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
-			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;                                         \
+			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
 			
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
-			cur=ngx_queue_next(cur);
 		}
-		
-		ngx_shmtx_lock(&shpool->mutex);
-		channel->subscribers-=responded_subscribers;
-		//is the message still needed?
-		if(msg->queue.next==NULL && (--msg->refcount)==0) { 
-			//message was dequeued, and nobody needs it anymore
-			ngx_http_push_free_message_locked(msg, shpool);
-		}
-		ngx_shmtx_unlock(&shpool->mutex);
 	}
 	else {
 		//headers only probably
-		while(cur!=(ngx_queue_t *)&ngx_http_push_subscriber_sentinel) {
+		ngx_http_request_t     *r;
+		while((cur=ngx_queue_next(cur))!=&ngx_http_push_subscriber_sentinel.queue) {
+			
+			r=((ngx_http_push_subscriber_t *)cur)->request;
+			
+			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
+			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
+			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
 			ngx_http_push_respond_status_only(((ngx_http_push_subscriber_t *)cur)->request, status_code, status_line);
-			cur=ngx_queue_next(cur);
+			responded_subscribers++;
 		}
 	}
 	ngx_shmtx_lock(&shpool->mutex);
+	channel->subscribers-=responded_subscribers;
+	//is the message still needed?
+	if(msg!=NULL && msg->queue.next==NULL && (--msg->refcount)==0) { 
+		//message was dequeued, and nobody needs it anymore
+		ngx_http_push_free_message_locked(msg, shpool);
+	}
 	ngx_queue_init(&ngx_http_push_subscriber_sentinel.queue); //reset this worker's subscriber queue sentinel, but don't free it, it'll probably come in handy.
 	ngx_shmtx_unlock(&shpool->mutex);
 	ngx_reset_pool(ngx_http_push_pool);
