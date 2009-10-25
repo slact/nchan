@@ -78,7 +78,15 @@ push_store_messages [ on | off ]
   context: http, server, location
   Whether or not message queuing is enabled. "Off" is equivalent to the setting
   push_channel_buffer_length 0;
-  
+
+push_channel_group [ string ]
+  default: (none)
+  context: server, location
+  As settings are bound to locations and urls instead of individual channels,
+  it is useful to be able to have channels that can be reached only from some
+  locations and never others. That's where this setting comes in. Think of it
+  as a prefix string for the channel id.
+
 push_queue_messages [ on | off ] (DEPRECATED)
   default: on
   context: http, server, location

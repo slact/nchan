@@ -115,19 +115,30 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 	return NULL;
 }
 
-static ngx_int_t ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
 	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
+	ngx_str_t                      *prefix;
+	size_t                          len;
+	ngx_str_t                      *id;
     if (vv == NULL || vv->not_found || vv->len == 0) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "push module: the \"$push_channel_id\" variable is required but is not set");
-        return NGX_ERROR;
+            "push module: the $push_channel_id variable is required but is not set");
+        return NULL;
     }
-	//no need to copy anything? ok...
-	id->data=vv->data; 
-	id->len=vv->len;
-	return NGX_OK;
+	prefix = &cf->channel_group;
+	len = prefix->len + 1 + vv->len;
+	if((id = ngx_palloc(r->pool, sizeof(*id) + len))==NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "push module: unable to allocate memory for $push_channel_id string");
+		return NULL;
+	}
+	id->len=len;
+	id->data=(u_char *)(id+1);
+	ngx_memcpy(id->data, prefix->data, prefix->len);
+	id->data[prefix->len]='/';
+	ngx_memcpy(id->data + prefix->len + 1, vv->data, id->len);
+	return id;
 }
-
 
 #define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
     etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
@@ -146,7 +157,7 @@ static ngx_int_t ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t 
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	ngx_str_t                       id;
+	ngx_str_t                      *id;
 	ngx_http_push_channel_t        *channel;
 	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       msg_search_outcome;
@@ -159,13 +170,14 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		return NGX_HTTP_NOT_ALLOWED;
 	}
 	
-	if(ngx_http_push_set_channel_id(&id, r, cf) !=NGX_OK) {
+	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(&id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+
 	if (channel==NULL) {
 		//unable to allocate channel OR channel not found
 		ngx_shmtx_unlock(&shpool->mutex);
@@ -422,7 +434,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 	
 //OK?...
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
-	ngx_str_t                       id;
+	ngx_str_t                      *id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_buf_t                      *buf = NULL, *buf_copy;
@@ -433,19 +445,20 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	ngx_uint_t                      subscribers = 0;
 	ngx_uint_t                      messages = 0;
 	
-	NGX_HTTP_PUSH_PUBLISHER_CHECK(ngx_http_push_set_channel_id(&id, r, cf), NGX_ERROR, r, "can't determine channel id")
+	NGX_HTTP_PUSH_PUBLISHER_CHECK((id = ngx_http_push_get_channel_id(r, cf)), NULL, r, "can't determine channel id")
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel created if it doesn't yet exist.
 	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-		channel = ngx_http_push_get_channel(&id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = ngx_http_push_get_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
 	else{
 		//just find the channel. if it's not there, NULL.
-		channel = ngx_http_push_find_channel(&id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = ngx_http_push_find_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
 	}
+	ngx_pfree(ngx_http_push_pool, id);
 	
 	if(channel!=NULL) {
 		subscribers = channel->subscribers;

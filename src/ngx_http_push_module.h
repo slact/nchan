@@ -58,6 +58,8 @@ typedef struct {
 	ngx_int_t                       authorize_channel;
 	ngx_int_t                       store_messages;
 	ngx_int_t                       min_message_recipients;
+	ngx_str_t                       channel_group;
+	ngx_int_t                       max_channel_id_length;
 } ngx_http_push_loc_conf_t;
 
 //message queue
@@ -134,7 +136,7 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
 static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status);
 
 //channel
-static ngx_int_t ngx_http_push_set_channel_id(ngx_str_t *id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
+static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
 static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t message_queue_size, ngx_uint_t subscriber_queue_size, time_t last_seen);
 
 //subscriber
