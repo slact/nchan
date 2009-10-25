@@ -642,7 +642,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
-	ngx_queue_t                    *cur;
+	ngx_queue_t                    *cur = ngx_queue_head(&ngx_http_push_subscriber_sentinel.queue);
 	ngx_int_t                       responded_subscribers=0;
 	
 	if(msg!=NULL) {
@@ -686,7 +686,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		
 		last_modified_time = msg->message_time;
 		
-		cur = ngx_queue_head(&ngx_http_push_subscriber_sentinel.queue); //hit it. aww yeah.
 		ngx_shmtx_unlock(&shpool->mutex);
 		
 		//now let's respond to some requests!
