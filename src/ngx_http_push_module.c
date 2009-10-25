@@ -474,7 +474,12 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		//404!
 		ngx_shmtx_unlock(&shpool->mutex);
 		r->headers_out.status=NGX_HTTP_NOT_FOUND;
+		
+		//just the headers, please. we don't care to describe the situation or
+		//respond with an html page
+		r->headers_out.content_length_n=0;
 		r->header_only = 1;
+		
 		ngx_http_finalize_request(r, ngx_http_send_header(r));
 		return;
 	}
