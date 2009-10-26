@@ -9,9 +9,6 @@ static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 		return NGX_ERROR; 
 	}
 	
-	//subscriber sentinel
-	ngx_queue_init(&ngx_http_push_subscriber_sentinel.queue);
-	
 	//initialize our little IPC
 	return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
 }

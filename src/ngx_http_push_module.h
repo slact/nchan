@@ -77,10 +77,20 @@ typedef struct {
 	ngx_int_t                       refcount;
 } ngx_http_push_msg_t;
 
+typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_cleanup_t;
+
+//subscriber request queue
+typedef struct {
+    ngx_queue_t                     queue; //this MUST be first.
+	ngx_http_request_t             *request;
+	ngx_http_push_subscriber_cleanup_t *clndata; 
+} ngx_http_push_subscriber_t;
+
 typedef struct {
 	ngx_queue_t                     queue;
 	pid_t                           pid;
 	ngx_int_t                       slot;
+	ngx_http_push_subscriber_t     *subscriber_sentinel;
 } ngx_http_push_pid_queue_t;
 
 //our typecast-friendly rbtree node (channel)
@@ -94,15 +104,6 @@ typedef struct {
 	time_t                          last_seen;
 } ngx_http_push_channel_t; 
 
-typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_cleanup_t;
-
-//subscriber request queue
-typedef struct {
-    ngx_queue_t                     queue; //this MUST be first.
-	ngx_http_request_t             *request;
-	ngx_http_push_subscriber_cleanup_t *clndata;
-} ngx_http_push_subscriber_t;
-
 //cleaning supplies
 struct ngx_http_push_subscriber_cleanup_s {
 	ngx_http_push_subscriber_t       *subscriber;
@@ -115,6 +116,7 @@ typedef struct {
 	ngx_int_t                       status_code;
 	ngx_pid_t                       pid; 
 	ngx_http_push_channel_t        *channel;
+	ngx_http_push_subscriber_t     *subscriber_sentinel;
 } ngx_http_push_worker_msg_t;
 
 //shared memory
@@ -125,7 +127,6 @@ typedef struct {
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
-ngx_http_push_subscriber_t ngx_http_push_subscriber_sentinel;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 
 //channel messages
@@ -148,7 +149,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 #define ngx_http_push_broadcast_status_locked(channel, status_code, status_line, log, shpool) ngx_http_push_broadcast_locked(channel, NULL, status_code, status_line, log, shpool)
 #define ngx_http_push_broadcast_message_locked(channel, msg, log, shpool) ngx_http_push_broadcast_locked(channel, msg, 0, NULL, log, shpool)
 
-static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
+static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r);
 static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r);
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data);
@@ -167,10 +168,6 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 #define ngx_http_push_create_output_chain(buf, pool, log) ngx_http_push_create_output_chain_general(buf, pool, log, NULL)
 #define ngx_http_push_create_output_chain_locked(buf, pool, log, shpool) ngx_http_push_create_output_chain_general(buf, pool, log, shpool)
 
-
-//commies
-static ngx_int_t ngx_http_push_send_worker_message(ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code);
-static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_log_t *log);
 //missing in nginx < 0.7.?
 #ifndef ngx_queue_insert_tail
 #define ngx_queue_insert_tail(h, x)                                           \

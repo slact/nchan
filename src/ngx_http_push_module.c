@@ -218,6 +218,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				//for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
 				ngx_queue_t        *sentinel, *cur, *found;
 				ngx_http_push_subscriber_t *subscriber;
+				ngx_http_push_subscriber_t *subscriber_sentinel;
 				
 				case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
 					//long-polling subscriber. wait for a message.
@@ -271,10 +272,23 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					subscriber->request = r;
 					subscriber->clndata=clndata;
 					
-					ngx_queue_insert_tail(&ngx_http_push_subscriber_sentinel.queue, &subscriber->queue);
 					ngx_shmtx_lock(&shpool->mutex);
 					channel->subscribers++; // do this only when we know everything went okay.
+					
+					//figure out the subscriber sentinel
+					subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
+					if(subscriber_sentinel==NULL) {
+						if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
+							ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
+							return NGX_HTTP_INTERNAL_SERVER_ERROR;
+						}
+						ngx_queue_init(&subscriber_sentinel->queue);
+						((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
+					}
 					ngx_shmtx_unlock(&shpool->mutex);
+					
+					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
+					
 					return NGX_DONE; //and the wait begins.
 					
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
@@ -389,6 +403,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 	while((cur=ngx_queue_next(cur))!=sentinel) {
 		pid_t           worker_pid  = ((ngx_http_push_pid_queue_t *)cur)->pid;
 		ngx_int_t       worker_slot = ((ngx_http_push_pid_queue_t *)cur)->slot;
+		ngx_http_push_subscriber_t *subscriber_sentinel= ((ngx_http_push_pid_queue_t *)cur)->subscriber_sentinel;
 		received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 		if(msg!=NULL) {
 			//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
@@ -397,12 +412,12 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 		ngx_shmtx_unlock(&shpool->mutex);
 		if(worker_pid == ngx_pid) {
 			//my subscribers
-			ngx_http_push_respond_to_subscribers(channel, msg, status_code, status_line);
+			ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
 		}
 		else {
 			//some other worker's subscribers
 			//interprocess communication breakdown
-			if(ngx_http_push_send_worker_message(worker_pid, worker_slot, msg, status_code)!=NGX_ERROR) {
+			if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code)!=NGX_ERROR) {
 				ngx_http_push_alert_worker(worker_pid, worker_slot, log);
 			}
 			else {
@@ -411,6 +426,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 			
 		}
 		ngx_shmtx_lock(&shpool->mutex);
+		((ngx_http_push_pid_queue_t *)cur)->subscriber_sentinel=NULL; //no messages here, no sir.
 	}
 	return received;
 }
@@ -650,11 +666,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	}
 }
 
-static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
-	ngx_queue_t                    *cur;
+	ngx_queue_t                    *cur, *next;
 	ngx_int_t                       responded_subscribers=0;
-	cur=&ngx_http_push_subscriber_sentinel.queue;
+	if(sentinel==NULL) {
+		return;
+	}
+	
+	cur=ngx_queue_head(&sentinel->queue);
 	if(msg!=NULL) {
 		//copy everything we need first
 		ngx_str_t                  *content_type=NULL;
@@ -662,6 +682,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		time_t                      last_modified_time;
 		ngx_chain_t                *chain;
 		size_t                      content_type_len;
+		ngx_http_request_t         *r;
 		
 		ngx_shmtx_lock(&shpool->mutex);
 		
@@ -699,10 +720,9 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_shmtx_unlock(&shpool->mutex);
 		
 		//now let's respond to some requests!
-		while((cur=ngx_queue_next(cur))!=&ngx_http_push_subscriber_sentinel.queue) {
+		while(cur!=(ngx_queue_t *)sentinel) {
+			next=ngx_queue_next(cur);
 			//in this block, nothing in shared memory should be dereferenced.
-			ngx_http_request_t     *r;
-			
 			r=((ngx_http_push_subscriber_t *)cur)->request;
 			
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
@@ -711,13 +731,15 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
+			ngx_pfree(ngx_http_push_pool, cur);
+			cur=next;
 		}
 	}
 	else {
 		//headers only probably
 		ngx_http_request_t     *r;
-		while((cur=ngx_queue_next(cur))!=&ngx_http_push_subscriber_sentinel.queue) {
-			
+		while(cur!=(ngx_queue_t *)sentinel) {
+			next=ngx_queue_next(cur);
 			r=((ngx_http_push_subscriber_t *)cur)->request;
 			
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
@@ -725,6 +747,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
 			ngx_http_push_respond_status_only(((ngx_http_push_subscriber_t *)cur)->request, status_code, status_line);
 			responded_subscribers++;
+			ngx_pfree(ngx_http_push_pool, cur);
+			cur=next;
 		}
 	}
 	ngx_shmtx_lock(&shpool->mutex);
@@ -734,9 +758,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		//message was dequeued, and nobody needs it anymore
 		ngx_http_push_free_message_locked(msg, shpool);
 	}
-	ngx_queue_init(&ngx_http_push_subscriber_sentinel.queue); //reset this worker's subscriber queue sentinel, but don't free it, it'll probably come in handy.
 	ngx_shmtx_unlock(&shpool->mutex);
-	ngx_reset_pool(ngx_http_push_pool);
+	ngx_pfree(ngx_http_push_pool, sentinel);
 	return NGX_OK;
 }
 
