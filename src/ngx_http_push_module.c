@@ -673,7 +673,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	ngx_queue_t                    *cur, *next;
 	ngx_int_t                       responded_subscribers=0;
 	if(sentinel==NULL) {
-		return;
+		return NGX_OK;
 	}
 	
 	cur=ngx_queue_head(&sentinel->queue);
