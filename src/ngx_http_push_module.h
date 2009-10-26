@@ -90,7 +90,7 @@ typedef struct {
 	pid_t                           pid;
 	ngx_int_t                       slot;
 	ngx_http_push_subscriber_t     *subscriber_sentinel;
-} ngx_http_push_pid_queue_t;
+} ngx_http_push_pid_queue_t; 
 
 //our typecast-friendly rbtree node (channel)
 typedef struct {

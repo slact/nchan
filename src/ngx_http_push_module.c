@@ -167,6 +167,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	
 	//don't care about the rest of this request
 	ngx_http_discard_request_body(r);
+	r->discard_body=1; //needed for long-polling for nginx >0.8
 	
 	if (r->method != NGX_HTTP_GET) {
 		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for teh win
@@ -248,6 +249,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						ngx_queue_insert_tail(sentinel, found);
 						((ngx_http_push_pid_queue_t *)found)->pid=ngx_pid;
 						((ngx_http_push_pid_queue_t *)found)->slot=ngx_process_slot;
+						((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=NULL;
 					}
 					ngx_shmtx_unlock(&shpool->mutex);
 					
