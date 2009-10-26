@@ -165,6 +165,9 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       msg_search_outcome;
 	
+	ngx_str_t                      *content_type=NULL;
+	ngx_str_t                      *etag;
+	
 	//don't care about the rest of this request
 	ngx_http_discard_request_body(r);
 	r->discard_body=1; //needed for long-polling for nginx >0.8
@@ -209,7 +212,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	switch(msg_search_outcome) {
 		//for message-found:
 		ngx_chain_t                *chain;
-		ngx_str_t                  *content_type, *etag;
 		time_t                      last_modified;
 		size_t                      content_type_len;
 		 
