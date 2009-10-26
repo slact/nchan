@@ -8,21 +8,33 @@ Send responses to those clients by sending an HTTP request to a different
 location.
 
 ---------------- Configuration directives & variables ------------------------
-directives:
+Variables:
+$push_channel_id
+  A token uniquely identifying a channel. Must be present in the context of 
+  the push_subscriber and push_publisher directives.
+  Example:
+    set $push_channel_id $arg_id; #channel id is now the url parameter "id"
+	(/foo/bar?id=channel_id_string)
+
+Directives:
+
+==Publisher/Subscriber==
+
 push_publisher
   default: none
   context: server, location
   Defines a server or location as the publisher. Requests from a publisher will be 
-  treated as messages to send to subscribers.See protocol documentation 
+  treated as messages to send to subscribers. See protocol documentation 
   for more info. 
 
-push_subscriber
-  default: none
+push_subscriber [ long-poll | interval-poll ]
+  default: long-poll
   context: server, location
-  Defines a server or location as a subscriber. Requests from a subscriber will 
-  not be responded to until a message for the subscriber (identified by 
-  $push_channel_id) becomes available. See protocol documentation for more 
-  info.
+  Defines a server or location as a subscriber. This location represents a 
+  subscriber's interface to a channel's message queue. The queue is traversed
+  automatically via caching information request headers (If-Modified-Since and
+  If-None-Match). Requests for future messages are handles in accordance with 
+  the setting provided. See protocol documentation for more info.
 
 push_subscriber_concurrency [ last | first | broadcast ]
   default: last
@@ -35,29 +47,38 @@ push_subscriber_concurrency [ last | first | broadcast ]
    first: only the oldest subscriber request is kept, all others get a 409 
      Conflict response.
 
+== Message storage ==
+
+push_store_messages [ on | off ]
+  default: on
+  context: http, server, location
+  Whether or not message queuing is enabled. "Off" is equivalent to the setting
+  push_channel_buffer_length 0;
+
 push_max_reserved_memory [ size ]
-  default: 12M
+  default: 16M
   context: http
   The size of the memory chunk this module will use for all message queuing
   and buffering. 
 
 push_min_message_buffer_length [ number ]
-  default: 5
+  default: 1
   context: http, server, location
   The minimum number of messages to store per channel. A channel's message
   buffer, will cointain at least this many most recent messages.
 
 push_max_message_buffer_length [ number ]
-  default: 50
+  default: 10
   context: http, server, location
   The maximum number of messages to store per channel. A channel's message
-  buffer, will cointain at last this many most recent messages.
+  buffer, will cointain at most this many most recent messages.
 
 push_min_message_recipients [ number ]
   default: 0
   context: http, server, location
   How many times a message must be received before it is considered for 
-  deletion. Useful to guarantee message delivery.
+  deletion. Useful to guarantee message delivery. (This does NOT override the
+  push_max_message_buffer_length setting.
 
 push_message_timeout [ time ]
   default: 1h
@@ -65,19 +86,16 @@ push_message_timeout [ time ]
   How long a message may be queued before it is considered expired. If you do 
   not want messages to expire, set this to 0. Applicable only if a push_publisher 
   is present in this or a child context. 
-  
+
+== Security ==
+
 push_authorized_channels_only [ on | off ]
   default: off
   context: http, server, location
-  Whether or not a subscriber may create a channel. If set to on, a publisher must
-  senda request to some channel (POST or PUT) before a subscriber. Otherwise, 
-  all subscriber requests will get a 403 Forbidden response.
-  
-push_store_messages [ on | off ]
-  default: on
-  context: http, server, location
-  Whether or not message queuing is enabled. "Off" is equivalent to the setting
-  push_channel_buffer_length 0;
+  Whether or not a subscriber may create a channel by making a request to a 
+  push_subscriber location. If set to on, a publisher must send a request 
+  to some channel (POST or PUT) before a subscriber. Otherwise, all subscriber
+  requests to nonexistent channels will get a 403 Forbidden response.
 
 push_channel_group [ string ]
   default: (none)
@@ -92,23 +110,6 @@ push_max_channel_id_length [ number ]
   context: main, server, location
   Maximum permissible channel id length (number of characters). 
   Longer ids will be truncated.
-  
-push_queue_messages [ on | off ] (DEPRECATED)
-  default: on
-  context: http, server, location
-  see push_store_messages
-
-push_buffer_size [ size ] (DEPRECATED)
-  default: 3M
-  context: http
-  see push_max_reserved_memory
-  
-Variables:
-$push_channel_id
-  A token uniquely identifying a channel. Must be present in the context of 
-  the push_subscriber and push_publisher directives.
-  Example:
-    set $push_channel_id $arg_id; #channel id is now the url parameter "id"
 
 --------------------------- Example Config -----------------------------------
 http {
@@ -116,23 +117,27 @@ http {
   #for buffering and stuff
   push_max_reserved_memory	12M; #default is 3M
 
-  server {
-    #publisher
-    location /send {
-      set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
-      push_publisher;
-      push_message_timeout 2h; #buffered messages expire after 2 hours
-      push_max_message_buffer_length 10; #store 10 messages.
-    }
+  # internal publish endpoint (keep it private / protected)
+  location /publish {
+    set $push_channel_id $arg_channel; #/?channel=239aff3 or somesuch
+    push_publisher;
 
-    #receiver
-    location /listen {
-      push_subscriber;
-      push_subscriber_concurrency broadcast;
-      set $push_channel_id $arg_id; #/?id=239aff3 or somesuch
-      default_type  text/plain;
-      
-    }
+    push_message_timeout 2h;           # expire buffered messages after 2 hours
+    push_max_message_buffer_length 10; # store absolutely at most 10 messages
+    push_min_message_recipients 0;     # minimum recipients before purge
+  }
+ 
+  # public long-polling endpoint
+  location /activity {
+    push_subscriber;
+ 
+    # how multiple listener requests to the same channel id are handled
+    # - last: only the most recent listener request is kept, 409 for others.
+    # - first: only the oldest listener request is kept, 409 for others.
+    # - broadcast: any number of listener requests may be long-polling.
+    push_listener_concurrency broadcast;
+    set $push_channel_id $arg_channel; #/?channel=239aff3 or somesuch
+    default_type  text/plain;
   }
 }
 
@@ -147,20 +152,16 @@ Upon sending a request to a push_publisher location, the server will respond wit
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
 push_subscriber with this id is presently connected), a 202 Accepted will be sent.
  
-If you indend to have the push_publisher be a server-side application, 
-it's a damn good idea to make sure the push_server location is not visible
+If you indend to have the publisher be a server-side application, 
+it's a damn good idea to make sure the push_publisher location is not visible
 publically, as it is intended for use only by your application.
 
 Traversal through the message buffer by a subscriber requires proper caching
-support. Make sure your client correctly sends Last-Modified and ETag headers.
+support. Make sure your client correctly sends Last-Modified and Etag headers.
+(All modern web browsers do this.)
 
 ----------------------- Protocol spec --------------------------------------
 see the file protocol.txt
 
 ---------------------------- todo --------------------------------------------
-- Add other mechanisms of server pushing. The list should include
-  "long-poll" (default), "interval-poll".
-- When POSTing to a publisher location, if Content-Type is "message/http", the 
-  response sent to $push_channel_id should be created from the body of the 
-  request.
-
+- Memcached message storage
