@@ -1,12 +1,5 @@
 ngx_module_t  ngx_http_push_module;
 
-typedef struct {
-	ngx_queue_t                    queue;
-	ngx_uint_t                    *lingering_time;
-	ngx_uint_t                    *lingering_timeout;
-} ngx_http_push_lingering_timeout_t;
-ngx_http_push_lingering_timeout_t ngx_http_push_lingering_timeout_sentinel;
-
 static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 	ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 	ngx_http_push_worker_processes = ccf->worker_processes;
@@ -63,14 +56,9 @@ static ngx_int_t	ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
 	return NGX_OK;
 }
 
-static ngx_int_t	ngx_http_push_preconfig(ngx_conf_t *cf) {
-	ngx_queue_init(&ngx_http_push_lingering_timeout_sentinel.queue);
-	return NGX_OK;
-}
-
 static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 	ngx_http_push_main_conf_t	*conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
-	ngx_http_push_lingering_timeout_t *cur, *next;
+
 	//initialize shared memory
 	size_t                       shm_size;
 	if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
@@ -85,16 +73,6 @@ static ngx_int_t	ngx_http_push_postconfig(ngx_conf_t *cf) {
 		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
 	}
 	ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
-	
-	//now override lingering time wherever needed
-	cur = (ngx_http_push_lingering_timeout_t *)ngx_queue_head(&ngx_http_push_lingering_timeout_sentinel.queue);
-	while((ngx_queue_t *)cur!=&ngx_http_push_lingering_timeout_sentinel.queue) {
-		next=(ngx_http_push_lingering_timeout_t *)ngx_queue_next((ngx_queue_t *)cur);
-		*cur->lingering_timeout=259200000; //3 days 
-		*cur->lingering_time=86400000; //1 day
-		ngx_free(cur);
-		cur = next;
-	}
 	
 	return ngx_http_push_set_up_shm(cf, shm_size);
 }
@@ -198,7 +176,6 @@ static char *ngx_http_push_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *c
 static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
 	ngx_str_t                      *value = &(((ngx_str_t *) cf->args->elts)[1]);
-	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
 	
 	if (*field != NGX_CONF_UNSET) {
 		return "is duplicate";
@@ -207,16 +184,7 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
 		*field=NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL;
 	}
 	else { // if(ngx_strncmp(value->data, "long-poll", 4)==0)
-		ngx_http_push_lingering_timeout_t *timeouter;
 		*field=NGX_HTTP_PUSH_MECHANISM_LONGPOLL;
-		//set lingering time because nginx 0.8 cares. 
-		//this is quite the ugly hack.
-		if((timeouter=ngx_calloc(sizeof(*timeouter), ngx_cycle->log))==NULL) {
-			return NGX_CONF_ERROR;
-		}
-		timeouter->lingering_time=&clcf->lingering_time;
-		timeouter->lingering_timeout=&clcf->lingering_timeout;
-		ngx_queue_insert_tail(&ngx_http_push_lingering_timeout_sentinel.queue, &timeouter->queue);
 	}
 	
 	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_subscriber_handler);
@@ -330,7 +298,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
 };
 
 static ngx_http_module_t  ngx_http_push_module_ctx = {
-    ngx_http_push_preconfig,               /* preconfiguration */
+    NULL,                                  /* preconfiguration */
     ngx_http_push_postconfig,              /* postconfiguration */
     ngx_http_push_create_main_conf,        /* create main configuration */
     NULL,                                  /* init main configuration */

@@ -168,10 +168,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_str_t                      *content_type=NULL;
 	ngx_str_t                      *etag;
 	
-	//don't care about the rest of this request
-	ngx_http_discard_request_body(r);
-	r->discard_body=1; //needed for long-polling for nginx >0.8
-	
 	if (r->method != NGX_HTTP_GET) {
 		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for teh win
 		return NGX_HTTP_NOT_ALLOWED;
