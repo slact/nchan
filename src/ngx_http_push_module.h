@@ -111,6 +111,7 @@ struct ngx_http_push_subscriber_cleanup_s {
 
 //messages to worker processes
 typedef struct {
+	ngx_queue_t                     queue;
 	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       status_code;
 	ngx_pid_t                       pid; 

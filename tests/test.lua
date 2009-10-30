@@ -80,7 +80,7 @@ local function batchlisten(channel, callback, timeout)
 end
 
 local function shortmsg(base)
-	return (tostring(base)):rep(300)
+	return (tostring(base)):rep(3)
 end
 
 local function testqueuing(channel, done)
@@ -110,7 +110,7 @@ local function testqueuing(channel, done)
 		end
 	)
 end
-
+--[[
 --queuing
 for i=1, 5 do
 	local channel = math.random()
@@ -137,10 +137,10 @@ httpest.addtest("delete", function()
 		}
 	end)
 end)
-
+]]
 
 --broadcasting
-local num, reps, observed = 130, 5, 0
+local num, reps, observed = 100, 5, 0
 for i=0,reps do
 	local channel=math.random()
 	httpest.addtest(('broadcast to %s (%s)'):format(num, channel), function()
@@ -149,8 +149,9 @@ for i=0,reps do
 			batchlisten(channel, function(resp, status, sock)
 				if resp then
 					httpest.abort_request(sock)
-					assert(resp:getbody()==msg, "unexpected message: " .. resp:getbody())
+					assert(resp:getbody()==msg, "unexpected message: " .. resp:getbody() .. " (expected " .. msg)
 					observed = observed + 1
+					print(observed)
 					return nil
 				end
 				return true

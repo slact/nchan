@@ -62,6 +62,7 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
 	ngx_http_push_worker_msg_t     *worker_messages;
+	int                             i;
 	ngx_shmtx_lock(&shpool->mutex);
 	if(d->ipc!=NULL) {
 		//already initialized...
@@ -72,6 +73,9 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 	if((worker_messages = ngx_slab_alloc_locked(shpool, sizeof(ngx_queue_t)*workers))==NULL) {
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
+	}
+	for(i=0; i<workers; i++) {
+		ngx_queue_init(&worker_messages[i].queue);
 	}
 	d->ipc=worker_messages;
 	ngx_shmtx_unlock(&shpool->mutex);
@@ -128,7 +132,7 @@ static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_l
 }
 
 static ngx_inline void ngx_http_push_process_worker_message(void) {
-	ngx_http_push_worker_msg_t     *worker_msg;
+	ngx_http_push_worker_msg_t     *worker_msg, *sentinel;
 	const ngx_str_t                *status_line = NULL;
 	ngx_http_push_channel_t        *channel;
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
@@ -140,59 +144,67 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	ngx_int_t                       status_code;
 	ngx_http_push_msg_t            *msg;
 	
-	worker_msg = &worker_messages[ngx_process_slot];
-	if(worker_msg->pid!=ngx_pid) { 
-		//that's quite bad you see. a previous worker died with an undelivered message.
-		//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
-		ngx_shmtx_unlock(&shpool->mutex);
-		ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: intercepted a message intended for another worker process that probably died");
-		return;
-	}
-	
-	status_code = worker_msg->status_code;
-	msg = worker_msg->msg;
-	channel = worker_msg->channel;
-	subscriber_sentinel=worker_msg->subscriber_sentinel;
-	//It may be worth it to memzero worker_msg for debugging purposes.
-	
-	ngx_shmtx_unlock(&shpool->mutex);
-	
-	if(msg==NULL) {
-		//just a status line, is all
-		
-		//status code only.
-		switch(status_code) {
-			case NGX_HTTP_CONFLICT:
-				status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
-				break;
-			
-			case NGX_HTTP_GONE:
-				status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
-				break;
-				
-			case 0:
-				ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
-				//let's let the subscribers know that something went wrong and they might've missed a message
-				status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
-				
-			default:
-				status_line=NULL;
+	sentinel = &worker_messages[ngx_process_slot];
+	worker_msg = sentinel;
+	while((worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue)) != sentinel) {
+		if(worker_msg->pid!=ngx_pid) { 
+			//that's quite bad you see. a previous worker died with an undelivered message.
+			//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
+			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: intercepted a message intended for another worker process that probably died");
 		}
+		
+		status_code = worker_msg->status_code;
+		msg = worker_msg->msg;
+		channel = worker_msg->channel;
+		subscriber_sentinel = worker_msg->subscriber_sentinel;
+		//It may be worth it to memzero worker_msg for debugging purposes.
+		
+		if(msg==NULL) {
+			//just a status line, is all	
+			//status code only.
+			switch(status_code) {
+				case NGX_HTTP_CONFLICT:
+					status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
+					break;
+				
+				case NGX_HTTP_GONE:
+					status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
+					break;
+					
+				case 0:
+					ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
+					//let's let the subscribers know that something went wrong and they might've missed a message
+					status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
+					
+				default:
+					status_line=NULL;
+			}
+		}
+		ngx_slab_free_locked(shpool, worker_msg);
+		ngx_shmtx_unlock(&shpool->mutex);
+		ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
+		ngx_shmtx_lock(&shpool->mutex);
 	}
-	ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
+	ngx_shmtx_unlock(&shpool->mutex);
 	return;
 }
 
-static ngx_int_t ngx_http_push_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
+static ngx_int_t ngx_http_push_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
 	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
 	ngx_http_push_worker_msg_t     *thisworker_messages = worker_messages + worker_slot;
+	ngx_http_push_worker_msg_t     *newmessage;
 	ngx_shmtx_lock(&shpool->mutex);
-	thisworker_messages->msg=msg;
-	thisworker_messages->status_code=status_code;
-	thisworker_messages->pid = pid;
-	thisworker_messages->subscriber_sentinel = subscriber_sentinel;
-	thisworker_messages->channel = channel;
+	if((newmessage=ngx_slab_alloc_locked(shpool, sizeof(*newmessage)))==NULL) {
+		ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker message");
+		return NGX_ERROR;
+	}
+	ngx_queue_insert_tail(&thisworker_messages->queue, &newmessage->queue);
+	newmessage->msg = msg;
+	newmessage->status_code = status_code;
+	newmessage->pid = pid;
+	newmessage->subscriber_sentinel = subscriber_sentinel;
+	newmessage->channel = channel;
 	ngx_shmtx_unlock(&shpool->mutex);
 	return NGX_OK;
 }
