@@ -65,13 +65,13 @@ push_min_message_buffer_length [ number ]
   default: 1
   context: http, server, location
   The minimum number of messages to store per channel. A channel's message
-  buffer, will cointain at least this many most recent messages.
+  buffer, will contain at least this many most recent messages.
 
 push_max_message_buffer_length [ number ]
   default: 10
   context: http, server, location
   The maximum number of messages to store per channel. A channel's message
-  buffer, will cointain at most this many most recent messages.
+  buffer, will contain at most this many most recent messages.
 
 push_min_message_recipients [ number ]
   default: 0
@@ -119,7 +119,7 @@ http {
 
   # internal publish endpoint (keep it private / protected)
   location /publish {
-    set $push_channel_id $arg_channel; #/?channel=239aff3 or somesuch
+    set $push_channel_id $arg_channel; #/?channel=239aff3 or some-such
     push_publisher;
 
     push_message_timeout 2h;           # expire buffered messages after 2 hours
@@ -131,12 +131,12 @@ http {
   location /activity {
     push_subscriber;
  
-    # how multiple listener requests to the same channel id are handled
-    # - last: only the most recent listener request is kept, 409 for others.
-    # - first: only the oldest listener request is kept, 409 for others.
-    # - broadcast: any number of listener requests may be long-polling.
-    push_listener_concurrency broadcast;
-    set $push_channel_id $arg_channel; #/?channel=239aff3 or somesuch
+    # how multiple subscriber requests to the same channel id are handled
+    # - last: only the most recent subscriber request is kept, 409 for others.
+    # - first: only the oldest subscriber request is kept, 409 for others.
+    # - broadcast: any number of subscriber requests may be long-polling.
+    push_subscriber_concurrency broadcast;
+    set $push_channel_id $arg_channel; #/?channel=239aff3 or some-such
     default_type  text/plain;
   }
 }
@@ -152,9 +152,9 @@ Upon sending a request to a push_publisher location, the server will respond wit
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
 push_subscriber with this id is presently connected), a 202 Accepted will be sent.
  
-If you indend to have the publisher be a server-side application, 
+If you intend to have the publisher be a server-side application, 
 it's a damn good idea to make sure the push_publisher location is not visible
-publically, as it is intended for use only by your application.
+publicly, as it is intended for use only by your application.
 
 Traversal through the message buffer by a subscriber requires proper caching
 support. Make sure your client correctly sends Last-Modified and Etag headers.
