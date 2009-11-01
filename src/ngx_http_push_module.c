@@ -734,6 +734,13 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			ngx_pfree(ngx_http_push_pool, cur);
 			cur=next;
 		}
+		
+		//free everything relevant
+		ngx_pfree(ngx_http_push_pool, etag);
+		ngx_pfree(ngx_http_push_pool, content_type);
+		ngx_pfree(ngx_http_push_pool, chain->buf);
+		ngx_pfree(ngx_http_push_pool, chain);
+		
 	}
 	else {
 		//headers only probably
