@@ -346,10 +346,13 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			
 			last_modified = msg->message_time;
 			
-			msg->refcount--; //see above about msg->refcount++
-			
 			if(msg->received!=NGX_MAX_UINT32_VALUE) {
 				msg->received++;
+			}
+			//is the message still needed?
+			if(msg!=NULL && msg->queue.next==NULL && (--msg->refcount)==0) { 
+				//message was dequeued, and nobody needs it anymore
+				ngx_http_push_free_message_locked(msg, shpool);
 			}
 			ngx_shmtx_unlock(&shpool->mutex);
 			
