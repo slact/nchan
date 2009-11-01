@@ -98,7 +98,7 @@ typedef struct {
 	ngx_str_t                       id;
     ngx_http_push_msg_t            *message_queue;
 	ngx_uint_t                      messages;
-	ngx_queue_t                     workers_with_subscribers;    //TODO: this should perhaps be an ngx_array_t -- fewer ngx_slab_free()s. maybe.
+	ngx_http_push_pid_queue_t       workers_with_subscribers;
 	ngx_uint_t                      subscribers;
 	time_t                          last_seen;
 } ngx_http_push_channel_t; 

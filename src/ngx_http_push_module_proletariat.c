@@ -146,6 +146,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	
 	sentinel = &worker_messages[ngx_process_slot];
 	worker_msg = sentinel;
+	ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
 	while((worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue)) != sentinel) {
 		if(worker_msg->pid!=ngx_pid) { 
 			//that's quite bad you see. a previous worker died with an undelivered message.

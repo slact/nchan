@@ -215,7 +215,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			// ♫ It's gonna be the future soon ♫
 			switch(cf->subscriber_poll_mechanism) {
 				//for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
-				ngx_queue_t        *sentinel, *cur, *found;
+				ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
 				ngx_http_push_subscriber_t *subscriber;
 				ngx_http_push_subscriber_t *subscriber_sentinel;
 				
@@ -225,29 +225,29 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					//subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
 					ngx_shmtx_lock(&shpool->mutex);
 					sentinel = &channel->workers_with_subscribers;
-					cur = ngx_queue_head(sentinel);
+					cur = (ngx_http_push_pid_queue_t *)ngx_queue_head(&sentinel->queue);
 					found = NULL;
 					
 					ngx_http_push_subscriber_cleanup_t *clndata;
 					ngx_pool_cleanup_t             *cln;
 					while(cur!=sentinel) {
-						if(((ngx_http_push_pid_queue_t *)cur)->pid==ngx_pid) {
+						if(cur->pid==ngx_pid) {
 							found = cur;
 							break;
 						}
-						cur = ngx_queue_next(cur);
+						cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
 					}
 					if(found==NULL) { //found nothing
-						if((found=ngx_slab_alloc_locked(shpool, sizeof(ngx_http_push_pid_queue_t)))==NULL) {
+						if((found=ngx_slab_alloc_locked(shpool, sizeof(*found)))==NULL) {
 							ngx_shmtx_unlock(&shpool->mutex);
 							ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
 							return NGX_HTTP_INTERNAL_SERVER_ERROR;
 						}
 						//initialize
-						ngx_queue_insert_tail(sentinel, found);
-						((ngx_http_push_pid_queue_t *)found)->pid=ngx_pid;
-						((ngx_http_push_pid_queue_t *)found)->slot=ngx_process_slot;
-						((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=NULL;
+						ngx_queue_insert_tail(&sentinel->queue, &found->queue);
+						found->pid=ngx_pid;
+						found->slot=ngx_process_slot;
+						found->subscriber_sentinel=NULL;
 					}
 					ngx_shmtx_unlock(&shpool->mutex);
 					
@@ -396,14 +396,14 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency_setting(ngx_int_t c
 static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log, ngx_slab_pool_t *shpool) {
 	//subscribers are queued up in a local pool. Queue heads, however, are located
 	//in shared memory, identified by pid.
-	ngx_queue_t            *sentinel = &channel->workers_with_subscribers;
-	ngx_queue_t            *cur = sentinel;
+	ngx_http_push_pid_queue_t *sentinel = &channel->workers_with_subscribers;
+	ngx_http_push_pid_queue_t *cur = sentinel;
 	ngx_int_t               received = NGX_HTTP_PUSH_MESSAGE_QUEUED;
 
-	while((cur=ngx_queue_next(cur))!=sentinel) {
-		pid_t           worker_pid  = ((ngx_http_push_pid_queue_t *)cur)->pid;
-		ngx_int_t       worker_slot = ((ngx_http_push_pid_queue_t *)cur)->slot;
-		ngx_http_push_subscriber_t *subscriber_sentinel= ((ngx_http_push_pid_queue_t *)cur)->subscriber_sentinel;
+	while((cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue))!=sentinel) {
+		pid_t           worker_pid  = cur->pid;
+		ngx_int_t       worker_slot = cur->slot;
+		ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
 		received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 		if(msg!=NULL) {
 			//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
@@ -426,7 +426,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 			
 		}
 		ngx_shmtx_lock(&shpool->mutex);
-		((ngx_http_push_pid_queue_t *)cur)->subscriber_sentinel=NULL; //no messages here, no sir.
+		cur->subscriber_sentinel=NULL; //no messages here, no sir.
 	}
 	return received;
 }

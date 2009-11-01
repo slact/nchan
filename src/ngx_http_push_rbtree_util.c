@@ -32,7 +32,7 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
 		ngx_rbtree_delete(tree, trash);
 		
 		//delete the worker-subscriber queue
-		ngx_queue_t                *sentinel = &(((ngx_http_push_channel_t *)trash)->workers_with_subscribers);
+		ngx_queue_t                *sentinel = (ngx_queue_t *)(&((ngx_http_push_channel_t *)trash)->workers_with_subscribers);
 		ngx_queue_t                *cur = ngx_queue_head(sentinel);
 		ngx_queue_t                *next;
 		while(cur!=sentinel) {
@@ -140,7 +140,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 	ngx_queue_init(&up->message_queue->queue);
 	up->messages=0;
 
-	ngx_queue_init(&up->workers_with_subscribers);
+	ngx_queue_init(&up->workers_with_subscribers.queue);
 	up->subscribers=0;
 	return up;
 }
