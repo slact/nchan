@@ -110,7 +110,7 @@ local function testqueuing(channel, done)
 		end
 	)
 end
---[[
+
 --queuing
 for i=1, 5 do
 	local channel = math.random()
@@ -137,7 +137,7 @@ httpest.addtest("delete", function()
 		}
 	end)
 end)
-]]
+
 
 --broadcasting
 local num, reps, observed = 100, 5, 0
