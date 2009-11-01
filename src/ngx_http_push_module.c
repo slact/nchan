@@ -686,6 +686,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_chain_t                *chain;
 		size_t                      content_type_len;
 		ngx_http_request_t         *r;
+		ngx_buf_t                  *buffer;
+		u_char                     *pos;
 		
 		ngx_shmtx_lock(&shpool->mutex);
 		
@@ -718,6 +720,12 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			return NGX_ERROR;
 		}
 		
+		buffer = chain->buf;
+		//buffer's not temporary.
+		buffer->temporary=0;
+		pos = buffer->pos;
+		
+		
 		last_modified_time = msg->message_time;
 		
 		ngx_shmtx_unlock(&shpool->mutex);
@@ -735,13 +743,14 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
 			ngx_pfree(ngx_http_push_pool, cur);
+			buffer->pos = pos;
 			cur=next;
 		}
 		
 		//free everything relevant
 		ngx_pfree(ngx_http_push_pool, etag);
 		ngx_pfree(ngx_http_push_pool, content_type);
-		ngx_pfree(ngx_http_push_pool, chain->buf);
+		ngx_pfree(ngx_http_push_pool, buffer);
 		ngx_pfree(ngx_http_push_pool, chain);
 		
 	}
