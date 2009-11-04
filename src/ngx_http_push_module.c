@@ -210,7 +210,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		ngx_chain_t                *chain;
 		time_t                      last_modified;
 		size_t                      content_type_len;
-		 
+		ngx_http_postponed_request_t  *pr, *p;
+
 		case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
 			// ♫ It's gonna be the future soon ♫
 			switch(cf->subscriber_poll_mechanism) {
@@ -255,10 +256,20 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						return NGX_ERROR;
 					}
 
-					//this will close the connection should the client attempt to do
-					//anything funny with this (already completed) request from now on.
-					//Like disconnect for example.
-					r->read_event_handler = ngx_http_test_reading; 
+					//postpone the request. this seems to be magical.
+					pr = ngx_palloc(r->pool, sizeof(ngx_http_postponed_request_t));
+					if (pr == NULL) {
+						return NGX_ERROR;
+					}
+					pr->request = r; //really?
+					pr->out = NULL;
+					pr->next = NULL;
+					if (r->postponed) {
+						for (p = r->postponed; p->next; p = p->next) { /* void */ }
+						p->next = pr;
+					} else {
+						r->postponed = pr;
+					}
 					
 					 //attach a cleaner to remove the request from the channel.
 					if ((cln=ngx_pool_cleanup_add(r->pool, sizeof(*clndata))) == NULL) { //make sure we can.
@@ -289,7 +300,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 					
-					return NGX_DONE; //and the wait begins.
+					return NGX_OK; //do recall that the request was postponed
 					
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
 				
@@ -457,7 +468,6 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
         return;                                                               \
     }
 	
-//OK?...
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
 	ngx_str_t                      *id;
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
@@ -724,7 +734,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		buffer->temporary=1;
 		pos = buffer->pos;
 		
-		
 		last_modified_time = msg->message_time;
 		
 		ngx_shmtx_unlock(&shpool->mutex);
@@ -737,6 +746,9 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
 			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
+			
+			//unpostpone request
+			r->postponed=NULL; //is this right?...
 			
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
