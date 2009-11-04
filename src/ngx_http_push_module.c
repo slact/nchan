@@ -957,7 +957,8 @@ static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_r
 	ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
 	
 	r->headers_out.status=NGX_HTTP_OK;
-	
+	//we know the entity length, and we're using just one buffer. so no chunking please.
+	r->headers_out.content_length_n=ngx_buf_size(chain->buf);
 	if((res = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
 		return res;
 	}
