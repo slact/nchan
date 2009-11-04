@@ -354,7 +354,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			
 			//preallocate output chain. yes, same one for every waiting subscriber
 			if((chain = ngx_http_push_create_output_chain_locked(msg->buf, r->pool, r->connection->log, shpool))==NULL) {
-				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for content-type header while responding to subscriber request");
+				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
 				ngx_shmtx_unlock(&shpool->mutex);
 				return NGX_ERROR;
 			}
@@ -908,15 +908,16 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 	if (buf->file!=NULL) {
 		file = buf_copy->file;
 		file->log=log;
-		if(shpool) {
-			ngx_shmtx_unlock(&shpool->mutex);
-			file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-			ngx_shmtx_lock(&shpool->mutex);
+		if(file->fd==NGX_INVALID_FILE) {
+			if(shpool) {
+				ngx_shmtx_unlock(&shpool->mutex);
+				file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+				ngx_shmtx_lock(&shpool->mutex);
+			}
+			else {
+				file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+			}
 		}
-		else {
-			file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-		}
-		
 		if(file->fd==NGX_INVALID_FILE) {
 			return NULL;
 		}
