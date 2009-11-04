@@ -2,7 +2,7 @@ print("The test 'framework' used here is still a touch wonky. A test failure nee
 require "httpest" --fyi, the test "framework" used here is still wonky.
 math.randomseed(os.time())
 local request=httpest.request
-local sendurl, listenurl = "http://localhost:8098/send?channel=%s", "http://localhost:8098/listen?channel=%s"
+local sendurl, listenurl = "http://localhost:8082/broadcast/pub?channel=%s", "http://localhost:8082/broadcast/sub?channel=%s"
 local function send(channel, message, callback)
 	assert(request{
 		url=sendurl:format(channel),
