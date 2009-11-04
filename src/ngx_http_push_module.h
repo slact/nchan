@@ -177,6 +177,15 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
     (h)->prev = x
 #endif
 
+#ifndef ngx_queue_next
+#define ngx_queue_next(q)                                                     \
+	(q)->next
+#endif
+
+#ifndef NGX_FILE_OWNER_ACCESS
+#define NGX_FILE_OWNER_ACCESS    0600
+#endif
+
 //string constants
 //headers
 const  ngx_str_t NGX_HTTP_PUSH_HEADER_ETAG = ngx_string("Etag");

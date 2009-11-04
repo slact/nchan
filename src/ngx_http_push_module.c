@@ -5,6 +5,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <nginx.h>
 
 #include <ngx_http_push_module.h>
 #include <ngx_http_push_rbtree_util.c>
@@ -300,8 +301,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 					
+#if defined(nginx_version) && nginx_version >= 7000
 					return NGX_OK; //do recall that the request was postponed
-					
+#else
+					return NGX_DONE; //oldschool
+#endif
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
 				
 					//interval-polling subscriber requests get a 304 with their entity tags preserved.
@@ -748,7 +752,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
 			
 			//unpostpone request
-			r->postponed=NULL; //is this right?...
+			r->postponed=NULL;
 			
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
