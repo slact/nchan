@@ -721,8 +721,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		}
 		
 		buffer = chain->buf;
-		//buffer's not temporary.
-		buffer->temporary=0;
+		buffer->temporary=1;
 		pos = buffer->pos;
 		
 		
@@ -735,7 +734,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			next=ngx_queue_next(cur);
 			//in this block, nothing in shared memory should be dereferenced.
 			r=((ngx_http_push_subscriber_t *)cur)->request;
-			
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
 			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
@@ -743,7 +741,11 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
 			ngx_pfree(ngx_http_push_pool, cur);
+			
+			//rewind the buffer, please
 			buffer->pos = pos;
+			buffer->last_buf=1;
+			
 			cur=next;
 		}
 		
