@@ -190,6 +190,27 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
 	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_subscriber_handler);
 }
 
+//great justice appears to be at hand
+static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
+	ngx_queue_t                 *sentinel = &channel->message_queue->queue;
+	ngx_http_push_msg_t         *msg=NULL;
+	while(!ngx_queue_empty(sentinel)) {
+		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
+		ngx_http_push_force_delete_message_locked(channel, msg, shpool);
+	}
+	return NGX_OK;
+}
+
+static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
+	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
+	
+	//destroy channel tree in shared memory
+	ngx_shmtx_lock(&shpool->mutex);
+	ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
+	ngx_shmtx_unlock(&shpool->mutex);
+}
+
+
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
@@ -319,6 +340,6 @@ ngx_module_t  ngx_http_push_module = {
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
-    NULL,                                  /* exit master */
+    ngx_http_push_exit_master,             /* exit master */
     NGX_MODULE_V1_PADDING
 };

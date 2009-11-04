@@ -51,7 +51,7 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
 	if(msg->buf->file!=NULL) {
 		ngx_shmtx_unlock(&shpool->mutex);
 		ngx_close_file(msg->buf->file->fd); //again, carest thou aboutst thine errorests?
-		ngx_delete_file(&msg->buf->file->name); //should I care about deletion errors?
+		ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors?
 		ngx_shmtx_lock(&shpool->mutex);
 	}
 	ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
