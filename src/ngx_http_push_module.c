@@ -735,7 +735,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		}
 		
 		buffer = chain->buf;
-		buffer->temporary=1;
 		pos = buffer->pos;
 		
 		last_modified_time = msg->message_time;
