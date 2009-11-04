@@ -371,6 +371,22 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			}
 			ngx_shmtx_unlock(&shpool->mutex);
 			
+			if(chain->buf->file!=NULL) {
+				//close file when we're done with it
+				ngx_pool_cleanup_t *cln;
+				ngx_pool_cleanup_file_t *clnf;
+
+				if((cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
+					return NGX_HTTP_INTERNAL_SERVER_ERROR;
+				}
+				cln->handler = ngx_pool_cleanup_file;
+				clnf = cln->data;
+				clnf->fd = chain->buf->file->fd;
+				clnf->name = chain->buf->file->name.data;
+				clnf->log = r->pool->log;
+			}
+
+			
 			return ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
 			
 		default: //we shouldn't be here.
@@ -767,6 +783,9 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		//free everything relevant
 		ngx_pfree(ngx_http_push_pool, etag);
 		ngx_pfree(ngx_http_push_pool, content_type);
+		if(buffer->file) {
+			ngx_close_file(buffer->file->fd);
+		}
 		ngx_pfree(ngx_http_push_pool, buffer);
 		ngx_pfree(ngx_http_push_pool, chain);
 		
@@ -844,6 +863,7 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 	if (ngx_http_send_header(r) > NGX_HTTP_SPECIAL_RESPONSE) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
+	
 	return ngx_http_output_filter(r, ngx_http_push_create_output_chain(b, r->pool, r->connection->log));
 }
 
