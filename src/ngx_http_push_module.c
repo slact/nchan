@@ -116,6 +116,7 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 	return NULL;
 }
 
+#define NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE "No channel id provided."
 static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
 	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
 	ngx_str_t                      *group = &cf->channel_group;
@@ -124,9 +125,24 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 	size_t                          len;
 	ngx_str_t                      *id;
     if (vv == NULL || vv->not_found || vv->len == 0) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+        ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE));
+		ngx_chain_t *chain;
+		if(buf==NULL) {
+			return NULL;
+		}
+		buf->pos=(u_char *)NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE;
+		buf->last=buf->pos + sizeof(NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE)-1;
+		chain = ngx_http_push_create_output_chain(buf, r->pool, r->connection->log);
+		buf->last_buf=1;
+		r->headers_out.content_length_n=ngx_buf_size(buf);
+		r->headers_out.status=NGX_HTTP_NOT_FOUND;
+		r->headers_out.content_type.len = sizeof("text/plain") - 1;
+		r->headers_out.content_type.data = (u_char *) "text/plain";
+		ngx_http_send_header(r);
+		ngx_http_output_filter(r, chain);
+		ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
             "push module: the $push_channel_id variable is required but is not set");
-        return NULL;
+		return NULL;
     }
 	//maximum length limiter for channel id
 	var_len = vv->len <= cf->max_channel_id_length ? vv->len : cf->max_channel_id_length; 
@@ -175,7 +191,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	}
 	
 	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	//get the channel and check channel authorization while we're at it.
@@ -500,7 +516,10 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	ngx_uint_t                      subscribers = 0;
 	ngx_uint_t                      messages = 0;
 	
-	NGX_HTTP_PUSH_PUBLISHER_CHECK((id = ngx_http_push_get_channel_id(r, cf)), NULL, r, "can't determine channel id")
+	if((id = ngx_http_push_get_channel_id(r, cf))==NULL) {
+		ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
+		return;
+	}
 	
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel created if it doesn't yet exist.
