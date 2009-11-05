@@ -684,9 +684,12 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			messages = channel->messages;
 			
 			ngx_shmtx_unlock(&shpool->mutex);
-		 
-		case NGX_HTTP_PUT: //WWDND (What Would Dijkstra Not Do)?
+			ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
+			return;
+			
+		case NGX_HTTP_PUT:
 		case NGX_HTTP_GET: 
+			r->headers_out.status = NGX_HTTP_OK;
 			ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
 			return;
 			
