@@ -204,3 +204,38 @@ const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_410 = ngx_string("410 Gone");
 const  ngx_str_t NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
 const  ngx_str_t NGX_HTTP_PUSH_ALLOW_GET= ngx_string("GET");
 const  ngx_str_t NGX_HTTP_PUSH_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
+
+
+const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN = ngx_string(
+	"queued messages: %ui\r\n"
+	"last requested: %d sec. ago (-1=never)\r\n"
+	"active subscribers: %ui"
+	"\0");
+	
+const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_JSON = ngx_string(
+	"{'messages': %ui, "
+	"'requested': %d, "
+	"'subscribers': %ui }"
+	"\0");
+
+const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_XML = ngx_string(
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\r\n"
+	"<channel>\r\n"
+	"  <messages>%ui</messages>\r\n"
+	"  <requested>%d</requested>\r\n"
+	"  <subscribers>%ui</subscribers>\r\n"
+	"</channel>"
+	"\0");
+
+const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_YAML = ngx_string(
+	"---\r\n"
+	"messages: %ui\r\n"
+	"requested: %d\r\n"
+	"subscribers %ui\r\n"
+	"\0");
+
+typedef struct {
+	char                           *subtype;
+	size_t                          len;
+	const ngx_str_t                *format;
+} ngx_http_push_content_subtype_t;

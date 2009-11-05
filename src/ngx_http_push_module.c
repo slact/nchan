@@ -857,27 +857,71 @@ static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
 	return NGX_DONE;
 }
 
+static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
+	static ngx_http_push_content_subtype_t subtypes[] = {
+		{ "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
+		{ "yaml"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML },
+		{ "xml"   , 3, &NGX_HTTP_PUSH_CHANNEL_INFO_XML  },
+		{ "x-json", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
+		{ "x-yaml", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML }
+	};
+	
+	u_char                         *start = cur + off;
+	ngx_uint_t                      i;
+	for(i=0; i<(sizeof(subtypes)/sizeof(ngx_http_push_content_subtype_t)); i++) {
+		if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
+			if(*priority>start) {
+				*format = subtypes[i].format;
+				*priority = start;
+				content_type->data=cur;
+				content_type->len= off + 1 + subtypes[i].len;
+			}
+		}
+	}
+}
+
 //print information about a channel
 static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen) {
 	ngx_buf_t                      *b;
 	ngx_uint_t                      len;
+	ngx_str_t                       content_type = ngx_string("text/plain");
+	const ngx_str_t                *format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
 	time_t                          time_elapsed = ngx_time() - last_seen;
-	len = sizeof("queued messages: \r\n") + NGX_INT_T_LEN + sizeof("last requested:  seconds ago\r\n") + NGX_INT_T_LEN + sizeof("active subscribers: \r\n") + NGX_INT_T_LEN;;
 	
-	b = ngx_create_temp_buf(r->pool, len);
-	if (b == NULL) {
+	if(r->headers_in.accept) {
+		//lame content-negotiation (without regard for qvalues)
+		u_char                    *accept = r->headers_in.accept->value.data;
+		size_t                     len = r->headers_in.accept->value.len;
+		size_t                     rem;
+		u_char                    *cur = accept;
+		u_char                    *priority=&accept[len-1];
+		for(rem=len; (cur = ngx_strnstr(cur, "text/", rem))!=NULL; cur += sizeof("text/")-1) {
+			rem=len - ((size_t)(cur-accept)+sizeof("text/")-1);
+			if(ngx_strncmp(cur+sizeof("text/")-1, "plain", rem<5 ? rem : 5)==0) {
+				if(priority) {
+					format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
+					priority = cur+sizeof("text/")-1;
+					//content-type is already set by default
+				}
+			}
+			ngx_http_push_match_channel_info_subtype(sizeof("text/")-1, cur, rem, &priority, &format, &content_type);
+		}
+		cur = accept;
+		for(rem=len; (cur = ngx_strnstr(cur, "application/", rem))!=NULL; cur += sizeof("application/")-1) {
+			rem=len - ((size_t)(cur-accept)+sizeof("application/")-1);
+			ngx_http_push_match_channel_info_subtype(sizeof("application/")-1, cur, rem, &priority, &format, &content_type);
+		}
+	}
+
+	r->headers_out.content_type.len = content_type.len;
+	r->headers_out.content_type.data = content_type.data;
+	
+	len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
+	
+	if ((b = ngx_create_temp_buf(r->pool, len)) == NULL) {
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
-	b->last = ngx_sprintf(b->last, "queued messages: %ui\r\n", messages);
-	if(last_seen==0){
-		b->last = ngx_cpymem(b->last, "last requested: never\r\n", sizeof("last requested: never\r\n") - 1);
-	}
-	else {		
-		b->last = ngx_sprintf(b->last, time_elapsed==1 ? "last requested: %ui second ago\r\n" : "last requested: %ui seconds ago\r\n", time_elapsed);
-	}
-	b->last = ngx_sprintf(b->last, "active subscribers: %ui", subscribers);
-	r->headers_out.content_type.len = sizeof("text/plain") - 1;
-    r->headers_out.content_type.data = (u_char *) "text/plain";
+	b->last = ngx_sprintf(b->last, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed ,subscribers);
 	
 	//lastly, set the content-length, because if the status code isn't 200, nginx may not do so automatically
 	r->headers_out.content_length_n = ngx_buf_size(b);
