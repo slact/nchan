@@ -122,7 +122,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	//sanity checks
 	if(conf->max_messages < conf->min_messages) {
 		//min/max buffer size makes sense?
-		ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "push_max_message_buffer_length cannot be smaller than push_max_message_buffer_length.");
+		ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "push_max_message_buffer_length cannot be smaller than push_min_message_buffer_length.");
 		return NGX_CONF_ERROR;
 	}
 	

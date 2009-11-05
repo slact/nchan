@@ -143,14 +143,14 @@ http {
 
 ---------------------------- Operation ---------------------------------------
 Assuming the example config given above:
-Clients will connect to http://example.com/listen?id=... and have the 
-response delayed until a message is POSTed to http://example.com/send?id=...
+Clients will connect to http://example.com/activity?id=... and have the 
+response delayed until a message is POSTed to http://example.com/publish?id=...
 Messages can be sent to clients that have not yet connected, i.e. they are 
 queued.
 
 Upon sending a request to a push_publisher location, the server will respond with 
 a 201 Created if the message has been sent. If it must be queued up (i.e. the 
-push_subscriber with this id is presently connected), a 202 Accepted will be sent.
+push_subscriber with this id is not presently connected), a 202 Accepted will be sent.
  
 If you intend to have the publisher be a server-side application, 
 it's a damn good idea to make sure the push_publisher location is not visible
