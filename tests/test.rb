@@ -2,12 +2,12 @@ require 'rubygems'
 require 'em-http'
 
 def subscribe(num, opts)
-  #puts "Start listener " + num.to_s
+  puts "Start listener " + num.to_s
   listener = EventMachine::HttpRequest.new('http://127.0.0.1:8082/broadcast/sub?channel='+ opts[:channel]).get :head => opts[:head]
   listener.callback { 
     # print recieved message, re-subscribe to channel with
     # the last-modified header to avoid duplicate messages 
-    puts "Listener " + num.to_s + " recieved: " + listener.response + "\n"
+    puts "Listener " + num.to_s + " received: " + listener.response + "\n"
     
     modified = listener.response_header['LAST_MODIFIED']
     subscribe(num, {:channel => opts[:channel], :head => {'If-Modified-Since' => modified}})
@@ -16,7 +16,7 @@ end
 
 EventMachine.run {
   channel = "pub"
-  numofem = 500
+  numofem = 100
   
   # Publish new message every 5 seconds
   EM.add_periodic_timer(5) do
