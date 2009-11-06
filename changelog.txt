@@ -1,0 +1,11 @@
+ fix: publisher channel info text/json response now uses double quotes instead of single.
+ fix: interprocess messages were not removed from shared memory correctly, causing weird errors
+0.68 (Nov. 5 2009)
+ change: default push_subscriber_concurrency value is now "broadcast"
+ fix: incorrect error messages for invalid push_pubscriber and push_subscriber_concurrency settings
+ change: removed deprecated push_buffer_size and push_queue_messages settings
+ feature: rudimentary content-type negotiation for publisher channel info response.
+   support text/plain, text/json, text/yaml and application/xml (and mimetype equivalents)
+ fix: publisher GET response has HTTP status 0
+0.67beta (Nov. 4 2009) and older
+ see git repository
