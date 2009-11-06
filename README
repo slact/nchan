@@ -31,7 +31,7 @@ push_subscriber [ long-poll | interval-poll ]
   See the protocol documentation for a detailed description. 
 
 push_subscriber_concurrency [ last | first | broadcast ]
-  default: last
+  default: broadcast
   context: http, server, location
   Controls how multiple subscriber requests to a channel (identified by
   some common ID) are handled.
