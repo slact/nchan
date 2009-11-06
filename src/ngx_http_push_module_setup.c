@@ -143,27 +143,38 @@ static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t 
 	return NGX_CONF_OK;
 }
 
+typedef struct {
+	char                           *str;
+	ngx_int_t                       val;
+} ngx_http_push_strval_t;
+
+static ngx_int_t ngx_http_push_strval(ngx_str_t string, ngx_http_push_strval_t strval[], ngx_int_t strval_len, ngx_int_t *val) {
+	ngx_int_t                      i;
+	for(i=0; i<strval_len; i++) {
+		if(ngx_strncasecmp(string.data, (u_char *)strval[i].str, string.len)==0) {
+			*val = strval[i].val;
+			return NGX_OK;
+		}
+	}
+	return NGX_DONE; //nothing matched
+}
+
 static char *ngx_http_push_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-	ngx_str_t                      *value=&(((ngx_str_t *) cf->args->elts)[1]);
+	static ngx_http_push_strval_t  concurrency[] = {
+		{ "first"    , NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
+		{ "last"     , NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN    },
+		{ "broadcast", NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST }
+	};
 	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
+	
 	if (*field != NGX_CONF_UNSET) {
 		return "is duplicate";
 	}
-	if(ngx_strncmp(value->data, "first", 5)==0) {
-		*field=NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN;
-	}
-	else if(ngx_strncmp(value->data, "last", 4)==0) {
-		*field=NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN;
-	}
-	else if(ngx_strncmp(value->data, "broadcast", 9)==0) {
-		*field=NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST;
-	}
-	else {
-		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Unexpected value for push_subscriber_concurrency.");
+	
+	ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
+	if(ngx_http_push_strval(value, concurrency, 3, field)!=NGX_OK) {
+		ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
 		return NGX_CONF_ERROR;
-	}
-	if (cmd->post) {
-		return ((ngx_conf_post_t *) cmd->post)->post_handler(cf, (ngx_conf_post_t *) cmd->post, field);
 	}
 
 	return NGX_CONF_OK;
@@ -174,17 +185,24 @@ static char *ngx_http_push_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *c
 }
 
 static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	static ngx_http_push_strval_t  mech[] = {
+		{ "interval-poll", NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL },
+		{ "long-poll"    , NGX_HTTP_PUSH_MECHANISM_LONGPOLL     }	
+	};
 	ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
-	ngx_str_t                      *value = &(((ngx_str_t *) cf->args->elts)[1]);
-	
 	if (*field != NGX_CONF_UNSET) {
 		return "is duplicate";
 	}
-	if(ngx_strncmp(value->data, "interval-poll", 8)==0) {
-		*field=NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL;
+	
+	if(cf->args->nelts==1) { //no argument given
+		*field = NGX_HTTP_PUSH_MECHANISM_LONGPOLL; //default
 	}
-	else { // if(ngx_strncmp(value->data, "long-poll", 4)==0)
-		*field=NGX_HTTP_PUSH_MECHANISM_LONGPOLL;
+	else {
+		ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
+		if(ngx_http_push_strval(value, mech, 2, field)!=NGX_OK) {
+			ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber value: %V", &value);
+			return NGX_CONF_ERROR;
+		}
 	}
 	
 	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_subscriber_handler);
