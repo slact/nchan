@@ -228,6 +228,25 @@ static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
 	ngx_shmtx_unlock(&shpool->mutex);
 }
 
+static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	char                           *p = conf;
+	ngx_int_t                      *min, *max;
+	ngx_str_t                      *value;
+	ngx_int_t                       intval;
+	min = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, min_messages));
+	max = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, max_messages));
+	if(*min != NGX_CONF_UNSET || *max != NGX_CONF_UNSET) {
+		return "is duplicate";
+	}
+	value = cf->args->elts;
+	if((intval = ngx_atoi(value[1].data, value[1].len))==NGX_ERROR) {
+		return "invalid number";
+	}
+	*min = intval;
+	*max = intval;
+	
+	return NGX_CONF_OK;
+}
 
 
 static ngx_command_t  ngx_http_push_commands[] = {
@@ -258,6 +277,13 @@ static ngx_command_t  ngx_http_push_commands[] = {
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, max_messages),
+      NULL },
+	  
+	{ ngx_string("push_message_buffer_length"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_http_push_set_message_buffer_length,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      0,
       NULL },
 	  
 	{ ngx_string("push_min_message_recipients"),
