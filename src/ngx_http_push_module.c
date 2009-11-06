@@ -381,7 +381,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				msg->received++;
 			}
 			//is the message still needed?
-			if(msg!=NULL && msg->queue.next==NULL && (--msg->refcount)==0) { 
+			if(msg!=NULL && (--msg->refcount)==0 && msg->queue.next==NULL) { 
 				//message was dequeued, and nobody needs it anymore
 				ngx_http_push_free_message_locked(msg, shpool);
 			}
@@ -831,7 +831,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	ngx_shmtx_lock(&shpool->mutex);
 	channel->subscribers-=responded_subscribers;
 	//is the message still needed?
-	if(msg!=NULL && msg->queue.next==NULL && (--msg->refcount)==0) { 
+	if(msg!=NULL && (--msg->refcount)==0 && msg->queue.next==NULL) { 
 		//message was dequeued, and nobody needs it anymore
 		ngx_http_push_free_message_locked(msg, shpool);
 	}
