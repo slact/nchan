@@ -145,45 +145,47 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	ngx_http_push_msg_t            *msg;
 	
 	sentinel = &worker_messages[ngx_process_slot];
-	worker_msg = sentinel;
-	while((worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue)) != sentinel) {
-		if(worker_msg->pid!=ngx_pid) { 
+	worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&sentinel->queue);
+	while(worker_msg != sentinel) {
+		if(worker_msg->pid==ngx_pid) {
+			//everything is okay.
+			status_code = worker_msg->status_code;
+			msg = worker_msg->msg;
+			channel = worker_msg->channel;
+			subscriber_sentinel = worker_msg->subscriber_sentinel;
+			if(msg==NULL) {
+				//just a status line, is all	
+				//status code only.
+				switch(status_code) {
+					case NGX_HTTP_CONFLICT:
+						status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
+						break;
+					
+					case NGX_HTTP_GONE:
+						status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
+						break;
+						
+					case 0:
+						ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
+						//let's let the subscribers know that something went wrong and they might've missed a message
+						status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
+						//intentional fall-through
+					default:
+						status_line=NULL;
+				}
+			}
+			ngx_shmtx_unlock(&shpool->mutex);
+			ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
+			ngx_shmtx_lock(&shpool->mutex);
+		}
+		else {
 			//that's quite bad you see. a previous worker died with an undelivered message.
 			//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
 			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: intercepted a message intended for another worker process that probably died");
 		}
-		
-		status_code = worker_msg->status_code;
-		msg = worker_msg->msg;
-		channel = worker_msg->channel;
-		subscriber_sentinel = worker_msg->subscriber_sentinel;
 		//It may be worth it to memzero worker_msg for debugging purposes.
-		
-		if(msg==NULL) {
-			//just a status line, is all	
-			//status code only.
-			switch(status_code) {
-				case NGX_HTTP_CONFLICT:
-					status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
-					break;
-				
-				case NGX_HTTP_GONE:
-					status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
-					break;
-					
-				case 0:
-					ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
-					//let's let the subscribers know that something went wrong and they might've missed a message
-					status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
-					
-				default:
-					status_line=NULL;
-			}
-		}
-		ngx_slab_free_locked(shpool, worker_msg);
-		ngx_shmtx_unlock(&shpool->mutex);
-		ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-		ngx_shmtx_lock(&shpool->mutex);
+		worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue);
+		ngx_slab_free_locked(shpool, ngx_queue_prev(&worker_msg->queue));
 	}
 	ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
 	ngx_shmtx_unlock(&shpool->mutex);
