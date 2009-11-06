@@ -207,31 +207,31 @@ const  ngx_str_t NGX_HTTP_PUSH_VARY_HEADER_VALUE = ngx_string("If-None-Match, If
 
 
 const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN = ngx_string(
-	"queued messages: %ui\r\n"
-	"last requested: %d sec. ago (-1=never)\r\n"
+	"queued messages: %ui" CRLF
+	"last requested: %d sec. ago (-1=never)" CRLF
 	"active subscribers: %ui"
 	"\0");
 	
 const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_JSON = ngx_string(
-	"{'messages': %ui, "
-	"'requested': %d, "
-	"'subscribers': %ui }"
+	"{\"messages\": %ui, "
+	"\"requested\": %d, "
+	"\"subscribers\": %ui }"
 	"\0");
 
 const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_XML = ngx_string(
-	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\r\n"
-	"<channel>\r\n"
-	"  <messages>%ui</messages>\r\n"
-	"  <requested>%d</requested>\r\n"
-	"  <subscribers>%ui</subscribers>\r\n"
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" CRLF
+	"<channel>" CRLF
+	"  <messages>%ui</messages>" CRLF
+	"  <requested>%d</requested>" CRLF
+	"  <subscribers>%ui</subscribers>" CRLF
 	"</channel>"
 	"\0");
 
 const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_YAML = ngx_string(
-	"---\r\n"
-	"messages: %ui\r\n"
-	"requested: %d\r\n"
-	"subscribers %ui\r\n"
+	"---" CRLF
+	"messages: %ui" CRLF
+	"requested: %d" CRLF
+	"subscribers %ui" CRLF
 	"\0");
 
 typedef struct {
