@@ -297,23 +297,6 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, max_channel_id_length),
       NULL },
-
-	  
-	//deprecated and misleading. remove no earlier than november 2009.
-	{ ngx_string("push_buffer_size"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_size_slot,
-      NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_push_main_conf_t, shm_size),
-      NULL },
-	
-	//deprecated. remove no earlier than november 2009.
-	{ ngx_string("push_queue_messages"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_flag_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, store_messages),
-      NULL },
     
     ngx_null_command
 };
