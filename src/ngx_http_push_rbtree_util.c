@@ -57,7 +57,8 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 	ngx_rbtree_node_t              *node, *sentinel;
 	ngx_int_t                       rc;
 	ngx_http_push_channel_t        *up = NULL;
-	ngx_http_push_channel_t        *trash = NULL;
+	ngx_http_push_channel_t        *trash[] = { NULL, NULL, NULL };
+	ngx_uint_t                      i, trashed=0;
 	if (tree==NULL) {
 		return NULL;
 	}
@@ -68,7 +69,14 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 	sentinel = tree->sentinel;
 
 	while (node != sentinel) {
-
+		
+		//every search is responsible for deleting a couple of empty, if it comes across them
+		if (trashed < (sizeof(trash) / sizeof(*trash))) {
+			if((trash[trashed]=ngx_http_push_clean_channel_locked((ngx_http_push_channel_t *) node, shpool))!=NULL) {
+				trashed++;
+			}
+		}
+		
 		if (hash < node->key) {
 			node = node->left;
 			continue;
@@ -77,11 +85,6 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 		if (hash > node->key) {
 			node = node->right;
 			continue;
-		}
-
-		//every search is responsible for deleting one empty node, if it comes across one
-		if (trash==NULL) {
-			trash=ngx_http_push_clean_channel_locked((ngx_http_push_channel_t *) node, shpool);
 		}
 		
 		/* hash == node->key */
@@ -92,8 +95,11 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 			rc = ngx_memn2cmp(id->data, up->id.data, id->len, up->id.len);
 
 			if (rc == 0) {
-				if(trash != up){ //take out the trash
-					ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) trash, shpool);
+				//found
+				for(i=0; i<trashed; i++) {
+					if(trash[i] != up){ //take out the trash
+						ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) trash[i], shpool);
+					}
 				}
 				ngx_http_push_clean_channel_locked(up, shpool);
 				return up;
@@ -106,8 +112,8 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 		break;
 	}
 	//not found	
-	if(trash != up){ //take out the trash
-		ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) trash, shpool);
+	for(i=0; i<trashed; i++) {
+		ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) trash[i], shpool);
 	}
 	return NULL;
 }
