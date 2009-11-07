@@ -12,6 +12,20 @@
 #include <ngx_http_push_module_proletariat.c>
 #include <ngx_http_push_module_setup.c>
 
+
+//garbage-collecting slab allocator
+void * ngx_http_push_slab_alloc_locked(size_t size) {
+	return ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size);
+}
+
+void * ngx_http_push_slab_alloc(size_t size) {
+	void  *p;
+	ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
+	p = ngx_http_push_slab_alloc_locked(size);
+	ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
+	return p;
+}
+
 //shpool is assumed to be locked.
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel) {
 	ngx_queue_t                    *sentinel = &channel->message_queue->queue; 
@@ -256,7 +270,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
 					}
 					if(found==NULL) { //found nothing
-						if((found=ngx_slab_alloc_locked(shpool, sizeof(*found)))==NULL) {
+						if((found=ngx_http_push_slab_alloc_locked(sizeof(*found)))==NULL) {
 							ngx_shmtx_unlock(&shpool->mutex);
 							ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
 							return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -481,16 +495,12 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 	return received;
 }
 
-//this is a macro because ngx_palloc and ngx_slab_alloc have different function pointers
-#define NGX_HTTP_PUSH_CREATE_BUF_COPY(buf, cbuf, pool, pool_alloc)            \
-    (cbuf) = pool_alloc((pool), sizeof(*cbuf) +                               \
-        (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +       \
-        (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0)); \
-    if((cbuf)!=NULL) {                                                        \
-        ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
-    }
+#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
+    (sizeof(*buf) +                                                           \
+	 (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
+	 (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
-#define NGX_HTTP_PUSH_PUBLISHER_CHECK(val, fail, r, errormessage)                \
+#define NGX_HTTP_PUSH_PUBLISHER_CHECK(val, fail, r, errormessage)             \
     if (val == fail) {                                                        \
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
@@ -586,11 +596,14 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_lock(&shpool->mutex);
 			
 			//create a buffer copy in shared mem
-			msg = ngx_slab_alloc_locked(shpool, sizeof(*msg) + content_type_len);
+			msg = ngx_http_push_slab_alloc_locked(sizeof(*msg) + content_type_len);
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", shpool);
 			previous_msg=ngx_http_push_get_latest_message_locked(channel); //need this for entity-tags generation
-			NGX_HTTP_PUSH_CREATE_BUF_COPY(buf, buf_copy, shpool, ngx_slab_alloc_locked);
-			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool);
+			
+			buf_copy = ngx_http_push_slab_alloc_locked(NGX_HTTP_BUF_ALLOC_SIZE(buf));
+			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool) //magic nullcheck
+			ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+			
 			msg->buf=buf_copy;
 			
 			if(cf->store_messages) {
@@ -987,10 +1000,12 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 		return NULL;
 	}
 	ngx_buf_t                      *buf_copy;
-	NGX_HTTP_PUSH_CREATE_BUF_COPY(buf, buf_copy, pool, ngx_pcalloc);
-	if (buf_copy==NULL) {
+
+	if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
 		return NULL;
 	}
+	ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+
 	if (buf->file!=NULL) {
 		file = buf_copy->file;
 		file->log=log;

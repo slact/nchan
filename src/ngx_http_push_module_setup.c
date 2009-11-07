@@ -31,6 +31,8 @@ static ngx_int_t	ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *da
 	ngx_rbtree_node_t              *sentinel;
 	ngx_http_push_shm_data_t       *d;
 	
+	ngx_http_push_shm_shpool = shpool; //we'll be using this a bit.
+	
 	if ((d = (ngx_http_push_shm_data_t *)ngx_slab_alloc(shpool, sizeof(*d))) == NULL) { //shm_data plus an array.
 		return NGX_ERROR;
 	} 

@@ -123,7 +123,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 	if(up != NULL) { //we found our channel
 		return up;
 	}
-	up = ngx_slab_alloc_locked(shpool, sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)); //nice and contiguous
+	up = ngx_http_push_slab_alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)); //nice and contiguous
 	if (up == NULL) {
 		//a failed malloc ain't the end of the world. take out the trash anyway
 		return NULL;

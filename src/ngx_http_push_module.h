@@ -127,7 +127,12 @@ typedef struct {
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
+ngx_slab_pool_t    *ngx_http_push_shm_shpool;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
+
+//garbage-collecting shared memory slab allocation
+void * ngx_http_push_slab_alloc(size_t size);
+void * ngx_http_push_slab_alloc_locked(size_t size);
 
 //channel messages
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel);
