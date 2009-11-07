@@ -112,11 +112,11 @@ struct ngx_http_push_subscriber_cleanup_s {
 //messages to worker processes
 typedef struct {
 	ngx_queue_t                     queue;
-	ngx_http_push_msg_t            *msg;
+	ngx_http_push_msg_t            *msg; //->shared memory
 	ngx_int_t                       status_code;
 	ngx_pid_t                       pid; 
-	ngx_http_push_channel_t        *channel;
-	ngx_http_push_subscriber_t     *subscriber_sentinel;
+	ngx_http_push_channel_t        *channel; //->shared memory
+	ngx_http_push_subscriber_t     *subscriber_sentinel; //->a worker's local pool
 } ngx_http_push_worker_msg_t;
 
 //shared memory
