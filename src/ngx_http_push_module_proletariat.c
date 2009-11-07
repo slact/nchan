@@ -199,6 +199,7 @@ static ngx_int_t ngx_http_push_send_worker_message(ngx_http_push_channel_t *chan
 	ngx_http_push_worker_msg_t     *newmessage;
 	ngx_shmtx_lock(&shpool->mutex);
 	if((newmessage=ngx_slab_alloc_locked(shpool, sizeof(*newmessage)))==NULL) {
+		ngx_shmtx_unlock(&shpool->mutex);
 		ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker message");
 		return NGX_ERROR;
 	}
