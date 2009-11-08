@@ -109,6 +109,12 @@ struct ngx_http_push_subscriber_cleanup_s {
 	ngx_http_push_channel_t        *channel;
 };
 
+//garbage collecting goodness
+typedef struct {
+	ngx_queue_t                     queue;
+	ngx_http_push_channel_t        *channel;
+} ngx_http_push_channel_queue_t;
+
 //messages to worker processes
 typedef struct {
 	ngx_queue_t                     queue;

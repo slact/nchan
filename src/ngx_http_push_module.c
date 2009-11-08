@@ -12,10 +12,49 @@
 #include <ngx_http_push_module_proletariat.c>
 #include <ngx_http_push_module_setup.c>
 
+//emergency garbage collecting goodness;
+ngx_http_push_channel_queue_t channel_gc_sentinel;
+
+static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
+	if((ngx_http_push_clean_channel_locked(channel, shpool))!=NULL) { //we're up for deletion
+		ngx_http_push_channel_queue_t *trashy;
+		if((trashy = ngx_alloc(sizeof(*trashy), ngx_cycle->log))!=NULL) {
+			//yeah, i'm allocating memory during garbage collection. sue me.
+			trashy->channel=channel;
+			ngx_queue_insert_tail(&channel_gc_sentinel.queue, &trashy->queue);
+			return NGX_OK;
+		}
+		return NGX_ERROR;
+	}
+	return NGX_OK;
+}
 
 //garbage-collecting slab allocator
 void * ngx_http_push_slab_alloc_locked(size_t size) {
-	return ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size);
+	void  *p;
+	if((p = ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size))==NULL) {
+		ngx_http_push_channel_queue_t *ccur, *cnext;
+		ngx_uint_t                  collected = 0;
+		ngx_rbtree_t               *tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
+		//failed. emergency garbage sweep, then.
+		
+		//collect channels
+		ngx_queue_init(&channel_gc_sentinel.queue);
+		ngx_http_push_walk_rbtree(ngx_http_push_channel_collector);
+		for(ccur=(ngx_http_push_channel_queue_t *)ngx_queue_next(&channel_gc_sentinel.queue); ccur != &channel_gc_sentinel; ccur=cnext) {
+			cnext = (ngx_http_push_channel_queue_t *)ngx_queue_next(&ccur->queue);
+			ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) ccur->channel, ngx_http_push_shm_shpool);
+			ngx_free(ccur);
+			collected++;
+		}
+		
+		//todo: collect worker messages maybe
+		
+		ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: out of shared memory. emergency garbage collection deleted %ui unused channels.", collected);
+		
+		return ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size);
+	}
+	return p;
 }
 
 void * ngx_http_push_slab_alloc(size_t size) {
