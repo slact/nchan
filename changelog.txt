@@ -1,3 +1,4 @@
+ fix: segmentation fault from allocating insufficient memory for interprocess messaging
 0.681 (Nov. 6 2009)
  feature: added push_message_buffer_length setting, which sets push_message_max_buffer_length and push_message_min_buffer_length at once.
  fix: publisher channel info text/json response now uses double quotes instead of single.

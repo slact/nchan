@@ -70,7 +70,7 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 		return NGX_OK;
 	}
 	//initialize worker message queues
-	if((worker_messages = ngx_slab_alloc_locked(shpool, sizeof(ngx_queue_t)*workers))==NULL) {
+	if((worker_messages = ngx_slab_alloc_locked(shpool, sizeof(*worker_messages)*workers))==NULL) {
 		ngx_shmtx_unlock(&shpool->mutex);
 		return NGX_ERROR;
 	}
