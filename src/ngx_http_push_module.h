@@ -3,7 +3,7 @@
 #include <ngx_http.h>
 #include <ngx_channel.h>
 
-#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 16777216 //16 megs
+#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 
 #define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES 1
