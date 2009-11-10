@@ -3,7 +3,7 @@
 #include <ngx_http.h>
 #include <ngx_channel.h>
 
-#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 16777216 //16 megs
+#define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 
 #define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES 1
@@ -109,25 +109,37 @@ struct ngx_http_push_subscriber_cleanup_s {
 	ngx_http_push_channel_t        *channel;
 };
 
+//garbage collecting goodness
+typedef struct {
+	ngx_queue_t                     queue;
+	ngx_http_push_channel_t        *channel;
+} ngx_http_push_channel_queue_t;
+
 //messages to worker processes
 typedef struct {
 	ngx_queue_t                     queue;
-	ngx_http_push_msg_t            *msg;
+	ngx_http_push_msg_t            *msg; //->shared memory
 	ngx_int_t                       status_code;
 	ngx_pid_t                       pid; 
-	ngx_http_push_channel_t        *channel;
-	ngx_http_push_subscriber_t     *subscriber_sentinel;
+	ngx_http_push_channel_t        *channel; //->shared memory
+	ngx_http_push_subscriber_t     *subscriber_sentinel; //->a worker's local pool
 } ngx_http_push_worker_msg_t;
 
 //shared memory
 typedef struct {
 	ngx_rbtree_t                    tree;
+	ngx_uint_t                      channels; //# of channels being used
 	ngx_http_push_worker_msg_t     *ipc; //interprocess stuff
 } ngx_http_push_shm_data_t;
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
+ngx_slab_pool_t    *ngx_http_push_shm_shpool;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
+
+//garbage-collecting shared memory slab allocation
+void * ngx_http_push_slab_alloc(size_t size);
+void * ngx_http_push_slab_alloc_locked(size_t size);
 
 //channel messages
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel);

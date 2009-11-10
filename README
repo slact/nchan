@@ -58,7 +58,7 @@ push_store_messages [ on | off ]
   push_channel_buffer_length 0;
 
 push_max_reserved_memory [ size ]
-  default: 16M
+  default: 32M
   context: http
   The size of the memory chunk this module will use for all message queuing
   and buffering. 

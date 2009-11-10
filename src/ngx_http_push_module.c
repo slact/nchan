@@ -12,6 +12,58 @@
 #include <ngx_http_push_module_proletariat.c>
 #include <ngx_http_push_module_setup.c>
 
+//emergency garbage collecting goodness;
+ngx_http_push_channel_queue_t channel_gc_sentinel;
+
+static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
+	if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
+		ngx_http_push_channel_queue_t *trashy;
+		if((trashy = ngx_alloc(sizeof(*trashy), ngx_cycle->log))!=NULL) {
+			//yeah, i'm allocating memory during garbage collection. sue me.
+			trashy->channel=channel;
+			ngx_queue_insert_tail(&channel_gc_sentinel.queue, &trashy->queue);
+			return NGX_OK;
+		}
+		return NGX_ERROR;
+	}
+	return NGX_OK;
+}
+
+//garbage-collecting slab allocator
+void * ngx_http_push_slab_alloc_locked(size_t size) {
+	void  *p;
+	if((p = ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size))==NULL) {
+		ngx_http_push_channel_queue_t *ccur, *cnext;
+		ngx_uint_t                  collected = 0;
+		//failed. emergency garbage sweep, then.
+		
+		//collect channels
+		ngx_queue_init(&channel_gc_sentinel.queue);
+		ngx_http_push_walk_rbtree(ngx_http_push_channel_collector);
+		for(ccur=(ngx_http_push_channel_queue_t *)ngx_queue_next(&channel_gc_sentinel.queue); ccur != &channel_gc_sentinel; ccur=cnext) {
+			cnext = (ngx_http_push_channel_queue_t *)ngx_queue_next(&ccur->queue);
+			ngx_http_push_delete_channel_locked(ccur->channel);
+			ngx_free(ccur);
+			collected++;
+		}
+		
+		//todo: collect worker messages maybe
+		
+		ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: out of shared memory. emergency garbage collection deleted %ui unused channels.", collected);
+		
+		return ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size);
+	}
+	return p;
+}
+
+void * ngx_http_push_slab_alloc(size_t size) {
+	void  *p;
+	ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
+	p = ngx_http_push_slab_alloc_locked(size);
+	ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
+	return p;
+}
+
 //shpool is assumed to be locked.
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel) {
 	ngx_queue_t                    *sentinel = &channel->message_queue->queue; 
@@ -196,7 +248,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
 
 	if (channel==NULL) {
 		//unable to allocate channel OR channel not found
@@ -256,7 +308,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
 					}
 					if(found==NULL) { //found nothing
-						if((found=ngx_slab_alloc_locked(shpool, sizeof(*found)))==NULL) {
+						if((found=ngx_http_push_slab_alloc_locked(sizeof(*found)))==NULL) {
 							ngx_shmtx_unlock(&shpool->mutex);
 							ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
 							return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -481,16 +533,12 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 	return received;
 }
 
-//this is a macro because ngx_palloc and ngx_slab_alloc have different function pointers
-#define NGX_HTTP_PUSH_CREATE_BUF_COPY(buf, cbuf, pool, pool_alloc)            \
-    (cbuf) = pool_alloc((pool), sizeof(*cbuf) +                               \
-        (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +       \
-        (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0)); \
-    if((cbuf)!=NULL) {                                                        \
-        ngx_http_push_copy_preallocated_buffer((buf), (cbuf));                \
-    }
+#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
+    (sizeof(*buf) +                                                           \
+	 (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
+	 (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
-#define NGX_HTTP_PUSH_PUBLISHER_CHECK(val, fail, r, errormessage)                \
+#define NGX_HTTP_PUSH_PUBLISHER_CHECK(val, fail, r, errormessage)             \
     if (val == fail) {                                                        \
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
@@ -524,13 +572,13 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel created if it doesn't yet exist.
 	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-		channel = ngx_http_push_get_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = ngx_http_push_get_channel(id, r->connection->log);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
-	else{
+	else {
 		//just find the channel. if it's not there, NULL.
-		channel = ngx_http_push_find_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = ngx_http_push_find_channel(id, r->connection->log);
 	}
 	
 	if(channel!=NULL) {
@@ -586,11 +634,14 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			ngx_shmtx_lock(&shpool->mutex);
 			
 			//create a buffer copy in shared mem
-			msg = ngx_slab_alloc_locked(shpool, sizeof(*msg) + content_type_len);
+			msg = ngx_http_push_slab_alloc_locked(sizeof(*msg) + content_type_len);
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", shpool);
 			previous_msg=ngx_http_push_get_latest_message_locked(channel); //need this for entity-tags generation
-			NGX_HTTP_PUSH_CREATE_BUF_COPY(buf, buf_copy, shpool, ngx_slab_alloc_locked);
-			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool);
+			
+			buf_copy = ngx_http_push_slab_alloc_locked(NGX_HTTP_BUF_ALLOC_SIZE(buf));
+			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool) //magic nullcheck
+			ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+			
 			msg->buf=buf_copy;
 			
 			if(cf->store_messages) {
@@ -706,7 +757,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			
 			//410 gone
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log, shpool), NGX_ERROR, r, "push module: unable to send current subscribers a 410 Gone response", shpool);
-			ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *) channel, shpool);
+			ngx_http_push_delete_channel_locked(channel);
 			ngx_shmtx_unlock(&shpool->mutex);
 			//done.
 			r->headers_out.status=NGX_HTTP_OK;
@@ -987,10 +1038,12 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 		return NULL;
 	}
 	ngx_buf_t                      *buf_copy;
-	NGX_HTTP_PUSH_CREATE_BUF_COPY(buf, buf_copy, pool, ngx_pcalloc);
-	if (buf_copy==NULL) {
+
+	if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
 		return NULL;
 	}
+	ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+
 	if (buf->file!=NULL) {
 		file = buf_copy->file;
 		file->log=log;

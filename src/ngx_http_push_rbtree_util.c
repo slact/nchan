@@ -2,22 +2,26 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, ngx_rbtree_t * tree, ngx_slab_pool_t * shpool, ngx_log_t * log);
-static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, ngx_rbtree_t * tree, ngx_slab_pool_t * shpool, ngx_log_t * log);
+
+static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, ngx_log_t * log);
+static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, ngx_log_t * log);
+static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash);
+
+static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel);
+
 static void     ngx_rbtree_generic_insert(	ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
 static void     ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 static int      ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool);
-static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool);
 
-static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
+static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
 	ngx_queue_t                 *sentinel = &channel->message_queue->queue;
 	time_t                       now = ngx_time();
 	ngx_http_push_msg_t         *msg=NULL;
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-			ngx_http_push_delete_message_locked(channel, msg, shpool);
+			ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shm_shpool);
 		}
 		else { //definitely a message left to send
 			return NULL;
@@ -26,6 +30,18 @@ static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_pus
 	//at this point, the queue is empty
 	return channel->subscribers==0 ? channel : NULL; //if no waiting requests, return this channel to be deleted
 }
+
+static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
+	ngx_int_t                      res;
+	res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash, ngx_http_push_shm_shpool);
+	if(res==NGX_OK) {
+		((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels--;
+		return NGX_OK;
+	}
+	return res;
+	
+}
+
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool) {
 //assume the shm zone is already locked
 	if(trash != NULL){ //take out the trash		
@@ -47,17 +63,15 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
 	return NGX_DECLINED;
 }
 
-static ngx_http_push_channel_t * ngx_http_push_find_channel(
-			ngx_str_t              *id, 
-			ngx_rbtree_t           *tree, 
-			ngx_slab_pool_t        *shpool, 
-			ngx_log_t              *log)
-{
+static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_log_t *log) {
+	ngx_rbtree_t                   *tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
 	uint32_t                        hash;
 	ngx_rbtree_node_t              *node, *sentinel;
 	ngx_int_t                       rc;
 	ngx_http_push_channel_t        *up = NULL;
-	ngx_http_push_channel_t        *trash = NULL;
+	ngx_http_push_channel_t        *trash[] = { NULL, NULL, NULL };
+	
+	ngx_uint_t                      i, trashed=0;
 	if (tree==NULL) {
 		return NULL;
 	}
@@ -68,7 +82,14 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 	sentinel = tree->sentinel;
 
 	while (node != sentinel) {
-
+		
+		//every search is responsible for deleting a couple of empty, if it comes across them
+		if (trashed < (sizeof(trash) / sizeof(*trash))) {
+			if((trash[trashed]=ngx_http_push_clean_channel_locked((ngx_http_push_channel_t *) node))!=NULL) {
+				trashed++;
+			}
+		}
+		
 		if (hash < node->key) {
 			node = node->left;
 			continue;
@@ -77,11 +98,6 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 		if (hash > node->key) {
 			node = node->right;
 			continue;
-		}
-
-		//every search is responsible for deleting one empty node, if it comes across one
-		if (trash==NULL) {
-			trash=ngx_http_push_clean_channel_locked((ngx_http_push_channel_t *) node, shpool);
 		}
 		
 		/* hash == node->key */
@@ -92,10 +108,13 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 			rc = ngx_memn2cmp(id->data, up->id.data, id->len, up->id.len);
 
 			if (rc == 0) {
-				if(trash != up){ //take out the trash
-					ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) trash, shpool);
+				//found
+				for(i=0; i<trashed; i++) {
+					if(trash[i] != up){ //take out the trash
+						ngx_http_push_delete_channel_locked(trash[i]);
+					}
 				}
-				ngx_http_push_clean_channel_locked(up, shpool);
+				ngx_http_push_clean_channel_locked(up);
 				return up;
 			}
 
@@ -106,26 +125,22 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 		break;
 	}
 	//not found	
-	if(trash != up){ //take out the trash
-		ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) trash, shpool);
+	for(i=0; i<trashed; i++) {
+		ngx_http_push_delete_channel_locked(trash[i]);
 	}
 	return NULL;
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
- static ngx_http_push_channel_t *	ngx_http_push_get_channel(
-			ngx_str_t              *id, 
-			ngx_rbtree_t           *tree, 
-			ngx_slab_pool_t        *shpool, 
-			ngx_log_t              *log)
-{
-	ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, tree, shpool, log);
+ static ngx_http_push_channel_t *	ngx_http_push_get_channel(ngx_str_t *id, ngx_log_t *log) {
+	ngx_rbtree_t                   *tree;
+	ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, log);
+	
 	if(up != NULL) { //we found our channel
 		return up;
 	}
-	up = ngx_slab_alloc_locked(shpool, sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)); //nice and contiguous
-	if (up == NULL) {
-		//a failed malloc ain't the end of the world. take out the trash anyway
+	tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
+	if((up = ngx_http_push_slab_alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)))==NULL) {
 		return NULL;
 	}
 	up->id.data = (u_char *) (up+1); //contiguous piggy
@@ -142,6 +157,9 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(
 
 	ngx_queue_init(&up->workers_with_subscribers.queue);
 	up->subscribers=0;
+	
+	((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels++;
+	
 	return up;
 }
 
