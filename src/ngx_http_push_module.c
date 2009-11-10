@@ -16,7 +16,7 @@
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 
 static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
-	if((ngx_http_push_clean_channel_locked(channel, shpool))!=NULL) { //we're up for deletion
+	if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
 		ngx_http_push_channel_queue_t *trashy;
 		if((trashy = ngx_alloc(sizeof(*trashy), ngx_cycle->log))!=NULL) {
 			//yeah, i'm allocating memory during garbage collection. sue me.
@@ -35,7 +35,6 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
 	if((p = ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size))==NULL) {
 		ngx_http_push_channel_queue_t *ccur, *cnext;
 		ngx_uint_t                  collected = 0;
-		ngx_rbtree_t               *tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
 		//failed. emergency garbage sweep, then.
 		
 		//collect channels
@@ -43,7 +42,7 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
 		ngx_http_push_walk_rbtree(ngx_http_push_channel_collector);
 		for(ccur=(ngx_http_push_channel_queue_t *)ngx_queue_next(&channel_gc_sentinel.queue); ccur != &channel_gc_sentinel; ccur=cnext) {
 			cnext = (ngx_http_push_channel_queue_t *)ngx_queue_next(&ccur->queue);
-			ngx_http_push_delete_node_locked(tree, (ngx_rbtree_node_t *) ccur->channel, ngx_http_push_shm_shpool);
+			ngx_http_push_delete_channel_locked(ccur->channel);
 			ngx_free(ccur);
 			collected++;
 		}
@@ -249,7 +248,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
 
 	if (channel==NULL) {
 		//unable to allocate channel OR channel not found
@@ -573,13 +572,13 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel created if it doesn't yet exist.
 	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-		channel = ngx_http_push_get_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = ngx_http_push_get_channel(id, r->connection->log);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
-	else{
+	else {
 		//just find the channel. if it's not there, NULL.
-		channel = ngx_http_push_find_channel(id, &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, shpool, r->connection->log);
+		channel = ngx_http_push_find_channel(id, r->connection->log);
 	}
 	
 	if(channel!=NULL) {
@@ -758,7 +757,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			
 			//410 gone
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log, shpool), NGX_ERROR, r, "push module: unable to send current subscribers a 410 Gone response", shpool);
-			ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *) channel, shpool);
+			ngx_http_push_delete_channel_locked(channel);
 			ngx_shmtx_unlock(&shpool->mutex);
 			//done.
 			r->headers_out.status=NGX_HTTP_OK;

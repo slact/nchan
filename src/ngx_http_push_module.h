@@ -128,6 +128,7 @@ typedef struct {
 //shared memory
 typedef struct {
 	ngx_rbtree_t                    tree;
+	ngx_uint_t                      channels; //# of channels being used
 	ngx_http_push_worker_msg_t     *ipc; //interprocess stuff
 } ngx_http_push_shm_data_t;
 
