@@ -265,7 +265,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	channel->last_seen = ngx_time();
 	ngx_shmtx_unlock(&shpool->mutex);
 	
-	switch(ngx_http_push_handle_subscriber_concurrency_setting(cf->subscriber_concurrency, channel, r, shpool)) {
+	switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
 		case NGX_DECLINED: //this request was declined for some reason.
 			//status codes and whatnot should have already been written. just get out of here quickly.
 			return NGX_OK;
@@ -447,27 +447,36 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	}
 }
 
-static ngx_int_t ngx_http_push_handle_subscriber_concurrency_setting(ngx_int_t concurrency, ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_slab_pool_t *shpool) {
-	ngx_shmtx_lock(&shpool->mutex);
-	ngx_int_t subscribers = channel->subscribers;
-	ngx_shmtx_unlock(&shpool->mutex);
-	if(subscribers==0) {
+static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
+	ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
+	ngx_int_t                      current_subscribers;
+	ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
+	current_subscribers = channel->subscribers;
+	ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
+	if(current_subscribers==0) { 
+		//empty channels are always okay.
 		return NGX_OK;
 	}	
 	
+	if(max_subscribers!=0 && current_subscribers >= max_subscribers) {
+		//max_channel_subscribers setting
+		ngx_http_push_respond_status_only(r, NGX_HTTP_FORBIDDEN, NULL);
+		return NGX_DECLINED;
+	}
+	
 	//nonzero number of subscribers present
-	switch(concurrency) {
+	switch(loc_conf->subscriber_concurrency) {
 		case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
 			return NGX_OK;
 		
 		case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-			ngx_shmtx_lock(&shpool->mutex);
+			ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
 			//send "everyone" a 409 Conflict response.
 			//in most reasonable cases, there'll be at most one subscriber on the
 			//channel. However, since settings are bound to locations and not
 			//specific channels, this assumption need not hold. Hence this broadcast.
-			ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log, shpool);
-			ngx_shmtx_unlock(&shpool->mutex);
+			ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log, ngx_http_push_shm_shpool);
+			ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
 
 			return rc==NGX_OK ? NGX_OK : NGX_ERROR;
 		
@@ -857,7 +866,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
 			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
-			ngx_http_push_respond_status_only(((ngx_http_push_subscriber_t *)cur)->request, status_code, status_line);
+			ngx_http_finalize_request(((ngx_http_push_subscriber_t *)cur)->request, ngx_http_push_respond_status_only(((ngx_http_push_subscriber_t *)cur)->request, status_code, status_line));
 			responded_subscribers++;
 			ngx_pfree(ngx_http_push_pool, cur);
 			cur=next;
@@ -1064,7 +1073,7 @@ static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t 
 	}
 }
 
-static void ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
+static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
 	r->headers_out.status=status_code;
 	if(statusline!=NULL) {
 		r->headers_out.status_line.len =statusline->len;
@@ -1072,7 +1081,7 @@ static void ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t s
 	}
 	r->headers_out.content_length_n = 0;
 	r->header_only = 1;
-	ngx_http_finalize_request(r, ngx_http_send_header(r));
+	return ngx_http_send_header(r);
 }
 
 //allocates nothing

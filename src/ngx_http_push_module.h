@@ -61,6 +61,7 @@ typedef struct {
 	ngx_int_t                       min_message_recipients;
 	ngx_str_t                       channel_group;
 	ngx_int_t                       max_channel_id_length;
+	ngx_int_t                       max_channel_subscribers;
 } ngx_http_push_loc_conf_t;
 
 //message queue
@@ -156,7 +157,7 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 
 //subscriber
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
-static ngx_int_t ngx_http_push_handle_subscriber_concurrency_setting(ngx_int_t concurrency, ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_slab_pool_t *shpool);
+static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf);
 static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log, ngx_slab_pool_t *shpool);
 #define ngx_http_push_broadcast_status_locked(channel, status_code, status_line, log, shpool) ngx_http_push_broadcast_locked(channel, NULL, status_code, status_line, log, shpool)
 #define ngx_http_push_broadcast_message_locked(channel, msg, log, shpool) ngx_http_push_broadcast_locked(channel, msg, 0, NULL, log, shpool)
@@ -175,7 +176,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r);
 //general request handling
 static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);
 static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value);
-static void ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline);
+static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline);
 static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool);
 #define ngx_http_push_create_output_chain(buf, pool, log) ngx_http_push_create_output_chain_general(buf, pool, log, NULL)
 #define ngx_http_push_create_output_chain_locked(buf, pool, log, shpool) ngx_http_push_create_output_chain_general(buf, pool, log, shpool)

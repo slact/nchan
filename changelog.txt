@@ -1,3 +1,5 @@
+ feature: optional push_max_channel_subscribers setting added
+ fix: first-in concurrency setting wasn't responding to subscribers with a correct status code on conflict
  fix: reused subscriber connections sometimes failed to receive messages
  unfeature: no more nginx 0.6 support. not worth the hassle.
 0.683 (Nov. 10 2009)
