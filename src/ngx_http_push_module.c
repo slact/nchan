@@ -32,7 +32,7 @@ static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * chann
 //garbage-collecting slab allocator
 void * ngx_http_push_slab_alloc_locked(size_t size) {
 	void  *p;
-	if((p = ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size))==NULL) {
+	if((p = ngx_slab_alloc_locked(ngx_http_push_shpool, size))==NULL) {
 		ngx_http_push_channel_queue_t *ccur, *cnext;
 		ngx_uint_t                  collected = 0;
 		//failed. emergency garbage sweep, then.
@@ -51,16 +51,16 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
 		
 		ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: out of shared memory. emergency garbage collection deleted %ui unused channels.", collected);
 		
-		return ngx_slab_alloc_locked(ngx_http_push_shm_shpool, size);
+		return ngx_slab_alloc_locked(ngx_http_push_shpool, size);
 	}
 	return p;
 }
 
 void * ngx_http_push_slab_alloc(size_t size) {
 	void  *p;
-	ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
+	ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
 	p = ngx_http_push_slab_alloc_locked(size);
-	ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
+	ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 	return p;
 }
 
@@ -450,9 +450,9 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
 	ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
 	ngx_int_t                      current_subscribers;
-	ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
+	ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
 	current_subscribers = channel->subscribers;
-	ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
+	ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 	if(current_subscribers==0) { 
 		//empty channels are always okay.
 		return NGX_OK;
@@ -470,13 +470,13 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
 			return NGX_OK;
 		
 		case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-			ngx_shmtx_lock(&ngx_http_push_shm_shpool->mutex);
+			ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
 			//send "everyone" a 409 Conflict response.
 			//in most reasonable cases, there'll be at most one subscriber on the
 			//channel. However, since settings are bound to locations and not
 			//specific channels, this assumption need not hold. Hence this broadcast.
-			ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log, ngx_http_push_shm_shpool);
-			ngx_shmtx_unlock(&ngx_http_push_shm_shpool->mutex);
+			ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log, ngx_http_push_shpool);
+			ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 
 			return rc==NGX_OK ? NGX_OK : NGX_ERROR;
 		
@@ -769,14 +769,14 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 }
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
-	ngx_queue_t                    *cur, *next;
+	ngx_slab_pool_t                *shpool = ngx_http_push_shpool;
+	ngx_http_push_subscriber_t     *cur, *next;
 	ngx_int_t                       responded_subscribers=0;
 	if(sentinel==NULL || ngx_queue_empty(&sentinel->queue)) {
 		return NGX_OK;
 	}
 	
-	cur=ngx_queue_head(&sentinel->queue);
+	cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
 	if(msg!=NULL) {
 		//copy everything we need first
 		ngx_str_t                  *content_type=NULL;
@@ -827,18 +827,20 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_shmtx_unlock(&shpool->mutex);
 		
 		//now let's respond to some requests!
-		while(cur!=(ngx_queue_t *)sentinel) {
-			next=ngx_queue_next(cur);
+		while(cur!=sentinel) {
+			next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
 			//in this block, nothing in shared memory should be dereferenced.
-			r=((ngx_http_push_subscriber_t *)cur)->request;
+			r=cur->request;
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
-			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
-			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
+			cur->clndata->subscriber=NULL;
+			cur->clndata->channel=NULL;
 			
 			r->discard_body=0; //hacky hacky!
 			
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
+			
+			//done with this subscriber. free the sucker.
 			ngx_pfree(ngx_http_push_pool, cur);
 			
 			//rewind the buffer, please
@@ -861,14 +863,14 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	else {
 		//headers only probably
 		ngx_http_request_t     *r;
-		while(cur!=(ngx_queue_t *)sentinel) {
-			next=ngx_queue_next(cur);
-			r=((ngx_http_push_subscriber_t *)cur)->request;
+		while(cur!=sentinel) {
+			next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+			r=cur->request;
 			
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
-			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
-			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
-			ngx_http_finalize_request(((ngx_http_push_subscriber_t *)cur)->request, ngx_http_push_respond_status_only(((ngx_http_push_subscriber_t *)cur)->request, status_code, status_line));
+			cur->clndata->subscriber=NULL;
+			cur->clndata->channel=NULL;
+			ngx_http_finalize_request(r, ngx_http_push_respond_status_only(r, status_code, status_line));
 			responded_subscribers++;
 			ngx_pfree(ngx_http_push_pool, cur);
 			cur=next;
@@ -911,9 +913,9 @@ static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, si
 		{ "x-json", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
 		{ "x-yaml", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML }
 	};
-	
 	u_char                         *start = cur + off;
 	ngx_uint_t                      i;
+	
 	for(i=0; i<(sizeof(subtypes)/sizeof(ngx_http_push_content_subtype_t)); i++) {
 		if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
 			if(*priority>start) {
@@ -1068,10 +1070,9 @@ static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t 
 		ngx_pfree(ngx_http_push_pool, data->subscriber); //was there an error? oh whatever.
 	}
 	if(data->channel!=NULL) { //we're expected to decrement the subscriber count
-		ngx_slab_pool_t            *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-		ngx_shmtx_lock(&shpool->mutex);
+		ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
 		data->channel->subscribers--;
-		ngx_shmtx_unlock(&shpool->mutex);
+		ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 	}
 }
 

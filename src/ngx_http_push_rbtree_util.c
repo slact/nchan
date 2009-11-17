@@ -21,7 +21,7 @@ static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_pus
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
 		if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-			ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shm_shpool);
+			ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shpool);
 		}
 		else { //definitely a message left to send
 			return NULL;
@@ -33,7 +33,7 @@ static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_pus
 
 static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
 	ngx_int_t                      res;
-	res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash, ngx_http_push_shm_shpool);
+	res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash, ngx_http_push_shpool);
 	if(res==NGX_OK) {
 		((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels--;
 		return NGX_OK;

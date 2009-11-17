@@ -135,7 +135,7 @@ typedef struct {
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
-ngx_slab_pool_t    *ngx_http_push_shm_shpool;
+ngx_slab_pool_t    *ngx_http_push_shpool;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 
 //garbage-collecting shared memory slab allocation
