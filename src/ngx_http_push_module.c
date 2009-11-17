@@ -500,7 +500,9 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 		pid_t           worker_pid  = cur->pid;
 		ngx_int_t       worker_slot = cur->slot;
 		ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
-		received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
+		if(subscriber_sentinel != NULL && !ngx_queue_empty(&subscriber_sentinel->queue)) {
+			received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
+		}
 		if(msg!=NULL) {
 			//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 			msg->refcount++;
