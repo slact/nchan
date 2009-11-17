@@ -1,6 +1,6 @@
                          Basic HTTP Push Relay Protocol
 
-   Rev. 2.22
+   Rev. 2.23
 
 1. Introduction
 
@@ -37,23 +37,21 @@
           A program that initiates TCP/IP connections with the HTTP server
           for the purpose of sending HTTP requests.
 
-   subscriber
-          A client that sends HTTP requests, which it expects could be
-          long-held, for the purposes of receiving some message when it
-          becomes available. A subscriber receives at most one message per
-          request.
-
-   publisher
-          A client that notifies the server of the availability of
-          messages for some subscriber.
-
    message
-          Application specific data that is relayed from a publisher to a
-          subscriber.
+          Application specific data, usually enclosed in a request or
+          response body.
 
    channel
-          An isolated channel of communication between some publishers and
-          some subscribers privy to its existence.
+          A resource representing an isolated pathway for message
+          transmission. Each channel has a single unique message queue.
+
+   subscriber
+          A client that sends HTTP requests to the server for the purposes
+          of receiving messages via some channel.
+
+   publisher
+          A client that sends HTTP requests to the server in order to
+          transmit messages to subscribers via a channel.
 
    channel id
           A unique identifier for a channel.
@@ -66,13 +64,14 @@
   2.1. Server Requirements
 
    The HTTP server MUST have a mechanism of specifying a url, or a set of
-   urls as publisher and subscriber locations. All connections to the
-   publisher location MUST be treated as publishers, all to the subscriber
-   location as subscribers. Furthermore, the server MUST implement a
-   mechanism for identifying each publisher and subscriber request with an
-   id. This MAY, for example, be a url parameter (/foo/?id=123) or a
-   cookie (although methods of channel identification other than those
-   using the url are inadvisable).
+   urls as publisher and subscriber locations. All requests to the
+   publisher location MUST be treated as publisher requests, all to the
+   subscriber location as subscriber requests.
+
+   The server MUST implement a mechanism for identifying channels with
+   unique ids. This MAY, for example, be a url parameter (/foo/?id=123) or
+   a cookie. Methods of channel identification other than those using the
+   url MAY be used, but are strongly discouraged.
 
    The server MUST accept requests on publisher locations and respond to
    them immediately. It MUST also accept requests on subscriber locations,
@@ -80,9 +79,9 @@
 
   2.2. Client Requirements
 
-   All client HTTP requests must be valid. Subscriber clients must have a
-   caching mechanism that appropriately reacts to Last-Modified and Etag
-   response headers (web browsers, for example).
+   All clients must prodice valid HTTP requests. Subscriber clients must
+   have a caching mechanism that appropriately reacts to Last-Modified and
+   Etag response headers (web browsers, for example).
 
   2.3. The Channel ID
 
@@ -91,51 +90,80 @@
 3. Server Operation
 
    A publisher request functions as notification to the server of a
-   message to send to a subscriber over some channel. A subscriber request
-   notifies the server of the subscriber's intent to receive a message.
+   message to send to some subscribers over some channel. A subscriber
+   request notifies the server of the subscriber's intent to receive a
+   message.
 
   3.1. The Subscriber
 
-   The server MUST accept all valid HTTP requests to the subscriber
-   location. The server, when sent a subscriber request, MUST satisfy all
-   of the following conditions:
-     * GET requests with no If-Modified-Since header will be responded to
-       with the oldest available message in the channel, or will be
-       long-held.
-     * GET requests with an If-Modified-Since header will be responded to
-       with the next message in the channel (as identified by the cache
-       information headers), or will be long-held. The If-None-Match
-       header may also be used.
-     * A GET request that is being long-held MUST be responded to with
-       EITHER:
-          + 200 OK when a message is received. The Content-Type header
-            MUST be set to the same header of the original publisher
-            request.
-          + 410 Gone if the channel becomes unavailable (i.e. has been
-            deleted).
-          + 409 Conflict if another subscriber has conflicted with this
-            request.
-          + 403 Forbidden
-     * All other request methods SHOULD be responded to with a 405 Method
-       Not Allowed status.
+   The server MUST accept all valid HTTP GET requests to the subscriber
+   location. All other request methods SHOULD be responded to with a 405
+   Method Not Allowed status code.
 
-   In addition, the server MUST do one of the following when sent a valid
-   subscriber GET request:
-     * All other long-held subscriber requests will be send a 409 Conflict
-       response. (last-in-first-out)
-     * All but the oldest (including this) request will be sent a 409
-       Conflict response. (first-in-last-out)
-     * No additional actions are performed. (broadcast)
+   Subscriber requests are considered notifications of intent to receive
+   some message. Subscribers may request existing messages, messages that
+   are not yet available, and messages that are no longer available. The
+   requested message is identified using the If-Modified-Since and
+   If-None-Match request headers. A request with no If-Modified-Since
+   header MUST be assumed to be requesting the oldest available message in
+   a channel. Each 200 OK response containing a message MUST have its
+   Last-Modified and Etag headers set so that a request using those
+   headers will be interpreted as a request for the next available
+   message. Additionally, said 200 OK MUST contain the Content-Type header
+   of the message publisher request, unless no Content-Type header had
+   been provided or it is explicitly overridden by server configuration.
 
-   The server SHOULD make this selection configurable.
+   There are several common mechanisms for performing an HTTP server push.
+   The rest of the behavior of the server in response to a subscriber
+   request SHOULD be configurable and MUST be selected from the following
+   list of mechanisms:
+
+   Long-Polling
+          Requests for existing messages will be responded to immediately;
+          responses to requests for messages not yet available MUST be
+          delayed until the message becomes available. Delayed responses
+          MUST satisfy all of the following conditions:
+
+          + A 200 OK response containing the message (and its
+            Content-Type) MUST be sent immediately after the message
+            becomes available. The entire response must be
+            indistinguishable from a response to a request for an existing
+            message.
+          + If the channel the subscriber is waiting on is deleted or for
+            some reason becomes unavailable, the server MUST immediately
+            send a 410 Gone response.
+          + If another subscriber has conflicted with this request, the
+            server MUST immediately send a 409 Conflict response.
+
+   Interval-Polling
+          All requests will be responded to immediately. Requests for
+          messages not yet available MUST produce a 304 Not Modified
+          response code.
+
+   In addition, when the server receives more than one concurrent
+   subscriber request on the same channel, it MUST do one of the
+   following:
+
+   Broadcast
+          No additional actions are performed
+
+   Last-in, first-out
+          All but the most recent long-held subscriber request on the
+          channel are sent a 409 Conflict response.
+
+   First-in, last-out
+          All but the oldest request will be sent a 409 Conflict
+
+   The server SHOULD make this selection configurable, and MUST default to
+   broadcast behavior.
 
   3.2. The Publisher
 
    The server MUST accept all valid HTTP requests to the publisher
    location. The server, when sent a publisher request, MUST satisfy all
    of the following conditions:
-     * GET requests receive a 200 OK response for known channels and a 404
-       Not Found otherwise.
+     * GET requests receive a 200 OK response for existing channels and a
+       404 Not Found otherwise.
      * PUT requests receive a 200 OK response. The request creates a
        channel if no channel with the given channel id exists.
      * DELETE requests receive a 200 OK if the channel identified by the
