@@ -522,7 +522,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 			
 		}
 		ngx_shmtx_lock(&shpool->mutex);
-		cur->subscriber_sentinel=NULL; //no messages here, no sir.
+		ngx_queue_init(&subscriber_sentinel->queue); //no messages here, no sir.
 	}
 	return received;
 }
@@ -770,7 +770,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
 	ngx_queue_t                    *cur, *next;
 	ngx_int_t                       responded_subscribers=0;
-	if(sentinel==NULL) {
+	if(sentinel==NULL || ngx_queue_empty(&sentinel->queue)) {
 		return NGX_OK;
 	}
 	
