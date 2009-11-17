@@ -180,24 +180,6 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 #define ngx_http_push_create_output_chain(buf, pool, log) ngx_http_push_create_output_chain_general(buf, pool, log, NULL)
 #define ngx_http_push_create_output_chain_locked(buf, pool, log, shpool) ngx_http_push_create_output_chain_general(buf, pool, log, shpool)
 
-//missing in nginx < 0.7.?
-#ifndef ngx_queue_insert_tail
-#define ngx_queue_insert_tail(h, x)                                           \
-    (x)->prev = (h)->prev;                                                    \
-    (x)->prev->next = x;                                                      \
-    (x)->next = h;                                                            \
-    (h)->prev = x
-#endif
-
-#ifndef ngx_queue_next
-#define ngx_queue_next(q)                                                     \
-	(q)->next
-#endif
-
-#ifndef NGX_FILE_OWNER_ACCESS
-#define NGX_FILE_OWNER_ACCESS    0600
-#endif
-
 //string constants
 //headers
 const  ngx_str_t NGX_HTTP_PUSH_HEADER_ETAG = ngx_string("Etag");
