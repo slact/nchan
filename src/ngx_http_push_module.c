@@ -279,7 +279,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		ngx_chain_t                *chain;
 		time_t                      last_modified;
 		size_t                      content_type_len;
-		ngx_http_postponed_request_t  *pr, *p;
 
 		case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
 			// ♫ It's gonna be the future soon ♫
@@ -324,21 +323,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
 						return NGX_ERROR;
 					}
-
-					//postpone the request. this seems to be magical.
-					pr = ngx_palloc(r->pool, sizeof(ngx_http_postponed_request_t));
-					if (pr == NULL) {
-						return NGX_ERROR;
-					}
-					pr->request = r; //really?
-					pr->out = NULL;
-					pr->next = NULL;
-					if (r->postponed) {
-						for (p = r->postponed; p->next; p = p->next) { /* void */ }
-						p->next = pr;
-					} else {
-						r->postponed = pr;
-					}
 					
 					 //attach a cleaner to remove the request from the channel.
 					if ((cln=ngx_pool_cleanup_add(r->pool, sizeof(*clndata))) == NULL) { //make sure we can.
@@ -369,11 +353,12 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 					
-#if defined(nginx_version) && nginx_version >= 7000
-					return NGX_OK; //do recall that the request was postponed
-#else
-					return NGX_DONE; //oldschool
-#endif
+					r->read_event_handler = ngx_http_test_reading;
+					r->write_event_handler = ngx_http_request_empty_handler;
+					r->discard_body = 1;
+					r->keepalive=1; //stayin' alive!!
+					return NGX_DONE;
+					
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
 				
 					//interval-polling subscriber requests get a 304 with their entity tags preserved.
@@ -839,8 +824,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			((ngx_http_push_subscriber_t *)cur)->clndata->subscriber=NULL;
 			((ngx_http_push_subscriber_t *)cur)->clndata->channel=NULL;
 			
-			//unpostpone request
-			r->postponed=NULL;
+			r->discard_body=0; //hacky hacky!
 			
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
 			responded_subscribers++;
