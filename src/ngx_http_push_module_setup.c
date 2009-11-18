@@ -224,12 +224,8 @@ static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * 
 }
 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
-	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-	
 	//destroy channel tree in shared memory
-	ngx_shmtx_lock(&shpool->mutex);
 	ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
-	ngx_shmtx_unlock(&shpool->mutex);
 }
 
 static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

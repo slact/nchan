@@ -306,7 +306,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						}
 						cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
 					}
-					if(found==NULL) { //found nothing
+					if(found == NULL) { //found nothing
 						if((found=ngx_http_push_slab_alloc_locked(sizeof(*found)))==NULL) {
 							ngx_shmtx_unlock(&shpool->mutex);
 							ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
@@ -342,6 +342,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					//figure out the subscriber sentinel
 					subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
 					if(subscriber_sentinel==NULL) {
+						//it's perfectly nornal for the sentinel to be NULL.
 						if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
 							ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
 							return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -492,17 +493,16 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
 static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log, ngx_slab_pool_t *shpool) {
 	//subscribers are queued up in a local pool. Queue heads, however, are located
 	//in shared memory, identified by pid.
-	ngx_http_push_pid_queue_t *sentinel = &channel->workers_with_subscribers;
-	ngx_http_push_pid_queue_t *cur = sentinel;
-	ngx_int_t               received = NGX_HTTP_PUSH_MESSAGE_QUEUED;
+	ngx_http_push_pid_queue_t     *sentinel = &channel->workers_with_subscribers;
+	ngx_http_push_pid_queue_t     *cur = sentinel;
+	ngx_int_t                      received;
+	received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
 
 	while((cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue))!=sentinel) {
 		pid_t           worker_pid  = cur->pid;
 		ngx_int_t       worker_slot = cur->slot;
 		ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
-		if(subscriber_sentinel != NULL && !ngx_queue_empty(&subscriber_sentinel->queue)) {
-			received = NGX_HTTP_PUSH_MESSAGE_RECEIVED;
-		}
+
 		if(msg!=NULL) {
 			//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 			msg->refcount++;
@@ -524,7 +524,17 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 			
 		}
 		ngx_shmtx_lock(&shpool->mutex);
-		ngx_queue_init(&subscriber_sentinel->queue); //no messages here, no sir.
+		/*
+		each time all of a worker's subscribers are removed, so is the sentinel. 
+		this is done to make garbage collection easier. Assuming we want to avoid
+		placing the sentinel in shared memory (for now -- it's a little tricky
+		to debug), the owner of the worker pool must be the one to free said sentinel.
+		But channels may be deleted by different worker processes, and it seems unwieldy
+		(for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
+		is used every time the subscriber queue is emptied.
+		*/
+		cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
+		
 	}
 	return received;
 }
@@ -772,7 +782,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	ngx_slab_pool_t                *shpool = ngx_http_push_shpool;
 	ngx_http_push_subscriber_t     *cur, *next;
 	ngx_int_t                       responded_subscribers=0;
-	if(sentinel==NULL || ngx_queue_empty(&sentinel->queue)) {
+	if(sentinel==NULL) {
 		return NGX_OK;
 	}
 	
