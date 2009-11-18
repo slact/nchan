@@ -121,6 +121,11 @@ push_max_channel_id_length [ number ]
   Maximum permissible channel id length (number of characters). 
   Longer ids will be truncated.
 
+push_max_channel_subscribers [ number ]
+  default: 0 (unlimited)
+  context: main, server, location
+  Maximum concurrent subscribers. Pretty self-explanatory.
+
 --------------------------- Example Config -----------------------------------
 http {
   #maximum amount of memory the push module is allowed to use 
