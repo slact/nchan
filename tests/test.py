@@ -1,3 +1,9 @@
+#This is the first shot at it, result of a nightout on Jan 7th, 2010
+#first to compile nginx0.7.64 to with nhpm and then configure & get it to work.
+#This is a dirty "sync" example.
+#TODO: 1. Re-Write with twisted for async
+#2. Improve on the code.
+
 import urllib2
 import simplejson
 import random
