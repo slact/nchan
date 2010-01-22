@@ -631,6 +631,10 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			else if (r->request_body->bufs->buf->in_file) { //(r->request_body->bufs->next == NULL)
 				// nginx can buffer it in a file or in next buffer
 				buf = ngx_create_temp_buf(r->pool, r->request_body->temp_file->file.offset);
+				buf->pos = buf->start;
+				buf->last = buf->start + r->request_body->temp_file->file.offset;
+				buf->end = buf->last;
+				buf->temporary = 1;
 				ngx_read_file (&r->request_body->temp_file->file, buf->start,
 					r->request_body->temp_file->file.offset, 0);
 			}
