@@ -385,8 +385,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			//found the message
 			ngx_shmtx_lock(&shpool->mutex);
 			msg->refcount++; // this probably isn't necessary, but i'm not thinking too straight at the moment. so just in case.
-			if((msg->received)!=(ngx_uint_t) NGX_MAX_UINT32_VALUE){ //overflow check?
-				msg->received++;
+			if(msg->recipients_left!=NGX_INFINITE_MESSAGE_RECIPIENTS) {
+				msg->recipients_left -- ;
 			}
 			NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
 			if(etag==NULL) {
@@ -415,9 +415,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			
 			last_modified = msg->message_time;
 			
-			if(msg->received!=NGX_MAX_UINT32_VALUE) {
-				msg->received++;
-			}
 			//is the message still needed?
 			if(msg!=NULL && (--msg->refcount)==0 && msg->queue.next==NULL) { 
 				//message was dequeued, and nobody needs it anymore
@@ -610,7 +607,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	switch(method) {
 		ngx_http_push_msg_t        *msg, *previous_msg;
 		size_t                      content_type_len;
-		ngx_uint_t                  received;
 		ngx_http_push_msg_t        *sentinel;
 		
 		case NGX_HTTP_POST:
@@ -674,6 +670,8 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			time_t                  message_timeout = cf->buffer_timeout;
 			msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
 			
+			msg->recipients_left = cf->min_message_recipients == 0 ? NGX_INFINITE_MESSAGE_RECIPIENTS : cf->min_message_recipients;
+			
 			//FMI (For My Information): shm is still locked.
 			switch(ngx_http_push_broadcast_message_locked(channel, msg, r->connection->log, shpool)) {
 				
@@ -695,9 +693,10 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 					//update the number of times the message was received.
 					//in the interest of premature optimization, I assume all
 					//current subscribers have received the message successfully.
-					received = msg->received;					
-					//nasty overflow check
-					msg->received = (received + subscribers < received) ? NGX_MAX_UINT32_VALUE : (received + subscribers);
+					if(msg->recipients_left != NGX_INFINITE_MESSAGE_RECIPIENTS) { //we care about # of times message has been received
+						msg->recipients_left -= subscribers;
+						//warning: overflow for 2^31+ subscribers -- a very unlikely number.
+					}
 					break;
 					
 				case NGX_ERROR:
@@ -733,10 +732,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 				//exceeeds min queue size. maybe delete the oldest message
 				ngx_http_push_msg_t    *oldest_msg = ngx_http_push_get_oldest_message_locked(channel);
 				NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", shpool);
-				if(oldest_msg->received >= (ngx_uint_t) cf->min_message_recipients) {
-					//received more than min_message_recipients times
-					ngx_http_push_delete_message_locked(channel, oldest_msg, shpool);
-				}
 			}
 			messages = channel->messages;
 			
@@ -889,9 +884,15 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	ngx_shmtx_lock(&shpool->mutex);
 	channel->subscribers-=responded_subscribers;
 	//is the message still needed?
-	if(msg!=NULL && (--msg->refcount)==0 && msg->queue.next==NULL) { 
-		//message was dequeued, and nobody needs it anymore
-		ngx_http_push_free_message_locked(msg, shpool);
+	if(msg!=NULL && (--msg->refcount)==0) {
+		if(msg->recipients_left <= 0) {
+			//received min_message_recipients times
+			ngx_http_push_delete_message_locked(channel, msg, shpool);
+		}
+		if(msg->queue.next==NULL) { 
+			//message was dequeued, and nobody needs it anymore
+			ngx_http_push_free_message_locked(msg, shpool);
+		}
 	}
 	ngx_shmtx_unlock(&shpool->mutex);
 	ngx_pfree(ngx_http_push_pool, sentinel);

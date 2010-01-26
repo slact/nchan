@@ -64,6 +64,8 @@ typedef struct {
 	ngx_int_t                       max_channel_subscribers;
 } ngx_http_push_loc_conf_t;
 
+#define NGX_INFINITE_MESSAGE_RECIPIENTS         (2^31)-1
+
 //message queue
 typedef struct {
     ngx_queue_t                     queue; //this MUST be first.
@@ -71,7 +73,7 @@ typedef struct {
 //	ngx_str_t                       charset;
 	ngx_buf_t                      *buf;
 	time_t                          expires;
-	ngx_uint_t                      received;
+	ngx_int_t                       recipients_left; //# of times message is received before it should be deleted.
 	time_t                          message_time; //tag message by time
 	ngx_int_t                       message_tag;  //used in conjunction with message_time if more than one message have the same time.
 	ngx_int_t                       refcount;
