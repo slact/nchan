@@ -84,6 +84,22 @@ static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_pus
 	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
 
+static void ngx_http_push_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+	msg->refcount++;
+	//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
+}
+
+static void ngx_http_push_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+	msg->refcount--;
+	if(msg->queue.next==NULL && !msg->refcount) { 
+		//message had been dequeued and nobody needs it anymore
+		ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
+	}
+	if(msg->delete_oldest_received>=0 && ngx_http_push_get_oldest_message_locked(channel) == msg) {
+		ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shpool);
+	}
+}
+
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
 static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool) {
 	if (msg==NULL) { 
@@ -384,7 +400,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		case NGX_HTTP_PUSH_MESSAGE_FOUND:
 			//found the message
 			ngx_shmtx_lock(&shpool->mutex);
-			msg->refcount++; // this probably isn't necessary, but i'm not thinking too straight at the moment. so just in case.
+			ngx_http_push_reserve_message_locked(channel, msg);
 			NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
 			if(etag==NULL) {
 				//oh, nevermind...
@@ -413,10 +429,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			last_modified = msg->message_time;
 			
 			//is the message still needed?
-			if(msg!=NULL && (--msg->refcount)==0 && msg->queue.next==NULL) { 
-				//message was dequeued, and nobody needs it anymore
-				ngx_http_push_free_message_locked(msg, shpool);
-			}
+			ngx_http_push_release_message_locked(channel, msg);
 			ngx_shmtx_unlock(&shpool->mutex);
 			
 			if(chain->buf->file!=NULL) {
@@ -498,8 +511,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 		ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
 
 		if(msg!=NULL) {
-			//we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
-			msg->refcount++;
+			
 		}
 		ngx_shmtx_unlock(&shpool->mutex);
 		if(worker_pid == ngx_pid) {
@@ -864,16 +876,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		
 		ngx_shmtx_lock(&shpool->mutex);
 		//message deletion
-		msg->refcount--; //refcount kept mostly for internal debuggery.
-		
-		if(msg->queue.next==NULL && !msg->refcount) { 
-			//message had been dequeued and nobody needs it anymore
-			ngx_http_push_free_message_locked(msg, shpool);
-		}
-		
-		if(msg->delete_oldest_received && ngx_http_push_get_oldest_message_locked(channel) == msg) {
-			ngx_http_push_delete_message_locked(channel, msg, shpool);
-		}
+		ngx_http_push_release_message_locked(channel, msg);
 		ngx_shmtx_unlock(&shpool->mutex);
 	}
 	else {
@@ -916,7 +919,7 @@ static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
 	}
 	return NGX_DONE;
 }
-
+		
 static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
 	static ngx_http_push_content_subtype_t subtypes[] = {
 		{ "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
