@@ -74,7 +74,7 @@ static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_pus
 	return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
 
-//shpool must be locked. No memory is freed.
+//shpool must be locked. No memory is freed. O(1)
 static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel) {
 	ngx_queue_t                    *sentinel = &channel->message_queue->queue; 
 	if(ngx_queue_empty(sentinel)) {
@@ -385,9 +385,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			//found the message
 			ngx_shmtx_lock(&shpool->mutex);
 			msg->refcount++; // this probably isn't necessary, but i'm not thinking too straight at the moment. so just in case.
-			if(msg->recipients_left!=NGX_INFINITE_MESSAGE_RECIPIENTS) {
-				msg->recipients_left -- ;
-			}
 			NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
 			if(etag==NULL) {
 				//oh, nevermind...
@@ -670,7 +667,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			time_t                  message_timeout = cf->buffer_timeout;
 			msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
 			
-			msg->recipients_left = cf->min_message_recipients == 0 ? NGX_INFINITE_MESSAGE_RECIPIENTS : cf->min_message_recipients;
+			msg->delete_oldest_received = cf->delete_oldest_received_message;
 			
 			//FMI (For My Information): shm is still locked.
 			switch(ngx_http_push_broadcast_message_locked(channel, msg, r->connection->log, shpool)) {
@@ -693,10 +690,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 					//update the number of times the message was received.
 					//in the interest of premature optimization, I assume all
 					//current subscribers have received the message successfully.
-					if(msg->recipients_left != NGX_INFINITE_MESSAGE_RECIPIENTS) { //we care about # of times message has been received
-						msg->recipients_left -= subscribers;
-						//warning: overflow for 2^31+ subscribers -- a very unlikely number.
-					}
 					break;
 					
 				case NGX_ERROR:
@@ -864,6 +857,19 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_pfree(ngx_http_push_pool, buffer);
 		ngx_pfree(ngx_http_push_pool, chain);
 		
+		ngx_shmtx_lock(&shpool->mutex);
+		//message deletion
+		msg->refcount--; //refcount kept mostly for internal debuggery.
+		
+		if(msg->queue.next==NULL && !msg->refcount) { 
+			//message had been dequeued and nobody needs it anymore
+			ngx_http_push_free_message_locked(msg, shpool);
+		}
+		
+		if(msg->delete_oldest_received && ngx_http_push_get_oldest_message_locked(channel) == msg) {
+			ngx_http_push_delete_message_locked(channel, msg, shpool);
+		}
+		ngx_shmtx_unlock(&shpool->mutex);
 	}
 	else {
 		//headers only probably
@@ -884,16 +890,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 	ngx_shmtx_lock(&shpool->mutex);
 	channel->subscribers-=responded_subscribers;
 	//is the message still needed?
-	if(msg!=NULL && (--msg->refcount)==0) {
-		if(msg->recipients_left <= 0) {
-			//received min_message_recipients times
-			ngx_http_push_delete_message_locked(channel, msg, shpool);
-		}
-		if(msg->queue.next==NULL) { 
-			//message was dequeued, and nobody needs it anymore
-			ngx_http_push_free_message_locked(msg, shpool);
-		}
-	}
 	ngx_shmtx_unlock(&shpool->mutex);
 	ngx_pfree(ngx_http_push_pool, sentinel);
 	return NGX_OK;
