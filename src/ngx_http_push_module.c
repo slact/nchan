@@ -95,7 +95,7 @@ static void ngx_http_push_release_message_locked(ngx_http_push_channel_t *channe
 		//message had been dequeued and nobody needs it anymore
 		ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
 	}
-	if(msg->delete_oldest_received>=0 && ngx_http_push_get_oldest_message_locked(channel) == msg) {
+	if(channel->messages > msg->delete_oldest_received_min_messages && ngx_http_push_get_oldest_message_locked(channel) == msg) {
 		ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shpool);
 	}
 }
@@ -684,7 +684,8 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			time_t                  message_timeout = cf->buffer_timeout;
 			msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
 			
-			msg->delete_oldest_received = cf->delete_oldest_received_message;
+			msg->delete_oldest_received_min_messages = cf->delete_oldest_received_message ? (ngx_uint_t) cf->min_messages : NGX_MAX_UINT32_VALUE;
+			//NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
 			
 			//FMI (For My Information): shm is still locked.
 			switch(ngx_http_push_broadcast_message_locked(channel, msg, r->connection->log, shpool)) {
