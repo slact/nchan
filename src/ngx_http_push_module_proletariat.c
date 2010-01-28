@@ -2,19 +2,28 @@
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev);
 static ngx_inline void ngx_http_push_process_worker_message(void);
+static void ngx_http_push_shutdown_ipc(ngx_cycle_t *cycle);
 
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 49
 
-ngx_socket_t *ngx_http_push_socketpairs;
+ngx_socket_t                       *ngx_http_push_socketpairs = NULL;
+ngx_int_t                           ngx_http_push_num_socketpaired_workers;
 
 static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	int                             s, on = 1;
-	if((ngx_http_push_socketpairs = (ngx_socket_t *) ngx_calloc(sizeof(ngx_socket_t[2])*workers, cycle->log))==NULL) {
+	if(ngx_http_push_socketpairs) {
+		//take care of existing socketpairs.
+		//we can't reuse the same ones because a reload (SIGHUP) may have
+		//been issued and nginx now has a different number of worker processes.
+		ngx_http_push_shutdown_ipc(cycle);
+	}
+	ngx_http_push_num_socketpaired_workers = workers;
+	if((ngx_http_push_socketpairs = (ngx_socket_t *) ngx_calloc(sizeof(ngx_socket_t[2])*ngx_http_push_num_socketpaired_workers, cycle->log))==NULL) {
 		return NGX_ERROR;
 	}
 	for(s=0; s < workers; s++) {
 		//copypasta from os/unix/ngx_process.c (ngx_spawn_process)
-		ngx_socket_t                socks[2];
+		ngx_socket_t               *socks = &ngx_http_push_socketpairs[2*s];
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == -1) {
 			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing push module");
 			return NGX_ERROR;
@@ -51,10 +60,16 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 			ngx_close_channel(socks, cycle->log);
 			return NGX_ERROR;
 		}
-		ngx_http_push_socketpairs[2*s]=socks[0];
-		(ngx_http_push_socketpairs[2*s+1])=socks[1];
 	}
 	return NGX_OK;
+}
+
+static void ngx_http_push_shutdown_ipc(ngx_cycle_t *cycle) {
+	int                            s;
+	for(s=0; s<ngx_http_push_num_socketpaired_workers; s+=2) {
+		ngx_close_channel(&ngx_http_push_socketpairs[s], cycle->log);
+	}
+	ngx_free(ngx_http_push_socketpairs);
 }
  
 //will be called many times
@@ -84,6 +99,7 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 
 static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle) {
 	if (ngx_add_channel_event(cycle, ngx_http_push_socketpairs[2*ngx_process_slot+1], NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
+		ngx_debug_point();
 		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing push module worker");
 		return NGX_ERROR;
 	}

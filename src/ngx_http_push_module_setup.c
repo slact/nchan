@@ -226,6 +226,7 @@ static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
 	//destroy channel tree in shared memory
 	ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
+	ngx_http_push_shutdown_ipc(cycle);
 }
 
 static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
