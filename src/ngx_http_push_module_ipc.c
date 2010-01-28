@@ -72,8 +72,8 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	return NGX_OK;
 }
 
-static void ngx_http_push_ipc_exit_process(ngx_cycle_t *cycle) {
-	ngx_close_channel(&ngx_http_push_socketpairs[ngx_process_slot], cycle->log);
+static void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle) {
+	ngx_close_channel((ngx_socket_t *) ngx_http_push_socketpairs[ngx_process_slot], cycle->log);
 	ngx_http_push_socketpairs[ngx_process_slot][0] = NGX_INVALID_FILE;
 	ngx_http_push_socketpairs[ngx_process_slot][1] = NGX_INVALID_FILE;
 }
@@ -150,7 +150,7 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
 static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_log_t *log) {
 	//seems ch doesn't need to have fd set. odd, but roll with it. pid and process slot also unnecessary.
 	static ngx_channel_t            ch = {NGX_CMD_HTTP_PUSH_CHECK_MESSAGES, 0, 0, -1};
-	return ngx_write_channel(ngx_http_push_socketpairs[2*slot], &ch, sizeof(ngx_channel_t), log);
+	return ngx_write_channel(ngx_http_push_socketpairs[slot][0], &ch, sizeof(ngx_channel_t), log);
 }
 
 static ngx_inline void ngx_http_push_process_worker_message(void) {

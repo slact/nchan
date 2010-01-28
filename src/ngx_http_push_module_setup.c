@@ -228,7 +228,7 @@ static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
 	ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
 }
 
-static void ngx_http_push_exit_worker(ngx_cycle *cycle) {
+static void ngx_http_push_exit_worker(ngx_cycle_t *cycle) {
 	ngx_http_push_ipc_exit_worker(cycle);
 }
 
@@ -377,7 +377,7 @@ ngx_module_t  ngx_http_push_module = {
     ngx_http_push_init_worker,             /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
-    ngx_http_push_exit_process,            /* exit process */
-    NULL,                                  /* exit master */
+    ngx_http_push_exit_worker,             /* exit process */
+    ngx_http_push_exit_master,             /* exit master */
     NGX_MODULE_V1_PADDING
 };
