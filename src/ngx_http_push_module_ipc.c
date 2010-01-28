@@ -2,28 +2,36 @@
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev);
 static ngx_inline void ngx_http_push_process_worker_message(void);
-static void ngx_http_push_shutdown_ipc(ngx_cycle_t *cycle);
+static void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle);
 
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 49
 
-ngx_socket_t                       *ngx_http_push_socketpairs = NULL;
-ngx_int_t                           ngx_http_push_num_socketpaired_workers;
+ngx_socket_t                       ngx_http_push_socketpairs[NGX_MAX_PROCESSES][2];
 
 static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
-	int                             s, on = 1;
-	if(ngx_http_push_socketpairs) {
-		//take care of existing socketpairs.
-		//we can't reuse the same ones because a reload (SIGHUP) may have
-		//been issued and nginx now has a different number of worker processes.
-		ngx_http_push_shutdown_ipc(cycle);
-	}
-	ngx_http_push_num_socketpaired_workers = workers;
-	if((ngx_http_push_socketpairs = (ngx_socket_t *) ngx_calloc(sizeof(ngx_socket_t[2])*ngx_http_push_num_socketpaired_workers, cycle->log))==NULL) {
-		return NGX_ERROR;
-	}
-	for(s=0; s < workers; s++) {
+	int                             i, s, on = 1;
+	
+	/* here's the deal: we have no control over fork()ing, nginx's internal 
+	  socketpairs are unusable for our purposes (as of nginx 0.8 -- check the 
+	  code to see why), and the module initialization callbacks occur before
+	  any workers are spawned. Rather than futzing around with existing 
+	  socketpairs, we populate our own socketpairs array. 
+	  Trouble is, ngx_spawn_process() creates them one-by-one, and we need to 
+	  do it all at once. So we must guess all the workers' ngx_process_slots in 
+	  advance. Meaning the spawning logic must be copied to the T.
+	*/
+	
+	for(i=0; s < workers; s++) 
+	{
+	
+		for (s = 0; s < ngx_last_process; s++) {
+			if (ngx_processes[s].pid == -1) {
+				break;
+			}
+		}
+	
 		//copypasta from os/unix/ngx_process.c (ngx_spawn_process)
-		ngx_socket_t               *socks = &ngx_http_push_socketpairs[2*s];
+		ngx_socket_t               *socks = ngx_http_push_socketpairs[s];
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == -1) {
 			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing push module");
 			return NGX_ERROR;
@@ -64,12 +72,10 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	return NGX_OK;
 }
 
-static void ngx_http_push_shutdown_ipc(ngx_cycle_t *cycle) {
-	int                            s;
-	for(s=0; s<ngx_http_push_num_socketpaired_workers; s+=2) {
-		ngx_close_channel(&ngx_http_push_socketpairs[s], cycle->log);
-	}
-	ngx_free(ngx_http_push_socketpairs);
+static void ngx_http_push_ipc_exit_process(ngx_cycle_t *cycle) {
+	ngx_close_channel(&ngx_http_push_socketpairs[ngx_process_slot], cycle->log);
+	ngx_http_push_socketpairs[ngx_process_slot][0] = NGX_INVALID_FILE;
+	ngx_http_push_socketpairs[ngx_process_slot][1] = NGX_INVALID_FILE;
 }
  
 //will be called many times
@@ -98,7 +104,7 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 }
 
 static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle) {
-	if (ngx_add_channel_event(cycle, ngx_http_push_socketpairs[2*ngx_process_slot+1], NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
+	if (ngx_add_channel_event(cycle, ngx_http_push_socketpairs[ngx_process_slot][1], NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
 		ngx_debug_point();
 		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing push module worker");
 		return NGX_ERROR;

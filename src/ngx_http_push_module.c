@@ -9,7 +9,7 @@
 
 #include <ngx_http_push_module.h>
 #include <ngx_http_push_rbtree_util.c>
-#include <ngx_http_push_module_proletariat.c>
+#include <ngx_http_push_module_ipc.c>
 #include <ngx_http_push_module_setup.c>
 
 //emergency garbage collecting goodness;

@@ -226,7 +226,10 @@ static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
 	//destroy channel tree in shared memory
 	ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
-	ngx_http_push_shutdown_ipc(cycle);
+}
+
+static void ngx_http_push_exit_worker(ngx_cycle *cycle) {
+	ngx_http_push_ipc_exit_worker(cycle);
 }
 
 static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -374,7 +377,7 @@ ngx_module_t  ngx_http_push_module = {
     ngx_http_push_init_worker,             /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
-    NULL,                                  /* exit process */
-    ngx_http_push_exit_master,             /* exit master */
+    ngx_http_push_exit_process,            /* exit process */
+    NULL,                                  /* exit master */
     NGX_MODULE_V1_PADDING
 };
