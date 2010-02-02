@@ -119,8 +119,10 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
 	if(msg->buf->file!=NULL) {
 		ngx_shmtx_unlock(&shpool->mutex);
-		ngx_close_file(msg->buf->file->fd); //again, carest thou aboutst thine errorests?
-		ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors?
+		if(msg->buf->file->fd!=NGX_INVALID_FILE) {
+			ngx_close_file(msg->buf->file->fd);
+		}
+		ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
 		ngx_shmtx_lock(&shpool->mutex);
 	}
 	ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
@@ -629,22 +631,16 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 				//this buffer will get copied to shared memory in a few lines, 
 				//so it does't matter what pool we make it in.
 			}
-			else if(r->request_body->temp_file==NULL) { //everything in the first buffer, please
-				//no file
+			else if(r->request_body->bufs->buf!=NULL) { //everything in the first buffer, please
 				buf=r->request_body->bufs->buf;
 			}
-			else if (r->request_body->bufs->buf->in_file) { //(r->request_body->bufs->next == NULL)
-				// nginx can buffer it in a file or in next buffer
-				buf = ngx_create_temp_buf(r->pool, r->request_body->temp_file->file.offset);
-				buf->pos = buf->start;
-				buf->last = buf->start + r->request_body->temp_file->file.offset;
-				buf->end = buf->last;
-				buf->temporary = 1;
-				ngx_read_file (&r->request_body->temp_file->file, buf->start,
-					r->request_body->temp_file->file.offset, 0);
-			}
-			else { //(r->request_body->bufs->next!=NULL)
+			else if(r->request_body->bufs->next!=NULL) {
 				buf=r->request_body->bufs->next->buf;
+			}
+			else {
+				ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
+				ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+				return;
 			}
 			
 			NGX_HTTP_PUSH_PUBLISHER_CHECK(buf, NULL, r, "push module: can't find or allocate publisher request body buffer");
