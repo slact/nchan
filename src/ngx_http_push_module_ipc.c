@@ -9,7 +9,8 @@ static void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle);
 ngx_socket_t                       ngx_http_push_socketpairs[NGX_MAX_PROCESSES][2];
 
 static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
-	int                             i, s, on = 1;
+	int                             i, s = 0, on = 1;
+	ngx_int_t                       last_expected_process = ngx_last_process;
 	
 	/* here's the deal: we have no control over fork()ing, nginx's internal 
 	  socketpairs are unusable for our purposes (as of nginx 0.8 -- check the 
@@ -21,15 +22,13 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	  advance. Meaning the spawning logic must be copied to the T.
 	*/
 	
-	for(i=0; s < workers; s++) 
-	{
+	for(i=0; i < workers; i++) {
 	
-		for (s = 0; s < ngx_last_process; s++) {
-			if (ngx_processes[s].pid == -1) {
-				break;
-			}
+		while (s < last_expected_process && ngx_processes[s].pid != -1) {
+			//find empty existing slot
+			s++;
 		}
-	
+			
 		//copypasta from os/unix/ngx_process.c (ngx_spawn_process)
 		ngx_socket_t               *socks = ngx_http_push_socketpairs[s];
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == -1) {
@@ -68,14 +67,14 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 			ngx_close_channel(socks, cycle->log);
 			return NGX_ERROR;
 		}
+		
+		s++; //NEXT!!
 	}
 	return NGX_OK;
 }
 
 static void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle) {
 	ngx_close_channel((ngx_socket_t *) ngx_http_push_socketpairs[ngx_process_slot], cycle->log);
-	ngx_http_push_socketpairs[ngx_process_slot][0] = NGX_INVALID_FILE;
-	ngx_http_push_socketpairs[ngx_process_slot][1] = NGX_INVALID_FILE;
 }
  
 //will be called many times
@@ -105,7 +104,6 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 
 static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle) {
 	if (ngx_add_channel_event(cycle, ngx_http_push_socketpairs[ngx_process_slot][1], NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
-		ngx_debug_point();
 		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing push module worker");
 		return NGX_ERROR;
 	}
