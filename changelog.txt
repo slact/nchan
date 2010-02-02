@@ -1,3 +1,4 @@
+ fix: worker messages intended for dead worker processes were not deleted
 0.691 (Feb. 2 2010)
  fix: server reload (via SIGHUP signal) was failing
  fix: segfault on messages longer than client_body_buffer_size (thanks wfelipe)

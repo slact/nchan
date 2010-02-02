@@ -152,7 +152,7 @@ static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_l
 }
 
 static ngx_inline void ngx_http_push_process_worker_message(void) {
-	ngx_http_push_worker_msg_t     *worker_msg, *sentinel;
+	ngx_http_push_worker_msg_t     *prev_worker_msg, *worker_msg, *sentinel;
 	const ngx_str_t                *status_line = NULL;
 	ngx_http_push_channel_t        *channel;
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
@@ -201,11 +201,24 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 		else {
 			//that's quite bad you see. a previous worker died with an undelivered message.
 			//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
-			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: intercepted a message intended for another worker process that probably died");
+			
+			ngx_http_push_pid_queue_t     *channel_worker_sentinel = &worker_msg->channel->workers_with_subscribers;
+			ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
+			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
+			
+			//delete that invalid sucker.
+			while((channel_worker_cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&channel_worker_cur->queue))!=channel_worker_sentinel) {
+				if(channel_worker_cur->pid == worker_msg->pid) {
+					ngx_queue_remove(&channel_worker_cur->queue);
+					ngx_slab_free_locked(shpool, channel_worker_cur);
+					break;
+				}
+			}
 		}
 		//It may be worth it to memzero worker_msg for debugging purposes.
+		prev_worker_msg = worker_msg;
 		worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue);
-		ngx_slab_free_locked(shpool, ngx_queue_prev(&worker_msg->queue));
+		ngx_slab_free_locked(shpool, prev_worker_msg);
 	}
 	ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
 	ngx_shmtx_unlock(&shpool->mutex);
