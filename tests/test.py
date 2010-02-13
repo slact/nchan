@@ -1,4 +1,4 @@
-#a dirty "sync" example.
+#A dirty "sync" example.
 #TODO: 1. Re-Write with twisted for async
 #2. Improve on the code.
 
