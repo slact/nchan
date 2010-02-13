@@ -1,6 +1,4 @@
-#This is the first shot at it, result of a nightout on Jan 7th, 2010
-#first to compile nginx0.7.64 to with nhpm and then configure & get it to work.
-#This is a dirty "sync" example.
+#a dirty "sync" example.
 #TODO: 1. Re-Write with twisted for async
 #2. Improve on the code.
 
@@ -17,24 +15,32 @@ import logging
 logging.basicConfig(level = logging.DEBUG)
 log = logging.getLogger('test.py')
 
-def publish():
+def publish(i):
+    print i
     res = urllib2.urlopen(PUBLISHER_URL, \
                               data = simplejson.dumps(\
-            {'message': 'hello world %d' % random.randint(1, 100)}))
+            {'message': 'hello world %d' % i}))
     return 
 
-def subscribe(dummy):
-    res = urllib2.urlopen(SUBSCRIBER_URL)
-    log.info('pid::'+str(os.getpid()))
-    log.info('msg:: '+res.read()+'\n')
+def subscribe(num):
+    et = None
+    last = None
+    while True:
+        req = urllib2.Request(SUBSCRIBER_URL, 
+                              headers={'If-None-Match':et, \
+                                           'If-Modified-Since': last})
+        resp = urllib2.urlopen(req)
+        et = resp.headers['etag']
+        last = resp.headers['last-modified']
+        log.info('Subscriber:%d \r\nmsg:: %s\n' % 
+                 (num, resp.read()))
 
 
 if __name__ == '__main__':
-    pool = threadpool.ThreadPool(2)
-    requests = threadpool.makeRequests(subscribe, [1]*20)
-    while True:
-        t = Thread(target = publish)
-        t.run()
-        [pool.putRequest(request) for request in requests]
-        pool.wait()
-        #time.sleep(random.randint(3, 4))    
+    pool = threadpool.ThreadPool(10)
+    requests = threadpool.makeRequests(subscribe, range(20))
+    [pool.putRequest(request) for request in requests]
+    for i in range(100):
+        publish(i)
+    time.sleep(random.randint(3, 4))       
+        
