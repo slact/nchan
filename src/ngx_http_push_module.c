@@ -208,6 +208,7 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 		r->headers_out.status=NGX_HTTP_NOT_FOUND;
 		r->headers_out.content_type.len = sizeof("text/plain") - 1;
 		r->headers_out.content_type.data = (u_char *) "text/plain";
+		r->headers_out.content_type_len = r->headers_out.content_type.len;
 		ngx_http_send_header(r);
 		ngx_http_output_filter(r, chain);
 		ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
@@ -1006,6 +1007,7 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 
 	r->headers_out.content_type.len = content_type.len;
 	r->headers_out.content_type.data = content_type.data;
+	r->headers_out.content_type_len = r->headers_out.content_type.len;
 	
 	len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
 	
@@ -1152,6 +1154,7 @@ static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_r
 	if (content_type!=NULL) {
 		r->headers_out.content_type.len=content_type->len;
 		r->headers_out.content_type.data = content_type->data;
+		r->headers_out.content_type_len = r->headers_out.content_type.len;
 	}
 	if(last_modified) {
 		//if-modified-since header
