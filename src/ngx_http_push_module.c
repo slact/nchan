@@ -587,7 +587,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	ngx_shmtx_lock(&shpool->mutex);
 	//POST requests will need a channel created if it doesn't yet exist.
 	if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-		if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
+		if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(0, 0, r, "push module: trying to push an empty message", shpool);
 		}
 		channel = ngx_http_push_get_channel(id, r->connection->log);
