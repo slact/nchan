@@ -256,7 +256,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_str_t                      *etag;
 	
 	if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_OPTIONS) {
-		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for teh win
+		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for the win
 		return NGX_HTTP_NOT_ALLOWED;
 	}
 	
