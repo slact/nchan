@@ -255,7 +255,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_str_t                      *content_type=NULL;
 	ngx_str_t                      *etag;
 	
-	if (r->method != NGX_HTTP_GET) {
+	if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_OPTIONS) {
 		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for teh win
 		return NGX_HTTP_NOT_ALLOWED;
 	}
@@ -618,7 +618,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		return;
 	}
 	ngx_shmtx_unlock(&shpool->mutex);
-	
+
 	switch(method) {
 		ngx_http_push_msg_t        *msg, *previous_msg;
 		size_t                      content_type_len;
@@ -755,7 +755,8 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			return;
 			
 		case NGX_HTTP_PUT:
-		case NGX_HTTP_GET: 
+		case NGX_HTTP_GET:
+		case NGX_HTTP_OPTIONS:        
 			r->headers_out.status = NGX_HTTP_OK;
 			ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
 			return;
