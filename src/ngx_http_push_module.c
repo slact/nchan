@@ -244,6 +244,8 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
         ngx_memcpy(content_type->data, (msg)->content_type.data, content_type_len);  \
     }
 
+#define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
+
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
@@ -255,10 +257,24 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_str_t                      *content_type=NULL;
 	ngx_str_t                      *etag;
 	
-	if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_OPTIONS) {
+    if (r->method == NGX_HTTP_OPTIONS) {
+        ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
+		ngx_chain_t *chain;
+		buf->pos=(u_char *)NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE;
+		buf->last=buf->pos + sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE)-1;
+		chain = ngx_http_push_create_output_chain(buf, r->pool, r->connection->log);
+		buf->last_buf=1;
+        r->headers_out.content_length_n=ngx_buf_size(buf);
+		r->headers_out.status=NGX_HTTP_OK;
+		ngx_http_send_header(r);
+		ngx_http_output_filter(r, chain);
+        return NGX_OK;
+    }
+    
+	if (r->method != NGX_HTTP_GET) {
 		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for the win
 		return NGX_HTTP_NOT_ALLOWED;
-	}
+	}    
 	
 	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
 		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -756,7 +772,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			
 		case NGX_HTTP_PUT:
 		case NGX_HTTP_GET:
-		case NGX_HTTP_OPTIONS:        
 			r->headers_out.status = NGX_HTTP_OK;
 			ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
 			return;
