@@ -295,9 +295,15 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			return NGX_HTTP_INTERNAL_SERVER_ERROR;
 		}
 	}
-	msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
-	channel->last_seen = ngx_time();
-	ngx_shmtx_unlock(&shpool->mutex);
+
+    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
+    channel->last_seen = ngx_time();
+    ngx_shmtx_unlock(&shpool->mutex);
+    
+    if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
+        msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
+        msg = NULL;
+    }
 	
 	switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
 		case NGX_DECLINED: //this request was declined for some reason.
@@ -391,7 +397,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					r->read_event_handler = ngx_http_test_reading;
 					r->write_event_handler = ngx_http_request_empty_handler;
 					r->discard_body = 1;
-					r->keepalive=1; //stayin' alive!!
+                    r->keepalive = 1; //stayin' alive!!
 					return NGX_DONE;
 					
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
@@ -464,7 +470,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				clnf->name = chain->buf->file->name.data;
 				clnf->log = r->pool->log;
 			}
-
 			
 			return ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
 			
@@ -1039,6 +1044,22 @@ static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
 		tag=0;
 	}
 	return ngx_abs(tag);
+}
+
+static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
+    ngx_str_t *tmp_header;
+    ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
+    ngx_int_t i = 0;
+
+    for(; i < 2; i++) {
+        tmp_header = ngx_http_push_find_in_header_value(r, header_checks[i]);
+
+        if (tmp_header != NULL) {
+            return !!ngx_strncasecmp(tmp_header->data, NGX_HTTP_PUSH_CACHE_CONTROL_VALUE.data, tmp_header->len);
+        }
+    }
+
+    return 1;
 }
 
 static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
