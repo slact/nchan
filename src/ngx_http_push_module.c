@@ -15,6 +15,26 @@
 //emergency garbage collecting goodness;
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 
+static void ngx_http_push_clean_timeouted_subscribter(ngx_event_t *ev)
+{
+	ngx_http_push_subscriber_t *subscriber = NULL;
+	ngx_http_request_t *r = NULL;
+	ngx_chain_t *chain = NULL;
+
+	subscriber = ev->data;
+	r = subscriber->request;
+
+	r->header_only = 1;
+	r->headers_out.content_length_n = 0;
+	r->headers_out.status = NGX_HTTP_NOT_MODIFIED;
+
+	r->headers_out.content_type.len = sizeof("text/plain") - 1;
+	r->headers_out.content_type.data = (u_char *) "text/plain";
+
+	ngx_http_send_header(r);
+	ngx_http_output_filter(r, chain);
+}
+
 static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
 	if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
 		ngx_http_push_channel_queue_t *trashy;
@@ -395,6 +415,13 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 					
+					if (cf->subscriber_timeout > 0) {		
+						subscriber->event.handler = ngx_http_push_clean_timeouted_subscribter;	
+						subscriber->event.data = subscriber;
+						subscriber->event.log = r->connection->log;
+						ngx_add_timer(&subscriber->event, cf->subscriber_timeout * 1000);
+					}
+
 					r->read_event_handler = ngx_http_test_reading;
 					r->write_event_handler = ngx_http_request_empty_handler;
 					r->discard_body = 1;

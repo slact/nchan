@@ -5,6 +5,7 @@
 
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
+#define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_TIMEOUT 0  //default: never timeout
 
 #define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES 1
 #define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGES 10
@@ -56,6 +57,7 @@ typedef struct {
 	ngx_int_t                       max_messages;
 	ngx_int_t                       subscriber_concurrency;
 	ngx_int_t                       subscriber_poll_mechanism;
+	time_t                          subscriber_timeout;
 	ngx_int_t                       authorize_channel;
 	ngx_int_t                       store_messages;
 	ngx_int_t                       delete_oldest_received_message;
@@ -85,6 +87,7 @@ typedef struct {
     ngx_queue_t                     queue; //this MUST be first.
 	ngx_http_request_t             *request;
 	ngx_http_push_subscriber_cleanup_t *clndata; 
+	ngx_event_t                     event;
 } ngx_http_push_subscriber_t;
 
 typedef struct {
