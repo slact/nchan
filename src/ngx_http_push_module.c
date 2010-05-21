@@ -1075,6 +1075,28 @@ static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
 	return ngx_abs(tag);
 }
 
+static ngx_str_t * ngx_http_push_find_in_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
+    ngx_uint_t                       i;
+    ngx_list_part_t                 *part = &r->headers_in.headers.part;
+    ngx_table_elt_t                 *header= part->elts;
+
+    for (i = 0; /* void */ ; i++) {
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+            part = part->next;
+            header = part->elts;
+            i = 0;
+        }
+        if (header[i].key.len == header_name.len
+            && ngx_strncasecmp(header[i].key.data, header_name.data, header[i].key.len) == 0) {
+            return &header[i].value;
+        }
+    }
+	return NULL;
+}
+
 static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
     ngx_str_t *tmp_header;
     ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
