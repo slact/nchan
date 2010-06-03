@@ -425,7 +425,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     channel->last_seen = ngx_time();
     ngx_shmtx_unlock(&shpool->mutex);
     
-    if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
+    if (pcf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
         msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
         msg = NULL;
     }
@@ -519,11 +519,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 					
-					if (cf->subscriber_timeout > 0) {		
+					if (pcf->subscriber_timeout > 0) {		
 						subscriber->event.handler = ngx_http_push_clean_timeouted_subscribter;	
 						subscriber->event.data = subscriber;
 						subscriber->event.log = r->connection->log;
-						ngx_add_timer(&subscriber->event, cf->subscriber_timeout * 1000);
+						ngx_add_timer(&subscriber->event, pcf->subscriber_timeout * 1000);
 					}
 
 					r->read_event_handler = ngx_http_test_reading;
