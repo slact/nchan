@@ -108,6 +108,9 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->max_channel_subscribers=NGX_CONF_UNSET;
     lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
 	lcf->channel_group.data=NULL;
+    lcf->secret.data=NULL;
+    lcf->key.data=NULL;
+    lcf->id.data=NULL;
 	return lcf;
 }
 
@@ -126,6 +129,9 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
 	ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
 	ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
+	ngx_conf_merge_str_value(conf->secret, prev->secret, NGX_CONF_UNSET);
+    ngx_conf_merge_str_value(conf->key, prev->key, NGX_CONF_UNSET);
+    ngx_conf_merge_str_value(conf->id, prev->id, NGX_CONF_UNSET);
 	
 	//sanity checks
 	if(conf->max_messages < conf->min_messages) {
@@ -137,17 +143,11 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	return NGX_CONF_OK;
 }
 
-static ngx_str_t  ngx_http_push_channel_id = ngx_string("push_channel_id"); //channel id variable
 //publisher and subscriber handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
 	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-	ngx_http_push_loc_conf_t       *plcf = conf;
 	clcf->handler = handler;
 	clcf->if_modified_since = NGX_HTTP_IMS_OFF;
-	plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_channel_id);
-	if (plcf->index == NGX_ERROR) {
-		return NGX_CONF_ERROR;
-	}
 	return NGX_CONF_OK;
 }
 
@@ -256,6 +256,18 @@ static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command
 	return NGX_CONF_OK;
 }
 
+
+static char *ngx_http_push_secret(ngx_conf_t *cf, void *post, void *data);
+static ngx_conf_post_handler_pt  ngx_http_push_secret_p =
+    ngx_http_push_secret;
+
+static char *ngx_http_push_key(ngx_conf_t *cf, void *post, void *data);
+static ngx_conf_post_handler_pt  ngx_http_push_key_p =
+    ngx_http_push_key;
+
+static char *ngx_http_push_id(ngx_conf_t *cf, void *post, void *data);
+static ngx_conf_post_handler_pt  ngx_http_push_id_p =
+    ngx_http_push_id;
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
@@ -369,6 +381,27 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, ignore_queue_on_no_cache),
       NULL },
+
+    { ngx_string("push_channel_secret"),
+      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, secret),
+      &ngx_http_push_secret_p },
+    
+    { ngx_string("push_channel_key"),
+      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, key),
+      &ngx_http_push_key_p },
+    
+    { ngx_string("push_channel_id"),
+      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, id),
+      &ngx_http_push_id_p },
 
     ngx_null_command
 };

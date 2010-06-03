@@ -51,7 +51,6 @@ typedef struct {
 } ngx_http_push_main_conf_t;
 
 typedef struct {
-	ngx_int_t                       index;
 	time_t                          buffer_timeout;
 	ngx_int_t                       min_messages;
 	ngx_int_t                       max_messages;
@@ -65,6 +64,15 @@ typedef struct {
 	ngx_int_t                       max_channel_id_length;
 	ngx_int_t                       max_channel_subscribers;
     ngx_int_t                       ignore_queue_on_no_cache;
+    ngx_str_t                       secret;
+    ngx_array_t                     *secret_lengths;
+    ngx_array_t                     *secret_values;
+    ngx_str_t                       key;
+    ngx_array_t                     *key_lengths;
+    ngx_array_t                     *key_values;
+    ngx_str_t                       id;
+    ngx_array_t                     *id_lengths;
+    ngx_array_t                     *id_values;
 } ngx_http_push_loc_conf_t;
 
 //message queue

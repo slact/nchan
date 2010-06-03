@@ -5,6 +5,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <ngx_md5.h>
 #include <nginx.h>
 
 #include <ngx_http_push_module.h>
@@ -34,6 +35,9 @@ static void ngx_http_push_clean_timeouted_subscribter(ngx_event_t *ev)
 	ngx_http_send_header(r);
 	ngx_http_output_filter(r, chain);
 }
+
+static ngx_int_t ngx_http_push_publisher_check_request(ngx_http_request_t*);
+static ngx_int_t ngx_http_push_check_hash(ngx_http_request_t*, ngx_http_push_loc_conf_t*, ngx_str_t*, ngx_str_t*);
 
 static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
 	if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
@@ -206,15 +210,109 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 	return NULL;
 }
 
+static char *
+ngx_http_push_compile_secret(ngx_conf_t *cf, ngx_http_push_loc_conf_t *pcf)
+{
+
+    ngx_http_script_compile_t   sc;
+    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+
+    sc.cf = cf;
+    sc.source = &pcf->secret;
+    sc.lengths = &pcf->secret_lengths;
+    sc.values = &pcf->secret_values;
+    sc.variables = ngx_http_script_variables_count(&pcf->secret);
+    sc.complete_lengths = 1;
+    sc.complete_values = 1;
+
+    if (ngx_http_script_compile(&sc) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_http_push_secret(ngx_conf_t *cf, void *post, void *data)
+{
+    ngx_http_push_loc_conf_t *pcf =
+	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_push_module);
+
+    return ngx_http_push_compile_secret(cf, pcf);
+}
+
+static char *
+ngx_http_push_compile_key(ngx_conf_t *cf, ngx_http_push_loc_conf_t *pcf)
+{
+
+    ngx_http_script_compile_t   sc;
+    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+
+    sc.cf = cf;
+    sc.source = &pcf->key;
+    sc.lengths = &pcf->key_lengths;
+    sc.values = &pcf->key_values;
+    sc.variables = ngx_http_script_variables_count(&pcf->key);
+    sc.complete_lengths = 1;
+    sc.complete_values = 1;
+
+    if (ngx_http_script_compile(&sc) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_http_push_key(ngx_conf_t *cf, void *post, void *data)
+{
+    ngx_http_push_loc_conf_t *pcf =
+	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_push_module);
+
+    return ngx_http_push_compile_key(cf, pcf);
+}
+
+static char *
+ngx_http_push_compile_id(ngx_conf_t *cf, ngx_http_push_loc_conf_t *pcf)
+{
+
+    ngx_http_script_compile_t   sc;
+    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+
+    sc.cf = cf;
+    sc.source = &pcf->id;
+    sc.lengths = &pcf->id_lengths;
+    sc.values = &pcf->id_values;
+    sc.variables = ngx_http_script_variables_count(&pcf->id);
+    sc.complete_lengths = 1;
+    sc.complete_values = 1;
+
+    if (ngx_http_script_compile(&sc) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_http_push_id(ngx_conf_t *cf, void *post, void *data)
+{
+    ngx_http_push_loc_conf_t *pcf =
+	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_push_module);
+
+    return ngx_http_push_compile_id(cf, pcf);
+}
+
 #define NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE "No channel id provided."
-static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
-	ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
-	ngx_str_t                      *group = &cf->channel_group;
+static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *pcf) {
+	ngx_str_t                      *group = &pcf->channel_group;
 	size_t                          group_len = group->len;
 	size_t                          var_len;
 	size_t                          len;
-	ngx_str_t                      *id;
-    if (vv == NULL || vv->not_found || vv->len == 0) {
+	ngx_str_t                      *full_id;
+    ngx_str_t                       id;
+
+    if (!pcf->id_lengths || !pcf->id_values || ngx_http_script_run(r, &id, pcf->id_lengths->elts, 0, pcf->id_values->elts) == NULL) {
         ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE));
 		ngx_chain_t *chain;
 		if(buf==NULL) {
@@ -231,24 +329,24 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 		r->headers_out.content_type_len = r->headers_out.content_type.len;
 		ngx_http_send_header(r);
 		ngx_http_output_filter(r, chain);
-		ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-            "push module: the $push_channel_id variable is required but is not set");
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            "push module: push_channel_id is required, but not set!");
 		return NULL;
     }
 	//maximum length limiter for channel id
-	var_len = vv->len <= cf->max_channel_id_length ? vv->len : cf->max_channel_id_length; 
+	var_len = id.len <= (ngx_uint_t)pcf->max_channel_id_length ? id.len : (ngx_uint_t)pcf->max_channel_id_length; 
 	len = group_len + 1 + var_len;
-	if((id = ngx_palloc(r->pool, sizeof(*id) + len))==NULL) {
+	if((full_id = ngx_palloc(r->pool, sizeof(*full_id) + len))==NULL) {
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "push module: unable to allocate memory for $push_channel_id string");
+            "push module: unable to allocate memory for push_channel_id string");
 		return NULL;
 	}
-	id->len=len;
-	id->data=(u_char *)(id+1);
-	ngx_memcpy(id->data, group->data, group_len);
-	id->data[group_len]='/';
-	ngx_memcpy(id->data + group_len + 1, vv->data, var_len);
-	return id;
+	full_id->len=len;
+	full_id->data=(u_char *)(full_id+1);
+	ngx_memcpy(full_id->data, group->data, group_len);
+	full_id->data[group_len]='/';
+	ngx_memcpy(full_id->data + group_len + 1, id.data, var_len);
+	return full_id;
 }
 
 #define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
@@ -268,7 +366,8 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
-	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+    ngx_int_t                       rc;
+	ngx_http_push_loc_conf_t       *pcf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
 	ngx_str_t                      *id;
 	ngx_http_push_channel_t        *channel;
@@ -277,6 +376,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	
 	ngx_str_t                      *content_type=NULL;
 	ngx_str_t                      *etag;
+
+    rc = ngx_http_push_publisher_check_request(r);
+    if(rc != NGX_OK) {
+        return rc;
+    }
 	
     if (r->method == NGX_HTTP_OPTIONS) {
         ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
@@ -297,18 +401,18 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		return NGX_HTTP_NOT_ALLOWED;
 	}    
 	
-	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
+	if((id=ngx_http_push_get_channel_id(r, pcf)) == NULL) {
 		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
+	channel = (pcf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
 
 	if (channel==NULL) {
 		//unable to allocate channel OR channel not found
 		ngx_shmtx_unlock(&shpool->mutex);
-		if(cf->authorize_channel) {
+		if(pcf->authorize_channel) {
 			return NGX_HTTP_FORBIDDEN;
 		}
 		else {
@@ -326,7 +430,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
         msg = NULL;
     }
 	
-	switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
+	switch(ngx_http_push_handle_subscriber_concurrency(r, channel, pcf)) {
 		case NGX_DECLINED: //this request was declined for some reason.
 			//status codes and whatnot should have already been written. just get out of here quickly.
 			return NGX_OK;
@@ -343,7 +447,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 		case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
 			// ♫ It's gonna be the future soon ♫
-			switch(cf->subscriber_poll_mechanism) {
+			switch(pcf->subscriber_poll_mechanism) {
 				//for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
 				ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
 				ngx_http_push_subscriber_t *subscriber;
@@ -425,7 +529,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					r->read_event_handler = ngx_http_test_reading;
 					r->write_event_handler = ngx_http_request_empty_handler;
 					r->discard_body = 1;
-                    r->keepalive = 1; //stayin' alive!!
 					return NGX_DONE;
 					
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
@@ -618,7 +721,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 	
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
 	ngx_str_t                      *id;
-	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+	ngx_http_push_loc_conf_t       *pcf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_buf_t                      *buf = NULL, *buf_copy;
 	ngx_http_push_channel_t        *channel;
@@ -628,7 +731,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	ngx_uint_t                      subscribers = 0;
 	ngx_uint_t                      messages = 0;
 	
-	if((id = ngx_http_push_get_channel_id(r, cf))==NULL) {
+	if((id = ngx_http_push_get_channel_id(r, pcf))==NULL) {
 		ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
 		return;
 	}
@@ -713,7 +816,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			
 			msg->buf=buf_copy;
 			
-			if(cf->store_messages) {
+			if(pcf->store_messages) {
 				ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
 				channel->messages++;
 			}
@@ -734,10 +837,10 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			}
 			
 			//set message expiration time
-			time_t                  message_timeout = cf->buffer_timeout;
+			time_t                  message_timeout = pcf->buffer_timeout;
 			msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
 			
-			msg->delete_oldest_received_min_messages = cf->delete_oldest_received_message ? (ngx_uint_t) cf->min_messages : NGX_MAX_UINT32_VALUE;
+			msg->delete_oldest_received_min_messages = pcf->delete_oldest_received_message ? (ngx_uint_t) pcf->min_messages : NGX_MAX_UINT32_VALUE;
 			//NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
 			
 			//FMI (For My Information): shm is still locked.
@@ -788,11 +891,11 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			}
 			
 			//now see if the queue is too big
-			if(channel->messages > (ngx_uint_t) cf->max_messages) {
+			if(channel->messages > (ngx_uint_t) pcf->max_messages) {
 				//exceeeds max queue size. force-delete oldest message
 				ngx_http_push_force_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), shpool);
 			}
-			if(channel->messages > (ngx_uint_t) cf->min_messages) {
+			if(channel->messages > (ngx_uint_t) pcf->min_messages) {
 				//exceeeds min queue size. maybe delete the oldest message
 				ngx_http_push_msg_t    *oldest_msg = ngx_http_push_get_oldest_message_locked(channel);
 				NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", shpool);
@@ -968,14 +1071,81 @@ static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
 	r->request_body_in_persistent_file = 1;
 	r->request_body_in_clean_file = 0;
 	r->request_body_file_log_level = 0;
-
-	rc = ngx_http_read_client_request_body(r, ngx_http_push_publisher_body_handler);
-	if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
-		return rc;
-	}
+    
+    rc = ngx_http_push_publisher_check_request(r);
+    if(rc == NGX_OK) {
+        rc = ngx_http_read_client_request_body(r, ngx_http_push_publisher_body_handler);
+        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+            return rc;
+        }
+    } else {
+        return rc;
+    }
 	return NGX_DONE;
 }
-		
+
+static ngx_int_t ngx_http_push_publisher_check_request(ngx_http_request_t * r) {
+    unsigned timestamp;
+    ngx_http_push_loc_conf_t *pcf;
+    ngx_str_t secret;
+    ngx_str_t key;
+    ngx_uint_t i;
+
+    pcf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+    if (r->internal > 0)
+    {
+      return NGX_OK;
+    }
+    if (!pcf->secret_lengths || !pcf->secret_values) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+          "push module: module enabled, but secret key not configured!");
+      return NGX_HTTP_FORBIDDEN;
+    }
+
+    if (!pcf->key_lengths || !pcf->key_values) {
+      ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+          "push module: push_key is required, but not set!");
+      return NGX_HTTP_FORBIDDEN;
+    }
+    if (ngx_http_script_run(r, &key, pcf->key_lengths->elts, 0, pcf->key_values->elts) == NULL) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+            "push module: evaluation failed");
+        return NGX_ERROR;
+    }
+    if (key.len != 40) {
+      ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+          "push module: push_key is required, but it's invalid!");
+      return NGX_HTTP_FORBIDDEN;
+    }
+    for (i = 0; i < key.len; i++) {
+      key.data[i] = ngx_tolower(key.data[i]);
+    }
+    
+    if (sscanf((const char *)&key.data[32], "%08x", &timestamp) != 1)
+    {
+      ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "error in timestamp hex-dec conversion", 0);
+      return NGX_HTTP_FORBIDDEN;
+    }
+    if (time(NULL) > (time_t) timestamp)
+    {
+      ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "expired timestamp", 0);
+      return NGX_HTTP_FORBIDDEN;
+    }
+    
+    if (ngx_http_script_run(r, &secret, pcf->secret_lengths->elts, 0, pcf->secret_values->elts) == NULL) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+            "push module: evaluation failed");
+        return NGX_ERROR;
+    }
+      
+    if (ngx_http_push_check_hash(r, pcf, &secret, &key) == NGX_ERROR)
+    {
+      return NGX_HTTP_FORBIDDEN;
+    }
+    
+    return NGX_OK;
+}
+
 static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
 	static ngx_http_push_content_subtype_t subtypes[] = {
 		{ "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
@@ -1250,4 +1420,43 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 			ngx_memcpy(cbuf->file->name.data, buf->file->name.data, buf->file->name.len);
 		}
 	}
+}
+
+static ngx_int_t ngx_http_push_check_hash(ngx_http_request_t *r, ngx_http_push_loc_conf_t *pcf, ngx_str_t *secret, ngx_str_t *key)
+{
+  ngx_uint_t i;
+  unsigned char hash[16];
+  ngx_int_t n;
+  ngx_md5_t md5;
+
+  int len = r->uri.len;
+  const char *uri = (char*)r->uri.data;
+
+  char debug_hash[41];
+  static const char xtoc[] = "0123456789abcdef";
+
+  // 32 bytes of the hash + 8 bytes of hex epoch timestamp
+  // aabbccddeeffaabbccddeeffaabbccdd00112233
+  
+  ngx_md5_init(&md5);
+  ngx_md5_update(&md5, uri, len);
+  ngx_md5_update(&md5, secret->data, secret->len);
+  ngx_md5_update(&md5, &key->data[32], 8);
+  ngx_md5_final(hash, &md5);
+
+  for (i = 0; i < 16; i++) {
+    n = ngx_hextoi(&key->data[2*i], 2);
+    if (n == NGX_ERROR || n != hash[i]) {
+      for (i = 0; i < 16; ++i) {
+	    debug_hash[2 * i + 0] = xtoc[hash[i] >> 4];
+	    debug_hash[2 * i + 1] = xtoc[hash[i] & 0xf];
+      }
+      memcpy(&debug_hash[32], &key->data[32], 8);
+      debug_hash[40] = 0;
+      ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "key mismatch, should be: \"%s\" for %d", debug_hash);
+      return NGX_ERROR;
+    }
+  }
+
+  return NGX_OK;
 }
