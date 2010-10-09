@@ -41,7 +41,7 @@
 #define NGX_HTTP_PUSH_MESSAGE_RECEIVED 9000
 #define NGX_HTTP_PUSH_MESSAGE_QUEUED   9001
 
-#define NGX_HTTP_PUSH_MESSAGE_FOUND     1000 
+#define NGX_HTTP_PUSH_MESSAGE_FOUND     1000
 #define NGX_HTTP_PUSH_MESSAGE_EXPECTED  1001
 #define NGX_HTTP_PUSH_MESSAGE_EXPIRED   1002
 
@@ -63,21 +63,21 @@ typedef struct {
 	ngx_str_t                       channel_group;
 	ngx_int_t                       max_channel_id_length;
 	ngx_int_t                       max_channel_subscribers;
-    ngx_int_t                       ignore_queue_on_no_cache;
-    ngx_str_t                       secret;
-    ngx_array_t                     *secret_lengths;
-    ngx_array_t                     *secret_values;
-    ngx_str_t                       key;
-    ngx_array_t                     *key_lengths;
-    ngx_array_t                     *key_values;
-    ngx_str_t                       id;
-    ngx_array_t                     *id_lengths;
-    ngx_array_t                     *id_values;
+	ngx_int_t                       ignore_queue_on_no_cache;
+	ngx_str_t                       secret;
+	ngx_array_t                     *secret_lengths;
+	ngx_array_t                     *secret_values;
+	ngx_str_t                       key;
+	ngx_array_t                     *key_lengths;
+	ngx_array_t                     *key_values;
+	ngx_str_t                       id;
+	ngx_array_t                     *id_lengths;
+	ngx_array_t                     *id_values;
 } ngx_http_push_loc_conf_t;
 
 //message queue
 typedef struct {
-    ngx_queue_t                     queue; //this MUST be first.
+	ngx_queue_t                     queue; //this MUST be first.
 	ngx_str_t                       content_type;
 //	ngx_str_t                       charset;
 	ngx_buf_t                      *buf;
@@ -92,9 +92,9 @@ typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_clean
 
 //subscriber request queue
 typedef struct {
-    ngx_queue_t                     queue; //this MUST be first.
+	ngx_queue_t                     queue; //this MUST be first.
 	ngx_http_request_t             *request;
-	ngx_http_push_subscriber_cleanup_t *clndata; 
+	ngx_http_push_subscriber_cleanup_t *clndata;
 	ngx_event_t                     event;
 } ngx_http_push_subscriber_t;
 
@@ -103,18 +103,18 @@ typedef struct {
 	pid_t                           pid;
 	ngx_int_t                       slot;
 	ngx_http_push_subscriber_t     *subscriber_sentinel;
-} ngx_http_push_pid_queue_t; 
+} ngx_http_push_pid_queue_t;
 
 //our typecast-friendly rbtree node (channel)
 typedef struct {
 	ngx_rbtree_node_t               node; //this MUST be first.
 	ngx_str_t                       id;
-    ngx_http_push_msg_t            *message_queue;
+	ngx_http_push_msg_t            *message_queue;
 	ngx_uint_t                      messages;
 	ngx_http_push_pid_queue_t       workers_with_subscribers;
 	ngx_uint_t                      subscribers;
 	time_t                          last_seen;
-} ngx_http_push_channel_t; 
+} ngx_http_push_channel_t;
 
 //cleaning supplies
 struct ngx_http_push_subscriber_cleanup_s {
@@ -133,7 +133,7 @@ typedef struct {
 	ngx_queue_t                     queue;
 	ngx_http_push_msg_t            *msg; //->shared memory
 	ngx_int_t                       status_code;
-	ngx_pid_t                       pid; 
+	ngx_pid_t                       pid;
 	ngx_http_push_channel_t        *channel; //->shared memory
 	ngx_http_push_subscriber_t     *subscriber_sentinel; //->a worker's local pool
 } ngx_http_push_worker_msg_t;
@@ -224,7 +224,7 @@ const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN = ngx_string(
 	"last requested: %d sec. ago (-1=never)" CRLF
 	"active subscribers: %ui"
 	"\0");
-	
+
 const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_JSON = ngx_string(
 	"{\"messages\": %ui, "
 	"\"requested\": %d, "
