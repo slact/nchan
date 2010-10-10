@@ -21,6 +21,8 @@
 
 #define NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH 1024 //bytes
 
+#define NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH 100
+
 #ifndef NGX_HTTP_CONFLICT
 #define NGX_HTTP_CONFLICT 409
 #endif
@@ -73,6 +75,9 @@ typedef struct {
 	ngx_str_t                       id;
 	ngx_array_t                     *id_lengths;
 	ngx_array_t                     *id_values;
+	ngx_str_t                       jsonp_callback;
+	ngx_array_t                     *jsonp_callback_lengths;
+	ngx_array_t                     *jsonp_callback_values;
 } ngx_http_push_loc_conf_t;
 
 //message queue
@@ -181,7 +186,7 @@ static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r);
 static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r);
 static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r);
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data);
-static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified);
+static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_http_push_loc_conf_t *pcf, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified);
 
 //publisher
 static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r);

@@ -111,6 +111,7 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->secret.data=NULL;
 	lcf->key.data=NULL;
 	lcf->id.data=NULL;
+	lcf->jsonp_callback.data=NULL;
 	return lcf;
 }
 
@@ -132,6 +133,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_str_value(conf->secret, prev->secret, NGX_CONF_UNSET);
 	ngx_conf_merge_str_value(conf->key, prev->key, NGX_CONF_UNSET);
 	ngx_conf_merge_str_value(conf->id, prev->id, NGX_CONF_UNSET);
+	ngx_conf_merge_str_value(conf->jsonp_callback, prev->jsonp_callback, NGX_CONF_UNSET);
 
 	//sanity checks
 	if(conf->max_messages < conf->min_messages) {
@@ -269,6 +271,10 @@ static char *ngx_http_push_id(ngx_conf_t *cf, void *post, void *data);
 static ngx_conf_post_handler_pt  ngx_http_push_id_p =
 	ngx_http_push_id;
 
+static char *ngx_http_push_jsonp_callback(ngx_conf_t *cf, void *post, void *data);
+static ngx_conf_post_handler_pt  ngx_http_push_jsonp_callback_p =
+	ngx_http_push_jsonp_callback;
+
 static ngx_command_t  ngx_http_push_commands[] = {
 
 	{ ngx_string("push_message_timeout"),
@@ -402,6 +408,13 @@ static ngx_command_t  ngx_http_push_commands[] = {
 	  NGX_HTTP_LOC_CONF_OFFSET,
 	  offsetof(ngx_http_push_loc_conf_t, id),
 	  &ngx_http_push_id_p },
+
+	{ ngx_string("push_channel_jsonp_callback"),
+	  NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+	  ngx_conf_set_str_slot,
+	  NGX_HTTP_LOC_CONF_OFFSET,
+	  offsetof(ngx_http_push_loc_conf_t, jsonp_callback),
+	  &ngx_http_push_jsonp_callback_p },
 
 	ngx_null_command
 };
