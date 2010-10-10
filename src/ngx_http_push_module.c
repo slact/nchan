@@ -606,7 +606,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			}
 
 			//preallocate output chain. yes, same one for every waiting subscriber
-			if((chain = ngx_http_push_create_output_chain_locked(msg->buf, r->pool, r->connection->log, shpool))==NULL) {
+			if((chain = ngx_http_push_create_output_three_chain_locked(msg->buf, r->pool, r->connection->log, shpool))==NULL) {
 				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
 				ngx_shmtx_unlock(&shpool->mutex);
 				return NGX_ERROR;
@@ -618,7 +618,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 			ngx_http_push_release_message_locked(channel, msg);
 			ngx_shmtx_unlock(&shpool->mutex);
 
-			if(chain->buf->file!=NULL) {
+			if(chain->next->buf->file!=NULL) {
 				//close file when we're done with it
 				ngx_pool_cleanup_t *cln;
 				ngx_pool_cleanup_file_t *clnf;
@@ -628,8 +628,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				}
 				cln->handler = ngx_pool_cleanup_file;
 				clnf = cln->data;
-				clnf->fd = chain->buf->file->fd;
-				clnf->name = chain->buf->file->name.data;
+				clnf->fd = chain->next->buf->file->fd;
+				clnf->name = chain->next->buf->file->name.data;
 				clnf->log = r->pool->log;
 			}
 
@@ -732,7 +732,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 }
 
 #define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
-	(sizeof(*buf) + NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH + 3 +             \
+	(sizeof(*buf) +                                                           \
 	 (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
 	 (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
@@ -989,11 +989,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		size_t                      content_type_len;
 		ngx_http_request_t         *r;
 		ngx_http_push_loc_conf_t   *pcf;
-		ngx_buf_t                  *buffer;
-		u_char                     *pos;
-		u_char                     *last;
-		u_char                     *start;
-		u_char                     *end;
 
 		ngx_shmtx_lock(&shpool->mutex);
 
@@ -1018,19 +1013,13 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		}
 
 		//preallocate output chain. yes, same one for every waiting subscriber
-		if((chain = ngx_http_push_create_output_chain_locked(msg->buf, ngx_http_push_pool, ngx_cycle->log, shpool))==NULL) {
+		if((chain = ngx_http_push_create_output_three_chain_locked(msg->buf, ngx_http_push_pool, ngx_cycle->log, shpool))==NULL) {
 			ngx_shmtx_unlock(&shpool->mutex);
 			ngx_pfree(ngx_http_push_pool, etag);
 			ngx_pfree(ngx_http_push_pool, content_type);
 			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create output chain while responding to several subscriber request");
 			return NGX_ERROR;
 		}
-
-		buffer = chain->buf;
-		pos = buffer->pos;
-		last = buffer->last;
-		start = buffer->start;
-		end = buffer->end;
 
 		last_modified_time = msg->message_time;
 
@@ -1055,11 +1044,12 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			ngx_pfree(ngx_http_push_pool, cur);
 
 			//rewind the buffer, please
-			buffer->pos = pos;
-			buffer->last = last;
-			buffer->start = start;
-			buffer->end = end;
-			buffer->last_buf=1;
+			chain->buf->last = chain->buf->pos = chain->buf->start;
+			chain->next->buf->pos = chain->next->buf->start;
+			chain->next->next->buf->last = chain->next->next->buf->pos = chain->next->next->buf->start;
+			chain->buf->last_buf = 0;
+			chain->next->buf->last_buf = 0;
+			chain->next->next->buf->last_buf = 1;
 
 			cur=next;
 		}
@@ -1067,10 +1057,14 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		//free everything relevant
 		ngx_pfree(ngx_http_push_pool, etag);
 		ngx_pfree(ngx_http_push_pool, content_type);
-		if(buffer->file) {
-			ngx_close_file(buffer->file->fd);
+		if(chain->next->buf->file) {
+			ngx_close_file(chain->next->buf->file->fd);
 		}
-		ngx_pfree(ngx_http_push_pool, buffer);
+		ngx_pfree(ngx_http_push_pool, chain->next->next->buf);
+		ngx_pfree(ngx_http_push_pool, chain->next->buf);
+		ngx_pfree(ngx_http_push_pool, chain->buf);
+		ngx_pfree(ngx_http_push_pool, chain->next->next);
+		ngx_pfree(ngx_http_push_pool, chain->next);
 		ngx_pfree(ngx_http_push_pool, chain);
 
 		if(responded_subscribers) {
@@ -1386,6 +1380,76 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 	return out;
 }
 
+static ngx_chain_t * ngx_http_push_create_output_three_chain_locked(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool) {
+	ngx_chain_t                    *out1;
+	ngx_chain_t                    *out2;
+	ngx_chain_t                    *out3;
+	ngx_file_t                     *file;
+
+	if((out1 = ngx_pcalloc(pool, sizeof(*out1)))==NULL) {
+		return NULL;
+	}
+	if((out2 = ngx_pcalloc(pool, sizeof(*out2)))==NULL) {
+		return NULL;
+	}
+	if((out3 = ngx_pcalloc(pool, sizeof(*out3)))==NULL) {
+		return NULL;
+	}
+
+	ngx_buf_t                      *buf1_copy;
+	ngx_buf_t                      *buf2_copy;
+	ngx_buf_t                      *buf3_copy;
+
+	if((buf1_copy = ngx_pcalloc(pool, sizeof(ngx_buf_t) + NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH + 1))==NULL) {
+		return NULL;
+	}
+	if((buf2_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
+		return NULL;
+	}
+	if((buf3_copy = ngx_pcalloc(pool, sizeof(ngx_buf_t) + 2))==NULL) {
+		return NULL;
+	}
+	buf1_copy->start = (u_char *) (buf1_copy+1);
+	buf1_copy->end = buf1_copy->start + NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH + 1;
+	buf1_copy->last = buf1_copy->pos = buf1_copy->start;
+	buf1_copy->temporary = 1;
+
+	ngx_http_push_copy_preallocated_buffer(buf, buf2_copy);
+
+	buf3_copy->start = (u_char *) (buf3_copy+1);
+	buf3_copy->end = buf3_copy->start + 2;
+	buf3_copy->last = buf3_copy->pos = buf3_copy->start;
+	buf3_copy->temporary = 1;
+
+	if (buf->file!=NULL) {
+		file = buf2_copy->file;
+		file->log=log;
+		if(file->fd==NGX_INVALID_FILE) {
+			if(shpool) {
+				ngx_shmtx_unlock(&shpool->mutex);
+				file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+				ngx_shmtx_lock(&shpool->mutex);
+			}
+			else {
+				file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+			}
+		}
+		if(file->fd==NGX_INVALID_FILE) {
+			return NULL;
+		}
+	}
+	out1->buf = buf1_copy;
+	out2->buf = buf2_copy;
+	out3->buf = buf3_copy;
+	buf1_copy->last_buf = 0;
+	buf2_copy->last_buf = 0;
+	buf3_copy->last_buf = 1;
+	out1->next = out2;
+	out2->next = out3;
+	out3->next = NULL;
+	return out1;
+}
+
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
 	if(data->subscriber!=NULL) { //still queued up
 		ngx_queue_remove(&data->subscriber->queue);
@@ -1422,27 +1486,35 @@ static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_r
 	} else {
 		jsonp_callback.len = 0;
 	}
-	if (jsonp_callback.len > NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH) {
-		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-			"push module: Jsonp callback is too long (max %d)", NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH);
-		return NGX_ERROR;
-	} else if (jsonp_callback.len > 0 && chain->buf->file==NULL) { /* FIXME: jsonp currently only for buffers that are not files */
+	if (jsonp_callback.len > 0 && chain->buf->file==NULL) { /* FIXME: jsonp currently only for buffers that are not files */
+		if (jsonp_callback.len > NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH) {
+			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+				"push module: Jsonp callback is too long (max %d)", NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH);
+			jsonp_callback.len = NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH;
+		}
 		/* Wrap with jsonp callback: */
-		chain->buf->pos--;
-		*(chain->buf->pos) = '(';
-		chain->buf->pos -= jsonp_callback.len;
-		ngx_memcpy(chain->buf->pos, jsonp_callback.data, jsonp_callback.len);
-		*(chain->buf->last++) = ')';
-		*(chain->buf->last++) = ';';
-		chain->buf->start = chain->buf->pos;
-		chain->buf->end = chain->buf->last;
+		ngx_memcpy(chain->buf->last, jsonp_callback.data, jsonp_callback.len);
+		chain->buf->last += jsonp_callback.len;
+		*(chain->buf->last++) = '(';
+
+		*(chain->next->next->buf->last++) = ')';
+		*(chain->next->next->buf->last++) = ';';
+
+		//we know the entity length, and we're using just one buffer. so no chunking please.
+		r->headers_out.content_length_n = ngx_buf_size(chain->buf) + ngx_buf_size(chain->next->buf) + ngx_buf_size(chain->next->next->buf);
 
 		r->headers_out.content_type.len = sizeof("text/javascript") - 1;
 		r->headers_out.content_type.data = (u_char *) "text/javascript";
 		r->headers_out.content_type_len = r->headers_out.content_type.len;
 	} else {
+		chain = chain->next;
+		chain->buf->last_buf = 1;
+
+		//we know the entity length, and we're using just one buffer. so no chunking please.
+		r->headers_out.content_length_n = ngx_buf_size(chain->buf);
+
 		if (content_type!=NULL) {
-			r->headers_out.content_type.len=content_type->len;
+			r->headers_out.content_type.len = content_type->len;
 			r->headers_out.content_type.data = content_type->data;
 			r->headers_out.content_type_len = r->headers_out.content_type.len;
 		}
@@ -1461,8 +1533,6 @@ static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_r
 	ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
 
 	r->headers_out.status=NGX_HTTP_OK;
-	//we know the entity length, and we're using just one buffer. so no chunking please.
-	r->headers_out.content_length_n=ngx_buf_size(chain->buf);
 	if((res = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
 		return res;
 	}
@@ -1474,7 +1544,7 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 	if (cbuf!=NULL) {
 		ngx_memcpy(cbuf, buf, sizeof(*buf)); //overkill?
 		if(buf->temporary || buf->memory) { //we don't want to copy mmpapped memory, so no ngx_buf_in_momory(buf)
-			cbuf->pos = (u_char *) (cbuf+1+NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH+1);
+			cbuf->pos = (u_char *) (cbuf+1);
 			cbuf->last = cbuf->pos + ngx_buf_size(buf);
 			cbuf->start=cbuf->pos;
 			cbuf->end = cbuf->start + ngx_buf_size(buf);
@@ -1482,7 +1552,7 @@ static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cb
 			cbuf->memory=ngx_buf_in_memory_only(buf) ? 1 : 0;
 		}
 		if (buf->file!=NULL) {
-			cbuf->file = (ngx_file_t *) (cbuf+1+NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
+			cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
 			cbuf->file->fd=NGX_INVALID_FILE;
 			cbuf->file->log=NULL;
 			cbuf->file->offset=buf->file->offset;

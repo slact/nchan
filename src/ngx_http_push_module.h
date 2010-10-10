@@ -200,6 +200,7 @@ static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_in
 static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool);
 #define ngx_http_push_create_output_chain(buf, pool, log) ngx_http_push_create_output_chain_general(buf, pool, log, NULL)
 #define ngx_http_push_create_output_chain_locked(buf, pool, log, shpool) ngx_http_push_create_output_chain_general(buf, pool, log, shpool)
+static ngx_chain_t * ngx_http_push_create_output_three_chain_locked(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool);
 
 //string constants
 //headers
