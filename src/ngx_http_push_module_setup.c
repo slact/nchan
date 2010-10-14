@@ -108,10 +108,15 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->max_channel_subscribers=NGX_CONF_UNSET;
 	lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
 	lcf->channel_group.data=NULL;
+	lcf->channel_group.len=0;
 	lcf->secret.data=NULL;
+	lcf->secret.len=0;
 	lcf->key.data=NULL;
+	lcf->key.len=0;
 	lcf->id.data=NULL;
+	lcf->id.len=0;
 	lcf->jsonp_callback.data=NULL;
+	lcf->jsonp_callback.len=0;
 	return lcf;
 }
 
@@ -130,10 +135,10 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
 	ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
 	ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
-	ngx_conf_merge_str_value(conf->secret, prev->secret, NGX_CONF_UNSET);
-	ngx_conf_merge_str_value(conf->key, prev->key, NGX_CONF_UNSET);
-	ngx_conf_merge_str_value(conf->id, prev->id, NGX_CONF_UNSET);
-	ngx_conf_merge_str_value(conf->jsonp_callback, prev->jsonp_callback, NGX_CONF_UNSET);
+	ngx_conf_merge_str_value(conf->secret, prev->secret, "");
+	ngx_conf_merge_str_value(conf->key, prev->key, "");
+	ngx_conf_merge_str_value(conf->id, prev->id, "");
+	ngx_conf_merge_str_value(conf->jsonp_callback, prev->jsonp_callback, "");
 
 	//sanity checks
 	if(conf->max_messages < conf->min_messages) {
