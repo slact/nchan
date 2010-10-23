@@ -415,6 +415,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 					
+					ngx_memzero(&subscriber->event, sizeof(subscriber->event));
 					if (cf->subscriber_timeout > 0) {		
 						subscriber->event.handler = ngx_http_push_clean_timeouted_subscribter;	
 						subscriber->event.data = subscriber;
@@ -425,7 +426,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					r->read_event_handler = ngx_http_test_reading;
 					r->write_event_handler = ngx_http_request_empty_handler;
 					r->discard_body = 1;
-                    r->keepalive = 1; //stayin' alive!!
+					r->keepalive = 1; //stayin' alive!!
 					return NGX_DONE;
 					
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
