@@ -4,10 +4,6 @@ static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 	ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 	ngx_http_push_worker_processes = ccf->worker_processes;
 	//initialize subscriber queues
-	//pool, please
-	if((ngx_http_push_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) { //I trust the cycle pool size to be a well-tuned one.
-		return NGX_ERROR; 
-	}
 	
 	//initialize our little IPC
 	return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
