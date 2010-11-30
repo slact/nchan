@@ -98,6 +98,24 @@ push_message_timeout [ time ]
   If you do not want messages to expire, set this to 0. Applicable only if a 
   push_publisher is present in this or a child context. 
 
+push_subscriber_timeout [ time ]
+  default: 0
+  context: http, server, location
+  The length of time a subscriber's long-polling connection can last before
+  it's timed out. If you don't want subscriber's connection to timeout, set
+  this to 0. Applicable only if a push_subscriber is present in this or a 
+  child context.
+
+push_channel_timeout [ time ]
+  default: 0
+  context: http, server, location
+  The length of time a channel will be removed after it has no subscriber and
+  no queued messages. If you want to remove a channel as soon as possible, 
+  set this to 0. Applicable only if a push_publisher or push_subscriber is 
+  present in this or a child context and push_subscriber_timeout is greater
+  than 0. This value should be greater than push_subscriber_timeout to make
+  sense.
+
 == Security ==
 
 push_authorized_channels_only [ on | off ]

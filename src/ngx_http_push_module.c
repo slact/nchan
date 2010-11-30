@@ -314,7 +314,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
-	channel = (cf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
+	if (cf->authorize_channel==1) {
+		channel = ngx_http_push_find_channel(id, r->connection->log);
+	}else{
+		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
+	}
 
 	if (channel==NULL) {
 		//unable to allocate channel OR channel not found
@@ -330,6 +334,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
     msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
     channel->last_seen = ngx_time();
+    channel->expires = ngx_time() + cf->channel_timeout;
     ngx_shmtx_unlock(&shpool->mutex);
     
     if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
@@ -651,7 +656,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(0, 0, r, "push module: trying to push an empty message", shpool);
 		}
-		channel = ngx_http_push_get_channel(id, r->connection->log);
+		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
