@@ -1,24 +1,38 @@
 NGiNX HTTP push module - Turn NGiNX into an adept HTTP Push (Comet) server.
 
+THIS IS A FORK OF THE ORIGINAL PUSH MODULE BY LEO P. TO ADD SECURITY KEYS.
+
 This module takes care of all the connection juggling, and exposes a simple
 interface to broadcast messages to clients via plain old HTTP requests.
 This makes it possible to write live-updating applications without having to
 wait on idle connections via upstream proxies or making your code all
 asynchronous and concurrent.
 
----------------- Configuration Directives & Variables ------------------------
-Variables:
-$push_channel_id
-  A token uniquely identifying a communication channel. Must be present in the
-  context of the push_subscriber and push_publisher directives.
-  Example:
-    set $push_channel_id $arg_id; 
-	#channel id is now the url query string parameter "id"
-	#(/foo/bar?id=channel_id_string)
+This fork adds security to ease the creation of private and protected channels.
+It also adds per-request callback name wrapping primitive for JSONP support.
 
+----------------------- Configuration Directives -------------------------------
 Directives:
 
 ==Publisher/Subscriber==
+
+push_channel_id
+  default: (none)
+  context: location
+  A token uniquely identifying a communication channel. Must be present in the
+  context of the push_subscriber and push_publisher directives.
+  Example:
+    Set as a variable argument from the request:
+      push_channel_id $arg_channel;
+    to specify the channel id comes from the url query string parameter
+    "channel": (?channel=channel_id_string)
+
+push_publisher
+  default: none
+  context: server, location
+  Defines a server or location as a message publisher. Requests to a publisher
+  location are treated as messages to be sent to subscribers. See the protocol 
+  documentation for a detailed description. 
 
 push_subscriber [ long-poll | interval-poll ]
   default: long-poll
@@ -42,26 +56,47 @@ push_subscriber_concurrency [ last | first | broadcast ]
    - first: only the oldest subscriber request is kept, all others get a 
      409 Conflict response.
 
-push_publisher
-  default: none
-  context: server, location
-  Defines a server or location as a message publisher. Requests to a publisher
-  location are treated as messages to be sent to subscribers. See the protocol 
-  documentation for a detailed description. 
-
-== Message storage ==
-
-push_store_messages [ on | off ]
-  default: on
+push_subscriber_timeout [ time ]
+  default: 0 (no timeout)
   context: http, server, location
-  Whether or not message queuing is enabled. "Off" is equivalent to the setting
-  push_channel_buffer_length 0;
+  The per-subscriber timeout before disconnecting. 
+  If you do not want subsribers to expire, set this to 0.
+
+push_max_channel_subscribers [ number ]
+  default: 0 (unlimited)
+  context: main, server, location
+  Maximum concurrent subscribers. Pretty self-explanatory.
+
+push_channel_jsonp_callback
+  default: (none)
+  context: location
+  If defined, it allows for jsonp wrapping.
+  Example:
+    Get the json callback wrapping name from a variable argument in the request:
+      push_channel_jsonp_callback $arg_callback;
+    to specify the callback name (if defined) comes from the url query string
+    parameter "callback": (?callback=jsonp_function_name)
+  
+== Message storage ==
 
 push_max_reserved_memory [ size ]
   default: 32M
   context: http
   The size of the memory chunk this module will use for all message queuing
   and buffering. 
+
+push_store_messages [ on | off ]
+  default: on
+  context: http, server, location
+  Whether or not message queuing is enabled. "Off" is equivalent to the setting
+  push_message_buffer_length 0;
+
+push_message_buffer_length [ number ]
+  default: none
+  context: http, server, location
+  The exact number of messages to store per channel. Sets both
+  push_max_message_buffer_length and push_min_message_buffer_length to this 
+  value.
 
 push_min_message_buffer_length [ number ]
   default: 1
@@ -75,13 +110,6 @@ push_max_message_buffer_length [ number ]
   The maximum number of messages to store per channel. A channel's message
   buffer will retain at most this many most recent messages.
 
-push_message_buffer_length [ number ]
-  default: none
-  context: http, server, location
-  The exact number of messages to store per channel. Sets both
-  push_max_message_buffer_length and push_min_message_buffer_length to this 
-  value.
-  
 push_delete_oldest_received_message [ on | off ]
   default: off
   context: http, server, location
@@ -123,10 +151,33 @@ push_max_channel_id_length [ number ]
   Maximum permissible channel id length (number of characters). 
   Longer ids will be truncated.
 
-push_max_channel_subscribers [ number ]
-  default: 0 (unlimited)
+push_ignore_queue_on_no_cache [ on | off ]
+  default: off
   context: main, server, location
-  Maximum concurrent subscribers. Pretty self-explanatory.
+  Ignore the queue if caching tags are not specified by the client.
+  Allows only clients sending If-Modified-Since and If-None-Match caching
+  information request headers to see the queue.
+
+push_channel_secret 
+  default: (none)
+  context: location
+  A unique secret key to calculate the key.
+
+push_channel_key
+  default: (none)
+  context: location
+  Requests with invalid keys to protected locations are denied with 403.
+  A key calculated using the url, the value of secret and the expiration time.
+  It uses the calculated MD5 hash concatenated with the hex version of the
+  expiration time as epoch timestamp:
+    md5(url + secret key + hex timestamp) + hex timestamp
+  (32 bytes of the md5 hash + 8 bytes of hex epoch timestamp):
+    e.g. aabbccddeeffaabbccddeeffaabbccdd00112233.
+  Example:
+    Set as a variable argument from the request:
+      push_channel_key $arg_key;
+    to specify the key comes from the url query string parameter "key":
+    (?key=aabbccddeeffaabbccddeeffaabbccdd00112233)
 
 --------------------------- Example Config -----------------------------------
 http {
@@ -135,46 +186,68 @@ http {
   push_max_reserved_memory	12M; #default is 3M
 
   # internal publish endpoint (keep it private / protected)
-  location /publish {
-    set $push_channel_id $arg_channel; #/?channel=239aff3 or some-such
+  location /publish/ {
     push_publisher;
+    push_channel_id $arg_channel;      #/?channel=channel_name or some-such
 
     push_message_timeout 2h;           # expire buffered messages after 2 hours
     push_max_message_buffer_length 10; # store absolutely at most 10 messages
     push_min_message_recipients 0;     # minimum recipients before purge
+
+    # non-push-module-specific settings:
+    access_log off;                    # disable logging
+
+    allow 127.0.0.1;                   # allow publishing from the internal
+    deny all;                          # network only.
   }
  
   # public long-polling endpoint
-  location /activity {
+  location /activity/ {
     push_subscriber;
+    push_channel_id $arg_channel;      #/?channel=channel_name or some-such
+  
+    push_channel_secret "secret string here:$remote_addr:$arg_channel";
+    push_channel_key $arg_key;         #/?key=key
  
     # how multiple subscriber requests to the same channel id are handled
     # - last: only the most recent subscriber request is kept, 409 for others.
     # - first: only the oldest subscriber request is kept, 409 for others.
     # - broadcast: any number of subscriber requests may be long-polling.
     push_subscriber_concurrency broadcast;
-    set $push_channel_id $arg_channel; #/?channel=239aff3 or some-such
-    default_type  text/plain;
+
+    # non-push-module-specific settings:
+    access_log off;                    # disable logging
   }
 }
 
 ---------------------------- Operation ---------------------------------------
-The following describes what is likely to be the most commonly desired setup:
+The following describes what is likely to be the most commonly desired setup,
+assuming the example config given above:
 
-Assuming the example config given above,
-Clients will connect to http://example.com/activity?id=... and have the 
-response delayed until a message is POSTed to http://example.com/publish?id=...
-Messages can be sent to clients that have not yet connected, i.e. they are 
-queued.
+Clients will connect to http://example.com/activity/?channel=... and have the 
+response delayed until a message is POSTed or PUT to
+http://example.com/publish/?channel=... Messages can be sent to clients that have
+not yet connected, i.e. they are queued.
+
+Clients subscribing to the channel via the /activity/ location must provide a
+key, created my concatenating the MD5 hash hex string of the uri ("/activity/"),
+concatenated with the push_channel_secret string (which includes a secret key,
+the client's IP address and the channel ID) and the hex string of the expiration
+time as epoch timestamp; concatenated again with the expiration time (40 bytes)
+Example:
+   MD5 hash is:
+     md5 -s "/activity/secret string here:127.0.0.1:channel_name5cbb0142"
+   The full key is MD5 hash concatenated with the expiration time ("5cbb0142"):
+     e4654d42c236cb0c80b51d0ea949566e5cbb0142
 
 Upon sending a request to a push_publisher location, the message, contained in
 the publisher request body, will be sent to the channel identified by 
-$push_channel_id and to all presently connected channel subscribers. If there 
-are no subscribers waiting for a message at the time, the publisher will be 
-sent to with a with a 202 Accepted response. Otherwise, a 201 Created response
-is sent. Additionally, the body of the publisher response will contain 
-information about the channel (number of current subscribers, message queue
-length, etc).
+the variable set by the push_channel_id directive and to all presently connected
+channel subscribers. If there are no subscribers waiting for a message at the
+time, the publisher will be sent to with a with a 202 Accepted response.
+Otherwise, a 201 Created response is sent. Additionally, the body of the
+publisher response will contain information about the channel (number of current
+subscribers, message queue length, etc).
  
 If you intend to have the publisher be a server-side application, it's a damn 
 good idea to make sure the push_publisher location is not publicly accessible.

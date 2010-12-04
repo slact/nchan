@@ -1132,51 +1132,46 @@ static ngx_int_t ngx_http_push_publisher_check_request(ngx_http_request_t * r) {
 	{
 	  return NGX_OK;
 	}
-	if (!pcf->secret_lengths || !pcf->secret_values) {
-	  ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-		  "push module: module enabled, but secret key not configured!");
-	  return NGX_HTTP_FORBIDDEN;
-	}
 
-	if (!pcf->key_lengths || !pcf->key_values) {
-	  ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-		  "push module: push_key is required, but not set!");
-	  return NGX_HTTP_FORBIDDEN;
-	}
-	if (ngx_http_script_run(r, &key, pcf->key_lengths->elts, 0, pcf->key_values->elts) == NULL) {
-		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-			"push module: evaluation failed");
-		return NGX_ERROR;
-	}
-	if (key.len != 40) {
-	  ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-		  "push module: push_key is required, but it's invalid!");
-	  return NGX_HTTP_FORBIDDEN;
-	}
-	for (i = 0; i < key.len; i++) {
-	  key.data[i] = ngx_tolower(key.data[i]);
-	}
+	if (pcf->secret_lengths && pcf->secret_values) {
+	  if (!pcf->key_lengths || !pcf->key_values) {
+	    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+	  	  "push module: push_key is required, but not set!");
+	    return NGX_HTTP_FORBIDDEN;
+	  }
+	  if (ngx_http_script_run(r, &secret, pcf->secret_lengths->elts, 0, pcf->secret_values->elts) == NULL) {
+	  	ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+	  		"push module: evaluation failed");
+	  	return NGX_ERROR;
+	  }
+	  if (ngx_http_script_run(r, &key, pcf->key_lengths->elts, 0, pcf->key_values->elts) == NULL) {
+	  	ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+	  		"push module: evaluation failed");
+	  	return NGX_ERROR;
+	  }
+	  if (key.len != 40) {
+	    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+	  	  "push module: push_key is required, but it's invalid!");
+	    return NGX_HTTP_FORBIDDEN;
+	  }
+	  for (i = 0; i < key.len; i++) {
+	    key.data[i] = ngx_tolower(key.data[i]);
+	  }
+	  if (sscanf((const char *)&key.data[32], "%08x", &timestamp) != 1)
+	  {
+	    ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "error in timestamp hex-dec conversion", 0);
+	    return NGX_HTTP_FORBIDDEN;
+	  }
+	  if (time(NULL) > (time_t) timestamp)
+	  {
+	    ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "expired timestamp", 0);
+	    return NGX_HTTP_FORBIDDEN;
+	  }
 
-	if (sscanf((const char *)&key.data[32], "%08x", &timestamp) != 1)
-	{
-	  ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "error in timestamp hex-dec conversion", 0);
-	  return NGX_HTTP_FORBIDDEN;
-	}
-	if (time(NULL) > (time_t) timestamp)
-	{
-	  ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "expired timestamp", 0);
-	  return NGX_HTTP_FORBIDDEN;
-	}
-
-	if (ngx_http_script_run(r, &secret, pcf->secret_lengths->elts, 0, pcf->secret_values->elts) == NULL) {
-		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-			"push module: evaluation failed");
-		return NGX_ERROR;
-	}
-
-	if (ngx_http_push_check_hash(r, pcf, &secret, &key) == NGX_ERROR)
-	{
-	  return NGX_HTTP_FORBIDDEN;
+	  if (ngx_http_push_check_hash(r, pcf, &secret, &key) == NGX_ERROR)
+	  {
+	    return NGX_HTTP_FORBIDDEN;
+	  }
 	}
 
 	return NGX_OK;

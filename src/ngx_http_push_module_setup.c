@@ -146,6 +146,9 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 		ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "push_max_message_buffer_length cannot be smaller than push_min_message_buffer_length.");
 		return NGX_CONF_ERROR;
 	}
+	if(conf->max_messages == 0 && conf->min_messages == 0) {
+		conf->store_messages = 0;
+	}
 
 	return NGX_CONF_OK;
 }
@@ -408,7 +411,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
 	  &ngx_http_push_key_p },
 
 	{ ngx_string("push_channel_id"),
-	  NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+	  NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
 	  ngx_conf_set_str_slot,
 	  NGX_HTTP_LOC_CONF_OFFSET,
 	  offsetof(ngx_http_push_loc_conf_t, id),
