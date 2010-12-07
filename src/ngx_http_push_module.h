@@ -142,6 +142,7 @@ typedef struct {
 } ngx_http_push_shm_data_t;
 
 ngx_int_t           ngx_http_push_worker_processes;
+ngx_pool_t         *ngx_http_push_pool;
 ngx_slab_pool_t    *ngx_http_push_shpool;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 
@@ -183,7 +184,6 @@ static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r);
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r);
 
 //utilities
-void *ngx_push_pcalloc(ngx_pool_t *pool, size_t size);
 //general request handling
 static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);
 static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value);
