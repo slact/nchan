@@ -15,7 +15,7 @@
 //emergency garbage collecting goodness;
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 
-static void ngx_http_push_clean_timeouted_subscribter(ngx_event_t *ev)
+static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
 {
 	ngx_http_push_subscriber_t *subscriber = NULL;
 	ngx_http_request_t *r = NULL;
@@ -433,7 +433,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 					
 					ngx_memzero(&subscriber->event, sizeof(subscriber->event));
 					if (cf->subscriber_timeout > 0) {		
-						subscriber->event.handler = ngx_http_push_clean_timeouted_subscribter;	
+						subscriber->event.handler = ngx_http_push_clean_timeouted_subscriber;	
 						subscriber->event.data = subscriber;
 						subscriber->event.log = r->connection->log;
 						ngx_add_timer(&subscriber->event, cf->subscriber_timeout * 1000);
