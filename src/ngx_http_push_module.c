@@ -264,6 +264,144 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 	return id;
 }
 
+/*
+ * Parse channel template:
+ * %C -> channel id
+ * %M -> message time
+ * %T -> message tag
+ * Separator is the first char
+ * Note: channel name cannot contain others caracters used it the template
+ *
+ * Example:
+ *	/channel=$C&msg=$M&tag=$T
+ *  /channel=CA&msg=1234&tag=23/channel=CB&msg=5678&tag=45
+ */
+static ngx_list_t* ngx_http_push_parse_channel_list(
+			ngx_http_request_t *r
+		, ngx_http_push_loc_conf_t *cf
+		)
+{
+	ngx_http_variable_value_t     *channel_value = ngx_http_get_indexed_variable(r, cf->index);
+	ngx_http_variable_value_t     *channel_tpl = ngx_http_get_indexed_variable(r, cf->channel_tpl_index);
+	ngx_list_t										*list;
+	const u_char									*p_ch_tpl;
+	u_char												*p_ch_value;
+	u_char												*start;
+	u_char												end_char;
+	u_char												tpl_var;
+	u_char												separator;
+	ngx_int_t											len;
+
+	list = ngx_list_create(r->pool, 4, sizeof(ngx_http_push_query_data_t));
+	if (list == NULL) {
+		return NULL;
+	}
+
+	//separator is the fisrt char of the tpl! -> check for the separator!
+	separator = channel_tpl->data[0];
+	p_ch_tpl = channel_tpl->data;
+	p_ch_value = channel_value->data;
+	end_char = '\0';
+	tpl_var = '\0';
+	start = NULL;
+	len = 0;
+
+	ngx_http_push_query_data_t *item = NULL;
+	item = ngx_list_push(list);
+
+	while(len <= channel_value->len) {
+
+		if (*p_ch_tpl == '\0') {
+			p_ch_tpl = channel_tpl->data;
+		}
+
+		if (start == NULL) {
+			//not reading tpl var
+			
+			if (*p_ch_value != *p_ch_tpl) {
+				if (*p_ch_tpl == '%') {
+					//start a tpl var
+					p_ch_tpl++;
+					tpl_var = *p_ch_tpl;
+					p_ch_tpl++;
+					end_char = *p_ch_tpl;
+					start = p_ch_value;
+					p_ch_tpl++;
+				}
+				else {
+					//tpl don't match!
+					//free stuff?
+					return list;
+				}
+			}
+			else {
+				p_ch_value++;
+				len++;
+				p_ch_tpl++;
+			}
+		}
+		else {
+			//reading tpl var
+			
+			if (*p_ch_value == end_char || *p_ch_value == separator) {
+				//end when reach the end_var or a separator
+				//set var value
+				//len = p_ch_value - start
+
+				u_char p = *p_ch_value;	
+				*p_ch_value = '\0';
+
+				switch (tpl_var) {
+					case 'C':
+					case 'c':
+						//\0 for sake
+						item->channel_id.len = p_ch_value - start + 1;
+						//item->channel_id.data = start;
+						item->channel_id.data = ngx_palloc(r->pool, sizeof(item->channel_id.data)+item->channel_id.len);
+						ngx_memcpy(item->channel_id.data, start, item->channel_id.len);
+						break;
+					case 'M':
+					case 'm':
+						item->message_time = ngx_atoi(start, p_ch_value - start);//TODO: ngx_http_parse_time(start, p_ch_value - start);
+						break;
+					case 'T':
+					case 't':
+						item->message_tag = ngx_atoi(start, p_ch_value - start);
+						break;
+					default:
+						//invalid var
+						break;
+				}
+
+				ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "%c = %s", tpl_var, start);
+
+				*p_ch_value = p;
+
+				//search next
+				start = NULL;
+				end_char = '\0';
+				tpl_var = '\0';
+	
+				if (*p_ch_value == separator) {
+					//debug
+					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.channel_id = %s", item->channel_id.data);
+					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.message_time = %d", item->message_time);
+					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.message_tag = %d", item->message_tag);
+					item = ngx_list_push(list);
+				}
+
+			}
+			if (*p_ch_value != separator) {
+				//separator must be preserved to match the next entry
+				p_ch_value++;
+				len++;
+			}
+		}
+	}
+	
+	return list;
+}
+
 #define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
     etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
     if(etag!=NULL) {                                                                 \
@@ -496,8 +634,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	if (r->method != NGX_HTTP_GET) {
 		ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for the win
 		return NGX_HTTP_NOT_ALLOWED;
-	}    
-	
+	}
+
 	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
 		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}

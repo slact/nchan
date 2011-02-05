@@ -140,6 +140,7 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 }
 
 static ngx_str_t  ngx_http_push_channel_id = ngx_string("push_channel_id"); //channel id variable
+static ngx_str_t  ngx_http_push_channel_template = ngx_string("push_channel_template"); //channel template variable
 //publisher and subscriber handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
 	ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
@@ -150,6 +151,7 @@ static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t 
 	if (plcf->index == NGX_ERROR) {
 		return NGX_CONF_ERROR;
 	}
+	plcf->channel_tpl_index = ngx_http_get_variable_index(cf, &ngx_http_push_channel_template);
 	return NGX_CONF_OK;
 }
 

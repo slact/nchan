@@ -54,6 +54,7 @@ typedef struct {
 
 typedef struct {
 	ngx_int_t                       index;
+	ngx_int_t                       channel_tpl_index;
 	time_t                          buffer_timeout;
 	ngx_int_t                       min_messages;
 	ngx_int_t                       max_messages;
@@ -84,6 +85,13 @@ typedef struct {
 } ngx_http_push_msg_t;
 
 typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_cleanup_t;
+
+//channel query data
+typedef struct {
+	ngx_str_t												channel_id;
+	time_t													message_time;
+	ngx_int_t												message_tag;
+} ngx_http_push_query_data_t;
 
 //subscriber request queue
 typedef struct {
