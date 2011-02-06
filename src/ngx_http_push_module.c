@@ -165,13 +165,13 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
 /** find message with entity tags matching those of the request r.
   * @param r subscriber request
   */
-static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status) {
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status, ngx_http_push_query_data_t *query) {
 	//TODO: consider using an RBTree for message storage.
 	ngx_queue_t                    *sentinel = &channel->message_queue->queue;
 	ngx_queue_t                    *cur = ngx_queue_head(sentinel);
 	ngx_http_push_msg_t            *msg;
-	ngx_int_t                       tag = -1;
-	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+	ngx_int_t                       tag = query->message_tag;
+	time_t                          time = query->message_time;
 	
 	//channel's message buffer empty?
 	if(channel->messages==0) {
@@ -183,7 +183,6 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 	msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
 	if(time <= msg->message_time) { //that's an empty check (Sentinel's values are zero)
 		if(time == msg->message_time) {
-			if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
 			if(tag >= msg->message_tag) {
 				*status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
 				return NULL;
@@ -202,7 +201,6 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 			return msg;
 		}
 		else if(time == msg->message_time) {
-			if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
 			while (tag >= msg->message_tag  && time == msg->message_time && ngx_queue_next(cur)!=sentinel) {
 				cur=ngx_queue_next(cur);
 				msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
@@ -592,6 +590,7 @@ static ngx_int_t ngx_http_push_subscribe_channel(
 			//r->keepalive = 1; //stayin' alive!!
 			return NGX_DONE;
 			
+		//TODO: NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL use query_data too!!
 		case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
 		
 			//interval-polling subscriber requests get a 304 with their entity tags preserved.
@@ -616,6 +615,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_http_push_channel_t        *channel;
 	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       msg_search_outcome;
+	ngx_http_push_query_data_t		 query;
 	
     if (r->method == NGX_HTTP_OPTIONS) {
         ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
@@ -641,6 +641,12 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	}
 	(void) ngx_http_push_parse_channel_list;
 
+	query.channel_id.len = id->len;
+	query.channel_id.data = id->data;
+	//TODO: maybe take message_tag only when needed...
+	query.message_tag = ngx_http_push_subscriber_get_etag_int(r);
+	query.message_time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
 	if (cf->authorize_channel==1) {
@@ -661,7 +667,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		}
 	}
 
-    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
+    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome, &query);
     channel->last_seen = ngx_time();
     channel->expires = ngx_time() + cf->channel_timeout;
     ngx_shmtx_unlock(&shpool->mutex);
