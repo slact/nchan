@@ -306,6 +306,8 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 
 	ngx_http_push_query_data_t *item = NULL;
 	item = ngx_list_push(list);
+	item->message_time = -1;
+	item->message_tag = -1;
 
 	while(len <= channel_value->len) {
 
@@ -356,7 +358,9 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 						item->channel_id.len = p_ch_value - start + 1;
 						//item->channel_id.data = start;
 						item->channel_id.data = ngx_palloc(r->pool, sizeof(item->channel_id.data)+item->channel_id.len);
-						ngx_memcpy(item->channel_id.data, start, item->channel_id.len);
+						ngx_memcpy(item->channel_id.data+1, start, item->channel_id.len);
+						//TODO: use group and '/' as ngx_http_push_get_channel_id
+						item->channel_id.data[0] = '/';
 						break;
 					case 'M':
 					case 'm':
@@ -386,6 +390,8 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.message_time = %d", item->message_time);
 					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.message_tag = %d", item->message_tag);
 					item = ngx_list_push(list);
+					item->message_time = -1;
+					item->message_tag = -1;
 				}
 
 			}
@@ -610,7 +616,6 @@ static ngx_int_t ngx_http_push_subscribe_channel(
 
 static ngx_int_t ngx_http_push_get_channel_and_message(
 			ngx_http_request_t *r
-		,	ngx_str_t *id
 		, ngx_http_push_query_data_t *query
 		,	ngx_http_push_channel_t **channel_out
 		, ngx_http_push_msg_t **msg_out
@@ -626,9 +631,9 @@ static ngx_int_t ngx_http_push_get_channel_and_message(
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
 	if (cf->authorize_channel==1) {
-		channel = ngx_http_push_find_channel(id, r->connection->log);
+		channel = ngx_http_push_find_channel(&query->channel_id, r->connection->log);
 	}else{
-		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
+		channel = ngx_http_push_get_channel(&query->channel_id, r->connection->log, cf->channel_timeout);
 	}
 
 	if (channel==NULL) {
@@ -669,6 +674,62 @@ static ngx_int_t ngx_http_push_get_channel_and_message(
 	return NGX_OK;
 }
 
+static ngx_int_t ngx_http_push_subscribe_multi(ngx_http_request_t *r) 
+{
+	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+	ngx_http_push_channel_t				*channel;
+	ngx_http_push_msg_t            *msg;
+	ngx_int_t                       msg_search_outcome;
+	ngx_list_t										*query_list;
+	ngx_uint_t i;
+	ngx_int_t ret;
+
+	query_list = ngx_http_push_parse_channel_list(r, cf);
+
+	if (query_list == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: ngx_http_push_subscribe_multi");
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	ngx_list_part_t *part = &(query_list->part);
+	ngx_http_push_query_data_t *data = part->elts;
+
+	for (i = 0 ;; i++) {
+
+		if (i >= part->nelts) {
+			if (part->next == NULL) {
+				break;
+			}
+
+			part = part->next;
+			data = part->elts;
+			i = 0;
+		}
+
+		ret = ngx_http_push_get_channel_and_message(r, &data[i], &channel, &msg, &msg_search_outcome);
+		if (ret != NGX_OK) {
+			if (ret == NGX_DECLINED) {
+				ret = NGX_OK;
+			}
+			return ret;
+		}
+
+		if (msg_search_outcome == NGX_HTTP_PUSH_MESSAGE_EXPECTED) {
+			//subscribe in all channels!
+			//TODO: verify this return code
+			ret = ngx_http_push_subscribe_channel(r, channel);
+		}
+		else {
+			//TODO: reply the oldest message, if more than one channel have message to send: avoid starvation!
+			//have a msg? so, just reply
+			return ngx_http_push_reply_message(r, channel, msg, msg_search_outcome);
+		}
+
+	}
+
+	return NGX_OK;
+}
+
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_str_t                      *id;
@@ -697,6 +758,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		return NGX_HTTP_NOT_ALLOWED;
 	}
 
+	if (cf->multi_channel_subscribe == 1) {
+		return ngx_http_push_subscribe_multi(r);
+	}
+
 	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
 		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
@@ -708,7 +773,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	query.message_tag = ngx_http_push_subscriber_get_etag_int(r);
 	query.message_time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 
-	ret = ngx_http_push_get_channel_and_message(r, id, &query, &channel, &msg, &msg_search_outcome);
+	ret = ngx_http_push_get_channel_and_message(r, &query, &channel, &msg, &msg_search_outcome);
 	if (ret != NGX_OK) {
 		if (ret == NGX_DECLINED) {
 			ret = NGX_OK;
@@ -1402,6 +1467,8 @@ static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t 
 	}
 	if(data->channel!=NULL) { //we're expected to decrement the subscriber count
 		ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+		//TODO: now, with multiplexing, a subscriber can observer more than one channel. So we need to keep track of
+		//all subscreber channels and subtract of all
 		data->channel->subscribers--;
 		ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 	}
