@@ -1,0 +1,65 @@
+Multiplexing Support and Config (alpha)
+
+Support only to subscribe in multiple channels. Publish to multi channel is not supported yet.
+
+**TODO**:
+- use group config as normal behavior
+- return the oldest message - by now it's taking the first one
+- support multiplexing for NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL
+- others minor todo commented in the code
+
+
+---------------- Configuration Directives & Variables ------------------------
+Variables:
+$push_channel_template
+	A template to match and extract the query info: Channel id, message time and tag.
+	Valid template vars are: 
+		%C -> channel id
+		%M -> message date, same of if-modified-since
+		%T -> message etag, same of if-none-match (etag)	
+  Example:
+		# to match /broadcast/multi/sub/ch=CH1&m=123&t=1/ch=CH2&m=456&t=2 ...
+		location ~ ^/broadcast/multi/sub(.*)$ {
+			set $push_channel_id $1;
+			push_multi_channel_subscribe on;
+			set $push_channel_template '/ch=%C&m=%M&t=%T'; 
+
+Directives:
+
+==Publisher/Subscriber==
+
+push_multi_channel_subscribe [ on | off ]
+  default: off
+  context: http, server, location
+  Whether or not multi channel suscribe is enabled. 
+  push_channel_buffer_length 0;
+
+
+--------------------------- Example Config -----------------------------------
+
+location /broadcast {
+	location /broadcast/pub {
+		# publish not change by now
+		set $push_channel_id $arg_id;
+		push_publisher;
+		push_store_messages on;
+		push_message_timeout 5s; 
+		push_max_message_buffer_length 10;
+	}
+	# take the query data from any part of url
+	location ~ ^/broadcast/sub(.*)$ {
+		set $push_channel_id $1;
+		push_multi_channel_subscribe on;
+		# to match /broadcast/sub/ch=CH1&m=123&t=1/ch=CH2&m=456&t=2 ...
+		set $push_channel_template '/ch=%C&m=%M&t=%T';
+		push_subscriber;
+		push_subscriber_concurrency broadcast;
+		default_type  text/plain;
+	}
+}
+
+---------------------------- Operation ---------------------------------------
+
+When subscribing to multiples channels, the oldest message of all will be 
+returned. If no message was found, the subscriber will wait for any message
+in all subscribed channels.
