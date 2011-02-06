@@ -639,6 +639,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
 		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
+	(void) ngx_http_push_parse_channel_list;
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);

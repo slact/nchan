@@ -62,6 +62,7 @@ typedef struct {
 	ngx_int_t                       subscriber_poll_mechanism;
 	time_t                          subscriber_timeout;
 	ngx_int_t                       authorize_channel;
+	ngx_int_t                       multi_channel_subscribe;
 	ngx_int_t                       store_messages;
 	ngx_int_t                       delete_oldest_received_message;
 	ngx_str_t                       channel_group;
