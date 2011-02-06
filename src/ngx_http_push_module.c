@@ -608,14 +608,75 @@ static ngx_int_t ngx_http_push_subscribe_channel(
 	}
 }
 
-static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
+static ngx_int_t ngx_http_push_get_channel_and_message(
+			ngx_http_request_t *r
+		,	ngx_str_t *id
+		, ngx_http_push_query_data_t *query
+		,	ngx_http_push_channel_t **channel_out
+		, ngx_http_push_msg_t **msg_out
+		, ngx_int_t *msg_status
+		)
+{
 	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
+	ngx_http_push_channel_t        *channel;
+	ngx_http_push_msg_t            *msg;
+	ngx_int_t                       msg_search_outcome;
+
+	//get the channel and check channel authorization while we're at it.
+	ngx_shmtx_lock(&shpool->mutex);
+	if (cf->authorize_channel==1) {
+		channel = ngx_http_push_find_channel(id, r->connection->log);
+	}else{
+		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
+	}
+
+	if (channel==NULL) {
+		//unable to allocate channel OR channel not found
+		ngx_shmtx_unlock(&shpool->mutex);
+		if(cf->authorize_channel) {
+			return NGX_HTTP_FORBIDDEN;
+		}
+		else {
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate shared memory for channel");
+			return NGX_HTTP_INTERNAL_SERVER_ERROR;
+		}
+	}
+
+    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome, query);
+    channel->last_seen = ngx_time();
+    channel->expires = ngx_time() + cf->channel_timeout;
+    ngx_shmtx_unlock(&shpool->mutex);
+    
+    if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
+        msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
+        msg = NULL;
+    }
+	
+	switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
+		case NGX_DECLINED: //this request was declined for some reason.
+			//status codes and whatnot should have already been written. just get out of here quickly.
+			return NGX_DECLINED;
+		case NGX_ERROR:
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling subscriber concurrency setting");
+			return NGX_ERROR;
+	}
+
+	*channel_out = channel;
+	*msg_out = msg;
+	*msg_status = msg_search_outcome;
+
+	return NGX_OK;
+}
+
+static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
+	ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 	ngx_str_t                      *id;
 	ngx_http_push_channel_t        *channel;
 	ngx_http_push_msg_t            *msg;
 	ngx_int_t                       msg_search_outcome;
 	ngx_http_push_query_data_t		 query;
+	ngx_int_t												ret;
 	
     if (r->method == NGX_HTTP_OPTIONS) {
         ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
@@ -647,43 +708,12 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	query.message_tag = ngx_http_push_subscriber_get_etag_int(r);
 	query.message_time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 
-	//get the channel and check channel authorization while we're at it.
-	ngx_shmtx_lock(&shpool->mutex);
-	if (cf->authorize_channel==1) {
-		channel = ngx_http_push_find_channel(id, r->connection->log);
-	}else{
-		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
-	}
-
-	if (channel==NULL) {
-		//unable to allocate channel OR channel not found
-		ngx_shmtx_unlock(&shpool->mutex);
-		if(cf->authorize_channel) {
-			return NGX_HTTP_FORBIDDEN;
+	ret = ngx_http_push_get_channel_and_message(r, id, &query, &channel, &msg, &msg_search_outcome);
+	if (ret != NGX_OK) {
+		if (ret == NGX_DECLINED) {
+			ret = NGX_OK;
 		}
-		else {
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate shared memory for channel");
-			return NGX_HTTP_INTERNAL_SERVER_ERROR;
-		}
-	}
-
-    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome, &query);
-    channel->last_seen = ngx_time();
-    channel->expires = ngx_time() + cf->channel_timeout;
-    ngx_shmtx_unlock(&shpool->mutex);
-    
-    if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
-        msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
-        msg = NULL;
-    }
-	
-	switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
-		case NGX_DECLINED: //this request was declined for some reason.
-			//status codes and whatnot should have already been written. just get out of here quickly.
-			return NGX_OK;
-		case NGX_ERROR:
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling subscriber concurrency setting");
-			return NGX_ERROR;
+		return ret;
 	}
 
 	if (msg_search_outcome == NGX_HTTP_PUSH_MESSAGE_EXPECTED) {
