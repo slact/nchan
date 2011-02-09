@@ -313,6 +313,7 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 	item->message_time = -1;
 	item->message_tag = -1;
 
+	//TODO: more expressive parser...
 	while(len <= channel_value->len) {
 
 		if (*p_ch_tpl == '\0') {
@@ -330,7 +331,9 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 					p_ch_tpl++;
 					end_char = *p_ch_tpl;
 					start = p_ch_value;
-					p_ch_tpl++;
+					if (*p_ch_tpl != '\0') {
+						p_ch_tpl++;
+					}
 				}
 				else {
 					//tpl don't match!
@@ -347,7 +350,8 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 		else {
 			//reading tpl var
 			
-			if (*p_ch_value == end_char || *p_ch_value == separator) {
+			if (*p_ch_value == end_char || *p_ch_value == separator || 
+					(end_char == '\0' && len == channel_value->len)) {
 				//end when reach the end_var or a separator
 				//set var value
 				//len = p_ch_value - start
