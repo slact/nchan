@@ -290,6 +290,10 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 	u_char												separator;
 	ngx_int_t											len;
 
+  if (channel_tpl == NULL || channel_tpl->not_found || channel_tpl->len == 0) {
+		return NULL;
+	}
+
 	list = ngx_list_create(r->pool, 4, sizeof(ngx_http_push_query_data_t));
 	if (list == NULL) {
 		return NULL;
@@ -765,7 +769,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
 		return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
-	(void) ngx_http_push_parse_channel_list;
 
 	query.channel_id.len = id->len;
 	query.channel_id.data = id->data;
