@@ -20,7 +20,6 @@ static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
 {
 	ngx_http_push_subscriber_t *subscriber = NULL;
 	ngx_http_request_t *r = NULL;
-	ngx_chain_t *chain = NULL;
 
 	subscriber = ev->data;
 	r = subscriber->request;
@@ -454,7 +453,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	}else{
 		channel = ngx_http_push_get_channel(id, r->connection->log, pcf->channel_timeout);
 	}
-	channel = (pcf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
 
 	if (channel==NULL) {
 		//unable to allocate channel OR channel not found
@@ -569,7 +567,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 					ngx_memzero(&subscriber->event, sizeof(subscriber->event));
 					if (pcf->subscriber_timeout > 0) {
-						subscriber->event.handler = ngx_http_push_clean_timeouted_subscribter;
+						subscriber->event.handler = ngx_http_push_clean_timeouted_subscriber;
 						subscriber->event.data = subscriber;
 						subscriber->event.log = r->connection->log;
 						ngx_add_timer(&subscriber->event, pcf->subscriber_timeout * 1000);
@@ -792,7 +790,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(0, 0, r, "push module: trying to push an empty message", shpool);
 		}
-		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
+		channel = ngx_http_push_get_channel(id, r->connection->log, pcf->channel_timeout);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
