@@ -3,7 +3,7 @@
 #include <ngx_http.h>
 
 
-static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, ngx_log_t * log);
+static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, ngx_log_t * log, time_t timeout);
 static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, ngx_log_t * log);
 static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash);
 
@@ -28,7 +28,7 @@ static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_pus
 		}
 	}
 	//at this point, the queue is empty
-	return channel->subscribers==0 ? channel : NULL; //if no waiting requests, return this channel to be deleted
+	return (channel->subscribers==0 && (channel->expires <= now)) ? channel : NULL; //if no waiting requests and channel expired, return this channel to be deleted
 }
 
 static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
@@ -132,7 +132,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_l
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
- static ngx_http_push_channel_t *	ngx_http_push_get_channel(ngx_str_t *id, ngx_log_t *log) {
+ static ngx_http_push_channel_t *	ngx_http_push_get_channel(ngx_str_t *id, ngx_log_t *log, time_t timeout) {
 	ngx_rbtree_t                   *tree;
 	ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, log);
 	
@@ -157,6 +157,8 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_l
 
 	ngx_queue_init(&up->workers_with_subscribers.queue);
 	up->subscribers=0;
+
+	up->expires = ngx_time() + timeout;
 	
 	((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels++;
 	

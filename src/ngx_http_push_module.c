@@ -16,7 +16,7 @@
 //emergency garbage collecting goodness;
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 
-static void ngx_http_push_clean_timeouted_subscribter(ngx_event_t *ev)
+static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
 {
 	ngx_http_push_subscriber_t *subscriber = NULL;
 	ngx_http_request_t *r = NULL;
@@ -24,16 +24,27 @@ static void ngx_http_push_clean_timeouted_subscribter(ngx_event_t *ev)
 
 	subscriber = ev->data;
 	r = subscriber->request;
+	r->discard_body=0; //hacky hacky!
 
-	r->header_only = 1;
-	r->headers_out.content_length_n = 0;
-	r->headers_out.status = NGX_HTTP_NOT_MODIFIED;
+	if (r->connection->destroyed) {
+		return;
+	}
 
-	r->headers_out.content_type.len = sizeof("text/plain") - 1;
-	r->headers_out.content_type.data = (u_char *) "text/plain";
+	ngx_int_t rc = ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_MODIFIED, NULL);
+	ngx_http_finalize_request(r, rc);
+	//the subscriber and channel counter will be freed by the pool cleanup callback
+}
 
-	ngx_http_send_header(r);
-	ngx_http_output_filter(r, chain);
+static void ngx_http_push_subscriber_del_timer(ngx_http_push_subscriber_t *sb) {
+	if (sb->event.timer_set) {
+		ngx_del_timer(&sb->event);
+	}
+}
+
+static void ngx_http_push_subscriber_clear_ctx(ngx_http_push_subscriber_t *sb) {
+	ngx_http_push_subscriber_del_timer(sb);
+	sb->clndata->subscriber = NULL;
+	sb->clndata->channel = NULL;
 }
 
 static ngx_int_t ngx_http_push_publisher_check_request(ngx_http_request_t*);
@@ -438,6 +449,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 	//get the channel and check channel authorization while we're at it.
 	ngx_shmtx_lock(&shpool->mutex);
+	if (pcf->authorize_channel==1) {
+		channel = ngx_http_push_find_channel(id, r->connection->log);
+	}else{
+		channel = ngx_http_push_get_channel(id, r->connection->log, pcf->channel_timeout);
+	}
 	channel = (pcf->authorize_channel==1 ? ngx_http_push_find_channel : ngx_http_push_get_channel)(id, r->connection->log);
 
 	if (channel==NULL) {
@@ -454,6 +470,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 	msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome);
 	channel->last_seen = ngx_time();
+	channel->expires = ngx_time() + pcf->channel_timeout;
 	ngx_shmtx_unlock(&shpool->mutex);
 
 	if (pcf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
@@ -550,6 +567,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 					ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
 
+					ngx_memzero(&subscriber->event, sizeof(subscriber->event));
 					if (pcf->subscriber_timeout > 0) {
 						subscriber->event.handler = ngx_http_push_clean_timeouted_subscribter;
 						subscriber->event.data = subscriber;
@@ -557,9 +575,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						ngx_add_timer(&subscriber->event, pcf->subscriber_timeout * 1000);
 					}
 
-					r->read_event_handler = ngx_http_test_reading;
-					r->write_event_handler = ngx_http_request_empty_handler;
+					//r->read_event_handler = ngx_http_test_reading;
+					//r->write_event_handler = ngx_http_request_empty_handler;
 					r->discard_body = 1;
+					//r->keepalive = 1; //stayin' alive!!
 					return NGX_DONE;
 
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
@@ -773,7 +792,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(0, 0, r, "push module: trying to push an empty message", shpool);
 		}
-		channel = ngx_http_push_get_channel(id, r->connection->log);
+		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
@@ -1032,9 +1051,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			r=cur->request;
 			pcf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
-			cur->clndata->subscriber=NULL;
-			cur->clndata->channel=NULL;
-
+			ngx_http_push_subscriber_clear_ctx(cur);
+			
 			r->discard_body=0; //hacky hacky!
 
 			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, pcf, chain, content_type, etag, last_modified_time)); //BAM!
@@ -1082,8 +1100,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			r=cur->request;
 
 			//cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
-			cur->clndata->subscriber=NULL;
-			cur->clndata->channel=NULL;
+			ngx_http_push_subscriber_clear_ctx(cur);
 			ngx_http_finalize_request(r, ngx_http_push_respond_status_only(r, status_code, status_line));
 			responded_subscribers++;
 			ngx_pfree(ngx_http_push_pool, cur);
@@ -1447,6 +1464,9 @@ static ngx_chain_t * ngx_http_push_create_output_three_chain_locked(ngx_buf_t *b
 
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
 	if(data->subscriber!=NULL) { //still queued up
+		ngx_http_push_subscriber_t* sb = data->subscriber;
+
+		ngx_http_push_subscriber_del_timer(sb);
 		ngx_queue_remove(&data->subscriber->queue);
 		ngx_pfree(ngx_http_push_pool, data->subscriber); //was there an error? oh whatever.
 	}

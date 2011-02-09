@@ -6,6 +6,8 @@
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_TIMEOUT 0  //default: never timeout
+//(liucougar: this is a bit confusing, but it is what's the default behavior before this option is introducecd)
+#define NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT 0 //default: timeout immediately
 
 #define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES 1
 #define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGES 10
@@ -66,6 +68,7 @@ typedef struct {
 	ngx_int_t                       max_channel_id_length;
 	ngx_int_t                       max_channel_subscribers;
 	ngx_int_t                       ignore_queue_on_no_cache;
+	time_t                          channel_timeout;
 	ngx_str_t                       secret;
 	ngx_array_t                     *secret_lengths;
 	ngx_array_t                     *secret_values;
@@ -119,7 +122,8 @@ typedef struct {
 	ngx_http_push_pid_queue_t       workers_with_subscribers;
 	ngx_uint_t                      subscribers;
 	time_t                          last_seen;
-} ngx_http_push_channel_t;
+	time_t                          expires;
+} ngx_http_push_channel_t; 
 
 //cleaning supplies
 struct ngx_http_push_subscriber_cleanup_s {
