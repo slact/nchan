@@ -915,10 +915,28 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 	time_t                          last_seen = 0;
 	ngx_uint_t                      subscribers = 0;
 	ngx_uint_t                      messages = 0;
+
+	ngx_list_t											*query_list;
+	ngx_http_push_query_data_t			query;
+
+	query_list = ngx_http_push_parse_channel_list(r, cf);
 	
-	if((id = ngx_http_push_get_channel_id(r, cf))==NULL) {
-		ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
-		return;
+	if (query_list == NULL) {	
+		if((id = ngx_http_push_get_channel_id(r, cf))==NULL) {
+			ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
+			return;
+		}
+		query.channel_id.len = id->len;
+		query.channel_id.data = id->data;
+		query.message_time = -1;
+		query.message_tag = -1;
+	}
+	else {
+		ngx_http_push_query_data_t *data = query_list->part.elts;
+		query.channel_id.len = data[0].channel_id.len;
+		query.channel_id.data = data[0].channel_id.data;
+		query.message_time = data[0].message_time;
+		query.message_tag = data[0].message_tag;
 	}
 	
 	ngx_shmtx_lock(&shpool->mutex);
@@ -927,13 +945,13 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 		if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
 			NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(0, 0, r, "push module: trying to push an empty message", shpool);
 		}
-		channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
+		channel = ngx_http_push_get_channel(&query.channel_id, r->connection->log, cf->channel_timeout);
 		NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
 	}
 	//no other request method needs that.
 	else {
 		//just find the channel. if it's not there, NULL.
-		channel = ngx_http_push_find_channel(id, r->connection->log);
+		channel = ngx_http_push_find_channel(&query.channel_id, r->connection->log);
 	}
 	
 	if(channel!=NULL) {
@@ -1007,8 +1025,14 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 			}
 			
 			//Stamp the new message with entity tags
-			msg->message_time=ngx_time(); //ESSENTIAL TODO: make sure this ends up producing GMT time
-			msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;		
+			if (query.message_time == -1) {
+				query.message_time = ngx_time(); //ESSENTIAL TODO: make sure this ends up producing GMT time
+			}
+			if (query.message_tag == -1) {
+				query.message_tag = (previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;
+			}
+			msg->message_time = query.message_time;
+			msg->message_tag = query.message_tag;
 			
 			//store the content-type
 			if(content_type_len>0) {
