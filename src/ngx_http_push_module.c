@@ -1234,7 +1234,7 @@ static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_po
 	ngx_buf_t                      *buf_head = NULL;
 	ngx_buf_t                      *buf_foot = NULL;
 
-	if (!jsonp_callback) {
+	if (!jsonp_callback || !ngx_buf_size(body->buf)) {
 		return NGX_OK;
 	}
 	if ((head = ngx_pcalloc(pool, sizeof(*head)))==NULL) {
@@ -1292,12 +1292,11 @@ static ngx_int_t ngx_http_push_clear_jsonp_from_chain(ngx_chain_t **chainp, ngx_
 	ngx_chain_t                    *body;
 	ngx_chain_t                    *foot;
 
-	return NGX_OK;
 	if (!head->next) {
 		return NGX_ERROR;
 	}
 	body = head->next;
-	if (body->next) {
+	if (!body->next) {
 		return NGX_ERROR;
 	}
 	foot = body->next;
