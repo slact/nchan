@@ -261,6 +261,31 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 	return id;
 }
 
+static ngx_str_t * ngx_http_push_get_jsonp_callback(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+	ngx_http_variable_value_t      *vv;
+	size_t                          var_len;
+	ngx_str_t                      *id;
+	if (cf->jsonp == NGX_ERROR) return NULL;
+
+	vv = ngx_http_get_indexed_variable(r, cf->jsonp);
+	if (vv == NULL || vv->not_found || vv->len == 0) {
+		return NULL;
+	}
+
+	//maximum length limiter for jsonp callback
+	var_len = vv->len <= cf->max_jsonp_callback_length ? vv->len : cf->max_jsonp_callback_length; 
+	if ((id = ngx_palloc(r->pool, sizeof(*id) + var_len + 1)) == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+			      "push module: unable to allocate memory for $push_jsonp_callback string");
+		return NULL;
+	}
+	id->len = var_len;
+	id->data = (u_char *)(id+1);
+	ngx_memcpy(id->data, vv->data, var_len);
+	id->data[var_len] = '\0';
+	return id;
+}
+
 #define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
     etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
     if(etag!=NULL) {                                                                 \
@@ -355,6 +380,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		ngx_chain_t                *chain;
 		time_t                      last_modified;
 		size_t                      content_type_len;
+		ngx_str_t                  *jsonp_callback;
 
 		case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
 			// ♫ It's gonna be the future soon ♫
@@ -515,6 +541,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				clnf->log = r->pool->log;
 			}
 			
+			jsonp_callback = ngx_http_push_get_jsonp_callback(r, cf);
+			if (ngx_http_push_apply_jsonp_to_chain(&chain, r->pool, jsonp_callback) == NGX_ERROR) {
+				return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			}
 			return ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
 			
 		default: //we shouldn't be here.
@@ -872,6 +902,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_http_request_t         *r;
 		ngx_buf_t                  *buffer;
 		u_char                     *pos;
+		ngx_http_push_loc_conf_t   *cf;
+		ngx_str_t                  *jsonp_callback;
 		
 		ngx_shmtx_lock(&shpool->mutex);
 		
@@ -921,7 +953,14 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			
 			r->discard_body=0; //hacky hacky!
 			
-			ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
+			cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+			jsonp_callback = ngx_http_push_get_jsonp_callback(r, cf);
+			if (ngx_http_push_apply_jsonp_to_chain(&chain, ngx_http_push_pool, jsonp_callback) == NGX_OK) {
+				ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
+				ngx_http_push_clear_jsonp_from_chain(&chain, ngx_http_push_pool);
+			} else {
+				ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create jsonp callback");
+			}
 			responded_subscribers++;
 			
 			//done with this subscriber. free the sucker.
@@ -1188,6 +1227,94 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 	return out;	
 }
 
+static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_pool_t *pool, ngx_str_t *jsonp_callback) {
+	ngx_chain_t                    *head = NULL;
+	ngx_chain_t                    *body = *chainp;
+	ngx_chain_t                    *foot = NULL;
+	ngx_buf_t                      *buf_head = NULL;
+	ngx_buf_t                      *buf_foot = NULL;
+
+	if (!jsonp_callback) {
+		return NGX_OK;
+	}
+	if ((head = ngx_pcalloc(pool, sizeof(*head)))==NULL) {
+		goto FAILED_TO_APPLY_JSONP;
+	}
+	if ((foot = ngx_pcalloc(pool, sizeof(*foot)))==NULL) {
+		goto FAILED_TO_APPLY_JSONP;
+	}
+	if ((buf_head = ngx_create_temp_buf(pool, jsonp_callback->len + 1))==NULL) {
+		goto FAILED_TO_APPLY_JSONP;
+	}
+	if ((buf_foot = ngx_create_temp_buf(pool, 200))==NULL) {
+		goto FAILED_TO_APPLY_JSONP;
+	}
+
+	ngx_memcpy(buf_head->last, jsonp_callback->data, jsonp_callback->len);
+	buf_head->last[jsonp_callback->len] = '(';
+	buf_head->last = buf_head->last + jsonp_callback->len + 1;
+	*(buf_foot->last++) = ')';
+	*(buf_foot->last++) = ';';
+
+	head->buf = buf_head;
+	foot->buf = buf_foot;
+
+	head->buf->last_buf = 0;
+	body->buf->last_buf = 0;
+	foot->buf->last_buf = 1;
+
+	head->next = body;
+	body->next = foot;
+	foot->next = NULL;
+
+	*chainp = head;
+
+	return NGX_OK;
+
+ FAILED_TO_APPLY_JSONP:
+	if (head) {
+		ngx_pfree(pool, head);
+		if (foot) {
+			ngx_pfree(pool, foot);
+			if (buf_head) {
+				ngx_pfree(pool, buf_head);
+				if (buf_foot) {
+					ngx_pfree(pool, buf_foot);
+				}
+			}
+		}
+	}
+	return NGX_ERROR;
+}
+
+static ngx_int_t ngx_http_push_clear_jsonp_from_chain(ngx_chain_t **chainp, ngx_pool_t *pool) {
+	ngx_chain_t                    *head = *chainp;
+	ngx_chain_t                    *body;
+	ngx_chain_t                    *foot;
+
+	return NGX_OK;
+	if (!head->next) {
+		return NGX_ERROR;
+	}
+	body = head->next;
+	if (body->next) {
+		return NGX_ERROR;
+	}
+	foot = body->next;
+
+	ngx_pfree(pool, head->buf);
+	ngx_pfree(pool, head);
+	ngx_pfree(pool, foot->buf);
+	ngx_pfree(pool, foot);
+
+	body->next = NULL;
+	body->buf->last_buf = 1;
+
+	*chainp = body;
+
+	return NGX_OK;
+}
+
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
 	if(data->subscriber!=NULL) { //still queued up
 		ngx_http_push_subscriber_t* sb = data->subscriber;
@@ -1238,6 +1365,10 @@ static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_r
 	r->headers_out.status=NGX_HTTP_OK;
 	//we know the entity length, and we're using just one buffer. so no chunking please.
 	r->headers_out.content_length_n=ngx_buf_size(chain->buf);
+	//chain may contain jsonp contents.
+	if (chain->next!=NULL) {
+		r->headers_out.content_length_n += ngx_buf_size(chain->next->buf) + ngx_buf_size(chain->next->next->buf);
+	}
 	if((res = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
 		return res;
 	}

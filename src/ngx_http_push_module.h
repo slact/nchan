@@ -22,6 +22,7 @@
 #define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
 
 #define NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH 1024 //bytes
+#define NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH 1024 //bytes
 
 #ifndef NGX_HTTP_CONFLICT
 #define NGX_HTTP_CONFLICT 409
@@ -68,6 +69,8 @@ typedef struct {
 	ngx_int_t                       max_channel_subscribers;
 	ngx_int_t                       ignore_queue_on_no_cache;
 	time_t                          channel_timeout;
+	ngx_int_t                       jsonp;
+	ngx_int_t                       max_jsonp_callback_length;
 } ngx_http_push_loc_conf_t;
 
 //message queue
@@ -164,6 +167,11 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 //channel
 static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
 static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t message_queue_size, ngx_uint_t subscriber_queue_size, time_t last_seen);
+
+// jsonp
+static ngx_str_t * ngx_http_push_get_jsonp_callback(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
+static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_pool_t *pool, ngx_str_t *jsonp_callback);
+static ngx_int_t ngx_http_push_clear_jsonp_from_chain(ngx_chain_t **chainp, ngx_pool_t *pool);
 
 //subscriber
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
