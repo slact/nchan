@@ -310,6 +310,7 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 
 	ngx_http_push_query_data_t *item = NULL;
 	item = ngx_list_push(list);
+	item->channel_id.len = 0;
 	item->message_time = -1;
 	item->message_tag = -1;
 
@@ -398,6 +399,7 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.message_time = %d", item->message_time);
 					ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "item.message_tag = %d", item->message_tag);
 					item = ngx_list_push(list);
+					item->channel_id.len = 0;
 					item->message_time = -1;
 					item->message_tag = -1;
 				}
@@ -712,6 +714,10 @@ static ngx_int_t ngx_http_push_subscribe_multi(ngx_http_request_t *r)
 			part = part->next;
 			data = part->elts;
 			i = 0;
+		}
+
+		if (data[i].channel_id.len == 0) {
+			continue;
 		}
 
 		ret = ngx_http_push_get_channel_and_message(r, &data[i], &channel, &msg, &msg_search_outcome);
