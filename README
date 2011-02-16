@@ -49,6 +49,13 @@ push_publisher
   location are treated as messages to be sent to subscribers. See the protocol 
   documentation for a detailed description. 
 
+push_jsonp
+  default: none
+  context: server, location
+  Defines a server or location as a JSONP subscriber. This makes a subscriber
+  take into account a callback parameter usually given by "&callback=", and
+  convert publisher's posts to JSONP responses by wrapping with it.
+
 == Message storage ==
 
 push_store_messages [ on | off ]
@@ -173,6 +180,25 @@ http {
     push_subscriber_concurrency broadcast;
     set $push_channel_id $arg_channel; #/?channel=239aff3 or some-such
     default_type  text/plain;
+  }
+
+  # public long-polling JSONP endpoint
+  location /jsonp {
+    push_subscriber;
+    push_subscriber_concurrency broadcast;
+    set $push_channel_id $arg_channel; #/?channel=239aff3 or some-such
+
+    # For cross-domain XHR, you'd need to use JSONP, and you'd not be allowed to
+    # read/write headers such as "If-Modified-Since" and "If-None-Match".
+    # In that case, you can pass them via GET parameters along with "callback".
+    # This endpoint will return something like below.
+    # e.g.) jsonp12345([{"foo": 1, "bar": 2, "baz": 3},"Wed, 16 Feb 2011 09:02:29 GMT","0"]);
+    push_jsonp;
+    set $push_jsonp_callback $arg_callback; #/?callback=jsonp12345
+    set $push_jsonp_if_modified_since $arg_since; #/?since=Wed,%2016%20Feb%202011%2009:01:06%20GMT
+    set $push_jsonp_if_none_match $arg_etag; #/?etag=1
+    default_type text/javascript;
+    charset utf-8;
   }
 }
 

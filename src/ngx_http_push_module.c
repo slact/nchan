@@ -162,13 +162,11 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
 /** find message with entity tags matching those of the request r.
   * @param r subscriber request
   */
-static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status) {
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status, time_t time, ngx_int_t tag) {
 	//TODO: consider using an RBTree for message storage.
 	ngx_queue_t                    *sentinel = &channel->message_queue->queue;
 	ngx_queue_t                    *cur = ngx_queue_head(sentinel);
 	ngx_http_push_msg_t            *msg;
-	ngx_int_t                       tag = -1;
-	time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
 	
 	//channel's message buffer empty?
 	if(channel->messages==0) {
@@ -180,7 +178,6 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 	msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
 	if(time <= msg->message_time) { //that's an empty check (Sentinel's values are zero)
 		if(time == msg->message_time) {
-			if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
 			if(tag >= msg->message_tag) {
 				*status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
 				return NULL;
@@ -199,7 +196,6 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 			return msg;
 		}
 		else if(time == msg->message_time) {
-			if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
 			while (tag >= msg->message_tag  && time == msg->message_time && ngx_queue_next(cur)!=sentinel) {
 				cur=ngx_queue_next(cur);
 				msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
@@ -265,9 +261,9 @@ static ngx_str_t * ngx_http_push_get_jsonp_callback(ngx_http_request_t *r, ngx_h
 	ngx_http_variable_value_t      *vv;
 	size_t                          var_len;
 	ngx_str_t                      *id;
-	if (cf->jsonp == NGX_ERROR) return NULL;
+	if (!cf->jsonp || cf->jsonp_callback == NGX_ERROR) return NULL;
 
-	vv = ngx_http_get_indexed_variable(r, cf->jsonp);
+	vv = ngx_http_get_indexed_variable(r, cf->jsonp_callback);
 	if (vv == NULL || vv->not_found || vv->len == 0) {
 		return NULL;
 	}
@@ -285,6 +281,50 @@ static ngx_str_t * ngx_http_push_get_jsonp_callback(ngx_http_request_t *r, ngx_h
 	id->data[var_len] = '\0';
 	return id;
 }
+
+static time_t ngx_http_push_get_if_modified_since(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+	ngx_http_variable_value_t      *vv;
+
+	if (r->headers_in.if_modified_since) {
+		return ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+	}
+	if (cf->jsonp && cf->jsonp_if_modified_since != NGX_ERROR) {
+		vv = ngx_http_get_indexed_variable(r, cf->jsonp_if_modified_since);
+		if (vv || !vv->not_found || vv->len) {
+			return ngx_http_parse_time(vv->data, vv->len);
+		}
+	}
+	return 0;
+}
+
+static ngx_str_t * ngx_http_push_get_if_none_match(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+	ngx_http_variable_value_t      *vv;
+	size_t                          var_len;
+	ngx_str_t                      *id;
+
+	if (r->headers_in.if_modified_since) {
+		return ngx_http_push_subscriber_get_etag(r);
+	}
+
+	if (!cf->jsonp || cf->jsonp_if_none_match == NGX_ERROR) return NULL;
+
+	vv = ngx_http_get_indexed_variable(r, cf->jsonp_if_none_match);
+	if (vv == NULL || vv->not_found || vv->len == 0) {
+		return NULL;
+	}
+
+	if ((id = ngx_palloc(r->pool, sizeof(*id) + NGX_INT_T_LEN + 1)) == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+			      "push module: unable to allocate memory for $push_jsonp_if_none_match");
+		return NULL;
+	}
+	id->len = vv->len;
+	id->data = (u_char *)(id+1);
+	ngx_memcpy(id->data, vv->data, var_len);
+	id->data[vv->len] = '\0';
+	return id;
+}
+
 
 #define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
     etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
@@ -312,6 +352,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 	
 	ngx_str_t                      *content_type=NULL;
 	ngx_str_t                      *etag;
+	time_t                          if_modified_since;
+	ngx_int_t                       if_none_match;
 	
     if (r->method == NGX_HTTP_OPTIONS) {
         ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
@@ -356,7 +398,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		}
 	}
 
-    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
+    if_modified_since = ngx_http_push_get_if_modified_since(r, cf);
+    etag = ngx_http_push_get_if_none_match(r, cf);
+    if_none_match = ngx_http_push_subscriber_get_etag_int(etag);
+    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome, if_modified_since, if_none_match);
     channel->last_seen = ngx_time();
     channel->expires = ngx_time() + cf->channel_timeout;
     ngx_shmtx_unlock(&shpool->mutex);
@@ -380,7 +425,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 		ngx_chain_t                *chain;
 		time_t                      last_modified;
 		size_t                      content_type_len;
-		ngx_str_t                  *jsonp_callback;
 
 		case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
 			// ♫ It's gonna be the future soon ♫
@@ -473,10 +517,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
 				
 					//interval-polling subscriber requests get a 304 with their entity tags preserved.
-					if (r->headers_in.if_modified_since != NULL) {
-						r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+					if (if_modified_since) {
+						r->headers_out.last_modified_time=if_modified_since;
 					}
-					if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
+					if (etag) {
 						r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
 					}
 					return NGX_HTTP_NOT_MODIFIED;
@@ -541,9 +585,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 				clnf->log = r->pool->log;
 			}
 			
-			jsonp_callback = ngx_http_push_get_jsonp_callback(r, cf);
-			if (ngx_http_push_apply_jsonp_to_chain(&chain, r->pool, jsonp_callback) == NGX_ERROR) {
-				return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			if (cf->jsonp) {
+				ngx_str_t *jsonp_callback = ngx_http_push_get_jsonp_callback(r, cf);
+				if (ngx_http_push_apply_jsonp_to_chain(&chain, r->pool, jsonp_callback, etag, last_modified) == NGX_ERROR) {
+					return NGX_HTTP_INTERNAL_SERVER_ERROR;
+				}
 			}
 			return ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
 			
@@ -903,7 +949,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 		ngx_buf_t                  *buffer;
 		u_char                     *pos;
 		ngx_http_push_loc_conf_t   *cf;
-		ngx_str_t                  *jsonp_callback;
 		
 		ngx_shmtx_lock(&shpool->mutex);
 		
@@ -954,12 +999,15 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 			r->discard_body=0; //hacky hacky!
 			
 			cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-			jsonp_callback = ngx_http_push_get_jsonp_callback(r, cf);
-			if (ngx_http_push_apply_jsonp_to_chain(&chain, ngx_http_push_pool, jsonp_callback) == NGX_OK) {
-				ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
-				ngx_http_push_clear_jsonp_from_chain(&chain, ngx_http_push_pool);
-			} else {
-				ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create jsonp callback");
+			
+			if (cf->jsonp) {
+				ngx_str_t *jsonp_callback = ngx_http_push_get_jsonp_callback(r, cf);
+				if (ngx_http_push_apply_jsonp_to_chain(&chain, ngx_http_push_pool, jsonp_callback, etag, last_modified_time) == NGX_OK) {
+					ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
+					ngx_http_push_clear_jsonp_from_chain(&chain, ngx_http_push_pool);
+				} else {
+					ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create jsonp callback");
+				}
 			}
 			responded_subscribers++;
 			
@@ -1119,8 +1167,7 @@ static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r
 	return h;
 }
 
-static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
-	ngx_str_t                      *if_none_match = ngx_http_push_subscriber_get_etag(r);
+static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_str_t *if_none_match) {
 	ngx_int_t                       tag;
 	if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
 		tag=0;
@@ -1227,7 +1274,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 	return out;	
 }
 
-static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_pool_t *pool, ngx_str_t *jsonp_callback) {
+static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_pool_t *pool, ngx_str_t *jsonp_callback, ngx_str_t *etag, time_t last_modified) {
 	ngx_chain_t                    *head = NULL;
 	ngx_chain_t                    *body = *chainp;
 	ngx_chain_t                    *foot = NULL;
@@ -1243,16 +1290,42 @@ static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_po
 	if ((foot = ngx_pcalloc(pool, sizeof(*foot)))==NULL) {
 		goto FAILED_TO_APPLY_JSONP;
 	}
-	if ((buf_head = ngx_create_temp_buf(pool, jsonp_callback->len + 1))==NULL) {
+	if ((buf_head = ngx_pcalloc(pool, sizeof(*buf_head) + jsonp_callback->len + 2))==NULL) {
 		goto FAILED_TO_APPLY_JSONP;
 	}
-	if ((buf_foot = ngx_create_temp_buf(pool, 200))==NULL) {
+	if ((buf_foot = ngx_pcalloc(pool, sizeof(*buf_foot) + 200))==NULL) {
 		goto FAILED_TO_APPLY_JSONP;
 	}
 
+	buf_head->start = (u_char *) (buf_head+1);
+	buf_head->end = buf_head->start + jsonp_callback->len + 2;
+	buf_head->last = buf_head->pos = buf_head->start;
+	buf_head->temporary = 1;
+
+	buf_foot->start = (u_char *) (buf_foot+1);
+	buf_foot->end = buf_foot->start + 200;
+	buf_foot->last = buf_foot->pos = buf_foot->start;
+	buf_foot->temporary = 1;
+
 	ngx_memcpy(buf_head->last, jsonp_callback->data, jsonp_callback->len);
-	buf_head->last[jsonp_callback->len] = '(';
-	buf_head->last = buf_head->last + jsonp_callback->len + 1;
+	buf_head->last = buf_head->last + jsonp_callback->len;
+	*(buf_head->last++) = '(';
+	*(buf_head->last++) = '[';
+
+	*(buf_foot->last++) = ',';
+	*(buf_foot->last++) = '"';
+	if (last_modified) {
+		buf_foot->last = ngx_http_time(buf_foot->last, last_modified);
+	}
+	*(buf_foot->last++) = '"';
+	*(buf_foot->last++) = ',';
+	*(buf_foot->last++) = '"';
+	if (etag->data) {
+		ngx_memcpy(buf_foot->last, etag->data, etag->len);
+		buf_foot->last += etag->len;
+	}
+	*(buf_foot->last++) = '"';
+	*(buf_foot->last++) = ']';
 	*(buf_foot->last++) = ')';
 	*(buf_foot->last++) = ';';
 
