@@ -351,8 +351,8 @@ static ngx_list_t* ngx_http_push_parse_channel_list(
 		else {
 			//reading tpl var
 			
-			if (*p_ch_value == end_char || *p_ch_value == separator || 
-					(end_char == '\0' && len == channel_value->len)) {
+			if ((end_char == '\0' && len == channel_value->len) ||
+					*p_ch_value == end_char || *p_ch_value == separator) {
 				//end when reach the end_var or a separator
 				//set var value
 				//len = p_ch_value - start
@@ -602,8 +602,9 @@ static ngx_int_t ngx_http_push_subscribe_channel(
 
 			//r->read_event_handler = ngx_http_test_reading;
 			//r->write_event_handler = ngx_http_request_empty_handler;
-			r->discard_body = 1;
-			//r->keepalive = 1; //stayin' alive!!
+			r->discard_body = 1;	
+			//without this, safari don't keep alive!!
+			r->keepalive = 1; //stayin' alive!!
 			return NGX_DONE;
 			
 		//TODO: NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL use query_data too!!
@@ -692,7 +693,7 @@ static ngx_int_t ngx_http_push_subscribe_multi(ngx_http_request_t *r)
 	ngx_int_t                       msg_search_outcome;
 	ngx_list_t										*query_list;
 	ngx_uint_t i;
-	ngx_int_t ret;
+	ngx_int_t ret = NGX_OK;
 
 	query_list = ngx_http_push_parse_channel_list(r, cf);
 
@@ -741,7 +742,7 @@ static ngx_int_t ngx_http_push_subscribe_multi(ngx_http_request_t *r)
 
 	}
 
-	return NGX_OK;
+	return ret;
 }
 
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
