@@ -291,6 +291,11 @@ static time_t ngx_http_push_get_if_modified_since(ngx_http_request_t *r, ngx_htt
 	if (cf->jsonp && cf->jsonp_if_modified_since != NGX_ERROR) {
 		vv = ngx_http_get_indexed_variable(r, cf->jsonp_if_modified_since);
 		if (vv || !vv->not_found || vv->len) {
+			u_char *src, *dst;
+			src = vv->data;
+			dst = vv->data;
+			ngx_unescape_uri(&dst, &dst, vv->len, NGX_UNESCAPE_URI);
+			vv->len = dst - vv->data;
 			return ngx_http_parse_time(vv->data, vv->len);
 		}
 	}
