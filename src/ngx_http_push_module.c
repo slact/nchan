@@ -1608,7 +1608,7 @@ static ngx_int_t ngx_http_push_check_hash(ngx_http_request_t *r, ngx_http_push_l
 		      }
 		      memcpy(&debug_hash[32], &key->data[32], 8);
 		      debug_hash[40] = 0;
-		      ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "key mismatch, should be: \"%s\" for %d", debug_hash);
+		      ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "key mismatch, should be: \"%s\"", debug_hash);
 		      return NGX_ERROR;
 	      }
 	}
