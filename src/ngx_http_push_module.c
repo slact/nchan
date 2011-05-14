@@ -573,10 +573,14 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 						ngx_add_timer(&subscriber->event, pcf->subscriber_timeout * 1000);
 					}
 
-					//r->read_event_handler = ngx_http_test_reading;
-					//r->write_event_handler = ngx_http_request_empty_handler;
+                                        // Make sure the connection with the remote client is still there.
+                                        // If we don't test, then we'd leak a worker connection if they disconnected.
+					r->read_event_handler = ngx_http_test_reading;
+					r->write_event_handler = ngx_http_request_empty_handler;
 					r->discard_body = 1;
-					//r->keepalive = 1; //stayin' alive!!
+                                        // Prevent nginx from closing the connection immediately if protocol is HTTP/1.0 or
+                                        // "Connection: close" header is present
+					r->keepalive = 1; //stayin' alive!!
 					return NGX_DONE;
 
 				case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
