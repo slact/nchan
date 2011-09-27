@@ -550,6 +550,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
 			//in most reasonable cases, there'll be at most one subscriber on the
 			//channel. However, since settings are bound to locations and not
 			//specific channels, this assumption need not hold. Hence this broadcast.
+			ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log, ngx_http_push_shpool);
 			ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 
 			return NGX_OK;
