@@ -23,6 +23,8 @@
 
 #define NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH 1024 //bytes
 
+#define NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH 100
+
 #ifndef NGX_HTTP_CONFLICT
 #define NGX_HTTP_CONFLICT 409
 #endif
@@ -43,7 +45,7 @@
 #define NGX_HTTP_PUSH_MESSAGE_RECEIVED 9000
 #define NGX_HTTP_PUSH_MESSAGE_QUEUED   9001
 
-#define NGX_HTTP_PUSH_MESSAGE_FOUND     1000 
+#define NGX_HTTP_PUSH_MESSAGE_FOUND     1000
 #define NGX_HTTP_PUSH_MESSAGE_EXPECTED  1001
 #define NGX_HTTP_PUSH_MESSAGE_EXPIRED   1002
 
@@ -53,7 +55,6 @@ typedef struct {
 } ngx_http_push_main_conf_t;
 
 typedef struct {
-	ngx_int_t                       index;
 	time_t                          buffer_timeout;
 	ngx_int_t                       min_messages;
 	ngx_int_t                       max_messages;
@@ -68,11 +69,23 @@ typedef struct {
 	ngx_int_t                       max_channel_subscribers;
 	ngx_int_t                       ignore_queue_on_no_cache;
 	time_t                          channel_timeout;
+	ngx_str_t                       secret;
+	ngx_array_t                     *secret_lengths;
+	ngx_array_t                     *secret_values;
+	ngx_str_t                       key;
+	ngx_array_t                     *key_lengths;
+	ngx_array_t                     *key_values;
+	ngx_str_t                       id;
+	ngx_array_t                     *id_lengths;
+	ngx_array_t                     *id_values;
+	ngx_str_t                       jsonp_callback;
+	ngx_array_t                     *jsonp_callback_lengths;
+	ngx_array_t                     *jsonp_callback_values;
 } ngx_http_push_loc_conf_t;
 
 //message queue
 typedef struct {
-    ngx_queue_t                     queue; //this MUST be first.
+	ngx_queue_t                     queue; //this MUST be first.
 	ngx_str_t                       content_type;
 //	ngx_str_t                       charset;
 	ngx_buf_t                      *buf;
@@ -87,9 +100,9 @@ typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_clean
 
 //subscriber request queue
 typedef struct {
-    ngx_queue_t                     queue; //this MUST be first.
+	ngx_queue_t                     queue; //this MUST be first.
 	ngx_http_request_t             *request;
-	ngx_http_push_subscriber_cleanup_t *clndata; 
+	ngx_http_push_subscriber_cleanup_t *clndata;
 	ngx_event_t                     event;
 } ngx_http_push_subscriber_t;
 
@@ -98,13 +111,13 @@ typedef struct {
 	pid_t                           pid;
 	ngx_int_t                       slot;
 	ngx_http_push_subscriber_t     *subscriber_sentinel;
-} ngx_http_push_pid_queue_t; 
+} ngx_http_push_pid_queue_t;
 
 //our typecast-friendly rbtree node (channel)
 typedef struct {
 	ngx_rbtree_node_t               node; //this MUST be first.
 	ngx_str_t                       id;
-    ngx_http_push_msg_t            *message_queue;
+	ngx_http_push_msg_t            *message_queue;
 	ngx_uint_t                      messages;
 	ngx_http_push_pid_queue_t       workers_with_subscribers;
 	ngx_uint_t                      subscribers;
@@ -129,7 +142,7 @@ typedef struct {
 	ngx_queue_t                     queue;
 	ngx_http_push_msg_t            *msg; //->shared memory
 	ngx_int_t                       status_code;
-	ngx_pid_t                       pid; 
+	ngx_pid_t                       pid;
 	ngx_http_push_channel_t        *channel; //->shared memory
 	ngx_http_push_subscriber_t     *subscriber_sentinel; //->a worker's local pool
 } ngx_http_push_worker_msg_t;
@@ -177,7 +190,7 @@ static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r);
 static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r);
 static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r);
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data);
-static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified);
+static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_http_push_loc_conf_t *pcf, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified);
 
 //publisher
 static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r);
@@ -191,6 +204,7 @@ static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_in
 static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool);
 #define ngx_http_push_create_output_chain(buf, pool, log) ngx_http_push_create_output_chain_general(buf, pool, log, NULL)
 #define ngx_http_push_create_output_chain_locked(buf, pool, log, shpool) ngx_http_push_create_output_chain_general(buf, pool, log, shpool)
+static ngx_chain_t * ngx_http_push_create_output_three_chain_locked(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool);
 
 //string constants
 //headers
@@ -220,7 +234,7 @@ const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN = ngx_string(
 	"last requested: %d sec. ago (-1=never)" CRLF
 	"active subscribers: %ui"
 	"\0");
-	
+
 const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_JSON = ngx_string(
 	"{\"messages\": %ui, "
 	"\"requested\": %d, "
