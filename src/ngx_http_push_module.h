@@ -22,6 +22,7 @@
 #define NGX_HTTP_PUSH_MIN_MESSAGE_RECIPIENTS 0
 
 #define NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH 1024 //bytes
+#define NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH 1024 //bytes
 
 #ifndef NGX_HTTP_CONFLICT
 #define NGX_HTTP_CONFLICT 409
@@ -68,6 +69,11 @@ typedef struct {
 	ngx_int_t                       max_channel_subscribers;
 	ngx_int_t                       ignore_queue_on_no_cache;
 	time_t                          channel_timeout;
+	ngx_int_t                       jsonp;
+	ngx_int_t                       jsonp_callback;
+  	ngx_int_t                       jsonp_if_modified_since;
+  	ngx_int_t                       jsonp_if_none_match;
+	ngx_int_t                       max_jsonp_callback_length;
 } ngx_http_push_loc_conf_t;
 
 //message queue
@@ -159,11 +165,16 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
 #define ngx_http_push_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 0, shpool)
 #define ngx_http_push_force_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 1, shpool)
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
-static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status);
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status, time_t time, ngx_int_t tag);
 
 //channel
 static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
 static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t message_queue_size, ngx_uint_t subscriber_queue_size, time_t last_seen);
+
+// jsonp
+static ngx_str_t * ngx_http_push_get_jsonp_callback(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
+static ngx_int_t ngx_http_push_apply_jsonp_to_chain(ngx_chain_t **chainp, ngx_pool_t *pool, ngx_str_t *jsonp_callback, ngx_str_t *etag, time_t last_modified);
+static ngx_int_t ngx_http_push_clear_jsonp_from_chain(ngx_chain_t **chainp, ngx_pool_t *pool);
 
 //subscriber
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
@@ -174,7 +185,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r);
-static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r);
+static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_str_t *if_none_match);
 static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r);
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data);
 static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified);

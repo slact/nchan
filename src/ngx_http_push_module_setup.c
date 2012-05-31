@@ -105,6 +105,8 @@ static void *		ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 	lcf->store_messages=NGX_CONF_UNSET;
 	lcf->delete_oldest_received_message=NGX_CONF_UNSET;
 	lcf->max_channel_id_length=NGX_CONF_UNSET;
+	lcf->jsonp=NGX_CONF_UNSET;
+	lcf->max_jsonp_callback_length=NGX_CONF_UNSET;
 	lcf->max_channel_subscribers=NGX_CONF_UNSET;
 	lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
 	lcf->channel_timeout=NGX_CONF_UNSET;
@@ -124,6 +126,8 @@ static char *	ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
 	ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
 	ngx_conf_merge_value(conf->delete_oldest_received_message, prev->delete_oldest_received_message, 0);
 	ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH);
+	ngx_conf_merge_value(conf->jsonp, prev->jsonp, 0);
+	ngx_conf_merge_value(conf->max_jsonp_callback_length, prev->max_channel_id_length, NGX_HTTP_PUSH_MAX_JSONP_CALLBACK_LENGTH);
 	ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
 	ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
 	ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT);
@@ -216,6 +220,22 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
 	}
 	
 	return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_subscriber_handler);
+}
+
+static ngx_str_t  ngx_http_push_jsonp_callback = ngx_string("push_jsonp_callback"); //jsonp callback id variable
+static ngx_str_t  ngx_http_push_jsonp_if_modified_since = ngx_string("push_jsonp_if_modified_since"); //jsonp If-Modified-Since variable
+static ngx_str_t  ngx_http_push_jsonp_if_none_match = ngx_string("push_jsonp_if_none_match"); //jsonp If-None-Match variable
+static char *ngx_http_push_jsonp(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+	ngx_http_push_loc_conf_t       *plcf = conf;
+
+	plcf->jsonp = 1;
+	plcf->jsonp_callback = ngx_http_get_variable_index(cf, &ngx_http_push_jsonp_callback);
+	plcf->jsonp_if_modified_since = ngx_http_get_variable_index(cf, &ngx_http_push_jsonp_if_modified_since);
+	plcf->jsonp_if_none_match = ngx_http_get_variable_index(cf, &ngx_http_push_jsonp_if_none_match);
+	if (plcf->jsonp_callback == NGX_ERROR) {
+		return NGX_CONF_ERROR;
+	}
+	return NGX_CONF_OK;
 }
 
 //great justice appears to be at hand
@@ -357,6 +377,20 @@ static ngx_command_t  ngx_http_push_commands[] = {
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, max_channel_id_length),
+      NULL },
+	  
+	{ ngx_string("push_jsonp"),
+      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+      ngx_http_push_jsonp,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      0,
+      NULL },
+
+	{ ngx_string("push_max_jsonp_callback_length"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, max_jsonp_callback_length),
       NULL },
 	  
 	{ ngx_string("push_max_channel_subscribers"),
