@@ -54,6 +54,7 @@ typedef struct {
 
 typedef struct {
 	ngx_int_t                       index;
+	ngx_int_t                       channel_tpl_index;
 	time_t                          buffer_timeout;
 	ngx_int_t                       min_messages;
 	ngx_int_t                       max_messages;
@@ -61,6 +62,7 @@ typedef struct {
 	ngx_int_t                       subscriber_poll_mechanism;
 	time_t                          subscriber_timeout;
 	ngx_int_t                       authorize_channel;
+	ngx_int_t                       multi_channel_subscribe;
 	ngx_int_t                       store_messages;
 	ngx_int_t                       delete_oldest_received_message;
 	ngx_str_t                       channel_group;
@@ -84,6 +86,13 @@ typedef struct {
 } ngx_http_push_msg_t;
 
 typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_cleanup_t;
+
+//channel query data
+typedef struct {
+	ngx_str_t												channel_id;
+	time_t													message_time;
+	ngx_int_t												message_tag;
+} ngx_http_push_query_data_t;
 
 //subscriber request queue
 typedef struct {
@@ -159,7 +168,7 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
 #define ngx_http_push_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 0, shpool)
 #define ngx_http_push_force_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 1, shpool)
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
-static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status);
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status, ngx_http_push_query_data_t *query);
 
 //channel
 static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);

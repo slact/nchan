@@ -16,7 +16,7 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
 
 static ngx_http_push_channel_t *	ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
 	ngx_queue_t                 *sentinel = &channel->message_queue->queue;
-	time_t                       now = ngx_time();
+	time_t                       now = ngx_time() - 10; //give 10s because we can have more than one channel subscribe on the same request. Without that, we need a timeout > 0 or don't trash empty channels! => need by multi subscribe
 	ngx_http_push_msg_t         *msg=NULL;
 	while(!ngx_queue_empty(sentinel)){
 		msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
