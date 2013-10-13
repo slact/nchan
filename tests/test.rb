@@ -1,46 +1,111 @@
-require 'rubygems'
-require 'em-http'
+#!/usr/bin/ruby
+require 'typhoeus'
+require 'json'
+require 'pry'
+require 'celluloid'
+Typhoeus::Config.memoize = false
 
-def subscribe(num, opts)
-  puts "Start listener " + num.to_s
-  listener = EventMachine::HttpRequest.new('http://127.0.0.1:8082/broadcast/sub?channel='+ opts[:channel]).get :head => opts[:head]
-  listener.callback { 
-    # print recieved message, re-subscribe to channel with
-    # the last-modified header to avoid duplicate messages 
-    puts "Listener " + num.to_s + " received: " + listener.response + "\n"
-    
-    modified = listener.response_header['LAST_MODIFIED']
-    subscribe(num, {:channel => opts[:channel], :head => {'If-Modified-Since' => modified}})
-  }
-end
+class Subscriber
+  include Celluloid
+  attr_accessor :clients, :hydra
+  def initialize(url, num_clients=1, timeout=60)
+    @url=url
+    @timeout=timeout
 
-EventMachine.run {
-  channel = "pub"
-  numofem = 100
-  
-  # Publish new message every 5 seconds
-  EM.add_periodic_timer(5) do
-    time = Time.now
-    i = 0
-    numofem.times do
-       i += 1
-       channel = i.to_s
+    @etag = ""
+    @last_modified = ""
 
-    publisher = EventMachine::HttpRequest.new('http://127.0.0.1:8082/broadcast/pub?channel='+channel).post :body => "Hello @ #{time}"
-    publisher.callback {
-      #puts "Published message @ #{time}"
-      #puts "Response code: " + publisher.response_header.status.to_s
-      #puts "Headers: " + publisher.response_header.inspect
-      #puts "Body: \n" + publisher.response
-      #puts "\n"
-    }
+    @hydra = Typhoeus::Hydra.new(:max_concurrency => num_clients + 1)
+    @clients = []
+    puts "Starting #{num_clients} subscribers to #{url}"
+    num_clients.times do
+      client = Client.new(url, self)
     end
   end
-
-  i = 0
-  numofem.times do
-    i += 1
-    subscribe(i, :channel => i.to_s)
+  
+  def log_response(resp)
+    puts "received \"#{resp.body}\""
   end
-}
+  def log_failure(failure)
+    puts "failed!"
+  end
+  
+  class Client
+    attr_accessor :subscriber, :last_modified, :etag
+    def initialize(url, subscr)
+      @subscriber = subscr
+      @last_modified, @etag = last_modified, etag
+      @request = Typhoeus::Request.new(
+        url,
+        timeout: 60000,
+      )
+      @request.on_complete do |response|
+        puts "recieved response at #{@request.url}"
+        if response.success?
+          @request.options[:headers]["If-None-Match"]=response.headers["Etag"]
+          @request.options[:headers]["If-Modified-Since"]=response.headers["Last-Modified"]
+          @subscriber.log_response response
+          keep_running true
+        else
+          @subscriber.log_failure
+          keep_running false
+        end
+      end
+      keep_running
+    end
+    def keep_running(was_success=nil)
+      @subscriber.hydra.queue @request
+      puts "queued request for #{@request.url}"
+    end
+  end
+  
+  def run
+    @hydra.run
+  end
+end
 
+class Publisher
+  include Celluloid
+  def initialize(url)
+    @url= url
+  end
+  def post(body, content_type='text/plain')
+    post = Typhoeus::Request.new(
+      @url,
+      headers: {:'Content-Type' => content_type},
+      method: "POST",
+      body: body,
+    )
+    #puts "Posting message to #{@url}"
+    post.on_complete do |response|
+      if response.success?
+        # hell yeah
+        #puts response.response_headers
+        #puts response.body
+      else
+        puts "problem submitting request"
+      end
+    end
+    post.run
+  end
+end
+
+pub = Publisher.new("http://localhost:8082/broadcast/pub/foo")
+sub = Subscriber.new("http://localhost:8082/broadcast/sub/foo", 1)
+
+sub.async.run
+pub.post "hello there"
+pub.post "i am here"
+
+
+def simple_test
+  sub = Subscriber.new "http://localhost:8082/broadcast/sub/simple", 60
+  sub.async.run
+  pub = Publisher.new("http://localhost:8082/broadcast/pub/foo")
+  5000.times do
+    pub.post "hi there"
+  end
+end
+
+simple_test
+sleep
