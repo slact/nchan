@@ -19,58 +19,67 @@ class Message
   end
 end
 
-class Subscriber
-  class MessageStore
-    include Enumerable
-    attr_accessor :msgs
-    def messages; msgs; end
+class MessageStore
+  include Enumerable
+  attr_accessor :msgs, :quit_message
 
-    def initialize(opt={})
-      @array=opt[:noid]
-      @msgs={} #ruby >= 1.9 hashes are ordered
+  def matches? (msg_store)
+    my_messages = messages
+    other_messages = msg_store.messages
+    return false unless my_messages.count == other_messages.count
+    other_messages.each_with_index do |msg, i|
+      return false if my_messages[i] != msg
     end
+    true
+  end
 
-    def messages
-      self.to_a.map{|m|m.to_s}
-    end
+  def initialize(opt={})
+    @array=opt[:noid]
+    @array ? @msgs=[] : @msgs={}
+  end
 
-    def to_a
-      @array ? @msgs : @msgs.values
+  def messages
+    self.to_a.map{|m|m.to_s}
+  end
+
+  def to_a
+    @array ? @msgs : @msgs.values
+  end
+  def pp
+    each do |msg|
+      puts "\"#{msg.to_s}\" (seen #{msg.times_seen} times.)"
     end
-    def pp
-      each do |msg|
-        puts "\"#{msg.to_s}\" (seen #{msg.times_seen} times.)"
-      end
+  end
+  def each
+    if @array
+      @msgs.each {|msg| yield msg }
+    else
+      @msgs.each {|key, msg| yield msg }
     end
-    def each
-      if @array
-        @msgs.each {|msg| yield msg }
+  end
+  def <<(msg)
+    if @array
+      @msgs << msg
+    else
+      if (cur_msg=@msgs[msg.id])
+        cur_msg.times_seen+=1
+        cur_msg.times_seen
       else
-        @msgs.each {|key, msg| yield msg }
-      end
-    end
-    def <<(msg)
-      if @array
-        @msgs << msg
-      else
-        if (cur_msg=@msgs[msg.id])
-          cur_msg.times_seen+=1
-          cur_msg.times_seen
-        else
-          @msgs[msg.id]=msg
-          1
-        end
+        @msgs[msg.id]=msg
+        1
       end
     end
   end
-  
-  attr_accessor :url, :client, :messages, :max_round_trips
-  def initialize(url, num_clients=1, timeout=60)
-    @url=url
-    @timeout=timeout
+end
 
+class Subscriber
+  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message
+  def initialize(url, num_clients=1, opt={})
+    @url=url
+    @timeout=opt[:timeout] || 60
+    @quit_message=opt[:quit_message]
     @messages = MessageStore.new
-    puts "Starting client to #{url}"
+    #puts "Starting client to #{url}"
     @client=LongPollClient.new(self, :num_clients => num_clients, :timeout => @timeout)
   end
   def abort
@@ -99,14 +108,10 @@ class Subscriber
             req.options[:headers]["If-Modified-Since"]=msg.last_modified
             unless @subscriber.on_message(msg) == false
               @hydra.queue req 
-            else
-              puts "Done subscribing."
             end
           else
             unless @subscriber.on_failure(response) == false
               @hydra.queue req
-            else
-              puts "Done subscribing (error)"
             end
           end
         end
@@ -115,7 +120,7 @@ class Subscriber
     end
     
     def run(was_success=nil)
-      puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
+      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
       @hydra.run
     end
     
@@ -134,6 +139,7 @@ class Subscriber
       @on_message=block
     else
       @messages << msg
+      return false if @quit_message == msg.to_s
       @on_message.call(msg) if @on_message.respond_to? :call
     end
   end
@@ -151,7 +157,7 @@ class Publisher
   attr_accessor :messages
   def initialize(url)
     @url= url
-    @messages = []
+    @messages = MessageStore.new :noid => true
   end
   
   def post(body, content_type='text/plain')
@@ -168,7 +174,7 @@ class Publisher
       if response.success?
         @messages << msg
       else
-        puts "problem submitting request"
+        raise "Problem submitting request"
       end
     end
     post.run
