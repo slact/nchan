@@ -26,9 +26,9 @@ class MessageStore
   def matches? (msg_store)
     my_messages = messages
     other_messages = msg_store.messages
-    return false unless my_messages.count == other_messages.count
+    return false, "Message count doesn't match. ( #{my_messages.count}, #{other_messages.count})" unless my_messages.count == other_messages.count
     other_messages.each_with_index do |msg, i|
-      return false if my_messages[i] != msg
+      return false, "Message #{i} doesn't match. (|#{my_messages[i].length}|, |#{msg.length}|) " if my_messages[i] != msg
     end
     true
   end
@@ -73,14 +73,16 @@ class MessageStore
 end
 
 class Subscriber
-  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message
-  def initialize(url, num_clients=1, opt={})
+  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency
+  def initialize(url, concurrency=1, opt={})
     @url=url
+    @errors=[]
     @timeout=opt[:timeout] || 60
     @quit_message=opt[:quit_message]
     @messages = MessageStore.new
     #puts "Starting client to #{url}"
-    @client=LongPollClient.new(self, :num_clients => num_clients, :timeout => @timeout)
+    @concurrency=concurrency
+    @client=LongPollClient.new(self, :concurrency => concurrency, :timeout => @timeout)
   end
   def abort
     #destroy the client
@@ -93,10 +95,10 @@ class Subscriber
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout] || 10
       @subscriber=subscr
       @url=subscr.url
-      @num_clients=opt[:num_clients] || opt[:clients] || 1
-      @hydra= Typhoeus::Hydra.new( max_concurrency: @num_clients)
+      @concurrency=opt[:concurrency] || opt[:clients] || 1
+      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency)
       
-      (opt[:num_clients] || opt[:clients] || 1).times do
+      @concurrency.times do
         req=Typhoeus::Request.new(@url, timeout: @timeout)
         req.on_complete do |response|
           #puts "recieved response at #{req.url}"
@@ -143,10 +145,20 @@ class Subscriber
       @on_message.call(msg) if @on_message.respond_to? :call
     end
   end
-  def on_failure(response=nil, request=nil, &block)
+  def on_failure(response=nil, &block)
     if block_given?
       @on_failure=block
     else
+      if response.timed_out?
+        # aw hell no
+        @errors << "Client response timeout."
+      elsif response.code == 0
+        # Could not get an http response, something's wrong.
+        @errors << response.return_message
+      else
+        # Received a non-successful http response.
+        @errors << "HTTP request failed: " + response.code.to_s
+      end
       @on_failure.call(response, request) if @on_failure.respond_to? :call
     end
   end
@@ -161,6 +173,11 @@ class Publisher
   end
   
   def post(body, content_type='text/plain')
+    if Enumerable===body
+      i=0
+      body.each{|b| i+=1; post(b, content_type)}
+      return i
+    end
     post = Typhoeus::Request.new(
       @url,
       headers: {:'Content-Type' => content_type},

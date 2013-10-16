@@ -6,15 +6,29 @@ require "./pubsub.rb"
 def url(part)
   "http://127.0.0.1:8082/#{part}"
 end
+def pubsub(concurrent_clients=1, opt={})
+    urlpart=opt[:urlpart] || 'broadcast'
+    timeout = opt[:timeout]
+    rnd = SecureRandom.hex
+    sub = Subscriber.new url("#{urlpart}/sub/#{rnd}"), concurrent_clients, timeout: timeout, quit_message: 'FIN'
+    pub = Publisher.new url("#{urlpart}/pub/#{rnd}")
+    return pub, sub
+end
+def verify(pub, sub)
+  assert sub.errors.empty?, "There were subscriber errors: #{sub.errors.join "; "}"
+  ret, err = sub.messages.matches?(pub.messages)
+  assert ret, err
+  sub.messages.each do |msg|
+    assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
+  end
+end
 
 class PubSubTest < Test::Unit::TestCase
   def setup
     Celluloid.boot
   end
   def test_message_delivery
-    rnd = SecureRandom.hex
-    sub = Subscriber.new url("broadcast/sub/#{rnd}"), 1, quit_message: 'FIN'
-    pub = Publisher.new url("broadcast/pub/#{rnd}")
+    pub, sub = pubsub
     sub.run
     assert_equal sub.messages.messages.count, 0
     pub.post "hi there"
@@ -28,27 +42,36 @@ class PubSubTest < Test::Unit::TestCase
   
   def test_broadcast
     num_clients = 700
-    sub = Subscriber.new url('broadcast/sub/broadcast'), num_clients, quit_message: 'FIN'
+    pub, sub = pubsub num_clients
     sub.run #celluloid async FTW
-    pub = Publisher.new url('broadcast/pub/broadcast')
-    ["hello there", "what is this", "it's nothing", "FIN"].each{|m| pub.post m}
+    pub.post ["hello there", "what is this", "it's nothing", "FIN"]
     sub.wait
-    assert sub.messages.matches?(pub.messages)
-    sub.messages.each do |msg|
-      assert_equal msg.times_seen, num_clients
-    end
+    verify pub, sub
   end
   
   def test_queueing
-    rnd = SecureRandom.hex
-    sub = Subscriber.new url("broadcast/sub/#{rnd}"), 5, quit_message: 'FIN'
-    pub = Publisher.new url("broadcast/pub/#{rnd}")
-    %w( what is this_thing andnow 555555555555555555555 eleven FIN ).each {|m| pub.post m}
+    pub, sub = pubsub 5
+    pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN )
     sub.run
     sub.wait
-    assert sub.messages.matches?(pub.messages)
-    sub.messages.each do |msg|
-      assert_equal msg.times_seen, 5
-    end
+    verify pub, sub
+  end
+  
+  def test_medium_message
+    pub, sub = pubsub 10, timeout: 5
+    sub.run
+    pub.post ["q" * 1024, "FIN"]
+    sub.wait
+    verify pub, sub
+  end
+  
+  def test_message_timeout
+    #config should be set to message_timeout=5sec
+    pub, sub = pubsub 1
+    pub.post "foo"
+    sleep 6
+    sub.run
+    pub.post "FIN"
+    verify pub, sub
   end
 end
