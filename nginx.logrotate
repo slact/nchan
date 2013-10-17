@@ -1,0 +1,8 @@
+	/var/log/nginx/*log /var/log/nginx/*/*log {
+		daily
+		create 640 http log
+		compress
+		postrotate
+			[ ! -f /run/nginx.pid ] || kill -USR1 `cat /run/nginx.pid`
+		endscript
+	}

@@ -1,0 +1,11 @@
+#!sh
+post_install() {
+    post_upgrade
+}
+post_upgrade() {
+    rm -fv /etc/nginx/http 2>/dev/null
+    ln -sf /usr/share/nginx/http /etc/nginx/html
+}
+post_uninstall() {
+    rm /etc/nginx/http
+}
