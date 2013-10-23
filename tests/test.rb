@@ -17,11 +17,26 @@ end
 def verify(pub, sub)
   assert sub.errors.empty?, "There were subscriber errors: #{sub.errors.join "; "}"
   ret, err = sub.messages.matches?(pub.messages)
-  assert ret, err
+  assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
     assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
   end
 end
+
+def start_test_nginx
+  begin #kill current test-nginx
+    oldpid = File.read "/tmp/nhpm-test-nginx.pid"
+    oldpid.delete! "\n"
+    binding.pry
+    system "kill #{oldpid}"
+    puts "killed already-running nginx test server"
+  rescue
+    puts "no test nginx server running (it seems...)"
+  end
+  pid = spawn "./nginx -p ./ -c ./nginx.conf"
+  puts "Spawned nginx test server with PID #{pid}"
+end
+
 
 class PubSubTest < Test::Unit::TestCase
   def setup
@@ -75,3 +90,6 @@ class PubSubTest < Test::Unit::TestCase
     verify pub, sub
   end
 end
+
+
+start_test_nginx
