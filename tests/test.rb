@@ -72,11 +72,24 @@ class PubSubTest < Test::Unit::TestCase
     verify pub, sub
   end
   
-  def test_medium_message
+  def test_1kb_message
     pub, sub = pubsub 10, timeout: 5
     sub.run
     pub.post ["q" * 1024, "FIN"]
     sub.wait
+    verify pub, sub
+  end
+  
+  def test_message_length_range
+    pub, sub = pubsub 10, timeout: 5
+    sub.run
+    
+    n=5
+    while n <= 10000 do
+      pub.post "T" * n
+      n=n*1.01
+    end
+    pub.post "FIN"
     verify pub, sub
   end
   
