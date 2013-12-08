@@ -84,7 +84,8 @@ class PubSubTest < Test::Unit::TestCase
     #config should be set to message_timeout=5sec
     pub, sub = pubsub 1
     pub.post "foo"
-    sleep 6
+    sleep 10
+    pub.messages.remove_old
     sub.run
     pub.post "FIN"
     verify pub, sub

@@ -42,6 +42,12 @@ class MessageStore
     self.to_a.map{|m|m.to_s}
   end
 
+  #remove n oldest messages
+  def remove_old(n=1)
+    n.times {@msgs.shift}
+    @msgs.count
+  end
+  
   def to_a
     @array ? @msgs : @msgs.values
   end
