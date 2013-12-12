@@ -106,4 +106,3 @@ class PubSubTest < Test::Unit::TestCase
 end
 
 
-start_test_nginx
