@@ -72,12 +72,24 @@ class PubSubTest < Test::Unit::TestCase
     verify pub, sub
   end
   
-  def test_1kb_message
+  def test_long_message(kb=1)
     pub, sub = pubsub 10, timeout: 5
     sub.run
-    pub.post ["q" * 1024, "FIN"]
+    pub.post ["q" * kb * 1024, "FIN"]
     sub.wait
     verify pub, sub
+  end
+  
+  def test_500kb_message
+    test_long_message 500
+  end
+  
+  def test_700kb_message
+    test_long_message 700
+  end
+  
+  def test_950kb_message
+    test_long_message 950
   end
   
   def test_message_length_range
