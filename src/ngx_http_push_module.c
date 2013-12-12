@@ -632,12 +632,57 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
         return;                                                               \
     }
-  
+
+
+// this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
+static ngx_buf_t * ngx_http_push_read_request_body_to_buffer(ngx_http_request_t *r) {
+  ngx_buf_t *buf = NULL;
+  ngx_chain_t *chain;
+  ssize_t n;
+  off_t len;
+
+  buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
+  if (buf != NULL) {
+    ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
+    chain = r->request_body->bufs;
+    while ((chain != NULL) && (chain->buf != NULL)) {
+      len = ngx_buf_size(chain->buf);
+      // if buffer is equal to content length all the content is in this buffer
+      if (len >= r->headers_in.content_length_n) {
+        buf->start = buf->pos;
+        buf->last = buf->pos;
+        len = r->headers_in.content_length_n;
+      }
+
+      if (chain->buf->in_file) {
+        n = ngx_read_file(chain->buf->file, buf->start, len, 0);
+        if (n == NGX_FILE_ERROR) {
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: cannot read file with request body");
+          return NULL;
+        }
+        buf->last = buf->last + len;
+        ngx_delete_file(chain->buf->file->name.data);
+        chain->buf->file->fd = NGX_INVALID_FILE;
+      } else {
+        buf->last = ngx_copy(buf->start, chain->buf->pos, len);
+      }
+
+      chain = chain->next;
+      buf->start = buf->last;
+    }
+  }
+  return buf;
+}
+
+
+    
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
   ngx_str_t                      *id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
   ngx_buf_t                      *buf = NULL, *buf_copy;
+  ngx_chain_t                    *cl;
+  size_t                          len;
   ngx_http_push_channel_t        *channel;
   ngx_uint_t                      method = r->method;
   
@@ -701,12 +746,8 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         //this buffer will get copied to shared memory in a few lines, 
         //so it does't matter what pool we make it in.
       }
-      //this is broken. fix it.
-      else if(r->request_body->bufs->buf!=NULL) {
-        buf=r->request_body->bufs->buf;
-      }
-      else if(r->request_body->bufs->next!=NULL) {
-        buf=r->request_body->bufs->next->buf;
+      else if(r->request_body->bufs!=NULL) {
+        buf = ngx_http_push_read_request_body_to_buffer(r);
       }
       else {
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
