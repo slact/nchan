@@ -143,6 +143,7 @@ class Subscriber
     @client.poke
   end
   def on_message(msg=nil, &block)
+    #puts "received message"
     if block_given?
       @on_message=block
     else
