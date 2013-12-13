@@ -15,12 +15,11 @@ _uploadprogress_ver="v0.8.4"
 #_upstreamfair_hash="a18b4099fbd458111983200e098b6f0c8efed4bc"
 _fancyindex_ver="master"
 _httpupload_ver="2.2.0"
-_push_module_ver="0.692"
 
-pkgname=nginx-pushmodule-dev
+pkgname=nginx-nhpm-dev
 pkgver=1.4.3
 pkgrel=1
-pkgdesc="lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules - build for slact"
+pkgdesc="Nginx Push Module dev version"
 arch=('i686' 'x86_64')
 install=install
 
@@ -44,12 +43,10 @@ _user=http
 _group=http
 
 source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
-  "nginx.sh"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service")
 md5sums=('4740dad2f0ed7f5fa16e8caaa8a9438e'
-         '3d5ff154f308ef7c844423e44ef9f4e1'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb')
@@ -76,7 +73,7 @@ build() {
     --user=${_user} \
     --group=${_group} \
     --with-debug \
-    --add-module=${startdir}/nhpm \
+    --add-module=${startdir}/${_pushmodule_dirname} \
 
   make
 }
