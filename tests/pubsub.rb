@@ -163,7 +163,7 @@ class Subscriber
         @errors << response.return_message
       else
         # Received a non-successful http response.
-        @errors << "HTTP request failed: " + response.code.to_s
+        @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
       end
       @on_failure.call(response, request) if @on_failure.respond_to? :call
     end

@@ -15,7 +15,7 @@ def pubsub(concurrent_clients=1, opt={})
     return pub, sub
 end
 def verify(pub, sub)
-  assert sub.errors.empty?, "There were subscriber errors: #{sub.errors.join "; "}"
+  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}"
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
