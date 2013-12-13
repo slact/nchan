@@ -635,16 +635,28 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
 
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
-static ngx_buf_t * ngx_http_push_read_request_body_to_buffer(ngx_http_request_t *r) {
+static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
   ngx_buf_t *buf = NULL;
   ngx_chain_t *chain;
   ssize_t n;
   off_t len;
 
+  chain = r->request_body->bufs;
+  if (chain->next == NULL) {
+    return chain->buf;
+  }
+  if (chain->buf->in_file) {
+    if (ngx_buf_in_memory(chain->buf)) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
+    }
+    if (chain->next != NULL) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error reading request body with multiple ");
+    }
+    return chain->buf;
+  }
   buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
   if (buf != NULL) {
     ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
-    chain = r->request_body->bufs;
     while ((chain != NULL) && (chain->buf != NULL)) {
       len = ngx_buf_size(chain->buf);
       // if buffer is equal to content length all the content is in this buffer
@@ -653,7 +665,6 @@ static ngx_buf_t * ngx_http_push_read_request_body_to_buffer(ngx_http_request_t 
         buf->last = buf->pos;
         len = r->headers_in.content_length_n;
       }
-
       if (chain->buf->in_file) {
         n = ngx_read_file(chain->buf->file, buf->start, len, 0);
         if (n == NGX_FILE_ERROR) {
@@ -747,7 +758,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         //so it does't matter what pool we make it in.
       }
       else if(r->request_body->bufs!=NULL) {
-        buf = ngx_http_push_read_request_body_to_buffer(r);
+        buf = ngx_http_push_request_body_to_single_buffer(r);
       }
       else {
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
