@@ -196,7 +196,20 @@ static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_chann
   return msg;
 }
 
+
+//initialization
+static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
+  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  ngx_http_push_worker_processes = ccf->worker_processes;
+  //initialize our little IPC
+  return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
+}
+
+
+
 ngx_http_push_store_t  ngx_http_push_store_local = {
+    &ngx_http_push_store_init_module,
+  
     &ngx_http_push_store_get_channel,
     &ngx_http_push_store_get_message,
 };

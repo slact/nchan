@@ -9,8 +9,8 @@ static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 		return NGX_ERROR; 
 	}
 	
-	//initialize our little IPC
-	return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
+	//initialize storage engine
+	return ngx_http_push_store_local.init_module(cycle);
 }
 
 static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
