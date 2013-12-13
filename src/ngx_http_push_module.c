@@ -401,7 +401,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
             return NGX_ERROR;
           }
           
-           //attach a cleaner to remove the request from the channel.
+           //attach a cleaner to remove the request from the channel and handle shared buffer deallocation.
           if ((cln=ngx_pool_cleanup_add(r->pool, sizeof(*clndata))) == NULL) { //make sure we can.
             return NGX_ERROR;
           }
@@ -409,7 +409,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           clndata = (ngx_http_push_subscriber_cleanup_t *) cln->data;
           clndata->channel=channel;
           clndata->subscriber=subscriber;
-          
+          clndata->buf_use_count=0;
+          clndata->buf=NULL;
+          clndata->rchain=NULL;
+          clndata->rpool=NULL;
           subscriber->request = r;
           subscriber->clndata=clndata;
           
