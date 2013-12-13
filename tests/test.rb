@@ -73,7 +73,7 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_long_message(kb=1)
-    pub, sub = pubsub 10, timeout: 5
+    pub, sub = pubsub 10, timeout: 60*10
     sub.run
     pub.post ["q" * kb * 1024, "FIN"]
     sub.wait
