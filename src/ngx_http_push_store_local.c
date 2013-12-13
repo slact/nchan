@@ -103,5 +103,76 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
   }
 }
 
+//free memory for a message. 
+static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
+  if(msg->buf->file!=NULL) {
+    ngx_shmtx_unlock(&shpool->mutex);
+    if(msg->buf->file->fd!=NGX_INVALID_FILE) {
+      ngx_close_file(msg->buf->file->fd);
+    }
+    ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
+    ngx_shmtx_lock(&shpool->mutex);
+  }
+  ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
+  ngx_slab_free_locked(shpool, msg);
+}
+
+/** find message with entity tags matching those of the request r.
+  * @param r subscriber request
+  */
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status) {
+  //TODO: consider using an RBTree for message storage.
+  ngx_queue_t                    *sentinel = &channel->message_queue->queue;
+  ngx_queue_t                    *cur = ngx_queue_head(sentinel);
+  ngx_http_push_msg_t            *msg;
+  ngx_int_t                       tag = -1;
+  time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+  
+  //channel's message buffer empty?
+  if(channel->messages==0) {
+    *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED; //wait.
+    return NULL;
+  }
+  
+  // do we want a future message?
+  msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
+  if(time <= msg->message_time) { //that's an empty check (Sentinel's values are zero)
+    if(time == msg->message_time) {
+      if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
+      if(tag >= msg->message_tag) {
+        *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
+        return NULL;
+      }
+    }
+  }
+  else {
+    *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
+    return NULL;
+  }
+  
+  while(cur!=sentinel) {
+    msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
+    if (time < msg->message_time) {
+      *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+      return msg;
+    }
+    else if(time == msg->message_time) {
+      if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
+      while (tag >= msg->message_tag  && time == msg->message_time && ngx_queue_next(cur)!=sentinel) {
+        cur=ngx_queue_next(cur);
+        msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
+      }
+      if(time == msg->message_time && tag < msg->message_tag) {
+        *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+        return msg;
+      }
+      continue;
+    }
+    cur=ngx_queue_next(cur);
+  }
+  *status = NGX_HTTP_PUSH_MESSAGE_EXPIRED; //message too old and was not found.
+  return NULL;
+}
+
 
 
