@@ -926,6 +926,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_http_request_t         *r;
     ngx_buf_t                  *buffer;
     u_char                     *pos;
+    off_t                       file_pos;
     
     ngx_shmtx_lock(&shpool->mutex);
     
@@ -960,6 +961,9 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     
     buffer = chain->buf;
     pos = buffer->pos;
+    file_pos = buffer->file_pos;
+    buffer->flush = 1; //needed to flush buffer when encountered
+    buffer->recycled = 1;
     
     last_modified_time = msg->message_time;
     
@@ -983,6 +987,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       
       //rewind the buffer, please
       buffer->pos = pos;
+      buffer->file_pos=file_pos;
       buffer->last_buf=1;
       
       cur=next;
