@@ -50,7 +50,8 @@ md5sums=('4740dad2f0ed7f5fa16e8caaa8a9438e'
 
 
 build() {
-  local _src_dir="${srcdir}/${_pkgname}-${pkgver}"
+  local _src_dir="${srcdir}/nginx-$pkgver"
+  ln -sf $_src_dir $srcdir/nginx
   local _build_dir="${_src_dir}/objs"
   local _pushmodule_dirname="nhpm"
   cd $_src_dir
