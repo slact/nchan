@@ -148,7 +148,7 @@ typedef struct {
 
 typedef struct {
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
-  
+  ngx_http_push_msg_t     *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
 } ngx_http_push_store_t;
 
 

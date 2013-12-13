@@ -149,11 +149,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     }
   }
   
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
-  channel->last_seen = ngx_time();
-  channel->expires = ngx_time() + cf->channel_timeout;
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  msg = ngx_http_push_store_local.get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
       msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 

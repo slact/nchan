@@ -186,11 +186,17 @@ static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, 
   return channel;
 }
 
-
-
-
-
+static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log) {
+  ngx_http_push_msg_t *msg;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  msg = ngx_http_push_find_message_locked(channel, r, msg_search_outcome);
+  channel->last_seen = ngx_time();
+  channel->expires = ngx_time() + cf->channel_timeout;
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return msg;
+}
 
 ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_get_channel,
+    &ngx_http_push_store_get_message,
 };
