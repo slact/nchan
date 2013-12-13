@@ -918,7 +918,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     return NGX_OK;
   }
   
-  cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
   if(msg!=NULL) {
     //copy everything we need first
     ngx_str_t                  *content_type=NULL;
@@ -930,6 +929,11 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_buf_t                  *buffer;
     u_char                     *pos;
     off_t                       file_pos;
+    ngx_chain_t                *rchain;
+    ngx_buf_t                  *rbuffer;
+    
+    ngx_int_t                  *buf_use_count;
+    ngx_http_push_subscriber_cleanup_t *clndata;
     
     ngx_shmtx_lock(&shpool->mutex);
     
@@ -953,7 +957,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       }
     }
     
-    //preallocate output chain. yes, same one for every waiting subscriber
+    //preallocate output chain. this won't actually be used in the request (except the buffer data)
     if((chain = ngx_http_push_create_output_chain_locked(msg->buf, ngx_http_push_pool, ngx_cycle->log, shpool))==NULL) {
       ngx_shmtx_unlock(&shpool->mutex);
       ngx_pfree(ngx_http_push_pool, etag);
@@ -965,45 +969,63 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     buffer = chain->buf;
     pos = buffer->pos;
     file_pos = buffer->file_pos;
-    buffer->flush = 1; //needed to flush buffer when encountered
     buffer->recycled = 1;
     
     last_modified_time = msg->message_time;
     
     ngx_shmtx_unlock(&shpool->mutex);
+
+    buf_use_count = ngx_pcalloc(ngx_http_push_pool, sizeof(*buf_use_count));
+    //BADHACK. inefficient. ugly.
+    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
+    while(cur!=sentinel) {
+      (*buf_use_count)++;
+      cur=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+    }
     
+    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
     //now let's respond to some requests!
     while(cur!=sentinel) {
       next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
       //in this block, nothing in shared memory should be dereferenced.
       r=cur->request;
+      //chain and buffer for this request
+      rchain = ngx_pcalloc(r->pool, sizeof(*rchain));
+      rchain->next = NULL;
+      rbuffer = ngx_pcalloc(r->pool, sizeof(*rbuffer));
+      rchain->buf = rbuffer;
+      ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
+      
+      //request buffer cleanup
+      clndata = cur->clndata;
+      clndata->buf = buffer;
+      clndata->buf_use_count = buf_use_count;
+      clndata->rchain = rchain;
+      clndata->rpool = r->pool;
+      
       //cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
       ngx_http_push_subscriber_clear_ctx(cur);
       
       r->discard_body=0; //hacky hacky!
       
-      ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified_time)); //BAM!
+      if (rbuffer->in_file && (fcntl(rbuffer->file->fd, F_GETFD) == -1)) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: buffer in invalid file descriptor");
+      }
+      
+      ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, rchain, content_type, etag, last_modified_time)); //BAM!
       responded_subscribers++;
       
       //done with this subscriber. free the sucker.
       ngx_pfree(ngx_http_push_pool, cur);
-      
-      //rewind the buffer, please
-      buffer->pos = pos;
-      buffer->file_pos=file_pos;
-      buffer->last_buf=1;
-      
+
       cur=next;
     }
     
-    //free everything relevant
     ngx_pfree(ngx_http_push_pool, etag);
     ngx_pfree(ngx_http_push_pool, content_type);
-    if(buffer->file) {
-      ngx_close_file(buffer->file->fd);
-    }
-    ngx_pfree(ngx_http_push_pool, buffer);
     ngx_pfree(ngx_http_push_pool, chain);
+    //the rest will be deallocated on request pool cleanup
+    
     
     if(responded_subscribers) {
       ngx_shmtx_lock(&shpool->mutex);
@@ -1253,11 +1275,25 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
 static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
   if(data->subscriber!=NULL) { //still queued up
     ngx_http_push_subscriber_t* sb = data->subscriber;
-
     ngx_http_push_subscriber_del_timer(sb);
     ngx_queue_remove(&data->subscriber->queue);
     ngx_pfree(ngx_http_push_pool, data->subscriber); //was there an error? oh whatever.
   }
+  if (data->rchain != NULL) {
+    ngx_pfree(data->rpool, data->rchain->buf);
+    ngx_pfree(data->rpool, data->rchain);
+    data->rchain=NULL;
+  }
+  if(data->buf_use_count != NULL && --(*data->buf_use_count) <= 0) {
+    ngx_buf_t                      *buf;
+    ngx_pfree(ngx_http_push_pool, data->buf_use_count);
+    buf=data->buf;
+    if(buf->file) {
+      ngx_close_file(buf->file->fd);
+    }
+    ngx_pfree(ngx_http_push_pool, buf);
+  }
+  
   if(data->channel!=NULL) { //we're expected to decrement the subscriber count
     ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
     data->channel->subscribers--;

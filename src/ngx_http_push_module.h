@@ -114,8 +114,12 @@ typedef struct {
 
 //cleaning supplies
 struct ngx_http_push_subscriber_cleanup_s {
-  ngx_http_push_subscriber_t       *subscriber;
-  ngx_http_push_channel_t        *channel;
+  ngx_http_push_subscriber_t    *subscriber;
+  ngx_http_push_channel_t       *channel;
+  ngx_int_t                     *buf_use_count;
+  ngx_buf_t                     *buf;
+  ngx_chain_t                   *rchain;
+  ngx_pool_t                    *rpool;
 };
 
 //garbage collecting goodness
