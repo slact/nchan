@@ -7,14 +7,14 @@ static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, ngx_l
 static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, ngx_log_t * log);
 static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash);
 
-static ngx_http_push_channel_t *  ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel);
+static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel);
 
-static void     ngx_rbtree_generic_insert(  ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
+static void     ngx_rbtree_generic_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
 static void     ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 static int      ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool);
 
-static ngx_http_push_channel_t *  ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
+static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
   ngx_queue_t                 *sentinel = &channel->message_queue->queue;
   time_t                       now = ngx_time();
   ngx_http_push_msg_t         *msg=NULL;
@@ -44,7 +44,7 @@ static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *tr
 
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool) {
 //assume the shm zone is already locked
-  if(trash != NULL){ //take out the trash    
+  if(trash != NULL){ //take out the trash
     ngx_rbtree_delete(tree, trash);
     
     //delete the worker-subscriber queue
@@ -124,7 +124,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_l
 
     break;
   }
-  //not found  
+  //not found
   for(i=0; i<trashed; i++) {
     ngx_http_push_delete_channel_locked(trash[i]);
   }
@@ -132,7 +132,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_l
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
- static ngx_http_push_channel_t *  ngx_http_push_get_channel(ngx_str_t *id, ngx_log_t *log, time_t timeout) {
+ static ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, ngx_log_t *log, time_t timeout) {
   ngx_rbtree_t                   *tree;
   ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, log);
   
@@ -166,7 +166,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_l
 }
 
 
-static void  ngx_rbtree_generic_insert(
+static void ngx_rbtree_generic_insert(
         ngx_rbtree_node_t *temp, 
         ngx_rbtree_node_t *node, 
         ngx_rbtree_node_t *sentinel, 
@@ -236,7 +236,7 @@ static void ngx_http_push_rbtree_walker(ngx_rbtree_t *tree, ngx_int_t (*apply)(n
   }
 }
 
-static void  ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp,  ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) 
+static void ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp,  ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) 
 {
   ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
 }
