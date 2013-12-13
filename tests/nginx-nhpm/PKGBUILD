@@ -1,4 +1,5 @@
-# Maintainer: Alexander Kuznecov <alexander@kuznetcov.me>
+OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
+
 _pkgname="nginx"
 _user="http"
 _group="http"
@@ -9,12 +10,6 @@ _tmp_path="/var/spool/${_pkgname}"
 _pid_path="/run"
 _lock_path="/var/lock"
 _log_path="/var/log/${_pkgname}"
-
-# 3d party modules versions:
-_uploadprogress_ver="v0.8.4"
-#_upstreamfair_hash="a18b4099fbd458111983200e098b6f0c8efed4bc"
-_fancyindex_ver="master"
-_httpupload_ver="2.2.0"
 
 pkgname=nginx-nhpm-dev
 pkgver=1.4.3

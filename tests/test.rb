@@ -74,7 +74,7 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_long_message(kb=1)
-    pub, sub = pubsub 10, timeout: 60*10
+    pub, sub = pubsub 10, timeout: 10
     sub.run
     pub.post ["q" * kb * 1024, "FIN"]
     sub.wait
@@ -94,7 +94,7 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_message_length_range
-    pub, sub = pubsub 2, timeout: 60
+    pub, sub = pubsub 2, timeout: 6
     sub.run
     
     n=5
@@ -108,7 +108,7 @@ class PubSubTest < Test::Unit::TestCase
   
   def test_message_timeout
     #config should be set to message_timeout=5sec
-    pub, sub = pubsub 1, timeout: 30
+    pub, sub = pubsub 1, timeout: 5
     pub.post "foo"
     sleep 10
     pub.messages.remove_old
