@@ -147,11 +147,17 @@ typedef struct {
 
 
 typedef struct {
-  //initializers
+  //init
   ngx_int_t (*init_module)(ngx_cycle_t *cycle);
   ngx_int_t (*init_worker)(ngx_cycle_t *cycle);
   ngx_int_t (*init_postconfig)(ngx_conf_t *cf);
+  void      (*create_main_conf)(ngx_conf_t *cf, ngx_http_push_main_conf_t *mcf);
   
+  //quit
+  void      (*exit_worker)(ngx_cycle_t *cycle);
+  void      (*exit_master)(ngx_cycle_t *cycle);
+  
+  //functions
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
   ngx_http_push_msg_t     *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
 } ngx_http_push_store_t;
@@ -159,8 +165,6 @@ typedef struct {
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
-ngx_slab_pool_t    *ngx_http_push_shpool;
-ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 ngx_module_t        ngx_http_push_module;
 //garbage-collecting shared memory slab allocation
 void * ngx_http_push_slab_alloc(size_t size);

@@ -8,6 +8,7 @@
 #include <nginx.h>
 
 #include <ngx_http_push_module.h>
+#include <store/ngx_http_push_store_local.h>
 #include <ngx_http_push_rbtree_util.c>
 #include <ngx_http_push_module_ipc.c>
 #include <store/ngx_http_push_store_local.c>
@@ -343,6 +344,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
   ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
   ngx_int_t                      current_subscribers;
+  
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   current_subscribers = channel->subscribers;
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
