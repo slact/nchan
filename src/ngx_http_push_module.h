@@ -52,24 +52,6 @@ typedef struct {
   size_t                          shm_size;
 } ngx_http_push_main_conf_t;
 
-typedef struct {
-  ngx_int_t                       index;
-  time_t                          buffer_timeout;
-  ngx_int_t                       min_messages;
-  ngx_int_t                       max_messages;
-  ngx_int_t                       subscriber_concurrency;
-  ngx_int_t                       subscriber_poll_mechanism;
-  time_t                          subscriber_timeout;
-  ngx_int_t                       authorize_channel;
-  ngx_int_t                       store_messages;
-  ngx_int_t                       delete_oldest_received_message;
-  ngx_str_t                       channel_group;
-  ngx_int_t                       max_channel_id_length;
-  ngx_int_t                       max_channel_subscribers;
-  ngx_int_t                       ignore_queue_on_no_cache;
-  time_t                          channel_timeout;
-} ngx_http_push_loc_conf_t;
-
 //message queue
 typedef struct {
     ngx_queue_t                     queue; //this MUST be first.
@@ -144,6 +126,31 @@ typedef struct {
   ngx_uint_t                      channels; //# of channels being used
   ngx_http_push_worker_msg_t     *ipc; //interprocess stuff
 } ngx_http_push_shm_data_t;
+
+typedef struct {
+  ngx_int_t                       index;
+  time_t                          buffer_timeout;
+  ngx_int_t                       min_messages;
+  ngx_int_t                       max_messages;
+  ngx_int_t                       subscriber_concurrency;
+  ngx_int_t                       subscriber_poll_mechanism;
+  time_t                          subscriber_timeout;
+  ngx_int_t                       authorize_channel;
+  ngx_int_t                       store_messages;
+  ngx_int_t                       delete_oldest_received_message;
+  ngx_str_t                       channel_group;
+  ngx_int_t                       max_channel_id_length;
+  ngx_int_t                       max_channel_subscribers;
+  ngx_int_t                       ignore_queue_on_no_cache;
+  time_t                          channel_timeout;
+} ngx_http_push_loc_conf_t;
+
+
+typedef struct {
+  ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
+  
+} ngx_http_push_store_t;
+
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;

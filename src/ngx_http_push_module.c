@@ -107,7 +107,6 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
 
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
   ngx_str_t                      *id;
   ngx_http_push_channel_t        *channel;
   ngx_http_push_msg_t            *msg;
@@ -139,17 +138,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
-  //get the channel and check channel authorization while we're at it.
-  ngx_shmtx_lock(&shpool->mutex);
-  if (cf->authorize_channel==1) {
-    channel = ngx_http_push_find_channel(id, r->connection->log);
-  }else{
-    channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
-  }
-
-  if (channel==NULL) {
+  if ((channel = ngx_http_push_store_local.get_channel(id, cf, r->connection->log))==NULL) {
     //unable to allocate channel OR channel not found
-    ngx_shmtx_unlock(&shpool->mutex);
     if(cf->authorize_channel) {
       return NGX_HTTP_FORBIDDEN;
     }
@@ -158,16 +148,17 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
   }
-
-    msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
-    channel->last_seen = ngx_time();
-    channel->expires = ngx_time() + cf->channel_timeout;
-    ngx_shmtx_unlock(&shpool->mutex);
-    
-    if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
-        msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
-        msg = NULL;
-    }
+  
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  msg = ngx_http_push_find_message_locked(channel, r, &msg_search_outcome); 
+  channel->last_seen = ngx_time();
+  channel->expires = ngx_time() + cf->channel_timeout;
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  
+  if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
+      msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
+      msg = NULL;
+  }
   
   switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
     case NGX_DECLINED: //this request was declined for some reason.
@@ -196,7 +187,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           //long-polling subscriber. wait for a message.
           
           //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
-          ngx_shmtx_lock(&shpool->mutex);
+          ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
           sentinel = &channel->workers_with_subscribers;
           cur = (ngx_http_push_pid_queue_t *)ngx_queue_head(&sentinel->queue);
           found = NULL;
@@ -212,7 +203,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           }
           if(found == NULL) { //found nothing
             if((found=ngx_http_push_slab_alloc_locked(sizeof(*found)))==NULL) {
-              ngx_shmtx_unlock(&shpool->mutex);
+              ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
               ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
               return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
@@ -222,7 +213,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
             found->slot=ngx_process_slot;
             found->subscriber_sentinel=NULL;
           }
-          ngx_shmtx_unlock(&shpool->mutex);
+          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           
           if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
             return NGX_ERROR;
@@ -243,7 +234,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           subscriber->request = r;
           subscriber->clndata=clndata;
           
-          ngx_shmtx_lock(&shpool->mutex);
+          ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
           channel->subscribers++; // do this only when we know everything went okay.
           
           //figure out the subscriber sentinel
@@ -257,7 +248,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
             ngx_queue_init(&subscriber_sentinel->queue);
             ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
           }
-          ngx_shmtx_unlock(&shpool->mutex);
+          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           
           ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
           
@@ -298,12 +289,12 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
-      ngx_shmtx_lock(&shpool->mutex);
+      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
       ngx_http_push_reserve_message_locked(channel, msg);
       NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
       if(etag==NULL) {
         //oh, nevermind...
-        ngx_shmtx_unlock(&shpool->mutex);
+        ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
@@ -313,15 +304,15 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
         NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, r->pool);
         if(content_type==NULL) {
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for content-type header while responding to subscriber request");
-          ngx_shmtx_unlock(&shpool->mutex);
+          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           return NGX_ERROR;
         }
       }
       
       //preallocate output chain. yes, same one for every waiting subscriber
-      if((chain = ngx_http_push_create_output_chain_locked(msg->buf, r->pool, r->connection->log, shpool))==NULL) {
+      if((chain = ngx_http_push_create_output_chain_locked(msg->buf, r->pool, r->connection->log, ngx_http_push_shpool))==NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
-        ngx_shmtx_unlock(&shpool->mutex);
+        ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
         return NGX_ERROR;
       }
       
@@ -329,7 +320,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       
       //is the message still needed?
       ngx_http_push_release_message_locked(channel, msg);
-      ngx_shmtx_unlock(&shpool->mutex);
+      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
       
       if(chain->buf->file!=NULL) {
         //close file when we're done with it

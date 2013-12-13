@@ -1,5 +1,3 @@
-#include <ngx_http_push_store_local.h>
-
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 
 static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
@@ -175,4 +173,24 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
 }
 
 
+static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, ngx_http_push_loc_conf_t *cf, ngx_log_t *log) {
+  //get the channel and check channel authorization while we're at it.
+  ngx_http_push_channel_t        *channel;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  if (cf->authorize_channel==1) {
+    channel = ngx_http_push_find_channel(id, log);
+  }else{
+    channel = ngx_http_push_get_channel(id, log, cf->channel_timeout);
+  }
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return channel;
+}
 
+
+
+
+
+
+ngx_http_push_store_t  ngx_http_push_store_local = {
+    &ngx_http_push_store_get_channel,
+};
