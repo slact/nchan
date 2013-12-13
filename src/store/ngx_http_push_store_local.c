@@ -1,6 +1,8 @@
 ngx_http_push_channel_queue_t channel_gc_sentinel;
+ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
+ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 
-static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel, ngx_slab_pool_t * shpool) {
+static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel) {
   if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
     ngx_http_push_channel_queue_t *trashy;
     if((trashy = ngx_alloc(sizeof(*trashy), ngx_cycle->log))!=NULL) {
@@ -269,10 +271,40 @@ static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
   return ngx_http_push_set_up_shm(cf, shm_size);
 }
 
+static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_main_conf_t *mcf) {
+  mcf->shm_size=NGX_CONF_UNSET_SIZE;
+}
+
+//great justice appears to be at hand
+static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * channel) {
+  ngx_queue_t                 *sentinel = &channel->message_queue->queue;
+  ngx_http_push_msg_t         *msg=NULL;
+  while(!ngx_queue_empty(sentinel)) {
+    msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
+    ngx_http_push_force_delete_message_locked(channel, msg, ngx_http_push_shpool);
+  }
+  return NGX_OK;
+}
+
+static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
+  ngx_http_push_ipc_exit_worker(cycle);
+}
+
+static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
+  //destroy channel tree in shared memory
+  ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
+}
+
 ngx_http_push_store_t  ngx_http_push_store_local = {
+    //init
     &ngx_http_push_store_init_module,
     &ngx_http_push_store_init_worker,
     &ngx_http_push_store_init_postconfig,
+    &ngx_http_push_store_create_main_conf,
+    
+    //shutdown
+    &ngx_http_push_store_exit_worker,
+    &ngx_http_push_store_exit_master,
   
     &ngx_http_push_store_get_channel,
     &ngx_http_push_store_get_message,
