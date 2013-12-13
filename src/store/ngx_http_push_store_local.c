@@ -197,6 +197,44 @@ static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_chann
 }
 
 
+// shared memory zone initializer
+static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data) {
+  if(data) { /* zone already initialized */
+    shm_zone->data = data;
+    return NGX_OK;
+  }
+
+  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
+  ngx_rbtree_node_t              *sentinel;
+  ngx_http_push_shm_data_t       *d;
+  
+  ngx_http_push_shpool = shpool; //we'll be using this a bit.
+  
+  if ((d = (ngx_http_push_shm_data_t *)ngx_slab_alloc(shpool, sizeof(*d))) == NULL) { //shm_data plus an array.
+    return NGX_ERROR;
+  } 
+  shm_zone->data = d;
+  d->ipc=NULL;
+  //initialize rbtree
+  if ((sentinel = ngx_slab_alloc(shpool, sizeof(*sentinel)))==NULL) {
+    return NGX_ERROR;
+  }
+  ngx_rbtree_init(&d->tree, sentinel, ngx_http_push_rbtree_insert);
+  return NGX_OK;
+}
+
+//shared memory
+static ngx_str_t  ngx_push_shm_name = ngx_string("push_module"); //shared memory segment name
+static ngx_int_t  ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
+  ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &ngx_push_shm_name, shm_size, &ngx_http_push_module);
+  if (ngx_http_push_shm_zone == NULL) {
+    return NGX_ERROR;
+  }
+  ngx_http_push_shm_zone->init = ngx_http_push_init_shm_zone;
+  ngx_http_push_shm_zone->data = (void *) 1; 
+  return NGX_OK;
+}
+
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -205,10 +243,36 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
 }
 
+static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
+  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  return ngx_http_push_init_ipc_shm(ccf->worker_processes);
+}
 
+static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
+  ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
+
+  //initialize shared memory
+  size_t                       shm_size;
+  if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
+    conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
+  }
+  shm_size = ngx_align(conf->shm_size, ngx_pagesize);
+  if (shm_size < 8 * ngx_pagesize) {
+        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_max_reserved_memory value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
+        shm_size = 8 * ngx_pagesize;
+    }
+  if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
+  }
+  ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
+  
+  return ngx_http_push_set_up_shm(cf, shm_size);
+}
 
 ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_init_module,
+    &ngx_http_push_store_init_worker,
+    &ngx_http_push_store_init_postconfig,
   
     &ngx_http_push_store_get_channel,
     &ngx_http_push_store_get_message,
