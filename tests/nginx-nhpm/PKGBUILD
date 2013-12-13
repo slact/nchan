@@ -45,18 +45,25 @@ _group=http
 source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
-  "nginx.service")
+  "nginx.service"
+  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-$pkgver-no_pool.patch")
 md5sums=('4740dad2f0ed7f5fa16e8caaa8a9438e'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
-         '62d494d23aef31d0b867161f9fffa6eb')
+         '62d494d23aef31d0b867161f9fffa6eb'
+         '7dacbc03562d496d556d5b3e954cd384')
+
 
 build() {
   local _src_dir="${srcdir}/${_pkgname}-${pkgver}"
   local _build_dir="${_src_dir}/objs"
   local _pushmodule_dirname="nhpm"
-  
   cd $_src_dir
+
+  if [[ $NO_POOL == 1 ]]; then
+    echo "using the no-pool patch"
+    patch -p1 < "${srcdir}/nginx-${pkgver}-no_pool.patch"
+  fi
 
   CFLAGS="-ggdb -O0" ./configure \
     --prefix="/${_conf_path}" \
@@ -74,8 +81,7 @@ build() {
     --group=${_group} \
     --with-debug \
     --add-module=${startdir}/${_pushmodule_dirname} \
-
-  make
+  && make
 }
 
 package() {
