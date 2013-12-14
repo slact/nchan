@@ -72,12 +72,19 @@ static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_pus
   return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
 }
 
-static void ngx_http_push_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+static void ngx_http_push_store_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
   msg->refcount++;
   //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 }
 
-static void ngx_http_push_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_store_reserve_message_locked(channel, msg);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
+}
+
+static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
   msg->refcount--;
   if(msg->queue.next==NULL && msg->refcount<=0) { 
     //message had been dequeued and nobody needs it anymore
@@ -86,6 +93,12 @@ static void ngx_http_push_release_message_locked(ngx_http_push_channel_t *channe
   if(channel->messages > msg->delete_oldest_received_min_messages && ngx_http_push_get_oldest_message_locked(channel) == msg) {
     ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shpool);
   }
+}
+
+static void ngx_http_push_store_release_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_store_release_message_locked(channel, msg);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 }
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
@@ -174,16 +187,20 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
   return NULL;
 }
 
-
-static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, ngx_http_push_loc_conf_t *cf, ngx_log_t *log) {
+static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id, ngx_log_t *log) {
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  if (cf->authorize_channel==1) {
-    channel = ngx_http_push_find_channel(id, log);
-  }else{
-    channel = ngx_http_push_get_channel(id, log, cf->channel_timeout);
-  }
+  channel = ngx_http_push_find_channel(id, log);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return channel;
+}
+
+static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log) {
+  //get the channel and check channel authorization while we're at it.
+  ngx_http_push_channel_t        *channel;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  channel = ngx_http_push_get_channel(id, channel_timeout, log);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return channel;
 }
@@ -285,6 +302,13 @@ static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * 
   }
   return NGX_OK;
 }
+static ngx_int_t ngx_http_push_store_channel_subscribers(ngx_http_push_channel_t * channel) {
+  ngx_int_t subs;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  subs = channel->subscribers;
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return subs;
+}
 
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   ngx_http_push_ipc_exit_worker(cycle);
@@ -306,6 +330,12 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_exit_worker,
     &ngx_http_push_store_exit_master,
   
-    &ngx_http_push_store_get_channel,
+    &ngx_http_push_store_get_channel, //creates channel if not found
+    &ngx_http_push_store_find_channel, //returns channel or NULL if not found
     &ngx_http_push_store_get_message,
+    &ngx_http_push_store_reserve_message,
+    &ngx_http_push_store_release_message,
+    
+    //channel properties
+    &ngx_http_push_store_channel_subscribers,
 };

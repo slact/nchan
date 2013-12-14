@@ -157,9 +157,16 @@ typedef struct {
   void      (*exit_worker)(ngx_cycle_t *cycle);
   void      (*exit_master)(ngx_cycle_t *cycle);
   
-  //functions
-  ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
-  ngx_http_push_msg_t     *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
+  //channel actions
+  ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log);
+  ngx_http_push_channel_t *(*find_channel)(ngx_str_t *id, ngx_log_t *log);
+  ngx_http_push_msg_t *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
+  
+  void (*reserve_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
+  void (*release_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
+  
+  //channel properties
+  ngx_int_t (*channel_subscribers)(ngx_http_push_channel_t * channel);
 } ngx_http_push_store_t;
 
 
@@ -173,8 +180,8 @@ void * ngx_http_push_slab_alloc_locked(size_t size);
 //channel messages
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel);
 static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel);
-static void ngx_http_push_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
-static void ngx_http_push_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
+static void ngx_http_push_reserve_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
+static void ngx_http_push_release_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
 static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool);
 #define ngx_http_push_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 0, shpool)
 #define ngx_http_push_force_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 1, shpool)
@@ -188,9 +195,9 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 //subscriber
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf);
-static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log, ngx_slab_pool_t *shpool);
-#define ngx_http_push_broadcast_status_locked(channel, status_code, status_line, log, shpool) ngx_http_push_broadcast_locked(channel, NULL, status_code, status_line, log, shpool)
-#define ngx_http_push_broadcast_message_locked(channel, msg, log, shpool) ngx_http_push_broadcast_locked(channel, msg, 0, NULL, log, shpool)
+static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log);
+#define ngx_http_push_broadcast_status_locked(channel, status_code, status_line, log) ngx_http_push_broadcast_locked(channel, NULL, status_code, status_line, log)
+#define ngx_http_push_broadcast_message_locked(channel, msg, log) ngx_http_push_broadcast_locked(channel, msg, 0, NULL, log)
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r);

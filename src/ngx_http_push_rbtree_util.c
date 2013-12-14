@@ -3,7 +3,7 @@
 #include <ngx_http.h>
 
 
-static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, ngx_log_t * log, time_t timeout);
+static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
 static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, ngx_log_t * log);
 static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash);
 
@@ -132,7 +132,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, ngx_l
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
- static ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, ngx_log_t *log, time_t timeout) {
+ static ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
   ngx_rbtree_t                   *tree;
   ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, log);
   

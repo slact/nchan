@@ -139,7 +139,13 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
-  if ((channel = ngx_http_push_store_local.get_channel(id, cf, r->connection->log))==NULL) {
+  if (cf->authorize_channel==1) {
+    channel = ngx_http_push_store_local.find_channel(id, r->connection->log);
+  }else{
+    channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
+  }
+  
+  if (channel==NULL) {
     //unable to allocate channel OR channel not found
     if(cf->authorize_channel) {
       return NGX_HTTP_FORBIDDEN;
@@ -286,8 +292,8 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
+      ngx_http_push_store_local.reserve_message(channel, msg);
       ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-      ngx_http_push_reserve_message_locked(channel, msg);
       NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
       if(etag==NULL) {
         //oh, nevermind...
@@ -314,10 +320,11 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       }
       
       last_modified = msg->message_time;
+      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
       
       //is the message still needed?
-      ngx_http_push_release_message_locked(channel, msg);
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+      ngx_http_push_store_local.release_message(channel, msg);
+
       
       if(chain->buf->file!=NULL) {
         //close file when we're done with it
@@ -343,11 +350,9 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
   ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
-  ngx_int_t                      current_subscribers;
+  ngx_int_t                      current_subscribers = ngx_http_push_store_local.channel_subscribers(channel) ;
   
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  current_subscribers = channel->subscribers;
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  
   if(current_subscribers==0) { 
     //empty channels are always okay.
     return NGX_OK;
@@ -370,7 +375,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log, ngx_http_push_shpool);
+      ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
       ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 
       return NGX_OK;
@@ -384,7 +389,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
   }
 }
 
-static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log, ngx_slab_pool_t *shpool) {
+static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log) {
   //subscribers are queued up in a local pool. Queue heads, however, are located
   //in shared memory, identified by pid.
   ngx_http_push_pid_queue_t     *sentinel = &channel->workers_with_subscribers;
@@ -393,7 +398,10 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
   received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
 
   if(msg!=NULL && received==NGX_HTTP_PUSH_MESSAGE_RECEIVED) {
-    ngx_http_push_reserve_message_locked(channel, msg);
+    //just for now
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    ngx_http_push_store_local.reserve_message(channel, msg);
+    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   }
   
   while((cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue))!=sentinel) {
@@ -401,7 +409,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
     ngx_int_t       worker_slot = cur->slot;
     ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
     
-    ngx_shmtx_unlock(&shpool->mutex);
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     if(worker_pid == ngx_pid) {
       //my subscribers
       ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
@@ -417,7 +425,7 @@ static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel
       }
       
     }
-    ngx_shmtx_lock(&shpool->mutex);
+    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
     /*
     each time all of a worker's subscribers are removed, so is the sentinel. 
     this is done to make garbage collection easier. Assuming we want to avoid
@@ -509,7 +517,6 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
   ngx_str_t                      *id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
   ngx_buf_t                      *buf = NULL, *buf_copy;
   ngx_chain_t                    *cl;
   size_t                          len;
@@ -525,29 +532,29 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     return;
   }
   
-  ngx_shmtx_lock(&shpool->mutex);
   //POST requests will need a channel created if it doesn't yet exist.
   if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
     if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(0, 0, r, "push module: trying to push an empty message", shpool);
+      NGX_HTTP_PUSH_PUBLISHER_CHECK(0, 0, r, "push module: trying to push an empty message");
     }
-    channel = ngx_http_push_get_channel(id, r->connection->log, cf->channel_timeout);
-    NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(channel, NULL, r, "push module: unable to allocate memory for new channel", shpool);
+    channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
+    NGX_HTTP_PUSH_PUBLISHER_CHECK(channel, NULL, r, "push module: unable to allocate memory for new channel");
   }
   //no other request method needs that.
   else {
     //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_find_channel(id, r->connection->log);
+    channel = ngx_http_push_store_local.find_channel(id, r->connection->log);
   }
   
   if(channel!=NULL) {
+    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   }
   else {
     //404!
-    ngx_shmtx_unlock(&shpool->mutex);
     r->headers_out.status=NGX_HTTP_NOT_FOUND;
     
     //just the headers, please. we don't care to describe the situation or
@@ -558,7 +565,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     ngx_http_finalize_request(r, ngx_http_send_header(r));
     return;
   }
-  ngx_shmtx_unlock(&shpool->mutex);
 
   switch(method) {
     ngx_http_push_msg_t        *msg, *previous_msg;
@@ -589,15 +595,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           
       content_type_len = (r->headers_in.content_type!=NULL ? r->headers_in.content_type->value.len : 0);
       
-      ngx_shmtx_lock(&shpool->mutex);
+      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
       
       //create a buffer copy in shared mem
       msg = ngx_http_push_slab_alloc_locked(sizeof(*msg) + content_type_len);
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", shpool);
+      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", ngx_http_push_shpool);
       previous_msg=ngx_http_push_get_latest_message_locked(channel); //need this for entity-tags generation
       
       buf_copy = ngx_http_push_slab_alloc_locked(NGX_HTTP_BUF_ALLOC_SIZE(buf));
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", shpool) //magic nullcheck
+      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", ngx_http_push_shpool) //magic nullcheck
       ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
       
       msg->buf=buf_copy;
@@ -630,7 +636,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       //NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
       
       //FMI (For My Information): shm is still locked.
-      switch(ngx_http_push_broadcast_message_locked(channel, msg, r->connection->log, shpool)) {
+      switch(ngx_http_push_broadcast_message_locked(channel, msg, r->connection->log)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
           //message was queued successfully, but there were no 
@@ -654,7 +660,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           
         case NGX_ERROR:
           //WTF?
-          ngx_shmtx_unlock(&shpool->mutex);
+          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
@@ -662,7 +668,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         default: 
           //for debugging, mostly. I don't expect this branch to be
           //hit during regular operation
-          ngx_shmtx_unlock(&shpool->mutex);
+          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
@@ -679,16 +685,16 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       //now see if the queue is too big
       if(channel->messages > (ngx_uint_t) cf->max_messages) {
         //exceeeds max queue size. force-delete oldest message
-        ngx_http_push_force_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), shpool);
+        ngx_http_push_force_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), ngx_http_push_shpool);
       }
       if(channel->messages > (ngx_uint_t) cf->min_messages) {
         //exceeeds min queue size. maybe delete the oldest message
         ngx_http_push_msg_t    *oldest_msg = ngx_http_push_get_oldest_message_locked(channel);
-        NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", shpool);
+        NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", ngx_http_push_shpool);
       }
       messages = channel->messages;
       
-      ngx_shmtx_unlock(&shpool->mutex);
+      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
       return;
       
@@ -699,20 +705,20 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       return;
       
     case NGX_HTTP_DELETE:
-      ngx_shmtx_lock(&shpool->mutex);
+      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
       sentinel = channel->message_queue; 
       msg = sentinel;
             
       while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
         //force-delete all the messages
-        ngx_http_push_force_delete_message_locked(NULL, msg, shpool);
+        ngx_http_push_force_delete_message_locked(NULL, msg, ngx_http_push_shpool);
       }
       channel->messages=0;
       
       //410 gone
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log, shpool), NGX_ERROR, r, "push module: unable to send current subscribers a 410 Gone response", shpool);
+      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log), NGX_ERROR, r, "push module: unable to send current subscribers a 410 Gone response", ngx_http_push_shpool);
       ngx_http_push_delete_channel_locked(channel);
-      ngx_shmtx_unlock(&shpool->mutex);
+      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
       //done.
       r->headers_out.status=NGX_HTTP_OK;
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
@@ -846,7 +852,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     if(responded_subscribers) {
       ngx_shmtx_lock(&shpool->mutex);
       //message deletion
-      ngx_http_push_release_message_locked(channel, msg);
+      ngx_http_push_store_release_message_locked(channel, msg);
       ngx_shmtx_unlock(&shpool->mutex);
     }
   }
