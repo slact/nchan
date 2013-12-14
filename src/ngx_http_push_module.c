@@ -9,9 +9,11 @@
 
 #include <ngx_http_push_module.h>
 #include <store/ngx_http_push_store_local.h>
+#include <store/ngx_http_push_store_redis.h>
 #include <ngx_http_push_rbtree_util.c>
 #include <ngx_http_push_module_ipc.c>
 #include <store/ngx_http_push_store_local.c>
+#include <store/ngx_http_push_store_redis.c>
 #include <ngx_http_push_module_setup.c>
 
 static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)

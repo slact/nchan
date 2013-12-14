@@ -336,6 +336,10 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_reserve_message,
     &ngx_http_push_store_release_message,
     
+    //pub/sub
+    NULL,
+    NULL,
+    
     //channel properties
     &ngx_http_push_store_channel_subscribers,
 };
