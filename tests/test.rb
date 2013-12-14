@@ -55,14 +55,29 @@ class PubSubTest < Test::Unit::TestCase
     assert sub.messages.matches? pub.messages
   end
   
-  def test_broadcast
-    num_clients = 700
-    pub, sub = pubsub num_clients
+  def test_channel_isolation
+    pub1, sub1 = pubsub 1
+    pub2, sub2 = pubsub 1
+    sub1.run
+    sub2.run
+    pub1.post %w( test moretest FIN )
+    pub2.post %w( foo FIN )
+
+    verify pub1, sub1
+    verify pub2, sub2
+  end
+  
+  def test_broadcast(clients=700)
+    pub, sub = pubsub clients
     sub.run #celluloid async FTW
     pub.post ["hello there", "what is this", "it's nothing", "FIN"]
     sub.wait
     verify pub, sub
   end
+  
+  #def test_broadcast_for_5000
+  #  test_broadcast 5000
+  #end
   
   def test_queueing
     pub, sub = pubsub 5
