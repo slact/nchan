@@ -101,6 +101,7 @@ class PubSubTest < Test::Unit::TestCase
     while n <= 10000 do
       pub.post "T" * n
       n=n*1.01
+      sleep 0.001
     end
     pub.post "FIN"
     verify pub, sub
