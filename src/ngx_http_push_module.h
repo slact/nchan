@@ -167,7 +167,7 @@ typedef struct {
   
   //pub/sub
   ngx_int_t (*publish)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
-  ngx_int_t (*subscribe)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
+  ngx_http_push_subscriber_t * (*subscribe)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
   
   //channel properties
   ngx_int_t (*channel_subscribers)(ngx_http_push_channel_t * channel);
