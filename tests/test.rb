@@ -56,15 +56,27 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_channel_isolation
-    pub1, sub1 = pubsub 1
-    pub2, sub2 = pubsub 1
-    sub1.run
-    sub2.run
-    pub1.post %w( test moretest FIN )
-    pub2.post %w( foo FIN )
-
-    verify pub1, sub1
-    verify pub2, sub2
+    rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
+    pub=[]
+    sub=[]
+    50.times do |i|
+      pub[i], sub[i]=pubsub 15
+      sub[i].run
+    end
+    pub.each do |p|
+      rand(1..10).times do
+        p.post rands.sample
+      end
+    end
+    pub.each do |p|
+      p.post 'FIN'
+    end
+    sub.each do |s|
+      s.wait
+    end
+    pub.each_with_index do |p, i|
+      verify p, sub[i]
+    end
   end
   
   def test_broadcast(clients=700)
@@ -75,8 +87,8 @@ class PubSubTest < Test::Unit::TestCase
     verify pub, sub
   end
   
-  #def test_broadcast_for_5000
-  #  test_broadcast 5000
+  #def test_broadcast_for_3000
+  #  test_broadcast 3000
   #end
   
   def test_queueing
