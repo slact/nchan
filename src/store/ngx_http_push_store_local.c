@@ -334,10 +334,6 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
 }
 
-static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
-  return 0;
-}
-
 static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
   ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
   ngx_http_push_subscriber_t *subscriber;
@@ -404,6 +400,57 @@ static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *ms
   NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
+}
+
+//temporary cheat
+static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log) {
+ //subscribers are queued up in a local pool. Queue heads, however, are located
+  //in shared memory, identified by pid.
+  ngx_http_push_pid_queue_t     *sentinel = &channel->workers_with_subscribers;
+  ngx_http_push_pid_queue_t     *cur = sentinel;
+  ngx_int_t                      received;
+  received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
+
+  if(msg!=NULL && received==NGX_HTTP_PUSH_MESSAGE_RECEIVED) {
+    //just for now
+    ngx_http_push_store_reserve_message_locked(channel, msg);
+  }
+  
+  while((cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue))!=sentinel) {
+    pid_t           worker_pid  = cur->pid;
+    ngx_int_t       worker_slot = cur->slot;
+    ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
+    
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    if(worker_pid == ngx_pid) {
+      //my subscribers
+      ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
+    }
+    else {
+      //some other worker's subscribers
+      //interprocess communication breakdown
+      if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code, log) != NGX_ERROR) {
+        ngx_http_push_alert_worker(worker_pid, worker_slot, log);
+      }
+      else {
+        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
+      }
+      
+    }
+    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+    /*
+    each time all of a worker's subscribers are removed, so is the sentinel. 
+    this is done to make garbage collection easier. Assuming we want to avoid
+    placing the sentinel in shared memory (for now -- it's a little tricky
+    to debug), the owner of the worker pool must be the one to free said sentinel.
+    But channels may be deleted by different worker processes, and it seems unwieldy
+    (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
+    is used every time the subscriber queue is emptied.
+    */
+    cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
+    
+  }
+  return received;
 }
 
 ngx_http_push_store_t  ngx_http_push_store_local = {
