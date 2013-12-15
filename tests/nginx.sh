@@ -2,6 +2,7 @@
 NGINX_OPT=( -p ./ -c ./nginx.conf )
 VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes )
 WORKERS=5
+NGINX_CONF="working_directory \"`pwd`\"; "
 for opt in $*; do
   case $opt in
     leak|leakcheck)
@@ -10,12 +11,15 @@ for opt in $*; do
     valgrind)
       valgrind=1
       ;;
-    worker|one|single) 
+    worker|1|one|single) 
       WORKERS=1
       ;;
   esac
 done
-NGINX_OPT+=( -g "worker_processes $WORKERS;" )
+NGINX_CONF="worker_processes $WORKERS; $NGINX_CONF"
+NGINX_OPT+=( -g $NGINX_CONF )
+echo $NGINX_CONF
+echo $NGINX_OPT
 
 if [[ $valgrind == 1 ]]; then
   valgrind $VALGRIND_OPT ./nginx $NGINX_OPT
