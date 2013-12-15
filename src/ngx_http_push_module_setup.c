@@ -14,7 +14,7 @@ static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
-  if(ngx_http_push_store_local.init_worker(cycle)!=NGX_OK!=NGX_OK) {
+  if(ngx_http_push_store_local.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
   return ngx_http_push_register_worker_message_handler(cycle);

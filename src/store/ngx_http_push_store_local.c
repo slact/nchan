@@ -319,6 +319,70 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
 }
 
+static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+  return 0;
+}
+
+static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
+  ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
+  ngx_http_push_subscriber_t *subscriber;
+  ngx_http_push_subscriber_t *subscriber_sentinel;
+  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  
+  //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  sentinel = &channel->workers_with_subscribers;
+  cur = (ngx_http_push_pid_queue_t *)ngx_queue_head(&sentinel->queue);
+  found = NULL;
+  
+  while(cur!=sentinel) {
+    if(cur->pid==ngx_pid) {
+      found = cur;
+      break;
+    }
+    cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
+  }
+  if(found == NULL) { //found nothing
+    if((found=ngx_http_push_slab_alloc_locked(sizeof(*found)))==NULL) {
+      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
+      return NULL;
+    }
+    //initialize
+    ngx_queue_insert_tail(&sentinel->queue, &found->queue);
+    found->pid=ngx_pid;
+    found->slot=ngx_process_slot;
+    found->subscriber_sentinel=NULL;
+  }
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  
+  if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
+    return NULL;
+  }
+  
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  channel->subscribers++; // do this only when we know everything went okay.
+  
+  //figure out the subscriber sentinel
+  subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
+  if(subscriber_sentinel==NULL) {
+    //it's perfectly nornal for the sentinel to be NULL.
+    if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
+      return NULL;
+    }
+    ngx_queue_init(&subscriber_sentinel->queue);
+    ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
+  }
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  
+  ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
+  
+  subscriber->request = r;
+  return subscriber;
+  
+}
+
 ngx_http_push_store_t  ngx_http_push_store_local = {
     //init
     &ngx_http_push_store_init_module,
@@ -335,6 +399,10 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_get_message,
     &ngx_http_push_store_reserve_message,
     &ngx_http_push_store_release_message,
+    
+    //pub/sub
+    &ngx_http_push_store_publish,
+    &ngx_http_push_store_subscribe,
     
     //channel properties
     &ngx_http_push_store_channel_subscribers,

@@ -55,14 +55,41 @@ class PubSubTest < Test::Unit::TestCase
     assert sub.messages.matches? pub.messages
   end
   
-  def test_broadcast
-    num_clients = 700
-    pub, sub = pubsub num_clients
+  def test_channel_isolation
+    rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
+    pub=[]
+    sub=[]
+    50.times do |i|
+      pub[i], sub[i]=pubsub 15
+      sub[i].run
+    end
+    pub.each do |p|
+      rand(1..10).times do
+        p.post rands.sample
+      end
+    end
+    pub.each do |p|
+      p.post 'FIN'
+    end
+    sub.each do |s|
+      s.wait
+    end
+    pub.each_with_index do |p, i|
+      verify p, sub[i]
+    end
+  end
+  
+  def test_broadcast(clients=700)
+    pub, sub = pubsub clients
     sub.run #celluloid async FTW
     pub.post ["hello there", "what is this", "it's nothing", "FIN"]
     sub.wait
     verify pub, sub
   end
+  
+  #def test_broadcast_for_3000
+  #  test_broadcast 3000
+  #end
   
   def test_queueing
     pub, sub = pubsub 5
@@ -101,6 +128,7 @@ class PubSubTest < Test::Unit::TestCase
     while n <= 10000 do
       pub.post "T" * n
       n=n*1.01
+      sleep 0.001
     end
     pub.post "FIN"
     verify pub, sub
