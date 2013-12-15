@@ -59,7 +59,7 @@ class PubSubTest < Test::Unit::TestCase
     rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
     pub=[]
     sub=[]
-    50.times do |i|
+    10.times do |i|
       pub[i], sub[i]=pubsub 15
       sub[i].run
     end
