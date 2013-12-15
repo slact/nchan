@@ -171,6 +171,12 @@ typedef struct {
   
   //channel properties
   ngx_int_t (*channel_subscribers)(ngx_http_push_channel_t * channel);
+  
+  void (*lock)(void); //legacy shared-memory store helpers
+  void (*unlock)(void);
+  
+  //message actions and properties
+  ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg, ngx_http_request_t *r);
 } ngx_http_push_store_t;
 
 

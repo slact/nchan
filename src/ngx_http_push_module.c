@@ -246,11 +246,13 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
       ngx_http_push_store_local.reserve_message(channel, msg);
-      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+      etag = ngx_http_push_store_local.message_etag(msg, r);
+      
+      ngx_http_push_store_local.lock();
       NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
       if(etag==NULL) {
         //oh, nevermind...
-        ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+        ngx_http_push_store_local.unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
@@ -259,22 +261,21 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       if(content_type_len>0) {
         NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, r->pool);
         if(content_type==NULL) {
+          ngx_http_push_store_local.unlock();
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for content-type header while responding to subscriber request");
-          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           return NGX_ERROR;
         }
       }
       
       //preallocate output chain. yes, same one for every waiting subscriber
       if((chain = ngx_http_push_create_output_chain_locked(msg->buf, r->pool, r->connection->log, ngx_http_push_shpool))==NULL) {
+        ngx_http_push_store_local.unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
-        ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
         return NGX_ERROR;
       }
       
       last_modified = msg->message_time;
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-      
+      ngx_http_push_store_local.unlock();
       //is the message still needed?
       ngx_http_push_store_local.release_message(channel, msg);
 

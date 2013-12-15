@@ -1,3 +1,12 @@
+//fuck it, copypaste
+#define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
+    etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
+    if(etag!=NULL) {                                                                 \
+        etag->data = (u_char *)(etag+1);                                             \
+        etag->len = ngx_sprintf(etag->data,"%ui", message_tag)- etag->data;          \
+    }
+
+
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
@@ -43,6 +52,12 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
   return p;
 }
 
+static void ngx_http_push_store_lock_shmem(void){
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+}
+static void ngx_http_push_store_unlock_shmem(void){
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+}
 void * ngx_http_push_slab_alloc(size_t size) {
   void  *p;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
@@ -383,6 +398,14 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   
 }
 
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r){
+  ngx_str_t *etag;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return etag;
+}
+
 ngx_http_push_store_t  ngx_http_push_store_local = {
     //init
     &ngx_http_push_store_init_module,
@@ -394,6 +417,7 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_exit_worker,
     &ngx_http_push_store_exit_master,
   
+    //channel stuff
     &ngx_http_push_store_get_channel, //creates channel if not found
     &ngx_http_push_store_find_channel, //returns channel or NULL if not found
     &ngx_http_push_store_get_message,
@@ -406,4 +430,10 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     
     //channel properties
     &ngx_http_push_store_channel_subscribers,
+    
+    &ngx_http_push_store_lock_shmem, //legacy shared-memory store helpers
+    &ngx_http_push_store_unlock_shmem, //legacy shared-memory store helpers
+    
+    //message stuff
+    &ngx_http_push_store_etag_from_message,
 };
