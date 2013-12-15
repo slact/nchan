@@ -9,7 +9,7 @@ for opt in $*; do
       export CC=clang;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
-    continue|cont)
+    c|continue|cont)
       export CONTINUE=1;;
   esac
 done
