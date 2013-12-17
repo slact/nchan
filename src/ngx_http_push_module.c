@@ -320,17 +320,16 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
   
   //nonzero number of subscribers present
   switch(loc_conf->subscriber_concurrency) {
+    ngx_int_t                     rc;
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
       return NGX_OK;
     
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
       //send "everyone" a 409 Conflict response.
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_int_t rc = ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+      rc = ngx_http_push_broadcast_status(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
 
       return NGX_OK;
     
@@ -362,64 +361,10 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
         return;                                                               \
     }
 
-
-// this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
-static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
-  ngx_buf_t *buf = NULL;
-  ngx_chain_t *chain;
-  ssize_t n;
-  off_t len;
-
-  chain = r->request_body->bufs;
-  if (chain->next == NULL) {
-    return chain->buf;
-  }
-  if (chain->buf->in_file) {
-    if (ngx_buf_in_memory(chain->buf)) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
-    }
-    if (chain->next != NULL) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error reading request body with multiple ");
-    }
-    return chain->buf;
-  }
-  buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
-  if (buf != NULL) {
-    ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
-    while ((chain != NULL) && (chain->buf != NULL)) {
-      len = ngx_buf_size(chain->buf);
-      // if buffer is equal to content length all the content is in this buffer
-      if (len >= r->headers_in.content_length_n) {
-        buf->start = buf->pos;
-        buf->last = buf->pos;
-        len = r->headers_in.content_length_n;
-      }
-      if (chain->buf->in_file) {
-        n = ngx_read_file(chain->buf->file, buf->start, len, 0);
-        if (n == NGX_FILE_ERROR) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: cannot read file with request body");
-          return NULL;
-        }
-        buf->last = buf->last + len;
-        ngx_delete_file(chain->buf->file->name.data);
-        chain->buf->file->fd = NGX_INVALID_FILE;
-      } else {
-        buf->last = ngx_copy(buf->start, chain->buf->pos, len);
-      }
-
-      chain = chain->next;
-      buf->start = buf->last;
-    }
-  }
-  return buf;
-}
-
-
     
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
   ngx_str_t                      *id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_buf_t                      *buf = NULL, *buf_copy;
   ngx_chain_t                    *cl;
   size_t                          len;
   ngx_http_push_channel_t        *channel;
@@ -449,11 +394,11 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   }
   
   if(channel!=NULL) {
-    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+    ngx_http_push_store_local.lock();
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    ngx_http_push_store_local.unlock();
   }
   else {
     //404!
@@ -469,76 +414,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   }
 
   switch(method) {
-    ngx_http_push_msg_t        *msg, *previous_msg;
-    size_t                      content_type_len;
-    ngx_http_push_msg_t        *sentinel;
-    
+    ngx_http_push_msg_t          *msg;
+    ngx_int_t                     rc;
     case NGX_HTTP_POST:
-      //first off, we'll want to extract the body buffer
-      
-      //note: this works mostly because of r->request_body_in_single_buf = 1; 
-      //which, i suppose, makes this module a little slower than it could be.
-      //this block is a little hacky. might be a thorn for forward-compatibility.
-      if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
-        buf = ngx_create_temp_buf(r->pool, 0);
-        //this buffer will get copied to shared memory in a few lines, 
-        //so it does't matter what pool we make it in.
-      }
-      else if(r->request_body->bufs!=NULL) {
-        buf = ngx_http_push_request_body_to_single_buffer(r);
-      }
-      else {
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
+
+      if((msg = ngx_http_push_store_local.create_message(channel, r))==NULL) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }
-      
-      NGX_HTTP_PUSH_PUBLISHER_CHECK(buf, NULL, r, "push module: can't find or allocate publisher request body buffer");
-          
-      content_type_len = (r->headers_in.content_type!=NULL ? r->headers_in.content_type->value.len : 0);
-      
-      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-      
-      //create a buffer copy in shared mem
-      msg = ngx_http_push_slab_alloc_locked(sizeof(*msg) + content_type_len);
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", ngx_http_push_shpool);
-      previous_msg=ngx_http_push_get_latest_message_locked(channel); //need this for entity-tags generation
-      
-      buf_copy = ngx_http_push_slab_alloc_locked(NGX_HTTP_BUF_ALLOC_SIZE(buf));
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", ngx_http_push_shpool) //magic nullcheck
-      ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
-      
-      msg->buf=buf_copy;
-      
-      if(cf->store_messages) {
-        ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
-        channel->messages++;
-      }
-      
-      //Stamp the new message with entity tags
-      msg->message_time=ngx_time(); //ESSENTIAL TODO: make sure this ends up producing GMT time
-      msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;    
-      
-      //store the content-type
-      if(content_type_len>0) {
-        msg->content_type.len=r->headers_in.content_type->value.len;
-        msg->content_type.data=(u_char *) (msg+1); //we had reserved a contiguous chunk, myes?
-        ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
-      }
-      else {
-        msg->content_type.len=0;
-        msg->content_type.data=NULL;
-      }
-      
-      //set message expiration time
-      time_t                  message_timeout = cf->buffer_timeout;
-      msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
-      
-      msg->delete_oldest_received_min_messages = cf->delete_oldest_received_message ? (ngx_uint_t) cf->min_messages : NGX_MAX_UINT32_VALUE;
-      //NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
-      
-      //FMI (For My Information): shm is still locked.
-      switch(ngx_http_push_broadcast_message_locked(channel, msg, r->connection->log)) {
+      switch(ngx_http_push_broadcast_message(channel, msg, r->connection->log)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
           //message was queued successfully, but there were no 
@@ -575,28 +459,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
       }
-      //shm is still locked I hope.
-      
-      if(buf->file!=NULL) {
-        //future subscribers won't be able to use this file descriptor --
-        //it will be closed once the publisher request is finalized. 
-        //(That's about to happen a handful of lines below.)
-        msg->buf->file->fd=NGX_INVALID_FILE;
-      }
-      
-      //now see if the queue is too big
-      if(channel->messages > (ngx_uint_t) cf->max_messages) {
-        //exceeeds max queue size. force-delete oldest message
-        ngx_http_push_force_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), ngx_http_push_shpool);
-      }
-      if(channel->messages > (ngx_uint_t) cf->min_messages) {
-        //exceeeds min queue size. maybe delete the oldest message
-        ngx_http_push_msg_t    *oldest_msg = ngx_http_push_get_oldest_message_locked(channel);
-        NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", ngx_http_push_shpool);
-      }
+      ngx_http_push_store_local.lock();
       messages = channel->messages;
-      
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+      ngx_http_push_store_local.unlock();
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
       return;
       
@@ -607,23 +472,13 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       return;
       
     case NGX_HTTP_DELETE:
-      ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-      sentinel = channel->message_queue; 
-      msg = sentinel;
-            
-      while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
-        //force-delete all the messages
-        ngx_http_push_force_delete_message_locked(NULL, msg, ngx_http_push_shpool);
+      if(ngx_http_push_store_local.delete_channel(channel, r) != NGX_OK) {
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       }
-      channel->messages=0;
-      
-      //410 gone
-      NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(ngx_http_push_broadcast_status_locked(channel, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log), NGX_ERROR, r, "push module: unable to send current subscribers a 410 Gone response", ngx_http_push_shpool);
-      ngx_http_push_delete_channel_locked(channel);
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-      //done.
-      r->headers_out.status=NGX_HTTP_OK;
-      ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
+      else {
+        r->headers_out.status=NGX_HTTP_OK;
+        ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
+      }
       return;
       
     default: 
