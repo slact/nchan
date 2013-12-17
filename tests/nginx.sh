@@ -17,9 +17,9 @@ for opt in $*; do
   esac
 done
 NGINX_CONF="worker_processes $WORKERS; $NGINX_CONF"
-NGINX_OPT+=( -g $NGINX_CONF )
-echo $NGINX_CONF
-echo $NGINX_OPT
+NGINX_OPT+=( -g "$NGINX_CONF" )
+#echo $NGINX_CONF
+#echo $NGINX_OPT
 
 if [[ $valgrind == 1 ]]; then
   valgrind $VALGRIND_OPT ./nginx $NGINX_OPT
