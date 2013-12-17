@@ -415,7 +415,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 
   switch(method) {
     ngx_http_push_msg_t          *msg;
-    ngx_int_t                     rc;
     case NGX_HTTP_POST:
 
       if((msg = ngx_http_push_store_local.create_message(channel, r))==NULL) {

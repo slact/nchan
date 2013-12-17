@@ -9,9 +9,11 @@ end
 def pubsub(concurrent_clients=1, opt={})
     urlpart=opt[:urlpart] || 'broadcast'
     timeout = opt[:timeout]
-    rnd = SecureRandom.hex
-    sub = Subscriber.new url("#{urlpart}/sub/#{rnd}"), concurrent_clients, timeout: timeout, quit_message: 'FIN'
-    pub = Publisher.new url("#{urlpart}/pub/#{rnd}")
+    sub_url=opt[:sub] || "sub/broadcast/"
+    pub_url=opt[:pub] || "pub/"
+    chan_id = opt[:channel] || SecureRandom.hex
+    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, quit_message: 'FIN'
+    pub = Publisher.new url("#{pub_url}#{chan_id}")
     return pub, sub
 end
 def verify(pub, sub)
@@ -91,6 +93,19 @@ class PubSubTest < Test::Unit::TestCase
   #  test_broadcast 3000
   #end
   
+  def test_subscriber_concurrency
+    chan=SecureRandom.hex
+    pub = Publisher.new "/pub/#{chan}"
+    
+    sub_broadcast = Subscriber.new "/sub/broadcast/#{chan}", 5, quit_message: 'FIN'
+    sub_first, sub_last = [], []
+    3.times do
+      sub_first << Subscriber.new("/sub/first/#{chan}", 1, quit_message: 'FIN')
+      sub_last << Subscriber.new("/sub/last/#{chan}", 1, quit_message: 'FIN')
+    end
+    sub_first[0].run
+  end
+
   def test_queueing
     pub, sub = pubsub 5
     pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN )
