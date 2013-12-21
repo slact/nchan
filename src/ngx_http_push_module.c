@@ -90,20 +90,6 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
   return id;
 }
 
-#define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
-    etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
-    if(etag!=NULL) {                                                                 \
-        etag->data = (u_char *)(etag+1);                                             \
-        etag->len = ngx_sprintf(etag->data,"%ui", message_tag)- etag->data;          \
-    }
-
-#define NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, pool)  \
-    if(((content_type) = ngx_palloc(pool, sizeof(*content_type)+content_type_len))!=NULL) { \
-        (content_type)->len=content_type_len;                                        \
-        (content_type)->data=(u_char *)((content_type)+1);                           \
-        ngx_memcpy(content_type->data, (msg)->content_type.data, content_type_len);  \
-    }
-
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
@@ -382,10 +368,16 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   //POST requests will need a channel created if it doesn't yet exist.
   if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
     if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
-      NGX_HTTP_PUSH_PUBLISHER_CHECK(0, 0, r, "push module: trying to push an empty message");
+      ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: trying to push an empty message");
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
     }
     channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
-    NGX_HTTP_PUSH_PUBLISHER_CHECK(channel, NULL, r, "push module: unable to allocate memory for new channel");
+    if(channel==NULL) {
+      ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unable to allocate memory for new channel");
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
   }
   //no other request method needs that.
   else {
