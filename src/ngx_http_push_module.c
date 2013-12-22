@@ -90,6 +90,13 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
   return id;
 }
 
+#define NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, pool)  \
+    if(((content_type) = ngx_palloc(pool, sizeof(*content_type)+content_type_len))!=NULL) { \
+        (content_type)->len=content_type_len;                                        \
+        (content_type)->data=(u_char *)((content_type)+1);                           \
+        ngx_memcpy(content_type->data, (msg)->content_type.data, content_type_len);  \
+    }
+
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
