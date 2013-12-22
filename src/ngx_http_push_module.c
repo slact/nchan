@@ -340,19 +340,6 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
    (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
    (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
-#define NGX_HTTP_PUSH_PUBLISHER_CHECK(val, fail, r, errormessage)             \
-    if (val == fail) {                                                        \
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-        return;                                                               \
-  }
-#define NGX_HTTP_PUSH_PUBLISHER_CHECK_LOCKED(val, fail, r, errormessage, shpool) \
-    if (val == fail) {                                                        \
-        ngx_shmtx_unlock(&(shpool)->mutex);                                   \
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-        return;                                                               \
-    }
 
     
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
@@ -444,7 +431,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           
         case NGX_ERROR:
           //WTF?
-          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
@@ -452,7 +438,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         default: 
           //for debugging, mostly. I don't expect this branch to be
           //hit during regular operation
-          ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
