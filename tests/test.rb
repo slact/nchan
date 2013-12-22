@@ -95,15 +95,43 @@ class PubSubTest < Test::Unit::TestCase
   
   def test_subscriber_concurrency
     chan=SecureRandom.hex
-    pub = Publisher.new "/pub/#{chan}"
+    pub = Publisher.new url("pub/#{chan}")
     
-    sub_broadcast = Subscriber.new "/sub/broadcast/#{chan}", 5, quit_message: 'FIN'
     sub_first, sub_last = [], []
-    3.times do
-      sub_first << Subscriber.new("/sub/first/#{chan}", 1, quit_message: 'FIN')
-      sub_last << Subscriber.new("/sub/last/#{chan}", 1, quit_message: 'FIN')
+    { url("sub/first/#{chan}") => sub_first, url("sub/last/#{chan}") => sub_last }.each do |url, arr|
+      3.times do
+        sub=Subscriber.new(url, 1, quit_message: 'FIN', timeout: 120)
+        sub.on_failure do |resp, req|
+          false
+        end
+        arr << sub
+      end
     end
-    sub_first[0].run
+    
+    sub_first.each {|s| s.run; sleep 0.1 }
+    assert sub_first[0].no_errors?
+    sub_first[1..2].each do |s|
+      assert s.errors?
+      assert s.match_errors(/code 409/)
+    end
+
+    #sub_last.each {|s| s.run; sleep 0.1 }
+    #assert sub_last[2].no_errors?
+    #sub_last[0..1].each do |s|
+    #  assert s.errors?
+    #  assert s.match_errors(/code 409/)
+    #end
+
+    pub.post %w( foo bar FIN )
+    
+    sub_first[0].wait
+    #sub_last[2].wait
+    
+    verify pub, sub_first[0]
+    #verify pub, sub_last[2]
+    
+    sub_first[1..2].each{ |s| assert s.messages.count == 0 }
+    #sub_last[0..1].each{ |s| assert s.messages.count == 0 }
   end
 
   def test_queueing
