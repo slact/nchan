@@ -835,9 +835,9 @@ static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t 
   }
   
   if(data->channel!=NULL) { //we're expected to decrement the subscriber count
-    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+    ngx_http_push_store_local.lock();
     data->channel->subscribers--;
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    ngx_http_push_store_local.unlock();
   }
 }
 
