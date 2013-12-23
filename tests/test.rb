@@ -185,6 +185,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.messages.remove_old
     sub.run
     pub.post "FIN"
+    sub.wait
     verify pub, sub
   end
 end
