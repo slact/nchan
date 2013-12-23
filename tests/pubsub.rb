@@ -93,7 +93,19 @@ class Subscriber
   def abort
     #destroy the client
   end
-
+  def errors?
+    not no_errors?
+  end
+  def no_errors?
+    @errors.empty?
+  end
+  def match_errors(regex)
+    @errors.each do |err|
+      return false unless err =~ regex
+    end
+    true
+  end
+  
   class LongPollClient
     include Celluloid
     attr_accessor :last_modified, :etag, :hydra, :timeout
@@ -107,8 +119,8 @@ class Subscriber
       @concurrency.times do
         req=Typhoeus::Request.new(@url, timeout: @timeout)
         req.on_complete do |response|
-          #puts "recieved response at #{req.url}"
           if response.success?
+            #puts "recieved OK response at #{req.url}"
             #parse it
             msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
             msg.content_type=response.headers["Content-Type"]
@@ -118,6 +130,7 @@ class Subscriber
               @hydra.queue req 
             end
           else
+            #puts "recieved bad or no response at #{req.url}"
             unless @subscriber.on_failure(response) == false
               @hydra.queue req
             end
@@ -156,6 +169,7 @@ class Subscriber
     if block_given?
       @on_failure=block
     else
+      #puts "failed with #{response.to_s}. handler is #{@on_failure.to_s}"
       if response.timed_out?
         # aw hell no
         @errors << "Client response timeout."
@@ -166,7 +180,7 @@ class Subscriber
         # Received a non-successful http response.
         @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
       end
-      @on_failure.call(response, request) if @on_failure.respond_to? :call
+      @on_failure.call(response) if @on_failure.respond_to? :call
     end
   end
 end

@@ -160,17 +160,28 @@ typedef struct {
   //channel actions
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log);
   ngx_http_push_channel_t *(*find_channel)(ngx_str_t *id, ngx_log_t *log);
+  ngx_int_t (*delete_channel)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
   ngx_http_push_msg_t *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
   
   void (*reserve_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
   void (*release_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
   
   //pub/sub
-  ngx_int_t (*publish)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
+  // ngx_int_t (*publish)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg); //would like it to be this
+  ngx_int_t (*publish)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log); //instead it's this
   ngx_http_push_subscriber_t * (*subscribe)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
   
   //channel properties
   ngx_int_t (*channel_subscribers)(ngx_http_push_channel_t * channel);
+  ngx_int_t (*channel_worker_subscribers)(ngx_http_push_subscriber_t * worker_sentinel);
+  
+  void (*lock)(void); //legacy shared-memory store helpers
+  void (*unlock)(void);
+  
+  //message actions and properties
+  ngx_http_push_msg_t * (*create_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
+  ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool);
+  ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool);
 } ngx_http_push_store_t;
 
 
@@ -199,9 +210,8 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 //subscriber
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf);
-static ngx_int_t ngx_http_push_broadcast_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log);
-#define ngx_http_push_broadcast_status_locked(channel, status_code, status_line, log) ngx_http_push_broadcast_locked(channel, NULL, status_code, status_line, log)
-#define ngx_http_push_broadcast_message_locked(channel, msg, log) ngx_http_push_broadcast_locked(channel, msg, 0, NULL, log)
+#define ngx_http_push_broadcast_status(channel, status_code, status_line, log) ngx_http_push_store_local.publish(channel, NULL, status_code, status_line, log)
+#define ngx_http_push_broadcast_message(channel, msg, log) ngx_http_push_store_local.publish(channel, msg, 0, NULL, log)
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r);

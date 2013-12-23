@@ -1,3 +1,32 @@
+//fuck it, copypaste
+#define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
+    etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
+    if(etag!=NULL) {                                                                 \
+        etag->data = (u_char *)(etag+1);                                             \
+        etag->len = ngx_sprintf(etag->data,"%ui", message_tag)- etag->data;          \
+    }
+
+#define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
+    if (val == fail) {                                                        \
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
+        return NULL;                                                          \
+  }
+
+#define NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(val, fail, r, errormessage, shpool) \
+    if (val == fail) {                                                        \
+        ngx_shmtx_unlock(&(shpool)->mutex);                                   \
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
+        return NULL;                                                          \
+    }
+
+#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
+    (sizeof(*buf) +                                                           \
+   (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
+   (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
+
+
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
@@ -43,6 +72,12 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
   return p;
 }
 
+static void ngx_http_push_store_lock_shmem(void){
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+}
+static void ngx_http_push_store_unlock_shmem(void){
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+}
 void * ngx_http_push_slab_alloc(size_t size) {
   void  *p;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
@@ -196,6 +231,82 @@ static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id,
   return channel;
 }
 
+//temporary cheat
+static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line, ngx_log_t *log) {
+ //subscribers are queued up in a local pool. Queue heads, however, are located
+  //in shared memory, identified by pid.
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_pid_queue_t     *sentinel = &channel->workers_with_subscribers;
+  ngx_http_push_pid_queue_t     *cur = sentinel;
+  ngx_int_t                      received;
+  received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
+
+  if(msg!=NULL && received==NGX_HTTP_PUSH_MESSAGE_RECEIVED) {
+    //just for now
+    ngx_http_push_store_reserve_message_locked(channel, msg);
+  }
+  
+  while((cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue))!=sentinel) {
+    pid_t           worker_pid  = cur->pid;
+    ngx_int_t       worker_slot = cur->slot;
+    ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
+    
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    if(worker_pid == ngx_pid) {
+      //my subscribers
+      ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
+    }
+    else {
+      //some other worker's subscribers
+      //interprocess communication breakdown
+      if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code, log) != NGX_ERROR) {
+        ngx_http_push_alert_worker(worker_pid, worker_slot, log);
+      }
+      else {
+        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
+      }
+      
+    }
+    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+    /*
+    each time all of a worker's subscribers are removed, so is the sentinel. 
+    this is done to make garbage collection easier. Assuming we want to avoid
+    placing the sentinel in shared memory (for now -- it's a little tricky
+    to debug), the owner of the worker pool must be the one to free said sentinel.
+    But channels may be deleted by different worker processes, and it seems unwieldy
+    (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
+    is used every time the subscriber queue is emptied.
+    */
+    cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
+    
+  }
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return received;
+}
+
+
+static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
+  ngx_http_push_msg_t            *msg, *sentinel;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  sentinel = channel->message_queue; 
+  msg = sentinel;
+        
+  while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
+    //force-delete all the messages
+    ngx_http_push_force_delete_message_locked(NULL, msg, ngx_http_push_shpool);
+  }
+  channel->messages=0;
+  
+  //410 gone
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  
+  ngx_http_push_store_publish(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log);
+  
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_delete_channel_locked(channel);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return NGX_OK;
+}
 static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log) {
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
@@ -310,6 +421,17 @@ static ngx_int_t ngx_http_push_store_channel_subscribers(ngx_http_push_channel_t
   return subs;
 }
 
+static ngx_int_t ngx_http_push_store_channel_worker_subscribers(ngx_http_push_subscriber_t * worker_sentinel) {
+  ngx_http_push_subscriber_t *cur;
+  ngx_int_t count=0;
+  cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&worker_sentinel->queue);
+  while(cur!=worker_sentinel) {
+    count++;
+    cur=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+  }
+  return count;
+}
+
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   ngx_http_push_ipc_exit_worker(cycle);
 }
@@ -317,10 +439,6 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
   ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
-}
-
-static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
-  return 0;
 }
 
 static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
@@ -383,6 +501,157 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   
 }
 
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+  ngx_str_t *etag;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return etag;
+}
+
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+  ngx_str_t *etag;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return etag;
+}
+
+// this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
+static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
+  ngx_buf_t *buf = NULL;
+  ngx_chain_t *chain;
+  ssize_t n;
+  off_t len;
+
+  chain = r->request_body->bufs;
+  if (chain->next == NULL) {
+    return chain->buf;
+  }
+  if (chain->buf->in_file) {
+    if (ngx_buf_in_memory(chain->buf)) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
+    }
+    if (chain->next != NULL) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error reading request body with multiple ");
+    }
+    return chain->buf;
+  }
+  buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
+  if (buf != NULL) {
+    ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
+    while ((chain != NULL) && (chain->buf != NULL)) {
+      len = ngx_buf_size(chain->buf);
+      // if buffer is equal to content length all the content is in this buffer
+      if (len >= r->headers_in.content_length_n) {
+        buf->start = buf->pos;
+        buf->last = buf->pos;
+        len = r->headers_in.content_length_n;
+      }
+      if (chain->buf->in_file) {
+        n = ngx_read_file(chain->buf->file, buf->start, len, 0);
+        if (n == NGX_FILE_ERROR) {
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: cannot read file with request body");
+          return NULL;
+        }
+        buf->last = buf->last + len;
+        ngx_delete_file(chain->buf->file->name.data);
+        chain->buf->file->fd = NGX_INVALID_FILE;
+      } else {
+        buf->last = ngx_copy(buf->start, chain->buf->pos, len);
+      }
+
+      chain = chain->next;
+      buf->start = buf->last;
+    }
+  }
+  return buf;
+}
+
+
+static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
+  ngx_buf_t                      *buf = NULL, *buf_copy;
+  size_t                          content_type_len;
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_http_push_msg_t            *msg, *previous_msg;
+  
+  //first off, we'll want to extract the body buffer
+  
+  //note: this works mostly because of r->request_body_in_single_buf = 1; 
+  //which, i suppose, makes this module a little slower than it could be.
+  //this block is a little hacky. might be a thorn for forward-compatibility.
+  if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
+    buf = ngx_create_temp_buf(r->pool, 0);
+    //this buffer will get copied to shared memory in a few lines, 
+    //so it does't matter what pool we make it in.
+  }
+  else if(r->request_body->bufs!=NULL) {
+    buf = ngx_http_push_request_body_to_single_buffer(r);
+  }
+  else {
+    ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
+    return NULL;
+  }
+  
+  NGX_HTTP_PUSH_BROADCAST_CHECK(buf, NULL, r, "push module: can't find or allocate publisher request body buffer");
+      
+  content_type_len = (r->headers_in.content_type!=NULL ? r->headers_in.content_type->value.len : 0);
+  
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  
+  //create a buffer copy in shared mem
+  msg = ngx_http_push_slab_alloc_locked(sizeof(*msg) + content_type_len);
+  NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", ngx_http_push_shpool);
+  previous_msg=ngx_http_push_get_latest_message_locked(channel); //need this for entity-tags generation
+  
+  buf_copy = ngx_http_push_slab_alloc_locked(NGX_HTTP_BUF_ALLOC_SIZE(buf));
+  NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", ngx_http_push_shpool) //magic nullcheck
+  ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+  
+  msg->buf=buf_copy;
+  
+  if(cf->store_messages) {
+    ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
+    channel->messages++;
+  }
+  
+  //Stamp the new message with entity tags
+  msg->message_time=ngx_time(); //ESSENTIAL TODO: make sure this ends up producing GMT time
+  msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;    
+  
+  //store the content-type
+  if(content_type_len>0) {
+    msg->content_type.len=r->headers_in.content_type->value.len;
+    msg->content_type.data=(u_char *) (msg+1); //we had reserved a contiguous chunk, myes?
+    ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
+  }
+  else {
+    msg->content_type.len=0;
+    msg->content_type.data=NULL;
+  }
+  
+  //set message expiration time
+  time_t                  message_timeout = cf->buffer_timeout;
+  msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
+  
+  msg->delete_oldest_received_min_messages = cf->delete_oldest_received_message ? (ngx_uint_t) cf->min_messages : NGX_MAX_UINT32_VALUE;
+  //NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
+  
+  //now see if the queue is too big
+  if(channel->messages > (ngx_uint_t) cf->max_messages) {
+    //exceeeds max queue size. force-delete oldest message
+    ngx_http_push_force_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), ngx_http_push_shpool);
+  }
+  if(channel->messages > (ngx_uint_t) cf->min_messages) {
+    //exceeeds min queue size. maybe delete the oldest message
+    ngx_http_push_msg_t    *oldest_msg = ngx_http_push_get_oldest_message_locked(channel);
+    NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", ngx_http_push_shpool);
+  }
+  
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return msg;
+}
+
 ngx_http_push_store_t  ngx_http_push_store_local = {
     //init
     &ngx_http_push_store_init_module,
@@ -394,8 +663,10 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     &ngx_http_push_store_exit_worker,
     &ngx_http_push_store_exit_master,
   
+    //channel stuff
     &ngx_http_push_store_get_channel, //creates channel if not found
     &ngx_http_push_store_find_channel, //returns channel or NULL if not found
+    &ngx_http_push_store_delete_channel,
     &ngx_http_push_store_get_message,
     &ngx_http_push_store_reserve_message,
     &ngx_http_push_store_release_message,
@@ -406,4 +677,13 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     
     //channel properties
     &ngx_http_push_store_channel_subscribers,
+    &ngx_http_push_store_channel_worker_subscribers,
+    
+    &ngx_http_push_store_lock_shmem, //legacy shared-memory store helpers
+    &ngx_http_push_store_unlock_shmem, //legacy shared-memory store helpers
+    
+    //message stuff
+    &ngx_http_push_store_create_message,
+    &ngx_http_push_store_etag_from_message,
+    &ngx_http_push_store_content_type_from_message
 };
