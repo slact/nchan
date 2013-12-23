@@ -239,7 +239,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
       ngx_http_push_store_local.reserve_message(channel, msg);
-      etag = ngx_http_push_store_local.message_etag(msg, r);
+      etag = ngx_http_push_store_local.message_etag(msg, r, ngx_http_push_pool);
       
       ngx_http_push_store_local.lock();
       NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
@@ -473,7 +473,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 }
 
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_slab_pool_t                *shpool = ngx_http_push_shpool;
   ngx_http_push_subscriber_t     *cur, *next;
   ngx_int_t                       responded_subscribers=0;
   if(sentinel==NULL) {
@@ -497,31 +496,19 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_int_t                  *buf_use_count;
     ngx_http_push_subscriber_cleanup_t *clndata;
     
-    ngx_shmtx_lock(&shpool->mutex);
-    
-    //etag
-    NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_pcalloc, ngx_http_push_pool);
-    if(etag==NULL) {
-      //oh, nevermind...
-      ngx_shmtx_unlock(&shpool->mutex);
+    if((etag=ngx_http_push_store_local.message_etag(msg, r, ngx_http_push_pool))==NULL) {
       return NGX_ERROR;
     }
     
-    //content-type
-    content_type_len = msg->content_type.len;
-    if(content_type_len>0) {
-      NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, ngx_http_push_pool);
-      if(content_type==NULL) {
-        ngx_shmtx_unlock(&shpool->mutex);
-        ngx_pfree(ngx_http_push_pool, etag);
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for content-type header while responding to several subscriber request");
-        return NGX_ERROR;
-      }
+    if((content_type=ngx_http_push_store_local.message_content_type(msg, r, ngx_http_push_pool))==NULL) {
+      return NGX_ERROR;
     }
     
+    ngx_http_push_store_local.lock();
     //preallocate output chain. this won't actually be used in the request (except the buffer data)
-    if((chain = ngx_http_push_create_output_chain_locked(msg->buf, ngx_http_push_pool, ngx_cycle->log, shpool))==NULL) {
-      ngx_shmtx_unlock(&shpool->mutex);
+    chain = ngx_http_push_create_output_chain_locked(msg->buf, ngx_http_push_pool, ngx_cycle->log, ngx_http_push_shpool);
+    ngx_http_push_store_local.unlock();
+    if(chain==NULL) {
       ngx_pfree(ngx_http_push_pool, etag);
       ngx_pfree(ngx_http_push_pool, content_type);
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create output chain while responding to several subscriber request");
@@ -533,17 +520,12 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     file_pos = buffer->file_pos;
     buffer->recycled = 1;
     
+    ngx_http_push_store_local.lock();
     last_modified_time = msg->message_time;
-    
-    ngx_shmtx_unlock(&shpool->mutex);
+    ngx_http_push_store_local.unlock();
 
     buf_use_count = ngx_pcalloc(ngx_http_push_pool, sizeof(*buf_use_count));
-    //BADHACK. inefficient. ugly.
-    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
-    while(cur!=sentinel) {
-      (*buf_use_count)++;
-      cur=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
-    }
+    *buf_use_count = ngx_http_push_store_local.channel_worker_subscribers(sentinel);
     
     cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
     //now let's respond to some requests!
@@ -588,12 +570,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_pfree(ngx_http_push_pool, chain);
     //the rest will be deallocated on request pool cleanup
     
-    
     if(responded_subscribers) {
-      ngx_shmtx_lock(&shpool->mutex);
-      //message deletion
-      ngx_http_push_store_release_message_locked(channel, msg);
-      ngx_shmtx_unlock(&shpool->mutex);
+      ngx_http_push_store_local.release_message(channel, msg);
     }
   }
   else {
@@ -611,10 +589,10 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       cur=next;
     }
   }
-  ngx_shmtx_lock(&shpool->mutex);
+  ngx_http_push_store_local.lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
-  ngx_shmtx_unlock(&shpool->mutex);
+  ngx_http_push_store_local.unlock();
   ngx_pfree(ngx_http_push_pool, sentinel);
   return NGX_OK;
 }

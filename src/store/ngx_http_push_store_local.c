@@ -421,6 +421,17 @@ static ngx_int_t ngx_http_push_store_channel_subscribers(ngx_http_push_channel_t
   return subs;
 }
 
+static ngx_int_t ngx_http_push_store_channel_worker_subscribers(ngx_http_push_subscriber_t * worker_sentinel) {
+  ngx_http_push_subscriber_t *cur;
+  ngx_int_t count=0;
+  cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&worker_sentinel->queue);
+  while(cur!=worker_sentinel) {
+    count++;
+    cur=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+  }
+  return count;
+}
+
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   ngx_http_push_ipc_exit_worker(cycle);
 }
@@ -490,14 +501,21 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   
 }
 
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r){
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
   ngx_str_t *etag;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }
 
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+  ngx_str_t *etag;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return etag;
+}
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
 static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
@@ -659,6 +677,7 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     
     //channel properties
     &ngx_http_push_store_channel_subscribers,
+    &ngx_http_push_store_channel_worker_subscribers,
     
     &ngx_http_push_store_lock_shmem, //legacy shared-memory store helpers
     &ngx_http_push_store_unlock_shmem, //legacy shared-memory store helpers
@@ -666,4 +685,5 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     //message stuff
     &ngx_http_push_store_create_message,
     &ngx_http_push_store_etag_from_message,
+    &ngx_http_push_store_content_type_from_message
 };
