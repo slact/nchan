@@ -8,12 +8,17 @@ static ngx_int_t ngx_http_push_store_redis_init_worker(ngx_cycle_t *cycle) {
 }
 
 
+void ngx_http_push_store_redis_create_main_conf(ngx_conf_t *cf, ngx_http_push_main_conf_t *mcf) {
+  
+  return;
+}
+
 ngx_http_push_store_t  ngx_http_push_store_redis = {
     //init
     &ngx_http_push_store_redis_init_module,
     &ngx_http_push_store_redis_init_worker,
     NULL,//&ngx_http_push_store_redis_init_postconfig,
-    NULL,//&ngx_http_push_store_redis_create_main_conf,
+    &ngx_http_push_store_redis_create_main_conf,
     
     //shutdown
     NULL,//&ngx_http_push_store_redis_exit_worker,
