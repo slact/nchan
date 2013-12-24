@@ -172,7 +172,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     size_t                      content_type_len;
     ngx_http_push_subscriber_cleanup_t *clndata;
     ngx_http_push_subscriber_t *subscriber;
-    ngx_pool_cleanup_t      *cln;
+    ngx_http_cleanup_t      *cln;
 
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
@@ -187,10 +187,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           }
           
           //attach a cleaner to remove the request from the channel and handle shared buffer deallocation.
-          if ((cln=ngx_pool_cleanup_add(r->pool, sizeof(*clndata))) == NULL) { //make sure we can.
+          if ((cln=ngx_http_cleanup_add(r, sizeof(*clndata))) == NULL) { //make sure we can.
             return NGX_ERROR;
           }
-          cln->handler = (ngx_pool_cleanup_pt) ngx_http_push_subscriber_cleanup;
+          cln->handler = (ngx_http_cleanup_pt) ngx_http_push_subscriber_cleanup;
           clndata = (ngx_http_push_subscriber_cleanup_t *) cln->data;
           clndata->channel=channel;
           clndata->subscriber=subscriber;
