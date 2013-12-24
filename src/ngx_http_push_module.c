@@ -793,14 +793,7 @@ static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, n
     file = buf_copy->file;
     file->log=log;
     if(file->fd==NGX_INVALID_FILE) {
-      if(shpool) {
-        ngx_shmtx_unlock(&shpool->mutex);
-        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-        ngx_shmtx_lock(&shpool->mutex);
-      }
-      else {
-        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-      }
+      file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
     }
     if(file->fd==NGX_INVALID_FILE) {
       return NULL;
