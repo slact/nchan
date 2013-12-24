@@ -234,7 +234,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
       //subscriber wants an expired message
       //TODO: maybe respond with entity-identifiers for oldest available message?
-      return NGX_HTTP_NO_CONTENT; 
+      return NGX_HTTP_NO_CONTENT;
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
@@ -261,7 +261,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       }
       
       //preallocate output chain. yes, same one for every waiting subscriber
-      if((chain = ngx_http_push_create_output_chain_locked(msg->buf, r->pool, r->connection->log, ngx_http_push_shpool))==NULL) {
+      if((chain = ngx_http_push_create_output_chain(msg->buf, r->pool, r->connection->log))==NULL) {
         ngx_http_push_store_local.unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
         return NGX_ERROR;
@@ -275,10 +275,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       
       if(chain->buf->file!=NULL) {
         //close file when we're done with it
-        ngx_pool_cleanup_t *cln;
+        ngx_http_cleanup_t *cln;
         ngx_pool_cleanup_file_t *clnf;
        
-        if((cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
+        if((cln = ngx_pool_cleanup_add(r, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         cln->handler = ngx_pool_cleanup_file;
@@ -506,7 +506,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     
     ngx_http_push_store_local.lock();
     //preallocate output chain. this won't actually be used in the request (except the buffer data)
-    chain = ngx_http_push_create_output_chain_locked(msg->buf, ngx_http_push_pool, ngx_cycle->log, ngx_http_push_shpool);
+    chain = ngx_http_push_create_output_chain(msg->buf, ngx_http_push_pool, ngx_cycle->log);
     ngx_http_push_store_local.unlock();
     if(chain==NULL) {
       ngx_pfree(ngx_http_push_pool, etag);
@@ -774,8 +774,7 @@ static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
 }
 
 //buffer is _copied_
-//if shpool is provided, it is assumed that shm it is locked
-static ngx_chain_t * ngx_http_push_create_output_chain_general(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log, ngx_slab_pool_t *shpool) {
+static ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
   ngx_chain_t                    *out;
   ngx_file_t                     *file;
   
