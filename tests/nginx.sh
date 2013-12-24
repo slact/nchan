@@ -7,7 +7,7 @@ NGINX_CONF="working_directory \"`pwd`\"; "
 for opt in $*; do
   case $opt in
     leak|leakcheck)
-      VALGRIND_OPT+=("--leak-check=full")
+      VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all")
       ;;
     valgrind)
       valgrind=1
