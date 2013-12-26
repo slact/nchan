@@ -277,10 +277,10 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       
       if(chain->buf->file!=NULL) {
         //close file when we're done with it
-        ngx_http_cleanup_t *cln;
+        ngx_pool_cleanup_t *cln;
         ngx_pool_cleanup_file_t *clnf;
        
-        if((cln = ngx_pool_cleanup_add(r, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
+        if((cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         cln->handler = ngx_pool_cleanup_file;
