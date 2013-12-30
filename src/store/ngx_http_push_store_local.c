@@ -250,22 +250,24 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
     pid_t           worker_pid  = cur->pid;
     ngx_int_t       worker_slot = cur->slot;
     ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
-    
+    cur->subscriber_sentinel=NULL;
     ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-    if(worker_pid == ngx_pid) {
-      //my subscribers
-      ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-    }
-    else {
-      //some other worker's subscribers
-      //interprocess communication breakdown
-      if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code, log) != NGX_ERROR) {
-        ngx_http_push_alert_worker(worker_pid, worker_slot, log);
+    if(subscriber_sentinel != NULL) {
+      if(worker_pid == ngx_pid) {
+        //my subscribers
+        ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
+        //some other worker's subscribers
+        //interprocess communication breakdown
+        if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code, log) != NGX_ERROR) {
+          ngx_http_push_alert_worker(worker_pid, worker_slot, log);
+        }
+        else {
+          ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
+        }
+        
       }
-      
     }
     ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
     /*
