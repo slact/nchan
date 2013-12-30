@@ -154,12 +154,12 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
 //free memory for a message. 
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
   if(msg->buf->file!=NULL) {
-    ngx_shmtx_unlock(&shpool->mutex);
+    // i'd like to release the shpool lock here while i do stuff to this file, but that 
+    // might unlock during channel rbtree traversal, which is Bad News.
     if(msg->buf->file->fd!=NGX_INVALID_FILE) {
       ngx_close_file(msg->buf->file->fd);
     }
     ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
-    ngx_shmtx_lock(&shpool->mutex);
   }
   ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
   ngx_slab_free_locked(shpool, msg);
