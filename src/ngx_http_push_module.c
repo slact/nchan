@@ -577,6 +577,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
   else {
     //headers only probably
     ngx_http_request_t     *r;
+    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
     while(cur!=sentinel) {
       next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
       r=cur->request;
