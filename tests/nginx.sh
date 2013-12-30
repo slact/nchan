@@ -1,6 +1,6 @@
 #!/bin/zsh
 NGINX_OPT=( -p ./ -c ./nginx.conf )
-VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes )
+VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes --read-var-info=yes )
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF="working_directory \"`pwd`\"; "
