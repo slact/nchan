@@ -474,19 +474,19 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
     found->slot=ngx_process_slot;
     found->subscriber_sentinel=NULL;
   }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
   if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate subscriber worker's memory pool");
     return NULL;
   }
-  
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   channel->subscribers++; // do this only when we know everything went okay.
   
   //figure out the subscriber sentinel
   subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "reserve subscriber sentinel at %p", subscriber_sentinel);
+  
   if(subscriber_sentinel==NULL) {
-    //it's perfectly nornal for the sentinel to be NULL.
+    //it's perfectly normal for the sentinel to be NULL.
     if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
       return NULL;
@@ -494,9 +494,9 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
     ngx_queue_init(&subscriber_sentinel->queue);
     ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
   }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "add to subscriber sentinel at %p", subscriber_sentinel);
   ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   
   subscriber->request = r;
   return subscriber;
