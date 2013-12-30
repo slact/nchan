@@ -174,6 +174,7 @@ class PubSubTest < Test::Unit::TestCase
       sleep 0.001
     end
     pub.post "FIN"
+    sub.wait
     verify pub, sub
   end
   
