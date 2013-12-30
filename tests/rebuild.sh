@@ -11,6 +11,11 @@ for opt in $*; do
       export NO_POOL=1;;
     c|continue|cont)
       export CONTINUE=1;;
+    clang-analyzer|analyzer|scan|analyze)
+      export CLANG_ANALYZER=`pwd`/clang-analyzer/ 
+      echo $CLANG_ANALYZER
+      mkdir $CLANG_ANALYZER 2>/dev/null
+      ;;
   esac
 done
 
@@ -21,3 +26,9 @@ else
     makepkg -f
 fi
 popd
+
+if ! [[ -z $CLANG_ANALYZER ]]; then
+  pushd $CLANG_ANALYZER >/dev/null
+  scan-view `ls -c |head -n1`
+  popd >/dev/null
+fi
