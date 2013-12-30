@@ -15,6 +15,9 @@ for opt in $*; do
     worker|1|one|single) 
       WORKERS=1
       ;;
+    20)
+      WORKERS=20
+      ;;
     debug|kdbg)
       WORKERS=1
       NGINX_DAEMON="on"
