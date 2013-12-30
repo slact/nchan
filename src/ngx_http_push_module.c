@@ -239,17 +239,14 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
       ngx_http_push_store_local.reserve_message(channel, msg);
-      etag = ngx_http_push_store_local.message_etag(msg);
-      
-      ngx_http_push_store_local.lock();
-      NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
-      if(etag==NULL) {
+
+      if((etag = ngx_http_push_store_local.message_etag(msg))==NULL) {
         //oh, nevermind...
-        ngx_http_push_store_local.unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
       
+      ngx_http_push_store_local.lock();
       content_type_len = msg->content_type.len;
       if(content_type_len>0) {
         NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, r->pool);
