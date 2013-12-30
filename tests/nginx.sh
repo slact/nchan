@@ -5,6 +5,9 @@ WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF="working_directory \"`pwd`\"; "
 for opt in $*; do
+  if [[ "$opt" = <-> ]]; then
+    WORKERS=$opt
+  fi
   case $opt in
     leak|leakcheck)
       VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all")
@@ -12,11 +15,8 @@ for opt in $*; do
     valgrind)
       valgrind=1
       ;;
-    worker|1|one|single) 
+    worker|one|single) 
       WORKERS=1
-      ;;
-    20)
-      WORKERS=20
       ;;
     debug|kdbg)
       WORKERS=1

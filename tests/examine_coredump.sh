@@ -1,14 +1,17 @@
 #!/bin/zsh
 target=$1
+core_dir="./coredump"
 if [ -z $target ]; then
   target=$(realpath ./nginx)
+  dump=$core_dir/last.core
+else
+  dump=$core_dir/$target.core
 fi
 
-core_dir="./coredump"
 mkdir $core_dir 2>/dev/null
 
-echo "getting coredump for $target..."
-dump=`mktemp --suffix=".core" -p $core_dir`
+echo "saving coredump for $target at $dump"
+
 sudo systemd-coredumpctl dump $target > $dump
 kdbg ./nginx "$dump" 2>/dev/null
-rm "$dump"
+# rm "$dump" #keep it around for now
