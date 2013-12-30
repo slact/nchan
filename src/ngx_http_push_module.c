@@ -592,8 +592,9 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
   ngx_http_push_store_local.lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
-  ngx_http_push_store_local.unlock();
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "deleting subscriber sentinel at %p.", sentinel);
   ngx_pfree(ngx_http_push_pool, sentinel);
+  ngx_http_push_store_local.unlock();
   return NGX_OK;
 }
 
