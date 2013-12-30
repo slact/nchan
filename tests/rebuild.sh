@@ -11,28 +11,32 @@ for opt in $*; do
       export NO_POOL=1;;
     c|continue|cont)
       export CONTINUE=1;;
+    nomake)
+      export NO_MAKE=1;;
     mudflap)
       export MUDFLAP=1
       export CC=gcc
       ;;
     clang-analyzer|analyzer|scan|analyze)
-      export CLANG_ANALYZER=`pwd`/clang-analyzer/ 
-      echo $CLANG_ANALYZER
+      export CLANG_ANALYZER=$MY_PATH/clang-analyzer
       mkdir $CLANG_ANALYZER 2>/dev/null
       ;;
   esac
 done
 
-pushd ./nginx-nhpm
-if [[ $CONTINUE == 1 ]]; then
+if [[ -z $NO_MAKE ]]; then
+  pushd ./nginx-nhpm >/dev/null
+  if [[ $CONTINUE == 1 ]]; then
     makepkg -f -e
-else
+  else
     makepkg -f
+  fi
+  popd >/dev/null
 fi
-popd
-
 if ! [[ -z $CLANG_ANALYZER ]]; then
   pushd $CLANG_ANALYZER >/dev/null
-  scan-view `ls -c |head -n1`
+  latest_scan=`ls -c |head -n1`
+  echo "run 'scan-view ${CLANG_ANALYZER}/${latest_scan}' for static analysis."
+  scan-view $latest_scan 2>/dev/null
   popd >/dev/null
 fi
