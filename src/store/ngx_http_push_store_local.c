@@ -447,7 +447,7 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
   ngx_http_push_subscriber_t *subscriber;
   ngx_http_push_subscriber_t *subscriber_sentinel;
-  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  //ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   
   //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);

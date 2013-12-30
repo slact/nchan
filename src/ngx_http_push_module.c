@@ -310,7 +310,6 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
   
   //nonzero number of subscribers present
   switch(loc_conf->subscriber_concurrency) {
-    ngx_int_t                     rc;
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
       return NGX_OK;
     
@@ -319,7 +318,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      rc = ngx_http_push_broadcast_status(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
+      ngx_http_push_broadcast_status(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
 
       return NGX_OK;
     
@@ -485,8 +484,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     size_t                      content_type_len;
     ngx_http_request_t         *r;
     ngx_buf_t                  *buffer;
-    u_char                     *pos;
-    off_t                       file_pos;
     ngx_chain_t                *rchain;
     ngx_buf_t                  *rbuffer;
     
@@ -513,8 +510,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     }
     
     buffer = chain->buf;
-    pos = buffer->pos;
-    file_pos = buffer->file_pos;
     buffer->recycled = 1;
     
     ngx_http_push_store_local.lock();
