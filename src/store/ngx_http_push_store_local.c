@@ -226,7 +226,7 @@ static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id,
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  channel = ngx_http_push_find_channel(id, log);
+  channel = ngx_http_push_find_channel(id, channel_timeout, log);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return channel;
 }

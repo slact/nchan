@@ -133,7 +133,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store_local.find_channel(id, r->connection->log);
+    channel = ngx_http_push_store_local.find_channel(id, cf->channel_timeout, r->connection->log);
   }else{
     channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
   }
@@ -376,7 +376,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   //no other request method needs that.
   else {
     //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_store_local.find_channel(id, r->connection->log);
+    channel = ngx_http_push_store_local.find_channel(id, cf->channel_timeout, r->connection->log);
   }
   
   if(channel!=NULL) {
