@@ -503,18 +503,18 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   
 }
 
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg){
   ngx_str_t *etag;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, ngx_http_push_pool);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }
 
-static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg){
   ngx_str_t *etag;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, ngx_http_push_pool);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }

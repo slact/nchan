@@ -239,7 +239,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
       ngx_http_push_store_local.reserve_message(channel, msg);
-      etag = ngx_http_push_store_local.message_etag(msg, r, ngx_http_push_pool);
+      etag = ngx_http_push_store_local.message_etag(msg);
       
       ngx_http_push_store_local.lock();
       NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
@@ -496,11 +496,11 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_int_t                  *buf_use_count;
     ngx_http_push_subscriber_cleanup_t *clndata;
     
-    if((etag=ngx_http_push_store_local.message_etag(msg, r, ngx_http_push_pool))==NULL) {
+    if((etag=ngx_http_push_store_local.message_etag(msg))==NULL) {
       return NGX_ERROR;
     }
     
-    if((content_type=ngx_http_push_store_local.message_content_type(msg, r, ngx_http_push_pool))==NULL) {
+    if((content_type=ngx_http_push_store_local.message_content_type(msg))==NULL) {
       return NGX_ERROR;
     }
     

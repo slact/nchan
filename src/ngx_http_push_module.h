@@ -180,8 +180,8 @@ typedef struct {
   
   //message actions and properties
   ngx_http_push_msg_t * (*create_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
-  ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool);
-  ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool);
+  ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg);
+  ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg);
 } ngx_http_push_store_t;
 
 
