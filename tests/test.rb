@@ -70,6 +70,7 @@ class PubSubTest < Test::Unit::TestCase
         p.post rands.sample
       end
     end
+    sleep 1
     pub.each do |p|
       p.post 'FIN'
     end
@@ -100,7 +101,7 @@ class PubSubTest < Test::Unit::TestCase
     sub_first, sub_last = [], []
     { url("sub/first/#{chan}") => sub_first, url("sub/last/#{chan}") => sub_last }.each do |url, arr|
       3.times do
-        sub=Subscriber.new(url, 1, quit_message: 'FIN', timeout: 120)
+        sub=Subscriber.new(url, 1, quit_message: 'FIN', timeout: 15)
         sub.on_failure do |resp, req|
           false
         end

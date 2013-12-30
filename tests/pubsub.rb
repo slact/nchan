@@ -86,7 +86,7 @@ class Subscriber
     @timeout=opt[:timeout] || 60
     @quit_message=opt[:quit_message]
     @messages = MessageStore.new
-    #puts "Starting client to #{url}"
+    #puts "Starting subscriber on #{url}"
     @concurrency=concurrency
     @client=LongPollClient.new(self, :concurrency => concurrency, :timeout => @timeout)
   end
@@ -120,7 +120,7 @@ class Subscriber
         req=Typhoeus::Request.new(@url, timeout: @timeout)
         req.on_complete do |response|
           if response.success?
-            #puts "recieved OK response at #{req.url}"
+            #puts "received OK response at #{req.url}"
             #parse it
             msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
             msg.content_type=response.headers["Content-Type"]
@@ -156,7 +156,7 @@ class Subscriber
     @client.poke
   end
   def on_message(msg=nil, &block)
-    #puts "received message"
+    #puts "received message #{msg.to_s[0..15]}"
     if block_given?
       @on_message=block
     else
@@ -210,18 +210,23 @@ class Publisher
 
     post.on_complete do |response|
       if response.success?
+        #puts "published message #{msg.to_s[0..15]}"
         @messages << msg
       elsif response.timed_out?
         # aw hell no
+        #puts "publisher err: timeout"
         raise "Response timed out."
       elsif response.code == 0
         # Could not get an http response, something's wrong.
+        #puts "publisher err: #{response.return_message}"
         raise "No HTTP response: #{response.return_message}"
       else
         # Received a non-successful http response.
+        #puts "publisher err: #{response.code.to_s}"
         raise "HTTP request failed: #{response.code.to_s}"
       end
     end
+    #puts "publishing to #{@url}"
     post.run
   end
 end
