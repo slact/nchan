@@ -61,6 +61,10 @@ build() {
     echo "using the no-pool patch"
     patch -p1 < "${srcdir}/nginx-${pkgver}-no_pool.patch"
   fi
+  if [[ $MUDFLAP == 1 ]]; then
+    export CFLAGS="$CFLAGS -fmudflap"
+  fi
+
   CONFIGURE="--prefix=/${_conf_path} \
     --sbin-path=/usr/bin/${_pkgname} \
     --pid-path=${_pid_path}/${_pkgname}.pid \

@@ -11,6 +11,10 @@ for opt in $*; do
       export NO_POOL=1;;
     c|continue|cont)
       export CONTINUE=1;;
+    mudflap)
+      export MUDFLAP=1
+      export CC=gcc
+      ;;
     clang-analyzer|analyzer|scan|analyze)
       export CLANG_ANALYZER=`pwd`/clang-analyzer/ 
       echo $CLANG_ANALYZER
