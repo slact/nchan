@@ -1,3 +1,8 @@
+ 
+ fix: last-in concurrency setting wasn't working reliably
+ refactor: partially separated message storage. add a test harness.
+ fix: segfault from concurrency bug while garbage-collecting channels
+ fix: some large messages got lost
 0.692 (Feb. 3 2010)
  fix: error log reported failed close() for some publisher requests with large messages
  fix: occasional memory leak during message deletion
