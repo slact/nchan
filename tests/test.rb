@@ -21,6 +21,7 @@ def verify(pub, sub)
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
+    binding.pry if msg.times_seen != sub.concurrency
     assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
   end
 end
@@ -82,10 +83,11 @@ class PubSubTest < Test::Unit::TestCase
     end
   end
   
-  def test_broadcast(clients=700)
+  def test_broadcast(clients=400)
     pub, sub = pubsub clients
     sub.run #celluloid async FTW
-    pub.post ["hello there", "what is this", "it's nothing", "FIN"]
+    sleep 0.5
+    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really", "FIN"]
     sub.wait
     verify pub, sub
   end
