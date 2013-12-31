@@ -154,12 +154,12 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
 //free memory for a message. 
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
   if(msg->buf->file!=NULL) {
-    ngx_shmtx_unlock(&shpool->mutex);
+    // i'd like to release the shpool lock here while i do stuff to this file, but that 
+    // might unlock during channel rbtree traversal, which is Bad News.
     if(msg->buf->file->fd!=NGX_INVALID_FILE) {
       ngx_close_file(msg->buf->file->fd);
     }
     ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
-    ngx_shmtx_lock(&shpool->mutex);
   }
   ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
   ngx_slab_free_locked(shpool, msg);
@@ -222,11 +222,11 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
   return NULL;
 }
 
-static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id, ngx_log_t *log) {
+static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log) {
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  channel = ngx_http_push_find_channel(id, log);
+  channel = ngx_http_push_find_channel(id, channel_timeout, log);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return channel;
 }
@@ -250,22 +250,24 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
     pid_t           worker_pid  = cur->pid;
     ngx_int_t       worker_slot = cur->slot;
     ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
-    
+    cur->subscriber_sentinel=NULL;
     ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-    if(worker_pid == ngx_pid) {
-      //my subscribers
-      ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-    }
-    else {
-      //some other worker's subscribers
-      //interprocess communication breakdown
-      if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code, log) != NGX_ERROR) {
-        ngx_http_push_alert_worker(worker_pid, worker_slot, log);
+    if(subscriber_sentinel != NULL) {
+      if(worker_pid == ngx_pid) {
+        //my subscribers
+        ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
+        //some other worker's subscribers
+        //interprocess communication breakdown
+        if(ngx_http_push_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code, log) != NGX_ERROR) {
+          ngx_http_push_alert_worker(worker_pid, worker_slot, log);
+        }
+        else {
+          ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
+        }
+        
       }
-      
     }
     ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
     /*
@@ -445,7 +447,7 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
   ngx_http_push_subscriber_t *subscriber;
   ngx_http_push_subscriber_t *subscriber_sentinel;
-  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  //ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   
   //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
@@ -472,19 +474,19 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
     found->slot=ngx_process_slot;
     found->subscriber_sentinel=NULL;
   }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
   if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate subscriber worker's memory pool");
     return NULL;
   }
-  
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   channel->subscribers++; // do this only when we know everything went okay.
   
   //figure out the subscriber sentinel
   subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "reserve subscriber sentinel at %p", subscriber_sentinel);
+  
   if(subscriber_sentinel==NULL) {
-    //it's perfectly nornal for the sentinel to be NULL.
+    //it's perfectly normal for the sentinel to be NULL.
     if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
       return NULL;
@@ -492,27 +494,27 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
     ngx_queue_init(&subscriber_sentinel->queue);
     ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
   }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "add to subscriber sentinel at %p", subscriber_sentinel);
   ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   
   subscriber->request = r;
   return subscriber;
   
 }
 
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg){
   ngx_str_t *etag;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, ngx_http_push_pool);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }
 
-static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool){
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg){
   ngx_str_t *etag;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, pool);
+  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, ngx_http_push_pool);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }

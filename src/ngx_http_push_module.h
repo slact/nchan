@@ -159,7 +159,7 @@ typedef struct {
   
   //channel actions
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log);
-  ngx_http_push_channel_t *(*find_channel)(ngx_str_t *id, ngx_log_t *log);
+  ngx_http_push_channel_t *(*find_channel)(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log);
   ngx_int_t (*delete_channel)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
   ngx_http_push_msg_t *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
   
@@ -180,8 +180,8 @@ typedef struct {
   
   //message actions and properties
   ngx_http_push_msg_t * (*create_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
-  ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool);
-  ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg, ngx_http_request_t *r, ngx_pool_t *pool);
+  ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg);
+  ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg);
 } ngx_http_push_store_t;
 
 

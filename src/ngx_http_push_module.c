@@ -135,7 +135,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store_local.find_channel(id, r->connection->log);
+    channel = ngx_http_push_store_local.find_channel(id, cf->channel_timeout, r->connection->log);
   }else{
     channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
   }
@@ -241,17 +241,14 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
       ngx_http_push_store_local.reserve_message(channel, msg);
-      etag = ngx_http_push_store_local.message_etag(msg, r, ngx_http_push_pool);
-      
-      ngx_http_push_store_local.lock();
-      NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, r->pool);
-      if(etag==NULL) {
+
+      if((etag = ngx_http_push_store_local.message_etag(msg))==NULL) {
         //oh, nevermind...
-        ngx_http_push_store_local.unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
       
+      ngx_http_push_store_local.lock();
       content_type_len = msg->content_type.len;
       if(content_type_len>0) {
         NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, r->pool);
@@ -315,7 +312,6 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
   
   //nonzero number of subscribers present
   switch(loc_conf->subscriber_concurrency) {
-    ngx_int_t                     rc;
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
       return NGX_OK;
     
@@ -324,7 +320,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      rc = ngx_http_push_broadcast_status(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
+      ngx_http_push_broadcast_status(channel, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
 
       return NGX_OK;
     
@@ -378,7 +374,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   //no other request method needs that.
   else {
     //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_store_local.find_channel(id, r->connection->log);
+    channel = ngx_http_push_store_local.find_channel(id, cf->channel_timeout, r->connection->log);
   }
   
   if(channel!=NULL) {
@@ -490,19 +486,17 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     size_t                      content_type_len;
     ngx_http_request_t         *r;
     ngx_buf_t                  *buffer;
-    u_char                     *pos;
-    off_t                       file_pos;
     ngx_chain_t                *rchain;
     ngx_buf_t                  *rbuffer;
     
     ngx_int_t                  *buf_use_count;
     ngx_http_push_subscriber_cleanup_t *clndata;
     
-    if((etag=ngx_http_push_store_local.message_etag(msg, r, ngx_http_push_pool))==NULL) {
+    if((etag=ngx_http_push_store_local.message_etag(msg))==NULL) {
       return NGX_ERROR;
     }
     
-    if((content_type=ngx_http_push_store_local.message_content_type(msg, r, ngx_http_push_pool))==NULL) {
+    if((content_type=ngx_http_push_store_local.message_content_type(msg))==NULL) {
       return NGX_ERROR;
     }
     
@@ -518,8 +512,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     }
     
     buffer = chain->buf;
-    pos = buffer->pos;
-    file_pos = buffer->file_pos;
     buffer->recycled = 1;
     
     ngx_http_push_store_local.lock();
@@ -579,6 +571,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
   else {
     //headers only probably
     ngx_http_request_t     *r;
+    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
     while(cur!=sentinel) {
       next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
       r=cur->request;
@@ -594,8 +587,9 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
   ngx_http_push_store_local.lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
-  ngx_http_push_store_local.unlock();
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "deleting subscriber sentinel at %p.", sentinel);
   ngx_pfree(ngx_http_push_pool, sentinel);
+  ngx_http_push_store_local.unlock();
   return NGX_OK;
 }
 

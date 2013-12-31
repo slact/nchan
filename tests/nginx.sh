@@ -1,10 +1,16 @@
 #!/bin/zsh
-NGINX_OPT=( -p ./ -c ./nginx.conf )
-VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes )
+
+NGINX_OPT=( -p `pwd`/ 
+    -c `pwd`/nginx.conf 
+)
+VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes --read-var-info=yes )
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF="working_directory \"`pwd`\"; "
 for opt in $*; do
+  if [[ "$opt" = <-> ]]; then
+    WORKERS=$opt
+  fi
   case $opt in
     leak|leakcheck)
       VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all")
@@ -12,7 +18,7 @@ for opt in $*; do
     valgrind)
       valgrind=1
       ;;
-    worker|1|one|single) 
+    worker|one|single) 
       WORKERS=1
       ;;
     debug|kdbg)
@@ -36,7 +42,9 @@ if [[ $debugger == 1 ]]; then
   sudo kdbg -p $child_pid ./nginx
   kill $master_pid
 elif [[ $valgrind == 1 ]]; then
-  valgrind $VALGRIND_OPT ./nginx $NGINX_OPT
+  pushd ./coredump >/dev/null
+  valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
+  popd >/dev/null
 else
   ./nginx $NGINX_OPT
 fi

@@ -68,6 +68,7 @@ class MessageStore
       @msgs << msg
     else
       if (cur_msg=@msgs[msg.id])
+        puts "Received different messages with same message id #{msg.id}: '#{cur_msg.message}' and '#{msg.message}'" unless cur_msg.message == msg.message
         cur_msg.times_seen+=1
         cur_msg.times_seen
       else
@@ -79,15 +80,17 @@ class MessageStore
 end
 
 class Subscriber
-  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency
+  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished
   def initialize(url, concurrency=1, opt={})
     @url=url
     @errors=[]
     @timeout=opt[:timeout] || 60
     @quit_message=opt[:quit_message]
     @messages = MessageStore.new
-    #puts "Starting client to #{url}"
+    #puts "Starting subscriber on #{url}"
     @concurrency=concurrency
+    @waiting=0
+    @finished=0
     @client=LongPollClient.new(self, :concurrency => concurrency, :timeout => @timeout)
   end
   def abort
@@ -119,23 +122,31 @@ class Subscriber
       @concurrency.times do
         req=Typhoeus::Request.new(@url, timeout: @timeout)
         req.on_complete do |response|
+          @subscriber.waiting-=1
           if response.success?
-            #puts "recieved OK response at #{req.url}"
+            #puts "received OK response at #{req.url}"
             #parse it
             msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
             msg.content_type=response.headers["Content-Type"]
             req.options[:headers]["If-None-Match"]=msg.etag
             req.options[:headers]["If-Modified-Since"]=msg.last_modified
             unless @subscriber.on_message(msg) == false
+              @subscriber.waiting+=1
               @hydra.queue req 
+            else
+              @subscriber.finished+=1
             end
           else
-            #puts "recieved bad or no response at #{req.url}"
+            #puts "received bad or no response at #{req.url}"
             unless @subscriber.on_failure(response) == false
+              @subscriber.waiting+=1
               @hydra.queue req
+            else
+              @subscriber.finished+=1
             end
           end
         end
+        @subscriber.waiting+=1
         @hydra.queue req
       end
     end
@@ -156,7 +167,7 @@ class Subscriber
     @client.poke
   end
   def on_message(msg=nil, &block)
-    #puts "received message"
+    #puts "received message #{msg.to_s[0..15]}"
     if block_given?
       @on_message=block
     else
@@ -210,18 +221,23 @@ class Publisher
 
     post.on_complete do |response|
       if response.success?
+        #puts "published message #{msg.to_s[0..15]}"
         @messages << msg
       elsif response.timed_out?
         # aw hell no
+        #puts "publisher err: timeout"
         raise "Response timed out."
       elsif response.code == 0
         # Could not get an http response, something's wrong.
+        #puts "publisher err: #{response.return_message}"
         raise "No HTTP response: #{response.return_message}"
       else
         # Received a non-successful http response.
+        #puts "publisher err: #{response.code.to_s}"
         raise "HTTP request failed: #{response.code.to_s}"
       end
     end
+    #puts "publishing to #{@url}"
     post.run
   end
 end

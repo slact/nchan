@@ -21,6 +21,7 @@ def verify(pub, sub)
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
+    binding.pry if msg.times_seen != sub.concurrency
     assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
   end
 end
@@ -70,6 +71,7 @@ class PubSubTest < Test::Unit::TestCase
         p.post rands.sample
       end
     end
+    sleep 1
     pub.each do |p|
       p.post 'FIN'
     end
@@ -81,10 +83,11 @@ class PubSubTest < Test::Unit::TestCase
     end
   end
   
-  def test_broadcast(clients=700)
+  def test_broadcast(clients=400)
     pub, sub = pubsub clients
     sub.run #celluloid async FTW
-    pub.post ["hello there", "what is this", "it's nothing", "FIN"]
+    sleep 0.5
+    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really", "FIN"]
     sub.wait
     verify pub, sub
   end
@@ -95,12 +98,13 @@ class PubSubTest < Test::Unit::TestCase
   
   def test_subscriber_concurrency
     chan=SecureRandom.hex
-    pub = Publisher.new url("pub/#{chan}")
+    pub_first = Publisher.new url("pub/first#{chan}")
+    pub_last = Publisher.new url("pub/last#{chan}")
     
     sub_first, sub_last = [], []
-    { url("sub/first/#{chan}") => sub_first, url("sub/last/#{chan}") => sub_last }.each do |url, arr|
+    { url("sub/first/first#{chan}") => sub_first, url("sub/last/last#{chan}") => sub_last }.each do |url, arr|
       3.times do
-        sub=Subscriber.new(url, 1, quit_message: 'FIN', timeout: 120)
+        sub=Subscriber.new(url, 1, quit_message: 'FIN', timeout: 20)
         sub.on_failure do |resp, req|
           false
         end
@@ -115,23 +119,24 @@ class PubSubTest < Test::Unit::TestCase
       assert s.match_errors(/code 409/)
     end
 
-    #sub_last.each {|s| s.run; sleep 0.1 }
-    #assert sub_last[2].no_errors?
-    #sub_last[0..1].each do |s|
-    #  assert s.errors?
-    #  assert s.match_errors(/code 409/)
-    #end
+    sub_last.each {|s| s.run; sleep 0.1 }
+    assert sub_last[2].no_errors?
+    sub_last[0..1].each do |s|
+      assert s.errors?
+      assert s.match_errors(/code 40[49]/)
+    end
 
-    pub.post %w( foo bar FIN )
+    pub_first.post %w( foo bar FIN )
+    pub_last.post %w( foobar baz somethingelse FIN )
     
     sub_first[0].wait
-    #sub_last[2].wait
+    sub_last[2].wait
     
-    verify pub, sub_first[0]
-    #verify pub, sub_last[2]
+    verify pub_first, sub_first[0]
+    verify pub_last, sub_last[2]
     
     sub_first[1..2].each{ |s| assert s.messages.count == 0 }
-    #sub_last[0..1].each{ |s| assert s.messages.count == 0 }
+    sub_last[0..1].each{ |s| assert s.messages.count == 0 }
   end
 
   def test_queueing
@@ -174,6 +179,7 @@ class PubSubTest < Test::Unit::TestCase
       sleep 0.001
     end
     pub.post "FIN"
+    sub.wait
     verify pub, sub
   end
   
