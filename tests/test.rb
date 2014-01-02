@@ -41,6 +41,7 @@ class PubSubTest < Test::Unit::TestCase
     sleep 0.2
     assert_equal sub.messages.messages.count, 2
     assert sub.messages.matches? pub.messages
+    sub.terminate
   end
   
   def test_channel_isolation
@@ -66,6 +67,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.each_with_index do |p, i|
       verify p, sub[i]
     end
+    sub.each {|s| s.terminate }
   end
   
   def test_broadcast(clients=400)
@@ -75,6 +77,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post ["hello there", "what is this", "it's nothing", "nothing at all really", "FIN"]
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   #def test_broadcast_for_3000
@@ -122,6 +125,7 @@ class PubSubTest < Test::Unit::TestCase
     
     sub_first[1..2].each{ |s| assert s.messages.count == 0 }
     sub_last[0..1].each{ |s| assert s.messages.count == 0 }
+    [sub_first, sub_last].each {|sub| sub.each{|s| s.terminate}}
   end
 
   def test_queueing
@@ -131,6 +135,7 @@ class PubSubTest < Test::Unit::TestCase
     sub.run
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_long_message(kb=1)
@@ -139,6 +144,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post ["q" * kb * 1024, "FIN"]
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_500kb_message
@@ -166,6 +172,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post "FIN"
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_message_timeout
@@ -178,6 +185,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post "FIN"
     sub.wait
     verify pub, sub
+    sub.terminate
   end
 end
 
