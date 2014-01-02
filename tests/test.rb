@@ -26,21 +26,6 @@ def verify(pub, sub)
   end
 end
 
-def start_test_nginx
-  begin #kill current test-nginx
-    oldpid = File.read "/tmp/nhpm-test-nginx.pid"
-    oldpid.delete! "\n"
-    binding.pry
-    system "kill #{oldpid}"
-    puts "killed already-running nginx test server"
-  rescue
-    puts "no test nginx server running (it seems...)"
-  end
-  pid = spawn "./nginx -p ./ -c ./nginx.conf"
-  puts "Spawned nginx test server with PID #{pid}"
-end
-
-
 class PubSubTest < Test::Unit::TestCase
   def setup
     Celluloid.boot
