@@ -10,15 +10,13 @@ if ! [[ $par =~ ^[0-9]+$ ]]; then
 fi
 
 for ((i = 0; i < $par; i++)); do
-  ./test.rb &
+  ./test.rb ${@:2} &
 done
 
 jobs=$(jobs -p)
 #echo "jobs are $jobs"
 killjobs() {
-  for job_pid in $jobs
-  do
-#    echo killing $job_pid
+  for job_pid in $jobs; do
     kill $job_pid
   done
 }

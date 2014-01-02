@@ -7,17 +7,18 @@ VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes --read-va
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF="working_directory \"`pwd`\"; "
+ACCESS_LOG="\\/dev\\/null"
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
     WORKERS=$opt
   fi
   case $opt in
     leak|leakcheck)
-      VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all")
-      ;;
+      VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all");;
     valgrind)
-      valgrind=1
-      ;;
+      valgrind=1;;
+    access)
+      ACCESS_LOG="\\/dev\\/stdout";;
     worker|one|single) 
       WORKERS=1
       ;;
@@ -33,6 +34,10 @@ NGINX_OPT+=( -g "$NGINX_CONF" )
 #echo $NGINX_CONF
 #echo $NGINX_OPT
 echo "nginx $NGINX_OPT"
+
+#set access log
+echo $ACCESS_LOG
+sed "s|\(access_log\).*|\1 $ACCESS_LOG;|g" ./nginx.conf -i
 
 if [[ $debugger == 1 ]]; then
   ./nginx $NGINX_OPT
