@@ -88,9 +88,11 @@ class PubSubTest < Test::Unit::TestCase
   
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
+    pub.post "yeah okay"
     sub.run #celluloid async FTW
     sleep 0.5
-    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really", "FIN"]
+    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really"]
+    pub.post "FIN"
     sub.wait
     verify pub, sub
     sub.terminate
