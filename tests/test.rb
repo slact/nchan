@@ -43,6 +43,22 @@ class PubSubTest < Test::Unit::TestCase
     assert sub.messages.matches? pub.messages
     sub.terminate
   end
+
+  def test_authorized_channels
+    #must be published to before subscribing
+    pub, sub = pubsub 5, timeout: 1, sub: "sub/authorized/"
+    sub.on_failure { false }
+    sub.run
+    sub.wait
+    assert_equal sub.finished, 5
+    assert sub.match_errors(/code 40[34]/)
+    sub.reset
+    pub.post %w( fweep )
+    sleep 0.1
+    sub.run
+    pub.post ["fwoop", "FIN"]
+    verify pub, sub
+  end
   
   def test_channel_isolation
     rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
