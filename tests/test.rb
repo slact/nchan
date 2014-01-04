@@ -57,6 +57,7 @@ class PubSubTest < Test::Unit::TestCase
     sleep 0.1
     sub.run
     pub.post ["fwoop", "FIN"]
+    sub.wait
     verify pub, sub
   end
   
