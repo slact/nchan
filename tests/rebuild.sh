@@ -13,6 +13,8 @@ for opt in $*; do
       export CONTINUE=1;;
     nomake)
       export NO_MAKE=1;;
+    nodebug)
+      export NO_DEBUG=1;;
     mudflap)
       export MUDFLAP=1
       export CC=gcc
