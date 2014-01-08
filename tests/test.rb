@@ -26,21 +26,6 @@ def verify(pub, sub)
   end
 end
 
-def start_test_nginx
-  begin #kill current test-nginx
-    oldpid = File.read "/tmp/nhpm-test-nginx.pid"
-    oldpid.delete! "\n"
-    binding.pry
-    system "kill #{oldpid}"
-    puts "killed already-running nginx test server"
-  rescue
-    puts "no test nginx server running (it seems...)"
-  end
-  pid = spawn "./nginx -p ./ -c ./nginx.conf"
-  puts "Spawned nginx test server with PID #{pid}"
-end
-
-
 class PubSubTest < Test::Unit::TestCase
   def setup
     Celluloid.boot
@@ -56,6 +41,24 @@ class PubSubTest < Test::Unit::TestCase
     sleep 0.2
     assert_equal sub.messages.messages.count, 2
     assert sub.messages.matches? pub.messages
+    sub.terminate
+  end
+
+  def test_authorized_channels
+    #must be published to before subscribing
+    pub, sub = pubsub 5, timeout: 1, sub: "sub/authorized/"
+    sub.on_failure { false }
+    sub.run
+    sub.wait
+    assert_equal sub.finished, 5
+    assert sub.match_errors(/code 40[34]/)
+    sub.reset
+    pub.post %w( fweep )
+    sleep 0.1
+    sub.run
+    pub.post ["fwoop", "FIN"]
+    sub.wait
+    verify pub, sub
   end
   
   def test_channel_isolation
@@ -81,15 +84,19 @@ class PubSubTest < Test::Unit::TestCase
     pub.each_with_index do |p, i|
       verify p, sub[i]
     end
+    sub.each {|s| s.terminate }
   end
   
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
+    pub.post "yeah okay"
     sub.run #celluloid async FTW
     sleep 0.5
-    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really", "FIN"]
+    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really"]
+    pub.post "FIN"
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   #def test_broadcast_for_3000
@@ -137,6 +144,7 @@ class PubSubTest < Test::Unit::TestCase
     
     sub_first[1..2].each{ |s| assert s.messages.count == 0 }
     sub_last[0..1].each{ |s| assert s.messages.count == 0 }
+    [sub_first, sub_last].each {|sub| sub.each{|s| s.terminate}}
   end
 
   def test_queueing
@@ -146,6 +154,7 @@ class PubSubTest < Test::Unit::TestCase
     sub.run
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_long_message(kb=1)
@@ -154,6 +163,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post ["q" * kb * 1024, "FIN"]
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_500kb_message
@@ -181,6 +191,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post "FIN"
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_message_timeout
@@ -193,6 +204,7 @@ class PubSubTest < Test::Unit::TestCase
     pub.post "FIN"
     sub.wait
     verify pub, sub
+    sub.terminate
   end
 end
 

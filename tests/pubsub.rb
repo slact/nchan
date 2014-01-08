@@ -80,21 +80,85 @@ class MessageStore
 end
 
 class Subscriber
+  class LongPollClient
+    include Celluloid
+    attr_accessor :last_modified, :etag, :hydra, :timeout
+    def initialize(subscr, opt={})
+      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout] || 10
+      @connect_timeout = opt[:connect_timeout]
+      @subscriber=subscr
+      @url=subscr.url
+      @concurrency=opt[:concurrency] || opt[:clients] || 1
+      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency)
+    end
+
+    def new_request
+      req=Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout)
+      req.on_complete do |response|
+        @subscriber.waiting-=1
+        if response.success?
+          #puts "received OK response at #{req.url}"
+          #parse it
+          msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
+          msg.content_type=response.headers["Content-Type"]
+        req.options[:headers]["If-None-Match"]=msg.etag
+          req.options[:headers]["If-Modified-Since"]=msg.last_modified
+          unless @subscriber.on_message(msg) == false
+            @subscriber.waiting+=1
+            @hydra.queue req
+          else
+            @subscriber.finished+=1
+          end
+        else
+          #puts "received bad or no response at #{req.url}"
+          unless @subscriber.on_failure(response) == false
+            @subscriber.waiting+=1
+            @hydra.queue req
+          else
+            @subscriber.finished+=1
+          end
+        end
+      end
+      req
+    end
+
+    def run(was_success=nil)
+      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
+      (@concurrency - @hydra.queued_requests.count).times do
+        @subscriber.waiting+=1
+        @hydra.queue new_request
+      end
+      @hydra.run
+    end
+    
+    def poke
+    end
+  end
+  
   attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished
   def initialize(url, concurrency=1, opt={})
     @url=url
-    @errors=[]
-    @timeout=opt[:timeout] || 60
+    @timeout=opt[:timeout] || 30
+    @connect_timeout=opt[:connect_timeout] || 5
     @quit_message=opt[:quit_message]
-    @messages = MessageStore.new
+    reset
     #puts "Starting subscriber on #{url}"
     @concurrency=concurrency
+    new_client
+  end
+  def new_client
+    @client=LongPollClient.new(self, :concurrency => concurrency, :timeout => @timeout, :connect_timeout => @connect_timeout)
+  end
+  def reset
+    @errors=[]
+    @messages=MessageStore.new
     @waiting=0
     @finished=0
-    @client=LongPollClient.new(self, :concurrency => concurrency, :timeout => @timeout)
+    new_client if terminated?
+    self
   end
   def abort
-    #destroy the client
+    @client.terminate
   end
   def errors?
     not no_errors?
@@ -109,63 +173,36 @@ class Subscriber
     true
   end
   
-  class LongPollClient
-    include Celluloid
-    attr_accessor :last_modified, :etag, :hydra, :timeout
-    def initialize(subscr, opt={})
-      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout] || 10
-      @subscriber=subscr
-      @url=subscr.url
-      @concurrency=opt[:concurrency] || opt[:clients] || 1
-      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency)
-      
-      @concurrency.times do
-        req=Typhoeus::Request.new(@url, timeout: @timeout)
-        req.on_complete do |response|
-          @subscriber.waiting-=1
-          if response.success?
-            #puts "received OK response at #{req.url}"
-            #parse it
-            msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
-            msg.content_type=response.headers["Content-Type"]
-            req.options[:headers]["If-None-Match"]=msg.etag
-            req.options[:headers]["If-Modified-Since"]=msg.last_modified
-            unless @subscriber.on_message(msg) == false
-              @subscriber.waiting+=1
-              @hydra.queue req 
-            else
-              @subscriber.finished+=1
-            end
-          else
-            #puts "received bad or no response at #{req.url}"
-            unless @subscriber.on_failure(response) == false
-              @subscriber.waiting+=1
-              @hydra.queue req
-            else
-              @subscriber.finished+=1
-            end
-          end
-        end
-        @subscriber.waiting+=1
-        @hydra.queue req
-      end
-    end
-    
-    def run(was_success=nil)
-      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
-      @hydra.run
-    end
-    
-    def poke
-    end
-  end
-  
+ 
   def run
+    begin
+      client.current_actor
+    rescue Celluloid::DeadActorError
+      return false
+    end
     @client.async.run
+    self
+  end
+  def terminate
+    begin
+      @client.terminate
+    rescue Celluloid::DeadActorError
+      return false
+    end
+    true
+  end
+  def terminated?
+    begin
+      client.current_actor unless client == nil
+    rescue Celluloid::DeadActorError
+      return false
+    end
+    true
   end
   def wait
     @client.poke
   end
+
   def on_message(msg=nil, &block)
     #puts "received message #{msg.to_s[0..15]}"
     if block_given?
