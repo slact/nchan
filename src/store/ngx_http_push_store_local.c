@@ -250,7 +250,16 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
     pid_t           worker_pid  = cur->pid;
     ngx_int_t       worker_slot = cur->slot;
     ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
-    cur->subscriber_sentinel=NULL;
+    /*
+    each time all of a worker's subscribers are removed, so is the sentinel. 
+    this is done to make garbage collection easier. Assuming we want to avoid
+    placing the sentinel in shared memory (for now -- it's a little tricky
+    to debug), the owner of the worker pool must be the one to free said sentinel.
+    But channels may be deleted by different worker processes, and it seems unwieldy
+    (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
+    is used every time the subscriber queue is emptied.
+    */
+    cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
     ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     if(subscriber_sentinel != NULL) {
       if(worker_pid == ngx_pid) {
@@ -269,20 +278,7 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
         
       }
     }
-    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-    /*
-    each time all of a worker's subscribers are removed, so is the sentinel. 
-    this is done to make garbage collection easier. Assuming we want to avoid
-    placing the sentinel in shared memory (for now -- it's a little tricky
-    to debug), the owner of the worker pool must be the one to free said sentinel.
-    But channels may be deleted by different worker processes, and it seems unwieldy
-    (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
-    is used every time the subscriber queue is emptied.
-    */
-    cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
-    
   }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return received;
 }
 
