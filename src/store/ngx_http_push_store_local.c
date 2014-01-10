@@ -260,11 +260,12 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
     is used every time the subscriber queue is emptied.
     */
     cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     if(subscriber_sentinel != NULL) {
       if(worker_pid == ngx_pid) {
         //my subscribers
+        ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
         ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
+        ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
       }
       else {
         //some other worker's subscribers
@@ -279,6 +280,7 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
       }
     }
   }
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return received;
 }
 
