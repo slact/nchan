@@ -2,9 +2,9 @@
 require 'test/unit'
 require 'securerandom'
 require "./pubsub.rb"
-
+SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 def url(part)
-  "http://127.0.0.1:8082/#{part}"
+  "http://#{SERVER}:80822/#{part}"
 end
 def pubsub(concurrent_clients=1, opt={})
     urlpart=opt[:urlpart] || 'broadcast'
