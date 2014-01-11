@@ -3,10 +3,11 @@ require 'test/unit'
 require 'securerandom'
 require "./pubsub.rb"
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
-PORT=ENV[PUSHMODULE_PORT] || "8082"
-def url(part)
+PORT=ENV["PUSHMODULE_PORT"] || "8082"
+def url(part="")
   "http://#{SERVER}:#{PORT}/#{part}"
 end
+puts "Server at #{url}"
 def pubsub(concurrent_clients=1, opt={})
     urlpart=opt[:urlpart] || 'broadcast'
     timeout = opt[:timeout]
