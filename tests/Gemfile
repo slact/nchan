@@ -1,0 +1,5 @@
+#!/usr/bin/ruby                                                                                                   
+gem 'typhoeus'
+gem 'json'
+gem 'pry'
+gem 'celluloid'
