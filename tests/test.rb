@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 require 'test/unit'
 require 'securerandom'
-require "./pubsub.rb"
+require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 PORT=ENV["PUSHMODULE_PORT"] || "8082"
 def url(part="")
