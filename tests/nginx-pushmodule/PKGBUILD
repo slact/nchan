@@ -4,23 +4,28 @@ if [[ -z $NO_DEBUG ]]; then
     CFLAGS="-ggdb -O0"
 fi
 
-_pkgname="nginx"
 _user="http"
 _group="http"
 _doc_root="/usr/share/${_pkgname}/http"
 _sysconf_path="etc"
 _conf_path="${_sysconf_path}/${_pkgname}"
-_tmp_path="/var/spool/${_pkgname}"
+_tmp_path="/tmp/"
 _pid_path="/run"
 _lock_path="/var/lock"
 _log_path="/var/log/${_pkgname}"
+_pushmodule_dir="${startdir}/pushmodule"
 
-pkgname=nginx-nhpm-dev
-pkgver=1.4.3
+pkgname=nginx-pushmodule-dev
+_nginx_ver=1.4.3
+pkgver=1.4.3.master.412.908425f
 pkgrel=1
 pkgdesc="Nginx Push Module dev version"
 arch=('i686' 'x86_64')
 install=install
+pkgver() {
+  cd "$startdir/pushmodule"
+  printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
 
 depends=('pcre' 'zlib' 'openssl')
 url="http://nginx.org"
@@ -40,11 +45,11 @@ backup=("${_conf_path}/conf/nginx.conf"
 _user=http
 _group=http
 
-source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
+source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-$pkgver-no_pool.patch")
+  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver}-no_pool.patch")
 md5sums=('4740dad2f0ed7f5fa16e8caaa8a9438e'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
@@ -53,24 +58,23 @@ md5sums=('4740dad2f0ed7f5fa16e8caaa8a9438e'
 
 
 build() {
-  local _src_dir="${srcdir}/nginx-$pkgver"
+  local _src_dir="${srcdir}/nginx-$_nginx_ver"
   ln -sf $_src_dir $srcdir/nginx
   local _build_dir="${_src_dir}/objs"
-  local _pushmodule_dirname="nhpm"
   cd $_src_dir
 
   if [[ $NO_POOL == 1 ]]; then
     echo "using the no-pool patch"
-    patch -p1 < "${srcdir}/nginx-${pkgver}-no_pool.patch"
+    patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
   fi
   if [[ $MUDFLAP == 1 ]]; then
     export CFLAGS="$CFLAGS -fmudflap"
   fi
 
   CONFIGURE="--prefix=/${_conf_path} \
-    --sbin-path=/usr/bin/${_pkgname} \
-    --pid-path=${_pid_path}/${_pkgname}.pid \
-    --lock-path=${_pid_path}/${_pkgname}.lock \
+    --sbin-path=/usr/bin/nginx \
+    --pid-path=${_pid_path}/nginx.pid \
+    --lock-path=${_pid_path}/nginx.lock \
     --http-client-body-temp-path=${_tmp_path}/client_body_temp \
     --http-proxy-temp-path=${_tmp_path}/proxy_temp \
     --http-fastcgi-temp-path=${_tmp_path}/fastcgi_temp \
@@ -81,7 +85,7 @@ build() {
     --user=${_user} \
     --group=${_group} \
     --with-debug \
-    --add-module=${startdir}/${_pushmodule_dirname}"
+    --add-module=${_pushmodule_dir}"
 
   if ! [[ -z $CONTINUE ]]; then
     ./configure $CONFIGURE
@@ -95,7 +99,8 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/${_pkgname}-${pkgver}"
+  echo "pkgdir is $pkgdir"
+  cd "${srcdir}/nginx-${_nginx_ver}"
   make DESTDIR="$pkgdir/" install
   
   sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/$_conf_path/conf/nginx.conf
@@ -107,8 +112,8 @@ package() {
   rm -rf "${pkgdir}/${_conf_path}/html"
   
   #install -D -m644 "${srcdir}/nginx.logrotate" "${pkgdir}/etc/logrotate.d/${_pkgname}" #no default logrotate.
-  install -D -m644 "${srcdir}/nginx.conf" "${pkgdir}/etc/conf.d/${_pkgname}"
+  install -D -m644 "${srcdir}/nginx.conf" "${pkgdir}/etc/conf.d/nginx"
   install -D -m644 "${srcdir}/nginx.service" "${pkgdir}/lib/systemd/system/nginx.service"
-  install -D -m644 "LICENSE" "${pkgdir}/usr/share/licenses/${_pkgname}/LICENSE"
+  install -D -m644 "LICENSE" "${pkgdir}/usr/share/licenses/nginx/LICENSE"
   install -D -m644 "man/nginx.8" "${pkgdir}/usr/share/man/man8/nginx.8"
 }

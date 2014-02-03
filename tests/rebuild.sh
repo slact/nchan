@@ -1,5 +1,5 @@
 #!/bin/zsh
-#assumes PKGBUILDy nginx located at ./nginx-nhpm
+#assumes PKGBUILDy nginx located at ./nginx-pushmodule
 MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 
@@ -27,7 +27,7 @@ for opt in $*; do
 done
 
 if [[ -z $NO_MAKE ]]; then
-  pushd ./nginx-nhpm >/dev/null
+  pushd ./nginx-pushmodule >/dev/null
   if [[ $CONTINUE == 1 ]]; then
     makepkg -f -e
   else

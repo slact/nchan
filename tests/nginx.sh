@@ -45,7 +45,7 @@ sed "s|\(^\s*error_log\s\+\S\+\).*|\1 $ERRLOG_LEVEL;|g" $NGINX_TEMP_CONFIG -i
 if [[ $debugger == 1 ]]; then
   ./nginx $NGINX_OPT
   sleep 0.2
-  master_pid=`cat /tmp/nhpm-test-nginx.pid`
+  master_pid=`cat /tmp/pushmodule-test-nginx.pid`
   child_pid=`pgrep -P $master_pid`
   sudo kdbg -p $child_pid ./nginx
   kill $master_pid
