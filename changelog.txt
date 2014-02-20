@@ -1,4 +1,4 @@
- 
+0.7: (Feb. 20 2014)
  fix: last-in concurrency setting wasn't working reliably
  refactor: partially separated message storage. add a test harness.
  fix: segfault from concurrency bug while garbage-collecting channels
