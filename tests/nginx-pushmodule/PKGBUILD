@@ -1,7 +1,7 @@
 #!/bin/zsh
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
-    CFLAGS="-ggdb -O0"
+    CFLAGS="-ggdb -O0 -Wall"
 fi
 
 _user="http"
