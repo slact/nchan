@@ -18,7 +18,6 @@ static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
 {
   ngx_http_push_subscriber_t *subscriber = NULL;
   ngx_http_request_t *r = NULL;
-  ngx_chain_t *chain = NULL;
 
   subscriber = ev->data;
   r = subscriber->request;
@@ -341,8 +340,6 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
   ngx_str_t                      *id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_chain_t                    *cl;
-  size_t                          len;
   ngx_http_push_channel_t        *channel;
   ngx_uint_t                      method = r->method;
   
@@ -481,7 +478,6 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_str_t                  *etag=NULL;
     time_t                      last_modified_time;
     ngx_chain_t                *chain;
-    size_t                      content_type_len;
     ngx_http_request_t         *r;
     ngx_buf_t                  *buffer;
     ngx_chain_t                *rchain;
