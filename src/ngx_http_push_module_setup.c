@@ -17,7 +17,13 @@ static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
   if(ngx_http_push_store_local.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
-  return ngx_http_push_register_worker_message_handler(cycle);
+  else if (ngx_process != NGX_PROCESS_WORKER) {
+    //not a worker, stop initializing stuff.
+    return NGX_OK;
+  }
+  else {
+    return ngx_http_push_register_worker_message_handler(cycle);
+  }
 }
 
 static ngx_int_t ngx_http_push_postconfig(ngx_conf_t *cf) {
