@@ -22,7 +22,7 @@ static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
   subscriber = ev->data;
   r = subscriber->request;
   
-  r->main->count--; //this is the right way to release and finalize the request... maybe
+  //r->main->count--; //this is the right way to release and finalize the request... maybe
 
   if (r->connection->destroyed) {
     return;
@@ -211,7 +211,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           
           r->read_event_handler = ngx_http_test_reading;
           r->write_event_handler = ngx_http_request_empty_handler;
-          r->main->count++; //this is the right way to release and finalize the request... maybe
+          r->main->count++; //this is the right way to hold and finalize the request... maybe
           //r->keepalive = 1; //stayin' alive!!
           return NGX_DONE;
           
@@ -539,7 +539,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       //cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
       ngx_http_push_subscriber_clear_ctx(cur);
       
-      r->main->count--; //this is the right way to release and finalize the request... maybe
+      //r->main->count--; //this is the right way to release and finalize the request... maybe
       
       if (rbuffer->in_file && (fcntl(rbuffer->file->fd, F_GETFD) == -1)) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: buffer in invalid file descriptor");
