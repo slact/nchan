@@ -1,4 +1,7 @@
-0.711 (Nar. 13 2014)
+0.712 (Mar. 21 2014)
+ fix: intermittently dropped long-polling connections on internal redirects
+ fix: unable to proxy long-polling subscribers. (thanks wandenberg and sanmai)
+0.711 (Mar. 13 2014)
  fix: incompatibility with cache manager (proxy_cache and fastcgi_cache directives)
 0.71 (Mar. 1 2014)
  fix: removed unused variables and functions to quiet down GCC
