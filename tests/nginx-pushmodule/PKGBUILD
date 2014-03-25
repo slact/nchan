@@ -1,7 +1,13 @@
 #!/bin/zsh
+_nginx_ver=1.4.7
+_nopool_nginx_ver=1.4.3
+
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
     CFLAGS="-ggdb -O0 -Wall"
+fi
+if [[ $NO_POOL == 1 ]]; then
+  _nginx_ver=$_nopool_nginx_ver
 fi
 
 _user="http"
@@ -16,8 +22,7 @@ _log_path="/var/log/${_pkgname}"
 _pushmodule_dir="${startdir}/pushmodule"
 
 pkgname=nginx-pushmodule-dev
-_nginx_ver=1.4.3
-pkgver=1.4.3.master.412.908425f
+pkgver=1.4.3.master.428.0652333
 pkgrel=1
 pkgdesc="Nginx Push Module dev version"
 arch=('i686' 'x86_64')
@@ -49,13 +54,12 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver}-no_pool.patch")
-md5sums=('4740dad2f0ed7f5fa16e8caaa8a9438e'
+  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nopool_nginx_ver}-no_pool.patch")
+md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
          '7dacbc03562d496d556d5b3e954cd384')
-
 
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
@@ -71,29 +75,30 @@ build() {
     export CFLAGS="$CFLAGS -fmudflap"
   fi
 
-  CONFIGURE="--prefix=/${_conf_path} \
-    --sbin-path=/usr/bin/nginx \
-    --pid-path=${_pid_path}/nginx.pid \
-    --lock-path=${_pid_path}/nginx.lock \
-    --http-client-body-temp-path=${_tmp_path}/client_body_temp \
-    --http-proxy-temp-path=${_tmp_path}/proxy_temp \
-    --http-fastcgi-temp-path=${_tmp_path}/fastcgi_temp \
-    --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp \
-    --http-scgi-temp-path=${_tmp_path}scgi_temp \
-    --http-log-path=${_log_path}/access.log \
-    --error-log-path=${_log_path}/error.log \
-    --user=${_user} \
-    --group=${_group} \
-    --with-debug \
-    --add-module=${_pushmodule_dir}"
+  CONFIGURE=(
+    --prefix=/${_conf_path}
+    --sbin-path=/usr/bin/nginx
+    --pid-path=${_pid_path}/nginx.pid
+    --lock-path=${_pid_path}/nginx.lock
+    --http-client-body-temp-path=${_tmp_path}/client_body_temp
+    --http-proxy-temp-path=${_tmp_path}/proxy_temp
+    --http-fastcgi-temp-path=${_tmp_path}/fastcgi_temp
+    --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
+    --http-scgi-temp-path=${_tmp_path}scgi_temp
+    --http-log-path=${_log_path}/access.log
+    --error-log-path=${_log_path}/error.log
+    --user=${_user}
+    --group=${_group}
+    --with-debug
+    --add-module=${_pushmodule_dir})
 
   if ! [[ -z $CONTINUE ]]; then
-    ./configure $CONFIGURE
+    ./configure ${CONFIGURE[@]}
   elif ! [[ -z $CLANG_ANALYZER ]]; then
-    scan-build -o "$CLANG_ANALYZER" ./configure $CONFIGURE
+    scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
     scan-build -o "$CLANG_ANALYZER" make
   else
-    ./configure $CONFIGURE
+    ./configure ${CONFIGURE[@]}
     make
   fi
 }
