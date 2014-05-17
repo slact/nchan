@@ -1,6 +1,6 @@
 #!/bin/zsh
-_nginx_ver=1.4.7
-_nopool_nginx_ver=1.4.3
+_nginx_ver=1.6.0
+_nopool_nginx_ver=1.7.0
 
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
@@ -22,7 +22,7 @@ _log_path="/var/log/${_pkgname}"
 _pushmodule_dir="${startdir}/pushmodule"
 
 pkgname=nginx-pushmodule-dev
-pkgver=1.4.3.master.428.0652333
+pkgver=1.6.0.master.429.540af04
 pkgrel=1
 pkgdesc="Nginx Push Module dev version"
 arch=('i686' 'x86_64')
@@ -59,7 +59,7 @@ md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
-         '7dacbc03562d496d556d5b3e954cd384')
+         'SKIP')
 
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
