@@ -25,7 +25,11 @@ class MessageStore
 
   def matches? (msg_store)
     my_messages = messages
-    other_messages = msg_store.messages
+    if MessageStore === msg_store
+      other_messages = msg_store.messages
+    else
+      other_messages = msg_store
+    end
     return false, "Message count doesn't match. ( #{my_messages.count}, #{other_messages.count})" unless my_messages.count == other_messages.count
     other_messages.each_with_index do |msg, i|
       return false, "Message #{i} doesn't match. (|#{my_messages[i].length}|, |#{msg.length}|) " if my_messages[i] != msg
@@ -137,6 +141,7 @@ class Subscriber
   
   attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished
   def initialize(url, concurrency=1, opt={})
+    @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
     @url=url
     @timeout=opt[:timeout] || 30
     @connect_timeout=opt[:connect_timeout] || 5
@@ -151,7 +156,7 @@ class Subscriber
   end
   def reset
     @errors=[]
-    @messages=MessageStore.new
+    @messages=MessageStore.new :noid => !@care_about_message_ids
     @waiting=0
     @finished=0
     new_client if terminated?

@@ -14,7 +14,7 @@ def pubsub(concurrent_clients=1, opt={})
     sub_url=opt[:sub] || "sub/broadcast/"
     pub_url=opt[:pub] || "pub/"
     chan_id = opt[:channel] || SecureRandom.hex
-    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, quit_message: 'FIN'
+    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN'
     pub = Publisher.new url("#{pub_url}#{chan_id}")
     return pub, sub
 end
