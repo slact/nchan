@@ -610,11 +610,6 @@ static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_ch
   
   msg->buf=buf_copy;
   
-  if(cf->store_messages) {
-    ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
-    channel->messages++;
-  }
-  
   //Stamp the new message with entity tags
   msg->message_time=ngx_time(); //ESSENTIAL TODO: make sure this ends up producing GMT time
   msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;    
@@ -637,19 +632,14 @@ static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_ch
   msg->delete_oldest_received_min_messages = cf->delete_oldest_received_message ? (ngx_uint_t) cf->min_messages : NGX_MAX_UINT32_VALUE;
   //NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
   
-  //now see if the queue is too big
-  if(channel->messages > (ngx_uint_t) cf->max_messages) {
-    //exceeeds max queue size. force-delete oldest message
-    ngx_http_push_force_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), ngx_http_push_shpool);
-  }
-  if(channel->messages > (ngx_uint_t) cf->min_messages) {
-    //exceeeds min queue size. maybe delete the oldest message
-    ngx_http_push_msg_t    *oldest_msg = ngx_http_push_get_oldest_message_locked(channel);
-    NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(oldest_msg, NULL, r, "push module: oldest message not found", ngx_http_push_shpool);
-  }
-  
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return msg;
+}
+
+static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+  ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
+  channel->messages++;
+  return NGX_OK;
 }
 
 ngx_http_push_store_t  ngx_http_push_store_local = {
@@ -684,6 +674,7 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     
     //message stuff
     &ngx_http_push_store_create_message,
+    &ngx_http_push_store_enqueue_message,
     &ngx_http_push_store_etag_from_message,
     &ngx_http_push_store_content_type_from_message
 };

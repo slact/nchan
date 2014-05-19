@@ -399,6 +399,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }
+      else if(cf->max_messages > 0) { //channel buffers exist
+        ngx_http_push_store_local.enqueue_message(channel, msg);
+      }
       switch(ngx_http_push_broadcast_message(channel, msg, r->connection->log)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
@@ -434,9 +437,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
       }
-      ngx_http_push_store_local.lock();
-      messages = channel->messages;
-      ngx_http_push_store_local.unlock();
+      if(cf->max_messages > 0) { //channel buffers exist
+        ngx_http_push_store_local.lock();
+        messages = channel->messages;
+        ngx_http_push_store_local.unlock();
+      }
+      else { //no buffer. free the message
+        
+        messages=0;
+      }
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
       return;
       

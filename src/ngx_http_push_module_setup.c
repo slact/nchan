@@ -55,7 +55,6 @@ static void *ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
   lcf->subscriber_poll_mechanism=NGX_CONF_UNSET;
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->authorize_channel=NGX_CONF_UNSET;
-  lcf->store_messages=NGX_CONF_UNSET;
   lcf->delete_oldest_received_message=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
@@ -74,7 +73,6 @@ static char *  ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
   ngx_conf_merge_value(conf->subscriber_poll_mechanism, prev->subscriber_poll_mechanism, NGX_HTTP_PUSH_MECHANISM_LONGPOLL);
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
-  ngx_conf_merge_value(conf->store_messages, prev->store_messages, 1);
   ngx_conf_merge_value(conf->delete_oldest_received_message, prev->delete_oldest_received_message, 0);
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NGX_HTTP_PUSH_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
@@ -199,6 +197,20 @@ static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command
   return NGX_CONF_OK;
 }
 
+static char *ngx_http_push_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  char    *p = conf;
+  ngx_str_t *val = cf->args->elts;
+  val = cf->args->elts;
+  
+  if (ngx_strcasecmp(val[1].data, (u_char *) "off") == 0) {
+    ngx_int_t *min, *max;
+    min = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, min_messages));
+    max = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, max_messages));
+    *min=0;
+    *max=0;
+  }
+  return NGX_CONF_OK;
+}
 
 static ngx_command_t  ngx_http_push_commands[] = {
 
@@ -281,9 +293,9 @@ static ngx_command_t  ngx_http_push_commands[] = {
     
   { ngx_string("push_store_messages"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_flag_slot,
+      ngx_http_push_store_messages_directive,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, store_messages),
+      0,
       NULL },
     
   { ngx_string("push_channel_group"),

@@ -136,7 +136,6 @@ typedef struct {
   ngx_int_t                       subscriber_poll_mechanism;
   time_t                          subscriber_timeout;
   ngx_int_t                       authorize_channel;
-  ngx_int_t                       store_messages;
   ngx_int_t                       delete_oldest_received_message;
   ngx_str_t                       channel_group;
   ngx_int_t                       max_channel_id_length;
@@ -180,6 +179,7 @@ typedef struct {
   
   //message actions and properties
   ngx_http_push_msg_t * (*create_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
+  ngx_int_t (*enqueue_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
   ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg);
   ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg);
 } ngx_http_push_store_t;

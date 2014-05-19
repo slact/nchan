@@ -63,6 +63,22 @@ class PubSubTest < Test::Unit::TestCase
     verify pub, sub
   end
   
+  def test_no_message_buffer
+    pub, sub = pubsub 1, timeout: 1, pub: "pub/nobuffer/", use_message_id: false
+    pub.post ["this message should not be delivered", "nor this one"]
+    sub.run
+    sleep 0.2
+    pub.post "received1"
+    sleep 0.2
+    pub.post "received2"
+    sleep 0.2 
+    pub.post "FIN"
+    sub.wait
+    assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}"
+    ret, err = sub.messages.matches? ["received1", "received2", "FIN"]
+    assert ret, err || "Messages don't match"
+  end
+  
   def test_channel_isolation
     rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
     pub=[]
