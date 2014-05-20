@@ -21,16 +21,19 @@ _lock_path="/var/lock"
 _log_path="/var/log/${_pkgname}"
 _pushmodule_dir="${startdir}/pushmodule"
 
+_pkgver() {
+  pushd "$startdir/pushmodule" >/dev/null
+  printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  popd >/dev/null
+}
+
 pkgname=nginx-pushmodule-dev
-pkgver=1.6.0.master.429.540af04
+pkgver=$(_pkgver)
 pkgrel=1
 pkgdesc="Nginx Push Module dev version"
 arch=('i686' 'x86_64')
 install=install
-pkgver() {
-  cd "$startdir/pushmodule"
-  printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
-}
+
 
 depends=('pcre' 'zlib' 'openssl')
 url="http://nginx.org"
