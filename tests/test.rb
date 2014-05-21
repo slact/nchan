@@ -64,19 +64,27 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_no_message_buffer
-    pub, sub = pubsub 1, timeout: 1, pub: "pub/nobuffer/", use_message_id: false
+    chan_id=SecureRandom.hex
+    pub = Publisher.new url("/pub/nobuffer/#{chan_id}")
+    sub=[]
+    40.times do 
+      sub.push Subscriber.new(url("/sub/broadcast/#{chan_id}"), 1, use_message_id: false, quit_message: 'FIN')
+    end
+
     pub.post ["this message should not be delivered", "nor this one"]
-    sub.run
+    sub.each {|s| s.run}
     sleep 0.2
     pub.post "received1"
     sleep 0.2
     pub.post "received2"
     sleep 0.2 
     pub.post "FIN"
-    sub.wait
-    assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}"
-    ret, err = sub.messages.matches? ["received1", "received2", "FIN"]
-    assert ret, err || "Messages don't match"
+    sub.each {|s| s.wait}
+    sub.each do |s|
+      assert s.errors.empty?, "There were subscriber errors: \r\n#{s.errors.join "\r\n"}"
+      ret, err = s.messages.matches? ["received1", "received2", "FIN"]
+      assert ret, err || "Messages don't match"
+    end
   end
   
   def test_channel_isolation
