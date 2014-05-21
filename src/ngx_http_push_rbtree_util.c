@@ -20,7 +20,7 @@ static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_pus
   while(!ngx_queue_empty(sentinel)){
     msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
     if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-      ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shpool);
+      ngx_http_push_delete_message_locked(channel, msg, 0, ngx_http_push_shpool);
     }
     else { //definitely a message left to send
       return NULL;

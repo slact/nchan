@@ -179,7 +179,8 @@ typedef struct {
   
   //message actions and properties
   ngx_http_push_msg_t * (*create_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
-  ngx_int_t (*enqueue_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
+  ngx_int_t (*delete_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force);
+  ngx_int_t (*enqueue_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf);
   ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg);
   ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg);
 } ngx_http_push_store_t;
@@ -195,9 +196,9 @@ void * ngx_http_push_slab_alloc_locked(size_t size);
 //channel messages
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel);
 static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel);
-static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool);
-#define ngx_http_push_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 0, shpool)
-#define ngx_http_push_force_delete_message_locked(channel, msg, shpool) ngx_http_push_general_delete_message_locked(channel, msg, 1, shpool)
+static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool);
+static ngx_int_t ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force);
+
 static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool);
 static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status);
 

@@ -400,7 +400,11 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         return;
       }
       else if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store_local.enqueue_message(channel, msg);
+        ngx_http_push_store_local.enqueue_message(channel, msg, cf);
+      }
+      else { //don't use channel buffer
+        //ensure that the message doesn't get freed during broadcast
+        ngx_http_push_store_local.reserve_message(NULL, msg);
       }
       switch(ngx_http_push_broadcast_message(channel, msg, r->connection->log)) {
         
@@ -443,7 +447,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         ngx_http_push_store_local.unlock();
       }
       else { //no buffer. free the message
-        
+        ngx_http_push_store_local.release_message(NULL, msg);
         messages=0;
       }
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
@@ -702,7 +706,7 @@ static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r
 
 static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
   ngx_str_t                      *if_none_match = ngx_http_push_subscriber_get_etag(r);
-  ngx_int_t                       tag;
+  ngx_int_t                       tag=0;
   if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
     tag=0;
   }

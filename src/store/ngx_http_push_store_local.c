@@ -125,8 +125,8 @@ static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *
     //message had been dequeued and nobody needs it anymore
     ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
   }
-  if(channel->messages > msg->delete_oldest_received_min_messages && ngx_http_push_get_oldest_message_locked(channel) == msg) {
-    ngx_http_push_delete_message_locked(channel, msg, ngx_http_push_shpool);
+  if(channel != NULL && channel->messages > msg->delete_oldest_received_min_messages && ngx_http_push_get_oldest_message_locked(channel) == msg) {
+    ngx_http_push_delete_message_locked(channel, msg, 0, ngx_http_push_shpool);
   }
 }
 
@@ -137,9 +137,9 @@ static void ngx_http_push_store_release_message(ngx_http_push_channel_t *channel
 }
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
-static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool) {
+static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool) {
   if (msg==NULL) { 
-    return; 
+    return NGX_OK; 
   }
   if(channel!=NULL) {
     ngx_queue_remove(&msg->queue);
@@ -149,6 +149,15 @@ static ngx_inline void ngx_http_push_general_delete_message_locked(ngx_http_push
     //nobody needs this message, or we were forced at integer-point to delete
     ngx_http_push_free_message_locked(msg, shpool);
   }
+  return NGX_OK;
+}
+
+static ngx_int_t ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force) {
+  ngx_int_t ret;
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ret = ngx_http_push_delete_message_locked(channel, msg, force, ngx_http_push_shpool);
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  return ret;
 }
 
 //free memory for a message. 
@@ -293,7 +302,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *cha
         
   while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
     //force-delete all the messages
-    ngx_http_push_force_delete_message_locked(NULL, msg, ngx_http_push_shpool);
+    ngx_http_push_delete_message_locked(NULL, msg, 1, ngx_http_push_shpool);
   }
   channel->messages=0;
   
@@ -409,7 +418,7 @@ static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * 
   ngx_http_push_msg_t         *msg=NULL;
   while(!ngx_queue_empty(sentinel)) {
     msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
-    ngx_http_push_force_delete_message_locked(channel, msg, ngx_http_push_shpool);
+    ngx_http_push_delete_message_locked(channel, msg, 1, ngx_http_push_shpool);
   }
   return NGX_OK;
 }
@@ -636,9 +645,20 @@ static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_ch
   return msg;
 }
 
-static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf) {
   ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
   channel->messages++;
+  
+  //now see if the queue is too big
+  if(channel->messages > (ngx_uint_t) cf->max_messages) {
+    //exceeeds max queue size. force-delete oldest message
+    ngx_http_push_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), 1, ngx_http_push_shpool);
+  }
+  if(channel->messages > (ngx_uint_t) cf->min_messages) {
+    //exceeeds min queue size. maybe delete the oldest message
+    //no, don't do anything for now. This feature is badly implemented and I think I'll deprecate it.
+  }
+
   return NGX_OK;
 }
 
@@ -674,6 +694,7 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     
     //message stuff
     &ngx_http_push_store_create_message,
+    &ngx_http_push_delete_message,
     &ngx_http_push_store_enqueue_message,
     &ngx_http_push_store_etag_from_message,
     &ngx_http_push_store_content_type_from_message
