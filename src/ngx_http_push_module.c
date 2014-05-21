@@ -404,6 +404,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       }
       else { //don't use channel buffer
         //ensure that the message doesn't get freed during broadcast
+        //ngx_http_push_store_local.lock();
+        //msg->refcount+=channel->subscribers;
+        //ngx_http_push_store_local.unlock();
         ngx_http_push_store_local.reserve_message(NULL, msg);
       }
       switch(ngx_http_push_broadcast_message(channel, msg, r->connection->log)) {

@@ -109,6 +109,7 @@ static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_pus
 
 static void ngx_http_push_store_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
   msg->refcount++;
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "msg %p refcount++ to %i", msg, msg->refcount);
   //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 }
 
@@ -121,6 +122,7 @@ static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel
 
 static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
   msg->refcount--;
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "msg %p refcount-- to %i", msg, msg->refcount);
   if(msg->queue.next==NULL && msg->refcount<=0) { 
     //message had been dequeued and nobody needs it anymore
     ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
