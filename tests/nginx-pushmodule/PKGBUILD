@@ -95,6 +95,11 @@ build() {
     --with-debug
     --add-module=${_pushmodule_dir})
 
+
+  if [[ $CC == "clang" ]]; then 
+    #not a valid clang parameter
+    CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
+  fi
   if ! [[ -z $CONTINUE ]]; then
     ./configure ${CONFIGURE[@]}
   elif ! [[ -z $CLANG_ANALYZER ]]; then
