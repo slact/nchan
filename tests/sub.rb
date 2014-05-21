@@ -7,13 +7,15 @@ server= "localhost:8082"
 par=1
 quit_msg='FIN'
 max_wait=60
-OptionParser.new do |opts|
-  opts.on("-s", "--server SERVER", "server and port."){|v| server=v}
-  opts.on("-p", "--parallel NUM", "number of parallel clients"){|v| par = v.to_i}
-  opts.on("-t", "--timeout SEC", "Long-poll timeout"){|v| max_wait = v}
-  opts.on("-q", "--quit STRING", "Quit message"){|v| quit_msg = v}
-  opts.on("-v", "--verbose", "Blabberhttp"){Typhoeus::Config.verbose=true}
-end.parse!
+opt=OptionParser.new do |opts|
+  opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
+  opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
+  opts.on("-t", "--timeout SEC (#{max_wait})", "Long-poll timeout"){|v| max_wait = v}
+  opts.on("-q", "--quit STRING (#{quit_msg})", "Quit message"){|v| quit_msg = v}
+  opts.on("-v", "--verbose", "somewhat rather extraneously wordful output"){Typhoeus::Config.verbose=true}
+end
+opt.banner="Usage: sub.rb [options] url"
+opt.parse!
 
 url = "http://#{server}#{ARGV.last}"
 

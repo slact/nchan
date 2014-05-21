@@ -50,6 +50,7 @@ if [[ $debugger == 1 ]]; then
   sudo kdbg -p $child_pid ./nginx
   kill $master_pid
 elif [[ $valgrind == 1 ]]; then
+  mkdir ./coredump 2>/dev/null
   pushd ./coredump >/dev/null
   valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
   popd >/dev/null
