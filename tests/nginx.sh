@@ -35,6 +35,9 @@ for opt in $*; do
       ;;
   esac
 done
+
+ulimit -c unlimited
+
 NGINX_CONF="worker_processes $WORKERS; daemon $NGINX_DAEMON; $NGINX_CONF"
 NGINX_OPT+=( -g "$NGINX_CONF" )
 #echo $NGINX_CONF

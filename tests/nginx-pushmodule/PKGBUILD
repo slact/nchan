@@ -100,11 +100,11 @@ build() {
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
   fi
-  if ! [[ -z $CONTINUE ]]; then
-    ./configure ${CONFIGURE[@]}
-  elif ! [[ -z $CLANG_ANALYZER ]]; then
+  if ! [[ -z $CLANG_ANALYZER ]]; then
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
     scan-build -o "$CLANG_ANALYZER" make
+  elif ! [[ -z $CONTINUE ]]; then
+    make
   else
     ./configure ${CONFIGURE[@]}
     make

@@ -23,7 +23,6 @@ def verify(pub, sub)
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
-    binding.pry if msg.times_seen != sub.concurrency
     assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
   end
 end
