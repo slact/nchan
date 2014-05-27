@@ -20,6 +20,7 @@ for opt in $*; do
       export CC=gcc
       ;;
     clang-analyzer|analyzer|scan|analyze)
+      export CC=clang
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
       mkdir $CLANG_ANALYZER 2>/dev/null
       ;;
