@@ -158,6 +158,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
 	ngx_http_push_subscriber_t     *subscriber_sentinel;
 	
+    //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message started");
 	ngx_shmtx_lock(&shpool->mutex);
 	
 	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
@@ -168,6 +169,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&sentinel->queue);
 	while(worker_msg != sentinel) {
 		if(worker_msg->pid==ngx_pid) {
+            //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing proper worker_msg ");
 			//everything is okay.
 			status_code = worker_msg->status_code;
 			msg = worker_msg->msg;
@@ -201,6 +203,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 		else {
 			//that's quite bad you see. a previous worker died with an undelivered message.
 			//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
+            //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing INVALID worker_msg ");
 
 			ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
 			ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
@@ -222,6 +225,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	}
 	ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
 	ngx_shmtx_unlock(&shpool->mutex);
+    //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message finished");
 	return;
 }
 

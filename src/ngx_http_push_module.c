@@ -479,6 +479,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
   ngx_http_push_subscriber_t     *cur, *next;
   ngx_int_t                       responded_subscribers=0;
   if(sentinel==NULL) {
+    //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with sentinel==NULL");
     return NGX_OK;
   }
   
@@ -587,6 +588,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       cur=next;
     }
   }
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p finished", msg);
   ngx_http_push_store_local.lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
