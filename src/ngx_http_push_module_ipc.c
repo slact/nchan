@@ -201,8 +201,8 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 		else {
 			//that's quite bad you see. a previous worker died with an undelivered message.
 			//but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
-			
-			ngx_http_push_pid_queue_t     *channel_worker_sentinel = &worker_msg->channel->workers_with_subscribers;
+
+			ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
 			ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
 			ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
 			

@@ -27,6 +27,14 @@
    (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
 
+   
+   
+#define ENQUEUED_DBG "msg %p enqueued.  ref:%i, p:%p n:%p"
+#define CREATED_DBG  "msg %p created    ref:%i, p:%p n:%p"
+#define FREED_DBG    "msg %p freed.     ref:%i, p:%p n:%p"
+#define RESERVED_DBG "msg %p reserved.  ref:%i, p:%p n:%p"
+#define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
+
 ngx_http_push_channel_queue_t channel_gc_sentinel;
 ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
 ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
@@ -108,8 +116,20 @@ static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_pus
 }
 
 static void ngx_http_push_store_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+  if(msg == NULL) {
+    return;
+  }
   msg->refcount++;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "msg %p refcount++ to %i", msg, msg->refcount);
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RESERVED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
+  //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
+}
+
+static void ngx_http_push_store_reserve_message_num_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t reservations) {
+  if(msg == NULL) {
+    return;
+  }
+  msg->refcount+=reservations;
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RESERVED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
   //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 }
 
@@ -121,8 +141,11 @@ static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel
 }
 
 static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
+  if(msg == NULL) {
+    return;
+  }
   msg->refcount--;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "msg %p refcount-- to %i", msg, msg->refcount);
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RELEASED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
   if(msg->queue.next==NULL && msg->refcount<=0) { 
     //message had been dequeued and nobody needs it anymore
     ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
@@ -140,8 +163,8 @@ static void ngx_http_push_store_release_message(ngx_http_push_channel_t *channel
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
 static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool) {
-  if (msg==NULL) { 
-    return NGX_OK; 
+  if (msg==NULL) {
+    return NGX_OK;
   }
   if(channel!=NULL) {
     ngx_queue_remove(&msg->queue);
@@ -174,6 +197,10 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
   }
   ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
   ngx_slab_free_locked(shpool, msg);
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, FREED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
+  if(msg->refcount < 0) { //something worth exploring went wrong
+    raise(SIGSEGV);
+  }
 }
 
 /** find message with entity tags matching those of the request r.
@@ -247,20 +274,37 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
  //subscribers are queued up in a local pool. Queue heads, however, are located
   //in shared memory, identified by pid.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_http_push_pid_queue_t     *sentinel = &channel->workers_with_subscribers;
-  ngx_http_push_pid_queue_t     *cur = sentinel;
-  ngx_int_t                      received;
+  ngx_http_push_pid_queue_t     *sentinel = channel->workers_with_subscribers;
+  //new pid_queue sentinel
+  if((channel->workers_with_subscribers=ngx_http_push_slab_alloc_locked(sizeof(*channel->workers_with_subscribers)))==NULL) {
+    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker queue sentinel");
+    return 0;
+  }
+  ngx_queue_init(&channel->workers_with_subscribers->queue);
+  
+  ngx_http_push_pid_queue_t     *cur, *next;
+  ngx_int_t                      received, reservations=0;
   received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
 
-  if(msg!=NULL && received==NGX_HTTP_PUSH_MESSAGE_RECEIVED) {
-    //just for now
-    ngx_http_push_store_reserve_message_locked(channel, msg);
+  //we need to reserve the message for all the workers in advance
+  for(cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue); cur != sentinel; cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue)) {
+    if(cur->subscriber_sentinel) {
+      reservations++;
+    }
+  }
+  if(reservations > 0) {
+    ngx_http_push_store_reserve_message_num_locked(channel, msg, reservations);
   }
   
-  while((cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue))!=sentinel) {
+  cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue);
+  while(cur != sentinel) {
     pid_t           worker_pid  = cur->pid;
     ngx_int_t       worker_slot = cur->slot;
     ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
+    
+    //if(msg != NULL)
+    //  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "publish msg %p (ref: %i) for worker %i (slot %i)", msg, msg->refcount, worker_pid, worker_slot);
+    
     /*
     each time all of a worker's subscribers are removed, so is the sentinel. 
     this is done to make garbage collection easier. Assuming we want to avoid
@@ -273,6 +317,7 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
     cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
     ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     if(subscriber_sentinel != NULL) {
+      
       if(worker_pid == ngx_pid) {
         //my subscribers
         ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
@@ -288,9 +333,16 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
         }
         
       }
+    } else {
+      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "subscriber sentinel is NULL");
     }
+    
     ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+    next=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
+    ngx_slab_free_locked(ngx_http_push_shpool, cur);
+    cur=next;
   }
+  ngx_slab_free_locked(ngx_http_push_shpool, sentinel);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return received;
 }
@@ -331,6 +383,9 @@ static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_chann
   ngx_http_push_msg_t *msg;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   msg = ngx_http_push_find_message_locked(channel, r, msg_search_outcome);
+  if(*msg_search_outcome == NGX_HTTP_PUSH_MESSAGE_FOUND) {
+    ngx_http_push_store_reserve_message_locked(channel, msg);
+  }
   channel->last_seen = ngx_time();
   channel->expires = ngx_time() + cf->channel_timeout;
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
@@ -460,7 +515,7 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   
   //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  sentinel = &channel->workers_with_subscribers;
+  sentinel = channel->workers_with_subscribers;
   cur = (ngx_http_push_pid_queue_t *)ngx_queue_head(&sentinel->queue);
   found = NULL;
   
@@ -636,6 +691,12 @@ static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_ch
     msg->content_type.data=NULL;
   }
   
+  //queue stuff ought to be NULL
+  msg->queue.prev=NULL;
+  msg->queue.next=NULL;
+  
+  msg->refcount=0;
+  
   //set message expiration time
   time_t                  message_timeout = cf->buffer_timeout;
   msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
@@ -644,23 +705,27 @@ static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_ch
   //NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
   
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, CREATED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
   return msg;
 }
 
 static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf) {
+  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
   channel->messages++;
   
   //now see if the queue is too big
   if(channel->messages > (ngx_uint_t) cf->max_messages) {
-    //exceeeds max queue size. force-delete oldest message
-    ngx_http_push_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), 1, ngx_http_push_shpool);
+    //exceeeds max queue size. don't force it, someone might still be using this message.
+    ngx_http_push_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), 0, ngx_http_push_shpool);
   }
   if(channel->messages > (ngx_uint_t) cf->min_messages) {
     //exceeeds min queue size. maybe delete the oldest message
     //no, don't do anything for now. This feature is badly implemented and I think I'll deprecate it.
   }
 
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, ENQUEUED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
   return NGX_OK;
 }
 

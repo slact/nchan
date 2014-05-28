@@ -47,7 +47,7 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
     ngx_rbtree_delete(tree, trash);
     
     //delete the worker-subscriber queue
-    ngx_queue_t                *sentinel = (ngx_queue_t *)(&((ngx_http_push_channel_t *)trash)->workers_with_subscribers);
+    ngx_queue_t                *sentinel = (ngx_queue_t *)((ngx_http_push_channel_t *)trash)->workers_with_subscribers;
     ngx_queue_t                *cur = ngx_queue_head(sentinel);
     ngx_queue_t                *next;
     while(cur!=sentinel) {
@@ -57,6 +57,7 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
     }
     
     ngx_slab_free_locked(shpool, trash);
+    ngx_slab_free_locked(shpool, sentinel);
     return NGX_OK;
   }
   return NGX_DECLINED;
@@ -135,6 +136,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_
  static ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
   ngx_rbtree_t                   *tree;
   ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, timeout, log);
+  ngx_http_push_pid_queue_t      *worker_queue_sentinel;
   
   if(up != NULL) { //we found our channel
     return up;
@@ -143,6 +145,13 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_
   if((up = ngx_http_push_slab_alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)))==NULL) {
     return NULL;
   }
+  if((worker_queue_sentinel=ngx_http_push_slab_alloc_locked(sizeof(*worker_queue_sentinel)))==NULL) {
+    ngx_slab_free_locked(ngx_http_push_shpool, up);
+    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker queue sentinel");
+    return NULL;
+  }
+  ngx_queue_init(&worker_queue_sentinel->queue);
+  
   up->id.data = (u_char *) (up+1); //contiguous piggy
   up->message_queue = (ngx_http_push_msg_t *) (up->id.data + id->len);
   
@@ -154,8 +163,8 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_
   //initialize queues
   ngx_queue_init(&up->message_queue->queue);
   up->messages=0;
-
-  ngx_queue_init(&up->workers_with_subscribers.queue);
+  
+  up->workers_with_subscribers=worker_queue_sentinel;
   up->subscribers=0;
 
   up->expires = ngx_time() + timeout;

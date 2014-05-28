@@ -147,13 +147,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     }
   }
   
-  msg = ngx_http_push_store_local.get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
-  
-  if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
-      msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
-      msg = NULL;
-  }
-  
   switch(ngx_http_push_handle_subscriber_concurrency(r, channel, cf)) {
     case NGX_DECLINED: //this request was declined for some reason.
       //status codes and whatnot should have already been written. just get out of here quickly.
@@ -162,6 +155,15 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling subscriber concurrency setting");
       return NGX_ERROR;
   }
+
+  
+  msg = ngx_http_push_store_local.get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
+  
+  if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
+    msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
+    msg = NULL;
+  }
+  
 
   switch(msg_search_outcome) {
     //for message-found:
@@ -236,8 +238,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
-      ngx_http_push_store_local.reserve_message(channel, msg);
-
       if((etag = ngx_http_push_store_local.message_etag(msg))==NULL) {
         //oh, nevermind...
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
@@ -264,8 +264,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       
       last_modified = msg->message_time;
       ngx_http_push_store_local.unlock();
-      //is the message still needed?
-      ngx_http_push_store_local.release_message(channel, msg);
 
       
       if(chain->buf->file!=NULL) {
@@ -282,8 +280,9 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
         clnf->name = chain->buf->file->name.data;
         clnf->log = r->pool->log;
       }
-      
-      return ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+      ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+      ngx_http_push_store_local.release_message(channel, msg);
+      return ret;
       
     default: //we shouldn't be here.
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -402,14 +401,10 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       else if(cf->max_messages > 0) { //channel buffers exist
         ngx_http_push_store_local.enqueue_message(channel, msg, cf);
       }
-      else { //don't use channel buffer
-        //ensure that the message doesn't get freed during broadcast
-        //ngx_http_push_store_local.lock();
-        //msg->refcount+=channel->subscribers;
-        //ngx_http_push_store_local.unlock();
+      else if(cf->max_messages == 0) {
         ngx_http_push_store_local.reserve_message(NULL, msg);
       }
-      switch(ngx_http_push_broadcast_message(channel, msg, r->connection->log)) {
+      switch(ngx_http_push_store_local.publish(channel, msg, 0, NULL, r->connection->log)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
           //message was queued successfully, but there were no 
@@ -501,11 +496,15 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     ngx_int_t                  *buf_use_count;
     ngx_http_push_subscriber_cleanup_t *clndata;
     
+    //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p started", msg);
+    
     if((etag=ngx_http_push_store_local.message_etag(msg))==NULL) {
+      ngx_http_push_store_local.release_message(channel, msg);
       return NGX_ERROR;
     }
     
     if((content_type=ngx_http_push_store_local.message_content_type(msg))==NULL) {
+      ngx_http_push_store_local.release_message(channel, msg);
       return NGX_ERROR;
     }
     
@@ -517,6 +516,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       ngx_pfree(ngx_http_push_pool, etag);
       ngx_pfree(ngx_http_push_pool, content_type);
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create output chain while responding to several subscriber request");
+      ngx_http_push_store_local.release_message(channel, msg);
       return NGX_ERROR;
     }
     
@@ -565,15 +565,11 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 
       cur=next;
     }
-    
+    ngx_http_push_store_local.release_message(channel, msg);
     ngx_pfree(ngx_http_push_pool, etag);
     ngx_pfree(ngx_http_push_pool, content_type);
     ngx_pfree(ngx_http_push_pool, chain);
     //the rest will be deallocated on request pool cleanup
-    
-    if(responded_subscribers) {
-      ngx_http_push_store_local.release_message(channel, msg);
-    }
   }
   else {
     //headers only probably
