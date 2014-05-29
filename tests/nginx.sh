@@ -20,6 +20,8 @@ for opt in $*; do
       VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all");;
     valgrind)
       valgrind=1;;
+    alleyoop)
+      alleyoop=1;;
     access)
       ACCESS_LOG="\\/dev\\/stdout";;
     worker|one|single) 
@@ -57,6 +59,8 @@ elif [[ $valgrind == 1 ]]; then
   pushd ./coredump >/dev/null
   valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
   popd >/dev/null
+elif [[ $alleyoop == 1 ]]; then
+  alleyoop ./nginx $NGINX_OPT
 else
   ./nginx $NGINX_OPT
 fi
