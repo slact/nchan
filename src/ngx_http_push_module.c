@@ -169,7 +169,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     //for message-found:
     ngx_chain_t                *chain;
     time_t                      last_modified;
-    size_t                      content_type_len;
     ngx_http_push_subscriber_cleanup_t *clndata;
     ngx_http_push_subscriber_t *subscriber;
     ngx_http_cleanup_t      *cln;
@@ -238,21 +237,15 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
-      if((etag = ngx_http_push_store_local.message_etag(msg))==NULL) {
+      if((etag = ngx_http_push_store_local.message_etag(msg, r->pool))==NULL) {
         //oh, nevermind...
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
-      
-      ngx_http_push_store_local.lock();
-      content_type_len = msg->content_type.len;
-      if(content_type_len>0) {
-        NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, r->pool);
-        if(content_type==NULL) {
-          ngx_http_push_store_local.unlock();
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for content-type header while responding to subscriber request");
-          return NGX_ERROR;
-        }
+      if((content_type= ngx_http_push_store_local.message_content_type(msg, r->pool))==NULL) {
+        //oh, nevermind...
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Content Type header");
+        return NGX_ERROR;
       }
       
       //preallocate output chain. yes, same one for every waiting subscriber
@@ -499,12 +492,13 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     
     //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p started", msg);
     
-    if((etag=ngx_http_push_store_local.message_etag(msg))==NULL) {
+    if((etag=ngx_http_push_store_local.message_etag(msg, NULL))==NULL) {
       ngx_http_push_store_local.release_message(channel, msg);
       return NGX_ERROR;
     }
     
-    if((content_type=ngx_http_push_store_local.message_content_type(msg))==NULL) {
+    if((content_type=ngx_http_push_store_local.message_content_type(msg, NULL))==NULL) {
+      ngx_free(etag);
       ngx_http_push_store_local.release_message(channel, msg);
       return NGX_ERROR;
     }
@@ -514,8 +508,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     chain = ngx_http_push_create_output_chain(msg->buf, ngx_http_push_pool, ngx_cycle->log);
     ngx_http_push_store_local.unlock();
     if(chain==NULL) {
-      ngx_pfree(ngx_http_push_pool, etag);
-      ngx_pfree(ngx_http_push_pool, content_type);
+      ngx_free(etag);
+      ngx_free(content_type);
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create output chain while responding to several subscriber request");
       ngx_http_push_store_local.release_message(channel, msg);
       return NGX_ERROR;
@@ -567,8 +561,8 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
       cur=next;
     }
     ngx_http_push_store_local.release_message(channel, msg);
-    ngx_pfree(ngx_http_push_pool, etag);
-    ngx_pfree(ngx_http_push_pool, content_type);
+    ngx_free(etag);
+    ngx_free(content_type);
     ngx_pfree(ngx_http_push_pool, chain);
     //the rest will be deallocated on request pool cleanup
   }

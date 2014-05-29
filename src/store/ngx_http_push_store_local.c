@@ -1,11 +1,3 @@
-//fuck it, copypaste
-#define NGX_HTTP_PUSH_MAKE_ETAG(message_tag, etag, alloc_func, pool)                 \
-    etag = alloc_func(pool, sizeof(*etag) + NGX_INT_T_LEN);                          \
-    if(etag!=NULL) {                                                                 \
-        etag->data = (u_char *)(etag+1);                                             \
-        etag->len = ngx_sprintf(etag->data,"%ui", message_tag)- etag->data;          \
-    }
-
 #define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
     if (val == fail) {                                                        \
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
@@ -567,20 +559,35 @@ static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_
   
 }
 
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg){
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *etag;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, ngx_http_push_pool);
+  if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
+    return NULL;
+  }
+  else if(pool==NULL && (etag = ngx_alloc(sizeof(*etag) + NGX_INT_T_LEN, ngx_cycle->log))==NULL) {
+    return NULL;
+  }
+  etag->data = (u_char *)(etag+1);
+  etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }
 
-static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg){
-  ngx_str_t *etag;
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
+  ngx_str_t *content_type;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  NGX_HTTP_PUSH_MAKE_ETAG(msg->message_tag, etag, ngx_palloc, ngx_http_push_pool);
+  if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
+    return NULL;
+  }
+  else if(pool == NULL && (content_type = ngx_alloc(sizeof(*content_type) + msg->content_type.len, ngx_cycle->log))==NULL) {
+    return NULL;
+  }
+  content_type->data = (u_char *)(content_type+1);
+  content_type->len = msg->content_type.len;
+  ngx_memcpy(content_type->data, msg->content_type.data, content_type->len);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return etag;
+  return content_type;
 }
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
