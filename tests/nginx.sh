@@ -5,7 +5,7 @@ NGINX_OPT=( -p `pwd`/
     -c $NGINX_TEMP_CONFIG
 )
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
-VALGRIND_OPT=( --trace-children=yes --track-fds=no --track-origins=yes --read-var-info=yes )
+VALGRIND_OPT=( --trace-children=yes --track-fds=yes --track-origins=yes --read-var-info=yes )
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF="working_directory \"`pwd`\"; "
