@@ -7,12 +7,18 @@
 #include <ngx_http.h>
 #include <nginx.h>
 
+#include <ngx_http_push_def.h>
 #include <ngx_http_push_module.h>
+
 #include <store/ngx_http_push_store_local.h>
 #include <ngx_http_push_rbtree_util.c>
 #include <ngx_http_push_module_ipc.c>
 #include <store/ngx_http_push_store_local.c>
 #include <ngx_http_push_module_setup.c>
+
+ngx_int_t           ngx_http_push_worker_processes;
+ngx_pool_t         *ngx_http_push_pool;
+ngx_module_t        ngx_http_push_module;
 
 static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
 {
