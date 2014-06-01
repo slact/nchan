@@ -1,14 +1,23 @@
 //worker processes of the world, unite.
+#include <ngx_core.h>
+#include <nginx.h>
+#include <ngx_http.h>
+#include <ngx_channel.h>
+
+#include <ngx_http_push_defs.h>
+#include <ngx_http_push_types.h>
+#include <ngx_http_push_module.h>
+#include <store/ngx_http_push_module_ipc.h>
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev);
 static ngx_inline void ngx_http_push_process_worker_message(void);
-static void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle);
-
+extern ngx_slab_pool_t    *ngx_http_push_shpool;
+extern ngx_shm_zone_t     *ngx_http_push_shm_zone;
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 49
 
 ngx_socket_t                       ngx_http_push_socketpairs[NGX_MAX_PROCESSES][2];
 
-static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
+ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	int                             i, s = 0, on = 1;
 	ngx_int_t                       last_expected_process = ngx_last_process;
 	
@@ -73,12 +82,12 @@ static ngx_int_t ngx_http_push_init_ipc(ngx_cycle_t *cycle, ngx_int_t workers) {
 	return NGX_OK;
 }
 
-static void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle) {
+void ngx_http_push_ipc_exit_worker(ngx_cycle_t *cycle) {
 	ngx_close_channel((ngx_socket_t *) ngx_http_push_socketpairs[ngx_process_slot], cycle->log);
 }
  
 //will be called many times
-static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
+ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
 	ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
 	ngx_http_push_worker_msg_t     *worker_messages;
@@ -145,7 +154,7 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
 	}
 }
 
-static ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_log_t *log) {
+ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_log_t *log) {
 	//seems ch doesn't need to have fd set. odd, but roll with it. pid and process slot also unnecessary.
 	static ngx_channel_t            ch = {NGX_CMD_HTTP_PUSH_CHECK_MESSAGES, 0, 0, -1};
 	return ngx_write_channel(ngx_http_push_socketpairs[slot][0], &ch, sizeof(ngx_channel_t), log);
@@ -229,7 +238,7 @@ static ngx_inline void ngx_http_push_process_worker_message(void) {
 	return;
 }
 
-static ngx_int_t ngx_http_push_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log) {
+ngx_int_t ngx_http_push_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log) {
 	ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
 	ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
 	ngx_http_push_worker_msg_t     *thisworker_messages = worker_messages + worker_slot;

@@ -9,7 +9,7 @@
 
 #include "store.h"
 #include "rbtree_util.c"
-#include <store/ngx_http_push_module_ipc.c>
+#include <store/ngx_http_push_module_ipc.h>
 
 #define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
     if (val == fail) {                                                        \
