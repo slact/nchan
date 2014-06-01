@@ -1,3 +1,6 @@
+#include <ngx_http_push_rbtree_util.c>
+#include <ngx_http_push_module_ipc.c>
+
 #define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
     if (val == fail) {                                                        \
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \

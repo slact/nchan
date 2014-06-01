@@ -11,8 +11,6 @@
 #include <ngx_http_push_module.h>
 
 #include <store/ngx_http_push_store_local.h>
-#include <ngx_http_push_rbtree_util.c>
-#include <ngx_http_push_module_ipc.c>
 #include <store/ngx_http_push_store_local.c>
 #include <ngx_http_push_module_setup.c>
 
