@@ -10,8 +10,7 @@
 #include <ngx_http_push_def.h>
 #include <ngx_http_push_module.h>
 
-#include <store/ngx_http_push_store_local.h>
-#include <store/ngx_http_push_store_local.c>
+#include <store/legacy/legacy.c>
 #include <ngx_http_push_module_setup.c>
 
 ngx_int_t           ngx_http_push_worker_processes;

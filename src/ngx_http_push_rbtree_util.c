@@ -2,7 +2,7 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#include "store/ngx_http_push_store_local.h"
+#include "store/legacy/legacy.h"
 
 static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
 static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
