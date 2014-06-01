@@ -12,7 +12,7 @@ CORE_INCS="$CORE_INCS \
 	$ngx_addon_dir/src"	
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
     ${ngx_addon_dir}/src/ngx_http_push_defs.c
-    ${ngx_addon_dir}/src/store/legacy/legacy.c
+    ${ngx_addon_dir}/src/store/legacy/store.c
     ${ngx_addon_dir}/src/ngx_http_push_module.c
     "
 

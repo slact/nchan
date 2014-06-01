@@ -7,7 +7,7 @@
 #include <ngx_http_push_types.h>
 #include <ngx_http_push_module.h>
 
-#include "legacy.h"
+#include "store.h"
 #include "rbtree_util.c"
 #include <store/ngx_http_push_module_ipc.c>
 

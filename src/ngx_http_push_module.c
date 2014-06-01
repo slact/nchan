@@ -11,8 +11,7 @@
 #include <ngx_http_push_defs.h>
 #include <ngx_http_push_module.h>
 
-#include <store/legacy/legacy.h>
-//#include <store/legacy/legacy.c>
+#include <store/legacy/store.h>
 #include <ngx_http_push_module_setup.c>
 
 ngx_int_t           ngx_http_push_worker_processes;
