@@ -39,6 +39,30 @@
 #define NGX_HTTP_PUSH_MESSAGE_RECEIVED 9000
 #define NGX_HTTP_PUSH_MESSAGE_QUEUED   9001
 
-#define NGX_HTTP_PUSH_MESSAGE_FOUND     1000 
+#define NGX_HTTP_PUSH_MESSAGE_FOUND     1000
 #define NGX_HTTP_PUSH_MESSAGE_EXPECTED  1001
 #define NGX_HTTP_PUSH_MESSAGE_EXPIRED   1002
+
+
+extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ETAG;
+extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH;
+extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_VARY;
+extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ALLOW;
+extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_CACHE_CONTROL;
+extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_PRAGMA;
+
+//header values
+extern const  ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE;
+
+//status strings
+extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_409;
+extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_410;
+
+//other stuff
+extern const ngx_str_t NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE;
+extern const ngx_str_t NGX_HTTP_PUSH_ALLOW_GET;
+extern const ngx_str_t NGX_HTTP_PUSH_VARY_HEADER_VALUE;
+extern const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
+extern const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_JSON;
+extern const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_XML;
+extern const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_YAML;
