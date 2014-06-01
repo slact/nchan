@@ -132,6 +132,23 @@ static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel
   //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 }
 
+
+// remove a message from queue and free all associated memory. assumes shpool is already locked.
+static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force) {
+  if (msg==NULL) {
+    return NGX_OK;
+  }
+  if(channel!=NULL) {
+    ngx_queue_remove(&msg->queue);
+    channel->messages--;
+  }
+  if(msg->refcount<=0 || force) {
+    //nobody needs this message, or we were forced at integer-point to delete
+    ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
+  }
+  return NGX_OK;
+}
+
 static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
   if(msg == NULL) {
     return;
@@ -143,7 +160,7 @@ static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *
     ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
   }
   if(channel != NULL && channel->messages > msg->delete_oldest_received_min_messages && ngx_http_push_get_oldest_message_locked(channel) == msg) {
-    ngx_http_push_delete_message_locked(channel, msg, 0, ngx_http_push_shpool);
+    ngx_http_push_delete_message_locked(channel, msg, 0);
   }
 }
 
@@ -153,26 +170,10 @@ static void ngx_http_push_store_release_message(ngx_http_push_channel_t *channel
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 }
 
-// remove a message from queue and free all associated memory. assumes shpool is already locked.
-static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force, ngx_slab_pool_t *shpool) {
-  if (msg==NULL) {
-    return NGX_OK;
-  }
-  if(channel!=NULL) {
-    ngx_queue_remove(&msg->queue);
-    channel->messages--;
-  }
-  if(msg->refcount<=0 || force) {
-    //nobody needs this message, or we were forced at integer-point to delete
-    ngx_http_push_free_message_locked(msg, shpool);
-  }
-  return NGX_OK;
-}
-
 static ngx_int_t ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force) {
   ngx_int_t ret;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ret = ngx_http_push_delete_message_locked(channel, msg, force, ngx_http_push_shpool);
+  ret = ngx_http_push_delete_message_locked(channel, msg, force);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return ret;
 }
@@ -348,7 +349,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *cha
         
   while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
     //force-delete all the messages
-    ngx_http_push_delete_message_locked(NULL, msg, 1, ngx_http_push_shpool);
+    ngx_http_push_delete_message_locked(NULL, msg, 1);
   }
   channel->messages=0;
   
@@ -467,7 +468,7 @@ static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * 
   ngx_http_push_msg_t         *msg=NULL;
   while(!ngx_queue_empty(sentinel)) {
     msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
-    ngx_http_push_delete_message_locked(channel, msg, 1, ngx_http_push_shpool);
+    ngx_http_push_delete_message_locked(channel, msg, 1);
   }
   return NGX_OK;
 }
@@ -724,7 +725,7 @@ static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *ch
   //now see if the queue is too big
   if(channel->messages > (ngx_uint_t) cf->max_messages) {
     //exceeeds max queue size. don't force it, someone might still be using this message.
-    ngx_http_push_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), 0, ngx_http_push_shpool);
+    ngx_http_push_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), 0);
   }
   if(channel->messages > (ngx_uint_t) cf->min_messages) {
     //exceeeds min queue size. maybe delete the oldest message
@@ -769,6 +770,7 @@ ngx_http_push_store_t  ngx_http_push_store_local = {
     //message stuff
     &ngx_http_push_store_create_message,
     &ngx_http_push_delete_message,
+    &ngx_http_push_delete_message_locked,
     &ngx_http_push_store_enqueue_message,
     &ngx_http_push_store_etag_from_message,
     &ngx_http_push_store_content_type_from_message

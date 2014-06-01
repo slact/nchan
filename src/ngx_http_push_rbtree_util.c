@@ -2,6 +2,8 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+#include "store/ngx_http_push_store_local.h"
+
 static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
 static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
 static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash);
@@ -20,7 +22,7 @@ static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_pus
   while(!ngx_queue_empty(sentinel)){
     msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
     if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-      ngx_http_push_delete_message_locked(channel, msg, 0, ngx_http_push_shpool);
+      ngx_http_push_store_local.delete_message_locked(channel, msg, 0);
     }
     else { //definitely a message left to send
       return NULL;
