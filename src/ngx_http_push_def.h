@@ -144,6 +144,11 @@ typedef struct {
   const ngx_str_t *format;
 } ngx_http_push_content_subtype_t;
 
+
+
+#ifndef NGX_HTTP_PUSH_DEFS
+#define NGX_HTTP_PUSH_DEFS
+
 #define NGX_HTTP_PUSH_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_TIMEOUT 0  //default: never timeout
@@ -188,7 +193,7 @@ typedef struct {
 #define NGX_HTTP_PUSH_MESSAGE_EXPECTED  1001
 #define NGX_HTTP_PUSH_MESSAGE_EXPIRED   1002
 
-
+#endif /* NGX_HTTP_PUSH_DEFS */
 
 //string constants
 //headers
