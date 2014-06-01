@@ -11,6 +11,8 @@ ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
 ngx_module_t        ngx_http_push_module;
 
+ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_legacy;
+
 
 static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
   r->headers_out.status=status_code;
@@ -150,7 +152,7 @@ static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r
 
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
   ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
-  ngx_int_t                      current_subscribers = ngx_http_push_store_legacy.channel_subscribers(channel) ;
+  ngx_int_t                      current_subscribers = ngx_http_push_store->channel_subscribers(channel) ;
   
   
   if(current_subscribers==0) { 
@@ -174,7 +176,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store_legacy.publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
+      ngx_http_push_store->publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
       
       return NGX_OK;
       
@@ -248,9 +250,9 @@ static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t 
   }
   
   if(data->channel!=NULL) { //we're expected to decrement the subscriber count
-    ngx_http_push_store_legacy.lock();
+    ngx_http_push_store->lock();
     data->channel->subscribers--;
-    ngx_http_push_store_legacy.unlock();
+    ngx_http_push_store->unlock();
   }
 }
 
@@ -428,9 +430,9 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store_legacy.find_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout, r->connection->log);
   }else{
-    channel = ngx_http_push_store_legacy.get_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout, r->connection->log);
   }
   
   if (channel==NULL) {
@@ -454,7 +456,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   
-  msg = ngx_http_push_store_legacy.get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
+  msg = ngx_http_push_store->get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
@@ -477,7 +479,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
           
-          subscriber = ngx_http_push_store_legacy.subscribe(channel, r);
+          subscriber = ngx_http_push_store->subscribe(channel, r);
           if (subscriber == NULL) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
@@ -534,12 +536,12 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
-      if((etag = ngx_http_push_store_legacy.message_etag(msg, r->pool))==NULL) {
+      if((etag = ngx_http_push_store->message_etag(msg, r->pool))==NULL) {
         //oh, nevermind...
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
-      if((content_type= ngx_http_push_store_legacy.message_content_type(msg, r->pool))==NULL) {
+      if((content_type= ngx_http_push_store->message_content_type(msg, r->pool))==NULL) {
         //oh, nevermind...
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Content Type header");
         return NGX_ERROR;
@@ -547,13 +549,13 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       
       //preallocate output chain. yes, same one for every waiting subscriber
       if((chain = ngx_http_push_create_output_chain(msg->buf, r->pool, r->connection->log))==NULL) {
-        ngx_http_push_store_legacy.unlock();
+        ngx_http_push_store->unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
         return NGX_ERROR;
       }
       
       last_modified = msg->message_time;
-      ngx_http_push_store_legacy.unlock();
+      ngx_http_push_store->unlock();
 
       
       if(chain->buf->file!=NULL) {
@@ -571,7 +573,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
         clnf->log = r->pool->log;
       }
       ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-      ngx_http_push_store_legacy.release_message(channel, msg);
+      ngx_http_push_store->release_message(channel, msg);
       return ret;
       
     default: //we shouldn't be here.
@@ -602,7 +604,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
-    channel = ngx_http_push_store_legacy.get_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout, r->connection->log);
     if(channel==NULL) {
       ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unable to allocate memory for new channel");
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -612,15 +614,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   //no other request method needs that.
   else {
     //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_store_legacy.find_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout, r->connection->log);
   }
   
   if(channel!=NULL) {
-    ngx_http_push_store_legacy.lock();
+    ngx_http_push_store->lock();
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
-    ngx_http_push_store_legacy.unlock();
+    ngx_http_push_store->unlock();
   }
   else {
     //404!
@@ -639,17 +641,17 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     ngx_http_push_msg_t          *msg;
     case NGX_HTTP_POST:
 
-      if((msg = ngx_http_push_store_legacy.create_message(channel, r))==NULL) {
+      if((msg = ngx_http_push_store->create_message(channel, r))==NULL) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }
       else if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store_legacy.enqueue_message(channel, msg, cf);
+        ngx_http_push_store->enqueue_message(channel, msg, cf);
       }
       else if(cf->max_messages == 0) {
-        ngx_http_push_store_legacy.reserve_message(NULL, msg);
+        ngx_http_push_store->reserve_message(NULL, msg);
       }
-      switch(ngx_http_push_store_legacy.publish(channel, msg, 0, NULL, r->connection->log)) {
+      switch(ngx_http_push_store->publish(channel, msg, 0, NULL, r->connection->log)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
           //message was queued successfully, but there were no 
@@ -685,12 +687,12 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           return;
       }
       if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store_legacy.lock();
+        ngx_http_push_store->lock();
         messages = channel->messages;
-        ngx_http_push_store_legacy.unlock();
+        ngx_http_push_store->unlock();
       }
       else { //no buffer. free the message
-        ngx_http_push_store_legacy.release_message(NULL, msg);
+        ngx_http_push_store->release_message(NULL, msg);
         messages=0;
       }
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
@@ -703,7 +705,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       return;
       
     case NGX_HTTP_DELETE:
-      if(ngx_http_push_store_legacy.delete_channel(channel, r) != NGX_OK) {
+      if(ngx_http_push_store->delete_channel(channel, r) != NGX_OK) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       }
       else {
@@ -744,38 +746,38 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
     
     //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p started", msg);
     
-    if((etag=ngx_http_push_store_legacy.message_etag(msg, NULL))==NULL) {
-      ngx_http_push_store_legacy.release_message(channel, msg);
+    if((etag=ngx_http_push_store->message_etag(msg, NULL))==NULL) {
+      ngx_http_push_store->release_message(channel, msg);
       return NGX_ERROR;
     }
     
-    if((content_type=ngx_http_push_store_legacy.message_content_type(msg, NULL))==NULL) {
+    if((content_type=ngx_http_push_store->message_content_type(msg, NULL))==NULL) {
       ngx_free(etag);
-      ngx_http_push_store_legacy.release_message(channel, msg);
+      ngx_http_push_store->release_message(channel, msg);
       return NGX_ERROR;
     }
     
-    ngx_http_push_store_legacy.lock();
+    ngx_http_push_store->lock();
     //preallocate output chain. this won't actually be used in the request (except the buffer data)
     chain = ngx_http_push_create_output_chain(msg->buf, ngx_http_push_pool, ngx_cycle->log);
-    ngx_http_push_store_legacy.unlock();
+    ngx_http_push_store->unlock();
     if(chain==NULL) {
       ngx_free(etag);
       ngx_free(content_type);
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create output chain while responding to several subscriber request");
-      ngx_http_push_store_legacy.release_message(channel, msg);
+      ngx_http_push_store->release_message(channel, msg);
       return NGX_ERROR;
     }
     
     buffer = chain->buf;
     buffer->recycled = 1;
     
-    ngx_http_push_store_legacy.lock();
+    ngx_http_push_store->lock();
     last_modified_time = msg->message_time;
-    ngx_http_push_store_legacy.unlock();
+    ngx_http_push_store->unlock();
 
     buf_use_count = ngx_pcalloc(ngx_http_push_pool, sizeof(*buf_use_count));
-    *buf_use_count = ngx_http_push_store_legacy.channel_worker_subscribers(sentinel);
+    *buf_use_count = ngx_http_push_store->channel_worker_subscribers(sentinel);
     
     cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
     //now let's respond to some requests!
@@ -812,7 +814,7 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
 
       cur=next;
     }
-    ngx_http_push_store_legacy.release_message(channel, msg);
+    ngx_http_push_store->release_message(channel, msg);
     ngx_free(etag);
     ngx_free(content_type);
     ngx_pfree(ngx_http_push_pool, chain);
@@ -835,12 +837,12 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
     }
   }
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p finished", msg);
-  ngx_http_push_store_legacy.lock();
+  ngx_http_push_store->lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "deleting subscriber sentinel at %p.", sentinel);
   ngx_pfree(ngx_http_push_pool, sentinel);
-  ngx_http_push_store_legacy.unlock();
+  ngx_http_push_store->unlock();
   return NGX_OK;
 }
 

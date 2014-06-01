@@ -6,6 +6,7 @@
 extern ngx_pool_t *ngx_http_push_pool;
 extern ngx_int_t ngx_http_push_worker_processes;
 extern ngx_module_t ngx_http_push_module;
+extern ngx_http_push_store_t *ngx_http_push_store;
 
 //garbage-collecting shared memory slab allocation
 void * ngx_http_push_slab_alloc(size_t size);
