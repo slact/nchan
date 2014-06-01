@@ -9,6 +9,7 @@ fi
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nopool_nginx_ver
 fi
+PKGEXT=".pkg.tar"
 
 _user="http"
 _group="http"
@@ -104,7 +105,7 @@ build() {
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
     scan-build -o "$CLANG_ANALYZER" make
   elif ! [[ -z $CONTINUE ]]; then
-    make
+    make -B
   else
     ./configure ${CONFIGURE[@]}
     make
@@ -112,14 +113,14 @@ build() {
 }
 
 package() {
-  echo "pkgdir is $pkgdir"
+  echo "make install >/dev/null"
   cd "${srcdir}/nginx-${_nginx_ver}"
-  make DESTDIR="$pkgdir/" install
+  make DESTDIR="$pkgdir/" install >/dev/null
   
   sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/$_conf_path/conf/nginx.conf
   
-  install -d "${pkgdir}/${_tmp_path}"
-  install -d "${pkgdir}/${_doc_root}"
+  install -d "${pkgdir}/${_tmp_path}" 
+  install -d "${pkgdir}/${_doc_root}" 
   
   mv "${pkgdir}/${_conf_path}/html/"* "${pkgdir}/${_doc_root}"
   rm -rf "${pkgdir}/${_conf_path}/html"

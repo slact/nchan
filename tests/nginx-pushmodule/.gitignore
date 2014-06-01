@@ -1,5 +1,5 @@
 src
 pkg
 *.tar.gz
-*.tar.xz
+*.pkg.tar*
 *.patch
