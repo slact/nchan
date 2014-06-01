@@ -102,7 +102,7 @@ static ngx_int_t	ngx_http_push_init_ipc_shm(ngx_int_t workers) {
 	return NGX_OK;
 }
 
-static ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle) {
+ngx_int_t ngx_http_push_register_worker_message_handler(ngx_cycle_t *cycle) {
 	if (ngx_add_channel_event(cycle, ngx_http_push_socketpairs[ngx_process_slot][1], NGX_READ_EVENT, ngx_http_push_channel_handler) == NGX_ERROR) {
 		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing push module worker");
 		return NGX_ERROR;

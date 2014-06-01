@@ -1,3 +1,12 @@
+#include <ngx_config.h>
+#include <ngx_core.h>
+#include <ngx_http.h>
+#include <nginx.h>
+
+#include <ngx_http_push_defs.h>
+#include <ngx_http_push_types.h>
+#include <ngx_http_push_module.h>
+
 #include "legacy.h"
 #include "rbtree_util.c"
 #include <store/ngx_http_push_module_ipc.c>
@@ -437,7 +446,12 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  return ngx_http_push_init_ipc_shm(ccf->worker_processes);
+  if(ngx_http_push_init_ipc_shm(ccf->worker_processes) == NGX_OK) {
+    return ngx_http_push_register_worker_message_handler(cycle);
+  }
+  else {
+    return NGX_ERROR;
+  }
 }
 
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {

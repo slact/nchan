@@ -7,11 +7,12 @@
 #include <ngx_http.h>
 #include <nginx.h>
 
-#include <ngx_http_push_def.h>
+#include <ngx_http_push_types.h>
+#include <ngx_http_push_defs.h>
 #include <ngx_http_push_module.h>
 
 #include <store/legacy/legacy.h>
-#include <store/legacy/legacy.c>
+//#include <store/legacy/legacy.c>
 #include <ngx_http_push_module_setup.c>
 
 ngx_int_t           ngx_http_push_worker_processes;
@@ -59,6 +60,11 @@ static void ngx_http_push_subscriber_clear_ctx(ngx_http_push_subscriber_t *sb) {
   sb->clndata->channel = NULL;
 }
 
+
+#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
+(sizeof(*buf) +                                                           \
+(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
+(((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
 //buffer is _copied_
 static ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
@@ -582,13 +588,6 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 }
 
 
-#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
-    (sizeof(*buf) +                                                           \
-   (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
-   (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
-
-
-    
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
   ngx_str_t                      *id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);

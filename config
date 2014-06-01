@@ -11,7 +11,9 @@ HTTP_MODULES="$HTTP_MODULES ngx_http_push_module"
 CORE_INCS="$CORE_INCS \
 	$ngx_addon_dir/src"	
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
-	${ngx_addon_dir}/src/ngx_http_push_module.c"
+    ${ngx_addon_dir}/src/store/legacy/legacy.c
+    ${ngx_addon_dir}/src/ngx_http_push_module.c
+    "
 
 have=NGX_HTTP_HEADERS . auto/have
 . auto/feature
