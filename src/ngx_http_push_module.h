@@ -27,7 +27,6 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 //subscriber
 static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf);
-#define ngx_http_push_broadcast_status(channel, status_code, status_line, log) ngx_http_push_store_local.publish(channel, NULL, status_code, status_line, log)
 static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r);
 static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r);
