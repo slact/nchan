@@ -1,5 +1,5 @@
-#include <ngx_http_push_rbtree_util.c>
-#include <ngx_http_push_module_ipc.c>
+#include "rbtree_util.c"
+#include <store/ngx_http_push_module_ipc.c>
 
 #define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
     if (val == fail) {                                                        \
@@ -21,9 +21,6 @@
    (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
    (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
-
-   
-   
 #define ENQUEUED_DBG "msg %p enqueued.  ref:%i, p:%p n:%p"
 #define CREATED_DBG  "msg %p created    ref:%i, p:%p n:%p"
 #define FREED_DBG    "msg %p freed.     ref:%i, p:%p n:%p"
