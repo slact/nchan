@@ -12,10 +12,15 @@ CORE_INCS="$CORE_INCS \
 	$ngx_addon_dir/src"	
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
     ${ngx_addon_dir}/src/ngx_http_push_defs.c
+    ${ngx_addon_dir}/src/store/rbtree_util.c
     ${ngx_addon_dir}/src/store/ngx_http_push_module_ipc.c
     ${ngx_addon_dir}/src/store/legacy/store.c
     ${ngx_addon_dir}/src/ngx_http_push_module.c
     "
+
+#    ${ngx_addon_dir}/src/store/vedis/vedis.c
+#    ${ngx_addon_dir}/src/store/vedis/store.c
+
 
 have=NGX_HTTP_HEADERS . auto/have
 . auto/feature

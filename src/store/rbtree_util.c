@@ -1,22 +1,17 @@
-static ngx_http_push_channel_t * ngx_http_push_get_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
-static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t * id, time_t timeout, ngx_log_t * log);
-static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash);
+#include <ngx_http_push_module.h>
+#include "rbtree_util.h"
 
-static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel);
+extern ngx_slab_pool_t    *ngx_http_push_shpool;
+extern ngx_shm_zone_t     *ngx_http_push_shm_zone;
 
-static void     ngx_rbtree_generic_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, int (*compare)(const ngx_rbtree_node_t *left, const ngx_rbtree_node_t *right));
-static void     ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
-static int      ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right);
-static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool);
-
-static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
+ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
   ngx_queue_t                 *sentinel = &channel->message_queue->queue;
   time_t                       now = ngx_time();
   ngx_http_push_msg_t         *msg=NULL;
   while(!ngx_queue_empty(sentinel)){
     msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
     if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-      ngx_http_push_store_legacy.delete_message_locked(channel, msg, 0);
+      ngx_http_push_store->delete_message_locked(channel, msg, 0);
     }
     else { //definitely a message left to send
       return NULL;
@@ -26,16 +21,6 @@ static ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_pus
   return (channel->subscribers==0 && (channel->expires <= now)) ? channel : NULL; //if no waiting requests and channel expired, return this channel to be deleted
 }
 
-static ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
-  ngx_int_t                      res;
-  res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash, ngx_http_push_shpool);
-  if(res==NGX_OK) {
-    ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels--;
-    return NGX_OK;
-  }
-  return res;
-  
-}
 
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool) {
 //assume the shm zone is already locked
@@ -59,7 +44,18 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
   return NGX_DECLINED;
 }
 
-static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
+ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
+  ngx_int_t                      res;
+  res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash, ngx_http_push_shpool);
+  if(res==NGX_OK) {
+    ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels--;
+    return NGX_OK;
+  }
+  return res;
+  
+}
+
+ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
   ngx_rbtree_t                   *tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
   uint32_t                        hash;
   ngx_rbtree_node_t              *node, *sentinel;
@@ -129,7 +125,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
- static ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
+ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
   ngx_rbtree_t                   *tree;
   ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, timeout, log);
   ngx_http_push_pid_queue_t      *worker_queue_sentinel;
@@ -171,7 +167,7 @@ static ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_
 }
 
 
-static void ngx_rbtree_generic_insert(
+void ngx_rbtree_generic_insert(
         ngx_rbtree_node_t *temp, 
         ngx_rbtree_node_t *node, 
         ngx_rbtree_node_t *sentinel, 
@@ -224,10 +220,7 @@ static void ngx_rbtree_generic_insert(
   ngx_rbt_red(node);
 }
 
-#define ngx_http_push_walk_rbtree(apply)                                            \
-  ngx_http_push_rbtree_walker(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, apply, ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree.root)
-
-static void ngx_http_push_rbtree_walker(ngx_rbtree_t *tree, ngx_int_t (*apply)(ngx_http_push_channel_t * channel), ngx_rbtree_node_t *node) {
+void ngx_http_push_rbtree_walker(ngx_rbtree_t *tree, ngx_int_t (*apply)(ngx_http_push_channel_t * channel), ngx_rbtree_node_t *node) {
   ngx_rbtree_node_t              *sentinel = tree->sentinel;
   
   if(node!=sentinel) {
@@ -241,13 +234,15 @@ static void ngx_http_push_rbtree_walker(ngx_rbtree_t *tree, ngx_int_t (*apply)(n
   }
 }
 
-static void ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp,  ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) 
-{
-  ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
-}
 
 static int ngx_http_push_compare_rbtree_node(const ngx_rbtree_node_t *v_left, const ngx_rbtree_node_t *v_right)
 {
   ngx_http_push_channel_t *left = (ngx_http_push_channel_t *) v_left, *right = (ngx_http_push_channel_t *) v_right;
   return ngx_memn2cmp(left->id.data, right->id.data, left->id.len, right->id.len);
 }
+
+void ngx_http_push_rbtree_insert(ngx_rbtree_node_t *temp,  ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) 
+{
+  ngx_rbtree_generic_insert(temp, node, sentinel, ngx_http_push_compare_rbtree_node);
+}
+
