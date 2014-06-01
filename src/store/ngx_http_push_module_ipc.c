@@ -4,8 +4,6 @@
 #include <store/ngx_http_push_module_ipc.h>
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev);
-extern ngx_slab_pool_t    *ngx_http_push_shpool;
-extern ngx_shm_zone_t     *ngx_http_push_shm_zone;
 #define NGX_CMD_HTTP_PUSH_CHECK_MESSAGES 49
 
 ngx_socket_t                       ngx_http_push_socketpairs[NGX_MAX_PROCESSES][2];

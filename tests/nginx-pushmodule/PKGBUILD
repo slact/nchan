@@ -105,7 +105,7 @@ build() {
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
     scan-build -o "$CLANG_ANALYZER" make
   elif ! [[ -z $CONTINUE ]]; then
-    make -B
+    make $REMAKE
   else
     ./configure ${CONFIGURE[@]}
     make

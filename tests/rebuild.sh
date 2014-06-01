@@ -9,6 +9,8 @@ for opt in $*; do
       export CC=clang;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
+    re|remake)
+      export REMAKE="-B";;
     c|continue|cont)
       export CONTINUE=1;;
     nomake)
