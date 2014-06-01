@@ -73,10 +73,10 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
   return p;
 }
 
-static void ngx_http_push_store_lock_shmem(void){
+void ngx_http_push_store_lock_shmem(void){
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
 }
-static void ngx_http_push_store_unlock_shmem(void){
+void ngx_http_push_store_unlock_shmem(void){
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 }
 void * ngx_http_push_slab_alloc(size_t size) {
@@ -134,6 +134,25 @@ static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel
 }
 
 
+
+//free memory for a message. 
+static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
+  if(msg->buf->file!=NULL) {
+    // i'd like to release the shpool lock here while i do stuff to this file, but that 
+    // might unlock during channel rbtree traversal, which is Bad News.
+    if(msg->buf->file->fd!=NGX_INVALID_FILE) {
+      ngx_close_file(msg->buf->file->fd);
+    }
+    ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
+  }
+  ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
+  ngx_slab_free_locked(shpool, msg);
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, FREED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
+  if(msg->refcount < 0) { //something worth exploring went wrong
+    raise(SIGSEGV);
+  }
+}
+
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
 static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force) {
   if (msg==NULL) {
@@ -179,23 +198,6 @@ static ngx_int_t ngx_http_push_delete_message(ngx_http_push_channel_t *channel, 
   return ret;
 }
 
-//free memory for a message. 
-static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
-  if(msg->buf->file!=NULL) {
-    // i'd like to release the shpool lock here while i do stuff to this file, but that 
-    // might unlock during channel rbtree traversal, which is Bad News.
-    if(msg->buf->file->fd!=NGX_INVALID_FILE) {
-      ngx_close_file(msg->buf->file->fd);
-    }
-    ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
-  }
-  ngx_slab_free_locked(shpool, msg->buf); //separate block, remember?
-  ngx_slab_free_locked(shpool, msg);
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, FREED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
-  if(msg->refcount < 0) { //something worth exploring went wrong
-    raise(SIGSEGV);
-  }
-}
 
 /** find message with entity tags matching those of the request r.
   * @param r subscriber request

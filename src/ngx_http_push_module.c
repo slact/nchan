@@ -10,12 +10,25 @@
 #include <ngx_http_push_def.h>
 #include <ngx_http_push_module.h>
 
+#include <store/legacy/legacy.h>
 #include <store/legacy/legacy.c>
 #include <ngx_http_push_module_setup.c>
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
 ngx_module_t        ngx_http_push_module;
+
+
+static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
+  r->headers_out.status=status_code;
+  if(statusline!=NULL) {
+    r->headers_out.status_line.len =statusline->len;
+    r->headers_out.status_line.data=statusline->data;
+  }
+  r->headers_out.content_length_n = 0;
+  r->header_only = 1;
+  return ngx_http_send_header(r);
+}
 
 static void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
 {
@@ -44,6 +57,38 @@ static void ngx_http_push_subscriber_clear_ctx(ngx_http_push_subscriber_t *sb) {
   ngx_http_push_subscriber_del_timer(sb);
   sb->clndata->subscriber = NULL;
   sb->clndata->channel = NULL;
+}
+
+
+//buffer is _copied_
+static ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
+  ngx_chain_t                    *out;
+  ngx_file_t                     *file;
+  
+  if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
+    return NULL;
+  }
+  ngx_buf_t                      *buf_copy;
+  
+  if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
+    return NULL;
+  }
+  ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+  
+  if (buf->file!=NULL) {
+    file = buf_copy->file;
+    file->log=log;
+    if(file->fd==NGX_INVALID_FILE) {
+      file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+    }
+    if(file->fd==NGX_INVALID_FILE) {
+      return NULL;
+    }
+  }
+  buf_copy->last_buf = 1;
+  out->buf = buf_copy;
+  out->next = NULL;
+  return out;
 }
 
 #define NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE "No channel id provided."
@@ -91,6 +136,258 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
   return id;
 }
 
+static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value) {
+  ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
+  if (h == NULL) {
+    return NULL;
+  }
+  h->hash = 1;
+  h->key.len = header_name->len;
+  h->key.data = header_name->data;
+  h->value.len = header_value->len;
+  h->value.data = header_value->data;
+  return h;
+}
+
+
+static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
+  ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
+  ngx_int_t                      current_subscribers = ngx_http_push_store_legacy.channel_subscribers(channel) ;
+  
+  
+  if(current_subscribers==0) { 
+    //empty channels are always okay.
+    return NGX_OK;
+  }  
+  
+  if(max_subscribers!=0 && current_subscribers >= max_subscribers) {
+    //max_channel_subscribers setting
+    ngx_http_push_respond_status_only(r, NGX_HTTP_FORBIDDEN, NULL);
+    return NGX_DECLINED;
+  }
+  
+  //nonzero number of subscribers present
+  switch(loc_conf->subscriber_concurrency) {
+    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+      return NGX_OK;
+      
+    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
+      //send "everyone" a 409 Conflict response.
+      //in most reasonable cases, there'll be at most one subscriber on the
+      //channel. However, since settings are bound to locations and not
+      //specific channels, this assumption need not hold. Hence this broadcast.
+      ngx_http_push_store_legacy.publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
+      
+      return NGX_OK;
+      
+    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
+      ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+      return NGX_DECLINED;
+      
+    default:
+      return NGX_ERROR;
+  }
+}
+
+static ngx_str_t * ngx_http_push_find_in_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
+  ngx_uint_t                       i;
+  ngx_list_part_t                 *part = &r->headers_in.headers.part;
+  ngx_table_elt_t                 *header= part->elts;
+  
+  for (i = 0; /* void */ ; i++) {
+    if (i >= part->nelts) {
+      if (part->next == NULL) {
+        break;
+      }
+      part = part->next;
+      header = part->elts;
+      i = 0;
+    }
+    if (header[i].key.len == header_name.len
+      && ngx_strncasecmp(header[i].key.data, header_name.data, header[i].key.len) == 0) {
+      return &header[i].value;
+      }
+  }
+  return NULL;
+}
+
+static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
+  ngx_str_t *tmp_header;
+  ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
+  ngx_int_t i = 0;
+  
+  for(; i < 2; i++) {
+    tmp_header = ngx_http_push_find_in_header_value(r, header_checks[i]);
+    
+    if (tmp_header != NULL) {
+      return !!ngx_strncasecmp(tmp_header->data, NGX_HTTP_PUSH_CACHE_CONTROL_VALUE.data, tmp_header->len);
+    }
+  }
+  
+  return 1;
+}
+
+static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
+  if(data->subscriber!=NULL) { //still queued up
+    ngx_http_push_subscriber_t* sb = data->subscriber;
+    ngx_http_push_subscriber_del_timer(sb);
+    ngx_queue_remove(&data->subscriber->queue);
+    ngx_pfree(ngx_http_push_pool, data->subscriber); //was there an error? oh whatever.
+  }
+  if (data->rchain != NULL) {
+    ngx_pfree(data->rpool, data->rchain->buf);
+    ngx_pfree(data->rpool, data->rchain);
+    data->rchain=NULL;
+  }
+  if(data->buf_use_count != NULL && --(*data->buf_use_count) <= 0) {
+    ngx_buf_t                      *buf;
+    ngx_pfree(ngx_http_push_pool, data->buf_use_count);
+    buf=data->buf;
+    if(buf->file) {
+      ngx_close_file(buf->file->fd);
+    }
+    ngx_pfree(ngx_http_push_pool, buf);
+  }
+  
+  if(data->channel!=NULL) { //we're expected to decrement the subscriber count
+    ngx_http_push_store_legacy.lock();
+    data->channel->subscribers--;
+    ngx_http_push_store_legacy.unlock();
+  }
+}
+
+static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
+  ngx_uint_t                       i;
+  ngx_list_part_t                 *part = &r->headers_in.headers.part;
+  ngx_table_elt_t                 *header= part->elts;
+  
+  for (i = 0; /* void */ ; i++) {
+    if (i >= part->nelts) {
+      if (part->next == NULL) {
+        break;
+      }
+      part = part->next;
+      header = part->elts;
+      i = 0;
+    }
+    if (header[i].key.len == NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH.len
+      && ngx_strncasecmp(header[i].key.data, NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH.data, header[i].key.len) == 0) {
+      return &header[i].value;
+      }
+  }
+  return NULL;
+}
+
+//allocates nothing
+static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified) {
+  ngx_int_t                      res;
+  if (content_type!=NULL) {
+    r->headers_out.content_type.len=content_type->len;
+    r->headers_out.content_type.data = content_type->data;
+    r->headers_out.content_type_len = r->headers_out.content_type.len;
+  }
+  if(last_modified) {
+    //if-modified-since header
+    r->headers_out.last_modified_time=last_modified;
+  }
+  if(etag!=NULL) {
+    //etag, if we need one
+    if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
+      return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+  }
+  //Vary header needed for proper HTTP caching.
+  ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
+  
+  r->headers_out.status=NGX_HTTP_OK;
+  //we know the entity length, and we're using just one buffer. so no chunking please.
+  r->headers_out.content_length_n=ngx_buf_size(chain->buf);
+  if((res = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
+    return res;
+  }
+  
+  return ngx_http_output_filter(r, chain);
+}
+
+static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
+  static ngx_http_push_content_subtype_t subtypes[] = {
+    { "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
+    { "yaml"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML },
+    { "xml"   , 3, &NGX_HTTP_PUSH_CHANNEL_INFO_XML  },
+    { "x-json", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
+    { "x-yaml", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML }
+  };
+  u_char                         *start = cur + off;
+  ngx_uint_t                      i;
+  
+  for(i=0; i<(sizeof(subtypes)/sizeof(ngx_http_push_content_subtype_t)); i++) {
+    if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
+      if(*priority>start) {
+        *format = subtypes[i].format;
+        *priority = start;
+        content_type->data=cur;
+        content_type->len= off + 1 + subtypes[i].len;
+      }
+    }
+  }
+}
+
+//print information about a channel
+static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen) {
+  ngx_buf_t                      *b;
+  ngx_uint_t                      len;
+  ngx_str_t                       content_type = ngx_string("text/plain");
+  const ngx_str_t                *format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
+  time_t                          time_elapsed = ngx_time() - last_seen;
+  
+  if(r->headers_in.accept) {
+    //lame content-negotiation (without regard for qvalues)
+    u_char                    *accept = r->headers_in.accept->value.data;
+    size_t                     len = r->headers_in.accept->value.len;
+    size_t                     rem;
+    u_char                    *cur = accept;
+    u_char                    *priority=&accept[len-1];
+    for(rem=len; (cur = ngx_strnstr(cur, "text/", rem))!=NULL; cur += sizeof("text/")-1) {
+      rem=len - ((size_t)(cur-accept)+sizeof("text/")-1);
+      if(ngx_strncmp(cur+sizeof("text/")-1, "plain", rem<5 ? rem : 5)==0) {
+        if(priority) {
+          format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
+          priority = cur+sizeof("text/")-1;
+          //content-type is already set by default
+        }
+      }
+      ngx_http_push_match_channel_info_subtype(sizeof("text/")-1, cur, rem, &priority, &format, &content_type);
+    }
+    cur = accept;
+    for(rem=len; (cur = ngx_strnstr(cur, "application/", rem))!=NULL; cur += sizeof("application/")-1) {
+      rem=len - ((size_t)(cur-accept)+sizeof("application/")-1);
+      ngx_http_push_match_channel_info_subtype(sizeof("application/")-1, cur, rem, &priority, &format, &content_type);
+    }
+  }
+  
+  r->headers_out.content_type.len = content_type.len;
+  r->headers_out.content_type.data = content_type.data;
+  r->headers_out.content_type_len = r->headers_out.content_type.len;
+  
+  len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
+  
+  if ((b = ngx_create_temp_buf(r->pool, len)) == NULL) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  b->last = ngx_sprintf(b->last, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed ,subscribers);
+  
+  //lastly, set the content-length, because if the status code isn't 200, nginx may not do so automatically
+  r->headers_out.content_length_n = ngx_buf_size(b);
+  
+  if (ngx_http_send_header(r) > NGX_HTTP_SPECIAL_RESPONSE) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  
+  return ngx_http_output_filter(r, ngx_http_push_create_output_chain(b, r->pool, r->connection->log));
+}
+
+
+
 #define NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, pool)  \
     if(((content_type) = ngx_palloc(pool, sizeof(*content_type)+content_type_len))!=NULL) { \
         (content_type)->len=content_type_len;                                        \
@@ -99,8 +396,7 @@ static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_
     }
 
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
-
-static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
+ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_str_t                      *id;
   ngx_http_push_channel_t        *channel;
@@ -134,9 +430,9 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store_local.find_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store_legacy.find_channel(id, cf->channel_timeout, r->connection->log);
   }else{
-    channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store_legacy.get_channel(id, cf->channel_timeout, r->connection->log);
   }
   
   if (channel==NULL) {
@@ -160,7 +456,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   
-  msg = ngx_http_push_store_local.get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
+  msg = ngx_http_push_store_legacy.get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
@@ -183,7 +479,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
           
-          subscriber = ngx_http_push_store_local.subscribe(channel, r);
+          subscriber = ngx_http_push_store_legacy.subscribe(channel, r);
           if (subscriber == NULL) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
@@ -240,12 +536,12 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       //found the message
-      if((etag = ngx_http_push_store_local.message_etag(msg, r->pool))==NULL) {
+      if((etag = ngx_http_push_store_legacy.message_etag(msg, r->pool))==NULL) {
         //oh, nevermind...
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
         return NGX_ERROR;
       }
-      if((content_type= ngx_http_push_store_local.message_content_type(msg, r->pool))==NULL) {
+      if((content_type= ngx_http_push_store_legacy.message_content_type(msg, r->pool))==NULL) {
         //oh, nevermind...
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Content Type header");
         return NGX_ERROR;
@@ -253,13 +549,13 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       
       //preallocate output chain. yes, same one for every waiting subscriber
       if((chain = ngx_http_push_create_output_chain(msg->buf, r->pool, r->connection->log))==NULL) {
-        ngx_http_push_store_local.unlock();
+        ngx_http_push_store_legacy.unlock();
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
         return NGX_ERROR;
       }
       
       last_modified = msg->message_time;
-      ngx_http_push_store_local.unlock();
+      ngx_http_push_store_legacy.unlock();
 
       
       if(chain->buf->file!=NULL) {
@@ -277,7 +573,7 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
         clnf->log = r->pool->log;
       }
       ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-      ngx_http_push_store_local.release_message(channel, msg);
+      ngx_http_push_store_legacy.release_message(channel, msg);
       return ret;
       
     default: //we shouldn't be here.
@@ -285,44 +581,6 @@ static ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 }
 
-static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t *r, ngx_http_push_channel_t *channel, ngx_http_push_loc_conf_t *loc_conf) {
-  ngx_int_t                      max_subscribers = loc_conf->max_channel_subscribers;
-  ngx_int_t                      current_subscribers = ngx_http_push_store_local.channel_subscribers(channel) ;
-  
-  
-  if(current_subscribers==0) { 
-    //empty channels are always okay.
-    return NGX_OK;
-  }  
-  
-  if(max_subscribers!=0 && current_subscribers >= max_subscribers) {
-    //max_channel_subscribers setting
-    ngx_http_push_respond_status_only(r, NGX_HTTP_FORBIDDEN, NULL);
-    return NGX_DECLINED;
-  }
-  
-  //nonzero number of subscribers present
-  switch(loc_conf->subscriber_concurrency) {
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-      return NGX_OK;
-    
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-      //send "everyone" a 409 Conflict response.
-      //in most reasonable cases, there'll be at most one subscriber on the
-      //channel. However, since settings are bound to locations and not
-      //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store_local.publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
-
-      return NGX_OK;
-    
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-      ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-      return NGX_DECLINED;
-    
-    default:
-      return NGX_ERROR;
-  }
-}
 
 #define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
     (sizeof(*buf) +                                                           \
@@ -353,7 +611,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
-    channel = ngx_http_push_store_local.get_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store_legacy.get_channel(id, cf->channel_timeout, r->connection->log);
     if(channel==NULL) {
       ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unable to allocate memory for new channel");
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -363,15 +621,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   //no other request method needs that.
   else {
     //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_store_local.find_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store_legacy.find_channel(id, cf->channel_timeout, r->connection->log);
   }
   
   if(channel!=NULL) {
-    ngx_http_push_store_local.lock();
+    ngx_http_push_store_legacy.lock();
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
-    ngx_http_push_store_local.unlock();
+    ngx_http_push_store_legacy.unlock();
   }
   else {
     //404!
@@ -390,17 +648,17 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     ngx_http_push_msg_t          *msg;
     case NGX_HTTP_POST:
 
-      if((msg = ngx_http_push_store_local.create_message(channel, r))==NULL) {
+      if((msg = ngx_http_push_store_legacy.create_message(channel, r))==NULL) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }
       else if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store_local.enqueue_message(channel, msg, cf);
+        ngx_http_push_store_legacy.enqueue_message(channel, msg, cf);
       }
       else if(cf->max_messages == 0) {
-        ngx_http_push_store_local.reserve_message(NULL, msg);
+        ngx_http_push_store_legacy.reserve_message(NULL, msg);
       }
-      switch(ngx_http_push_store_local.publish(channel, msg, 0, NULL, r->connection->log)) {
+      switch(ngx_http_push_store_legacy.publish(channel, msg, 0, NULL, r->connection->log)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
           //message was queued successfully, but there were no 
@@ -436,12 +694,12 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
           return;
       }
       if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store_local.lock();
+        ngx_http_push_store_legacy.lock();
         messages = channel->messages;
-        ngx_http_push_store_local.unlock();
+        ngx_http_push_store_legacy.unlock();
       }
       else { //no buffer. free the message
-        ngx_http_push_store_local.release_message(NULL, msg);
+        ngx_http_push_store_legacy.release_message(NULL, msg);
         messages=0;
       }
       ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
@@ -454,7 +712,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       return;
       
     case NGX_HTTP_DELETE:
-      if(ngx_http_push_store_local.delete_channel(channel, r) != NGX_OK) {
+      if(ngx_http_push_store_legacy.delete_channel(channel, r) != NGX_OK) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       }
       else {
@@ -471,7 +729,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   }
 }
 
-static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_push_subscriber_t     *cur, *next;
   ngx_int_t                       responded_subscribers=0;
   if(sentinel==NULL) {
@@ -495,38 +753,38 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     
     //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p started", msg);
     
-    if((etag=ngx_http_push_store_local.message_etag(msg, NULL))==NULL) {
-      ngx_http_push_store_local.release_message(channel, msg);
+    if((etag=ngx_http_push_store_legacy.message_etag(msg, NULL))==NULL) {
+      ngx_http_push_store_legacy.release_message(channel, msg);
       return NGX_ERROR;
     }
     
-    if((content_type=ngx_http_push_store_local.message_content_type(msg, NULL))==NULL) {
+    if((content_type=ngx_http_push_store_legacy.message_content_type(msg, NULL))==NULL) {
       ngx_free(etag);
-      ngx_http_push_store_local.release_message(channel, msg);
+      ngx_http_push_store_legacy.release_message(channel, msg);
       return NGX_ERROR;
     }
     
-    ngx_http_push_store_local.lock();
+    ngx_http_push_store_legacy.lock();
     //preallocate output chain. this won't actually be used in the request (except the buffer data)
     chain = ngx_http_push_create_output_chain(msg->buf, ngx_http_push_pool, ngx_cycle->log);
-    ngx_http_push_store_local.unlock();
+    ngx_http_push_store_legacy.unlock();
     if(chain==NULL) {
       ngx_free(etag);
       ngx_free(content_type);
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to create output chain while responding to several subscriber request");
-      ngx_http_push_store_local.release_message(channel, msg);
+      ngx_http_push_store_legacy.release_message(channel, msg);
       return NGX_ERROR;
     }
     
     buffer = chain->buf;
     buffer->recycled = 1;
     
-    ngx_http_push_store_local.lock();
+    ngx_http_push_store_legacy.lock();
     last_modified_time = msg->message_time;
-    ngx_http_push_store_local.unlock();
+    ngx_http_push_store_legacy.unlock();
 
     buf_use_count = ngx_pcalloc(ngx_http_push_pool, sizeof(*buf_use_count));
-    *buf_use_count = ngx_http_push_store_local.channel_worker_subscribers(sentinel);
+    *buf_use_count = ngx_http_push_store_legacy.channel_worker_subscribers(sentinel);
     
     cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
     //now let's respond to some requests!
@@ -563,7 +821,7 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
 
       cur=next;
     }
-    ngx_http_push_store_local.release_message(channel, msg);
+    ngx_http_push_store_legacy.release_message(channel, msg);
     ngx_free(etag);
     ngx_free(content_type);
     ngx_pfree(ngx_http_push_pool, chain);
@@ -586,16 +844,16 @@ static ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *c
     }
   }
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p finished", msg);
-  ngx_http_push_store_local.lock();
+  ngx_http_push_store_legacy.lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "deleting subscriber sentinel at %p.", sentinel);
   ngx_pfree(ngx_http_push_pool, sentinel);
-  ngx_http_push_store_local.unlock();
+  ngx_http_push_store_legacy.unlock();
   return NGX_OK;
 }
 
-static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
+ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
   ngx_int_t                       rc;
   
   /* Instruct ngx_http_read_subscriber_request_body to store the request
@@ -611,98 +869,8 @@ static ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
   }
   return NGX_DONE;
 }
-    
-static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
-  static ngx_http_push_content_subtype_t subtypes[] = {
-    { "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
-    { "yaml"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML },
-    { "xml"   , 3, &NGX_HTTP_PUSH_CHANNEL_INFO_XML  },
-    { "x-json", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
-    { "x-yaml", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML }
-  };
-  u_char                         *start = cur + off;
-  ngx_uint_t                      i;
-  
-  for(i=0; i<(sizeof(subtypes)/sizeof(ngx_http_push_content_subtype_t)); i++) {
-    if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
-      if(*priority>start) {
-        *format = subtypes[i].format;
-        *priority = start;
-        content_type->data=cur;
-        content_type->len= off + 1 + subtypes[i].len;
-      }
-    }
-  }
-}
 
-//print information about a channel
-static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen) {
-  ngx_buf_t                      *b;
-  ngx_uint_t                      len;
-  ngx_str_t                       content_type = ngx_string("text/plain");
-  const ngx_str_t                *format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
-  time_t                          time_elapsed = ngx_time() - last_seen;
-  
-  if(r->headers_in.accept) {
-    //lame content-negotiation (without regard for qvalues)
-    u_char                    *accept = r->headers_in.accept->value.data;
-    size_t                     len = r->headers_in.accept->value.len;
-    size_t                     rem;
-    u_char                    *cur = accept;
-    u_char                    *priority=&accept[len-1];
-    for(rem=len; (cur = ngx_strnstr(cur, "text/", rem))!=NULL; cur += sizeof("text/")-1) {
-      rem=len - ((size_t)(cur-accept)+sizeof("text/")-1);
-      if(ngx_strncmp(cur+sizeof("text/")-1, "plain", rem<5 ? rem : 5)==0) {
-        if(priority) {
-          format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
-          priority = cur+sizeof("text/")-1;
-          //content-type is already set by default
-        }
-      }
-      ngx_http_push_match_channel_info_subtype(sizeof("text/")-1, cur, rem, &priority, &format, &content_type);
-    }
-    cur = accept;
-    for(rem=len; (cur = ngx_strnstr(cur, "application/", rem))!=NULL; cur += sizeof("application/")-1) {
-      rem=len - ((size_t)(cur-accept)+sizeof("application/")-1);
-      ngx_http_push_match_channel_info_subtype(sizeof("application/")-1, cur, rem, &priority, &format, &content_type);
-    }
-  }
-
-  r->headers_out.content_type.len = content_type.len;
-  r->headers_out.content_type.data = content_type.data;
-  r->headers_out.content_type_len = r->headers_out.content_type.len;
-  
-  len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
-  
-  if ((b = ngx_create_temp_buf(r->pool, len)) == NULL) {
-    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  b->last = ngx_sprintf(b->last, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed ,subscribers);
-  
-  //lastly, set the content-length, because if the status code isn't 200, nginx may not do so automatically
-  r->headers_out.content_length_n = ngx_buf_size(b);
-  
-  if (ngx_http_send_header(r) > NGX_HTTP_SPECIAL_RESPONSE) {
-    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  
-  return ngx_http_output_filter(r, ngx_http_push_create_output_chain(b, r->pool, r->connection->log));
-}
-
-static ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value) {
-  ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
-  if (h == NULL) {
-    return NULL;
-  }
-  h->hash = 1;
-  h->key.len = header_name->len;
-  h->key.data = header_name->data;
-  h->value.len = header_value->len;
-  h->value.data = header_value->data;
-  return h;
-}
-
-static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
+ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
   ngx_str_t                      *if_none_match = ngx_http_push_subscriber_get_etag(r);
   ngx_int_t                       tag=0;
   if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
@@ -711,169 +879,7 @@ static ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
   return ngx_abs(tag);
 }
 
-static ngx_str_t * ngx_http_push_find_in_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
-    ngx_uint_t                       i;
-    ngx_list_part_t                 *part = &r->headers_in.headers.part;
-    ngx_table_elt_t                 *header= part->elts;
-
-    for (i = 0; /* void */ ; i++) {
-        if (i >= part->nelts) {
-            if (part->next == NULL) {
-                break;
-            }
-            part = part->next;
-            header = part->elts;
-            i = 0;
-        }
-        if (header[i].key.len == header_name.len
-            && ngx_strncasecmp(header[i].key.data, header_name.data, header[i].key.len) == 0) {
-            return &header[i].value;
-        }
-    }
-  return NULL;
-}
-
-static ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
-    ngx_str_t *tmp_header;
-    ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
-    ngx_int_t i = 0;
-
-    for(; i < 2; i++) {
-        tmp_header = ngx_http_push_find_in_header_value(r, header_checks[i]);
-
-        if (tmp_header != NULL) {
-            return !!ngx_strncasecmp(tmp_header->data, NGX_HTTP_PUSH_CACHE_CONTROL_VALUE.data, tmp_header->len);
-        }
-    }
-
-    return 1;
-}
-
-static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
-    ngx_uint_t                       i;
-    ngx_list_part_t                 *part = &r->headers_in.headers.part;
-    ngx_table_elt_t                 *header= part->elts;
-
-    for (i = 0; /* void */ ; i++) {
-        if (i >= part->nelts) {
-            if (part->next == NULL) {
-                break;
-            }
-            part = part->next;
-            header = part->elts;
-            i = 0;
-        }
-        if (header[i].key.len == NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH.len
-            && ngx_strncasecmp(header[i].key.data, NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH.data, header[i].key.len) == 0) {
-            return &header[i].value;
-        }
-    }
-  return NULL;
-}
-
-//buffer is _copied_
-static ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
-  ngx_chain_t                    *out;
-  ngx_file_t                     *file;
-  
-  if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
-    return NULL;
-  }
-  ngx_buf_t                      *buf_copy;
-
-  if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
-    return NULL;
-  }
-  ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
-
-  if (buf->file!=NULL) {
-    file = buf_copy->file;
-    file->log=log;
-    if(file->fd==NGX_INVALID_FILE) {
-      file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-    }
-    if(file->fd==NGX_INVALID_FILE) {
-      return NULL;
-    }
-  }
-  buf_copy->last_buf = 1;
-  out->buf = buf_copy;
-  out->next = NULL;
-  return out;  
-}
-
-static void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
-  if(data->subscriber!=NULL) { //still queued up
-    ngx_http_push_subscriber_t* sb = data->subscriber;
-    ngx_http_push_subscriber_del_timer(sb);
-    ngx_queue_remove(&data->subscriber->queue);
-    ngx_pfree(ngx_http_push_pool, data->subscriber); //was there an error? oh whatever.
-  }
-  if (data->rchain != NULL) {
-    ngx_pfree(data->rpool, data->rchain->buf);
-    ngx_pfree(data->rpool, data->rchain);
-    data->rchain=NULL;
-  }
-  if(data->buf_use_count != NULL && --(*data->buf_use_count) <= 0) {
-    ngx_buf_t                      *buf;
-    ngx_pfree(ngx_http_push_pool, data->buf_use_count);
-    buf=data->buf;
-    if(buf->file) {
-      ngx_close_file(buf->file->fd);
-    }
-    ngx_pfree(ngx_http_push_pool, buf);
-  }
-  
-  if(data->channel!=NULL) { //we're expected to decrement the subscriber count
-    ngx_http_push_store_local.lock();
-    data->channel->subscribers--;
-    ngx_http_push_store_local.unlock();
-  }
-}
-
-static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
-  r->headers_out.status=status_code;
-  if(statusline!=NULL) {
-    r->headers_out.status_line.len =statusline->len;
-    r->headers_out.status_line.data=statusline->data;
-  }
-  r->headers_out.content_length_n = 0;
-  r->header_only = 1;
-  return ngx_http_send_header(r);
-}
-
-//allocates nothing
-static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified) {
-  ngx_int_t                      res;
-  if (content_type!=NULL) {
-    r->headers_out.content_type.len=content_type->len;
-    r->headers_out.content_type.data = content_type->data;
-    r->headers_out.content_type_len = r->headers_out.content_type.len;
-  }
-  if(last_modified) {
-    //if-modified-since header
-    r->headers_out.last_modified_time=last_modified;
-  }
-  if(etag!=NULL) {
-    //etag, if we need one
-    if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
-      return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-  }
-  //Vary header needed for proper HTTP caching.
-  ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
-  
-  r->headers_out.status=NGX_HTTP_OK;
-  //we know the entity length, and we're using just one buffer. so no chunking please.
-  r->headers_out.content_length_n=ngx_buf_size(chain->buf);
-  if((res = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
-    return res;
-  }
-  
-  return ngx_http_output_filter(r, chain);
-}
-
-static void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
+void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
   if (cbuf!=NULL) {
     ngx_memcpy(cbuf, buf, sizeof(*buf)); //overkill?
     if(buf->temporary || buf->memory) { //we don't want to copy mmpapped memory, so no ngx_buf_in_momory(buf)
