@@ -1,3 +1,4 @@
+#include "legacy.h"
 #include "rbtree_util.c"
 #include <store/ngx_http_push_module_ipc.c>
 
@@ -737,7 +738,7 @@ static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *ch
   return NGX_OK;
 }
 
-ngx_http_push_store_t  ngx_http_push_store_local = {
+ngx_http_push_store_t  ngx_http_push_store_legacy = {
     //init
     &ngx_http_push_store_init_module,
     &ngx_http_push_store_init_worker,

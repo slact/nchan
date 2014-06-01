@@ -10,11 +10,11 @@ static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
   }
   
   //initialize storage engine
-  return ngx_http_push_store_local.init_module(cycle);
+  return ngx_http_push_store_legacy.init_module(cycle);
 }
 
 static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
-  if(ngx_http_push_store_local.init_worker(cycle)!=NGX_OK) {
+  if(ngx_http_push_store_legacy.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
   else if (ngx_process != NGX_PROCESS_WORKER) {
@@ -27,7 +27,7 @@ static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t ngx_http_push_postconfig(ngx_conf_t *cf) {
-  return ngx_http_push_store_local.init_postconfig(cf);
+  return ngx_http_push_store_legacy.init_postconfig(cf);
 }
 
 //main config
@@ -37,7 +37,7 @@ static void * ngx_http_push_create_main_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   
-  ngx_http_push_store_local.create_main_conf(cf, mcf);
+  ngx_http_push_store_legacy.create_main_conf(cf, mcf);
   
   return mcf;
 }
@@ -170,11 +170,11 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
 }
 
 static void ngx_http_push_exit_worker(ngx_cycle_t *cycle) {
-  ngx_http_push_store_local.exit_worker(cycle);
+  ngx_http_push_store_legacy.exit_worker(cycle);
 }
 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
-  ngx_http_push_store_local.exit_master(cycle);
+  ngx_http_push_store_legacy.exit_master(cycle);
 }
 
 static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
