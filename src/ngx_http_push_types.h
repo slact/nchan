@@ -135,6 +135,10 @@ typedef struct {
   ngx_int_t (*enqueue_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf);
   ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
   ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
+  
+  //ipc
+  ngx_int_t (*send_worker_message)(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log);
+  void (*receive_worker_message)(void);
 } ngx_http_push_store_t;
 
 
