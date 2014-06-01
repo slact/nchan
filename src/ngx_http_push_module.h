@@ -1,7 +1,6 @@
-#include <ngx_config.h>
-#include <ngx_core.h>
 #include <ngx_http.h>
-#include <ngx_channel.h>
+#include <ngx_http_push_types.h>
+#include <ngx_http_push_defs.h>
 
 
 extern ngx_pool_t *ngx_http_push_pool;

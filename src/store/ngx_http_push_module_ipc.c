@@ -1,12 +1,6 @@
 //worker processes of the world, unite.
-#include <ngx_core.h>
-#include <nginx.h>
-#include <ngx_http.h>
-#include <ngx_channel.h>
-
-#include <ngx_http_push_defs.h>
-#include <ngx_http_push_types.h>
 #include <ngx_http_push_module.h>
+#include <ngx_channel.h>
 #include <store/ngx_http_push_module_ipc.h>
 
 static void ngx_http_push_channel_handler(ngx_event_t *ev);

@@ -2,13 +2,6 @@
  *  Copyright 2009 Leo Ponomarev.
  */
 
-#include <ngx_config.h>
-#include <ngx_core.h>
-#include <ngx_http.h>
-#include <nginx.h>
-
-#include <ngx_http_push_types.h>
-#include <ngx_http_push_defs.h>
 #include <ngx_http_push_module.h>
 
 #include <store/legacy/store.h>
