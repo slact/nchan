@@ -1,7 +1,6 @@
 #include <ngx_http_push_module.h>
 
 #include "store.h"
-#include <sqlite3.h>
 #include <store/rbtree_util.h>
 #include <store/ngx_http_push_module_ipc.h>
 
@@ -88,6 +87,7 @@ static void ngx_http_push_store_lock_shmem(void){
 static void ngx_http_push_store_unlock_shmem(void){
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
 }
+
 
 //shpool is assumed to be locked.
 static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel) {
@@ -432,9 +432,6 @@ static ngx_int_t  ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   ngx_http_push_worker_processes = ccf->worker_processes;
-  //init sqlite
-  
-  
   //initialize our little IPC
   return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
 }
@@ -873,7 +870,7 @@ static void ngx_http_push_store_receive_worker_message(void) {
   return;
 }
 
-ngx_http_push_store_t  ngx_http_push_store_sqlite = {
+ngx_http_push_store_t  ngx_http_push_store_memory = {
     //init
     &ngx_http_push_store_init_module,
     &ngx_http_push_store_init_worker,
@@ -899,7 +896,7 @@ ngx_http_push_store_t  ngx_http_push_store_sqlite = {
     //channel properties
     &ngx_http_push_store_channel_subscribers,
     &ngx_http_push_store_channel_worker_subscribers,
-    
+
     //legacy shared-memory store helpers
     &ngx_http_push_store_lock_shmem,
     &ngx_http_push_store_unlock_shmem,
@@ -917,4 +914,6 @@ ngx_http_push_store_t  ngx_http_push_store_sqlite = {
     //interprocess communication
     &ngx_http_push_store_send_worker_message,
     &ngx_http_push_store_receive_worker_message
+    
+
 };
