@@ -3,7 +3,7 @@ ngx_feature_name=
 ngx_feature_run=no
 ngx_feature_incs=
 ngx_feature_path=
-ngx_feature_libs=-ldb
+ngx_feature_libs=-lsqlite3
 ngx_feature_test=
  
 ngx_addon_name=ngx_http_push_module
@@ -15,7 +15,7 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
     ${ngx_addon_dir}/src/store/rbtree_util.c \
     ${ngx_addon_dir}/src/store/ngx_http_push_module_ipc.c \
     ${ngx_addon_dir}/src/store/legacy/store.c \
-    ${ngx_addon_dir}/src/store/berkeleydb/store.c \
+    ${ngx_addon_dir}/src/store/sqlite/store.c \
     ${ngx_addon_dir}/src/ngx_http_push_module.c \
     "
 

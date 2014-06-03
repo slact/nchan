@@ -1,7 +1,7 @@
 #include <ngx_http_push_module.h>
 
 #include "store.h"
-#include <db.h>
+#include <sqlite3.h>
 #include <store/rbtree_util.h>
 #include <store/ngx_http_push_module_ipc.h>
 
@@ -34,8 +34,6 @@
 static ngx_http_push_channel_queue_t channel_gc_sentinel;
 static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
 static ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
-
-DB_ENV *dbenv;
 
 static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log);
 
@@ -434,9 +432,8 @@ static ngx_int_t  ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   ngx_http_push_worker_processes = ccf->worker_processes;
-  //init bdb
-  db_env_create(&dbenv, 0);
-  dbenv->open(dbenv, NULL, DB_CREATE | DB_INIT_CDB | DB_INIT_MPOOL | DB_SYSTEM_MEM, 0);
+  //init sqlite
+  
   
   //initialize our little IPC
   return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
@@ -876,7 +873,7 @@ static void ngx_http_push_store_receive_worker_message(void) {
   return;
 }
 
-ngx_http_push_store_t  ngx_http_push_store_berkeleydb = {
+ngx_http_push_store_t  ngx_http_push_store_sqlite = {
     //init
     &ngx_http_push_store_init_module,
     &ngx_http_push_store_init_worker,
