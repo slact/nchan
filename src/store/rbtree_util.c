@@ -1,7 +1,6 @@
 #include <ngx_http_push_module.h>
 #include "rbtree_util.h"
 
-extern ngx_slab_pool_t    *ngx_http_push_shpool;
 extern ngx_shm_zone_t     *ngx_http_push_shm_zone;
 
 ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
@@ -22,7 +21,7 @@ ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_chann
 }
 
 
-static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash, ngx_slab_pool_t *shpool) {
+static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash) {
 //assume the shm zone is already locked
   if(trash != NULL){ //take out the trash
     ngx_rbtree_delete(tree, trash);
@@ -33,12 +32,12 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
     ngx_queue_t                *next;
     while(cur!=sentinel) {
       next = ngx_queue_next(cur);
-      ngx_slab_free_locked(shpool, cur);
+      ngx_http_push_store->free_locked(cur);
       cur = next;
     }
     
-    ngx_slab_free_locked(shpool, trash);
-    ngx_slab_free_locked(shpool, sentinel);
+    ngx_http_push_store->free_locked(trash);
+    ngx_http_push_store->free_locked(sentinel);
     return NGX_OK;
   }
   return NGX_DECLINED;
@@ -46,7 +45,7 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
 
 ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
   ngx_int_t                      res;
-  res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash, ngx_http_push_shpool);
+  res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash);
   if(res==NGX_OK) {
     ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels--;
     return NGX_OK;
@@ -134,11 +133,11 @@ ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout
     return up;
   }
   tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
-  if((up = ngx_http_push_slab_alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)))==NULL) {
+  if((up = ngx_http_push_store->alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)))==NULL) {
     return NULL;
   }
-  if((worker_queue_sentinel=ngx_http_push_slab_alloc_locked(sizeof(*worker_queue_sentinel)))==NULL) {
-    ngx_slab_free_locked(ngx_http_push_shpool, up);
+  if((worker_queue_sentinel=ngx_http_push_store->alloc_locked(sizeof(*worker_queue_sentinel)))==NULL) {
+    ngx_http_push_store->free_locked(up);
     ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker queue sentinel");
     return NULL;
   }

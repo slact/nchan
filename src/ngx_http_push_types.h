@@ -127,6 +127,8 @@ typedef struct {
   
   void (*lock)(void); //legacy shared-memory store helpers
   void (*unlock)(void);
+  void * (*alloc_locked)(size_t size);
+  void (*free_locked)(void *ptr);
   
   //message actions and properties
   ngx_http_push_msg_t * (*create_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
