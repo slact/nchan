@@ -45,9 +45,11 @@ if(cond) {                                          \
   rwl_lock_mutex(lock);                             \
   if(cond) {                                        \
     stmt;                                           \
+    rwl_unlock_mutex(lock);                         \
+    return;                                         \
   }                                                 \
   rwl_unlock_mutex(lock);                           \
-}                                                   \
+}
 
 void ngx_rwlock_reserve_read(ngx_rwlock_t *lock)
 {

@@ -3,6 +3,12 @@ typedef struct {
   size_t                          shm_size;
 } ngx_http_push_main_conf_t;
 
+typedef struct {
+  ngx_atomic_int_t  lock;
+  ngx_atomic_t      mutex;
+  ngx_int_t         write_pid;
+} ngx_rwlock_t;
+
 //message queue
 typedef struct {
   ngx_queue_t                     queue; //this MUST be first.
