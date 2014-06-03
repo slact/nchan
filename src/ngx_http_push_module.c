@@ -4,7 +4,6 @@
 
 #include <ngx_http_push_module.h>
 
-#include <store/legacy/store.h>
 #include <store/memory/store.h>
 #include <ngx_http_push_module_setup.c>
 
