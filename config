@@ -16,6 +16,7 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
     ${ngx_addon_dir}/src/store/ngx_http_push_module_ipc.c \
     ${ngx_addon_dir}/src/store/legacy/store.c \
     ${ngx_addon_dir}/src/store/memory/store.c \
+    ${ngx_addon_dir}/src/store/ngx_rwlock.c \
     ${ngx_addon_dir}/src/ngx_http_push_module.c \
     "
 
