@@ -6,7 +6,8 @@ MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 for opt in $*; do
   case $opt in
     clang)
-      export CC=clang;;
+      export CCACHE_CPP2=1
+      export CC="ccache clang -Qunused-arguments -fcolor-diagnostics";;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     re|remake)
