@@ -77,11 +77,16 @@ typedef struct {
   ngx_http_push_subscriber_t     *subscriber_sentinel; //->a worker's local pool
 } ngx_http_push_worker_msg_t;
 
+typedef struct {
+  ngx_queue_t                    queue;
+  ngx_rwlock_t                   lock;
+} ngx_http_push_worker_msg_sentinel_t;
+
 //shared memory
 typedef struct {
-  ngx_rbtree_t                    tree;
-  ngx_uint_t                      channels; //# of channels being used
-  ngx_http_push_worker_msg_t     *ipc; //interprocess stuff
+  ngx_rbtree_t                          tree;
+  ngx_uint_t                            channels; //# of channels being used
+  ngx_http_push_worker_msg_sentinel_t  *ipc; //interprocess stuff
 } ngx_http_push_shm_data_t;
 
 typedef struct {

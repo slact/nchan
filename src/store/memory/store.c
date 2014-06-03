@@ -2,6 +2,7 @@
 
 #include "store.h"
 #include <store/rbtree_util.h>
+#include <store/ngx_rwlock.h>
 #include <store/ngx_http_push_module_ipc.h>
 
 #define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
@@ -440,7 +441,7 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
 static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
   ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
   ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
-  ngx_http_push_worker_msg_t     *worker_messages;
+  ngx_http_push_worker_msg_sentinel_t     *worker_messages;
   int                             i;
   ngx_shmtx_lock(&shpool->mutex);
   if(d->ipc!=NULL) {
@@ -772,50 +773,61 @@ static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *ch
 }
 
 static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log) {
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
-  ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
-  ngx_http_push_worker_msg_t     *thisworker_messages = worker_messages + worker_slot;
-  ngx_http_push_worker_msg_t     *newmessage;
-  ngx_shmtx_lock(&shpool->mutex);
-  if((newmessage=ngx_slab_alloc_locked(shpool, sizeof(*newmessage)))==NULL) {
+  ngx_slab_pool_t                       *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
+  ngx_http_push_worker_msg_sentinel_t   *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
+  ngx_http_push_worker_msg_sentinel_t   *sentinel = &worker_messages[worker_slot];
+  ngx_http_push_worker_msg_t            *newmessage;
+  if((newmessage=ngx_slab_alloc(shpool, sizeof(*newmessage)))==NULL) {
     ngx_shmtx_unlock(&shpool->mutex);
     ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker message");
     return NGX_ERROR;
   }
-  ngx_queue_insert_tail(&thisworker_messages->queue, &newmessage->queue);
   newmessage->msg = msg;
   newmessage->status_code = status_code;
   newmessage->pid = pid;
   newmessage->subscriber_sentinel = subscriber_sentinel;
   newmessage->channel = channel;
-  ngx_shmtx_unlock(&shpool->mutex);
+  ngx_rwlock_reserve_write(&sentinel->lock);
+  ngx_queue_insert_tail(&sentinel->queue, &newmessage->queue);
+  ngx_rwlock_release_write(&sentinel->lock);
   return NGX_OK;
+  
 }
 
 static void ngx_http_push_store_receive_worker_message(void) {
-  ngx_http_push_worker_msg_t     *prev_worker_msg, *worker_msg, *sentinel;
+  ngx_http_push_worker_msg_t     *prev_worker_msg, *worker_msg;
+  ngx_http_push_worker_msg_sentinel_t    *sentinel;
   const ngx_str_t                *status_line = NULL;
   ngx_http_push_channel_t        *channel;
   ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
   ngx_http_push_subscriber_t     *subscriber_sentinel;
+  ngx_int_t                       worker_msg_pid;
   
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message started");
-  ngx_shmtx_lock(&shpool->mutex);
-  
-  ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
   ngx_int_t                       status_code;
   ngx_http_push_msg_t            *msg;
   
-  sentinel = &worker_messages[ngx_process_slot];
+  sentinel = &(((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc)[ngx_process_slot];
+  
+  ngx_rwlock_reserve_read(&sentinel->lock);
   worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&sentinel->queue);
-  while(worker_msg != sentinel) {
-    if(worker_msg->pid==ngx_pid) {
+  ngx_rwlock_release_read(&sentinel->lock);
+  while((void *)worker_msg != (void *)sentinel) {
+    
+    ngx_rwlock_reserve_read(&sentinel->lock);
+    worker_msg_pid = worker_msg->pid;
+    ngx_rwlock_release_read(&sentinel->lock);
+    
+    if(worker_msg_pid == ngx_pid) {
       //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing proper worker_msg ");
       //everything is okay.
+      
+      ngx_rwlock_reserve_read(&sentinel->lock);
       status_code = worker_msg->status_code;
       msg = worker_msg->msg;
       channel = worker_msg->channel;
       subscriber_sentinel = worker_msg->subscriber_sentinel;
+      ngx_rwlock_release_read(&sentinel->lock);
+      
       if(msg==NULL) {
         //just a status line, is all    
         //status code only.
@@ -837,16 +849,19 @@ static void ngx_http_push_store_receive_worker_message(void) {
             status_line=NULL;
         }
       }
-      ngx_shmtx_unlock(&shpool->mutex);
+      
       ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-      ngx_shmtx_lock(&shpool->mutex);
     }
     else {
       //that's quite bad you see. a previous worker died with an undelivered message.
       //but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
       //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing INVALID worker_msg ");
       
+      ngx_rwlock_reserve_read(&sentinel->lock);
       ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
+      ngx_rwlock_release_read(&sentinel->lock);
+      
+      ngx_shmtx_lock(&shpool->mutex);
       ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
       
@@ -858,14 +873,21 @@ static void ngx_http_push_store_receive_worker_message(void) {
           break;
         }
       }
+      ngx_shmtx_unlock(&shpool->mutex);
+      
     }
     //It may be worth it to memzero worker_msg for debugging purposes.
     prev_worker_msg = worker_msg;
+    
+    ngx_rwlock_reserve_write(&sentinel->lock);
     worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue);
     ngx_slab_free_locked(shpool, prev_worker_msg);
+    ngx_rwlock_release_write(&sentinel->lock);
+
   }
+  ngx_rwlock_reserve_write(&sentinel->lock);
   ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
-  ngx_shmtx_unlock(&shpool->mutex);
+  ngx_rwlock_release_write(&sentinel->lock);
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message finished");
   return;
 }
