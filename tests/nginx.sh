@@ -48,11 +48,18 @@ echo "nginx $NGINX_OPT"
 sed "s|\(access_log\).*|\1 $ACCESS_LOG;|g" $NGINX_TEMP_CONFIG -i
 sed "s|\(^\s*error_log\s\+\S\+\).*|\1 $ERRLOG_LEVEL;|g" $NGINX_TEMP_CONFIG -i
 if [[ $debugger == 1 ]]; then
+  
   ./nginx $NGINX_OPT
   sleep 0.2
   master_pid=`cat /tmp/pushmodule-test-nginx.pid`
-  child_pid=`pgrep -P $master_pid`
-  sudo kdbg -p $child_pid ./nginx
+  child_pids=`pgrep -P $master_pid`
+  kdbg_pids=()
+  while read -r line; do
+    sudo kdbg -p $line ./nginx &
+    kdbg_pids+="$!"
+  done <<< $child_pids
+  echo "kdbg at $kdbg_pids"
+  wait $kdbg_pids
   kill $master_pid
 elif [[ $valgrind == 1 ]]; then
   mkdir ./coredump 2>/dev/null
