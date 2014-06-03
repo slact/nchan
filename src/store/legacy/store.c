@@ -30,11 +30,11 @@
 #define RESERVED_DBG "msg %p reserved.  ref:%i, p:%p n:%p"
 #define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
 
-ngx_http_push_channel_queue_t channel_gc_sentinel;
-ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
-ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
+static ngx_http_push_channel_queue_t channel_gc_sentinel;
+static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
+static ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 
-ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log);
+static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log);
 
 static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel) {
   if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
@@ -51,7 +51,7 @@ static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * chann
 }
 
 //garbage-collecting slab allocator
-void * ngx_http_push_slab_alloc_locked(size_t size) {
+static void * ngx_http_push_slab_alloc_locked(size_t size) {
   void  *p;
   if((p = ngx_slab_alloc_locked(ngx_http_push_shpool, size))==NULL) {
     ngx_http_push_channel_queue_t *ccur, *cnext;
@@ -60,10 +60,10 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
     
     //collect channels
     ngx_queue_init(&channel_gc_sentinel.queue);
-    ngx_http_push_walk_rbtree(ngx_http_push_channel_collector);
+    ngx_http_push_walk_rbtree(ngx_http_push_channel_collector, ngx_http_push_shm_zone);
     for(ccur=(ngx_http_push_channel_queue_t *)ngx_queue_next(&channel_gc_sentinel.queue); ccur != &channel_gc_sentinel; ccur=cnext) {
       cnext = (ngx_http_push_channel_queue_t *)ngx_queue_next(&ccur->queue);
-      ngx_http_push_delete_channel_locked(ccur->channel);
+      ngx_http_push_delete_channel_locked(ccur->channel, ngx_http_push_shm_zone);
       ngx_free(ccur);
       collected++;
     }
@@ -77,18 +77,15 @@ void * ngx_http_push_slab_alloc_locked(size_t size) {
   return p;
 }
 
-void ngx_http_push_store_lock_shmem(void){
+static void ngx_http_push_slab_free_locked(void *ptr) {
+  ngx_slab_free_locked(ngx_http_push_shpool, ptr);
+}
+
+static void ngx_http_push_store_lock_shmem(void){
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
 }
-void ngx_http_push_store_unlock_shmem(void){
+static void ngx_http_push_store_unlock_shmem(void){
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-}
-void * ngx_http_push_slab_alloc(size_t size) {
-  void  *p;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  p = ngx_http_push_slab_alloc_locked(size);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return p;
 }
 
 
@@ -264,7 +261,7 @@ static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id,
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  channel = ngx_http_push_find_channel(id, channel_timeout, log);
+  channel = ngx_http_push_find_channel(id, channel_timeout, ngx_http_push_shm_zone, log);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return channel;
 }
@@ -366,7 +363,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *cha
   ngx_http_push_store_publish(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log);
   
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_http_push_delete_channel_locked(channel);
+  ngx_http_push_delete_channel_locked(channel, ngx_http_push_shm_zone);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return NGX_OK;
 }
@@ -374,7 +371,7 @@ static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, 
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  channel = ngx_http_push_get_channel(id, channel_timeout, log);
+  channel = ngx_http_push_get_channel(id, channel_timeout, ngx_http_push_shm_zone, log);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return channel;
 }
@@ -534,7 +531,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
-  ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked);
+  ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked, ngx_http_push_shm_zone);
 }
 
 static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
@@ -774,7 +771,7 @@ static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *ch
   return NGX_OK;
 }
 
-ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log) {
+static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code, ngx_log_t *log) {
   ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
   ngx_http_push_worker_msg_t     *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
   ngx_http_push_worker_msg_t     *thisworker_messages = worker_messages + worker_slot;
@@ -899,9 +896,12 @@ ngx_http_push_store_t  ngx_http_push_store_legacy = {
     //channel properties
     &ngx_http_push_store_channel_subscribers,
     &ngx_http_push_store_channel_worker_subscribers,
-    
-    &ngx_http_push_store_lock_shmem, //legacy shared-memory store helpers
-    &ngx_http_push_store_unlock_shmem, //legacy shared-memory store helpers
+
+    //legacy shared-memory store helpers
+    &ngx_http_push_store_lock_shmem,
+    &ngx_http_push_store_unlock_shmem,
+    &ngx_http_push_slab_alloc_locked,
+    &ngx_http_push_slab_free_locked,
     
     //message stuff
     &ngx_http_push_store_create_message,
@@ -914,4 +914,6 @@ ngx_http_push_store_t  ngx_http_push_store_legacy = {
     //interprocess communication
     &ngx_http_push_store_send_worker_message,
     &ngx_http_push_store_receive_worker_message
+    
+
 };

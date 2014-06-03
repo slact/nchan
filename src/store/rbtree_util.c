@@ -1,8 +1,6 @@
 #include <ngx_http_push_module.h>
 #include "rbtree_util.h"
 
-extern ngx_shm_zone_t     *ngx_http_push_shm_zone;
-
 ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_channel_t * channel) {
   ngx_queue_t                 *sentinel = &channel->message_queue->queue;
   time_t                       now = ngx_time();
@@ -19,7 +17,6 @@ ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_chann
   //at this point, the queue is empty
   return (channel->subscribers==0 && (channel->expires <= now)) ? channel : NULL; //if no waiting requests and channel expired, return this channel to be deleted
 }
-
 
 static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree_node_t *trash) {
 //assume the shm zone is already locked
@@ -43,19 +40,19 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
   return NGX_DECLINED;
 }
 
-ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash) {
+ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash, ngx_shm_zone_t *shm_zone) {
   ngx_int_t                      res;
-  res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree, (ngx_rbtree_node_t *)trash);
+  res = ngx_http_push_delete_node_locked(&((ngx_http_push_shm_data_t *) shm_zone->data)->tree, (ngx_rbtree_node_t *)trash);
   if(res==NGX_OK) {
-    ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels--;
+    ((ngx_http_push_shm_data_t *) shm_zone->data)->channels--;
     return NGX_OK;
   }
   return res;
   
 }
 
-ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
-  ngx_rbtree_t                   *tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
+ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeout, ngx_shm_zone_t *shm_zone, ngx_log_t *log) {
+  ngx_rbtree_t                   *tree = &((ngx_http_push_shm_data_t *) shm_zone->data)->tree;
   uint32_t                        hash;
   ngx_rbtree_node_t              *node, *sentinel;
   ngx_int_t                       rc;
@@ -102,7 +99,7 @@ ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeo
         //found
         for(i=0; i<trashed; i++) {
           if(trash[i] != up){ //take out the trash
-            ngx_http_push_delete_channel_locked(trash[i]);
+            ngx_http_push_delete_channel_locked(trash[i], shm_zone);
           }
         }
         up->expires = ngx_time() + timeout;
@@ -118,21 +115,21 @@ ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeo
   }
   //not found
   for(i=0; i<trashed; i++) {
-    ngx_http_push_delete_channel_locked(trash[i]);
+    ngx_http_push_delete_channel_locked(trash[i], shm_zone);
   }
   return NULL;
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
-ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_log_t *log) {
+ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_shm_zone_t *shm_zone, ngx_log_t *log) {
   ngx_rbtree_t                   *tree;
-  ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, timeout, log);
+  ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, timeout, shm_zone, log);
   ngx_http_push_pid_queue_t      *worker_queue_sentinel;
   
   if(up != NULL) { //we found our channel
     return up;
   }
-  tree = &((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->tree;
+  tree = &((ngx_http_push_shm_data_t *) shm_zone->data)->tree;
   if((up = ngx_http_push_store->alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)))==NULL) {
     return NULL;
   }
@@ -160,7 +157,7 @@ ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout
 
   up->expires = ngx_time() + timeout;
   
-  ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->channels++;
+  ((ngx_http_push_shm_data_t *) shm_zone->data)->channels++;
   
   return up;
 }
