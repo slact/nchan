@@ -3,11 +3,11 @@
 MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 
+ccached_clang="ccache clang -Qunused-arguments -fcolor-diagnostics"
 for opt in $*; do
   case $opt in
     clang)
-      export CCACHE_CPP2=1
-      export CC="ccache clang -Qunused-arguments -fcolor-diagnostics";;
+      export CC=$ccached_clang;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     re|remake)
@@ -24,7 +24,7 @@ for opt in $*; do
       export CC=gcc
       ;;
     clang-analyzer|analyzer|scan|analyze)
-      export CC=clang
+      export CC="clang"
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
       mkdir $CLANG_ANALYZER 2>/dev/null
       ;;

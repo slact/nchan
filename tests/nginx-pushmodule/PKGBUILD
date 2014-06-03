@@ -96,13 +96,15 @@ build() {
     --with-debug
     --add-module=${_pushmodule_dir})
 
-
-  if [[ $CC == "clang" ]]; then 
+  if [[ $CC =~ ".*clang.*" ]]; then 
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
     CFLAGS="-fdiagnostics-color=always $CFLAGS"
   fi
+
+  export CCACHE_CPP2=yes
+
   if ! [[ -z $CLANG_ANALYZER ]]; then
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
     scan-build -o "$CLANG_ANALYZER" make
