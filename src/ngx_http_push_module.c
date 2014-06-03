@@ -5,13 +5,14 @@
 #include <ngx_http_push_module.h>
 
 #include <store/legacy/store.h>
+#include <store/berkeleydb/store.h>
 #include <ngx_http_push_module_setup.c>
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
 ngx_module_t        ngx_http_push_module;
 
-ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_legacy;
+ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_berkeleydb;
 
 
 static ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
