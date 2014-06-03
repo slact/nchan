@@ -10,7 +10,8 @@ for opt in $*; do
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     re|remake)
-      export REMAKE="-B";;
+      export REMAKE="-B"
+      export CONTINUE=1;;
     c|continue|cont)
       export CONTINUE=1;;
     nomake)
