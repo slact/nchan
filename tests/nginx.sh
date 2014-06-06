@@ -8,8 +8,8 @@ cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
 VALGRIND_OPT=( --trace-children=yes --track-origins=yes --read-var-info=yes )
 WORKERS=5
 NGINX_DAEMON="off"
-NGINX_CONF="working_directory \"`pwd`\"; "
-ACCESS_LOG="\\/dev\\/null"
+NGINX_CONF=""
+ACCESS_LOG="/dev/null"
 ERRLOG_LEVEL="notice"
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
@@ -23,7 +23,7 @@ for opt in $*; do
     alleyoop)
       alleyoop=1;;
     access)
-      ACCESS_LOG="\\/dev\\/stdout";;
+      ACCESS_LOG="/dev/stdout";;
     worker|one|single) 
       WORKERS=1
       ;;
@@ -38,15 +38,25 @@ for opt in $*; do
   esac
 done
 
+conf_replace(){
+    echo "$1 $2"
+    sed "s|\($1\).*|\1 $2;|g" $NGINX_TEMP_CONFIG -i
+}
+
 ulimit -c unlimited
 
-NGINX_CONF="worker_processes $WORKERS; daemon $NGINX_DAEMON; $NGINX_CONF"
-NGINX_OPT+=( -g "$NGINX_CONF" )
+if [[ ! -z $NGINX_CONF ]]; then
+    NGINX_OPT+=( -g "$NGINX_CONF" )
+fi
 #echo $NGINX_CONF
 #echo $NGINX_OPT
 echo "nginx $NGINX_OPT"
-sed "s|\(access_log\).*|\1 $ACCESS_LOG;|g" $NGINX_TEMP_CONFIG -i
-sed "s|\(^\s*error_log\s\+\S\+\).*|\1 $ERRLOG_LEVEL;|g" $NGINX_TEMP_CONFIG -i
+conf_replace "access_log" $ACCESS_LOG
+conf_replace "error_log" $ERRLOG_LEVEL
+conf_replace "worker_processes" $WORKERS
+conf_replace "daemon" $NGINX_DAEMON
+conf_replace "working_directory" "\"$(pwd)\""
+
 if [[ $debugger == 1 ]]; then
   
   ./nginx $NGINX_OPT
