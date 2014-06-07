@@ -19,7 +19,8 @@ _conf_path="${_sysconf_path}/${_pkgname}"
 _tmp_path="/tmp/"
 _pid_path="/run"
 _lock_path="/var/lock"
-_log_path="/var/log/${_pkgname}"
+_access_log="/dev/stdout"
+_error_log="/dev/stderr"
 _pushmodule_dir="${startdir}/pushmodule"
 
 _pkgver() {
@@ -89,8 +90,8 @@ build() {
     --http-fastcgi-temp-path=${_tmp_path}/fastcgi_temp
     --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
     --http-scgi-temp-path=${_tmp_path}scgi_temp
-    --http-log-path=${_log_path}/access.log
-    --error-log-path=${_log_path}/error.log
+    --http-log-path=${_access_log}
+    --error-log-path=${_error_log}
     --user=${_user}
     --group=${_group}
     --with-debug
