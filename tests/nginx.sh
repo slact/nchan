@@ -11,6 +11,10 @@ NGINX_DAEMON="off"
 NGINX_CONF=""
 ACCESS_LOG="/dev/null"
 ERRLOG_LEVEL="notice"
+
+_cacheconf="  proxy_cache_path /tmp levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
+echo $cacheconf
+
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
     WORKERS=$opt
@@ -22,6 +26,8 @@ for opt in $*; do
       valgrind=1;;
     alleyoop)
       alleyoop=1;;
+    cache)
+      CACHE=1;;
     access)
       ACCESS_LOG="/dev/stdout";;
     worker|one|single) 
@@ -52,10 +58,13 @@ fi
 #echo $NGINX_OPT
 echo "nginx $NGINX_OPT"
 conf_replace "access_log" $ACCESS_LOG
-conf_replace "error_log" $ERRLOG_LEVEL
+conf_replace "error_log" "stderr $ERRLOG_LEVEL"
 conf_replace "worker_processes" $WORKERS
 conf_replace "daemon" $NGINX_DAEMON
 conf_replace "working_directory" "\"$(pwd)\""
+if [[ ! -z $CACHE ]]; then
+  sed "s|\#cachetag.*|${_cacheconf}|g" $NGINX_TEMP_CONFIG -i
+fi
 
 if [[ $debugger == 1 ]]; then
   

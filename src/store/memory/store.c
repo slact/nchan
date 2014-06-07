@@ -469,7 +469,7 @@ static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   if(ngx_http_push_store_init_ipc_shm(ccf->worker_processes) == NGX_OK) {
-    return ngx_http_push_register_worker_message_handler(cycle);
+    return ngx_http_push_ipc_init_worker(cycle);
   }
   else {
     return NGX_ERROR;
@@ -537,6 +537,8 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
   ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked, ngx_http_push_shm_zone);
+  //deinitialize IPC
+  ngx_http_push_shutdown_ipc(cycle);
 }
 
 static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
