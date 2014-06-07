@@ -442,14 +442,10 @@ static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
   ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
   ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
   ngx_http_push_worker_msg_sentinel_t     *worker_messages=NULL;
-  ngx_int_t                                sentinel_slots=workers*2;;
-  if(ngx_process_slot > sentinel_slots) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "ngx_process_slot %i > workers %i. This will result in UNDEFINED BEHAVIOR!", ngx_process_slot, workers);
-  }
   ngx_shmtx_lock(&shpool->mutex);
   if(d->ipc==NULL) {
     //ipc uninitialized. get it done!
-    if((worker_messages = ngx_slab_alloc_locked(shpool, sizeof(*worker_messages)*sentinel_slots))==NULL) { //times 2 for restarts
+    if((worker_messages = ngx_slab_alloc_locked(shpool, sizeof(*worker_messages)*NGX_MAX_PROCESSES))==NULL) {
       ngx_shmtx_unlock(&shpool->mutex);
       return NGX_ERROR;
     }
