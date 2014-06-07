@@ -1,3 +1,8 @@
+ fix: file descriptor leak when restarting nginx via SIGHUP
+ improve: concurrency for interprocess notifications
+ refactor: completely encapsulated message store
+ fix: slow memory leak introduced in 0.7
+ fix: memory leak when not using message buffer
 0.712 (Mar. 21 2014)
  fix: intermittently dropped long-polling connections on internal redirects
  fix: unable to proxy long-polling subscribers. (thanks wandenberg and sanmai)
