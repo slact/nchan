@@ -199,7 +199,7 @@ static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command
 static char *ngx_http_push_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   char    *p = conf;
   ngx_str_t *val = cf->args->elts;
-  val = cf->args->elts;
+
   
   if (ngx_strcasecmp(val[1].data, (u_char *) "off") == 0) {
     ngx_int_t *min, *max;
