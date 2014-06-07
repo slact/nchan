@@ -153,6 +153,7 @@ static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *ms
   if(msg->refcount < 0) { //something worth exploring went wrong
     raise(SIGSEGV);
   }
+  ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->messages--;
 }
 
 // remove a message from queue and free all associated memory. assumes shpool is already locked.
@@ -406,7 +407,9 @@ static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *d
   
   if ((d = (ngx_http_push_shm_data_t *)ngx_slab_alloc(shpool, sizeof(*d))) == NULL) { //shm_data plus an array.
     return NGX_ERROR;
-  } 
+  }
+  d->channels=0;
+  d->messages=0;
   shm_zone->data = d;
   d->ipc=NULL;
   //initialize rbtree
