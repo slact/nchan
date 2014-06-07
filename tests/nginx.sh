@@ -5,7 +5,7 @@ NGINX_OPT=( -p `pwd`/
     -c $NGINX_TEMP_CONFIG
 )
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
-VALGRIND_OPT=( --trace-children=yes --track-fds=yes --track-origins=yes --read-var-info=yes )
+VALGRIND_OPT=( --trace-children=yes --track-origins=yes --read-var-info=yes )
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF="working_directory \"`pwd`\"; "
@@ -17,7 +17,7 @@ for opt in $*; do
   fi
   case $opt in
     leak|leakcheck)
-      VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all");;
+      VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes");;
     valgrind)
       valgrind=1;;
     alleyoop)
