@@ -10,8 +10,11 @@ WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF=""
 ACCESS_LOG="/dev/null"
+ERROR_LOG="stderr"
 ERRLOG_LEVEL="notice"
 TMPDIR=""
+MEM="32M"
+
 
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
 echo $cacheconf
@@ -42,6 +45,12 @@ for opt in $*; do
     debuglog)
       ERRLOG_LEVEL="debug"
       ;;
+    errorlog)
+      ERROR_LOG="errors.log"
+      rm ./errors.log 2>/dev/null
+      ;;
+    lomem|lowmem|small)
+      MEM="5M";;
   esac
 done
 
@@ -59,10 +68,11 @@ fi
 #echo $NGINX_OPT
 echo "nginx $NGINX_OPT"
 conf_replace "access_log" $ACCESS_LOG
-conf_replace "error_log" "stderr $ERRLOG_LEVEL"
+conf_replace "error_log" "$ERROR_LOG $ERRLOG_LEVEL"
 conf_replace "worker_processes" $WORKERS
 conf_replace "daemon" $NGINX_DAEMON
 conf_replace "working_directory" "\"$(pwd)\""
+conf_replace "push_max_reserved_memory" "$MEM"
 if [[ ! -z $CACHE ]]; then
   sed "s|^\s*#cachetag.*|${_cacheconf}|g" $NGINX_TEMP_CONFIG -i
   tmpdir=`pwd`"/.tmp"

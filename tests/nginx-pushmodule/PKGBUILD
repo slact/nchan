@@ -20,7 +20,7 @@ _tmp_path="/tmp/"
 _pid_path="/run"
 _lock_path="/var/lock"
 _access_log="/dev/stdout"
-_error_log="/dev/stderr"
+_error_log="errors.log"
 _pushmodule_dir="${startdir}/pushmodule"
 
 _pkgver() {
