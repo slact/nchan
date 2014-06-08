@@ -31,7 +31,7 @@
 #define RESERVED_DBG "msg %p reserved.  ref:%i, p:%p n:%p"
 #define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
 
-//#define DEBUG_SHM_ALLOC 1
+#define DEBUG_SHM_ALLOC 1
 
 static ngx_http_push_channel_queue_t channel_gc_sentinel;
 static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
@@ -88,7 +88,7 @@ static void * ngx_http_push_slab_alloc_locked(size_t size, char *label) {
   if (p != NULL) {
     if(label==NULL)
       label="none";
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %p size %ui label %s", p, size, label);
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %ui size %ui label %s", (u_char *) p - ngx_http_push_shpool->start, size, label);
   }
 #endif
   return p;
@@ -105,7 +105,7 @@ static void * ngx_http_push_slab_alloc(size_t size, char *label) {
 static void ngx_http_push_slab_free_locked(void *ptr) {
   ngx_slab_free_locked(ngx_http_push_shpool, ptr);
   #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", ptr);
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %ui", (u_char *) ptr - ngx_http_push_shpool->start);
   #endif
 }
 /*
