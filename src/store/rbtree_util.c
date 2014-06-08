@@ -130,10 +130,10 @@ ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout
     return up;
   }
   tree = &((ngx_http_push_shm_data_t *) shm_zone->data)->tree;
-  if((up = ngx_http_push_store->alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t)))==NULL) {
+  if((up = ngx_http_push_store->alloc_locked(sizeof(*up) + id->len + sizeof(ngx_http_push_msg_t), "channel"))==NULL) {
     return NULL;
   }
-  if((worker_queue_sentinel=ngx_http_push_store->alloc_locked(sizeof(*worker_queue_sentinel)))==NULL) {
+  if((worker_queue_sentinel=ngx_http_push_store->alloc_locked(sizeof(*worker_queue_sentinel), "channel worker queue sentinel"))==NULL) {
     ngx_http_push_store->free_locked(up);
     ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker queue sentinel");
     return NULL;

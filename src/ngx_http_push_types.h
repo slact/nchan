@@ -139,7 +139,7 @@ typedef struct {
   
   void (*lock)(void); //legacy shared-memory store helpers
   void (*unlock)(void);
-  void * (*alloc_locked)(size_t size);
+  void * (*alloc_locked)(size_t size, char * label);
   void (*free_locked)(void *ptr);
   
   //message actions and properties
