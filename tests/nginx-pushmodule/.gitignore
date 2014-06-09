@@ -2,4 +2,4 @@ src
 pkg
 *.tar.gz
 *.pkg.tar*
-*.patch
+*no_pool.patch

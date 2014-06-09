@@ -76,6 +76,11 @@ build() {
     echo "using the no-pool patch"
     patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
   fi
+  if [[ $NGX_SLAB_PATCH == 1 ]]; then
+    echo "using the ngx_slab patch to fix large alloc/frees"
+    patch -p1 < "${startdir}/ngx_slab.patch"
+  fi
+
   if [[ $MUDFLAP == 1 ]]; then
     export CFLAGS="$CFLAGS -fmudflap"
   fi

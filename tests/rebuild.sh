@@ -23,6 +23,8 @@ for opt in $*; do
       export MUDFLAP=1
       export CC=gcc
       ;;
+    slabpatch|slab)
+      export NGX_SLAB_PATCH=1;;
     clang-analyzer|analyzer|scan|analyze)
       export CC="clang"
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
