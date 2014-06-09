@@ -1,14 +1,22 @@
 #!/bin/zsh
 _nginx_ver=1.6.0
-_nopool_nginx_ver=1.7.0
+_nginx_ver_nopool=1.7.0
+_nginx_ver_old=1.0.1
+_nginx_ver_very_old=0.8.40
 
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
     CFLAGS="-ggdb -O0 -Wall"
 fi
 if [[ $NO_POOL == 1 ]]; then
-  _nginx_ver=$_nopool_nginx_ver
+  _nginx_ver=$_nginx_ver_nopool
+elif [[ $NGINX_OLDVERSION == 1 ]]; then
+  _nginx_ver=$_nginx_ver_old
+elif [[ $NGINX_VERYOLDVERSION == 1 ]]; then
+  _nginx_ver=$_nginx_ver_very_old
 fi
+
+
 PKGEXT=".pkg.tar"
 
 _user="http"
@@ -59,7 +67,7 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nopool_nginx_ver}-no_pool.patch")
+  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch")
 md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
@@ -94,13 +102,17 @@ build() {
     --http-proxy-temp-path=${_tmp_path}/proxy_temp
     --http-fastcgi-temp-path=${_tmp_path}/fastcgi_temp
     --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
-    --http-scgi-temp-path=${_tmp_path}scgi_temp
     --http-log-path=${_access_log}
     --error-log-path=${_error_log}
     --user=${_user}
     --group=${_group}
     --with-debug
     --add-module=${_pushmodule_dir})
+
+  if [[ -z $NGINX_VERYOLDVERSION ]]; then
+    CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}scgi_temp" )
+  fi
+  
 
   if [[ $CC == *clang* ]]; then 
     #not a valid clang parameter
@@ -138,5 +150,7 @@ package() {
   install -D -m644 "${srcdir}/nginx.conf" "${pkgdir}/etc/conf.d/nginx"
   install -D -m644 "${srcdir}/nginx.service" "${pkgdir}/lib/systemd/system/nginx.service"
   install -D -m644 "LICENSE" "${pkgdir}/usr/share/licenses/nginx/LICENSE"
-  install -D -m644 "man/nginx.8" "${pkgdir}/usr/share/man/man8/nginx.8"
+  if [[ -z $NGINX_VERYOLDVERSION ]]; then
+    install -D -m644 "man/nginx.8" "${pkgdir}/usr/share/man/man8/nginx.8"
+  fi
 }

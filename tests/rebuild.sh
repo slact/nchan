@@ -23,6 +23,10 @@ for opt in $*; do
       export MUDFLAP=1
       export CC=gcc
       ;;
+    oldversion|old)
+      export NGINX_OLDVERSION=1;;
+    veryoldversion|veryold)
+      export NGINX_VERYOLDVERSION=1;;
     slabpatch|slab)
       export NGX_SLAB_PATCH=1;;
     clang-analyzer|analyzer|scan|analyze)
