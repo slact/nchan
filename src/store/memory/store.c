@@ -429,6 +429,9 @@ static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *d
   ngx_http_push_shm_data_t       *d;
   
   ngx_http_push_shpool = shpool; //we'll be using this a bit.
+  #if (DEBUG_SHM_ALLOC == 1)
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ngx_http_push_shpool size %i", (u_char *)shpool->end - (u_char *)shpool->start);
+  #endif
   
   if ((d = (ngx_http_push_shm_data_t *)ngx_http_push_slab_alloc(sizeof(*d), "shm data")) == NULL) { //shm_data
     return NGX_ERROR;
