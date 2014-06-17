@@ -142,6 +142,7 @@ function formatsize(bytes)
   end
 end
 
+local alphabet={1,2,3,4,5,6,7,8,9,"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"}
 function summary()
   local compare=function(a,b)
     return a[2] > b[2]
@@ -158,11 +159,13 @@ function summary()
   printf("%-40s %s", "total", formatsize(total))
   
   --memory map
+  local n
   for i=0,membuckets do
-    if memmap[i]==0 or memmap[i] == nil then
+    n=memmap[i]
+    if n==0 or n == nil then
       write("-")
-    elseif memmap[i]<10 then
-      write(memmap[i])
+    elseif n<#alphabet then
+      write(alphabet[n] or "?")
     else
       write("#")
     end
