@@ -4,7 +4,7 @@
 #define NGX_RWLOCK_SPIN         2048
 #define NGX_RWLOCK_WRITE        -1
 
-
+#define DISABLE_RWLOCK 1  //just use a regular mutex for everything
 #define DEBUG_NGX_RWLOCK 1
 
 void ngx_rwlock_init(ngx_rwlock_t *lock) {
@@ -68,6 +68,12 @@ void ngx_rwlock_reserve_read(ngx_rwlock_t *lock)
 {
   #if (NGX_HAVE_ATOMIC_OPS)
   ngx_uint_t i, n;
+  
+  #if (DISABLE_RWLOCK == 1)
+  rwl_lock_mutex(lock);
+  return;
+  #endif
+  
   for(;;) {
     NGX_RWLOCK_MUTEX_COND(lock, (lock->lock != NGX_RWLOCK_WRITE), lock->lock++)
     #if (DEBUG_NGX_RWLOCK == 1)
@@ -93,7 +99,11 @@ void ngx_rwlock_reserve_read(ngx_rwlock_t *lock)
   #endif
 }
 void ngx_rwlock_release_read(ngx_rwlock_t *lock) {
+  #if (DISABLE_RWLOCK == 1)
+  rwl_unlock_mutex(lock);
+  #else
   NGX_RWLOCK_MUTEX_COND(lock, lock->lock != NGX_RWLOCK_WRITE && lock->lock != 0, lock->lock--)
+  #endif
 }
 
 int ngx_rwlock_write_check(ngx_rwlock_t *lock) {
@@ -113,6 +123,12 @@ int ngx_rwlock_write_check(ngx_rwlock_t *lock) {
 void ngx_rwlock_reserve_write(ngx_rwlock_t * lock) {
   #if (NGX_HAVE_ATOMIC_OPS)
   ngx_uint_t i, n;
+  
+  #if (DISABLE_RWLOCK == 1)
+  rwl_lock_mutex(lock);
+  return;
+  #endif
+  
   for(;;) {
     if(ngx_rwlock_write_check(lock))
       return;
@@ -138,6 +154,11 @@ void ngx_rwlock_reserve_write(ngx_rwlock_t * lock) {
 }
 
 void ngx_rwlock_release_write(ngx_rwlock_t *lock) {
+  #if (DISABLE_RWLOCK == 1)
+  rwl_unlock_mutex(lock);
+  return;
+  #endif
+  
   if(lock->lock == NGX_RWLOCK_WRITE) {
     rwl_lock_mutex(lock);
     if(lock->lock == NGX_RWLOCK_WRITE) {
