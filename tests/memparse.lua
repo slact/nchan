@@ -9,6 +9,7 @@ local shm, size_by_label, count_by_label, weird_log
 function init()
   print "initialize"
   shm, size_by_label, count_by_label, weird_log={}, {}, {}, {}
+  memmap={}
 end
 
 function err(str, ...)
