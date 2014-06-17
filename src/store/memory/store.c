@@ -88,7 +88,7 @@ static void * ngx_http_push_slab_alloc_locked(size_t size, char *label) {
   if (p != NULL) {
     if(label==NULL)
       label="none";
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %ui size %ui label %s", (u_char *) p - ngx_http_push_shpool->start, size, label);
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %p size %ui label %s", p, size, label);
   }
 #endif
   return p;
@@ -105,7 +105,7 @@ static void * ngx_http_push_slab_alloc(size_t size, char *label) {
 static void ngx_http_push_slab_free_locked(void *ptr) {
   ngx_slab_free_locked(ngx_http_push_shpool, ptr);
   #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %ui", (u_char *) ptr - ngx_http_push_shpool->start);
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", ptr);
   #endif
 }
 /*
@@ -430,7 +430,7 @@ static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *d
   
   ngx_http_push_shpool = shpool; //we'll be using this a bit.
   #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ngx_http_push_shpool size %i", (u_char *)shpool->end - (u_char *)shpool->start);
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ngx_http_push_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
   #endif
   
   if ((d = (ngx_http_push_shm_data_t *)ngx_http_push_slab_alloc(sizeof(*d), "shm data")) == NULL) { //shm_data

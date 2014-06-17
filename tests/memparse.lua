@@ -2,69 +2,134 @@
 
 local filename="errors.log"
 local follow=false
-if arg[1] == "tail" or arg[1] == "follow" then
-  follow=true
-elseif arg[1] ~= nil then
-  filename=arg[1]
-end
 
 local write=io.write
 
-local shm={}
-local size_by_label={}
-local count_by_label={}
-local weird_log={}
+local shm, size_by_label, count_by_label, weird_log
+function init()
+  print "initialize"
+  shm, size_by_label, count_by_label, weird_log={}, {}, {}, {}
+end
+
+function err(str, ...)
+  str = str or "Unknown error occurred"
+  io.stderr:write(str:format(...))
+  io.stderr:write("\n")
+end
+function printf(str, ...)
+  print(str:format(...))
+end
+
 
 local poolsize=0
+local poolstart=0
 local memmap={}
 local membuckets=1024
 local bucketsize=0
 
-function alloc(ptr, size, label, time, pid)
-  size=tonumber(size)
-  if shm[ptr] ~= nil then
-    print("IGNORE WEIRD ALLOC AT", ptr, pid, time)
-    table.insert(weird_log, {f="alloc", ptr=ptr, size=size, lbl=label, t=time, pid=pid})
-  end
-  shm[ptr]={size=size, label=label, time=time}
-  size_by_label[label]=(size_by_label[label] or 0) + size
-  count_by_label[label]=(count_by_label[label] or 0) + 1
-  if bucketsize==0 then
-    bucketsize=poolsize/membuckets
-  end
-  if bucketsize ~= 0 then
-    local bstart=math.floor(ptr/poolsize * membuckets)
-    local bend=math.floor((ptr+size)/poolsize * membuckets)
-    if bend - bstart > 2 then
-      print(("large alloc of %i buckets (%s)"):format(bend-bstart, formatsize(size)))
+local resolve_weird_log; do
+  local weirdlog={}
+  resolve_weird_log=function(line, is_weird)
+    local prev = weirdlog[1]
+    if prev and prev.ptr == line.ptr and prev.t == line.t and prev.pid ~= line.pid then
+      if prev.action == "free"  and line.action == "alloc" then
+        --oh, a free happened in a different worker and at the same time?
+        --the log was probably written out-of-sequence
+        table.remove(weirdlog, 1)
+        alloc_raw(line.ptr, line.size, line.lbl, line.t, line.pid)
+        free_raw(prev.ptr, prev.t, prev.pid)
+        printf("resolved weird free/alloc at %s", line.ptr)
+        return false
+      elseif prev.action == "alloc" and line.action == "free" then
+        --oh, an alloc happened in a different worker and at the same time?
+        --the log was probably written out-of-sequence
+        table.remove(weirdlog, 1)
+        free_raw(line.ptr, line.t, line.pid)
+        alloc_raw(prev.ptr, prev.size, prev.lbl, prev.t, prev.pid)
+        printf("resolved weird alloc/free at %s", line.ptr)
+        return false
+      end
     end
-    for i=bstart, bend do
-      memmap[i]=(memmap[i] or 0)+1
+    if is_weird then
+      table.insert(weirdlog, 1, line)
+      return false
+    else
+      return true
+    end
+  end
+end
+
+local memmap_add
+do
+  local bucketsize=0
+  memmap_add= function(starthex, size, val)
+  if not poolsize or not poolstart then return err("poolsize or poolstart not known") end  
+  val = val or 1
+  local start=tonumber(starthex, 16)
+  if not start then return err("starthex was not a hex number") end
+  --start should be relative to pool start
+  start=start-poolstart
+  
+  if not size then
+    if shm[starthex] then
+      size=shm[starthex].size
+    else
+      err("shm[%s] is nil", starthex)
     end
   end
   
-end
-function free(ptr, time, pid)
-  local ref=shm[ptr]
-  if ref == nil then
-    print("IGNORE WEIRD FREE AT  ", ptr, pid, time)
-    table.insert(weird_log, {f="free", ptr=ptr, size=nil, lbl=nil, t=time, pid=pid})
-  else
-    size_by_label[ref.label]=size_by_label[ref.label]-ref.size
-    count_by_label[ref.label]=(count_by_label[ref.label] or 0) - 1
-    shm[ptr]=nil
-    if bucketsize ~= 0 then
-      local bstart=math.floor(ptr/poolsize*membuckets)
-      local bend=math.floor((ptr+ ref.size)/poolsize*membuckets)
-      for i=bstart, bend do
-        memmap[i]=(memmap[i] or 0)-1
-        if memmap[i]<0 then print("memory map error!") end
-      end
-      
-    else
-      print("can't make momory map, unknown shm size!")
+  local bstart = math.floor(start/poolsize * membuckets)
+  local bend =   math.floor((start+size)/poolsize * membuckets)
+  
+  for i=bstart, bend do
+    memmap[i]=(memmap[i] or 0)+val
+    if memmap[i]<0 then
+      err("negative memmap at bucket %s", i)
+      memmap[i]=0
     end
   end
+end
+end
+
+function alloc(ptr, size, label, time, pid)
+  size=tonumber(size)
+  local looks_weird=false
+  if shm[ptr] ~= nil then
+    err("BAD ALLOC AT ptr %s pid %i time %s", ptr, pid, time)
+    looks_weird = true
+  end
+  if resolve_weird_log({action="alloc", ptr=ptr, size=size, lbl=label, t=time, pid=pid}, looks_weird) then
+    alloc_raw(ptr, size, label, time, pid)
+  end
+end
+function alloc_raw(ptr, size, label, time, pid)
+  shm[ptr]={size=size, label=label, time=time}
+  size_by_label[label]=(size_by_label[label] or 0) + size
+  count_by_label[label]=(count_by_label[label] or 0) + 1
+  memmap_add(ptr, size)
+end
+
+function free(ptr, time, pid)
+  local looks_weird=false
+  local ref=shm[ptr]
+  if ref == nil then
+    err ("DOUBLE FREE AT ptr %s pid %i time %s", ptr, pid, time)
+    looks_weird = true
+  end
+  if resolve_weird_log({action="free", ptr=ptr, size=nil, lbl=nil, t=time, pid=pid}, looks_weird) then
+    free_raw(ptr, time, pid)
+  end
+end
+function free_raw(ptr, time, pid)
+  local ref=shm[ptr]
+  if ref==nil then
+    err("executed double free on ptr %s pid %i time %s", ptr, pid, time)
+    return
+  end
+  memmap_add(ptr, nil, -1)
+  size_by_label[ref.label]=size_by_label[ref.label]-ref.size
+  count_by_label[ref.label]=(count_by_label[ref.label] or 0) - 1
+  shm[ptr]=nil
 end
 
 function formatsize(bytes)
@@ -77,36 +142,6 @@ function formatsize(bytes)
   end
 end
 
-function fragmentation()
-  local grow=function(tbl, first, last, step)
-    if tbl[n] == nil then
-      local i=n
-      local grown=0
-      while i > 0 do
-        if tbl[i]==nil then
-          tbl[i]=0
-          grown=grown+1
-        else
-          return grown
-        end
-        i=i-1
-      end
-    end
-    return 0
-  end
-  local compare=function(a,b)
-    return a[1] < b[1]
-  end
-  local total=0;
-  local resort={}
-  for k,v in pairs(shm) do table.insert(resort, {tonumber(v.ptr), v.size}) end
-  table.sort(resort, compare)
-  
-  local step=1024*100
-  local memmap={}
-  
-end
-
 function summary()
   local compare=function(a,b)
     return a[2] > b[2]
@@ -116,11 +151,11 @@ function summary()
   for k,v in pairs(size_by_label) do table.insert(resort, {k, v}) end
   table.sort(resort, compare)
   for k,v in ipairs(resort) do
-    print(("%-40s %-10s %i"):format(v[1], formatsize(v[2]), count_by_label[v[1]]))
+    printf("%-40s %-10s %i", v[1], formatsize(v[2]), count_by_label[v[1]])
     total = total + v[2]
   end
-  print("                                       --------      ")
-  print(("%-40s %s" ):format("total", formatsize(total)))
+  print ("                                       --------      ")
+  printf("%-40s %s", "total", formatsize(total))
   
   --memory map
   for i=0,membuckets do
@@ -140,7 +175,7 @@ function parse_line(str)
   local out_of_memory
   local time,errlevel, pid, msg=str:match("(%d+/%d+/%d+%s+%d+:%d+:%d+)%s+%[(%w+)%]%s+(%d+)#%d+:%s+(.+)")
   if msg ~= nil then
-    local ptr, size, label
+    local ptr, size, label, start
 
     if errlevel == "crit" then
       print("CRITICAL:", time, pid, msg)
@@ -160,21 +195,42 @@ function parse_line(str)
       return ptr
     end
     
-    size = msg:match("ngx_http_push_shpool size (%d+)")
-    if size then
+    start, size = msg:match("ngx_http_push_shpool start (%w+) size (%d+)")
+    if size and start then
       poolsize=tonumber(size)
-      print(("%-40s %-10s"):format("shm size", formatsize(poolsize)))
+      poolstart = tonumber(start, 16)
+      printf("shm start %s size %s", start, formatsize(poolsize))
     end
   end
 end
 
+
+
+----------------------------------------------------------------
+--NO FUNCTIONS DEFINED BELOW THIS LINE PLEASE (except lambdas)--
+
+--handle arguments
+if arg[1] == "tail" or arg[1] == "follow" then
+  follow=true
+elseif arg[1] ~= nil then
+  filename=arg[1]
+end
+
+
+init()
+
+
 if follow then
   local lasttime, now=os.time(), nil
   print "follow errors.log"
-  local tailin = io.popen('tail -F '..filename..' 2>&1', 'r')
+  local tailin = io.popen(string.format('tail --lines=1000 -F %s 2>&1', filename), 'r')
   for line in tailin:lines() do
     now=os.time()
-    if parse_line(line) == true then
+    if line:match('truncated') or
+       line:match(("‘%s’ has become inaccessible: No such file or directory"):format(filename)) then
+      --reset
+      init()
+    elseif parse_line(line) == true then
       summary()
       lasttime=now
     elseif now - lasttime > 1 then
@@ -183,10 +239,8 @@ if follow then
     end
   end
 else
-  print(string.format("open %s", filename))
+  printf("open %s", filename)
   local f = io.open(filename, "r")
-  local filesize=f:seek("end")
-  f:seek("set")
   for line in f:lines() do
     if parse_line(line) == true then
       summary()
