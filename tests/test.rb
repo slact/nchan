@@ -191,15 +191,15 @@ class PubSubTest < Test::Unit::TestCase
     sub.terminate
   end
   
-  def test_500kb_message
+  def test_long_message_500kb
     test_long_message 500
   end
   
-  def test_700kb_message
+  def test_long_message_700kb
     test_long_message 700
   end
   
-  def test_950kb_message
+  def test_long_message_950kb
     test_long_message 950
   end
   
