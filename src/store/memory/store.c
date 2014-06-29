@@ -299,49 +299,49 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
   //in shared memory, identified by pid.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   ngx_http_push_pid_queue_t     *sentinel = channel->workers_with_subscribers;
-  //new pid_queue sentinel
-  if((channel->workers_with_subscribers=ngx_http_push_slab_alloc_locked(sizeof(*channel->workers_with_subscribers), "channel worker queue sentinel"))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker queue sentinel");
-    return 0;
-  }
-  ngx_queue_init(&channel->workers_with_subscribers->queue);
+  ngx_http_push_subscriber_t    *subscriber_sentinels[NGX_MAX_PROCESSES];
+  ngx_http_push_pid_queue_t     *pid_queues[NGX_MAX_PROCESSES];
+  ngx_int_t                      sub_sentinel_count=0;
   
-  ngx_http_push_pid_queue_t     *cur, *next;
-  ngx_int_t                      received, reservations=0;
+  ngx_http_push_pid_queue_t     *cur;
+  ngx_int_t                      i, received;
   received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
 
   //we need to reserve the message for all the workers in advance
-  for(cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue); cur != sentinel; cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue)) {
-    if(cur->subscriber_sentinel) {
-      reservations++;
+  for(cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue); cur != sentinel; cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue)) {
+    if(cur->subscriber_sentinel != NULL) {
+      pid_queues[sub_sentinel_count] = cur;
+      subscriber_sentinels[sub_sentinel_count] = cur->subscriber_sentinel;
+      /*
+      each time all of a worker's subscribers are removed, so is the sentinel. 
+      this is done to make garbage collection easier. Assuming we want to avoid
+      placing the sentinel in shared memory (for now -- it's a little tricky
+      to debug), the owner of the worker pool must be the one to free said sentinel.
+      But channels may be deleted by different worker processes, and it seems unwieldy
+      (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
+      is used every time the subscriber queue is emptied.
+      */
+      cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
+      sub_sentinel_count++;
     }
   }
-  if(reservations > 0) {
-    ngx_http_push_store_reserve_message_num_locked(channel, msg, reservations);
+  if(sub_sentinel_count > 0) {
+    ngx_http_push_store_reserve_message_num_locked(channel, msg, sub_sentinel_count);
   }
+  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   
-  cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue);
-  while(cur != sentinel) {
-    pid_t           worker_pid  = cur->pid;
-    ngx_int_t       worker_slot = cur->slot;
-    ngx_http_push_subscriber_t *subscriber_sentinel= cur->subscriber_sentinel;
-    
+  ngx_http_push_subscriber_t *subscriber_sentinel=NULL;
+  for(i=0; i < sub_sentinel_count; i++) {
+    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+    subscriber_sentinel = subscriber_sentinels[i];
+    pid_t           worker_pid  = pid_queues[i]->pid;
+    ngx_int_t       worker_slot = pid_queues[i]->slot;
+    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     //if(msg != NULL)
     //  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "publish msg %p (ref: %i) for worker %i (slot %i)", msg, msg->refcount, worker_pid, worker_slot);
+
     
-    /*
-    each time all of a worker's subscribers are removed, so is the sentinel. 
-    this is done to make garbage collection easier. Assuming we want to avoid
-    placing the sentinel in shared memory (for now -- it's a little tricky
-    to debug), the owner of the worker pool must be the one to free said sentinel.
-    But channels may be deleted by different worker processes, and it seems unwieldy
-    (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
-    is used every time the subscriber queue is emptied.
-    */
-    cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     if(subscriber_sentinel != NULL) {
-      
       if(worker_pid == ngx_pid) {
         //my subscribers
         ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
@@ -355,19 +355,13 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
         else {
           ngx_log_error(NGX_LOG_ERR, log, 0, "push module: error communicating with some other worker process");
         }
-        
       }
     } else {
       //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "subscriber sentinel is NULL");
     }
     
-    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-    next=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
-    ngx_http_push_slab_free_locked(cur);
-    cur=next;
+    
   }
-  ngx_http_push_slab_free_locked(sentinel);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return received;
 }
 
@@ -888,11 +882,12 @@ static void ngx_http_push_store_receive_worker_message(void) {
       //but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
       //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing INVALID worker_msg ");
       
+      ngx_shmtx_lock(&shpool->mutex);
+      
       ngx_rwlock_reserve_read(&sentinel->lock);
       ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
       ngx_rwlock_release_read(&sentinel->lock);
       
-      ngx_shmtx_lock(&shpool->mutex);
       ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
       
