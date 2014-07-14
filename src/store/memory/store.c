@@ -812,9 +812,10 @@ static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t
   newmessage->pid = pid;
   newmessage->subscriber_sentinel = subscriber_sentinel;
   newmessage->channel = channel;
-  ngx_rwlock_reserve_write(&sentinel->lock);
+  
+  ngx_http_push_store_lock_shmem();
   ngx_queue_insert_tail(&sentinel->queue, &newmessage->queue);
-  ngx_rwlock_release_write(&sentinel->lock);
+  ngx_http_push_store_unlock_shmem();
   return NGX_OK;
   
 }
@@ -833,25 +834,25 @@ static void ngx_http_push_store_receive_worker_message(void) {
   
   sentinel = &(((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc)[ngx_process_slot];
   
-  ngx_rwlock_reserve_read(&sentinel->lock);
+  ngx_http_push_store_lock_shmem();
   worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&sentinel->queue);
-  ngx_rwlock_release_read(&sentinel->lock);
+  ngx_http_push_store_unlock_shmem();
   while((void *)worker_msg != (void *)sentinel) {
     
-    ngx_rwlock_reserve_read(&sentinel->lock);
+    ngx_http_push_store_lock_shmem();
     worker_msg_pid = worker_msg->pid;
-    ngx_rwlock_release_read(&sentinel->lock);
+    ngx_http_push_store_unlock_shmem();
     
     if(worker_msg_pid == ngx_pid) {
       //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing proper worker_msg ");
       //everything is okay.
       
-      ngx_rwlock_reserve_read(&sentinel->lock);
+      ngx_http_push_store_lock_shmem();
       status_code = worker_msg->status_code;
       msg = worker_msg->msg;
       channel = worker_msg->channel;
       subscriber_sentinel = worker_msg->subscriber_sentinel;
-      ngx_rwlock_release_read(&sentinel->lock);
+      ngx_http_push_store_unlock_shmem();
       
       if(msg==NULL) {
         //just a status line, is all    
@@ -882,11 +883,9 @@ static void ngx_http_push_store_receive_worker_message(void) {
       //but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
       //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing INVALID worker_msg ");
       
-      ngx_shmtx_lock(&shpool->mutex);
+      ngx_http_push_store_lock_shmem();
       
-      ngx_rwlock_reserve_read(&sentinel->lock);
       ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
-      ngx_rwlock_release_read(&sentinel->lock);
       
       ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
@@ -899,21 +898,22 @@ static void ngx_http_push_store_receive_worker_message(void) {
           break;
         }
       }
-      ngx_shmtx_unlock(&shpool->mutex);
+      
+      ngx_http_push_store_unlock_shmem();
       
     }
     //It may be worth it to memzero worker_msg for debugging purposes.
     prev_worker_msg = worker_msg;
     
-    ngx_rwlock_reserve_write(&sentinel->lock);
+    ngx_http_push_store_lock_shmem();
     worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue);
     ngx_http_push_slab_free_locked(prev_worker_msg);
-    ngx_rwlock_release_write(&sentinel->lock);
+    ngx_http_push_store_unlock_shmem();
 
   }
-  ngx_rwlock_reserve_write(&sentinel->lock);
+  ngx_http_push_store_lock_shmem();
   ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
-  ngx_rwlock_release_write(&sentinel->lock);
+  ngx_http_push_store_unlock_shmem();
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message finished");
   return;
 }
