@@ -1,4 +1,16 @@
- 
+ fix: file descriptor leak when restarting nginx via SIGHUP
+ improve: concurrency for interprocess notifications
+ refactor: completely encapsulated message store
+ fix: slow memory leak introduced in 0.7
+ fix: memory leak when not using message buffer
+0.712 (Mar. 21 2014)
+ fix: intermittently dropped long-polling connections on internal redirects
+ fix: unable to proxy long-polling subscribers. (thanks wandenberg and sanmai)
+0.711 (Mar. 13 2014)
+ fix: incompatibility with cache manager (proxy_cache and fastcgi_cache directives)
+0.71 (Mar. 1 2014)
+ fix: removed unused variables and functions to quiet down GCC
+0.7: (Feb. 20 2014)
  fix: last-in concurrency setting wasn't working reliably
  refactor: partially separated message storage. add a test harness.
  fix: segfault from concurrency bug while garbage-collecting channels

@@ -1,0 +1,6 @@
+#!/usr/bin/ruby
+source 'https://rubygems.org'
+gem 'typhoeus'
+gem 'json'
+gem 'pry'
+gem 'celluloid'

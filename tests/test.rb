@@ -1,18 +1,20 @@
 #!/usr/bin/ruby
 require 'test/unit'
 require 'securerandom'
-require "./pubsub.rb"
-
-def url(part)
-  "http://127.0.0.1:8082/#{part}"
+require_relative 'pubsub.rb'
+SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
+PORT=ENV["PUSHMODULE_PORT"] || "8082"
+def url(part="")
+  "http://#{SERVER}:#{PORT}/#{part}"
 end
+puts "Server at #{url}"
 def pubsub(concurrent_clients=1, opt={})
     urlpart=opt[:urlpart] || 'broadcast'
     timeout = opt[:timeout]
     sub_url=opt[:sub] || "sub/broadcast/"
     pub_url=opt[:pub] || "pub/"
     chan_id = opt[:channel] || SecureRandom.hex
-    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, quit_message: 'FIN'
+    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN'
     pub = Publisher.new url("#{pub_url}#{chan_id}")
     return pub, sub
 end
@@ -21,7 +23,6 @@ def verify(pub, sub)
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
-    binding.pry if msg.times_seen != sub.concurrency
     assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
   end
 end
@@ -59,6 +60,30 @@ class PubSubTest < Test::Unit::TestCase
     pub.post ["fwoop", "FIN"]
     sub.wait
     verify pub, sub
+  end
+  
+  def test_no_message_buffer
+    chan_id=SecureRandom.hex
+    pub = Publisher.new url("/pub/nobuffer/#{chan_id}")
+    sub=[]
+    40.times do 
+      sub.push Subscriber.new(url("/sub/broadcast/#{chan_id}"), 1, use_message_id: false, quit_message: 'FIN')
+    end
+
+    pub.post ["this message should not be delivered", "nor this one"]
+    sub.each {|s| s.run}
+    sleep 0.2
+    pub.post "received1"
+    sleep 0.2
+    pub.post "received2"
+    sleep 0.2 
+    pub.post "FIN"
+    sub.each {|s| s.wait}
+    sub.each do |s|
+      assert s.errors.empty?, "There were subscriber errors: \r\n#{s.errors.join "\r\n"}"
+      ret, err = s.messages.matches? ["received1", "received2", "FIN"]
+      assert ret, err || "Messages don't match"
+    end
   end
   
   def test_channel_isolation
@@ -166,15 +191,15 @@ class PubSubTest < Test::Unit::TestCase
     sub.terminate
   end
   
-  def test_500kb_message
+  def test_long_message_500kb
     test_long_message 500
   end
   
-  def test_700kb_message
+  def test_long_message_700kb
     test_long_message 700
   end
   
-  def test_950kb_message
+  def test_long_message_950kb
     test_long_message 950
   end
   

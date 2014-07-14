@@ -1,0 +1,5 @@
+src
+pkg
+*.tar.gz
+*.pkg.tar*
+*no_pool.patch

@@ -11,11 +11,20 @@ HTTP_MODULES="$HTTP_MODULES ngx_http_push_module"
 CORE_INCS="$CORE_INCS \
 	$ngx_addon_dir/src"	
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
-	${ngx_addon_dir}/src/hiredis/hiredis.c \
-	${ngx_addon_dir}/src/hiredis/async.c \
-	${ngx_addon_dir}/src/hiredis/sds.c \
-	${ngx_addon_dir}/src/hiredis/net.c \
-	${ngx_addon_dir}/src/ngx_http_push_module.c"
+    ${ngx_addon_dir}/src/hiredis/hiredis.c \
+    ${ngx_addon_dir}/src/hiredis/async.c \
+    ${ngx_addon_dir}/src/hiredis/sds.c \
+    ${ngx_addon_dir}/src/hiredis/net.c \
+    ${ngx_addon_dir}/src/ngx_http_push_defs.c \
+    ${ngx_addon_dir}/src/store/rbtree_util.c \
+    ${ngx_addon_dir}/src/store/ngx_http_push_module_ipc.c \
+    ${ngx_addon_dir}/src/store/memory/store.c \
+    ${ngx_addon_dir}/src/store/ngx_rwlock.c \
+    ${ngx_addon_dir}/src/ngx_http_push_module.c \
+    "
 
 have=NGX_HTTP_HEADERS . auto/have
 . auto/feature
+
+CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+CORE_INCS="$CORE_INCS $ngx_feature_incs"
