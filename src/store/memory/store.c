@@ -31,7 +31,7 @@
 #define RESERVED_DBG "msg %p reserved.  ref:%i, p:%p n:%p"
 #define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
 
-#define DEBUG_SHM_ALLOC 1
+//#define DEBUG_SHM_ALLOC 1
 
 static ngx_http_push_channel_queue_t channel_gc_sentinel;
 static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
@@ -825,7 +825,6 @@ static void ngx_http_push_store_receive_worker_message(void) {
   ngx_http_push_worker_msg_sentinel_t    *sentinel;
   const ngx_str_t                *status_line = NULL;
   ngx_http_push_channel_t        *channel;
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *)ngx_http_push_shm_zone->shm.addr;
   ngx_http_push_subscriber_t     *subscriber_sentinel;
   ngx_int_t                       worker_msg_pid;
   
