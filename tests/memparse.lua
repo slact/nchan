@@ -1,5 +1,5 @@
 #!/usr/bin/luajit
-
+local lines_tailed=100000
 local filename="errors.log"
 local follow=false
 
@@ -227,7 +227,7 @@ init()
 if follow then
   local lasttime, now=os.time(), nil
   print "follow errors.log"
-  local tailin = io.popen(string.format('tail --lines=1000 -F %s 2>&1', filename), 'r')
+  local tailin = io.popen(string.format('tail --lines=%s -F %s 2>&1', lines_tailed, filename), 'r')
   for line in tailin:lines() do
     now=os.time()
     if line:match('truncated') or

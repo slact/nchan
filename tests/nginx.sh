@@ -51,6 +51,8 @@ for opt in $*; do
       ;;
     lomem|lowmem|small)
       MEM="5M";;
+    himem|highmem|large)
+      MEM="256M";;
     verylowmem|tiny)
       MEM="1M";;
   esac

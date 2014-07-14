@@ -1,6 +1,6 @@
 #!/bin/zsh
 _nginx_ver=1.6.0
-_nginx_ver_nopool=1.7.0
+_nginx_ver_nopool=1.7.2
 _nginx_ver_old=1.0.1
 _nginx_ver_very_old=0.8.40
 
@@ -112,9 +112,8 @@ build() {
   if [[ -z $NGINX_VERYOLDVERSION ]]; then
     CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}scgi_temp" )
   fi
-  
 
-  if [[ $CC == *clang* ]]; then 
+  if [[ $CC == *clang* ]]; then
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
