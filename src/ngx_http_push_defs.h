@@ -3,7 +3,7 @@
 #define NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT 3600
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_TIMEOUT 0  //default: never timeout
 //(liucougar: this is a bit confusing, but it is what's the default behavior before this option is introducecd)
-#define NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT 0 //default: timeout immediately
+#define NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT 5 //default: timeout in 5 seconds
 
 #define NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES 1
 #define NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGES 10
