@@ -551,6 +551,27 @@ static ngx_int_t ngx_http_push_store_channel_worker_subscribers(ngx_http_push_su
   return count;
 }
 
+static ngx_http_push_subscriber_t *ngx_http_push_store_channel_next_subscriber(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_subscriber_t *cur, int release_previous) {
+  ngx_http_push_subscriber_t *next;
+  if(cur==NULL) {
+    next=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
+  }
+  else{
+    next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+    if(release_previous==1 && cur!=sentinel) {
+      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "freeing subscriber cursor at %p.", cur);
+      ngx_pfree(ngx_http_push_pool, cur);
+    }
+  }
+  return next!=sentinel ? next : NULL;
+}
+
+static ngx_int_t ngx_http_push_store_channel_release_subscriber_sentinel(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel) {
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "freeing subscriber sentinel at %p.", sentinel);
+  ngx_pfree(ngx_http_push_pool, sentinel);
+  return NGX_OK;
+}
+
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   ngx_http_push_ipc_exit_worker(cycle);
 }
@@ -943,6 +964,8 @@ ngx_http_push_store_t  ngx_http_push_store_memory = {
     //channel properties
     &ngx_http_push_store_channel_subscribers,
     &ngx_http_push_store_channel_worker_subscribers,
+    &ngx_http_push_store_channel_next_subscriber,
+    &ngx_http_push_store_channel_release_subscriber_sentinel,
 
     //legacy shared-memory store helpers
     &ngx_http_push_store_lock_shmem,
