@@ -136,6 +136,9 @@ typedef struct {
   //channel properties
   ngx_int_t (*channel_subscribers)(ngx_http_push_channel_t * channel);
   ngx_int_t (*channel_worker_subscribers)(ngx_http_push_subscriber_t * worker_sentinel);
+  ngx_http_push_subscriber_t *(*next_subscriber)(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_subscriber_t *cur, int release_previous);
+  ngx_int_t (*release_subscriber_sentinel)(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel);
+  
   
   void (*lock)(void); //legacy shared-memory store helpers
   void (*unlock)(void);

@@ -723,7 +723,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 }
 
 ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_http_push_subscriber_t     *cur, *next;
+  ngx_http_push_subscriber_t     *cur=NULL;
   ngx_int_t                       responded_subscribers=0;
   if(sentinel==NULL) {
     //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with sentinel==NULL");
@@ -779,10 +779,7 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
     buf_use_count = ngx_pcalloc(ngx_http_push_pool, sizeof(*buf_use_count));
     *buf_use_count = ngx_http_push_store->channel_worker_subscribers(sentinel);
     
-    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
-    //now let's respond to some requests!
-    while(cur!=sentinel) {
-      next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+    while((cur=ngx_http_push_store->next_subscriber(channel, sentinel, cur, 1))!=NULL) {
       //in this block, nothing in shared memory should be dereferenced.
       r=cur->request;
       //chain and buffer for this request
@@ -808,11 +805,6 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
       
       ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, rchain, content_type, etag, last_modified_time)); //BAM!
       responded_subscribers++;
-      
-      //done with this subscriber. free the sucker.
-      ngx_pfree(ngx_http_push_pool, cur);
-
-      cur=next;
     }
     ngx_http_push_store->release_message(channel, msg);
     ngx_free(etag);
@@ -823,26 +815,21 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
   else {
     //headers only probably
     ngx_http_request_t     *r;
-    cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
-    while(cur!=sentinel) {
-      next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
+    while((cur=ngx_http_push_store->next_subscriber(channel, sentinel, cur, 1))!=NULL) {
       r=cur->request;
       
       //cleanup oughtn't dequeue anything. or decrement the subscriber count, for that matter
       ngx_http_push_subscriber_clear_ctx(cur);
       ngx_http_finalize_request(r, ngx_http_push_respond_status_only(r, status_code, status_line));
       responded_subscribers++;
-      ngx_pfree(ngx_http_push_pool, cur);
-      cur=next;
     }
   }
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p finished", msg);
   ngx_http_push_store->lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "deleting subscriber sentinel at %p.", sentinel);
-  ngx_pfree(ngx_http_push_pool, sentinel);
   ngx_http_push_store->unlock();
+  ngx_http_push_store->release_subscriber_sentinel(channel, sentinel);
   return NGX_OK;
 }
 
