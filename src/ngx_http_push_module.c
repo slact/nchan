@@ -278,6 +278,17 @@ static ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
   return NULL;
 }
 
+static ngx_int_t ngx_http_push_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_id_t *id) {
+  ngx_str_t                      *if_none_match = ngx_http_push_subscriber_get_etag(r);
+  ngx_int_t                       tag=0;
+  id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+  if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
+    tag=0;
+  }
+  id->tag=ngx_abs(tag);
+  return NGX_OK;
+}
+
 //allocates nothing
 static ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified) {
   ngx_int_t                      res;
@@ -405,6 +416,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   
   ngx_str_t                      *content_type=NULL;
   ngx_str_t                      *etag;
+  ngx_http_push_msg_id_t         msgid;
   
     if (r->method == NGX_HTTP_OPTIONS) {
         ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
@@ -455,8 +467,8 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       return NGX_ERROR;
   }
 
-  
-  msg = ngx_http_push_store->get_message(channel, r, &msg_search_outcome, cf, r->connection->log);
+  ngx_http_push_subscriber_get_msg_id(r, &msgid);
+  msg = ngx_http_push_store->get_message(channel, &msgid, &msg_search_outcome, cf, r->connection->log);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
@@ -705,7 +717,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       return;
       
     case NGX_HTTP_DELETE:
-      if(ngx_http_push_store->delete_channel(channel, r) != NGX_OK) {
+      if(ngx_http_push_store->delete_channel(channel) != NGX_OK) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       }
       else {
@@ -848,15 +860,6 @@ ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
     return rc;
   }
   return NGX_DONE;
-}
-
-ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r) {
-  ngx_str_t                      *if_none_match = ngx_http_push_subscriber_get_etag(r);
-  ngx_int_t                       tag=0;
-  if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
-    tag=0;
-  }
-  return ngx_abs(tag);
 }
 
 void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {

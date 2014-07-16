@@ -9,6 +9,12 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
+
+typedef struct {
+  time_t                          time; //tag message by time
+  ngx_int_t                       tag;  //used in conjunction with message_time if more than one message have the same time.
+} ngx_http_push_msg_id_t;
+
 //message queue
 typedef struct {
   ngx_queue_t                     queue; //this MUST be first.
@@ -122,8 +128,8 @@ typedef struct {
   //channel actions
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log);
   ngx_http_push_channel_t *(*find_channel)(ngx_str_t *id, time_t channel_timeout, ngx_log_t *log);
-  ngx_int_t (*delete_channel)(ngx_http_push_channel_t *channel, ngx_http_request_t *r);
-  ngx_http_push_msg_t *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
+  ngx_int_t (*delete_channel)(ngx_http_push_channel_t *channel);
+  ngx_http_push_msg_t *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log);
   
   void (*reserve_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
   void (*release_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);

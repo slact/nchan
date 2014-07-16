@@ -230,13 +230,14 @@ static ngx_int_t ngx_http_push_delete_message(ngx_http_push_channel_t *channel, 
 /** find message with entity tags matching those of the request r.
   * @param r subscriber request
   */
-static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t *status) {
+static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
   //TODO: consider using an RBTree for message storage.
   ngx_queue_t                    *sentinel = &channel->message_queue->queue;
   ngx_queue_t                    *cur = ngx_queue_head(sentinel);
   ngx_http_push_msg_t            *msg;
-  ngx_int_t                       tag = -1;
-  time_t                          time = (r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+  
+  time_t                          time = msgid->time;
+  ngx_int_t                       tag = msgid->tag;
   
   //channel's message buffer empty?
   if(channel->messages==0) {
@@ -248,7 +249,6 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
   msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
   if(time <= msg->message_time) { //that's an empty check (Sentinel's values are zero)
     if(time == msg->message_time) {
-      if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
       if(tag >= msg->message_tag) {
         *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
         return NULL;
@@ -267,7 +267,6 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
       return msg;
     }
     else if(time == msg->message_time) {
-      if(tag<0) { tag = ngx_http_push_subscriber_get_etag_int(r); }
       while (tag >= msg->message_tag  && time == msg->message_time && ngx_queue_next(cur)!=sentinel) {
         cur=ngx_queue_next(cur);
         msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
@@ -366,7 +365,7 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
 }
 
 
-static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
+static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *channel) {
   ngx_http_push_msg_t            *msg, *sentinel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   sentinel = channel->message_queue; 
@@ -381,7 +380,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *cha
   //410 gone
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   
-  ngx_http_push_store_publish(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, r->connection->log);
+  ngx_http_push_store_publish(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410, ngx_cycle->log);
   
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   ngx_http_push_delete_channel_locked(channel, ngx_http_push_shm_zone);
@@ -397,10 +396,10 @@ static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, 
   return channel;
 }
 
-static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log) {
+static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf, ngx_log_t *log) {
   ngx_http_push_msg_t *msg;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  msg = ngx_http_push_find_message_locked(channel, r, msg_search_outcome);
+  msg = ngx_http_push_find_message_locked(channel, msgid, msg_search_outcome);
   if(*msg_search_outcome == NGX_HTTP_PUSH_MESSAGE_FOUND) {
     ngx_http_push_store_reserve_message_locked(channel, msg);
   }
