@@ -176,7 +176,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store->publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409, r->connection->log);
+      ngx_http_push_store->publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
       
       return NGX_OK;
       
@@ -442,9 +442,9 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout);
   }else{
-    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout);
   }
   
   if (channel==NULL) {
@@ -468,7 +468,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 
   ngx_http_push_subscriber_get_msg_id(r, &msgid);
-  msg = ngx_http_push_store->get_message(channel, &msgid, &msg_search_outcome, cf, r->connection->log);
+  msg = ngx_http_push_store->get_message(channel, &msgid, &msg_search_outcome, cf);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
@@ -616,7 +616,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
-    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout);
     if(channel==NULL) {
       ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unable to allocate memory for new channel");
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -626,7 +626,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   //no other request method needs that.
   else {
     //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout, r->connection->log);
+    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout);
   }
   
   if(channel!=NULL) {
@@ -663,7 +663,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       else if(cf->max_messages == 0) {
         ngx_http_push_store->reserve_message(NULL, msg);
       }
-      switch(ngx_http_push_store->publish(channel, msg, 0, NULL, r->connection->log)) {
+      switch(ngx_http_push_store->publish(channel, msg, 0, NULL)) {
         
         case NGX_HTTP_PUSH_MESSAGE_QUEUED:
           //message was queued successfully, but there were no 
