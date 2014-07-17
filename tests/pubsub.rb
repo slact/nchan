@@ -240,17 +240,20 @@ end
 
 class Publisher
   include Celluloid
-  attr_accessor :messages, :response, :nofail
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail
   def initialize(url)
     @url= url
     @messages = MessageStore.new :noid => true
   end
   
-  def submit(body, method=:POST, content_type= :'text/plain')
+  def submit(body, method=:POST, content_type= :'text/plain', &block)
     self.response=nil
+    self.response_code=nil
+    self.response_body=nil
+
     if Enumerable===body
       i=0
-      body.each{|b| i+=1; submit(b, method, content_type)}
+      body.each{|b| i+=1; submit(b, method, content_type, &block)}
       return i
     end
     post = Typhoeus::Request.new(
@@ -261,9 +264,10 @@ class Publisher
     )
     msg=Message.new body
     msg.content_type=content_type
-
     post.on_complete do |response|
       self.response=response
+      self.response_code=response.response_code
+      self.response_body=response.response_body
       if response.success?
         #puts "published message #{msg.to_s[0..15]}"
         @messages << msg
@@ -280,6 +284,7 @@ class Publisher
         #puts "publisher err: #{response.code.to_s}"
         raise "HTTP request failed: #{response.code.to_s}" unless self.nofail
       end
+      block.call(self) if block
     end
     #puts "publishing to #{@url}"
     post.run
@@ -291,11 +296,11 @@ class Publisher
   def delete
     submit nil, :DELETE
   end
-  def post(body, content_type=nil)
-    submit body, :POST, content_type
+  def post(body, content_type=nil, &block)
+    submit body, :POST, content_type, &block
   end
-  def put(body, content_type=nil)
-    submit body, :PUT, content_type
+  def put(body, content_type=nil, &block)
+    submit body, :PUT, content_type, &block
   end
 
   

@@ -34,11 +34,14 @@ class PubSubTest < Test::Unit::TestCase
   def test_message_delivery
     pub, sub = pubsub
     sub.run
+    sleep 0.2
     assert_equal 0, sub.messages.messages.count
     pub.post "hi there"
+    assert_equal 201, pub.response_code
     sleep 0.2
     assert_equal 1, sub.messages.messages.count
     pub.post "FIN"
+    assert_equal 201, pub.response_code
     sleep 0.2
     assert_equal 2, sub.messages.messages.count
     assert sub.messages.matches? pub.messages
@@ -55,9 +58,11 @@ class PubSubTest < Test::Unit::TestCase
     assert sub.match_errors(/code 40[34]/)
     sub.reset
     pub.post %w( fweep )
+    assert_equal 202, pub.response_code
     sleep 0.1
     sub.run
-    pub.post ["fwoop", "FIN"]
+    sleep 0.1
+    pub.post ["fwoop", "FIN"] { assert_equal 201, pub.response_code }
     sub.wait
     verify pub, sub
   end
@@ -68,22 +73,22 @@ class PubSubTest < Test::Unit::TestCase
     sub.on_failure { false }
     sub.run
     pub.delete
-    assert_equal 200, pub.response.response_code
+    assert_equal 200, pub.response_code
     sub.wait
     assert sub.match_errors(/code 410/) #gone
 
     #delete channel with no subscribers
     pub, sub = pubsub 5, timeout: 1
     pub.post "hello"
-    assert_equal 202, pub.response.response_code
+    assert_equal 202, pub.response_code
     pub.delete
-    assert_equal 200, pub.response.response_code
+    assert_equal 200, pub.response_code
     
     #delete nonexistent channel
     pub, sub = pubsub
     pub.nofail=true
     pub.delete
-    assert_equal 404, pub.response.response_code
+    assert_equal 404, pub.response_code
   end
 
   def test_no_message_buffer
