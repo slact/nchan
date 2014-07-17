@@ -23,7 +23,7 @@ def verify(pub, sub)
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
-    assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
+    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive a message."
   end
 end
 
@@ -34,13 +34,13 @@ class PubSubTest < Test::Unit::TestCase
   def test_message_delivery
     pub, sub = pubsub
     sub.run
-    assert_equal sub.messages.messages.count, 0
+    assert_equal 0, sub.messages.messages.count
     pub.post "hi there"
     sleep 0.2
-    assert_equal sub.messages.messages.count, 1
+    assert_equal 1, sub.messages.messages.count
     pub.post "FIN"
     sleep 0.2
-    assert_equal sub.messages.messages.count, 2
+    assert_equal 2, sub.messages.messages.count
     assert sub.messages.matches? pub.messages
     sub.terminate
   end
@@ -51,7 +51,7 @@ class PubSubTest < Test::Unit::TestCase
     sub.on_failure { false }
     sub.run
     sub.wait
-    assert_equal sub.finished, 5
+    assert_equal 5, sub.finished
     assert sub.match_errors(/code 40[34]/)
     sub.reset
     pub.post %w( fweep )
