@@ -61,7 +61,31 @@ class PubSubTest < Test::Unit::TestCase
     sub.wait
     verify pub, sub
   end
-  
+
+  def test_deletion
+    #delete active channel
+    pub, sub = pubsub 5, timeout: 1
+    sub.on_failure { false }
+    sub.run
+    pub.delete
+    assert_equal 200, pub.response.response_code
+    sub.wait
+    assert sub.match_errors(/code 410/) #gone
+
+    #delete channel with no subscribers
+    pub, sub = pubsub 5, timeout: 1
+    pub.post "hello"
+    assert_equal 202, pub.response.response_code
+    pub.delete
+    assert_equal 200, pub.response.response_code
+    
+    #delete nonexistent channel
+    pub, sub = pubsub
+    pub.nofail=true
+    pub.delete
+    assert_equal 404, pub.response.response_code
+  end
+
   def test_no_message_buffer
     chan_id=SecureRandom.hex
     pub = Publisher.new url("/pub/nobuffer/#{chan_id}")

@@ -240,28 +240,30 @@ end
 
 class Publisher
   include Celluloid
-  attr_accessor :messages
+  attr_accessor :messages, :response, :nofail
   def initialize(url)
     @url= url
     @messages = MessageStore.new :noid => true
   end
   
-  def post(body, content_type='text/plain')
+  def submit(body, method='POST', content_type='text/plain')
+    self.response=nil
     if Enumerable===body
       i=0
-      body.each{|b| i+=1; post(b, content_type)}
+      body.each{|b| i+=1; submit(b, method, content_type)}
       return i
     end
     post = Typhoeus::Request.new(
       @url,
       headers: {:'Content-Type' => content_type},
-      method: "POST",
+      method: method,
       body: body,
     )
     msg=Message.new body
     msg.content_type=content_type
 
     post.on_complete do |response|
+      self.response=response
       if response.success?
         #puts "published message #{msg.to_s[0..15]}"
         @messages << msg
@@ -272,14 +274,29 @@ class Publisher
       elsif response.code == 0
         # Could not get an http response, something's wrong.
         #puts "publisher err: #{response.return_message}"
-        raise "No HTTP response: #{response.return_message}"
+        raise "No HTTP response: #{response.return_message}" unless self.nofail
       else
         # Received a non-successful http response.
         #puts "publisher err: #{response.code.to_s}"
-        raise "HTTP request failed: #{response.code.to_s}"
+        raise "HTTP request failed: #{response.code.to_s}" unless self.nofail
       end
     end
     #puts "publishing to #{@url}"
     post.run
   end
+  
+  def get
+    submit nil, 'GET'
+  end
+  def delete
+    submit nil, 'DELETE'
+  end
+  def post(body, content_type=nil)
+    submit body, 'POST', content_type
+  end
+  def put(body, content_type=nil)
+    submit body, 'PUT', content_type
+  end
+
+  
 end
