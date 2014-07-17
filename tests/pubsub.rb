@@ -246,7 +246,7 @@ class Publisher
     @messages = MessageStore.new :noid => true
   end
   
-  def submit(body, method='POST', content_type='text/plain')
+  def submit(body, method=:POST, content_type= :'text/plain')
     self.response=nil
     if Enumerable===body
       i=0
@@ -286,16 +286,16 @@ class Publisher
   end
   
   def get
-    submit nil, 'GET'
+    submit nil, :GET
   end
   def delete
-    submit nil, 'DELETE'
+    submit nil, :DELETE
   end
   def post(body, content_type=nil)
-    submit body, 'POST', content_type
+    submit body, :POST, content_type
   end
   def put(body, content_type=nil)
-    submit body, 'PUT', content_type
+    submit body, :PUT, content_type
   end
 
   
