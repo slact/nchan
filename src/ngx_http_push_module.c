@@ -593,21 +593,109 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 }
 
-
-static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
-  ngx_str_t                      *id;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+static ngx_int_t ngx_http_push_finalize_publisher_request_with_channel_info(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t status_code) {
   ngx_http_push_channel_t        *channel;
-  ngx_uint_t                      method = r->method;
-  
   time_t                          last_seen = 0;
   ngx_uint_t                      subscribers = 0;
   ngx_uint_t                      messages = 0;
   
-  if((id = ngx_http_push_get_channel_id(r, cf))==NULL) {
+  channel = ngx_http_push_store->get_channel(channel_id);
+  if(channel!=NULL) {
+    ngx_http_push_store->lock();
+    subscribers = channel->subscribers;
+    last_seen = channel->last_seen;
+    messages  = channel->messages;
+    ngx_http_push_store->unlock();
+    r->headers_out.status = status_code == NULL ? NGX_HTTP_OK : status_code;
+    if (status_code == NGX_HTTP_CREATED) {
+      r->headers_out.status_line.len =sizeof("201 Created")- 1;
+      r->headers_out.status_line.data=(u_char *) "201 Created";
+    }
+    else if (status_code == NGX_HTTP_ACCEPTED) {
+      r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
+      r->headers_out.status_line.data=(u_char *) "202 Accepted";
+    }
+    ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
+  }
+  else {
+    //404!
+    r->headers_out.status=NGX_HTTP_NOT_FOUND;
+    //just the headers, please. we don't care to describe the situation or
+    //respond with an html page
+    r->headers_out.content_length_n=0;
+    r->header_only = 1;
+    ngx_http_finalize_request(r, ngx_http_send_header(r));
+  }
+}
+
+static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
+  ngx_str_t                      *channel_id;
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_http_push_channel_t        *channel;
+  ngx_uint_t                      method = r->method;
+  
+  ngx_int_t                       result;
+  
+  if((channel_id = ngx_http_push_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
+  
+  switch(method) {
+    case NGX_HTTP_POST:
+    case NGX_HTTP_PUT:
+      result = ngx_http_push_store->publish(channel_id, r);
+      if (result == NGX_HTTP_PUSH_MESSAGE_QUEUED) {
+        //message was queued successfully, but there were no 
+        //subscribers to receive it.
+        ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_ACCEPTED);
+      }
+      else if (result == NGX_HTTP_PUSH_MESSAGE_RECEIVED) {
+        //message was queued successfully, and it was already sent
+        //to at least one subscriber
+        ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_CREATED);
+      }
+      else if (result == NGX_ERROR) {
+        //WTF?
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+      }
+      else {
+        //for debugging, mostly. I don't expect this branch to be
+        //hit during regular operation
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+      }
+      break;
+      
+    case NGX_HTTP_DELETE:
+      ngx_http_push_store->delete_channel(channel_id, r);
+      ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_CREATED); //this will always respond with 404. for now that's okay
+      break;
+      
+    case NGX_HTTP_GET:
+      ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_OK);
+      break;
+      
+    default:
+      //some other weird request method
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE);
+      ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
+      break;
+  }
+}
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   
   //POST requests will need a channel created if it doesn't yet exist.
   if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
