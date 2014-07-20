@@ -69,13 +69,13 @@ class PubSubTest < Test::Unit::TestCase
 
   def test_deletion
     #delete active channel
-    pub, sub = pubsub 5, timeout: 1
+    pub, sub = pubsub 5, timeout: 10
     sub.on_failure { false }
     sub.run
     pub.delete
     assert_equal 200, pub.response_code
     sub.wait
-    assert sub.match_errors(/code 410/) #gone
+    assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
 
     #delete channel with no subscribers
     pub, sub = pubsub 5, timeout: 1
@@ -83,7 +83,7 @@ class PubSubTest < Test::Unit::TestCase
     assert_equal 202, pub.response_code
     pub.delete
     assert_equal 200, pub.response_code
-    
+
     #delete nonexistent channel
     pub, sub = pubsub
     pub.nofail=true
