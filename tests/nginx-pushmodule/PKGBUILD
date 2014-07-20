@@ -33,7 +33,7 @@ _pushmodule_dir="${startdir}/pushmodule"
 
 _pkgver() {
   pushd "$startdir/pushmodule" >/dev/null
-  printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD | sed -r 's/-/_/g')" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
   popd >/dev/null
 }
 
