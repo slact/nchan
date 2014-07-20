@@ -95,7 +95,8 @@ if [[ $debugger == 1 ]]; then
   child_pids=`pgrep -P $master_pid`
   kdbg_pids=()
   ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
-  ln -s  $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source
+  ln -sf  $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
+  sudo echo "attaching kdbg..."
   while read -r line; do
     sudo kdbg -p $line $SRCDIR/nginx &
     kdbg_pids+="$!"
