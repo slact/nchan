@@ -176,7 +176,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_request_t 
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store->publish(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+      ngx_http_push_store->publish_raw(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
       
       return NGX_OK;
       
@@ -598,15 +598,15 @@ static ngx_int_t ngx_http_push_finalize_publisher_request_with_channel_info(ngx_
   time_t                          last_seen = 0;
   ngx_uint_t                      subscribers = 0;
   ngx_uint_t                      messages = 0;
-  
-  channel = ngx_http_push_store->get_channel(channel_id);
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  channel = ngx_http_push_store->find_channel(channel_id, cf->channel_timeout);
   if(channel!=NULL) {
     ngx_http_push_store->lock();
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
     ngx_http_push_store->unlock();
-    r->headers_out.status = status_code == NULL ? NGX_HTTP_OK : status_code;
+    r->headers_out.status = status_code == (ngx_int_t) NULL ? NGX_HTTP_OK : status_code;
     if (status_code == NGX_HTTP_CREATED) {
       r->headers_out.status_line.len =sizeof("201 Created")- 1;
       r->headers_out.status_line.data=(u_char *) "201 Created";
@@ -626,15 +626,13 @@ static ngx_int_t ngx_http_push_finalize_publisher_request_with_channel_info(ngx_
     r->header_only = 1;
     ngx_http_finalize_request(r, ngx_http_send_header(r));
   }
+  return NGX_OK;
 }
 
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) { 
   ngx_str_t                      *channel_id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_http_push_channel_t        *channel;
   ngx_uint_t                      method = r->method;
-  
-  ngx_int_t                       result;
   
   if((channel_id = ngx_http_push_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -644,35 +642,37 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   switch(method) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
-      result = ngx_http_push_store->publish(channel_id, r);
-      if (result == NGX_HTTP_PUSH_MESSAGE_QUEUED) {
-        //message was queued successfully, but there were no 
-        //subscribers to receive it.
-        ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_ACCEPTED);
-      }
-      else if (result == NGX_HTTP_PUSH_MESSAGE_RECEIVED) {
-        //message was queued successfully, and it was already sent
-        //to at least one subscriber
-        ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_CREATED);
-      }
-      else if (result == NGX_ERROR) {
-        //WTF?
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-        return;
-      }
-      else {
-        //for debugging, mostly. I don't expect this branch to be
-        //hit during regular operation
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-        return;
+      switch(ngx_http_push_store->publish(channel_id, r, cf)) {
+        case NGX_HTTP_PUSH_MESSAGE_QUEUED:
+          //message was queued successfully, but there were no 
+          //subscribers to receive it.
+          ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_ACCEPTED);
+          break;
+      
+        case NGX_HTTP_PUSH_MESSAGE_RECEIVED:
+          //message was queued successfully, and it was already sent
+          //to at least one subscriber
+          ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_CREATED);
+          break;
+      
+        case NGX_ERROR:
+          //WTF?
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
+          ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+          break;
+          
+        default:
+          //for debugging, mostly. I don't expect this branch to be
+          //hit during regular operation
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
+          ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+          break;
       }
       break;
       
     case NGX_HTTP_DELETE:
-      ngx_http_push_store->delete_channel(channel_id, r);
-      ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_CREATED); //this will always respond with 404. for now that's okay
+      ngx_http_push_finalize_publisher_request_with_channel_info(channel_id, r, NGX_HTTP_OK);
+      ngx_http_push_store->delete_channel(channel_id);
       break;
       
     case NGX_HTTP_GET:
@@ -684,141 +684,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE);
       ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
       break;
-  }
-}
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  //POST requests will need a channel created if it doesn't yet exist.
-  if(method==NGX_HTTP_POST || method==NGX_HTTP_PUT) {
-    if(method==NGX_HTTP_POST && (r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0)) {
-      ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: trying to push an empty message");
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return;
-    }
-    channel = ngx_http_push_store->get_channel(id, cf->channel_timeout);
-    if(channel==NULL) {
-      ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unable to allocate memory for new channel");
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return;
-    }
-  }
-  //no other request method needs that.
-  else {
-    //just find the channel. if it's not there, NULL.
-    channel = ngx_http_push_store->find_channel(id, cf->channel_timeout);
-  }
-  
-  if(channel!=NULL) {
-    ngx_http_push_store->lock();
-    subscribers = channel->subscribers;
-    last_seen = channel->last_seen;
-    messages  = channel->messages;
-    ngx_http_push_store->unlock();
-  }
-  else {
-    //404!
-    r->headers_out.status=NGX_HTTP_NOT_FOUND;
-    
-    //just the headers, please. we don't care to describe the situation or
-    //respond with an html page
-    r->headers_out.content_length_n=0;
-    r->header_only = 1;
-    
-    ngx_http_finalize_request(r, ngx_http_send_header(r));
-    return;
-  }
-
-  switch(method) {
-    ngx_http_push_msg_t          *msg;
-    case NGX_HTTP_POST:
-
-      if((msg = ngx_http_push_store->create_message(channel, r))==NULL) {
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-        return;
-      }
-      else if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store->enqueue_message(channel, msg, cf);
-      }
-      else if(cf->max_messages == 0) {
-        ngx_http_push_store->reserve_message(NULL, msg);
-      }
-      switch(ngx_http_push_store->publish(channel, msg, 0, NULL)) {
-        
-        case NGX_HTTP_PUSH_MESSAGE_QUEUED:
-          //message was queued successfully, but there were no 
-          //subscribers to receive it.
-          r->headers_out.status = NGX_HTTP_ACCEPTED;
-          r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
-          r->headers_out.status_line.data=(u_char *) "202 Accepted";
-          break;
-          
-        case NGX_HTTP_PUSH_MESSAGE_RECEIVED:
-          //message was queued successfully, and it was already sent
-          //to at least one subscriber
-          r->headers_out.status = NGX_HTTP_CREATED;
-          r->headers_out.status_line.len =sizeof("201 Created")- 1;
-          r->headers_out.status_line.data=(u_char *) "201 Created";
-          
-          //update the number of times the message was received.
-          //in the interest of premature optimization, I assume all
-          //current subscribers have received the message successfully.
-          break;
-          
-        case NGX_ERROR:
-          //WTF?
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
-          ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-          return;
-          
-        default: 
-          //for debugging, mostly. I don't expect this branch to be
-          //hit during regular operation
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
-          ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-          return;
-      }
-      if(cf->max_messages > 0) { //channel buffers exist
-        ngx_http_push_store->lock();
-        messages = channel->messages;
-        ngx_http_push_store->unlock();
-      }
-      else { //no buffer. free the message
-        ngx_http_push_store->release_message(NULL, msg);
-        messages=0;
-      }
-      ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
-      return;
-      
-    case NGX_HTTP_PUT:
-    case NGX_HTTP_GET:
-      r->headers_out.status = NGX_HTTP_OK;
-      ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
-      return;
-      
-    case NGX_HTTP_DELETE:
-      if(ngx_http_push_store->delete_channel(channel) != NGX_OK) {
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      }
-      else {
-        r->headers_out.status=NGX_HTTP_OK;
-        ngx_http_finalize_request(r, ngx_http_push_channel_info(r, messages, subscribers, last_seen));
-      }
-      return;
-      
-    default: 
-      //some other weird request method
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE);
-      ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
-      return;
   }
 }
 

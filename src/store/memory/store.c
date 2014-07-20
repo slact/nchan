@@ -293,7 +293,10 @@ static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id,
 }
 
 //temporary cheat
-static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+  
+  
+  
  //subscribers are queued up in a local pool. Queue heads, however, are located
   //in shared memory, identified by pid.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
@@ -365,9 +368,16 @@ static ngx_int_t ngx_http_push_store_publish(ngx_http_push_channel_t *channel, n
 }
 
 
-static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *channel) {
+
+static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
+  ngx_http_push_channel_t        *channel;
   ngx_http_push_msg_t            *msg, *sentinel;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_store_lock_shmem();
+  channel = ngx_http_push_find_channel(channel_id, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT, ngx_http_push_shm_zone);
+  if (channel == NULL) {
+    ngx_http_push_store_unlock_shmem();
+    return NGX_OK;
+  }
   sentinel = channel->message_queue; 
   msg = sentinel;
         
@@ -378,13 +388,13 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_http_push_channel_t *cha
   channel->messages=0;
   
   //410 gone
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_store_unlock_shmem();
   
-  ngx_http_push_store_publish(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+  ngx_http_push_store_publish_raw(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
   
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_store_lock_shmem();
   ngx_http_push_delete_channel_locked(channel, ngx_http_push_shm_zone);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  ngx_http_push_store_unlock_shmem();
   return NGX_OK;
 }
 static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, time_t channel_timeout) {
@@ -393,6 +403,9 @@ static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, 
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   channel = ngx_http_push_get_channel(id, channel_timeout, ngx_http_push_shm_zone);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  if(channel==NULL) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for new channel");
+  }
   return channel;
 }
 
@@ -819,6 +832,29 @@ static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *ch
   return NGX_OK;
 }
 
+
+static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+  ngx_http_push_channel_t   *channel;
+  ngx_http_push_msg_t       *msg;
+  channel = ngx_http_push_store_get_channel(channel_id, cf->channel_timeout); //always returns a channel, unless no memory left
+  if(channel==NULL) {
+    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    return NGX_ERROR;
+  }
+  if((msg = ngx_http_push_store_create_message(channel, r))==NULL) {
+    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    return NGX_ERROR;
+  }
+  
+  if(cf->max_messages > 0) { //channel buffers exist
+    ngx_http_push_store_enqueue_message(channel, msg, cf);
+  }
+  else if(cf->max_messages == 0) {
+    ngx_http_push_store_reserve_message(NULL, msg);
+  }
+  return ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
+}
+
 static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
   ngx_http_push_worker_msg_sentinel_t   *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
   ngx_http_push_worker_msg_sentinel_t   *sentinel = &worker_messages[worker_slot];
@@ -957,7 +993,8 @@ ngx_http_push_store_t  ngx_http_push_store_memory = {
     &ngx_http_push_store_release_message,
     
     //pub/sub
-    &ngx_http_push_store_publish,
+    &ngx_http_push_store_publish_message,
+    &ngx_http_push_store_publish_raw,
     &ngx_http_push_store_subscribe,
     
     //channel properties
