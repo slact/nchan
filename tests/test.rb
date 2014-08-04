@@ -18,8 +18,8 @@ def pubsub(concurrent_clients=1, opt={})
     pub = Publisher.new url("#{pub_url}#{chan_id}")
     return pub, sub
 end
-def verify(pub, sub)
-  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}"
+def verify(pub, sub, check_errors=true)
+  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}" if check_errors
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
@@ -260,6 +260,18 @@ class PubSubTest < Test::Unit::TestCase
     verify pub, sub
     sub.terminate
   end
+  def test_subscriber_timeout
+    chan=SecureRandom.hex
+    sub=Subscriber.new(url("sub/timeout/#{chan}"), 2, timeout: 10)
+    sub.on_failure { false }
+    pub=Publisher.new url("pub/#{chan}")
+    sub.run
+    pub.post "hello"
+    sub.wait
+    verify pub, sub, false
+    assert sub.match_errors(/code 304/)
+  end
+  
 end
 
 
