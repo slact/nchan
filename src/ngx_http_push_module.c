@@ -368,14 +368,47 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
-/*
-static ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_request_t *r) {
+
+ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber, ngx_int_t subscriber_timeout) {
+  ngx_http_cleanup_t                 *cln;
+  ngx_http_push_subscriber_cleanup_t *clndata;
+  ngx_http_request_t                 *r = subscriber->request;
+  //attach a cleaner to remove the request from the channel and handle shared buffer deallocation.
+  if ((cln=ngx_http_cleanup_add(r, sizeof(*clndata))) == NULL) { //make sure we can.
+    return NGX_ERROR;
+  }
+  cln->handler = (ngx_http_cleanup_pt) ngx_http_push_subscriber_cleanup;
+  clndata = (ngx_http_push_subscriber_cleanup_t *) cln->data;
+  clndata->channel=channel;
+  clndata->subscriber=subscriber;
+  clndata->buf_use_count=0;
+  clndata->buf=NULL;
+  clndata->rchain=NULL;
+  clndata->rpool=NULL;
+  subscriber->clndata=clndata;
+  
+  //set up subscriber timeout event
+  ngx_memzero(&subscriber->event, sizeof(subscriber->event));
+  if (subscriber_timeout > 0) {
+    subscriber->event.handler = ngx_http_push_clean_timeouted_subscriber;  
+    subscriber->event.data = subscriber;
+    subscriber->event.log = r->connection->log;
+    ngx_add_timer(&subscriber->event, subscriber_timeout * 1000);
+  }
+  
+  r->read_event_handler = ngx_http_test_reading;
+  r->write_event_handler = ngx_http_request_empty_handler;
+  r->main->count++; //this is the right way to hold and finalize the request... maybe
+  //r->keepalive = 1; //stayin' alive!!
   return NGX_OK;
 }
-static ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_request_t *r) {
+
+/*
+ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subscriber) {
   return NGX_OK;
 }
 */
+
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_str_t                      *id;

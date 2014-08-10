@@ -740,9 +740,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_r
     ngx_str_t                  *etag;
     ngx_chain_t                *chain;
     time_t                      last_modified;
-    ngx_http_push_subscriber_cleanup_t *clndata;
     ngx_http_push_subscriber_t *subscriber;
-    ngx_http_cleanup_t         *cln;
     
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
@@ -751,39 +749,15 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_r
         
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
           
-          subscriber = ngx_http_push_store_subscribe_raw(channel, r);
-          if (subscriber == NULL) {
+          if ((subscriber = ngx_http_push_store_subscribe_raw(channel, r))==NULL) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
-          
-          //attach a cleaner to remove the request from the channel and handle shared buffer deallocation.
-          if ((cln=ngx_http_cleanup_add(r, sizeof(*clndata))) == NULL) { //make sure we can.
+          if(ngx_push_longpoll_subscriber_enqueue(channel, subscriber, cf->subscriber_timeout) == NGX_OK) {
+            return NGX_DONE;
+          }
+          else {
             return NGX_ERROR;
           }
-          cln->handler = (ngx_http_cleanup_pt) ngx_http_push_subscriber_cleanup;
-          clndata = (ngx_http_push_subscriber_cleanup_t *) cln->data;
-          clndata->channel=channel;
-          clndata->subscriber=subscriber;
-          clndata->buf_use_count=0;
-          clndata->buf=NULL;
-          clndata->rchain=NULL;
-          clndata->rpool=NULL;
-          subscriber->clndata=clndata;
-          
-          //set up subscriber timeout event
-          ngx_memzero(&subscriber->event, sizeof(subscriber->event));
-          if (cf->subscriber_timeout > 0) {
-            subscriber->event.handler = ngx_http_push_clean_timeouted_subscriber;  
-            subscriber->event.data = subscriber;
-            subscriber->event.log = r->connection->log;
-            ngx_add_timer(&subscriber->event, cf->subscriber_timeout * 1000);
-          }
-          
-          r->read_event_handler = ngx_http_test_reading;
-          r->write_event_handler = ngx_http_request_empty_handler;
-          r->main->count++; //this is the right way to hold and finalize the request... maybe
-          //r->keepalive = 1; //stayin' alive!!
-          return NGX_DONE;
           
         case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
           
@@ -801,55 +775,54 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_r
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
       
-        case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
-          //subscriber wants an expired message
-          //TODO: maybe respond with entity-identifiers for oldest available message?
-          return NGX_HTTP_NO_CONTENT;
-          
-        case NGX_HTTP_PUSH_MESSAGE_FOUND:
-          //found the message
-          if((etag = ngx_http_push_store->message_etag(msg, r->pool))==NULL) {
-            //oh, nevermind...
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
-            return NGX_ERROR;
-          }
-          if((content_type= ngx_http_push_store->message_content_type(msg, r->pool))==NULL) {
-            //oh, nevermind...
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Content Type header");
-            return NGX_ERROR;
-          }
-          
-          //preallocate output chain. yes, same one for every waiting subscriber
-          if((chain = ngx_http_push_create_output_chain(msg->buf, r->pool, r->connection->log))==NULL) {
-            ngx_http_push_store->unlock();
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
-            return NGX_ERROR;
-          }
-          
-          last_modified = msg->message_time;
-          ngx_http_push_store->unlock();
-          
-          
-          if(chain->buf->file!=NULL) {
-            //close file when we're done with it
-            ngx_pool_cleanup_t *cln;
-            ngx_pool_cleanup_file_t *clnf;
-            
-            if((cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
-              return NGX_HTTP_INTERNAL_SERVER_ERROR;
-            }
-            cln->handler = ngx_pool_cleanup_file;
-            clnf = cln->data;
-            clnf->fd = chain->buf->file->fd;
-            clnf->name = chain->buf->file->name.data;
-            clnf->log = r->pool->log;
-          }
-          ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-          ngx_http_push_store->release_message(channel, msg);
-          return ret;
-          
-        default: //we shouldn't be here.
+    case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
+      //subscriber wants an expired message
+      //TODO: maybe respond with entity-identifiers for oldest available message?
+      return NGX_HTTP_NO_CONTENT;
+      
+    case NGX_HTTP_PUSH_MESSAGE_FOUND:
+      //found the message
+      if((etag = ngx_http_push_store->message_etag(msg, r->pool))==NULL) {
+        //oh, nevermind...
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
+        return NGX_ERROR;
+      }
+      if((content_type= ngx_http_push_store->message_content_type(msg, r->pool))==NULL) {
+        //oh, nevermind...
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Content Type header");
+        return NGX_ERROR;
+      }
+      
+      //preallocate output chain. yes, same one for every waiting subscriber
+      if((chain = ngx_http_push_create_output_chain(msg->buf, r->pool, r->connection->log))==NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
+        return NGX_ERROR;
+      }
+      
+      last_modified = msg->message_time;
+      ngx_http_push_store->unlock();
+      
+      
+      if(chain->buf->file!=NULL) {
+        //close file when we're done with it
+        ngx_pool_cleanup_t *cln;
+        ngx_pool_cleanup_file_t *clnf;
+        
+        if((cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        cln->handler = ngx_pool_cleanup_file;
+        clnf = cln->data;
+        clnf->fd = chain->buf->file->fd;
+        clnf->name = chain->buf->file->name.data;
+        clnf->log = r->pool->log;
+      }
+      ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+      ngx_http_push_store->release_message(channel, msg);
+      return ret;
+      
+    default: //we shouldn't be here.
+      return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 }
 

@@ -18,7 +18,8 @@ ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r);
 ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value);
 ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log);
 ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified);
-
+ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber, ngx_int_t subscriber_timeout);
+ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subscriber);
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
 ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t *r);
