@@ -693,9 +693,8 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_chann
   }
 }
 
-static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
   ngx_http_push_channel_t        *channel;
-  ngx_http_push_msg_id_t          msgid;
   ngx_http_push_msg_t            *msg;
   ngx_int_t                       msg_search_outcome;
   
@@ -726,8 +725,8 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_r
       return NGX_ERROR;
   }
   
-  ngx_http_push_subscriber_get_msg_id(r, &msgid);
-  msg = ngx_http_push_store->get_message(channel, &msgid, &msg_search_outcome, cf);
+  
+  msg = ngx_http_push_store->get_message(channel, msg_id, &msg_search_outcome, cf);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 

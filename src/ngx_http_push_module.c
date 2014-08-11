@@ -411,7 +411,8 @@ ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subsc
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_str_t                      *id;
+  ngx_str_t                      *channel_id;
+  ngx_http_push_msg_id_t          msg_id;
   
   if (r->method == NGX_HTTP_OPTIONS) {
     ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
@@ -432,11 +433,13 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
     return NGX_HTTP_NOT_ALLOWED;
   }
   
-  if((id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
+  if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
+  ngx_http_push_subscriber_get_msg_id(r, &msg_id);
   
-  return ngx_http_push_store->subscribe(id, r, cf);
+  
+  return ngx_http_push_store->subscribe(channel_id, &msg_id, r, cf);
 }
 
 static ngx_int_t ngx_http_push_finalize_publisher_request_with_channel_info(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t status_code) {

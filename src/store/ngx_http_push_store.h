@@ -19,7 +19,7 @@ typedef struct {
   void (*release_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
   
   //pub/sub
-  ngx_int_t (*subscribe)   (ngx_str_t *channel_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
+  ngx_int_t (*subscribe)   (ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
   ngx_int_t (*publish)     (ngx_str_t *channel_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf);
   ngx_int_t (*publish_raw) (ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line); 
   
