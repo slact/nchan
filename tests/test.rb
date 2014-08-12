@@ -4,7 +4,9 @@ require 'securerandom'
 require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 PORT=ENV["PUSHMODULE_PORT"] || "8082"
+#Typhoeus::Config.verbose = true
 def url(part="")
+  part=part[1..-1] if part[0]=="/"
   "http://#{SERVER}:#{PORT}/#{part}"
 end
 puts "Server at #{url}"
@@ -31,6 +33,22 @@ class PubSubTest < Test::Unit::TestCase
   def setup
     Celluloid.boot
   end
+  
+  def test_interval_poll
+    chan_id=SecureRandom.hex
+    pub = Publisher.new url("/pub/#{chan_id}")
+    sub = Subscriber.new(url("/sub/intervalpoll/#{chan_id}"), 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.25 )
+    sub.run
+    pub.post ["hello this", "is a thing"]
+    sleep 1
+    pub.post ["oh now what", "is this even a thing?"]
+    sleep 1
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    sub.terminate
+  end
+  
   def test_message_delivery
     pub, sub = pubsub
     sub.run
@@ -58,13 +76,14 @@ class PubSubTest < Test::Unit::TestCase
     assert sub.match_errors(/code 40[34]/)
     sub.reset
     pub.post %w( fweep )
-    assert_equal 202, pub.response_code
+    assert_match /20[12]/, pub.response_code.to_s
     sleep 0.1
     sub.run
     sleep 0.1
-    pub.post ["fwoop", "FIN"] { assert_equal 201, pub.response_code }
+    pub.post ["fwoop", "FIN"] { assert_match /20[12]/, pub.response_code.to_s }
     sub.wait
     verify pub, sub
+    sub.terminate
   end
 
   def test_deletion

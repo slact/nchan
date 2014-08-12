@@ -105,7 +105,7 @@ class Subscriber
           #parse it
           msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
           msg.content_type=response.headers["Content-Type"]
-        req.options[:headers]["If-None-Match"]=msg.etag
+          req.options[:headers]["If-None-Match"]=msg.etag
           req.options[:headers]["If-Modified-Since"]=msg.last_modified
           unless @subscriber.on_message(msg) == false
             @subscriber.waiting+=1
@@ -139,7 +139,53 @@ class Subscriber
     end
   end
   
-  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished
+  class IntervalPollClient < LongPollClient
+    def initialize(subscr, opt={})
+      @retry_delay=opt[:retry_delay] || 0.25
+      @last_modified=nil
+      @etag=nil
+      super
+    end
+    def new_request
+      req=Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout)
+      req.on_complete do |response|
+        @subscriber.waiting-=1
+        @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
+        @etag=response.headers["Etag"] if response.headers["Etag"]
+        req.options[:headers]["If-Modified-Since"]=@last_modified
+        req.options[:headers]["If-None-Match"]=@etag
+        if response.success?
+          #puts "received OK response at #{req.url}"
+          #parse it
+          msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
+          msg.content_type=response.headers["Content-Type"]
+          unless @subscriber.on_message(msg) == false
+            @subscriber.waiting+=1
+            @hydra.queue req
+          else
+            @subscriber.finished+=1
+          end
+        else
+          #puts "received bad or no response at #{req.url}, code #{response.code}"
+          if response.code == 304 || @subscriber.on_failure(response) != false
+            @subscriber.waiting+=1
+            Celluloid.sleep @retry_delay if @retry_delay
+            @hydra.queue req
+          else
+            @subscriber.finished+=1
+          end
+        end
+      end
+      req
+    end
+    def poke
+      while @subscriber.finished < @concurrency do
+        sleep 1
+      end
+    end
+  end
+  
+  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class
   def initialize(url, concurrency=1, opt={})
     @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
     @url=url
@@ -148,11 +194,24 @@ class Subscriber
     @quit_message=opt[:quit_message]
     reset
     #puts "Starting subscriber on #{url}"
+    case opt[:client]
+    when :longpoll, :long, nil
+      @client_class=LongPollClient
+    when :interval, :intervalpoll
+      @client_class=IntervalPollClient
+    when :ws, :websocket
+      raise "websocket client not yet implemented"
+    when :es, :eventsource
+      raise "EventSource client not yet implemented"
+    else
+      raise "unknown client type #{opt[:client]}"
+    end
     @concurrency=concurrency
-    new_client
+    @client_class ||= opt[:client_class] || LongPollClient
+    new_client @client_class
   end
-  def new_client
-    @client=LongPollClient.new(self, :concurrency => concurrency, :timeout => @timeout, :connect_timeout => @connect_timeout)
+  def new_client(client_class=LongPollClient)
+    @client=client_class.new(self, :concurrency => concurrency, :timeout => @timeout, :connect_timeout => @connect_timeout)
   end
   def reset
     @errors=[]
