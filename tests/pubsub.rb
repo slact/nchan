@@ -38,8 +38,8 @@ class MessageStore
   end
 
   def initialize(opt={})
-    @array=opt[:noid]
-    @array ? @msgs=[] : @msgs={}
+    @array||=opt[:noid]
+    clear
   end
 
   def messages
@@ -50,6 +50,10 @@ class MessageStore
   def remove_old(n=1)
     n.times {@msgs.shift}
     @msgs.count
+  end
+  
+  def clear
+    @msgs= @array ? [] : {}
   end
   
   def to_a

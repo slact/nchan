@@ -91,7 +91,9 @@ class PubSubTest < Test::Unit::TestCase
     pub, sub = pubsub 5, timeout: 10
     sub.on_failure { false }
     sub.run
+    sleep 0.2
     pub.delete
+    sleep 0.2
     assert_equal 200, pub.response_code
     sub.wait
     assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
@@ -268,17 +270,18 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_message_timeout
-    #config should be set to message_timeout=5sec
-    pub, sub = pubsub 1, timeout: 5
-    pub.post "foo"
-    sleep 10
-    pub.messages.remove_old
+    pub, sub = pubsub 10, pub: "/pub/2_sec_message_timeout/", timeout: 4
+    pub.post %w( foo bar etcetera ) #these shouldn't get delivered
+    pub.messages.clear
+    sleep 3
+    
     sub.run
-    pub.post "FIN"
+    pub.post %w( what is this even FIN )
     sub.wait
     verify pub, sub
     sub.terminate
   end
+  
   def test_subscriber_timeout
     chan=SecureRandom.hex
     sub=Subscriber.new(url("sub/timeout/#{chan}"), 2, timeout: 10)
