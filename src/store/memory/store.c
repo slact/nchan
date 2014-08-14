@@ -409,7 +409,7 @@ static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, 
   return channel;
 }
 
-static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
+static ngx_http_push_msg_t * ngx_http_push_store_get_channel_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
   ngx_http_push_msg_t *msg;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   msg = ngx_http_push_find_message_locked(channel, msgid, msg_search_outcome);
@@ -422,6 +422,17 @@ static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_http_push_chann
   return msg;
 }
 
+static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
+  ngx_http_push_channel_t            *channel;
+  
+  ngx_http_push_store_lock_shmem();
+  channel = ngx_http_push_get_channel(channel_id, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT, ngx_http_push_shm_zone);
+  ngx_http_push_store_unlock_shmem();
+  if (channel == NULL) {
+    return NULL;
+  }
+  return ngx_http_push_store_get_channel_message(channel, msg_id, msg_search_outcome, cf);
+}
 
 // shared memory zone initializer
 static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data) {
@@ -698,8 +709,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   ngx_http_push_msg_t            *msg;
   ngx_int_t                       msg_search_outcome;
   
-  ngx_str_t                      *content_type=NULL;
-  
   if (cf->authorize_channel==1) {
     channel = ngx_http_push_store->find_channel(channel_id, cf->channel_timeout);
   }else{
@@ -726,7 +735,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   }
   
   
-  msg = ngx_http_push_store->get_message(channel, msg_id, &msg_search_outcome, cf);
+  msg = ngx_http_push_store->get_channel_message(channel, msg_id, &msg_search_outcome, cf);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
@@ -737,85 +746,30 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   switch(msg_search_outcome) {
     //for message-found:
     ngx_str_t                  *etag;
+    ngx_str_t                  *content_type;
     ngx_chain_t                *chain;
     time_t                      last_modified;
     ngx_http_push_subscriber_t *subscriber;
     
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
-      switch(cf->subscriber_poll_mechanism) {
-        //for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
-        
-        case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
-          
-          if ((subscriber = ngx_http_push_store_subscribe_raw(channel, r))==NULL) {
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          }
-          if(ngx_push_longpoll_subscriber_enqueue(channel, subscriber, cf->subscriber_timeout) == NGX_OK) {
-            return NGX_DONE;
-          }
-          else {
-            return NGX_ERROR;
-          }
-          
-        case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
-          
-          //interval-polling subscriber requests get a 304 with their entity tags preserved.
-          if (r->headers_in.if_modified_since != NULL) {
-            r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-          }
-          if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
-            r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
-          }
-          return NGX_HTTP_NOT_MODIFIED;
-          
-        default:
-          //if this ever happens, there's a bug somewhere else. probably config stuff.
-          return NGX_HTTP_INTERNAL_SERVER_ERROR;
+      if ((subscriber = ngx_http_push_store_subscribe_raw(channel, r))==NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-      
+      if(ngx_push_longpoll_subscriber_enqueue(channel, subscriber, cf->subscriber_timeout) == NGX_OK) {
+        return NGX_DONE;
+      }
+      else {
+        return NGX_ERROR;
+      }
+    
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
       //subscriber wants an expired message
       //TODO: maybe respond with entity-identifiers for oldest available message?
       return NGX_HTTP_NO_CONTENT;
       
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
-      //found the message
-      if((etag = ngx_http_push_store->message_etag(msg, r->pool))==NULL) {
-        //oh, nevermind...
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Etag header");
-        return NGX_ERROR;
-      }
-      if((content_type= ngx_http_push_store->message_content_type(msg, r->pool))==NULL) {
-        //oh, nevermind...
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate memory for Content Type header");
-        return NGX_ERROR;
-      }
-      
-      //preallocate output chain. yes, same one for every waiting subscriber
-      if((chain = ngx_http_push_create_output_chain(msg->buf, r->pool, r->connection->log))==NULL) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
-        return NGX_ERROR;
-      }
-      
-      last_modified = msg->message_time;
-      ngx_http_push_store->unlock();
-      
-      
-      if(chain->buf->file!=NULL) {
-        //close file when we're done with it
-        ngx_pool_cleanup_t *cln;
-        ngx_pool_cleanup_file_t *clnf;
-        
-        if((cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
-          return NGX_HTTP_INTERNAL_SERVER_ERROR;
-        }
-        cln->handler = ngx_pool_cleanup_file;
-        clnf = cln->data;
-        clnf->fd = chain->buf->file->fd;
-        clnf->name = chain->buf->file->name.data;
-        clnf->log = r->pool->log;
-      }
+      ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
       ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
       ngx_http_push_store->release_message(channel, msg);
       return ret;
@@ -1159,6 +1113,7 @@ ngx_http_push_store_t  ngx_http_push_store_memory = {
     &ngx_http_push_store_find_channel, //returns channel or NULL if not found
     &ngx_http_push_store_delete_channel,
     &ngx_http_push_store_get_message,
+    &ngx_http_push_store_get_channel_message,
     &ngx_http_push_store_reserve_message,
     &ngx_http_push_store_release_message,
     

@@ -13,7 +13,8 @@ typedef struct {
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, time_t channel_timeout);
   ngx_http_push_channel_t *(*find_channel)(ngx_str_t *id, time_t channel_timeout);
   ngx_int_t (*delete_channel)(ngx_str_t *channel_id);
-  ngx_http_push_msg_t *(*get_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf);
+  ngx_http_push_msg_t *(*get_message)(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf);
+  ngx_http_push_msg_t *(*get_channel_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf);
   
   void (*reserve_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
   void (*release_message)(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg);
