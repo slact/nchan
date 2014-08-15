@@ -1,3 +1,6 @@
+
+ fix: channels incorrectly deleted when overwhelmed with connections
+ feature: CORS support via OPTIONS request method response
  fix: file descriptor leak when restarting nginx via SIGHUP
  improve: concurrency for interprocess notifications
  refactor: completely encapsulated message store
