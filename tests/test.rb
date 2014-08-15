@@ -310,6 +310,17 @@ class PubSubTest < Test::Unit::TestCase
     %w( GET POST DELETE OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
     %w( Content-Type Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
   end
+  
+  def test_gzip
+    pub, sub = pubsub 1, sub: "/sub/gzip/", gzip: true, retry_delay: 0.3
+    sub.run
+    pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]
+    sleep 1
+    pub.post "foobar"
+    pub.post "FIN"
+    sleep 1
+    verify pub, sub
+  end
 end
 
 
