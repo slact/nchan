@@ -532,10 +532,6 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
             ngx_chain_t                *chain;
             ngx_str_t                  *content_type, *etag;
             time_t                     last_modified;
-            
-            case NGX_HTTP_PUSH_CHANNEL_NOT_FOUND:
-              ngx_http_push_response_channel_info(NULL, r, NGX_HTTP_NOT_FOUND);
-              return NGX_OK;
               
             case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
               //interval-polling subscriber requests get a 304 with their entity tags preserved.
