@@ -312,6 +312,7 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_gzip
+    #bug: turning on gzip cleared the response etag
     pub, sub = pubsub 1, sub: "/sub/gzip/", gzip: true, retry_delay: 0.3
     sub.run
     pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]

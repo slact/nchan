@@ -263,7 +263,7 @@ ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_
   }
   if(etag!=NULL) {
     //etag, if we need one
-    if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
+    if ((ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
   }
@@ -539,7 +539,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
                 r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
               }
               if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
-                r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
+                ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
               }
               return NGX_HTTP_NOT_MODIFIED;
               
