@@ -294,6 +294,24 @@ class PubSubTest < Test::Unit::TestCase
     assert sub.match_errors(/code 304/)
   end
   
+  def assert_header_includes(response, header, str)
+    assert response.headers[header].include?(str), "Response header '#{header}:#{response.headers[header]}' must include \"#{str}\", but does not."
+  end
+  
+  def test_options
+    chan=SecureRandom.hex
+    request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS
+    resp = request.run
+    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    %w( GET OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
+    %w( If-None-Match If-Modified-Since Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    
+    request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS
+    resp = request.run
+    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    %w( GET POST DELETE OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
+    %w( Content-Type Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+  end
 end
 
 

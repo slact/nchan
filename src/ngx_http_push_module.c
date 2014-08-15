@@ -514,69 +514,66 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
   
-  if (r->method == NGX_HTTP_OPTIONS) {
-    ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE));
-    ngx_chain_t *chain;
-    buf->pos=(u_char *)NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE;
-    buf->last=buf->pos + sizeof(NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE)-1;
-    chain = ngx_http_push_create_output_chain(buf, r->pool, r->connection->log);
-    buf->last_buf=1;
-    r->headers_out.content_length_n=ngx_buf_size(buf);
-    r->headers_out.status=NGX_HTTP_OK;
-    ngx_http_send_header(r);
-    ngx_http_output_filter(r, chain);
-    return NGX_OK;
-  }
-    
-  if (r->method != NGX_HTTP_GET) {
-    ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET); //valid HTTP for the win
-    return NGX_HTTP_NOT_ALLOWED;
-  }
-  
   if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
-  ngx_http_push_subscriber_get_msg_id(r, &msg_id);
   
-  switch(cf->subscriber_poll_mechanism) {
-    ngx_http_push_msg_t            *msg;
-    ngx_int_t                       msg_search_outcome;
-    
-    //for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
-    case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
-      msg = ngx_http_push_store->get_message(channel_id, &msg_id, &msg_search_outcome, cf);
-      switch(msg_search_outcome) {
-        ngx_chain_t                *chain;
-        ngx_str_t                  *content_type, *etag;
-        time_t                     last_modified;
+  switch(r->method) {
+    case NGX_HTTP_GET:
+      ngx_http_push_subscriber_get_msg_id(r, &msg_id);
+      switch(cf->subscriber_poll_mechanism) {
+        ngx_http_push_msg_t            *msg;
+        ngx_int_t                       msg_search_outcome;
         
-        case NGX_HTTP_PUSH_CHANNEL_NOT_FOUND:
-          ngx_http_push_response_channel_info(NULL, r, NGX_HTTP_NOT_FOUND);
-          return NGX_OK;
-
-        case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
-          //interval-polling subscriber requests get a 304 with their entity tags preserved.
-          if (r->headers_in.if_modified_since != NULL) {
-            r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+        //for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
+        case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
+          msg = ngx_http_push_store->get_message(channel_id, &msg_id, &msg_search_outcome, cf);
+          switch(msg_search_outcome) {
+            ngx_chain_t                *chain;
+            ngx_str_t                  *content_type, *etag;
+            time_t                     last_modified;
+            
+            case NGX_HTTP_PUSH_CHANNEL_NOT_FOUND:
+              ngx_http_push_response_channel_info(NULL, r, NGX_HTTP_NOT_FOUND);
+              return NGX_OK;
+              
+            case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
+              //interval-polling subscriber requests get a 304 with their entity tags preserved.
+              if (r->headers_in.if_modified_since != NULL) {
+                r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+              }
+              if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
+                r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
+              }
+              return NGX_HTTP_NOT_MODIFIED;
+              
+            case NGX_HTTP_PUSH_MESSAGE_FOUND:
+              ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
+              ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+              ngx_http_push_store->release_message(NULL, msg);
+              return NGX_OK;
           }
-          if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
-            r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
-          }
-          return NGX_HTTP_NOT_MODIFIED;
-
-        case NGX_HTTP_PUSH_MESSAGE_FOUND:
-          ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-          ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-          ngx_http_push_store->release_message(NULL, msg);
-          return NGX_OK;
+          return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          
+        case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
+          return ngx_http_push_store->subscribe(channel_id, &msg_id, r, cf);
       }
       break;
     
-    case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
-      return ngx_http_push_store->subscribe(channel_id, &msg_id, r, cf);
-      break;
+    case NGX_HTTP_OPTIONS:
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN,  &NGX_HTTP_PUSH_ANYSTRING);
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_HEADERS, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS);
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_METHODS, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS);
+      r->headers_out.content_length_n = 0;
+      r->header_only = 1;
+      r->headers_out.status=NGX_HTTP_OK;
+      ngx_http_send_header(r);
+      return NGX_OK;
+      
+    default:
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
+      return NGX_HTTP_NOT_ALLOWED;
   }
-  return NGX_HTTP_INTERNAL_SERVER_ERROR;
 }
 
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
@@ -626,9 +623,20 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_finalize_request(r, ngx_http_push_response_channel_info(channel_id, r, NGX_HTTP_OK));
       break;
       
+    case NGX_HTTP_OPTIONS:
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, &NGX_HTTP_PUSH_ANYSTRING);
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_HEADERS,  &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS);
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_METHODS, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+      r->header_only = 1;
+      r->headers_out.content_length_n = 0;
+      r->headers_out.status=NGX_HTTP_OK;
+      ngx_http_send_header(r);
+      ngx_http_finalize_request(r, NGX_HTTP_OK);
+      break;
+      
     default:
       //some other weird request method
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE);
+      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
       ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
       break;
   }
