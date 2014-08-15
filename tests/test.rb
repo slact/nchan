@@ -16,7 +16,7 @@ def pubsub(concurrent_clients=1, opt={})
     sub_url=opt[:sub] || "sub/broadcast/"
     pub_url=opt[:pub] || "pub/"
     chan_id = opt[:channel] || SecureRandom.hex
-    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN'
+    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client]
     pub = Publisher.new url("#{pub_url}#{chan_id}")
     return pub, sub
 end
@@ -35,9 +35,7 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_interval_poll
-    chan_id=SecureRandom.hex
-    pub = Publisher.new url("/pub/#{chan_id}")
-    sub = Subscriber.new(url("/sub/intervalpoll/#{chan_id}"), 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.25 )
+    pub, sub=pubsub 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.1
     sub.run
     pub.post ["hello this", "is a thing"]
     sleep 1

@@ -98,33 +98,45 @@ class Subscriber
       @url=subscr.url
       @concurrency=opt[:concurrency] || opt[:clients] || 1
       @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency)
+      @gzip=opt[:gzip]
+      @retry_delay=opt[:retry_delay]
     end
 
+    def response_success(response, req)
+      #puts "received OK response at #{req.url}"
+      #parse it
+      msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
+      msg.content_type=response.headers["Content-Type"]
+      req.options[:headers]["If-None-Match"]=msg.etag
+      req.options[:headers]["If-Modified-Since"]=msg.last_modified
+      unless @subscriber.on_message(msg) == false
+        @subscriber.waiting+=1
+        Celluloid.sleep @retry_delay if @retry_delay
+        @hydra.queue req
+      else
+        @subscriber.finished+=1
+      end
+    end
+    
+    def response_failure(response, req)
+      #puts "received bad or no response at #{req.url}"
+      unless @subscriber.on_failure(response) == false
+        @subscriber.waiting+=1
+        Celluloid.sleep @retry_delay if @retry_delay
+        @hydra.queue req
+      else
+        @subscriber.finished+=1
+      end
+    end
+    
     def new_request
-      req=Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout)
+      req=Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil) )
       req.on_complete do |response|
         @subscriber.waiting-=1
         if response.success?
-          #puts "received OK response at #{req.url}"
-          #parse it
-          msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
-          msg.content_type=response.headers["Content-Type"]
-          req.options[:headers]["If-None-Match"]=msg.etag
-          req.options[:headers]["If-Modified-Since"]=msg.last_modified
-          unless @subscriber.on_message(msg) == false
-            @subscriber.waiting+=1
-            @hydra.queue req
-          else
-            @subscriber.finished+=1
-          end
+          response_success response, req
         else
-          #puts "received bad or no response at #{req.url}"
-          unless @subscriber.on_failure(response) == false
-            @subscriber.waiting+=1
-            @hydra.queue req
-          else
-            @subscriber.finished+=1
-          end
+          response_failure response, req
         end
       end
       req
@@ -145,43 +157,32 @@ class Subscriber
   
   class IntervalPollClient < LongPollClient
     def initialize(subscr, opt={})
-      @retry_delay=opt[:retry_delay] || 0.25
       @last_modified=nil
       @etag=nil
       super
     end
-    def new_request
-      req=Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout)
-      req.on_complete do |response|
-        @subscriber.waiting-=1
-        @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
-        @etag=response.headers["Etag"] if response.headers["Etag"]
-        req.options[:headers]["If-Modified-Since"]=@last_modified
-        req.options[:headers]["If-None-Match"]=@etag
-        if response.success?
-          #puts "received OK response at #{req.url}"
-          #parse it
-          msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
-          msg.content_type=response.headers["Content-Type"]
-          unless @subscriber.on_message(msg) == false
-            @subscriber.waiting+=1
-            @hydra.queue req
-          else
-            @subscriber.finished+=1
-          end
-        else
-          #puts "received bad or no response at #{req.url}, code #{response.code}"
-          if response.code == 304 || @subscriber.on_failure(response) != false
-            @subscriber.waiting+=1
-            Celluloid.sleep @retry_delay if @retry_delay
-            @hydra.queue req
-          else
-            @subscriber.finished+=1
-          end
-        end
-      end
-      req
+    
+    def store_msg_id(response, req)
+      @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
+      @etag=response.headers["Etag"] if response.headers["Etag"]
+      req.options[:headers]["If-Modified-Since"]=@last_modified
+      req.options[:headers]["If-None-Match"]=@etag
     end
+    
+    def response_success(response, req)
+      store_msg_id(response, req)
+      super response, req
+    end
+    def response_failure(response, req)
+      if response.code == 304 || @subscriber.on_failure(response) != false
+        @subscriber.waiting+=1
+        Celluloid.sleep @retry_delay if @retry_delay
+        @hydra.queue req
+      else
+        @subscriber.finished+=1
+      end
+    end
+    
     def poke
       while @subscriber.finished < @concurrency do
         sleep 1
@@ -196,6 +197,8 @@ class Subscriber
     @timeout=opt[:timeout] || 30
     @connect_timeout=opt[:connect_timeout] || 5
     @quit_message=opt[:quit_message]
+    @gzip=opt[:gzip]
+    @retry_delay=opt[:retry_delay]
     reset
     #puts "Starting subscriber on #{url}"
     case opt[:client]
@@ -215,7 +218,7 @@ class Subscriber
     new_client @client_class
   end
   def new_client(client_class=LongPollClient)
-    @client=client_class.new(self, :concurrency => concurrency, :timeout => @timeout, :connect_timeout => @connect_timeout)
+    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay)
   end
   def reset
     @errors=[]
