@@ -138,9 +138,9 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
 	}
 }
 
-ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot, ngx_log_t *log) {
+ngx_int_t ngx_http_push_alert_worker(ngx_pid_t pid, ngx_int_t slot) {
 	//seems ch doesn't need to have fd set. odd, but roll with it. pid and process slot also unnecessary.
 	static ngx_channel_t            ch = {NGX_CMD_HTTP_PUSH_CHECK_MESSAGES, 0, 0, -1};
-	return ngx_write_channel(ngx_http_push_socketpairs[slot][0], &ch, sizeof(ngx_channel_t), log);
+	return ngx_write_channel(ngx_http_push_socketpairs[slot][0], &ch, sizeof(ngx_channel_t), ngx_cycle->log);
 }
 

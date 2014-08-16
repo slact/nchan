@@ -51,7 +51,7 @@ ngx_int_t ngx_http_push_delete_channel_locked(ngx_http_push_channel_t *trash, ng
   
 }
 
-ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeout, ngx_shm_zone_t *shm_zone, ngx_log_t *log) {
+ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeout, ngx_shm_zone_t *shm_zone) {
   ngx_rbtree_t                   *tree = &((ngx_http_push_shm_data_t *) shm_zone->data)->tree;
   uint32_t                        hash;
   ngx_rbtree_node_t              *node, *sentinel;
@@ -121,9 +121,9 @@ ngx_http_push_channel_t * ngx_http_push_find_channel(ngx_str_t *id, time_t timeo
 }
 
 //find a channel by id. if channel not found, make one, insert it, and return that.
-ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_shm_zone_t *shm_zone, ngx_log_t *log) {
+ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout, ngx_shm_zone_t *shm_zone) {
   ngx_rbtree_t                   *tree;
-  ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, timeout, shm_zone, log);
+  ngx_http_push_channel_t        *up=ngx_http_push_find_channel(id, timeout, shm_zone);
   ngx_http_push_pid_queue_t      *worker_queue_sentinel;
   
   if(up != NULL) { //we found our channel
@@ -135,7 +135,7 @@ ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout
   }
   if((worker_queue_sentinel=ngx_http_push_store->alloc_locked(sizeof(*worker_queue_sentinel), "channel worker queue sentinel"))==NULL) {
     ngx_http_push_store->free_locked(up);
-    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: unable to allocate worker queue sentinel");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate worker queue sentinel");
     return NULL;
   }
   ngx_queue_init(&worker_queue_sentinel->queue);
@@ -154,6 +154,8 @@ ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout
   
   up->workers_with_subscribers=worker_queue_sentinel;
   up->subscribers=0;
+  
+  up->last_seen=ngx_time();
 
   up->expires = ngx_time() + timeout;
   

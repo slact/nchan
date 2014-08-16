@@ -4,7 +4,9 @@ require 'securerandom'
 require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 PORT=ENV["PUSHMODULE_PORT"] || "8082"
+#Typhoeus::Config.verbose = true
 def url(part="")
+  part=part[1..-1] if part[0]=="/"
   "http://#{SERVER}:#{PORT}/#{part}"
 end
 puts "Server at #{url}"
@@ -14,16 +16,16 @@ def pubsub(concurrent_clients=1, opt={})
     sub_url=opt[:sub] || "sub/broadcast/"
     pub_url=opt[:pub] || "pub/"
     chan_id = opt[:channel] || SecureRandom.hex
-    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN'
+    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client]
     pub = Publisher.new url("#{pub_url}#{chan_id}")
     return pub, sub
 end
-def verify(pub, sub)
-  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}"
+def verify(pub, sub, check_errors=true)
+  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}" if check_errors
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
   sub.messages.each do |msg|
-    assert_equal msg.times_seen, sub.concurrency, "Concurrent subscribers didn't all receive a message."
+    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive a message."
   end
 end
 
@@ -31,16 +33,109 @@ class PubSubTest < Test::Unit::TestCase
   def setup
     Celluloid.boot
   end
+  
+  def test_interval_poll
+    pub, sub=pubsub 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.1
+    sub.run
+    pub.post ["hello this", "is a thing"]
+    sleep 1
+    pub.post ["oh now what", "is this even a thing?"]
+    sleep 1
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    sub.terminate
+  end
+  
+  def test_channel_info
+    require 'json'
+    require 'nokogiri'
+    require 'yaml'
+    
+    subs=20
+    
+    chan=SecureRandom.hex
+    pub, sub = pubsub(subs, channel: chan)
+    pub.nofail=true
+    pub.get
+    assert_equal 404, pub.response_code
+    
+    pub.post ["hello", "what is this i don't even"]
+    assert_equal 202, pub.response_code
+    pub.get
+    assert_equal 200, pub.response_code
+    assert_match /last requested: \d+ sec/, pub.response_body
+    
+    pub.get "text/json"
+    info_json=nil
+    assert_nothing_thrown do
+      info_json=JSON.parse pub.response_body
+      assert_equal 2, info_json["messages"]
+      #assert_equal 0, info_json["requested"]
+      assert_equal 0, info_json["subscribers"]
+    end
+    
+    sub.run
+    sleep 0.2
+    pub.get "text/json"
+    assert_nothing_thrown do
+      info_json=JSON.parse pub.response_body
+      assert_equal 2, info_json["messages"]
+      #assert_equal 0, info_json["requested"]
+      assert_equal subs, info_json["subscribers"]
+    end
+
+    pub.get "text/xml"
+    assert_nothing_thrown do
+    ix = Nokogiri::XML pub.response_body
+      assert_equal 2, ix.at_xpath('//messages').content.to_i
+      #assert_equal 0, ix.at_xpath('//requested').content.to_i
+      assert_equal subs, ix.at_xpath('//subscribers').content.to_i
+    end
+    
+    pub.get "text/yaml"
+    yaml_resp1=pub.response_body
+    pub.get "application/yaml"
+    yaml_resp2=pub.response_body
+    pub.get "application/x-yaml"
+    yaml_resp3=pub.response_body
+    assert_nothing_thrown do
+      yam=YAML.load pub.response_body
+      assert_equal 2, yam["messages"]
+      #assert_equal 0, yam["requested"]
+      assert_equal subs, yam["subscribers"]
+    end
+    
+    assert_equal yaml_resp1, yaml_resp2
+    assert_equal yaml_resp2, yaml_resp3
+    
+    
+    pub.post "FIN"
+    sub.wait
+    pub.get "text/json"
+    assert_nothing_thrown do
+      info_json=JSON.parse pub.response_body
+      assert_equal 3, info_json["messages"]
+      #assert_equal 0, info_json["requested"]
+      assert_equal 0, info_json["subscribers"]
+    end
+    
+    sub.terminate
+  end
+  
   def test_message_delivery
     pub, sub = pubsub
     sub.run
-    assert_equal sub.messages.messages.count, 0
+    sleep 0.2
+    assert_equal 0, sub.messages.messages.count
     pub.post "hi there"
+    assert_equal 201, pub.response_code
     sleep 0.2
-    assert_equal sub.messages.messages.count, 1
+    assert_equal 1, sub.messages.messages.count
     pub.post "FIN"
+    assert_equal 201, pub.response_code
     sleep 0.2
-    assert_equal sub.messages.messages.count, 2
+    assert_equal 2, sub.messages.messages.count
     assert sub.messages.matches? pub.messages
     sub.terminate
   end
@@ -51,17 +146,46 @@ class PubSubTest < Test::Unit::TestCase
     sub.on_failure { false }
     sub.run
     sub.wait
-    assert_equal sub.finished, 5
+    assert_equal 5, sub.finished
     assert sub.match_errors(/code 40[34]/)
     sub.reset
     pub.post %w( fweep )
+    assert_match /20[12]/, pub.response_code.to_s
     sleep 0.1
     sub.run
-    pub.post ["fwoop", "FIN"]
+    sleep 0.1
+    pub.post ["fwoop", "FIN"] { assert_match /20[12]/, pub.response_code.to_s }
     sub.wait
     verify pub, sub
+    sub.terminate
   end
-  
+
+  def test_deletion
+    #delete active channel
+    pub, sub = pubsub 5, timeout: 10
+    sub.on_failure { false }
+    sub.run
+    sleep 0.2
+    pub.delete
+    sleep 0.2
+    assert_equal 200, pub.response_code
+    sub.wait
+    assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
+
+    #delete channel with no subscribers
+    pub, sub = pubsub 5, timeout: 1
+    pub.post "hello"
+    assert_equal 202, pub.response_code
+    pub.delete
+    assert_equal 200, pub.response_code
+
+    #delete nonexistent channel
+    pub, sub = pubsub
+    pub.nofail=true
+    pub.delete
+    assert_equal 404, pub.response_code
+  end
+
   def test_no_message_buffer
     chan_id=SecureRandom.hex
     pub = Publisher.new url("/pub/nobuffer/#{chan_id}")
@@ -220,16 +344,59 @@ class PubSubTest < Test::Unit::TestCase
   end
   
   def test_message_timeout
-    #config should be set to message_timeout=5sec
-    pub, sub = pubsub 1, timeout: 5
-    pub.post "foo"
-    sleep 10
-    pub.messages.remove_old
+    pub, sub = pubsub 10, pub: "/pub/2_sec_message_timeout/", timeout: 4
+    pub.post %w( foo bar etcetera ) #these shouldn't get delivered
+    pub.messages.clear
+    sleep 3
+    
     sub.run
-    pub.post "FIN"
+    pub.post %w( what is this even FIN )
     sub.wait
     verify pub, sub
     sub.terminate
+  end
+  
+  def test_subscriber_timeout
+    chan=SecureRandom.hex
+    sub=Subscriber.new(url("sub/timeout/#{chan}"), 2, timeout: 10)
+    sub.on_failure { false }
+    pub=Publisher.new url("pub/#{chan}")
+    sub.run
+    pub.post "hello"
+    sub.wait
+    verify pub, sub, false
+    assert sub.match_errors(/code 304/)
+  end
+  
+  def assert_header_includes(response, header, str)
+    assert response.headers[header].include?(str), "Response header '#{header}:#{response.headers[header]}' must include \"#{str}\", but does not."
+  end
+  
+  def test_options
+    chan=SecureRandom.hex
+    request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS
+    resp = request.run
+    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    %w( GET OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
+    %w( If-None-Match If-Modified-Since Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    
+    request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS
+    resp = request.run
+    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    %w( GET POST DELETE OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
+    %w( Content-Type Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+  end
+  
+  def test_gzip
+    #bug: turning on gzip cleared the response etag
+    pub, sub = pubsub 1, sub: "/sub/gzip/", gzip: true, retry_delay: 0.3
+    sub.run
+    pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]
+    sleep 1
+    pub.post "foobar"
+    pub.post "FIN"
+    sleep 1
+    verify pub, sub
   end
 end
 

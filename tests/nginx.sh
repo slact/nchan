@@ -1,4 +1,7 @@
 #!/bin/zsh
+TESTDIR=`pwd`
+SRCDIR=$(readlink -m $TESTDIR/../src)
+echo $TESTDIR $SRCDIR
 NGINX_CONFIG=`pwd`/nginx.conf
 NGINX_TEMP_CONFIG=`pwd`/.nginx.thisrun.conf
 NGINX_OPT=( -p `pwd`/ 
@@ -91,13 +94,17 @@ if [[ $debugger == 1 ]]; then
   master_pid=`cat /tmp/pushmodule-test-nginx.pid`
   child_pids=`pgrep -P $master_pid`
   kdbg_pids=()
+  ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
+  ln -sf  $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
+  sudo echo "attaching kdbg..."
   while read -r line; do
-    sudo kdbg -p $line ./nginx &
+    sudo kdbg -p $line $SRCDIR/nginx &
     kdbg_pids+="$!"
   done <<< $child_pids
   echo "kdbg at $kdbg_pids"
   wait $kdbg_pids
   kill $master_pid
+  rm -f $SRCDIR/nginx $SRCDIR/nginx-source 2>/dev/null
 elif [[ $valgrind == 1 ]]; then
   mkdir ./coredump 2>/dev/null
   pushd ./coredump >/dev/null
