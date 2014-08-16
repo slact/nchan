@@ -303,7 +303,7 @@ end
 
 class Publisher
   include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept
   def initialize(url)
     @url= url
     @messages = MessageStore.new :noid => true
@@ -321,7 +321,7 @@ class Publisher
     end
     post = Typhoeus::Request.new(
       @url,
-      headers: {:'Content-Type' => content_type},
+      headers: {:'Content-Type' => content_type, :'Accept' => accept},
       method: method,
       body: body,
     )
@@ -353,8 +353,10 @@ class Publisher
     post.run
   end
   
-  def get
+  def get(accept_header=nil)
+    self.accept=accept_header
     submit nil, :GET
+    self.accept=nil
   end
   def delete
     submit nil, :DELETE

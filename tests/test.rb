@@ -49,6 +49,82 @@ class PubSubTest < Test::Unit::TestCase
     sub.terminate
   end
   
+  def test_channel_info
+    require 'json'
+    require 'nokogiri'
+    require 'yaml'
+    
+    subs=20
+    
+    chan=SecureRandom.hex
+    pub, sub = pubsub(subs, channel: chan)
+    pub.nofail=true
+    pub.get
+    assert_equal 404, pub.response_code
+    
+    pub.post ["hello", "what is this i don't even"]
+    assert_equal 202, pub.response_code
+    pub.get
+    assert_equal 200, pub.response_code
+    assert_match /last requested: \d+ sec/, pub.response_body
+    
+    pub.get "text/json"
+    info_json=nil
+    assert_nothing_thrown do
+      info_json=JSON.parse pub.response_body
+      assert_equal 2, info_json["messages"]
+      #assert_equal 0, info_json["requested"]
+      assert_equal 0, info_json["subscribers"]
+    end
+    
+    sub.run
+    sleep 0.2
+    pub.get "text/json"
+    assert_nothing_thrown do
+      info_json=JSON.parse pub.response_body
+      assert_equal 2, info_json["messages"]
+      #assert_equal 0, info_json["requested"]
+      assert_equal subs, info_json["subscribers"]
+    end
+
+    pub.get "text/xml"
+    assert_nothing_thrown do
+    ix = Nokogiri::XML pub.response_body
+      assert_equal 2, ix.at_xpath('//messages').content.to_i
+      #assert_equal 0, ix.at_xpath('//requested').content.to_i
+      assert_equal subs, ix.at_xpath('//subscribers').content.to_i
+    end
+    
+    pub.get "text/yaml"
+    yaml_resp1=pub.response_body
+    pub.get "application/yaml"
+    yaml_resp2=pub.response_body
+    pub.get "application/x-yaml"
+    yaml_resp3=pub.response_body
+    assert_nothing_thrown do
+      yam=YAML.load pub.response_body
+      assert_equal 2, yam["messages"]
+      #assert_equal 0, yam["requested"]
+      assert_equal subs, yam["subscribers"]
+    end
+    
+    assert_equal yaml_resp1, yaml_resp2
+    assert_equal yaml_resp2, yaml_resp3
+    
+    
+    pub.post "FIN"
+    sub.wait
+    pub.get "text/json"
+    assert_nothing_thrown do
+      info_json=JSON.parse pub.response_body
+      assert_equal 3, info_json["messages"]
+      #assert_equal 0, info_json["requested"]
+      assert_equal 0, info_json["subscribers"]
+    end
+    
+    sub.terminate
+  end
+  
   def test_message_delivery
     pub, sub = pubsub
     sub.run
