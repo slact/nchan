@@ -54,5 +54,6 @@ const ngx_str_t NGX_HTTP_PUSH_CHANNEL_INFO_YAML = ngx_string(
   "---" CRLF
   "messages: %ui" CRLF
   "requested: %d" CRLF
-  "subscribers %ui" CRLF
+  "subscribers: %ui" CRLF
+  CRLF
   "\0");
