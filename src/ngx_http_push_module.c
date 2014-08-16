@@ -263,7 +263,7 @@ ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_
   }
   if(etag!=NULL) {
     //etag, if we need one
-    if ((r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
+    if ((ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
   }
@@ -471,15 +471,10 @@ ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subsc
 }
 */
 
-
-static ngx_int_t ngx_http_push_response_channel_info(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t status_code) {
-  ngx_http_push_channel_t        *channel;
-  time_t                          last_seen = 0;
-  ngx_uint_t                      subscribers = 0;
-  ngx_uint_t                      messages = 0;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  channel = channel_id == NULL ? NULL : ngx_http_push_store->find_channel(channel_id, cf->channel_timeout);
-  
+static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
+  time_t             last_seen = 0;
+  ngx_uint_t         subscribers = 0;
+  ngx_uint_t         messages = 0;
   if(channel!=NULL) {
     ngx_http_push_store->lock();
     subscribers = channel->subscribers;
@@ -509,6 +504,47 @@ static ngx_int_t ngx_http_push_response_channel_info(ngx_str_t *channel_id, ngx_
   return NGX_OK;
 }
 
+static ngx_int_t ngx_http_push_response_channel_info(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t status_code) {
+  ngx_http_push_channel_t        *channel;
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  channel = channel_id == NULL ? NULL : ngx_http_push_store->find_channel(channel_id, cf->channel_timeout, NULL);
+  return ngx_http_push_response_channel_ptr_info(channel, r, status_code);
+}
+
+static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, ngx_http_request_t *r) {
+  ngx_http_finalize_request(r, status);
+  return NGX_OK;
+}
+
+static ngx_int_t subscribe_intervalpoll_callback(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r) {
+  ngx_chain_t                *chain;
+  ngx_str_t                  *content_type, *etag;
+  time_t                     last_modified;
+  switch(msg_search_outcome) {
+    case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
+      //interval-polling subscriber requests get a 304 with their entity tags preserved.
+      if (r->headers_in.if_modified_since != NULL) {
+        r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+      }
+      if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
+        ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
+      }
+      ngx_http_finalize_request(r, NGX_HTTP_NOT_MODIFIED);
+      return NGX_OK;
+      
+    case NGX_HTTP_PUSH_MESSAGE_FOUND:
+      ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
+      ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+      ngx_http_push_store->release_message(NULL, msg);
+      ngx_http_finalize_request(r, NGX_OK);
+      return NGX_OK;
+      
+    default:
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return NGX_ERROR;
+  }
+}
+
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_str_t                      *channel_id;
@@ -521,40 +557,21 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   switch(r->method) {
     case NGX_HTTP_GET:
       ngx_http_push_subscriber_get_msg_id(r, &msg_id);
+
+      r->main->count++; //let it linger until callback
       switch(cf->subscriber_poll_mechanism) {
-        ngx_http_push_msg_t            *msg;
         ngx_int_t                       msg_search_outcome;
         
         //for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
         case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
-          msg = ngx_http_push_store->get_message(channel_id, &msg_id, &msg_search_outcome, cf);
-          switch(msg_search_outcome) {
-            ngx_chain_t                *chain;
-            ngx_str_t                  *content_type, *etag;
-            time_t                     last_modified;
-              
-            case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
-              //interval-polling subscriber requests get a 304 with their entity tags preserved.
-              if (r->headers_in.if_modified_since != NULL) {
-                r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-              }
-              if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
-                r->headers_out.etag=ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
-              }
-              return NGX_HTTP_NOT_MODIFIED;
-              
-            case NGX_HTTP_PUSH_MESSAGE_FOUND:
-              ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-              ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-              ngx_http_push_store->release_message(NULL, msg);
-              return NGX_OK;
-          }
-          return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          ngx_http_push_store->get_message(channel_id, &msg_id, &msg_search_outcome, r, &subscribe_intervalpoll_callback);
+          break;
           
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
-          return ngx_http_push_store->subscribe(channel_id, &msg_id, r, cf);
+          ngx_http_push_store->subscribe(channel_id, &msg_id, r, &subscribe_longpoll_callback);
+          break;
       }
-      break;
+      return NGX_DONE;
     
     case NGX_HTTP_OPTIONS:
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN,  &NGX_HTTP_PUSH_ANYSTRING);
@@ -572,6 +589,32 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 }
 
+static ngx_int_t publish_callback(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r) {
+  switch(status) {
+    case NGX_HTTP_PUSH_MESSAGE_QUEUED:
+      //message was queued successfully, but there were no subscribers to receive it.
+      ngx_http_finalize_request(r, ngx_http_push_response_channel_ptr_info(ch, r, NGX_HTTP_ACCEPTED));
+      return NGX_OK;
+      
+    case NGX_HTTP_PUSH_MESSAGE_RECEIVED:
+      //message was queued successfully, and it was already sent to at least one subscriber
+      ngx_http_finalize_request(r, ngx_http_push_response_channel_ptr_info(ch, r, NGX_HTTP_CREATED));
+      return NGX_OK;
+      
+    case NGX_ERROR:
+      //WTF?
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return NGX_ERROR;
+      
+    default:
+      //for debugging, mostly. I don't expect this branch to behit during regular operation
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return NGX_ERROR;
+  }
+}
+
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   ngx_str_t                      *channel_id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
@@ -585,29 +628,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   switch(method) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
-      switch(ngx_http_push_store->publish(channel_id, r, cf)) {
-        case NGX_HTTP_PUSH_MESSAGE_QUEUED:
-          //message was queued successfully, but there were no subscribers to receive it.
-          ngx_http_finalize_request(r, ngx_http_push_response_channel_info(channel_id, r, NGX_HTTP_ACCEPTED));
-          break;
-      
-        case NGX_HTTP_PUSH_MESSAGE_RECEIVED:
-          //message was queued successfully, and it was already sent to at least one subscriber
-          ngx_http_finalize_request(r, ngx_http_push_response_channel_info(channel_id, r, NGX_HTTP_CREATED));
-          break;
-      
-        case NGX_ERROR:
-          //WTF?
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
-          ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-          break;
-          
-        default:
-          //for debugging, mostly. I don't expect this branch to behit during regular operation
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error broadcasting message to workers");
-          ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-          break;
-      }
+      ngx_http_push_store->publish(channel_id, r, &publish_callback);
       break;
       
     case NGX_HTTP_DELETE:

@@ -283,21 +283,22 @@ static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_cha
   return NULL;
 }
 
-static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id, time_t channel_timeout) {
+static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id, time_t channel_timeout, ngx_int_t (*callback)(ngx_http_push_channel_t *channel)) {
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   channel = ngx_http_push_find_channel(id, channel_timeout, ngx_http_push_shm_zone);
   ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+  if(callback!=NULL) {
+    callback(channel);
+  }
   return channel;
 }
 
 //temporary cheat
 static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   
-  
-  
- //subscribers are queued up in a local pool. Queue heads, however, are located
+  //subscribers are queued up in a local pool. Queue heads, however, are located
   //in shared memory, identified by pid.
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   ngx_http_push_pid_queue_t     *sentinel = channel->workers_with_subscribers;
@@ -308,21 +309,21 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
   ngx_http_push_pid_queue_t     *cur;
   ngx_int_t                      i, received;
   received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
-
+  
   //we need to reserve the message for all the workers in advance
   for(cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue); cur != sentinel; cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue)) {
     if(cur->subscriber_sentinel != NULL) {
       pid_queues[sub_sentinel_count] = cur;
       subscriber_sentinels[sub_sentinel_count] = cur->subscriber_sentinel;
       /*
-      each time all of a worker's subscribers are removed, so is the sentinel. 
-      this is done to make garbage collection easier. Assuming we want to avoid
-      placing the sentinel in shared memory (for now -- it's a little tricky
-      to debug), the owner of the worker pool must be the one to free said sentinel.
-      But channels may be deleted by different worker processes, and it seems unwieldy
-      (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
-      is used every time the subscriber queue is emptied.
-      */
+       *     each time all of a worker's subscribers are removed, so is the sentinel. 
+       *     this is done to make garbage collection easier. Assuming we want to avoid
+       *     placing the sentinel in shared memory (for now -- it's a little tricky
+       *     to debug), the owner of the worker pool must be the one to free said sentinel.
+       *     But channels may be deleted by different worker processes, and it seems unwieldy
+       *     (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
+       *     is used every time the subscriber queue is emptied.
+       */
       cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
       sub_sentinel_count++;
     }
@@ -341,7 +342,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
     ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
     //if(msg != NULL)
     //  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "publish msg %p (ref: %i) for worker %i (slot %i)", msg, msg->refcount, worker_pid, worker_slot);
-
+    
     
     if(subscriber_sentinel != NULL) {
       if(worker_pid == ngx_pid) {
@@ -366,8 +367,6 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
   }
   return received;
 }
-
-
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
   ngx_http_push_channel_t        *channel;
@@ -397,7 +396,8 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
   ngx_http_push_store_unlock_shmem();
   return NGX_OK;
 }
-static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, time_t channel_timeout) {
+
+static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, time_t channel_timeout, ngx_int_t (*callback)(ngx_http_push_channel_t *channel)) {
   //get the channel and check channel authorization while we're at it.
   ngx_http_push_channel_t        *channel;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
@@ -406,10 +406,13 @@ static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, 
   if(channel==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for new channel");
   }
+  if(callback!=NULL) {
+    callback(channel);
+  }
   return channel;
 }
 
-static ngx_http_push_msg_t * ngx_http_push_store_get_channel_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
+static ngx_http_push_msg_t * ngx_http_push_store_get_channel_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
   ngx_http_push_msg_t *msg;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   msg = ngx_http_push_find_message_locked(channel, msgid, msg_search_outcome);
@@ -422,16 +425,25 @@ static ngx_http_push_msg_t * ngx_http_push_store_get_channel_message(ngx_http_pu
   return msg;
 }
 
-static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_int_t                       *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
+static ngx_int_t default_get_message_callback(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r) {
+  return NGX_OK;
+}
+
+static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_int_t *msg_search_outcome, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r)) {
   ngx_http_push_channel_t            *channel;
-  
+  ngx_http_push_msg_t                *msg;
+  if(callback==NULL) {
+    callback=&default_get_message_callback;
+  }
   ngx_http_push_store_lock_shmem();
   channel = ngx_http_push_get_channel(channel_id, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT, ngx_http_push_shm_zone);
   ngx_http_push_store_unlock_shmem();
   if (channel == NULL) {
     return NULL;
   }
-  return ngx_http_push_store_get_channel_message(channel, msg_id, msg_search_outcome, cf);
+  msg = ngx_http_push_store_get_channel_message(channel, msg_id, msg_search_outcome, ngx_http_get_module_loc_conf(r, ngx_http_push_module));
+  callback(msg, *msg_search_outcome, r);
+  return msg;
 }
 
 // shared memory zone initializer
@@ -691,7 +703,7 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_chann
       //in most reasonable cases, there'll be at most one subscriber on the
       //channel. However, since settings are bound to locations and not
       //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store->publish_raw(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+      ngx_http_push_store_publish_raw(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
       
       return NGX_OK;
       
@@ -704,34 +716,44 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_chann
   }
 }
 
-static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+static ngx_int_t default_subscribe_callback(ngx_int_t status, ngx_http_request_t *r) {
+  return status;
+}
+
+static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r)) {
   ngx_http_push_channel_t        *channel;
   ngx_http_push_msg_t            *msg;
   ngx_int_t                       msg_search_outcome;
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+
+  
+  if(callback == NULL) {
+    callback=&default_subscribe_callback;
+  }
   
   if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store->find_channel(channel_id, cf->channel_timeout);
+    channel = ngx_http_push_store_find_channel(channel_id, cf->channel_timeout, NULL);
   }else{
-    channel = ngx_http_push_store->get_channel(channel_id, cf->channel_timeout);
+    channel = ngx_http_push_store_get_channel(channel_id, cf->channel_timeout, NULL);
   }
   if (channel==NULL) {
     //unable to allocate channel OR channel not found
     if(cf->authorize_channel) {
-      return NGX_HTTP_FORBIDDEN;
+      return callback(NGX_HTTP_FORBIDDEN, r);
     }
     else {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate shared memory for channel");
-      return NGX_HTTP_INTERNAL_SERVER_ERROR;
+      return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
     }
   }
   
   switch(ngx_http_push_handle_subscriber_concurrency(channel, r, cf)) {
     case NGX_DECLINED: //this request was declined for some reason.
       //status codes and whatnot should have already been written. just get out of here quickly.
-      return NGX_OK;
+      return callback(NGX_OK, r);
     case NGX_ERROR:
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling subscriber concurrency setting");
-      return NGX_ERROR;
+      return callback(NGX_ERROR, r);
   }
   
   
@@ -741,7 +763,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
     msg = NULL;
   }
-  
   
   switch(msg_search_outcome) {
     //for message-found:
@@ -754,28 +775,28 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
       if ((subscriber = ngx_http_push_store_subscribe_raw(channel, r))==NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
       }
       if(ngx_push_longpoll_subscriber_enqueue(channel, subscriber, cf->subscriber_timeout) == NGX_OK) {
-        return NGX_DONE;
+        return callback(NGX_DONE, r);
       }
       else {
-        return NGX_ERROR;
+        return callback(NGX_ERROR, r);
       }
     
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
       //subscriber wants an expired message
       //TODO: maybe respond with entity-identifiers for oldest available message?
-      return NGX_HTTP_NO_CONTENT;
+      return callback(NGX_HTTP_NO_CONTENT, r);
       
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
       ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
       ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
       ngx_http_push_store->release_message(channel, msg);
-      return ret;
+      return callback(ret, r);
       
     default: //we shouldn't be here.
-      return NGX_HTTP_INTERNAL_SERVER_ERROR;
+      return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
   }
 }
 
@@ -956,18 +977,26 @@ static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *ch
   return NGX_OK;
 }
 
+static ngx_int_t default_publish_callback(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r) {
+  return status;
+}
 
-static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
-  ngx_http_push_channel_t   *channel;
-  ngx_http_push_msg_t       *msg;
-  channel = ngx_http_push_store_get_channel(channel_id, cf->channel_timeout); //always returns a channel, unless no memory left
-  if(channel==NULL) {
-    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-    return NGX_ERROR;
+static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r)) {
+  ngx_http_push_channel_t        *channel;
+  ngx_http_push_msg_t            *msg;
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_int_t                       result=0;
+  if(callback==NULL) {
+    callback=&default_publish_callback;
   }
+  if((channel=ngx_http_push_store_get_channel(channel_id, cf->channel_timeout, NULL))==NULL) { //always returns a channel, unless no memory left
+    return callback(NGX_ERROR, NULL, r);
+    //ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+  }
+  
   if((msg = ngx_http_push_store_create_message(channel, r))==NULL) {
-    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-    return NGX_ERROR;
+    return callback(NGX_ERROR, channel, r);
+    //ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
   }
   
   if(cf->max_messages > 0) { //channel buffers exist
@@ -976,7 +1005,8 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   else if(cf->max_messages == 0) {
     ngx_http_push_store_reserve_message(NULL, msg);
   }
-  return ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
+  result= ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
+  return callback(result, channel, r);
 }
 
 static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
@@ -1107,20 +1137,20 @@ ngx_http_push_store_t  ngx_http_push_store_memory = {
     //shutdown
     &ngx_http_push_store_exit_worker,
     &ngx_http_push_store_exit_master,
-  
-    //channel stuff
-    &ngx_http_push_store_get_channel, //creates channel if not found
-    &ngx_http_push_store_find_channel, //returns channel or NULL if not found
+    
+    //async-friendly functions with callbacks
+    &ngx_http_push_store_get_message, //+callback
+    &ngx_http_push_store_subscribe, //+callback
+    &ngx_http_push_store_publish_message, //+callback
+    
+    //channel stuff,
+    &ngx_http_push_store_get_channel, //creates channel if not found, +callback
+    &ngx_http_push_store_find_channel, //returns channel or NULL if not found, +callback
     &ngx_http_push_store_delete_channel,
-    &ngx_http_push_store_get_message,
+    
     &ngx_http_push_store_get_channel_message,
     &ngx_http_push_store_reserve_message,
     &ngx_http_push_store_release_message,
-    
-    //pub/sub
-    &ngx_http_push_store_subscribe,
-    &ngx_http_push_store_publish_message,
-    &ngx_http_push_store_publish_raw,
     
     //channel properties
     &ngx_http_push_store_channel_subscribers,
