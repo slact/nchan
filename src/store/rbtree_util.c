@@ -154,6 +154,8 @@ ngx_http_push_channel_t *ngx_http_push_get_channel(ngx_str_t *id, time_t timeout
   
   up->workers_with_subscribers=worker_queue_sentinel;
   up->subscribers=0;
+  
+  up->last_seen=ngx_time();
 
   up->expires = ngx_time() + timeout;
   

@@ -2,5 +2,6 @@
 source 'https://rubygems.org'
 gem 'typhoeus'
 gem 'json'
+gem 'nokogiri'
 gem 'pry'
 gem 'celluloid'
