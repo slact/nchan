@@ -435,24 +435,10 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 
-ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber, ngx_int_t subscriber_timeout) {
-  ngx_http_cleanup_t                 *cln;
-  ngx_http_push_subscriber_cleanup_t *clndata;
-  ngx_http_request_t                 *r = subscriber->request;
-  //attach a cleaner to remove the request from the channel and handle shared buffer deallocation.
-  if ((cln=ngx_http_cleanup_add(r, sizeof(*clndata))) == NULL) { //make sure we can.
-    return NGX_ERROR;
-  }
-  cln->handler = (ngx_http_cleanup_pt) ngx_http_push_subscriber_cleanup;
-  clndata = (ngx_http_push_subscriber_cleanup_t *) cln->data;
-  clndata->channel=channel;
-  clndata->subscriber=subscriber;
-  clndata->buf_use_count=0;
-  clndata->buf=NULL;
-  clndata->rchain=NULL;
-  clndata->rpool=NULL;
-  subscriber->clndata=clndata;
+ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_push_channel_t *channel, void *subscriber, ngx_int_t subscriber_timeout) {
+  ngx_http_request_t *r= (ngx_http_request_t *)subscriber;
   
+  /*
   //set up subscriber timeout event
   ngx_memzero(&subscriber->event, sizeof(subscriber->event));
   if (subscriber_timeout > 0) {
@@ -461,6 +447,7 @@ ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_push_channel_t *channel,
     subscriber->event.log = r->connection->log;
     ngx_add_timer(&subscriber->event, subscriber_timeout * 1000);
   }
+  */
   
   r->read_event_handler = ngx_http_test_reading;
   r->write_event_handler = ngx_http_request_empty_handler;

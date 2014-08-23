@@ -158,6 +158,7 @@ static void ngx_http_push_store_reserve_message_locked(ngx_http_push_channel_t *
   //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 }
 
+/*
 static void ngx_http_push_store_reserve_message_num_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t reservations) {
   if(msg == NULL) {
     return;
@@ -166,6 +167,7 @@ static void ngx_http_push_store_reserve_message_num_locked(ngx_http_push_channel
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RESERVED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
   //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
 }
+*/
 
 static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
@@ -320,7 +322,7 @@ static void ngx_http_push_store_respond_subs_cleanup(void *data) {
   }
 }
 
-static ngx_int_t ngx_http_push_store_respond_subs_new(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){ 
+static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_channel_head_t        *head;
   nhpm_subscriber_t          *sub;
   nhpm_subscriber_cleanup_t  *clndata;
@@ -331,7 +333,7 @@ static ngx_int_t ngx_http_push_store_respond_subs_new(ngx_http_push_channel_t *c
   
   CHANNEL_HASH_FIND(&(channel->id), head);
   if(head==NULL) {
-    return NGX_OK;
+    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   if ((clndata=ngx_palloc(head->pool, sizeof(*clndata))) != NULL) {
     clndata->head=head;
@@ -385,81 +387,7 @@ static ngx_int_t ngx_http_push_store_respond_subs_new(ngx_http_push_channel_t *c
   head->sub_count=0;
   //head->last_used=ngx_time();
   //TODO: add timer to delete subscriber head if unused for more than n seconds
-  return NGX_OK;
-}
-
-static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  
-  //subscribers are queued up in a local pool. Queue heads, however, are located
-  //in shared memory, identified by pid.
-  
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_http_push_pid_queue_t     *sentinel = channel->workers_with_subscribers;
-  ngx_http_push_subscriber_t    *subscriber_sentinels[NGX_MAX_PROCESSES];
-  ngx_http_push_pid_queue_t     *pid_queues[NGX_MAX_PROCESSES];
-  ngx_int_t                      sub_sentinel_count=0;
-  
-  ngx_http_push_pid_queue_t     *cur;
-  ngx_int_t                      i, received;
-  received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
-  
-  //we need to reserve the message for all the workers in advance
-  for(cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue); cur != sentinel; cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue)) {
-    if(cur->subscriber_sentinel != NULL) {
-      pid_queues[sub_sentinel_count] = cur;
-      subscriber_sentinels[sub_sentinel_count] = cur->subscriber_sentinel;
-      /*
-       *     each time all of a worker's subscribers are removed, so is the sentinel. 
-       *     this is done to make garbage collection easier. Assuming we want to avoid
-       *     placing the sentinel in shared memory (for now -- it's a little tricky
-       *     to debug), the owner of the worker pool must be the one to free said sentinel.
-       *     But channels may be deleted by different worker processes, and it seems unwieldy
-       *     (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
-       *     is used every time the subscriber queue is emptied.
-       */
-      cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
-      sub_sentinel_count++;
-    }
-  }
-  if(sub_sentinel_count > 0) {
-    ngx_http_push_store_reserve_message_num_locked(channel, msg, sub_sentinel_count);
-  }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
-  ngx_http_push_subscriber_t *subscriber_sentinel=NULL;
-  for(i=0; i < sub_sentinel_count; i++) {
-    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-    subscriber_sentinel = subscriber_sentinels[i];
-    pid_t           worker_pid  = pid_queues[i]->pid;
-    ngx_int_t       worker_slot = pid_queues[i]->slot;
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-    //if(msg != NULL)
-    //  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "publish msg %p (ref: %i) for worker %i (slot %i)", msg, msg->refcount, worker_pid, worker_slot);
-    
-    if(subscriber_sentinel != NULL) {
-      if(worker_pid == ngx_pid) {
-        //my subscribers
-        //ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-        ngx_http_push_store_respond_subs_new(channel, msg, status_code, status_line);
-      }
-      else {
-        //some other worker's subscribers
-        //interprocess communication breakdown
-        if(ngx_http_push_store_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code) != NGX_ERROR) {
-          ngx_http_push_alert_worker(worker_pid, worker_slot);
-        }
-        else {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: error communicating with some other worker process");
-        }
-      }
-    } else {
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "subscriber sentinel is NULL");
-    }
-    
-    
-  }
-  //redisAsyncCommand(rds_ctx(), NULL, NULL, "PUBLISH channel:%b:pubsub 1", str(&(channel->id)));
-  return received;
+  return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
@@ -720,11 +648,13 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   ngx_http_push_shutdown_ipc(cycle);
 }
 
-static ngx_int_t ngx_http_push_subscribe_new(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
+static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
   //this is the new shit
-  nhpm_channel_head_t  *chanhead = NULL;
-  ngx_str_t            *chan_id = NULL;
-  nhpm_subscriber_t    *nextsub;
+  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  nhpm_channel_head_t       *chanhead = NULL;
+  ngx_str_t                 *chan_id = NULL;
+  nhpm_subscriber_t         *nextsub;
+  
   
   CHANNEL_HASH_FIND(&(channel->id), chanhead);
   if(chanhead==NULL) {
@@ -758,68 +688,14 @@ static ngx_int_t ngx_http_push_subscribe_new(ngx_http_push_channel_t *channel, n
   nextsub->next= chanhead->sub;
   chanhead->sub= nextsub;
   chanhead->sub_count++;
-  return NGX_OK;
-}
-
-static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe_raw(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
-  ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
-  ngx_http_push_subscriber_t *subscriber;
-  ngx_http_push_subscriber_t *subscriber_sentinel;
-  //ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   
-  ngx_http_push_subscribe_new(channel, r);
-  
-  //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  sentinel = channel->workers_with_subscribers;
-  cur = (ngx_http_push_pid_queue_t *)ngx_queue_head(&sentinel->queue);
-  found = NULL;
-  
-  while(cur!=sentinel) {
-    if(cur->pid==ngx_pid) {
-      found = cur;
-      break;
-    }
-    cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
-  }
-  if(found == NULL) { //found nothing
-    if((found=ngx_http_push_slab_alloc_locked(sizeof(*found), "worker subscriber sentinel"))==NULL) {
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
-      return NULL;
-    }
-    //initialize
-    ngx_queue_insert_tail(&sentinel->queue, &found->queue);
-    found->pid=ngx_pid;
-    found->slot=ngx_process_slot;
-    found->subscriber_sentinel=NULL;
-  }
-  if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate subscriber worker's memory pool");
-    return NULL;
-  }
+  ngx_http_push_store_lock_shmem();
   channel->subscribers++; // do this only when we know everything went okay.
+  ngx_http_push_store_unlock_shmem();
   
-  //figure out the subscriber sentinel
-  subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "reserve subscriber sentinel at %p", subscriber_sentinel);
+  ngx_push_longpoll_subscriber_enqueue(channel, nextsub->subscriber, cf->subscriber_timeout);
   
-  if(subscriber_sentinel==NULL) {
-    //it's perfectly normal for the sentinel to be NULL.
-    if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
-      return NULL;
-    }
-    ngx_queue_init(&subscriber_sentinel->queue);
-    ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
-  }
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "add to subscriber sentinel at %p", subscriber_sentinel);
-  ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
-  subscriber->request = r;
-  return subscriber;
+  return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
@@ -949,22 +825,18 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     ngx_str_t                  *content_type;
     ngx_chain_t                *chain;
     time_t                      last_modified;
-    ngx_http_push_subscriber_t *subscriber;
 
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
-      if ((subscriber = ngx_http_push_store_subscribe_raw(channel, r)) == NULL) {
-        return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
-      }
-
-      //redisAsyncCommand(rds_sub_ctx(), subscribeCallback, channel, "SUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
-
-      if(ngx_push_longpoll_subscriber_enqueue(channel, subscriber, cf->subscriber_timeout) == NGX_OK) {
+      if (ngx_http_push_store_subscribe_new(channel, r) == NGX_OK) {
         return callback(NGX_DONE, r);
       }
       else {
         return callback(NGX_ERROR, r);
       }
+
+      //redisAsyncCommand(rds_sub_ctx(), subscribeCallback, channel, "SUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
+
 
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
       //subscriber wants an expired message
