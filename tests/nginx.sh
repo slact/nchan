@@ -18,6 +18,8 @@ ERRLOG_LEVEL="notice"
 TMPDIR=""
 MEM="32M"
 
+REDIS_CONF="$TESTDIR/redis.conf"
+REDIS_PORT=8537
 
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
 echo $cacheconf
@@ -27,6 +29,8 @@ for opt in $*; do
     WORKERS=$opt
   fi
   case $opt in
+    redis-persist)
+      persist_redis=1;;
     leak|leakcheck)
       VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes");;
     valgrind)
@@ -87,13 +91,40 @@ if [[ ! -z $CACHE ]]; then
   sed "s|_CACHEDIR_|\"$tmpdir\"|g" $NGINX_TEMP_CONFIG -i
 fi
 
+#shutdown old redis
+old_redis_pid=`pgrep -f "redis-server 127.0.0.1:$REDIS_PORT"`
+if [[ ! -z $old_redis_pid ]] && [[ -z $persist_redis ]]; then
+  kill $old_redis_pid
+  wait $old_redis_pid
+  sleep 1
+fi
+#start redis
+if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
+  redis-server $REDIS_CONF --port $REDIS_PORT &
+  redis_pid=$!
+  echo "started redis on port $REDIS_PORT with pid $redis_pid"
+else
+  echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
+fi
+
+kdbg_pids=()
+
+TRAPINT() {
+  if [[ -z $persist_redis ]]; then
+    kill $redis_pid
+    wait $redis_pid
+  fi
+  if [[ $debugger == 1 ]]; then
+    sudo kill $kdbg_pids
+  fi
+}
+
 if [[ $debugger == 1 ]]; then
   
   ./nginx $NGINX_OPT
   sleep 0.2
   master_pid=`cat /tmp/pushmodule-test-nginx.pid`
   child_pids=`pgrep -P $master_pid`
-  kdbg_pids=()
   ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
   ln -sf  $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
   sudo echo "attaching kdbg..."
@@ -113,5 +144,6 @@ elif [[ $valgrind == 1 ]]; then
 elif [[ $alleyoop == 1 ]]; then
   alleyoop ./nginx $NGINX_OPT
 else
-  ./nginx $NGINX_OPT
+  ./nginx $NGINX_OPT &
+  wait $!
 fi
