@@ -16,10 +16,52 @@
 #define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
 
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
+#define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
+#define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
 //#define DEBUG_SHM_ALLOC 1
 
 static nhpm_channel_head_t *subhash = NULL;
+
+static ngx_event_t         chanhead_cleanup_timer = {0};
+static nhpm_llist_timed_t *chanhead_cleanup_head = NULL;
+static nhpm_llist_timed_t *chanhead_cleanup_tail = NULL;
+
+static ngx_http_push_channel_queue_t channel_gc_sentinel;
+static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
+static ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
+
+
+static void * ngx_http_push_slab_alloc_locked(size_t size, char *label);
+static void * ngx_http_push_slab_alloc(size_t size, char *label);
+static void ngx_http_push_slab_free_locked(void *ptr);
+
+static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers);
+
+static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code);
+static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev);
+
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
+
+
+
+static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
+  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  
+  redis_nginx_init();
+  
+  chanhead_cleanup_timer.data=NULL;
+  chanhead_cleanup_timer.handler=&ngx_http_push_store_chanhead_cleanup_timer_handler;
+  chanhead_cleanup_timer.log=ngx_cycle->log;
+  
+  if(ngx_http_push_store_init_ipc_shm(ccf->worker_processes) == NGX_OK) {
+    return ngx_http_push_ipc_init_worker(cycle);
+  }
+  else {
+    return NGX_ERROR;
+  }
+}
 
 
 /*
@@ -42,15 +84,31 @@ static redisAsyncContext * rds_sub_ctx(void){
 }
 */
 
-static ngx_http_push_channel_queue_t channel_gc_sentinel;
-static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
-static ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
 
-static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code);
-
-
-static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
+//will be called once per worker
+static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
+  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
+  ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
+  ngx_http_push_worker_msg_sentinel_t     *worker_messages=NULL;
+  ngx_shmtx_lock(&shpool->mutex);
+  if(d->ipc==NULL) {
+    //ipc uninitialized. get it done!
+    if((worker_messages = ngx_http_push_slab_alloc_locked(sizeof(*worker_messages)*NGX_MAX_PROCESSES, "IPC worker message sentinel array"))==NULL) {
+      ngx_shmtx_unlock(&shpool->mutex);
+      return NGX_ERROR;
+    }
+    d->ipc=worker_messages;
+  }
+  else {
+    worker_messages=d->ipc;
+  }
+  
+  ngx_queue_init(&worker_messages[ngx_process_slot].queue);
+  ngx_rwlock_init(&worker_messages[ngx_process_slot].lock);
+  
+  ngx_shmtx_unlock(&shpool->mutex);
+  return NGX_OK;
+}
 
 
 static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel) {
@@ -322,10 +380,21 @@ static void ngx_http_push_store_respond_subs_cleanup(void *data) {
   }
 }
 
+static ngx_pool_t *chanhead_ensure_pool_exists(nhpm_channel_head_t *chanhead) {
+  if(chanhead->pool==NULL) {
+    if((chanhead->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
+      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for channel subscriber pool");
+    }
+  }
+  return chanhead->pool;
+}
+
 static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_channel_head_t        *head;
   nhpm_subscriber_t          *sub;
   nhpm_subscriber_cleanup_t  *clndata;
+  
+  nhpm_llist_timed_t         *chanhead_cleanlink;
   
   ngx_buf_t                  *buffer=NULL;
   ngx_str_t                  *etag, *content_type;
@@ -335,6 +404,8 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
+  chanhead_ensure_pool_exists(head);
+  
   if ((clndata=ngx_palloc(head->pool, sizeof(*clndata))) != NULL) {
     clndata->head=head;
     clndata->count=head->sub_count;
@@ -369,6 +440,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
     cln->data = clndata;
     
     if(msg!=NULL) {
+      //each response needs its own chain and buffer, though the buffer contents can be shared
       rchain = ngx_pcalloc(sub->pool, sizeof(*rchain));
       rbuffer = ngx_pcalloc(sub->pool, sizeof(*rbuffer));
       rchain->next = NULL;
@@ -382,12 +454,77 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
     }
   }
   
-  head->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
+  ngx_http_push_store_lock_shmem();
+  channel->subscribers-=head->sub_count;
+  ngx_http_push_store_unlock_shmem();
+  
+  head->pool=NULL;
   head->sub=NULL;
   head->sub_count=0;
-  //head->last_used=ngx_time();
-  //TODO: add timer to delete subscriber head if unused for more than n seconds
+  
+  if(head->cleanlink==NULL) {
+    //add channel head to cleanup list
+    if((chanhead_cleanlink=ngx_alloc(sizeof(*chanhead_cleanlink), ngx_cycle->log))==NULL) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate memory for channel subscriber head cleanup list element");
+      return NGX_ERROR;
+    }
+    chanhead_cleanlink->data=(void *)head;
+    chanhead_cleanlink->time=ngx_time();
+    chanhead_cleanlink->prev=chanhead_cleanup_tail;
+    if(chanhead_cleanup_tail != NULL) {
+      chanhead_cleanup_tail->next=chanhead_cleanlink;
+    }
+    chanhead_cleanlink->next=NULL;
+    chanhead_cleanup_tail=chanhead_cleanlink;
+    if(chanhead_cleanup_head==NULL) {
+      chanhead_cleanup_head = chanhead_cleanlink;
+    }
+    head->cleanlink=chanhead_cleanlink;
+  }
+  
+  //initialize cleanup timer
+  if(!chanhead_cleanup_timer.timer_set) {
+    ngx_add_timer(&chanhead_cleanup_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  }
+  
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
+}
+
+static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
+  nhpm_llist_timed_t    *cur, *next;
+  nhpm_channel_head_t   *ch = NULL;
+
+  ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "ngx_http_push_store_chanhead_cleanup_timer_handler");
+  for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
+    next=cur->next;
+    if(ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
+      ch = (nhpm_channel_head_t *)cur->data;
+      if (ch->sub==NULL) { //still no subscribers here
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "channel_head is empty and expired. delete %p.", ch);
+        CHANNEL_HASH_DEL(ch);
+        ngx_free(ch);
+        ngx_free(cur);
+      }
+      else {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "channel_head is still being used.");
+        ngx_free(cur);
+      }
+    }
+    else {
+      break;
+    }
+  }
+  chanhead_cleanup_head=cur;
+  if (cur==NULL) { //we went all the way to the end
+    chanhead_cleanup_tail=NULL;
+  }
+  else {
+    cur->prev=NULL;
+  }
+
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || chanhead_cleanup_head==NULL)) {
+    ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  }
 }
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
@@ -521,44 +658,6 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
 }
 
-//will be called once per worker
-static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-  ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
-  ngx_http_push_worker_msg_sentinel_t     *worker_messages=NULL;
-  ngx_shmtx_lock(&shpool->mutex);
-  if(d->ipc==NULL) {
-    //ipc uninitialized. get it done!
-    if((worker_messages = ngx_http_push_slab_alloc_locked(sizeof(*worker_messages)*NGX_MAX_PROCESSES, "IPC worker message sentinel array"))==NULL) {
-      ngx_shmtx_unlock(&shpool->mutex);
-      return NGX_ERROR;
-    }
-    d->ipc=worker_messages;
-  }
-  else {
-    worker_messages=d->ipc;
-  }
-  
-  ngx_queue_init(&worker_messages[ngx_process_slot].queue);
-  ngx_rwlock_init(&worker_messages[ngx_process_slot].lock);
-  
-  ngx_shmtx_unlock(&shpool->mutex);
-  return NGX_OK;
-}
-
-static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  
-  redis_nginx_init();
-  
-  if(ngx_http_push_store_init_ipc_shm(ccf->worker_processes) == NGX_OK) {
-    return ngx_http_push_ipc_init_worker(cycle);
-  }
-  else {
-    return NGX_ERROR;
-  }
-}
-
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
   ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
 
@@ -655,11 +754,8 @@ static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *chan
   ngx_str_t                 *chan_id = NULL;
   nhpm_subscriber_t         *nextsub;
   
-  
   CHANNEL_HASH_FIND(&(channel->id), chanhead);
   if(chanhead==NULL) {
-    ngx_pool_t                 *pool;
-    pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
     chanhead=(nhpm_channel_head_t *)ngx_alloc(sizeof(*chanhead) + sizeof(ngx_str_t) + channel->id.len, ngx_cycle->log);
     if(chanhead==NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
@@ -672,13 +768,18 @@ static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *chan
     chan_id->len=channel->id.len;
     ngx_memcpy(chan_id->data, channel->id.data, chan_id->len);
     
-    chanhead->pool=pool;
+    chanhead->pool=NULL;
     chanhead->sub=NULL;
     chanhead->sub_count=0;
+    chanhead->cleanlink=NULL;
     CHANNEL_HASH_ADD(chanhead);
   }
-  if((nextsub= ngx_palloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber");
+  if(chanhead_ensure_pool_exists(chanhead)==NULL) {
+    return NGX_ERROR;
+  }
+  
+  if((nextsub=ngx_palloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
     return NGX_ERROR;
   }
   
@@ -688,6 +789,19 @@ static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *chan
   nextsub->next= chanhead->sub;
   chanhead->sub= nextsub;
   chanhead->sub_count++;
+  
+  //remove from cleanup list if we're there
+  if(chanhead->cleanlink!=NULL) {
+    nhpm_llist_timed_t    *cl=chanhead->cleanlink;
+    if(cl->prev!=NULL)
+      cl->prev->next=cl->next;
+    if(cl->next!=NULL)
+      cl->next->prev=cl->prev;
+    if(chanhead_cleanup_head==cl)
+      chanhead_cleanup_head=cl->next;
+    if(chanhead_cleanup_tail==cl)
+      chanhead_cleanup_tail=cl->prev;
+  }
   
   ngx_http_push_store_lock_shmem();
   channel->subscribers++; // do this only when we know everything went okay.
@@ -812,7 +926,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   }
   
   
-  msg = ngx_http_push_store->get_channel_message(channel, msg_id, &msg_search_outcome, cf);
+  msg = ngx_http_push_store_get_channel_message(channel, msg_id, &msg_search_outcome, cf);
   
   if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
     msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 

@@ -18,6 +18,7 @@ typedef struct {
   ngx_pool_t                 *pool;
   nhpm_subscriber_t          *sub;
   ngx_uint_t                  sub_count;
+  nhpm_llist_timed_t         *cleanlink;
   UT_hash_handle              hh;
 } nhpm_channel_head_t;
 

@@ -118,3 +118,10 @@ typedef struct {
   size_t len;
   const ngx_str_t *format;
 } ngx_http_push_content_subtype_t;
+
+typedef struct nhpm_llist_timed_s {
+  struct nhpm_llist_timed_s     *prev;
+  void                          *data;
+  time_t                         time;
+  struct nhpm_llist_timed_s     *next;
+} nhpm_llist_timed_t;
