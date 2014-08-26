@@ -38,7 +38,9 @@ for opt in $*; do
 done
 
 if [[ -z $NO_MAKE ]]; then
+  ../src/store/redis/genlua.rb file
   pushd ./nginx-pushmodule >/dev/null
+  
   if [[ $CONTINUE == 1 ]]; then
     makepkg -f -e
   else

@@ -5,7 +5,7 @@
 #include <store/ngx_rwlock.h>
 #include <store/ngx_http_push_module_ipc.h>
 #include "redis_nginx_adapter.h"
-
+#include "redis_lua_commands.h"
 
 #define str(buf) (buf)->data, (buf)->len
    
@@ -63,16 +63,31 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   }
 }
 
+static void redis_default_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply *reply=r;
+}
 
-/*
+static u_char *redis_publish_evalsha;
+static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply *reply=r;
+  redis_publish_evalsha=ngx_calloc((u_char) reply->len + 1, ngx_cycle->log);
+  ngx_memcpy(redis_publish_evalsha, reply->str, reply->len);
+}
+
+
 static redisAsyncContext * rds_ctx(void){
   static redisAsyncContext *c = NULL;
   if(c==NULL) {
     //init redis
     redis_nginx_open_context((const char *)"localhost", 8537, 1, &c);
+    
+    //do some stuff
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "run loadscript");
+    redisAsyncCommand(c, &redis_load_script_callback, NULL, "SCRIPT LOAD %s", "return ARGV[1]");
   }
   return c;
 }
+
 
 static redisAsyncContext * rds_sub_ctx(void){
   static redisAsyncContext *c = NULL;
@@ -82,7 +97,7 @@ static redisAsyncContext * rds_sub_ctx(void){
   }
   return c;
 }
-*/
+
 
 
 //will be called once per worker
@@ -943,14 +958,13 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
       if (ngx_http_push_store_subscribe_new(channel, r) == NGX_OK) {
+        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ECHO SUB");
+        redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "ECHO SUB channel:%b", str(&(channel->id)));
         return callback(NGX_DONE, r);
       }
       else {
         return callback(NGX_ERROR, r);
       }
-
-      //redisAsyncCommand(rds_sub_ctx(), subscribeCallback, channel, "SUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
-
 
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
       //subscriber wants an expired message
@@ -1200,6 +1214,8 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     ngx_http_push_store_reserve_message(NULL, msg);
   }
   result= ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ECHO PUB");
+  redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "ECHO PUB channel:%b", str(&(channel->id)));
   return callback(result, channel, r);
 }
 
