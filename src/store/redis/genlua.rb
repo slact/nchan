@@ -1,5 +1,6 @@
 #!/usr/bin/ruby
 require 'digest/sha1'
+require "pry"
 
 scripts={}
 
@@ -10,7 +11,11 @@ end
 def cquote(str) 
   new_str=str.gsub /"/, "\\\""
   new_str.gsub! /^(.*)$/, "  \"\\1\\n\""
-  new_str
+  if new_str[-1]=="\n" then
+    new_str << "  \"\""
+  else
+    new_str
+  end
 end
 
 cout= <<EOF
@@ -28,24 +33,40 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
 %s
 };
 
+static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
+%s
+};
+
 EOF
 
 struct=[]
+name_table=[]
 script_table=[]
 hashed_table=[]
+comments_table=[]
+
 scripts.sort_by {|k,v| k}.each do |v| 
   name=v.first
   script=v.last
-  
-  struct << "  char *#{name};"
-  
-  script_table << cquote(script)
-  
-  hashed_table << "  \"#{Digest::SHA1.hexdigest script}\""  
+
+  name_table << "  \"#{name}\","
+
+  str=[]
+  for l in script.lines do
+    cmt=l.match /^--(.*)/
+    break unless cmt
+    str << "  //#{cmt[1]}"
+  end
+  str << "  char *#{name};\n"
+  struct << str.join("\n")
+
+  script_table << "  //#{name}\n#{cquote(script)}"
+
+  hashed_table << "  \"#{Digest::SHA1.hexdigest script}\""
 end
 
 if scripts.count > 0
-  out=sprintf cout, struct.join("\n"), script_table.join(",\n\n"), hashed_table.join(",\n")
+  out=sprintf cout, struct.join("\n"), script_table.join(",\n\n"), hashed_table.join(",\n"), name_table.join("\n")
 else
   out="//nothing here\n"
 end
