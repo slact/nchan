@@ -114,8 +114,6 @@ end
 hmset(key.message, msg)
 
 
---update message list
-redis.call('LPUSH', key.messages, msg.data)
 --check old entries
 local oldestmsg=function(list_key, old_fmt)
   local old, oldkey
@@ -125,8 +123,8 @@ local oldestmsg=function(list_key, old_fmt)
     old=redis.call('lindex', list_key, -1)
     if old then
       oldkey=old_fmt:format(old)
-      if redis.call('exists', oldkey)==1 then
-        echo("found oldestmsg at " .. oldkey .. ". n:" .. n ..", del:"..del)
+      local ex=redis.call('exists', oldkey)
+      if ex==1 then
         return oldkey
       else
         redis.call('rpop', list_key)
@@ -136,9 +134,10 @@ local oldestmsg=function(list_key, old_fmt)
       break
     end
   end
-  echo("notfound oldestmsg at " .. oldkey .. ". n:" .. n ..", del:"..del)
 end
 oldestmsg(key.messages, 'channel:msg:%s:'..id)
+--update message list
+redis.call('LPUSH', key.messages, msg.id)
 
 --set expiration times for all the things
 redis.call('EXPIRE', key.message, channel.ttl)

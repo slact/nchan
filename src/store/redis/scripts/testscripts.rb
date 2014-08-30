@@ -64,54 +64,42 @@ class PubSubTest < Minitest::Test
 
   class Msg
     attr_accessor :data, :chid, :time, :tag, :id, :content_type, :channel_info, :ttl
-    def initialize(channel_id, arg)
+    def initialize(channel_id, arg={})
       @chid= channel_id
       id(arg[:id]) if arg[:id]
-      @time= (arg[:time] || Time.now.utc).to_i
-      @id=arg[:id]
+      @time=arg[:time]
+      @tag=arg[:tag]
       @data= arg[:data]
+      if @data && @time.nil?
+        @time=Time.now.utc.to_i
+      end
       @ttl=arg[:ttl]
       @content_type=arg[:content_type]
     end
-    def ==(msg2)
-      return @chid==msg2.chid && @id==msg2.id && @data==msg2.data
+    def ==(m)
+      self.to_s==m.to_s
     end
     
-    def id(*arg)
-      if arg.length == 0
-        raise "id not ready" unless @time.nil? || @tag.nil?
-        @id||= "#{time}:#{tag}"
-        return @id
-      elsif arg.length == 2
-        @time= arg.first.to_i
-        @tag=  arg.last.to_i
-        @id= "#{time}:#{tag}"
-      elsif arg.length == 1
-        a = arg.first
-        case a
-        when Hash
-          if a[:id]
-            @time, @tag = a[:id].split ":"
-          else
-            @time = a[:time].to_i
-            @tag  = a[:tag].to_i
-          end
-        when String
-          @time, @tag = a.split ":"
-          @time=@time.to_i
-          if @time==0 || @time.nil? || @tag.nil?
-            @time, @tag, @id = nil, nil, nil
-          end
-        end
-        @id= "#{time}:#{tag}"
+    def to_s
+      "[#{@chid}]#{id}<#{@content_type}> #{@data}"
+    end
+    
+    def id(msgid=nil)
+      if msgid
+        @id=msgid
+        @time, @tag =@id.split(":")
+      else
+        @id||= "#{time}:#{tag}" unless time.nil? || tag.nil?
       end
       @id
     end
     def time=(t)
-      id(time: t)
+      @time=t
+      id
     end
     def tag=(t)
-      id(tag: t)
+      @tag=t
+      id
     end
   end
 
@@ -125,32 +113,32 @@ class PubSubTest < Minitest::Test
 
     msg.time= Time.now.utc.to_i unless msg.time
     msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.ttl]
+    msg.tag=msg_tag
     msg.channel_info=channel_info
     return msg
   end
 
-  def getmsg(*arg)
-    ch_id, msg_id, msg=nil, nil, nil
-    if Msg === arg.first
-      msg=arg.first
+  def getmsg(msg, opt={})
+    if String===opt
+      ch_id=msg
+      msg_id=opt
+      msg_time, msg_tag = msg_id.split(":")
+    elsif Msg === msg
       msg_id, msg_time, msg_tag = msg.id, msg.time, msg.tag
       ch_id=msg.chid
-    elsif arg.count==2 #channel_id, msg_id
-      ch_id = arg.first
-      msg_id = arg.last
-      msg_time, msg_tag = msg_id.split(":")
-      raise "invalid message id" if msg_time.nil? or msg_tag.nil?
-    elsif arg.count == 1
-      raise "Not enough arguments to getmsg"
+    else
+      msg_time, msg_tag = msg.split(":")
+      msg_id=msg
     end
-    msg_tag=0 unless msg_tag
-    status, msg_time, msg_tag, msg, msg_content_type = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag]
+    traverse_order=((Hash === opt) && opt[:getfirst]) ? 'FIFO' : 'FILO'
+    msg_tag=0 if msg_time && msg_tag.nil?
+    status, msg_time, msg_tag, msg_data, msg_content_type = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag, traverse_order]
     if status == 404
       return nil
     elsif status == 418 #not ready
       return false
     elsif status == 200
-      return Msg.new ch_id, time: msg_time, tag: msg_tag, data: msg, content_type: msg_content_type
+      return Msg.new ch_id, time: msg_time, tag: msg_tag, data: msg_data, content_type: msg_content_type
     end
   end
 
@@ -177,11 +165,16 @@ class PubSubTest < Minitest::Test
   def test_simple
     id=randid
     msg2_data = "what is this i don't even"
-    msg1 = publish chid: id, data: "whatever",ttl: 100, content_type: "X-fruit/banana"
-    msg2 = publish chid: id, data: msg2_data, ttl: 100, content_type: "X-fruit/banana"
-    refute_equal msg1, msg2, "two different messages should have different message ids"
-    msg = getmsg msg1
-    assert_equal msg2, msg, "retrieved message doesn't match"
+    m=[]
+    m << Msg.new(id, data: "whatever",ttl: 100, content_type: "X-fruit/banana")
+    m << Msg.new(id, data: msg2_data, ttl: 100, content_type: "X-fruit/banana")
+    m.each do |msg|
+      publish msg
+    end
+    refute_equal m[0], m[1], "two different messages should have different message ids"
+    msg = getmsg m[0]
+
+    assert_equal m[1], msg, "retrieved message doesn't match"
   end
   
   def test_publish_invalid_content_type
@@ -190,4 +183,29 @@ class PubSubTest < Minitest::Test
     end
     assert_match /cannot contain ":"/, e.message
   end
+  
+  
+  def test_start_end
+    id=randid
+    sent=[]
+    %w( foobar1 whatthe-somethng-of isnot-even-meaning -has-you-evenr-as-sofar-as-to -even-move-zig).each do |w|
+      sent << Msg.new(id, data: w, ttl: 100)
+      sleep rand(0..1.1)
+    end
+    sent.each do |m|
+      publish m
+    end
+    
+    cur=Msg.new(id)
+    while sent.length>0
+      #binding.pry
+      cur=getmsg cur
+      n=sent.shift
+      assert_equal cur, n
+      cur=n
+    end
+    
+    
+  end
+  
 end
