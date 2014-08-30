@@ -9,7 +9,6 @@ require "minitest/autorun"
 require 'securerandom'
 require "pry"
 
-
 class PubSubTest < Minitest::Test
   @@redis=nil
   @@scripts= {}
@@ -63,53 +62,126 @@ class PubSubTest < Minitest::Test
   def redis; @@redis; end
   def hashes; @@hashes; end
 
-  def publish(channel_id, msg)
-    time=msg[:time] || Time.now.utc.to_i
-    msg_tag, channel=redis.evalsha hashes[:publish], [], [channel_id, time, msg[:data], msg[:'content_type'] || msg[:'content-type'], msg[:ttl]]
-    return "#{time}:#{msg_tag}", channel
-  end
-  
-  def getmsg(ch_id, msg_id=nil)
-    msg_time, msg_tag = msg_id.split(":") if msg_id
-    status, msg_time, msg_tag, msg = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag]
-    if status == 404
-      return false, false
-    elsif status == 418
-      return true, false
-    elsif status == 200
-      return "#{msg_time}:#{msg_tag}", msg
+  class Msg
+    attr_accessor :data, :chid, :time, :tag, :id, :content_type, :channel_info, :ttl
+    def initialize(channel_id, arg)
+      @chid= channel_id
+      id(arg[:id]) if arg[:id]
+      @time= (arg[:time] || Time.now.utc).to_i
+      @id=arg[:id]
+      @data= arg[:data]
+      @ttl=arg[:ttl]
+      @content_type=arg[:content_type]
+    end
+    def ==(msg2)
+      return @chid==msg2.chid && @id==msg2.id && @data==msg2.data
+    end
+    
+    def id(*arg)
+      if arg.length == 0
+        raise "id not ready" unless @time.nil? || @tag.nil?
+        @id||= "#{time}:#{tag}"
+        return @id
+      elsif arg.length == 2
+        @time= arg.first.to_i
+        @tag=  arg.last.to_i
+        @id= "#{time}:#{tag}"
+      elsif arg.length == 1
+        a = arg.first
+        case a
+        when Hash
+          if a[:id]
+            @time, @tag = a[:id].split ":"
+          else
+            @time = a[:time].to_i
+            @tag  = a[:tag].to_i
+          end
+        when String
+          @time, @tag = a.split ":"
+          @time=@time.to_i
+          if @time==0 || @time.nil? || @tag.nil?
+            @time, @tag, @id = nil, nil, nil
+          end
+        end
+        @id= "#{time}:#{tag}"
+      end
+      @id
+    end
+    def time=(t)
+      id(time: t)
+    end
+    def tag=(t)
+      id(tag: t)
     end
   end
-  
+
+  def publish(*arg)
+    if arg.length==1
+      msg = arg.first
+      msg=Msg.new(msg[:channel_id] || msg[:chid], msg) if Hash === msg
+    elsif arg.length==2
+      msg=Msg.new(arg.first, arg.last)
+    end
+
+    msg.time= Time.now.utc.to_i unless msg.time
+    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.ttl]
+    msg.channel_info=channel_info
+    return msg
+  end
+
+  def getmsg(*arg)
+    ch_id, msg_id, msg=nil, nil, nil
+    if Msg === arg.first
+      msg=arg.first
+      msg_id, msg_time, msg_tag = msg.id, msg.time, msg.tag
+      ch_id=msg.chid
+    elsif arg.count==2 #channel_id, msg_id
+      ch_id = arg.first
+      msg_id = arg.last
+      msg_time, msg_tag = msg_id.split(":")
+      raise "invalid message id" if msg_time.nil? or msg_tag.nil?
+    elsif arg.count == 1
+      raise "Not enough arguments to getmsg"
+    end
+    msg_tag=0 unless msg_tag
+    status, msg_time, msg_tag, msg, msg_content_type = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag]
+    if status == 404
+      return nil
+    elsif status == 418 #not ready
+      return false
+    elsif status == 200
+      return Msg.new ch_id, time: msg_time, tag: msg_tag, data: msg, content_type: msg_content_type
+    end
+  end
+
   def randid
     SecureRandom.hex
   end
-  
+
   def test_connection
     assert_equal "PONG", redis.ping
   end
-  
+
   #now for the real tests
   def test_publish
-    msg_id, channel = publish randid, data: "hello what is this", ttl: 10, content_type: "X-fruit/banana"
+    msg_id, channel = publish chid: randid, data: "hello what is this", ttl: 10, content_type: "X-fruit/banana"
   end
   
   def test_nomessage
     id = randid
-    publish id, data:"whatever this is", ttl: 100
-    msgid, channel = getmsg id, "1200:0"
-    refute (msgid || channel), "message should be absent"
+    publish chid: id, data:"whatever this is", ttl: 100
+    msg = getmsg randid, "1200:0"
+    refute msg, "message should be absent"
   end
   
   def test_simple
     id=randid
     msg2_data = "what is this i don't even"
-    msgid, channel   = publish id, data: "whatever",ttl: 100, content_type: "X-fruit/banana"
-    msgid2, channel2 = publish id, data: msg2_data, ttl: 100, content_type: "X-fruit/banana"
-    refute_equal msgid, msgid2, "two different messages should have different message ids"
-    msgid_got, msg_got = getmsg id, msgid
-    assert_equal msg2_data, msg_got, "retrieved message data doesn't match"
-    assert_equal msgid2, msgid_got, "retrieved message id doesn't match"
+    msg1 = publish chid: id, data: "whatever",ttl: 100, content_type: "X-fruit/banana"
+    msg2 = publish chid: id, data: msg2_data, ttl: 100, content_type: "X-fruit/banana"
+    refute_equal msg1, msg2, "two different messages should have different message ids"
+    msg = getmsg msg1
+    assert_equal msg2, msg, "retrieved message doesn't match"
   end
   
   def test_publish_invalid_content_type

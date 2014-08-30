@@ -113,20 +113,32 @@ end
 --write message
 hmset(key.message, msg)
 
---set next message for prev message
 
---make sure the time offset key is set
-local time_offset=tonumber(redis.call('GET', key.time_offset))
-if time_offset == nil then
-  redis.call('SET', key.time_offset, time)
+--update message list
+redis.call('LPUSH', key.messages, msg.data)
+--check old entries
+local oldestmsg=function(list_key, old_fmt)
+  local old, oldkey
+  local n, del=0,0
+  while true do
+    n=n+1
+    old=redis.call('lindex', list_key, -1)
+    if old then
+      oldkey=old_fmt:format(old)
+      if redis.call('exists', oldkey)==1 then
+        echo("found oldestmsg at " .. oldkey .. ". n:" .. n ..", del:"..del)
+        return oldkey
+      else
+        redis.call('rpop', list_key)
+        del=del+1
+      end 
+    else
+      break
+    end
+  end
+  echo("notfound oldestmsg at " .. oldkey .. ". n:" .. n ..", del:"..del)
 end
-
-local msg_score  = ('%i.%05i'):format(msg.time-time_offset, msg.tag)
-redis.call('ZADD', key.messages, msg_score, msg.id)
-
---remove old messages from zset
-local num_messages_removed= redis.call('ZREMRANGEBYSCORE', key.messages, '-inf', time-time_offset-channel.ttl)
-redis.call('ECHO', "removed " .. num_messages_removed .. "messages")
+oldestmsg(key.messages, 'channel:msg:%s:'..id)
 
 --set expiration times for all the things
 redis.call('EXPIRE', key.message, channel.ttl)
