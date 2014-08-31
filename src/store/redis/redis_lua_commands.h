@@ -42,8 +42,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "\n"
   "redis.call('del', key_channel, messages, pubsub)\n"
   "\n"
-  "return redis.call('DEL', key_channel, messages, pubsub)\n"
-  "",
+  "return redis.call('DEL', key_channel, messages, pubsub)\n",
 
   //get_message
   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order]\n"
@@ -162,7 +161,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "      return {404, nil}\n"
   "    end\n"
   "  end\n"
-  "end\n",
+  "end",
 
   //publish
   "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]\n"
@@ -316,7 +315,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "--might there be a more efficient way?\n"
   "redis.call('PUBLISH', key.pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))\n"
   "\n"
-  "return { msg.tag, {ttl=(channel or msg).ttl, time=(channel or msg).time, subscribers=channel.subscribers or 0}, new=new_channel }\n"
+  "return { msg.tag, {ttl=(channel or msg).ttl, time=(channel or msg).time, subscribers=channel.subscribers or 0}, new=new_channel }"
 };
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {

@@ -64,26 +64,57 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
 }
 
 static void redis_default_callback(redisAsyncContext *c, void *r, void *privdata) {
-  redisReply *reply=r;
+  //redisReply *reply=r;
 }
 
-static u_char *redis_publish_evalsha;
 static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply=r;
-  redis_publish_evalsha=ngx_calloc((u_char) reply->len + 1, ngx_cycle->log);
-  ngx_memcpy(redis_publish_evalsha, reply->str, reply->len);
 }
 
+static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply *reply = r;
+  ngx_http_push_channel_t * channel = (ngx_http_push_channel_t *)privdata;
+  if (reply == NULL) return;
+  switch(reply->type) {
+    case REDIS_REPLY_STATUS:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STATUS  %s\n", reply->str);
+      break;
+      
+    case REDIS_REPLY_ERROR:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ERROR: %s\n", reply->str);
+      break;
+      
+    case REDIS_REPLY_INTEGER:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_INTEGER: %i\n", reply->integer);
+      break;
+      
+    case REDIS_REPLY_NIL:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_NIL: nil\n");
+      break;
+      
+    case REDIS_REPLY_STRING:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STRING: %s\n", reply->str);
+      break;
+      
+    case REDIS_REPLY_ARRAY:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ARRAY: %i\n", reply->elements);
+      break;
+  }
+  //redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
+}
+
+static void redisInitScripts(redisAsyncContext *c){
+  redisAsyncCommand(c, &redisEchoCallback, NULL, "SCRIPT LOAD %s", nhpm_rds_lua_scripts.delete);
+  redisAsyncCommand(c, &redisEchoCallback, NULL, "SCRIPT LOAD %s", nhpm_rds_lua_scripts.get_message);
+  redisAsyncCommand(c, &redisEchoCallback, NULL, "SCRIPT LOAD %s", nhpm_rds_lua_scripts.publish);
+}
 
 static redisAsyncContext * rds_ctx(void){
   static redisAsyncContext *c = NULL;
   if(c==NULL) {
     //init redis
     redis_nginx_open_context((const char *)"localhost", 8537, 1, &c);
-    
-    //do some stuff
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "run loadscript");
-    redisAsyncCommand(c, &redis_load_script_callback, NULL, "SCRIPT LOAD %s", "return ARGV[1]");
+    redisInitScripts(c);
   }
   return c;
 }
@@ -94,6 +125,7 @@ static redisAsyncContext * rds_sub_ctx(void){
   if(c==NULL) {
     //init redis
     redis_nginx_open_context((const char *)"localhost", 8537, 1, &c);
+    redisInitScripts(c);
   }
   return c;
 }
@@ -866,43 +898,16 @@ static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_chann
   }
 }
 
-/*
-static void subscribeCallback(redisAsyncContext *c, void *r, void *privdata) {
-  redisReply *reply = r;
-  ngx_http_push_channel_t * channel = (ngx_http_push_channel_t *)privdata;
-  if (reply == NULL) return;
-  switch(reply->type) {
-    case REDIS_REPLY_STATUS:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STATUS  %s\n", reply->str);
-      break;
-      
-    case REDIS_REPLY_ERROR:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ERROR: %s\n", reply->str);
-      break;
-      
-    case REDIS_REPLY_INTEGER:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_INTEGER: %i\n", reply->integer);
-      break;
-      
-    case REDIS_REPLY_NIL:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_NIL: nil\n");
-      break;
-      
-    case REDIS_REPLY_STRING:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STRING: %s\n", reply->str);
-      break;
-      
-    case REDIS_REPLY_ARRAY:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ARRAY: %i\n", reply->elements);
-      break;
-  }
-  //redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
-}
-*/
 
 static ngx_int_t default_subscribe_callback(ngx_int_t status, ngx_http_request_t *r) {
   return status;
 }
+
+static ngx_http_push_msg_t * redis_get_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
+  
+  
+}
+
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r)) {
   ngx_http_push_channel_t        *channel;

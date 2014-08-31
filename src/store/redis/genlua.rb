@@ -8,14 +8,15 @@ Dir[ "#{File.dirname(__FILE__)}/scripts/*.lua" ].each do |f|
   scripts[File.basename(f, ".lua") .to_sym]=IO.read f
 end
 
-def cquote(str) 
-  new_str=str.gsub /"/, "\\\""
-  new_str.gsub! /^(.*)$/, "  \"\\1\\n\""
-  if new_str[-1]=="\n" then
-    new_str << "  \"\""
-  else
-    new_str
+def cquote(str)
+  out=[]
+  str.each_line do |l|
+    l.sub! "\n", "\\n"
+    l.gsub! '"', '\"'
+    l.gsub! /^(.*)$/, "  \"\\1\""
+    out << l
   end
+  out.join "\n"
 end
 
 cout= <<EOF
