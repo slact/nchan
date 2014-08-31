@@ -1,6 +1,6 @@
 --input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order]
 --output: result_code, msg_time, msg_tag, message
--- no_msgid_action: 0 to fetch most recent message, -1 to fetch oldest
+-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
 -- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
 local id, time, tag, subscribe_if_current = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])
 local no_msgid_order=ARGV[4]

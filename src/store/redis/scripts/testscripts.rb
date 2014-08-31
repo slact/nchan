@@ -118,6 +118,10 @@ class PubSubTest < Minitest::Test
     return msg
   end
 
+  def delete(ch_id)
+    redis.evalsha hashes[:delete], [], [ch_id]
+  end
+
   def getmsg(msg, opt={})
     if String===opt
       ch_id=msg
@@ -184,8 +188,7 @@ class PubSubTest < Minitest::Test
     assert_match /cannot contain ":"/, e.message
   end
   
-  
-  def test_start_end
+  def test_walk_buffer
     id=randid
     sent=[]
     %w( foobar1 whatthe-somethng-of isnot-even-meaning -has-you-evenr-as-sofar-as-to -even-move-zig).each do |w|
@@ -204,8 +207,35 @@ class PubSubTest < Minitest::Test
       assert_equal cur, n
       cur=n
     end
-    
-    
+    assert_equal false, getmsg(cur), "Last message should return 'false'"
+  end
+  
+  def test_timeout
+    id=randid
+    sent=[]
+    sent << publish(Msg.new(id, data: "fee", ttl: 3))
+    sleep 2
+    sent << publish(Msg.new(id, data: "foo", ttl: 3))
+    sent << publish(Msg.new(id, data: "fie", ttl: 3))
+    sleep 1.5
+    cur=getmsg id, ""
+    assert_equal cur, sent[1]
+    sleep 1.6
+    cur=getmsg id, ""
+    assert_equal cur, nil
+    #nice!
+  end
+  
+  def test_delete
+    id=randid
+    sent=[]
+    sent << publish(Msg.new(id, data: "fee", ttl: 3))
+    sent << publish(Msg.new(id, data: "foo", ttl: 3))
+    sent << publish(Msg.new(id, data: "foo2", ttl: 3))
+
+    delete id
+    cur=getmsg id, ""
+    assert_nil cur
   end
   
 end

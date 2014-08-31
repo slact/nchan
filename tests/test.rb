@@ -14,14 +14,14 @@ def url(part="")
 end
 puts "Server at #{url}"
 def pubsub(concurrent_clients=1, opt={})
-    urlpart=opt[:urlpart] || 'broadcast'
-    timeout = opt[:timeout]
-    sub_url=opt[:sub] || "sub/broadcast/"
-    pub_url=opt[:pub] || "pub/"
-    chan_id = opt[:channel] || SecureRandom.hex
-    sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client]
-    pub = Publisher.new url("#{pub_url}#{chan_id}")
-    return pub, sub
+  urlpart=opt[:urlpart] || 'broadcast'
+  timeout = opt[:timeout]
+  sub_url=opt[:sub] || "sub/broadcast/"
+  pub_url=opt[:pub] || "pub/"
+  chan_id = opt[:channel] || SecureRandom.hex
+  sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client]
+  pub = Publisher.new url("#{pub_url}#{chan_id}")
+  return pub, sub
 end
 def verify(pub, sub, check_errors=true)
   assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}" if check_errors
