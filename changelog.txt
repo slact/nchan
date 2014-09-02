@@ -1,3 +1,4 @@
+0.73 (Sep. 2 2014)
  fix: turning on gzip cleared Etag subscriber response header
  fix: channels incorrectly deleted when overwhelmed with connections
  feature: CORS support via OPTIONS request method response
