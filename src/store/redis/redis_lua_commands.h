@@ -15,7 +15,26 @@ typedef struct {
   //output: message_tag, channel_hash
   char *publish;
 
+  //purposely left blank
+  char *subscribe;
+
 } nhpm_redis_lua_scripts_t;
+
+static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
+  "c6fddd3e3bcdcfbe04fd2c7ceb88c1788146fa8d",
+  "7e4ea1ab3c5c30d1d5e2a57e344b01e5115d45d4",
+  "80a89c7e6353ef6cf7f6a69d783231df4500640e",
+  "e1c3e421513ff2ab54cf61aa5125e7b45ee71489"
+};
+
+#define REDIS_LUA_HASH_LENGTH 40
+
+static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
+  "delete",
+  "get_message",
+  "publish",
+  "subscribe",
+};
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   //delete
@@ -315,18 +334,9 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "--might there be a more efficient way?\n"
   "redis.call('PUBLISH', key.pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))\n"
   "\n"
-  "return { msg.tag, {ttl=(channel or msg).ttl, time=(channel or msg).time, subscribers=channel.subscribers or 0}, new=new_channel }"
-};
+  "return { msg.tag, {ttl=(channel or msg).ttl, time=(channel or msg).time, subscribers=channel.subscribers or 0}, new=new_channel }",
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
-  "c6fddd3e3bcdcfbe04fd2c7ceb88c1788146fa8d",
-  "7e4ea1ab3c5c30d1d5e2a57e344b01e5115d45d4",
-  "80a89c7e6353ef6cf7f6a69d783231df4500640e"
-};
-
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
-  "delete",
-  "get_message",
-  "publish",
+  //subscribe
+  "--purposely left blank\n"
 };
 

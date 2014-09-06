@@ -26,15 +26,17 @@ typedef struct {
 %s
 } nhpm_redis_lua_scripts_t;
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
-%s
-};
-
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
 %s
 };
 
+#define REDIS_LUA_HASH_LENGTH %i
+
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
+%s
+};
+
+static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
 %s
 };
 
@@ -67,7 +69,7 @@ scripts.sort_by {|k,v| k}.each do |v|
 end
 
 if scripts.count > 0
-  out=sprintf cout, struct.join("\n"), script_table.join(",\n\n"), hashed_table.join(",\n"), name_table.join("\n")
+  out=sprintf cout, struct.join("\n"), hashed_table.join(",\n"), Digest::SHA1.hexdigest("foo").length, name_table.join("\n"), script_table.join(",\n\n")
 else
   out="//nothing here\n"
 end

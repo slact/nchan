@@ -7,7 +7,8 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
-#define str(buf) (buf)->data, (buf)->len
+#define STR(buf) (buf)->data, (buf)->len
+#define BUF(buf) (buf)->start, ((buf)->end - (buf)->start)
    
 #define ENQUEUED_DBG "msg %p enqueued.  ref:%i, p:%p n:%p"
 #define CREATED_DBG  "msg %p created    ref:%i, p:%p n:%p"
@@ -67,13 +68,11 @@ static void redis_default_callback(redisAsyncContext *c, void *r, void *privdata
   //redisReply *reply=r;
 }
 
-static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
-  redisReply *reply=r;
-}
+
 
 static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
-  ngx_http_push_channel_t * channel = (ngx_http_push_channel_t *)privdata;
+  //ngx_http_push_channel_t * channel = (ngx_http_push_channel_t *)privdata;
   if (reply == NULL) return;
   switch(reply->type) {
     case REDIS_REPLY_STATUS:
@@ -103,10 +102,33 @@ static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   //redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
 }
 
+static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
+  char* (*hashes)[]=(char* (*)[])&nhpm_rds_lua_hashes;
+  char* (*scripts)[]=(char* (*)[])&nhpm_rds_lua_scripts;
+  char* (*names)[]=(char* (*)[])&nhpm_rds_lua_script_names;
+  uintptr_t i=(uintptr_t) privdata;
+  char *hash=(*hashes)[i];
+
+  redisReply *reply = r;
+  if (reply == NULL) return;
+  switch(reply->type) {
+    case REDIS_REPLY_ERROR:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: Failed loading redis lua scripts %s :%s", (*names)[i], reply->str);
+      break;
+    case REDIS_REPLY_STRING:
+      if(ngx_strncmp(reply->str, hash, REDIS_LUA_HASH_LENGTH)!=0) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module Redis lua script %s has unexpected hash %s (expected %s)", (*names)[i], reply->str, hash);
+      }
+      break;
+  }
+}
+
 static void redisInitScripts(redisAsyncContext *c){
-  redisAsyncCommand(c, &redisEchoCallback, NULL, "SCRIPT LOAD %s", nhpm_rds_lua_scripts.delete);
-  redisAsyncCommand(c, &redisEchoCallback, NULL, "SCRIPT LOAD %s", nhpm_rds_lua_scripts.get_message);
-  redisAsyncCommand(c, &redisEchoCallback, NULL, "SCRIPT LOAD %s", nhpm_rds_lua_scripts.publish);
+  uintptr_t i;
+  char* (*scripts)[]=(char* (*)[])&nhpm_rds_lua_scripts;
+  for(i=0; i<sizeof(nhpm_rds_lua_scripts)/sizeof(char*); i++) {
+    redisAsyncCommand(c, &redis_load_script_callback, (void *)i, "SCRIPT LOAD %s", (*scripts)[i]);
+  }
 }
 
 static redisAsyncContext * rds_ctx(void){
@@ -903,11 +925,12 @@ static ngx_int_t default_subscribe_callback(ngx_int_t status, ngx_http_request_t
   return status;
 }
 
-static ngx_http_push_msg_t * redis_get_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
-  
-  
+static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply *reply=r;
+  if(1==0) {
+    redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "SUBSCRIBE channel:{channel_id}");
+  }
 }
-
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r)) {
   ngx_http_push_channel_t        *channel;
@@ -919,6 +942,11 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   if(callback == NULL) {
     callback=&default_subscribe_callback;
   }
+  
+  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order]
+  //output: result_code, msg_time, msg_tag, message
+  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, NULL, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "");
+  
   
   if (cf->authorize_channel==1) {
     channel = ngx_http_push_store_find_channel(channel_id, cf->channel_timeout, NULL);
@@ -963,8 +991,8 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       // ♫ It's gonna be the future soon ♫
       if (ngx_http_push_store_subscribe_new(channel, r) == NGX_OK) {
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ECHO SUB");
-        redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "ECHO SUB channel:%b", str(&(channel->id)));
+
+        redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "ECHO SUB channel:%b", STR(&(channel->id)));
         return callback(NGX_DONE, r);
       }
       else {
@@ -1202,6 +1230,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   if(callback==NULL) {
     callback=&default_publish_callback;
   }
+  
   if((channel=ngx_http_push_store_get_channel(channel_id, cf->channel_timeout, NULL))==NULL) { //always returns a channel, unless no memory left
     return callback(NGX_ERROR, NULL, r);
     //ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -1219,8 +1248,10 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     ngx_http_push_store_reserve_message(NULL, msg);
   }
   result= ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ECHO PUB");
-  redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "ECHO PUB channel:%b", str(&(channel->id)));
+  
+  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
+  //output: message_tag, channel_hash
+  redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "EVALSHA %s 0 %b %i %b %b %i", nhpm_rds_lua_hashes.publish, STR(&(channel->id)), ngx_time(), BUF(msg->buf), STR(&(msg->content_type)), cf->buffer_timeout);
   return callback(result, channel, r);
 }
 
