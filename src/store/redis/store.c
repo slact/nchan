@@ -1222,11 +1222,26 @@ static ngx_int_t default_publish_callback(ngx_int_t status, ngx_http_push_channe
   return status;
 }
 
+
+
+
+typedef struct {
+  ngx_str_t            *channel_id;
+  time_t                msg_time;
+  ngx_http_request_t   *r;
+  ngx_http_push_msg_t  *msg;
+} redis_publish_callback_data_t;
+
+static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata);
+
 static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r)) {
   ngx_http_push_channel_t        *channel;
   ngx_http_push_msg_t            *msg;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_int_t                       result=0;
+  
+  redis_publish_callback_data_t *d=NULL;
+  
   if(callback==NULL) {
     callback=&default_publish_callback;
   }
@@ -1249,10 +1264,50 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   }
   result= ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
   
+  
+  if((d=ngx_alloc(sizeof(*d), ngx_cycle->log))==NULL) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis publish callback data");
+    return callback(NGX_ERROR, channel, r);
+  }
+
+  d->channel_id=channel_id;
+  d->msg_time=ngx_time();
+  d->msg=msg;
+  d->r=r;
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
   //output: message_tag, channel_hash
-  redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "EVALSHA %s 0 %b %i %b %b %i", nhpm_rds_lua_hashes.publish, STR(&(channel->id)), ngx_time(), BUF(msg->buf), STR(&(msg->content_type)), cf->buffer_timeout);
+  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i", nhpm_rds_lua_hashes.publish, STR(channel_id), d->msg_time, BUF(msg->buf), STR(&(msg->content_type)), cf->buffer_timeout);
   return callback(result, channel, r);
+}
+
+static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) {
+  redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
+  redisReply *reply=r;
+  redisReply *cur;
+  redisEchoCallback(c, (void *)reply, privdata);
+  ngx_http_push_msg_id_t msg_id;
+  
+  int i;
+  
+  if (reply->type != REDIS_REPLY_ARRAY) {
+    return;
+  }
+  
+  if (reply->elements < 2) {
+    return;
+  }
+  
+  msg_id.time=d->msg_time;
+  msg_id.tag=reply->element[0]->integer;
+  
+  cur=reply->element[1];
+  if (cur->type == REDIS_REPLY_ARRAY) {
+    //channel info
+    ngx_int_t ttl = cur->element[0]->integer;
+    time_t last_seen = cur->element[1]->integer;
+    ngx_int_t subscribers = cur->element[2]->integer;
+    //do some stuff
+  }
 }
 
 static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {

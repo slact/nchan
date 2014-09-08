@@ -12,7 +12,7 @@ typedef struct {
   char *get_message;
 
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
-  //output: message_tag, channel_hash
+  //output: message_tag, channel_hash {ttl, time_last_seen, subscribers}
   char *publish;
 
   //purposely left blank
@@ -23,7 +23,7 @@ typedef struct {
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "c6fddd3e3bcdcfbe04fd2c7ceb88c1788146fa8d",
   "7e4ea1ab3c5c30d1d5e2a57e344b01e5115d45d4",
-  "80a89c7e6353ef6cf7f6a69d783231df4500640e",
+  "9ac1d5b7acfb019cd679892bb6e7bfa170edbfc0",
   "e1c3e421513ff2ab54cf61aa5125e7b45ee71489"
 };
 
@@ -184,7 +184,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
 
   //publish
   "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]\n"
-  "--output: message_tag, channel_hash\n"
+  "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers}\n"
   "\n"
   "local id=ARGV[1]\n"
   "local time=tonumber(ARGV[2])\n"
@@ -334,7 +334,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "--might there be a more efficient way?\n"
   "redis.call('PUBLISH', key.pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))\n"
   "\n"
-  "return { msg.tag, {ttl=(channel or msg).ttl, time=(channel or msg).time, subscribers=channel.subscribers or 0}, new=new_channel }",
+  "return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}",
 
   //subscribe
   "--purposely left blank\n"

@@ -1,5 +1,5 @@
 --input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
---output: message_tag, channel_hash
+--output: message_tag, channel_hash {ttl, time_last_seen, subscribers}
 
 local id=ARGV[1]
 local time=tonumber(ARGV[2])
@@ -149,4 +149,4 @@ redis.call('EXPIRE', key.pubsub,  channel.ttl)
 --might there be a more efficient way?
 redis.call('PUBLISH', key.pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))
 
-return { msg.tag, {ttl=(channel or msg).ttl, time=(channel or msg).time, subscribers=channel.subscribers or 0}, new=new_channel }
+return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}
