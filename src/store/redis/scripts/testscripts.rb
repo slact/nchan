@@ -9,6 +9,10 @@ require "minitest/autorun"
 require 'securerandom'
 require "pry"
 
+REDIS_HOST="127.0.0.1"
+REDIS_PORT=8537
+REDIS_DB=1
+
 class PubSubTest < Minitest::Test
   @@redis=nil
   @@scripts= {}
@@ -47,7 +51,7 @@ class PubSubTest < Minitest::Test
   
   def setup
     unless @@redis
-      @@redis=Redis.new(:host => "127.0.0.1", :port => 8537, :db => 1)
+      @@redis=Redis.new(:host => REDIS_HOST, :port => REDIS_PORT, :db => REDIS_DB)
 
       Dir[ "#{File.dirname(__FILE__)}/*.lua" ].each do |f|
         scriptname=File.basename(f, ".lua").to_sym

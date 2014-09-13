@@ -1,4 +1,4 @@
---input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
+--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers}
 
 local id=ARGV[1]
@@ -18,6 +18,7 @@ if type(msg.content_type)=='string' and msg.content_type:find(':') then
   return {err='Message content-type cannot contain ":" character.'}
 end
 
+redis.call('ECHO', ' #######  PUBLISH   ######## ')
 
 -- sets all fields for a hash from a dictionary
 local hmset = function (key, dict)
@@ -54,7 +55,7 @@ local key={
   message=      'channel:msg:%s:'..id, --not finished yet
   channel=      'channel:'..id,
   messages=     'channel:messages:'..id,
-  pubsub=       'channel:pubsub:'..id
+  pubsub=       'channel:subscribers:'..id
 }
 
 local new_channel
@@ -143,10 +144,16 @@ redis.call('LPUSH', key.messages, msg.id)
 redis.call('EXPIRE', key.message, channel.ttl)
 redis.call('EXPIRE', key.channel, channel.ttl)
 redis.call('EXPIRE', key.messages, channel.ttl)
-redis.call('EXPIRE', key.pubsub,  channel.ttl)
+--redis.call('EXPIRE', key.pubsub,  channel.ttl)
 
 --publish message
---might there be a more efficient way?
-redis.call('PUBLISH', key.pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))
+local pubsub_message=('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data)
+for k,channel_key in pairs(redis.call('SMEMBERS', key.pubsub)) do
+  --not efficient, will sort this out later
+  redis.call('PUBLISH', channel_key, pubsub_message)
+  echo("published to "..channel_key)
+end
+--clear subscriber list
+redis.call('DEL', key.pubsub)
 
 return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}

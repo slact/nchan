@@ -11,7 +11,7 @@ typedef struct {
   
   
   //async-friendly functions with callbacks
-  ngx_http_push_msg_t * (*get_message) (ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_int_t *msg_search_outcome, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r));
+  ngx_int_t (*get_message) (ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r));
   ngx_int_t             (*subscribe)   (ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r));
   ngx_int_t             (*publish)     (ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r));
   

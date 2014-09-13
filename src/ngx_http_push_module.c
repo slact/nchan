@@ -4,7 +4,7 @@
 
 #include <ngx_http_push_module.h>
 
-#include <store/memory/store.h>
+//#include <store/memory/store.h>
 #include <store/redis/store.h>
 #include <ngx_http_push_module_setup.c>
 
@@ -529,7 +529,18 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_http_push_msg_t *msg, ngx_i
       ngx_http_push_store->release_message(NULL, msg);
       ngx_http_finalize_request(r, NGX_OK);
       return NGX_OK;
-      
+
+    case NGX_HTTP_PUSH_MESSAGE_NOTFOUND:
+    case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
+      r->headers_out.status=NGX_HTTP_NOT_FOUND;
+      //just the headers, please. we don't care to describe the situation or
+      //respond with an html page
+      r->headers_out.content_length_n=0;
+      r->header_only = 1;
+      //ngx_http_send_header(r);
+      ngx_http_finalize_request(r, NGX_HTTP_NOT_FOUND);
+      return NGX_OK;
+
     default:
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
@@ -551,11 +562,8 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
 
       r->main->count++; //let it linger until callback
       switch(cf->subscriber_poll_mechanism) {
-        ngx_int_t                       msg_search_outcome;
-        
-        //for NGX_HTTP_PUSH_MECHANISM_LONGPOLL
         case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
-          ngx_http_push_store->get_message(channel_id, &msg_id, &msg_search_outcome, r, &subscribe_intervalpoll_callback);
+          ngx_http_push_store->get_message(channel_id, &msg_id, r, &subscribe_intervalpoll_callback);
           break;
           
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:

@@ -5,13 +5,13 @@ typedef struct {
   // delete this channel and all its messages
   char *delete;
 
-  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order]
-  //output: result_code, msg_time, msg_tag, message
+  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, subscriber_channel]
+  //output: result_code, msg_time, msg_tag, message, content_type,  channel_subscriber_count
   // no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
   // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
   char *get_message;
 
-  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
+  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers}
   char *publish;
 
@@ -22,8 +22,8 @@ typedef struct {
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "c6fddd3e3bcdcfbe04fd2c7ceb88c1788146fa8d",
-  "7e4ea1ab3c5c30d1d5e2a57e344b01e5115d45d4",
-  "9ac1d5b7acfb019cd679892bb6e7bfa170edbfc0",
+  "7dd42fb774b5caf485c7807049513acdfad5201a",
+  "d4fc7ab5ac9516c14d82213b6e9305b8d39c1226",
   "e1c3e421513ff2ab54cf61aa5125e7b45ee71489"
 };
 
@@ -64,13 +64,13 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "return redis.call('DEL', key_channel, messages, pubsub)\n",
 
   //get_message
-  "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order]\n"
-  "--output: result_code, msg_time, msg_tag, message\n"
+  "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, subscriber_channel]\n"
+  "--output: result_code, msg_time, msg_tag, message, content_type,  channel_subscriber_count\n"
   "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
   "-- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available\n"
   "local id, time, tag, subscribe_if_current = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])\n"
   "local no_msgid_order=ARGV[4]\n"
-  "\n"
+  "local subscriber_channel = ARGV[5]\n"
   "local msg_id\n"
   "if time and tag then\n"
   "  msg_id=(\"%s:%s\"):format(time, tag)\n"
@@ -81,8 +81,12 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  next_message= 'channel:msg:%s:'..id, --not finished yet\n"
   "  message=      'channel:msg:%s:%s', --not done yet\n"
   "  channel=      'channel:'..id,\n"
-  "  messages=     'channel:messages:'..id\n"
+  "  messages=     'channel:messages:'..id,\n"
+  "  pubsub=       'channel:subscribers:'..id\n"
   "}\n"
+  "\n"
+  "\n"
+  "redis.call('ECHO', ' #######  GET_MESSAGE ######## ')\n"
   "\n"
   "local oldestmsg=function(list_key, old_fmt)\n"
   "  local old, oldkey\n"
@@ -123,11 +127,15 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "    if k == nil then\n"
   "      k=v\n"
   "    else\n"
-  "      dbg(k..\"=\"..v)\n"
+  "      --dbg(k..\"=\"..v)\n"
   "      h[k]=v; k=nil\n"
   "    end\n"
   "  end\n"
   "  return h\n"
+  "end\n"
+  "\n"
+  "if no_msgid_order ~= 'FIFO' then\n"
+  "  no_msgid_order = 'FILO'\n"
   "end\n"
   "\n"
   "local channel = tohash(redis.call('HGETALL', key.channel))\n"
@@ -149,6 +157,10 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "    return {404, nil}\n"
   "  else\n"
   "    local msg=tohash(redis.call('HGETALL', msg_id))\n"
+  "    if subscriber_channel and #subscriber_channel>0 then\n"
+  "      --unsubscribe from this channel.\n"
+  "      redis.call('SREM',  key.pubsub, subscriber_hannel)\n"
+  "    end\n"
   "    return {200, msg.time, msg.tag, msg.data, msg.content_type}\n"
   "  end\n"
   "else\n"
@@ -156,25 +168,35 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "\n"
   "  if msg_id and channel.current_message == msg_id then\n"
   "    dbg(\"MESSAGE NOT READY\")\n"
+  "    if subscriber_channel and #subscriber_channel>0 then\n"
+  "      --subscribe to this channel.\n"
+  "      redis.call('SADD',  key.pubsub, subscriber_channel)\n"
+  "    end\n"
   "    return {418, nil}\n"
   "  end\n"
   "\n"
   "  local msg=tohash(redis.call('HGETALL', key.message))\n"
   "\n"
-  "  if msg==nil then -- no such message. it might've expired, or maybe it was never there...\n"
+  "  if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there\n"
   "    dbg(\"MESSAGE NOT FOUND\")\n"
+  "    --subscribe if necessary\n"
+  "    if subscriber_channel and #subscriber_channel>0 then\n"
+  "      --subscribe to this channel.\n"
+  "      redis.call('SADD',  key.pubsub, subscriber_channel)\n"
+  "    end\n"
   "    return {404, nil}\n"
   "  end\n"
   "\n"
   "  local next_msg, next_msgtime, next_msgtag\n"
   "  if not msg.next then --this should have been taken care of by the channel.current_message check\n"
-  "    dbg(\"NEXT MESSAGE KEY NOT PRESENT\")\n"
+  "    dbg(\"NEXT MESSAGE KEY NOT PRESENT. ERROR, ERROR!\")\n"
   "    return {404, nil}\n"
   "  else\n"
+  "    dbg(\"NEXT MESSAGE KEY PRESENT: \" .. msg.next)\n"
   "    key.next_message=key.next_message:format(msg.next)\n"
   "    if redis.call('EXISTS', key.next_message)~=0 then\n"
   "      local ntime, ntag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'data', 'content_type'))\n"
-  "      return {200, ntime, ntag, ndata, ncontenttype}\n"
+  "      return {200, tonumber(ntime), tonumber(ntag), ndata, ncontenttype}\n"
   "    else\n"
   "      dbg(\"NEXT MESSAGE NOT FOUND\")\n"
   "      return {404, nil}\n"
@@ -183,7 +205,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "end",
 
   //publish
-  "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]\n"
+  "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]\n"
   "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers}\n"
   "\n"
   "local id=ARGV[1]\n"
@@ -203,6 +225,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  return {err='Message content-type cannot contain \":\" character.'}\n"
   "end\n"
   "\n"
+  "redis.call('ECHO', ' #######  PUBLISH   ######## ')\n"
   "\n"
   "-- sets all fields for a hash from a dictionary\n"
   "local hmset = function (key, dict)\n"
@@ -239,7 +262,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  message=      'channel:msg:%s:'..id, --not finished yet\n"
   "  channel=      'channel:'..id,\n"
   "  messages=     'channel:messages:'..id,\n"
-  "  pubsub=       'channel:pubsub:'..id\n"
+  "  pubsub=       'channel:subscribers:'..id\n"
   "}\n"
   "\n"
   "local new_channel\n"
@@ -328,11 +351,17 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "redis.call('EXPIRE', key.message, channel.ttl)\n"
   "redis.call('EXPIRE', key.channel, channel.ttl)\n"
   "redis.call('EXPIRE', key.messages, channel.ttl)\n"
-  "redis.call('EXPIRE', key.pubsub,  channel.ttl)\n"
+  "--redis.call('EXPIRE', key.pubsub,  channel.ttl)\n"
   "\n"
   "--publish message\n"
-  "--might there be a more efficient way?\n"
-  "redis.call('PUBLISH', key.pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))\n"
+  "local pubsub_message=('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data)\n"
+  "for k,channel_key in pairs(redis.call('SMEMBERS', key.pubsub)) do\n"
+  "  --not efficient, will sort this out later\n"
+  "  redis.call('PUBLISH', channel_key, pubsub_message)\n"
+  "  echo(\"published to \"..channel_key)\n"
+  "end\n"
+  "--clear subscriber list\n"
+  "redis.call('DEL', key.pubsub)\n"
   "\n"
   "return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}",
 

@@ -291,7 +291,7 @@ class PubSubTest <  Minitest::Test
 
   def test_queueing
     pub, sub = pubsub 5
-    pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN )
+    pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN ), 'text/plain'
     sleep 0.3
     sub.run
     sub.wait
