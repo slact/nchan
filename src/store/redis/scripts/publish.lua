@@ -55,8 +55,9 @@ local key={
   message=      'channel:msg:%s:'..id, --not finished yet
   channel=      'channel:'..id,
   messages=     'channel:messages:'..id,
-  pubsub=       'channel:subscribers:'..id
+  subscribers=  'channel:subscribers:'..id
 }
+local channel_pubsub = 'channel:pubsub:'..id
 
 local new_channel
 local channel
@@ -144,16 +145,18 @@ redis.call('LPUSH', key.messages, msg.id)
 redis.call('EXPIRE', key.message, channel.ttl)
 redis.call('EXPIRE', key.channel, channel.ttl)
 redis.call('EXPIRE', key.messages, channel.ttl)
---redis.call('EXPIRE', key.pubsub,  channel.ttl)
+--redis.call('EXPIRE', key.subscribers,  channel.ttl)
 
 --publish message
 local pubsub_message=('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data)
-for k,channel_key in pairs(redis.call('SMEMBERS', key.pubsub)) do
-  --not efficient, will sort this out later
+for k,channel_key in pairs(redis.call('SMEMBERS', key.subscribers)) do
+  --not efficient, but useful for a few short-term subscriptions
   redis.call('PUBLISH', channel_key, pubsub_message)
-  echo("published to "..channel_key)
 end
---clear subscriber list
-redis.call('DEL', key.pubsub)
+--clear short-term subscriber list
+redis.call('DEL', key.subscribers)
+--now publish to the efficient channel
+redis.call('PUBLISH', channel_pubsub, pubsub_message)
+
 
 return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}

@@ -155,6 +155,7 @@ static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdat
   redisReply *el = NULL;
   ngx_http_push_msg_t msg;
   ngx_buf_t           buf= {0};
+  ngx_str_t           s;
   char *str=NULL, *a=NULL, *b=NULL;
   
   if(reply == NULL) return;
@@ -169,11 +170,20 @@ static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdat
     str=el->str;
     //message stuff
     msg.buf=&buf;
-  
+    
     if((a=ngx_strchr(str, ':'))==NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "invalid message, first ':' not found");
       return;
     }
+    
+    if(ngx_strncmp("delete", str, 6)==0) {
+      a++;
+      s.data=(u_char *)a;
+      s.len=el->len - (a-str);
+      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got mesage: delete channel %V", &s);
+      return;
+    }
+    
     msg.message_time=ngx_atotm((u_char *)str, (a-str));
 
     a++;
@@ -679,6 +689,10 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
   ngx_http_push_channel_t        *channel;
   ngx_http_push_msg_t            *msg, *sentinel;
+  
+  
+  redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b", nhpm_rds_lua_hashes.delete, STR(channel_id));
+  
   ngx_http_push_store_lock_shmem();
   channel = ngx_http_push_find_channel(channel_id, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT, ngx_http_push_shm_zone);
   if (channel == NULL) {

@@ -21,9 +21,9 @@ typedef struct {
 } nhpm_redis_lua_scripts_t;
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
-  "c6fddd3e3bcdcfbe04fd2c7ceb88c1788146fa8d",
+  "0a10b9d3b2f2ae51c640e12c39ebb507af3382e8",
   "7dd42fb774b5caf485c7807049513acdfad5201a",
-  "d4fc7ab5ac9516c14d82213b6e9305b8d39c1226",
+  "4e579d074b940bc583cc27d4ea04e7c3f5d32294",
   "e1c3e421513ff2ab54cf61aa5125e7b45ee71489"
 };
 
@@ -44,24 +44,28 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "local key_msg=    'channel:msg:%s:'..id --not finished yet\n"
   "local key_channel='channel:'..id\n"
   "local messages=   'channel:messages:'..id\n"
+  "local subscribers='channel:subscribers:'..id\n"
   "local pubsub=     'channel:pubsub:'..id\n"
   "\n"
+  "redis.call('ECHO', ' ####### DELETE #######')\n"
   "--delete all the messages right now mister!\n"
   "local msg\n"
   "while true do\n"
-  "  msg = redis.call('lpop', id)\n"
+  "  msg = redis.call('LPOP', messages)\n"
   "  if msg then\n"
-  "    redis.call('del', key_msg:format(msg))\n"
+  "    redis.call('DEL', key_msg:format(msg))\n"
   "  else\n"
   "    break\n"
   "  end\n"
   "end\n"
   "\n"
-  "--TODO: publish delete channel message maybe\n"
+  "local del_msg=\"delete:\" .. id\n"
+  "for k,channel_key in pairs(redis.call('SMEMBERS', subscribers)) do\n"
+  "  redis.call('PUBLISH', channel_key, del_msg)\n"
+  "end\n"
+  "redis.call('PUBLISH', pubsub, \"delete\")\n"
   "\n"
-  "redis.call('del', key_channel, messages, pubsub)\n"
-  "\n"
-  "return redis.call('DEL', key_channel, messages, pubsub)\n",
+  "return redis.call('DEL', key_channel, messages, subscribers)\n",
 
   //get_message
   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, subscriber_channel]\n"
@@ -262,8 +266,9 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  message=      'channel:msg:%s:'..id, --not finished yet\n"
   "  channel=      'channel:'..id,\n"
   "  messages=     'channel:messages:'..id,\n"
-  "  pubsub=       'channel:subscribers:'..id\n"
+  "  subscribers=  'channel:subscribers:'..id\n"
   "}\n"
+  "local channel_pubsub = 'channel:pubsub:'..id\n"
   "\n"
   "local new_channel\n"
   "local channel\n"
@@ -351,17 +356,19 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "redis.call('EXPIRE', key.message, channel.ttl)\n"
   "redis.call('EXPIRE', key.channel, channel.ttl)\n"
   "redis.call('EXPIRE', key.messages, channel.ttl)\n"
-  "--redis.call('EXPIRE', key.pubsub,  channel.ttl)\n"
+  "--redis.call('EXPIRE', key.subscribers,  channel.ttl)\n"
   "\n"
   "--publish message\n"
   "local pubsub_message=('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data)\n"
-  "for k,channel_key in pairs(redis.call('SMEMBERS', key.pubsub)) do\n"
-  "  --not efficient, will sort this out later\n"
+  "for k,channel_key in pairs(redis.call('SMEMBERS', key.subscribers)) do\n"
+  "  --not efficient, but useful for a few short-term subscriptions\n"
   "  redis.call('PUBLISH', channel_key, pubsub_message)\n"
-  "  echo(\"published to \"..channel_key)\n"
   "end\n"
-  "--clear subscriber list\n"
-  "redis.call('DEL', key.pubsub)\n"
+  "--clear short-term subscriber list\n"
+  "redis.call('DEL', key.subscribers)\n"
+  "--now publish to the efficient channel\n"
+  "redis.call('PUBLISH', channel_pubsub, pubsub_message)\n"
+  "\n"
   "\n"
   "return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}",
 
