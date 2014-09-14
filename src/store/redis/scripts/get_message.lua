@@ -107,9 +107,9 @@ if msg_id==nil or #msg_id==0 then
     local msg=tohash(redis.call('HGETALL', msg_id))
     if subscriber_channel and #subscriber_channel>0 then
       --unsubscribe from this channel.
-      redis.call('SREM',  key.pubsub, subscriber_hannel)
+      redis.call('SREM',  key.pubsub, subscriber_channel)
     end
-    return {200, msg.time, msg.tag, msg.data or "", msg.content_type or "", subs_count}
+    return {200, tonumber(msg.time) or "", tonumber(msg.tag) or "", msg.data or "", msg.content_type or "", subs_count}
   end
 else
   key.message=key.message:format(msg_id, id)
@@ -150,7 +150,7 @@ else
     key.next_message=key.next_message:format(msg.next)
     if redis.call('EXISTS', key.next_message)~=0 then
       local ntime, ntag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'data', 'content_type'))
-      return {200, tonumber(ntime), tonumber(ntag), ndata or "", ncontenttype or "", subs_count}
+      return {200, tonumber(ntime) or "", tonumber(ntag) or "", ndata or "", ncontenttype or "", subs_count}
     else
       dbg("NEXT MESSAGE NOT FOUND")
       return {404, nil}

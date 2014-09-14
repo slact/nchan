@@ -6,6 +6,7 @@ server= "localhost:8082"
 msg=false
 loop=false
 repeat_sec=0.5
+content_type=nil
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
@@ -15,6 +16,7 @@ opt=OptionParser.new do |opts|
     repeat_sec=Float(v) unless v.nil?
   end 
   opts.on("-m", "--message MSG", "publish this message instead of prompting"){|v| msg=v}
+  opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
 end
 opt.banner="Usage: pub.rb [options] url"
 opt.parse!
@@ -40,7 +42,7 @@ while repeat do
       puts "Press enter to send message."
       STDIN.gets
     end
-    pub.post msg
+    pub.post msg, content_type
     
   else
     if loop
@@ -48,7 +50,7 @@ while repeat do
     end
     puts "Enter one-line message, press enter."
     message=STDIN.gets #doesn't work when there are parameters. wtf?
-    pub.post message
+    pub.post message, content_type
     puts ""
   end
 end

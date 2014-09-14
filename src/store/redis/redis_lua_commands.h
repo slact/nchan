@@ -27,7 +27,7 @@ typedef struct {
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "69ba50c10aca574b2145d6ecefe72896bc8d4277",
-  "5716b26b15fb7c6cd45cdf2c70d50c0366ed64d3",
+  "c1e91ece920a6aa6049d35639ca3facf3d2095d1",
   "b92bb8b7afa329fdd377f143a5af963e17a3f6ed",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "e1c3e421513ff2ab54cf61aa5125e7b45ee71489"
@@ -195,9 +195,9 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "    local msg=tohash(redis.call('HGETALL', msg_id))\n"
   "    if subscriber_channel and #subscriber_channel>0 then\n"
   "      --unsubscribe from this channel.\n"
-  "      redis.call('SREM',  key.pubsub, subscriber_hannel)\n"
+  "      redis.call('SREM',  key.pubsub, subscriber_channel)\n"
   "    end\n"
-  "    return {200, msg.time, msg.tag, msg.data or \"\", msg.content_type or \"\", subs_count}\n"
+  "    return {200, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", msg.data or \"\", msg.content_type or \"\", subs_count}\n"
   "  end\n"
   "else\n"
   "  key.message=key.message:format(msg_id, id)\n"
@@ -238,7 +238,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "    key.next_message=key.next_message:format(msg.next)\n"
   "    if redis.call('EXISTS', key.next_message)~=0 then\n"
   "      local ntime, ntag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'data', 'content_type'))\n"
-  "      return {200, tonumber(ntime), tonumber(ntag), ndata or \"\", ncontenttype or \"\", subs_count}\n"
+  "      return {200, tonumber(ntime) or \"\", tonumber(ntag) or \"\", ndata or \"\", ncontenttype or \"\", subs_count}\n"
   "    else\n"
   "      dbg(\"NEXT MESSAGE NOT FOUND\")\n"
   "      return {404, nil}\n"
