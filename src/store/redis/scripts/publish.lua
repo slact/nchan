@@ -13,12 +13,24 @@ local msg={
   last_message=nil,
   oldest_message =nil
 }
+local enable_debug=true
+local dbg = (function(on)
+if on then
+  return function(...)
+  redis.call('echo', table.concat({...}))
+end
+  else
+    return function(...)
+    return
+    end
+  end
+end)(enable_debug)
 
 if type(msg.content_type)=='string' and msg.content_type:find(':') then
   return {err='Message content-type cannot contain ":" character.'}
 end
 
-redis.call('ECHO', ' #######  PUBLISH   ######## ')
+dbg(' #######  PUBLISH   ######## ')
 
 -- sets all fields for a hash from a dictionary
 local hmset = function (key, dict)
@@ -30,9 +42,7 @@ local hmset = function (key, dict)
   end
   return redis.call('HMSET', key, unpack(bulk))
 end
-local echo=function(val)
-  redis.call('ECHO', val)
-end
+
 local tohash=function(arr)
   if type(arr)~="table" then
     return nil
@@ -66,17 +76,17 @@ if redis.call('EXISTS', key.channel) ~= 0 then
 end
 
 if channel~=nil then
-  echo("channel present")
+  dbg("channel present")
   if channel.current_message ~= nil then
-    echo("channel current_message present")
+    dbg("channel current_message present")
     key.last_message=('channel:msg:%s:%s'):format(channel.current_message, id)
   else
-    echo("channel current_message absent")
+    dbg("channel current_message absent")
     key.last_message=nil
   end
   new_channel=false
 else
-  echo("channel missing")
+  dbg("channel missing")
   channel={}
   new_channel=true
   key.last_message=nil
@@ -86,7 +96,7 @@ end
 if key.last_message then
   local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
   local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
-  echo("last_time"..lasttime.." last_tag" ..lasttag.." msg_time"..msg.time)
+  dbg("last_time"..lasttime.." last_tag" ..lasttag.." msg_time"..msg.time)
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
@@ -148,10 +158,12 @@ redis.call('EXPIRE', key.messages, channel.ttl)
 --redis.call('EXPIRE', key.subscribers,  channel.ttl)
 
 --publish message
+local msgpacked = cmsgpack.pack({time=msg.time, tag=msg.tag, content_type=msg.content_type, data=msg.data, channel=id})
 local pubsub_message=('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data)
+
 for k,channel_key in pairs(redis.call('SMEMBERS', key.subscribers)) do
   --not efficient, but useful for a few short-term subscriptions
-  redis.call('PUBLISH', channel_key, pubsub_message)
+  redis.call('PUBLISH', channel_key, msgpacked)
 end
 --clear short-term subscriber list
 redis.call('DEL', key.subscribers)

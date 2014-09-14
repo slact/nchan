@@ -435,7 +435,7 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 
-ngx_int_t ngx_push_longpoll_subscriber_enqueue(ngx_http_push_channel_t *channel, void *subscriber, ngx_int_t subscriber_timeout) {
+ngx_int_t ngx_push_longpoll_subscriber_enqueue(void *subscriber, ngx_int_t subscriber_timeout) {
   ngx_http_request_t *r= (ngx_http_request_t *)subscriber;
   
   /*

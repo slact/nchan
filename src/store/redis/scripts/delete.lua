@@ -6,8 +6,19 @@ local key_channel='channel:'..id
 local messages=   'channel:messages:'..id
 local subscribers='channel:subscribers:'..id
 local pubsub=     'channel:pubsub:'..id
-
-redis.call('ECHO', ' ####### DELETE #######')
+local enable_debug=true
+local dbg = (function(on)
+if on then
+  return function(...)
+  redis.call('echo', table.concat({...}))
+end
+  else
+    return function(...)
+    return
+    end
+  end
+end)(enable_debug)
+dbg(' ####### DELETE #######')
 --delete all the messages right now mister!
 local msg
 while true do

@@ -132,6 +132,18 @@ class PubSubTest <  Minitest::Test
     assert sub.messages.matches? pub.messages
     sub.terminate
   end
+  
+  def test_publish_then_subscribe
+    pub, sub = pubsub
+    pub.post "hi there"
+    sub.run
+    pub.post "FIN"
+    sub.wait
+    assert_equal 2, sub.messages.messages.count
+    assert sub.messages.matches? pub.messages
+    sub.terminate
+  end
+  
 
   def test_authorized_channels
     #must be published to before subscribing
@@ -227,6 +239,10 @@ class PubSubTest <  Minitest::Test
       verify p, sub[i]
     end
     sub.each {|s| s.terminate }
+  end
+  
+  def test_broadcast_3
+    test_broadcast 3
   end
   
   def test_broadcast(clients=400)

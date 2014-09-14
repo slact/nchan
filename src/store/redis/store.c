@@ -7,6 +7,8 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
+#include <msgpack.h>
+
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->start, ((buf)->end - (buf)->start)
    
@@ -64,12 +66,9 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   }
 }
 
-static void redis_default_callback(redisAsyncContext *c, void *r, void *privdata) {
-  //redisReply *reply=r;
-}
-
 static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
+  ngx_int_t   i;
   //ngx_http_push_channel_t * channel = (ngx_http_push_channel_t *)privdata;
   if (reply == NULL) return;
   switch(reply->type) {
@@ -95,7 +94,7 @@ static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
       
     case REDIS_REPLY_ARRAY:
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ARRAY: %i", reply->elements);
-      for(int i=0; i< reply->elements; i++) {
+      for(i=0; i< reply->elements; i++) {
         redisEchoCallback(c, reply->element[i], "  ");
       }
       break;
@@ -144,31 +143,118 @@ static redisAsyncContext * rds_ctx(void){
   return c;
 }
 
+static ngx_int_t msgpack_obj_to_int(msgpack_object *o) {
+  switch(o->type) {
+    case MSGPACK_OBJECT_POSITIVE_INTEGER:
+      return (ngx_int_t) o->via.u64;
+    case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+      return (ngx_int_t) o->via.i64;
+    case MSGPACK_OBJECT_RAW:
+      return ngx_atoi((u_char *)o->via.raw.ptr, o->via.raw.size);
+    default:
+      return 0;
+  }
+}
+
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
 #define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
 #define CHECK_REPLY_INT(reply) ((reply)->type == REDIS_REPLY_INTEGER)
 #define CHECK_REPLY_INTVAL(reply, v) ( CHECK_REPLY_INT(reply) && (reply)->integer == v )
-#define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements > size )
+#define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= size )
 
 static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
   redisReply *el = NULL;
   ngx_http_push_msg_t msg;
   ngx_buf_t           buf= {0};
-  ngx_str_t           s;
-  char *str=NULL, *a=NULL, *b=NULL;
+
+  ngx_str_t           channel_id;
+  msgpack_unpacked    msgunpack;
+  msgpack_object     *cur;
   
   if(reply == NULL) return;
-  if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)
+  if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "message")
-    && CHECK_REPLY_STR(reply->element[1]) ) {
+    && CHECK_REPLY_STR(reply->element[1])
+    && CHECK_REPLY_STR(reply->element[2])) {
 
     msg.expires=0;
     msg.refcount=0;
-
+    msg.buf=NULL;
+    //reply->element[1] is channel name
     el = reply->element[2];
-    str=el->str;
+    
+    msgpack_unpacked_init(&msgunpack);
+    if(msgpack_unpack_next(&msgunpack, (char *)el->str, el->len, NULL)) {
+      msgpack_object o = msgunpack.data;
+      if(o.type==MSGPACK_OBJECT_MAP && o.via.map.size != 0) {
+        msgpack_object_kv* p;
+        msgpack_object_kv* const pend = o.via.map.ptr + o.via.map.size;
+        for(p = o.via.map.ptr; p < pend; ++p) {
+          cur=&p->val;
+          if(ngx_strncmp("time", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
+            switch(cur->type) {
+              case MSGPACK_OBJECT_POSITIVE_INTEGER:
+                msg.message_time=(time_t) cur->via.u64;
+                break;
+              case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+                msg.message_time=(time_t) cur->via.i64;
+                break;
+              case MSGPACK_OBJECT_RAW:
+                msg.message_time=ngx_atotm((u_char *)cur->via.raw.ptr, cur->via.raw.size);
+                break;
+              default:
+                msg.message_time=0;
+            }
+          }
+          else if(ngx_strncmp("tag", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
+            switch(cur->type) {
+              case MSGPACK_OBJECT_POSITIVE_INTEGER:
+                msg.message_tag=(ngx_int_t) cur->via.u64;
+                break;
+              case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+                msg.message_tag=(ngx_int_t) cur->via.i64;
+                break;
+              case MSGPACK_OBJECT_RAW:
+                msg.message_tag=ngx_atoi((u_char *)cur->via.raw.ptr, cur->via.raw.size);
+                break;
+              default:
+                msg.message_tag=0;
+            }
+          }
+          else if(ngx_strncmp("content_type", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
+            if(cur->type == MSGPACK_OBJECT_RAW) {
+              msg.content_type.len=cur->via.raw.size;
+              msg.content_type.data=(u_char *)cur->via.raw.ptr;
+            }
+          }
+          else if(ngx_strncmp("data", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
+            msg.buf=&buf;
+            if(cur->type == MSGPACK_OBJECT_RAW) {
+              buf.start = buf.pos = (u_char *)cur->via.raw.ptr;
+              buf.end = buf.last = (u_char *)(cur->via.raw.ptr + cur->via.raw.size);
+              buf.memory = 1;
+              buf.last_buf = 1;
+              buf.last_in_chain = 1;
+            }
+          }
+          else if(ngx_strncmp("channel", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
+            channel_id.len=cur->via.raw.size;
+            channel_id.data=(u_char *)cur->via.raw.ptr;
+          }
+        }
+      }
+    }
+    else {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: invalid msgpack message from redis");
+    }
+    
+    
+    /*
     //message stuff
+    char      *str=NULL, *a=NULL, *b=NULL;
+    ngx_str_t  s;
+    str=el->str;
     msg.buf=&buf;
     
     if((a=ngx_strchr(str, ':'))==NULL) {
@@ -211,9 +297,7 @@ static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdat
     buf.memory = 1;
     buf.last_buf = 1;
     buf.last_in_chain = 1;
-    
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got a message!");
-
+    */
   }
   else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "subscribe")
@@ -699,7 +783,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
     ngx_http_push_store_unlock_shmem();
     return NGX_OK;
   }
-  sentinel = channel->message_queue; 
+  sentinel = channel->message_queue;
   msg = sentinel;
         
   while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
@@ -749,6 +833,54 @@ static ngx_http_push_msg_t * ngx_http_push_store_get_channel_message(ngx_http_pu
   return msg;
 }
 
+static void * ngx_nhpm_alloc(size_t size) {
+  return ngx_alloc(size, ngx_cycle->log);
+}
+
+static ngx_http_push_msg_t * msg_from_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size)) {
+  ngx_http_push_msg_t *msg=NULL;
+  ngx_buf_t           *buf=NULL;
+  redisReply         **els = r->element;
+  size_t len = 0, content_type_len = 0;
+
+  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 4)
+   && CHECK_REPLY_INT(els[offset])     //id - time
+   && CHECK_REPLY_INT(els[offset+1])   //id - tag
+   && CHECK_REPLY_STR(els[offset+2])   //message
+   && CHECK_REPLY_STR(els[offset+3])){ //content-type
+    len=els[offset+2]->len;
+    content_type_len=els[offset+3]->len;
+    if((msg=allocator(sizeof(*msg) + sizeof(ngx_buf_t) + len + content_type_len))==NULL) {
+      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: can't allocate memory for message from redis reply");
+      return NULL;
+    }
+    ngx_memzero(msg, sizeof(*msg)+sizeof(ngx_buf_t));
+    //set up message buffer;
+    msg->buf = (void *)msg+1;
+    buf = msg->buf;
+    buf->start = buf->pos = (void *)buf+1;
+    buf->end = buf->last = buf->start + (u_char)len;
+    ngx_memcpy(buf->start, els[3]->str, len);
+    buf->memory = 1;
+    buf->last_buf = 1;
+    buf->last_in_chain = 1;
+    
+    if(content_type_len>0) {
+      msg->content_type.len=content_type_len;
+      msg->content_type.data=buf->end;
+      ngx_memcpy(msg->content_type.data, els[4]->str, content_type_len);
+    }
+    
+    msg->message_time = els[1]->integer;
+    msg->message_tag = els[2]->integer;
+    return msg;
+  }
+  else {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: invalid message redis reply");
+    return NULL;
+  }
+}
+
 typedef struct {
   ngx_http_request_t  *r;
   ngx_str_t           *channel_id;
@@ -760,14 +892,12 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   redisReply                *reply= r;
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
   ngx_http_push_msg_t       *msg=NULL;
-  ngx_uint_t                 len = 0, content_type_len = 0;
-  ngx_buf_t                 *buf;
   
   
   //output: result_code, msg_time, msg_tag, message, content_type,  channel_subscriber_count
-  // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
+  // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
   
-  if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 1 || reply->element[0]->type != REDIS_REPLY_INTEGER ) {
+  if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 1) || !CHECK_REPLY_INT(reply->element[0]) ) {
     //no good
     ngx_free(d);
     return;
@@ -775,44 +905,11 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   
   switch(reply->element[0]->integer) {
     case 200: //ok
-      if (reply->elements < 5 
-        || reply->element[1]->type != REDIS_REPLY_INTEGER //msg time
-        || reply->element[2]->type != REDIS_REPLY_INTEGER //msg tag
-        || reply->element[3]->type != REDIS_REPLY_STRING //message
-        || reply->element[4]->type != REDIS_REPLY_STRING){ //content-type
-          break;
-        }
-        len=reply->element[3]->len;
-      content_type_len=reply->element[4]->len;
-      
-      if((msg=ngx_alloc(sizeof(*msg) + sizeof(ngx_buf_t) + len + content_type_len, ngx_cycle->log))==NULL) {
-        //couldn't allocate enough space for message
-        ngx_free(d);
-        return;
+      if((msg=msg_from_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
+        d->callback(msg, NGX_HTTP_PUSH_MESSAGE_FOUND, d->r);
       }
-      ngx_memzero(msg, sizeof(*msg)+sizeof(ngx_buf_t));
-      //set up message buffer;
-      msg->buf = (void *)msg+1;
-      buf = msg->buf;
-      buf->start = buf->pos = (void *)buf+1;
-      buf->end = buf->last = buf->start + (u_char)len;
-      ngx_memcpy(buf->start, reply->element[3]->str, len);
-      buf->memory = 1;
-      buf->last_buf = 1;
-      buf->last_in_chain = 1;
-      
-      if(content_type_len>0) {
-        msg->content_type.len=content_type_len;
-        msg->content_type.data=buf->end;
-        ngx_memcpy(msg->content_type.data, reply->element[4]->str, content_type_len);
-      }
-      
-      msg->message_time = reply->element[1]->integer;
-      msg->message_tag = reply->element[2]->integer;
-      
-      d->callback(msg, NGX_HTTP_PUSH_MESSAGE_FOUND, d->r);
       break;
-      
+    case 403: //channel not found
     case 404: //not found
       d->callback(NULL, NGX_HTTP_PUSH_MESSAGE_NOTFOUND, d->r);
       break;
@@ -842,9 +939,9 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
   d->msg_id = msg_id;
   d->callback = callback;
   
-  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, subscriber_channel]
+  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
-  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO");
+  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", 0);
   return NGX_OK; //async only now!
 }
 
@@ -988,16 +1085,16 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   ngx_http_push_shutdown_ipc(cycle);
 }
 
-static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
+static ngx_int_t ngx_http_push_store_subscribe_new(ngx_str_t *channel_id, ngx_http_request_t *r) {
   //this is the new shit
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   nhpm_channel_head_t       *chanhead = NULL;
   ngx_str_t                 *chan_id = NULL;
   nhpm_subscriber_t         *nextsub;
   
-  CHANNEL_HASH_FIND(&(channel->id), chanhead);
+  CHANNEL_HASH_FIND(channel_id, chanhead);
   if(chanhead==NULL) {
-    chanhead=(nhpm_channel_head_t *)ngx_alloc(sizeof(*chanhead) + sizeof(ngx_str_t) + channel->id.len, ngx_cycle->log);
+    chanhead=(nhpm_channel_head_t *)ngx_alloc(sizeof(*chanhead) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log);
     if(chanhead==NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
       return NGX_ERROR;
@@ -1006,8 +1103,8 @@ static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *chan
     chanhead->id=chan_id;
 
     chan_id->data=(u_char *)(chan_id+1);
-    chan_id->len=channel->id.len;
-    ngx_memcpy(chan_id->data, channel->id.data, chan_id->len);
+    chan_id->len=channel_id->len;
+    ngx_memcpy(chan_id->data, channel_id->data, channel_id->len);
 
     chanhead->pool=NULL;
     chanhead->sub=NULL;
@@ -1043,53 +1140,12 @@ static ngx_int_t ngx_http_push_store_subscribe_new(ngx_http_push_channel_t *chan
     if(chanhead_cleanup_tail==cl)
       chanhead_cleanup_tail=cl->prev;
   }
-  
-  ngx_http_push_store_lock_shmem();
-  channel->subscribers++; // do this only when we know everything went okay.
-  ngx_http_push_store_unlock_shmem();
-  
-  ngx_push_longpoll_subscriber_enqueue(channel, nextsub->subscriber, cf->subscriber_timeout);
-  
+
+  //TODO: increase subscriber count
+
+  ngx_push_longpoll_subscriber_enqueue(nextsub->subscriber, cf->subscriber_timeout);
   return NGX_OK;
 }
-
-static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
-  ngx_int_t                      max_subscribers = cf->max_channel_subscribers;
-  
-  if(channel->subscribers == 0) {
-    //empty channels are always okay.
-    return NGX_OK;
-  }
-
-  if(max_subscribers!=0 && channel->subscribers >= max_subscribers) {
-    //max_channel_subscribers setting
-    ngx_http_push_respond_status_only(r, NGX_HTTP_FORBIDDEN, NULL);
-    return NGX_DECLINED;
-  }
-
-  //nonzero number of subscribers present
-  switch(cf->subscriber_concurrency) {
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-      return NGX_OK;
-
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-      //send "everyone" a 409 Conflict response.
-      //in most reasonable cases, there'll be at most one subscriber on the
-      //channel. However, since settings are bound to locations and not
-      //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store_publish_raw(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-      
-      return NGX_OK;
-      
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-      ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-      return NGX_DECLINED;
-      
-    default:
-      return NGX_ERROR;
-  }
-}
-
 
 static ngx_int_t default_subscribe_callback(ngx_int_t status, ngx_http_request_t *r) {
   return status;
@@ -1101,19 +1157,89 @@ typedef struct {
   ngx_http_request_t     *r;
   ngx_int_t             (*callback)(ngx_int_t status, ngx_http_request_t *r);
 } redis_subscribe_data_t;
+
 static void redis_subscribe_callback(redisAsyncContext *c, void *r, void *privdata) {
-  redis_subscribe_data_t *d = (redis_subscribe_data_t *) privdata;
+  redis_subscribe_data_t    *d = (redis_subscribe_data_t *) privdata;
+  redisReply                *reply = (redisReply *)r;
+  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(d->r, ngx_http_push_module);
+  ngx_int_t                  status;
+  //output: result_code, msg_time, msg_tag, message, content_type, channel_subscriber_count
+  // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
   
+  if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 1) || !CHECK_REPLY_INT(reply->element[0]) ) {
+    //no good
+    ngx_free(d);
+    return;
+  }
   
+  status = reply->element[0]->integer;
   
+  switch(status) {
+    ngx_str_t                  *etag;
+    ngx_str_t                  *content_type;
+    ngx_chain_t                *chain=NULL;
+    time_t                      last_modified;
+    ngx_int_t                   ret;
+    ngx_http_push_msg_t        *msg=NULL;
+    
+    case 200: //ok
+      switch(cf->subscriber_concurrency) {
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+          if((msg=msg_from_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
+            ngx_http_push_alloc_for_subscriber_response(d->r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
+            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+            d->callback(ret, d->r);
+          }
+          break;
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
+          //kick everyone elese out, then subscribe
+          redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.publish_status, STR(d->channel_id), 409);
+          if((msg=msg_from_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
+            ngx_http_push_alloc_for_subscriber_response(d->r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
+            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+            d->callback(ret, d->r);
+          }
+          break;
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
+          if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 6) && CHECK_REPLY_INT(reply->element[5]) && reply->element[5]->integer > 0 ) {
+            ngx_http_push_respond_status_only(d->r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+          }
+          break;
+
+        default:
+          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
+      }
+      break;
+    case 418: //not yet available
+    case 403: //channel not found
+      // ♫ It's gonna be the future soon ♫
+      if (ngx_http_push_store_subscribe_new(d->channel_id, d->r) == NGX_OK) {
+        d->callback(NGX_DONE, d->r);
+      }
+      else {
+        d->callback(NGX_ERROR, d->r);
+      }
+      break;
+    case 404: //not found
+      d->callback(NGX_HTTP_NOT_FOUND, d->r);
+      break;
+    case 410: //gone
+      //subscriber wants an expired message
+      //TODO: maybe respond with entity-identifiers for oldest available message?
+      d->callback(NGX_HTTP_NO_CONTENT, d->r);
+      break;
+    default: //shouldn't be here!
+      d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, d->r);
+  }
+  
+  ngx_free(d);
 }
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r)) {
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_msg_t            *msg;
-  ngx_int_t                       msg_search_outcome;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   redis_subscribe_data_t       *d=NULL;
+  ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   //static ngx_int_t                       subscribed = 0;
   
   if(callback == NULL) {
@@ -1130,11 +1256,14 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->msg_id=msg_id;
   d->callback=callback;
   
-  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order]
-  //output: result_code, msg_time, msg_tag, message
-  redisAsyncCommand(rds_ctx(), &redis_subscribe_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "", subscriber_channel);
-  
-  
+  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
+  redisAsyncCommand(rds_ctx(), &redis_subscribe_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", cf->channel_timeout, subscriber_channel);
+  return NGX_OK;
+}
+ /* 
+  ngx_http_push_msg_t            *msg;
+  ngx_int_t                       msg_search_outcome;
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   if (cf->authorize_channel==1) {
     channel = ngx_http_push_store_find_channel(channel_id, cf->channel_timeout, NULL);
   }else{
@@ -1179,7 +1308,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
       // ♫ It's gonna be the future soon ♫
       if (ngx_http_push_store_subscribe_new(channel, r) == NGX_OK) {
 
-        redisAsyncCommand(rds_ctx(), redis_default_callback, NULL, "ECHO SUB channel:%b", STR(&(channel->id)));
+        redisAsyncCommand(rds_ctx(), NULL, NULL, "ECHO SUB channel:%b", STR(&(channel->id)));
         return callback(NGX_DONE, r);
       }
       else {
@@ -1200,7 +1329,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     default: //we shouldn't be here.
       return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
   }
-}
+*/
 
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *etag;

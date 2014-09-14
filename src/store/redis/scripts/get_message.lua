@@ -1,17 +1,18 @@
---input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, subscriber_channel]
+--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
 --output: result_code, msg_time, msg_tag, message, content_type,  channel_subscriber_count
 -- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
+-- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
 -- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
 local id, time, tag, subscribe_if_current = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])
 local no_msgid_order=ARGV[4]
-local subscriber_channel = ARGV[5]
+local create_channel_ttl=tonumber(ARGV[5]) or 0
+local subscriber_channel = ARGV[6]
 local msg_id
-if time and tag then
+if time and time ~= 0 and tag then
   msg_id=("%s:%s"):format(time, tag)
 end
 
 local key={
-  time_offset=   'pushmodule:message_time_offset',
   next_message= 'channel:msg:%s:'..id, --not finished yet
   message=      'channel:msg:%s:%s', --not done yet
   channel=      'channel:'..id,
@@ -19,8 +20,20 @@ local key={
   pubsub=       'channel:subscribers:'..id
 }
 
+local enable_debug=true
+local dbg = (function(on)
+if on then
+  return function(...)
+  redis.call('echo', table.concat({...}))
+end
+  else
+    return function(...)
+    return
+    end
+  end
+end)(enable_debug)
 
-redis.call('ECHO', ' #######  GET_MESSAGE ######## ')
+dbg(' #######  GET_MESSAGE ######## ')
 
 local oldestmsg=function(list_key, old_fmt)
   local old, oldkey
@@ -40,14 +53,6 @@ local oldestmsg=function(list_key, old_fmt)
     else
       break
     end
-  end
-end
-
-local dbg = function(msg)
-  local enable
-  enable=true
-  if enable then
-    redis.call('echo', msg)
   end
 end
 
@@ -74,9 +79,15 @@ end
 
 local channel = tohash(redis.call('HGETALL', key.channel))
 if channel == nil then
-  dbg("CHANNEL NOT FOUND")
-  return {404, nil}
+  if create_channel_ttl==0 then
+    return {404, nil}
+  end
+  redis.call('HSET', key.channel, 'time', time)
+  redis.call('EXPIRE', key.channel, create_channel_ttl)
+  channel = {time=time}
 end
+
+local subs_count = tonumber(channel.subscribers)
 
 if msg_id==nil or #msg_id==0 then
   dbg("no msg id given, ord="..no_msgid_order)
@@ -85,7 +96,10 @@ if msg_id==nil or #msg_id==0 then
     msg_id=channel.current_message
   elseif no_msgid_order == 'FILO' then --oldest message
     dbg("get oldest")
+    
     msg_id=oldestmsg(key.messages, ('channel:msg:%s:'..id))
+    
+    dbg("get oldestest")
   end
   if msg_id == nil then
     return {404, nil}
@@ -95,13 +109,19 @@ if msg_id==nil or #msg_id==0 then
       --unsubscribe from this channel.
       redis.call('SREM',  key.pubsub, subscriber_hannel)
     end
-    return {200, msg.time, msg.tag, msg.data, msg.content_type}
+    return {200, msg.time, msg.tag, msg.data or "", msg.content_type or "", subs_count}
   end
 else
   key.message=key.message:format(msg_id, id)
+  if msg_id and channel.current_message == msg_id
+   or not channel.current_message then
 
-  if msg_id and channel.current_message == msg_id then
-    dbg("MESSAGE NOT READY")
+    if not channel.current_message then
+      dbg("NEW CHANNEL, MESSAGE NOT READY")
+    else
+      dbg("MESSAGE NOT READY")
+    end
+
     if subscriber_channel and #subscriber_channel>0 then
       --subscribe to this channel.
       redis.call('SADD',  key.pubsub, subscriber_channel)
@@ -130,7 +150,7 @@ else
     key.next_message=key.next_message:format(msg.next)
     if redis.call('EXISTS', key.next_message)~=0 then
       local ntime, ntag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'data', 'content_type'))
-      return {200, tonumber(ntime), tonumber(ntag), ndata, ncontenttype}
+      return {200, tonumber(ntime), tonumber(ntag), ndata or "", ncontenttype or "", subs_count}
     else
       dbg("NEXT MESSAGE NOT FOUND")
       return {404, nil}

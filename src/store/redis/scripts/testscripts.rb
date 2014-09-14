@@ -140,7 +140,7 @@ class PubSubTest < Minitest::Test
     end
     traverse_order=((Hash === opt) && opt[:getfirst]) ? 'FIFO' : 'FILO'
     msg_tag=0 if msg_time && msg_tag.nil?
-    status, msg_time, msg_tag, msg_data, msg_content_type = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag, traverse_order]
+    status, msg_time, msg_tag, msg_data, msg_content_type, subscriber_count = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag, traverse_order, 0]
     if status == 404
       return nil
     elsif status == 418 #not ready
