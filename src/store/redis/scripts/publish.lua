@@ -159,16 +159,20 @@ redis.call('EXPIRE', key.messages, channel.ttl)
 
 --publish message
 local msgpacked = cmsgpack.pack({time=msg.time, tag=msg.tag, content_type=msg.content_type, data=msg.data, channel=id})
-local pubsub_message=('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data)
 
-for k,channel_key in pairs(redis.call('SMEMBERS', key.subscribers)) do
-  --not efficient, but useful for a few short-term subscriptions
-  redis.call('PUBLISH', channel_key, msgpacked)
+local subscribers = redis.call('SMEMBERS', key.subscribers)
+if subscribers and #subscribers > 0 then
+  for k,channel_key in pairs(subscribers) do
+    --not efficient, but useful for a few short-term subscriptions
+    redis.call('PUBLISH', channel_key, msgpacked)
+  end
+  --clear short-term subscriber list
+  redis.call('DEL', key.subscribers)
 end
---clear short-term subscriber list
-redis.call('DEL', key.subscribers)
 --now publish to the efficient channel
-redis.call('PUBLISH', channel_pubsub, pubsub_message)
+if redis.call('PUBSUB','NUMSUB', channel_pubsub)[2] > 0 then
+  redis.call('PUBLISH', channel_pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))
+end
 
 
 return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}

@@ -34,6 +34,11 @@ local del_msg="delete:" .. id
 for k,channel_key in pairs(redis.call('SMEMBERS', subscribers)) do
   redis.call('PUBLISH', channel_key, del_msg)
 end
-redis.call('PUBLISH', pubsub, "delete")
 
-return redis.call('DEL', key_channel, messages, subscribers)
+local r= redis.call('DEL', key_channel, messages, subscribers)
+
+if redis.call('PUBSUB','NUMSUB', pubsub)[2] > 0 then
+  redis.call('PUBLISH', pubsub, "delete")
+end
+
+return r

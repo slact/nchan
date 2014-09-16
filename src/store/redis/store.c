@@ -104,6 +104,13 @@ static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
   //redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
 }
+
+static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
+  if(r != NULL && ((redisReply *)r)->type == REDIS_REPLY_ERROR) {
+    redisEchoCallback(c, r, privdata);
+  }
+}
+
 static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
   char* (*hashes)[]=(char* (*)[])&nhpm_rds_lua_hashes;
   //char* (*scripts)[]=(char* (*)[])&nhpm_rds_lua_scripts;
@@ -251,6 +258,7 @@ static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdat
     else {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: invalid msgpack message from redis");
     }
+    msgpack_unpacked_destroy(&msgunpack);
     
     
     /*
@@ -635,7 +643,7 @@ static ngx_pool_t *chanhead_ensure_pool_exists(nhpm_channel_head_t *chanhead) {
   return chanhead->pool;
 }
 
-static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_channel_head_t        *head;
   nhpm_subscriber_t          *sub;
   nhpm_subscriber_cleanup_t  *clndata;
@@ -646,7 +654,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
   ngx_str_t                  *etag, *content_type;
   ngx_chain_t                *chain;
   
-  CHANNEL_HASH_FIND(&(channel->id), head);
+  CHANNEL_HASH_FIND(channel_id, head);
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
@@ -700,9 +708,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channe
     }
   }
   
-  
-  channel->subscribers-=head->sub_count;
-  
+  redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.subscriber_count, STR(channel_id), -(head->sub_count));
   
   head->pool=NULL;
   head->sub=NULL;
@@ -798,7 +804,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
   //410 gone
   ngx_http_push_store_unlock_shmem();
   
-  ngx_http_push_store_publish_raw(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+  ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
   
   ngx_http_push_store_lock_shmem();
   ngx_http_push_delete_channel_locked(channel, ngx_http_push_shm_zone);
@@ -1144,7 +1150,7 @@ static ngx_int_t ngx_http_push_store_subscribe_new(ngx_str_t *channel_id, ngx_ht
       chanhead_cleanup_tail=cl->prev;
   }
 
-  //TODO: increase subscriber count
+  redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.subscriber_count, STR(channel_id), 1);
 
   ngx_push_longpoll_subscriber_enqueue(nextsub->subscriber, cf->subscriber_timeout);
   return NGX_OK;
@@ -1588,7 +1594,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   else if(cf->max_messages == 0) {
     ngx_http_push_store_reserve_message(NULL, msg);
   }
-  result= ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
+  result= ngx_http_push_store_publish_raw(channel_id, msg, 0, NULL);
 
   if((d=ngx_alloc(sizeof(*d), ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis publish callback data");

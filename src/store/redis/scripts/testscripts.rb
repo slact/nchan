@@ -139,8 +139,9 @@ class PubSubTest < Minitest::Test
       msg_id=msg
     end
     traverse_order=((Hash === opt) && opt[:getfirst]) ? 'FIFO' : 'FILO'
+    sub_channel = (Hash === opt) ? (opt[:subscribe] || opt[:sub]) : nil
     msg_tag=0 if msg_time && msg_tag.nil?
-    status, msg_time, msg_tag, msg_data, msg_content_type, subscriber_count = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag, traverse_order, 0]
+    status, msg_time, msg_tag, msg_data, msg_content_type, subscriber_count = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag, traverse_order, 15, sub_channel ]
     if status == 404
       return nil
     elsif status == 418 #not ready
@@ -226,20 +227,30 @@ class PubSubTest < Minitest::Test
     assert_equal cur, sent[1]
     sleep 1.6
     cur=getmsg id, ""
-    assert_equal cur, nil
+    assert_equal false, cur
     #nice!
   end
   
   def test_delete
     id=randid
     sent=[]
-    sent << publish(Msg.new(id, data: "fee", ttl: 3))
-    sent << publish(Msg.new(id, data: "foo", ttl: 3))
-    sent << publish(Msg.new(id, data: "foo2", ttl: 3))
-
-    delete id
+    sent << publish(Msg.new(id, data: "fee", ttl: 30))
+    sent << publish(Msg.new(id, data: "foo", ttl: 30))
+    sent << publish(Msg.new(id, data: "foo2", ttl: 30))
+    
     cur=getmsg id, ""
-    assert_nil cur
+    assert_equal sent[0], cur
+    
+    cur=getmsg cur
+    assert_equal sent[1], cur
+    
+    cur=getmsg cur
+    assert_equal sent[2], cur
+    
+    delete id
+    
+    cur=getmsg Msg.new(id), sub: 'foobar'
+    assert_equal false, cur
   end
   
 end

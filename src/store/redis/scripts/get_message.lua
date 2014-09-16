@@ -51,6 +51,7 @@ local oldestmsg=function(list_key, old_fmt)
         del=del+1
       end 
     else
+      dbg(list_key, " is empty")
       break
     end
   end
@@ -78,49 +79,55 @@ if no_msgid_order ~= 'FIFO' then
 end
 
 local channel = tohash(redis.call('HGETALL', key.channel))
-if channel == nil then
+local new_channel = false
+if next(channel) == nil then
   if create_channel_ttl==0 then
     return {404, nil}
   end
   redis.call('HSET', key.channel, 'time', time)
   redis.call('EXPIRE', key.channel, create_channel_ttl)
   channel = {time=time}
+  new_channel = true
 end
 
 local subs_count = tonumber(channel.subscribers)
 
-if msg_id==nil or #msg_id==0 then
-  dbg("no msg id given, ord="..no_msgid_order)
-  if no_msgid_order == 'FIFO' then --most recent message
-    dbg("get most recent")
-    msg_id=channel.current_message
-  elseif no_msgid_order == 'FILO' then --oldest message
-    dbg("get oldest")
-    
-    msg_id=oldestmsg(key.messages, ('channel:msg:%s:'..id))
-    
-    dbg("get oldestest")
-  end
-  if msg_id == nil then
-    return {404, nil}
+local found_msg_id
+if msg_id==nil then
+  if new_channel then
+    return {418, nil}
   else
-    local msg=tohash(redis.call('HGETALL', msg_id))
-    if subscriber_channel and #subscriber_channel>0 then
-      --unsubscribe from this channel.
-      redis.call('SREM',  key.pubsub, subscriber_channel)
+    dbg("no msg id given, ord="..no_msgid_order)
+    
+    if no_msgid_order == 'FIFO' then --most recent message
+      dbg("get most recent")
+      found_msg_id=channel.current_message
+    elseif no_msgid_order == 'FILO' then --oldest message
+      dbg("get oldest")
+      
+      found_msg_id=oldestmsg(key.messages, ('channel:msg:%s:'..id))
     end
-    return {200, tonumber(msg.time) or "", tonumber(msg.tag) or "", msg.data or "", msg.content_type or "", subs_count}
+    if found_msg_id == nil then
+      --we await a message
+      return {418, nil}
+    else
+      msg_id = found_msg_id
+      local msg=tohash(redis.call('HGETALL', msg_id))
+      if subscriber_channel and #subscriber_channel>0 then
+        --unsubscribe from this channel.
+        redis.call('SREM',  key.pubsub, subscriber_channel)
+      end
+      if not next(msg) then --empty
+        return {404, nil}
+      else
+        return {200, tonumber(msg.time) or "", tonumber(msg.tag) or "", msg.data or "", msg.content_type or "", subs_count}
+      end
+    end
   end
 else
-  key.message=key.message:format(msg_id, id)
+
   if msg_id and channel.current_message == msg_id
    or not channel.current_message then
-
-    if not channel.current_message then
-      dbg("NEW CHANNEL, MESSAGE NOT READY")
-    else
-      dbg("MESSAGE NOT READY")
-    end
 
     if subscriber_channel and #subscriber_channel>0 then
       --subscribe to this channel.
@@ -129,6 +136,7 @@ else
     return {418, nil}
   end
 
+  key.message=key.message:format(msg_id, id)
   local msg=tohash(redis.call('HGETALL', key.message))
 
   if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there
