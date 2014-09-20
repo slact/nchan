@@ -79,14 +79,16 @@ build() {
   ln -sf $_src_dir $srcdir/nginx
   local _build_dir="${_src_dir}/objs"
   cd $_src_dir
-
-  if [[ $NO_POOL == 1 ]]; then
-    echo "using the no-pool patch"
-    patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
-  fi
-  if [[ $NGX_SLAB_PATCH == 1 ]]; then
-    echo "using the ngx_slab patch to fix large alloc/frees"
-    patch -p1 < "${startdir}/ngx_slab.patch"
+  
+  if [[ -z $CONTINUE ]]; then
+    if [[ $NO_POOL == 1 ]]; then
+      echo "using the no-pool patch"
+      patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
+    fi
+    if [[ $NGX_SLAB_PATCH == 1 ]]; then
+      echo "using the ngx_slab patch to fix large alloc/frees"
+      patch -p1 < "${startdir}/ngx_slab.patch"
+    fi
   fi
 
   if [[ $MUDFLAP == 1 ]]; then
