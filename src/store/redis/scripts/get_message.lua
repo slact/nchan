@@ -22,15 +22,8 @@ local key={
 
 local enable_debug=true
 local dbg = (function(on)
-if on then
-  return function(...)
-  redis.call('echo', table.concat({...}))
-end
-  else
-    return function(...)
-    return
-    end
-  end
+  if on then return function(...) redis.call('echo', table.concat({...})); end
+  else return function(...) return; end end
 end)(enable_debug)
 
 dbg(' #######  GET_MESSAGE ######## ')

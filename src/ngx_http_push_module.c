@@ -462,6 +462,59 @@ ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subsc
 }
 */
 
+
+// this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
+static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
+  ngx_buf_t *buf = NULL;
+  ngx_chain_t *chain;
+  ssize_t n;
+  off_t len;
+
+  chain = r->request_body->bufs;
+  if (chain->next == NULL) {
+    return chain->buf;
+  }
+  ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: multiple buffers in request. there's gonna be some copying.");
+  if (chain->buf->in_file) {
+    if (ngx_buf_in_memory(chain->buf)) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
+    }
+    if (chain->next != NULL) {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error reading request body with multiple ");
+    }
+    return chain->buf;
+  }
+  buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
+  if (buf != NULL) {
+    ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
+    while ((chain != NULL) && (chain->buf != NULL)) {
+      len = ngx_buf_size(chain->buf);
+      // if buffer is equal to content length all the content is in this buffer
+      if (len >= r->headers_in.content_length_n) {
+        buf->start = buf->pos;
+        buf->last = buf->pos;
+        len = r->headers_in.content_length_n;
+      }
+      if (chain->buf->in_file) {
+        n = ngx_read_file(chain->buf->file, buf->start, len, 0);
+        if (n == NGX_FILE_ERROR) {
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: cannot read file with request body");
+          return NULL;
+        }
+        buf->last = buf->last + len;
+        ngx_delete_file(chain->buf->file->name.data);
+        chain->buf->file->fd = NGX_INVALID_FILE;
+      } else {
+        buf->last = ngx_copy(buf->start, chain->buf->pos, len);
+      }
+
+      chain = chain->next;
+      buf->start = buf->last;
+    }
+  }
+  return buf;
+}
+
 static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
   time_t             last_seen = 0;
   ngx_uint_t         subscribers = 0;
@@ -588,7 +641,8 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 }
 
-static ngx_int_t publish_callback(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r) {
+static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
+  ngx_http_push_channel_t *ch = rptr;
   switch(status) {
     case NGX_HTTP_PUSH_MESSAGE_QUEUED:
       //message was queued successfully, but there were no subscribers to receive it.
@@ -614,11 +668,20 @@ static ngx_int_t publish_callback(ngx_int_t status, ngx_http_push_channel_t *ch,
   }
 }
 
+#define NGX_REQUEST_VAL_CHECK(val, fail, r, errormessage)             \
+if (val == fail) {                                                        \
+  ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
+  ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
+  return;                                                          \
+  }
+
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   ngx_str_t                      *channel_id;
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_uint_t                      method = r->method;
-  
+  ngx_buf_t                      *buf;
+  size_t                          content_type_len;
+  ngx_http_push_msg_t            *msg;
   if((channel_id = ngx_http_push_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
@@ -627,7 +690,35 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   switch(method) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
-      ngx_http_push_store->publish(channel_id, r, &publish_callback);
+      msg = ngx_pcalloc(r->pool, sizeof(*msg));
+      NGX_REQUEST_VAL_CHECK(msg, NULL, r, "push module: can't allocate msg in request pool");
+      //buf = ngx_create_temp_buf(r->pool, 0);
+      //NGX_REQUEST_VAL_CHECK(buf, NULL, r, "push module: can't allocate buf in request pool");
+      
+      //content type
+      content_type_len = (r->headers_in.content_type!=NULL ? r->headers_in.content_type->value.len : 0);
+      if(content_type_len > 0) {
+        msg->content_type.len = content_type_len;
+        msg->content_type.data = r->headers_in.content_type->value.data;
+      }
+
+      if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
+        buf = ngx_create_temp_buf(r->pool, 0);
+      }
+      else if(r->request_body->bufs!=NULL) {
+        buf = ngx_http_push_request_body_to_single_buffer(r);
+      }
+      else {
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+      }
+
+      msg->message_time = ngx_time();
+      
+      msg->buf = buf;
+
+      ngx_http_push_store->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
       break;
       
     case NGX_HTTP_DELETE:

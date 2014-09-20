@@ -1,3 +1,4 @@
+typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 typedef struct {
   //init
   ngx_int_t (*init_module)(ngx_cycle_t *cycle);
@@ -9,11 +10,10 @@ typedef struct {
   void      (*exit_worker)(ngx_cycle_t *cycle);
   void      (*exit_master)(ngx_cycle_t *cycle);
   
-  
   //async-friendly functions with callbacks
-  ngx_int_t (*get_message) (ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r));
-  ngx_int_t             (*subscribe)   (ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r));
-  ngx_int_t             (*publish)     (ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r));
+  ngx_int_t (*get_message) (ngx_str_t *, ngx_http_push_msg_id_t *, ngx_http_request_t *, ngx_int_t (*callback)(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r));
+  ngx_int_t (*subscribe)   (ngx_str_t *, ngx_http_push_msg_id_t *, ngx_http_request_t *, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r));
+  ngx_int_t (*publish)     (ngx_str_t *, ngx_http_push_msg_t *, ngx_http_push_loc_conf_t *, callback_pt, void *);
   
   //channel actions
   ngx_http_push_channel_t *(*get_channel)(ngx_str_t *id, time_t channel_timeout, ngx_int_t (*callback)(ngx_http_push_channel_t *channel));

@@ -6,31 +6,44 @@ extern ngx_http_push_store_t  ngx_http_push_store_redis;
 
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET} subscriber_type_t;
 
-typedef struct nhpm_subscriber_s {
+typedef struct nhpm_channel_head_s nhpm_channel_head_t;
+typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
+typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
+typedef struct nhpm_subscriber_s nhpm_subscriber_t;
+
+struct nhpm_subscriber_s {
   void                       *subscriber;
   subscriber_type_t           type;
   ngx_pool_t                 *pool;
+  struct nhpm_subscriber_s   *prev;
   struct nhpm_subscriber_s   *next;
-} nhpm_subscriber_t;
+  ngx_http_cleanup_t         *cln;
+};
 
-typedef struct {
-  ngx_str_t                  *id;
-  ngx_pool_t                 *pool;
-  nhpm_subscriber_t          *sub;
-  ngx_uint_t                  sub_count;
-  nhpm_llist_timed_t         *cleanlink;
-  UT_hash_handle              hh;
-} nhpm_channel_head_t;
+struct nhpm_channel_head_s {
+  ngx_str_t                    id;
+  ngx_pool_t                  *pool;
+  nhpm_subscriber_t           *sub;
+  ngx_uint_t                   sub_count;
+  nhpm_channel_head_cleanup_t *shared_cleanup;
+  nhpm_llist_timed_t          *cleanlink;
+  UT_hash_handle               hh;
+};
 
-
-typedef struct {
+struct nhpm_channel_head_cleanup_s {
   nhpm_channel_head_t        *head;
-  ngx_int_t                   count;
+  ngx_str_t                   id;
+  ngx_uint_t                  sub_count;
   ngx_pool_t                 *pool;
-} nhpm_subscriber_cleanup_t;
+};
+
+struct nhpm_subscriber_cleanup_s {
+  nhpm_channel_head_cleanup_t  *shared;
+  nhpm_subscriber_t            *sub;
+};
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, subhash, (id_buf)->data, (id_buf)->len, p)
-#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id)->data, (chanhead->id)->len, chanhead)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( subhash, chanhead)
 
 #undef uthash_malloc

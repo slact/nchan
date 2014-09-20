@@ -20,7 +20,7 @@ typedef struct {
   //output: current_subscribers
   char *publish_status;
 
-  //input:  keys: [], values: [channel_id, subscriber_delta]
+  //input:  keys: [], values: [channel_id, subscriber_delta, channel_empty_ttl, channel_active_ttl]
   //output: current_subscribers
   char *subscriber_count;
 
@@ -28,10 +28,10 @@ typedef struct {
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "2fc639771243df0d248029c11d5eaae5ba149ece",
-  "773b5ace4ab8025dac7b07d7c9bdd0bedf3b9bf7",
-  "da10315a73d491744afeaa79f3bc7360323e847a",
+  "9c62757a0813eb94d56fba4592c1a4bbe9f3bf88",
+  "8743562e847654122e784afe3ada0af779389538",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
-  "2c49e6b127d584a3f1a34fe3dca3a06ec68d9608"
+  "13a5155e4c9be0fa6e9f36e58298723e8e27b6c7"
 };
 
 #define REDIS_LUA_HASH_LENGTH 40
@@ -116,15 +116,8 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "\n"
   "local enable_debug=true\n"
   "local dbg = (function(on)\n"
-  "if on then\n"
-  "  return function(...)\n"
-  "  redis.call('echo', table.concat({...}))\n"
-  "end\n"
-  "  else\n"
-  "    return function(...)\n"
-  "    return\n"
-  "    end\n"
-  "  end\n"
+  "  if on then return function(...) redis.call('echo', table.concat({...})); end\n"
+  "  else return function(...) return; end end\n"
   "end)(enable_debug)\n"
   "\n"
   "dbg(' #######  GET_MESSAGE ######## ')\n"
@@ -278,15 +271,8 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "}\n"
   "local enable_debug=true\n"
   "local dbg = (function(on)\n"
-  "if on then\n"
-  "  return function(...)\n"
-  "  redis.call('echo', table.concat({...}))\n"
-  "end\n"
-  "  else\n"
-  "    return function(...)\n"
-  "    return\n"
-  "    end\n"
-  "  end\n"
+  "if on then return function(...) redis.call('echo', table.concat({...})); end\n"
+  "  else return function(...) return; end end\n"
   "end)(enable_debug)\n"
   "\n"
   "if type(msg.content_type)=='string' and msg.content_type:find(':') then\n"
@@ -477,26 +463,53 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "return redis.call('HGET', chan_key, 'subscribers') or 0",
 
   //subscriber_count
-  "--input:  keys: [], values: [channel_id, subscriber_delta]\n"
+  "--input:  keys: [], values: [channel_id, subscriber_delta, channel_empty_ttl, channel_active_ttl]\n"
   "--output: current_subscribers\n"
   "local id = ARGV[1]\n"
   "local key = 'channel:'..id\n"
   "local subscriber_delta = tonumber(ARGV[2])\n"
+  "local channel_empty_ttl = tonumber(ARGV[3]) or 20\n"
+  "local channel_active_ttl = tonumber(ARGV[4]) or 0\n"
   "\n"
-  "redis.call('echo', ' ######## SUBSCRIBER COUNT ####### ')\n"
+  "local enable_debug=true\n"
+  "local dbg = (function(on)\n"
+  "  if on then return function(...) redis.call('echo', table.concat({...})); end\n"
+  "  else return function(...) return; end end\n"
+  "end)(enable_debug)\n"
+  "\n"
+  "dbg(' ######## SUBSCRIBER COUNT ####### ')\n"
+  "dbg('active ttl:', type(channel_active_ttl), \" \", tostring(channel_active_ttl), \" empty ttl:\",type(channel_empty_ttl), \" \", tostring(channel_empty_ttl))\n"
+  "\n"
   "\n"
   "if not subscriber_delta or subscriber_delta == 0 then\n"
   "  return {err=\"subscriber_delta is not a number or is 0: \" .. type(ARGV[2]) .. \" \" .. tostring(ARGV[2])}\n"
   "end\n"
-  "if redis.call('exists', key)==0 then\n"
-  "  return {err=\"incrementing subscriber count for nonexistent channel\"}\n"
+  "if redis.call('exists', key) == 0 then\n"
+  "  return {err=(\"%srementing subscriber count for nonexistent channel %s\"), subscriber_delta > 0 and \"inc\" or \"dec\", id}\n"
+  "end\n"
+  "\n"
+  "local keys={'channel:'..id, 'channel:messages:'..id, 'channel:subscribers:'..id}\n"
+  "local setkeyttl=function(ttl)\n"
+  "  for i,v in ipairs(keys) do\n"
+  "    if ttl > 0 then\n"
+  "      redis.call('expire', v, ttl)\n"
+  "    else\n"
+  "      redis.call('persist', v)\n"
+  "    end\n"
+  "  end\n"
   "end\n"
   "\n"
   "local count= redis.call('hincrby', key, 'subscribers', subscriber_delta)\n"
-  "if count<0 then\n"
+  "if count == 0 and subscriber_delta < 0 then\n"
+  "  dbg(\"this channel now has no subscribers\")\n"
+  "  setkeyttl(channel_empty_ttl)\n"
+  "elseif count > 0 and count - subscriber_delta == 0 then\n"
+  "  dbg(\"just added subscribers\")\n"
+  "  setkeyttl(channel_active_ttl)\n"
+  "elseif count<0 then\n"
   "  return {err=\"Subscriber count for channel \" .. id .. \" less than zero: \" .. count}\n"
-  "else\n"
-  "  return count\n"
   "end\n"
+  "\n"
+  "return count\n"
 };
 
