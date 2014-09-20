@@ -10,6 +10,7 @@ no_message=false
 max_wait=60
 msg_count=0
 print_content_type = false
+show_id=false
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
@@ -17,6 +18,7 @@ opt=OptionParser.new do |opts|
   opts.on("-t", "--timeout SEC (#{max_wait})", "Long-poll timeout"){|v| max_wait = v}
   opts.on("-q", "--quit STRING (#{quit_msg})", "Quit message"){|v| quit_msg = v}
   opts.on("-c", "--content-type", "show received content-type"){|v| print_content_type = true}
+  opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
   opts.on("-v", "--verbose", "somewhat rather extraneously wordful output"){Typhoeus::Config.verbose=true}
 end
@@ -40,10 +42,14 @@ sub.on_message do |msg|
     print msg_count
   else
     if print_content_type
-      puts "(#{msg.content_type}) #{msg}"
+      out = "(#{msg.content_type}) #{msg}"
     else
-      puts msg
+      out = msg.to_s
     end
+    if show_id
+      out = "<#{msg.serverside_id}> #{out}"
+    end
+    puts out
   end
 end
 

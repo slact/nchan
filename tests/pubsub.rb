@@ -3,6 +3,7 @@ require 'typhoeus'
 require 'json'
 require 'pry'
 require 'celluloid'
+require 'date'
 Typhoeus::Config.memoize = false
 
 class Message
@@ -10,6 +11,13 @@ class Message
   def initialize(msg, last_modified=nil, etag=nil)
     @times_seen=1
     @message, @last_modified, @etag = msg, last_modified, etag
+  end
+  def serverside_id
+    timestamp=nil
+    if last_modified
+      timestamp = DateTime.httpdate(last_modified).to_time.utc.to_i
+    end
+    "#{timestamp}:#{etag}"
   end
   def id
     @id||="#{last_modified}:#{etag}"
@@ -76,7 +84,7 @@ class MessageStore
       @msgs << msg
     else
       if (cur_msg=@msgs[msg.id])
-        puts "Received different messages with same message id #{msg.id}: '#{cur_msg.message}' and '#{msg.message}'" unless cur_msg.message == msg.message
+        puts "Different messages with same id: #{msg.serverside_id}" unless cur_msg.message == msg.message
         cur_msg.times_seen+=1
         cur_msg.times_seen
       else

@@ -7,6 +7,7 @@ msg=false
 loop=false
 repeat_sec=0.5
 content_type=nil
+msg_gen = false
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
@@ -17,6 +18,7 @@ opt=OptionParser.new do |opts|
   end 
   opts.on("-m", "--message MSG", "publish this message instead of prompting"){|v| msg=v}
   opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
+  opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
 end
 opt.banner="Usage: pub.rb [options] url"
 opt.parse!
@@ -31,19 +33,24 @@ loopmsg=("\r"*20) + "sending message #"
 pub = Publisher.new url
 repeat=true
 i=1
+if loop then
+  puts "Press enter to send message."
+end
 while repeat do
-  if msg
+  if msg or msg_gen
     if loop
       sleep repeat_sec
-      print loopmsg
-      print i
-      i+=1
+      print "#{loopmsg} #{i}"
     else
-      puts "Press enter to send message."
       STDIN.gets
     end
-    pub.post msg, content_type
-    
+    if msg
+      pub.post msg, content_type
+    elsif msg_gen
+      this_msg = msg_gen.call(i).to_s
+      puts this_msg
+      pub.post this_msg, content_type
+    end
   else
     if loop
       puts "Can't repeat with custom message. use -m option"
@@ -53,4 +60,5 @@ while repeat do
     pub.post message, content_type
     puts ""
   end
+  i+=1
 end
