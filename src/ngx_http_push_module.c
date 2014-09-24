@@ -682,6 +682,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   ngx_buf_t                      *buf;
   size_t                          content_type_len;
   ngx_http_push_msg_t            *msg;
+  struct timeval                  tv;
   if((channel_id = ngx_http_push_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
@@ -714,7 +715,8 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         return;
       }
 
-      msg->message_time = ngx_time();
+      ngx_gettimeofday(&tv);
+      msg->message_time = tv.tv_sec;
       
       msg->buf = buf;
 

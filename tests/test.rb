@@ -170,6 +170,7 @@ class PubSubTest <  Minitest::Test
     pub, sub = pubsub 5, timeout: 10
     sub.on_failure { false }
     sub.run
+    binding.pry
     sleep 0.2
     pub.delete
     sleep 0.2

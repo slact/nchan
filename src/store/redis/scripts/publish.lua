@@ -89,13 +89,16 @@ end
 if key.last_message then
   local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
   local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
-  dbg("last_time"..lasttime.." last_tag" ..lasttag.." msg_time"..msg.time)
+  dbg("last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
 end
 msg.id=('%i:%i'):format(msg.time, msg.tag)
 key.message=key.message:format(msg.id)
+if redis.call('exists', msg.id) ~= 0 then
+  return {err="Message for channel %s id %s already exists"}
+end
 
 msg.prev=channel.current_message
 if key.last_message then

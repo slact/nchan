@@ -29,7 +29,7 @@ typedef struct {
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "2fc639771243df0d248029c11d5eaae5ba149ece",
   "9c62757a0813eb94d56fba4592c1a4bbe9f3bf88",
-  "8743562e847654122e784afe3ada0af779389538",
+  "35c4f054c0bbfc155bf0b2b0e79944da2b9c5a16",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "13a5155e4c9be0fa6e9f36e58298723e8e27b6c7"
 };
@@ -345,13 +345,16 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "if key.last_message then\n"
   "  local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')\n"
   "  local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])\n"
-  "  dbg(\"last_time\"..lasttime..\" last_tag\" ..lasttag..\" msg_time\"..msg.time)\n"
+  "  dbg(\"last_time \", lasttime, \" last_tag \", lasttag, \" msg_time \", msg.time)\n"
   "  if lasttime==msg.time then\n"
   "    msg.tag=lasttag+1\n"
   "  end\n"
   "end\n"
   "msg.id=('%i:%i'):format(msg.time, msg.tag)\n"
   "key.message=key.message:format(msg.id)\n"
+  "if redis.call('exists', msg.id) ~= 0 then\n"
+  "  return {err=\"Message for channel %s id %s already exists\"}\n"
+  "end\n"
   "\n"
   "msg.prev=channel.current_message\n"
   "if key.last_message then\n"
