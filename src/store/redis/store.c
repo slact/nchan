@@ -40,15 +40,12 @@ static void * ngx_http_push_slab_alloc_locked(size_t size, char *label);
 static void * ngx_http_push_slab_alloc(size_t size, char *label);
 static void ngx_http_push_slab_free_locked(void *ptr);
 
-static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers);
-
-static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code);
-static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev);
-
-static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
-
-
+static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t);
+static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *, ngx_http_push_subscriber_t *, ngx_pid_t, ngx_int_t, ngx_http_push_msg_t *, ngx_int_t);
+static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
+static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
+static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
+static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -67,6 +64,30 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   }
 }
 
+static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
+  static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
+  redisReply *reply = (redisReply *)r;
+  if(reply != NULL && reply->type == REDIS_REPLY_ERROR) {
+    if(ngx_strncmp(reply->str, script_error_start.data, script_error_start.len) == 0 && reply->len > script_error_start.len + REDIS_LUA_HASH_LENGTH) {
+      char *hash = &reply->str[script_error_start.len];
+      char * (*hashes)[]=(char* (*)[])&nhpm_rds_lua_hashes;
+      char * (*names)[]=(char* (*)[])&nhpm_rds_lua_script_names;
+      int n = sizeof(nhpm_rds_lua_hashes)/sizeof(char*);
+      int i;
+      for(i=0; i<n; i++) {
+        if (ngx_strncmp((*hashes)[i], hash, REDIS_LUA_HASH_LENGTH)==0) {
+          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: %s :%s", (*names)[i], &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
+          return;
+        }
+      }
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: %s", reply->str);
+    }
+    else {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ERROR: %s", reply->str);
+    }
+  }
+}
+
 static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
   ngx_int_t   i;
@@ -81,7 +102,7 @@ static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
       break;
       
     case REDIS_REPLY_ERROR:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ERROR: %s", reply->str);
+      redisCheckErrorCallback(c, r, privdata);
       break;
       
     case REDIS_REPLY_INTEGER:
@@ -104,12 +125,6 @@ static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
       break;
   }
   //redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
-}
-
-static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
-  if(r != NULL && ((redisReply *)r)->type == REDIS_REPLY_ERROR) {
-    redisEchoCallback(c, r, privdata);
-  }
 }
 
 static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
@@ -175,7 +190,7 @@ static ngx_int_t msgpack_obj_to_int(msgpack_object *o) {
 #define CHECK_REPLY_INTVAL(reply, v) ( CHECK_REPLY_INT(reply) && (reply)->integer == v )
 #define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= size )
 
-static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdata) {
+static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
   redisReply *el = NULL;
   ngx_http_push_msg_t msg;
@@ -263,62 +278,16 @@ static void redisSubscriberCallback(redisAsyncContext *c, void *r, void *privdat
     }
     msgpack_unpacked_destroy(&msgunpack);
     
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "received a message!");
+    ngx_http_push_store_publish_raw(&channel_id, &msg, 0, NULL);
     
-    /*
-    //message stuff
-    char      *str=NULL, *a=NULL, *b=NULL;
-    ngx_str_t  s;
-    str=el->str;
-    msg.buf=&buf;
-    
-    if((a=ngx_strchr(str, ':'))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "invalid message, first ':' not found");
-      return;
-    }
-    
-    if(ngx_strncmp("delete", str, 6)==0) {
-      a++;
-      s.data=(u_char *)a;
-      s.len=el->len - (a-str);
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got mesage: delete channel %V", &s);
-      return;
-    }
-    
-    msg.message_time=ngx_atotm((u_char *)str, (a-str));
-
-    a++;
-    if((b=ngx_strchr(a, ':'))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "invalid message, second ':' not found");
-      return;
-    }
-    msg.message_tag=ngx_atoi((u_char *)a, (b-a));
-
-    a=b+1;
-    if((b=ngx_strchr(a, ':'))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "invalid message, third ':' not found");
-      return;
-    }
-    msg.content_type.data = (u_char *)a;
-    msg.content_type.len = (b-a);
-    
-    a=b+1;
-    if(el->len < (a - str)) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "...where's the message?");
-      return;
-    }
-    buf.start = buf.pos = (u_char *)a;
-    buf.end =buf.last = (u_char *)str + sizeof(u_char)*(el->len);
-    buf.memory = 1;
-    buf.last_buf = 1;
-    buf.last_in_chain = 1;
-    */
   }
   else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "subscribe")
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
 
-    //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: subscribed to %s (%i total)", reply->element[1]->str, reply->element[1]->integer);
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: subscribed to %s (%i total)", reply->element[1]->str, reply->element[1]->integer);
   }
   else {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no message, something else");
@@ -337,7 +306,7 @@ static redisAsyncContext * rds_sub_ctx(void){
   if(c==NULL) {
     //init redis
     redis_nginx_open_context((const char *)"localhost", 8537, 1, &c);
-    redisAsyncCommand(c, redisSubscriberCallback, NULL, "SUBSCRIBE %s", subscriber_channel);
+    redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", subscriber_channel);
   }
   return c;
 }
@@ -515,6 +484,8 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
   ngx_str_t                  *etag, *content_type;
   ngx_chain_t                *chain;
   nhpm_channel_head_cleanup_t *hcln;
+
+  static ngx_http_push_msg_id_t prev_id={0};
   
   CHANNEL_HASH_FIND(channel_id, head);
   if(head==NULL) {
@@ -533,6 +504,15 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
     }
     buffer = chain->buf;
     buffer->recycled = 1;
+  }
+  
+  if(msg->message_time <= prev_id.time && msg->message_tag <= prev_id.tag) {
+    //uh oh!
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "out-of-order message maybe...");
+  }
+  else {
+    prev_id.time = msg->message_time;
+    prev_id.tag = msg->message_tag;
   }
   
   //set some things the cleanup callback will need
@@ -973,7 +953,7 @@ typedef struct {
   ngx_int_t             (*callback)(ngx_int_t status, ngx_http_request_t *r);
 } redis_subscribe_data_t;
 
-static void redis_subscribe_callback(redisAsyncContext *c, void *vr, void *privdata) {
+static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscribe_data_t    *d = (redis_subscribe_data_t *) privdata;
   redisReply                *reply = (redisReply *)vr;
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(d->r, ngx_http_push_module);
@@ -1075,7 +1055,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->callback=callback;
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
-  redisAsyncCommand(rds_ctx(), &redis_subscribe_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", cf->channel_timeout, subscriber_channel);
+  redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i %s", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", cf->channel_timeout, subscriber_channel);
   return NGX_OK;
 }
  /* 
@@ -1237,7 +1217,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   d->callback=callback;
   d->privdata=privdata;
 
-  ngx_http_push_store_publish_raw(channel_id, msg, 0, NULL);
+  //ngx_http_push_store_publish_raw(channel_id, msg, 0, NULL);
   
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
   //output: message_tag, channel_hash

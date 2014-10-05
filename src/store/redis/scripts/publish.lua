@@ -69,17 +69,17 @@ if redis.call('EXISTS', key.channel) ~= 0 then
 end
 
 if channel~=nil then
-  dbg("channel present")
+  --dbg("channel present")
   if channel.current_message ~= nil then
-    dbg("channel current_message present")
+    --dbg("channel current_message present")
     key.last_message=('channel:msg:%s:%s'):format(channel.current_message, id)
   else
-    dbg("channel current_message absent")
+    --dbg("channel current_message absent")
     key.last_message=nil
   end
   new_channel=false
 else
-  dbg("channel missing")
+  --dbg("channel missing")
   channel={}
   new_channel=true
   key.last_message=nil
@@ -89,7 +89,7 @@ end
 if key.last_message then
   local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
   local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
-  dbg("last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
+  --dbg("last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
@@ -155,6 +155,8 @@ redis.call('EXPIRE', key.messages, channel.ttl)
 
 --publish message
 local msgpacked = cmsgpack.pack({time=msg.time, tag=msg.tag, content_type=msg.content_type, data=msg.data, channel=id})
+
+--dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
 local subscribers = redis.call('SMEMBERS', key.subscribers)
 if subscribers and #subscribers > 0 then

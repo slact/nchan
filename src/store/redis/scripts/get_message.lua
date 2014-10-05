@@ -20,6 +20,13 @@ local key={
   pubsub=       'channel:subscribers:'..id
 }
 
+local subscribe = function(unsub)
+  if subscriber_channel and #subscriber_channel>0 then
+    --subscribe to this channel.
+    redis.call(unsub and 'SREM' or 'SADD',  key.pubsub, subscriber_channel)
+  end
+end
+
 local enable_debug=true
 local dbg = (function(on)
   if on then return function(...) redis.call('echo', table.concat({...})); end
@@ -88,6 +95,8 @@ local subs_count = tonumber(channel.subscribers)
 local found_msg_id
 if msg_id==nil then
   if new_channel then
+    dbg("new channel")
+    subscribe()
     return {418, nil}
   else
     dbg("no msg id given, ord="..no_msgid_order)
@@ -102,17 +111,16 @@ if msg_id==nil then
     end
     if found_msg_id == nil then
       --we await a message
+      subscribe()
       return {418, nil}
     else
       msg_id = found_msg_id
       local msg=tohash(redis.call('HGETALL', msg_id))
-      if subscriber_channel and #subscriber_channel>0 then
-        --unsubscribe from this channel.
-        redis.call('SREM',  key.pubsub, subscriber_channel)
-      end
+      subscribe('unsub')
       if not next(msg) then --empty
         return {404, nil}
       else
+        dbg(("found msg %i:%i  after %i:%i"):format(msg.time, msg.tag, time, tag))
         return {200, tonumber(msg.time) or "", tonumber(msg.tag) or "", msg.data or "", msg.content_type or "", subs_count}
       end
     end
@@ -121,11 +129,7 @@ else
 
   if msg_id and channel.current_message == msg_id
    or not channel.current_message then
-
-    if subscriber_channel and #subscriber_channel>0 then
-      --subscribe to this channel.
-      redis.call('SADD',  key.pubsub, subscriber_channel)
-    end
+    subscribe()
     return {418, nil}
   end
 
@@ -151,6 +155,7 @@ else
     key.next_message=key.next_message:format(msg.next)
     if redis.call('EXISTS', key.next_message)~=0 then
       local ntime, ntag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'data', 'content_type'))
+      dbg(("found msg2 %i:%i  after %i:%i"):format(ntime, ntag, time, tag))
       return {200, tonumber(ntime) or "", tonumber(ntag) or "", ndata or "", ncontenttype or "", subs_count}
     else
       dbg("NEXT MESSAGE NOT FOUND")

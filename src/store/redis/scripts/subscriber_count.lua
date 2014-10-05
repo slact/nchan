@@ -13,7 +13,7 @@ local dbg = (function(on)
 end)(enable_debug)
 
 dbg(' ######## SUBSCRIBER COUNT ####### ')
-dbg('active ttl:', type(channel_active_ttl), " ", tostring(channel_active_ttl), " empty ttl:",type(channel_empty_ttl), " ", tostring(channel_empty_ttl))
+--dbg('active ttl:', type(channel_active_ttl), " ", tostring(channel_active_ttl), " empty ttl:",type(channel_empty_ttl), " ", tostring(channel_empty_ttl))
 
 
 if not subscriber_delta or subscriber_delta == 0 then
@@ -36,10 +36,10 @@ end
 
 local count= redis.call('hincrby', key, 'subscribers', subscriber_delta)
 if count == 0 and subscriber_delta < 0 then
-  dbg("this channel now has no subscribers")
+  --dbg("this channel now has no subscribers")
   setkeyttl(channel_empty_ttl)
 elseif count > 0 and count - subscriber_delta == 0 then
-  dbg("just added subscribers")
+  --dbg("just added subscribers")
   setkeyttl(channel_active_ttl)
 elseif count<0 then
   return {err="Subscriber count for channel " .. id .. " less than zero: " .. count}
