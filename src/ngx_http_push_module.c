@@ -214,9 +214,9 @@ void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) 
   }
   
   if(data->channel!=NULL) { //we're expected to decrement the subscriber count
-    ngx_http_push_store->lock();
+    //ngx_http_push_store->lock();
     data->channel->subscribers--;
-    ngx_http_push_store->unlock();
+    //ngx_http_push_store->unlock();
   }
 }
 
@@ -320,7 +320,7 @@ ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_
   if(last_modified != NULL) {
     *last_modified = msg->message_time;
   }
-  ngx_http_push_store->unlock();
+  //ngx_http_push_store->unlock();
   
   
   if(pool!=NULL && shared == 0 && ((*chain)->buf->file!=NULL)) {
@@ -520,11 +520,11 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
   ngx_uint_t         subscribers = 0;
   ngx_uint_t         messages = 0;
   if(channel!=NULL) {
-    ngx_http_push_store->lock();
+    //ngx_http_push_store->lock();
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
-    ngx_http_push_store->unlock();
+    //ngx_http_push_store->unlock();
     r->headers_out.status = status_code == (ngx_int_t) NULL ? NGX_HTTP_OK : status_code;
     if (status_code == NGX_HTTP_CREATED) {
       r->headers_out.status_line.len =sizeof("201 Created")- 1;
@@ -825,10 +825,10 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
   }
   
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "respond_to_subscribers with msg %p finished", msg);
-  ngx_http_push_store->lock();
+  //ngx_http_push_store->lock();
   channel->subscribers-=responded_subscribers;
   //is the message still needed?
-  ngx_http_push_store->unlock();
+  //ngx_http_push_store->unlock();
   ngx_http_push_store->release_subscriber_sentinel(channel, sentinel);
   return NGX_OK;
 }

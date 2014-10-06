@@ -32,36 +32,19 @@ static ngx_event_t         chanhead_cleanup_timer = {0};
 static nhpm_llist_timed_t *chanhead_cleanup_head = NULL;
 static nhpm_llist_timed_t *chanhead_cleanup_tail = NULL;
 
-static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
-static ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
-
-
-static void * ngx_http_push_slab_alloc_locked(size_t size, char *label);
-static void * ngx_http_push_slab_alloc(size_t size, char *label);
-static void ngx_http_push_slab_free_locked(void *ptr);
-
-static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t);
-static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *, ngx_http_push_subscriber_t *, ngx_pid_t, ngx_int_t, ngx_http_push_msg_t *, ngx_int_t);
 static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
 static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  
   redis_nginx_init();
   
   chanhead_cleanup_timer.data=NULL;
   chanhead_cleanup_timer.handler=&ngx_http_push_store_chanhead_cleanup_timer_handler;
   chanhead_cleanup_timer.log=ngx_cycle->log;
   
-  if(ngx_http_push_store_init_ipc_shm(ccf->worker_processes) == NGX_OK) {
-    return ngx_http_push_ipc_init_worker(cycle);
-  }
-  else {
-    return NGX_ERROR;
-  }
+  return NGX_OK;
 }
 
 static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
@@ -311,77 +294,6 @@ static redisAsyncContext * rds_sub_ctx(void){
   return c;
 }
 
-//will be called once per worker
-static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-  ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
-  ngx_http_push_worker_msg_sentinel_t     *worker_messages=NULL;
-  ngx_shmtx_lock(&shpool->mutex);
-  if(d->ipc==NULL) {
-    //ipc uninitialized. get it done!
-    if((worker_messages = ngx_http_push_slab_alloc_locked(sizeof(*worker_messages)*NGX_MAX_PROCESSES, "IPC worker message sentinel array"))==NULL) {
-      ngx_shmtx_unlock(&shpool->mutex);
-      return NGX_ERROR;
-    }
-    d->ipc=worker_messages;
-  }
-  else {
-    worker_messages=d->ipc;
-  }
-  
-  ngx_queue_init(&worker_messages[ngx_process_slot].queue);
-  ngx_rwlock_init(&worker_messages[ngx_process_slot].lock);
-  
-  ngx_shmtx_unlock(&shpool->mutex);
-  return NGX_OK;
-}
-
-static void ngx_http_push_store_lock_shmem(void){
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-}
-static void ngx_http_push_store_unlock_shmem(void){
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-}
-
-//garbage-collecting slab allocator
-static void * ngx_http_push_slab_alloc_locked(size_t size, char *label) {
-  void  *p;
-  if((p = ngx_slab_alloc_locked(ngx_http_push_shpool, size))==NULL) {
-    //todo: collect worker messages maybe
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: out of shared memory..");
-    return NULL;
-  }
-#if (DEBUG_SHM_ALLOC == 1)
-  if (p != NULL) {
-    if(label==NULL)
-      label="none";
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %p size %ui label %s", p, size, label);
-  }
-#endif
-  return p;
-}
-
-static void * ngx_http_push_slab_alloc(size_t size, char *label) {
-  void * p;
-  ngx_http_push_store_lock_shmem();
-  p= ngx_http_push_slab_alloc_locked(size, label);
-  ngx_http_push_store_unlock_shmem();
-  return p;
-}
-
-static void ngx_http_push_slab_free_locked(void *ptr) {
-  ngx_slab_free_locked(ngx_http_push_shpool, ptr);
-  #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", ptr);
-  #endif
-}
-/*
-static void ngx_http_push_slab_free(void *ptr) {
-  ngx_http_push_store_lock_shmem();
-  ngx_http_push_slab_free_locked(ptr);
-  ngx_http_push_store_unlock_shmem();
-}*/
-
 static ngx_pool_t *chanhead_ensure_pool_exists(nhpm_channel_head_t *chanhead) {
   if(chanhead->pool==NULL) {
     if((chanhead->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
@@ -394,7 +306,7 @@ static ngx_pool_t *chanhead_ensure_pool_exists(nhpm_channel_head_t *chanhead) {
 static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   nhpm_subscriber_t            *sub = cln->sub;
   nhpm_channel_head_cleanup_t  *shared = cln->shared;
-//  ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf((ngx_http_request_t *)sub->subscriber, ngx_http_push_module);
+  //  ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf((ngx_http_request_t *)sub->subscriber, ngx_http_push_module);
   ngx_int_t                     done;
   
   
@@ -742,49 +654,6 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
   return NGX_OK; //async only now!
 }
 
-// shared memory zone initializer
-static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data) {
-  if(data) { /* zone already initialized */
-    shm_zone->data = data;
-    return NGX_OK;
-  }
-
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
-  ngx_rbtree_node_t              *sentinel;
-  ngx_http_push_shm_data_t       *d;
-  
-  ngx_http_push_shpool = shpool; //we'll be using this a bit.
-  #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ngx_http_push_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
-  #endif
-  
-  if ((d = (ngx_http_push_shm_data_t *)ngx_http_push_slab_alloc(sizeof(*d), "shm data")) == NULL) { //shm_data
-    return NGX_ERROR;
-  }
-  d->channels=0;
-  d->messages=0;
-  shm_zone->data = d;
-  d->ipc=NULL;
-  //initialize rbtree
-  if ((sentinel = ngx_http_push_slab_alloc(sizeof(*sentinel), "channel rbtree sentinel"))==NULL) {
-    return NGX_ERROR;
-  }
-  ngx_rbtree_init(&d->tree, sentinel, ngx_http_push_rbtree_insert);
-  return NGX_OK;
-}
-
-//shared memory
-static ngx_str_t  ngx_push_shm_name = ngx_string("push_module"); //shared memory segment name
-static ngx_int_t  ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
-  ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &ngx_push_shm_name, shm_size, &ngx_http_push_module);
-  if (ngx_http_push_shm_zone == NULL) {
-    return NGX_ERROR;
-  }
-  ngx_http_push_shm_zone->init = ngx_http_push_init_shm_zone;
-  ngx_http_push_shm_zone->data = (void *) 1; 
-  return NGX_OK;
-}
-
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -794,27 +663,8 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
-  ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
-
-  //initialize shared memory
-  size_t                       shm_size;
-  if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
-    conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
-  }
-  shm_size = ngx_align(conf->shm_size, ngx_pagesize);
-  if (shm_size < 8 * ngx_pagesize) {
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_max_reserved_memory value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
-        shm_size = 8 * ngx_pagesize;
-    }
-  if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
-    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
-  }
-  ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
-  
-  
-  //initialize hash for channels
-  
-  return ngx_http_push_set_up_shm(cf, shm_size);
+  //nothing to do but be OK.
+  return NGX_OK;
 }
 
 static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_main_conf_t *mcf) {
@@ -1131,7 +981,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
 
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *etag;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header in pool");
     return NULL;
@@ -1142,13 +991,11 @@ static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *ms
   }
   etag->data = (u_char *)(etag+1);
   etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return etag;
 }
 
 static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *content_type;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Content Type header in pool");
     return NULL;
@@ -1160,31 +1007,8 @@ static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_m
   content_type->data = (u_char *)(content_type+1);
   content_type->len = msg->content_type.len;
   ngx_memcpy(content_type->data, msg->content_type.data, content_type->len);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
   return content_type;
 }
-
-
-#define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
-    if (val == fail) {                                                        \
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-        return NULL;                                                          \
-  }
-
-#define NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(val, fail, r, errormessage, shpool) \
-    if (val == fail) {                                                        \
-        ngx_shmtx_unlock(&(shpool)->mutex);                                   \
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-        return NULL;                                                          \
-    }
-
-#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
-    (sizeof(*buf) +                                                           \
-   (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
-   (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
-
 
 typedef struct {
   ngx_str_t            *channel_id;
@@ -1264,126 +1088,6 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   ngx_free(d);
 }
 
-static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
-  ngx_http_push_worker_msg_sentinel_t   *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
-  ngx_http_push_worker_msg_sentinel_t   *sentinel = &worker_messages[worker_slot];
-  ngx_http_push_worker_msg_t            *newmessage;
-  
-  if((newmessage=ngx_http_push_slab_alloc(sizeof(*newmessage), "IPC worker message"))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate worker message");
-    return NGX_ERROR;
-  }
-  newmessage->msg = msg;
-  newmessage->status_code = status_code;
-  newmessage->pid = pid;
-  newmessage->subscriber_sentinel = subscriber_sentinel;
-  newmessage->channel = channel;
-  
-  ngx_http_push_store_lock_shmem();
-  ngx_queue_insert_tail(&sentinel->queue, &newmessage->queue);
-  ngx_http_push_store_unlock_shmem();
-  return NGX_OK;
-  
-}
-
-static void ngx_http_push_store_receive_worker_message(void) {
-  ngx_http_push_worker_msg_t     *prev_worker_msg, *worker_msg;
-  ngx_http_push_worker_msg_sentinel_t    *sentinel;
-  const ngx_str_t                *status_line = NULL;
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_subscriber_t     *subscriber_sentinel;
-  ngx_int_t                       worker_msg_pid;
-  
-  ngx_int_t                       status_code;
-  ngx_http_push_msg_t            *msg;
-  
-  sentinel = &(((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc)[ngx_process_slot];
-  
-  ngx_http_push_store_lock_shmem();
-  worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&sentinel->queue);
-  ngx_http_push_store_unlock_shmem();
-  while((void *)worker_msg != (void *)sentinel) {
-    
-    ngx_http_push_store_lock_shmem();
-    worker_msg_pid = worker_msg->pid;
-    ngx_http_push_store_unlock_shmem();
-    
-    if(worker_msg_pid == ngx_pid) {
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing proper worker_msg ");
-      //everything is okay.
-      
-      ngx_http_push_store_lock_shmem();
-      status_code = worker_msg->status_code;
-      msg = worker_msg->msg;
-      channel = worker_msg->channel;
-      subscriber_sentinel = worker_msg->subscriber_sentinel;
-      ngx_http_push_store_unlock_shmem();
-      
-      if(msg==NULL) {
-        //just a status line, is all    
-        //status code only.
-        switch(status_code) {
-          case NGX_HTTP_CONFLICT:
-            status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
-            break;
-            
-          case NGX_HTTP_GONE:
-            status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
-            break;
-            
-          case 0:
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
-            //let's let the subscribers know that something went wrong and they might've missed a message
-            status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
-            //intentional fall-through
-          default:
-            status_line=NULL;
-        }
-      }
-
-      ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-
-    }
-    else {
-      //that's quite bad you see. a previous worker died with an undelivered message.
-      //but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing INVALID worker_msg ");
-      
-      ngx_http_push_store_lock_shmem();
-      
-      ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
-      
-      ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
-      
-      //delete that invalid sucker.
-      while((channel_worker_cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&channel_worker_cur->queue))!=channel_worker_sentinel) {
-        if(channel_worker_cur->pid == worker_msg->pid) {
-          ngx_queue_remove(&channel_worker_cur->queue);
-          ngx_http_push_slab_free_locked(channel_worker_cur);
-          break;
-        }
-      }
-      
-      ngx_http_push_store_unlock_shmem();
-      
-    }
-    //It may be worth it to memzero worker_msg for debugging purposes.
-    prev_worker_msg = worker_msg;
-    
-    ngx_http_push_store_lock_shmem();
-    worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue);
-    ngx_http_push_slab_free_locked(prev_worker_msg);
-    ngx_http_push_store_unlock_shmem();
-
-  }
-  ngx_http_push_store_lock_shmem();
-  ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
-  ngx_http_push_store_unlock_shmem();
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message finished");
-  return;
-}
-
 ngx_http_push_store_t  ngx_http_push_store_redis = {
     //init
     &ngx_http_push_store_init_module,
@@ -1401,8 +1105,8 @@ ngx_http_push_store_t  ngx_http_push_store_redis = {
     &ngx_http_push_store_publish_message, //+callback
     
     //channel stuff,
-    NULL, //creates channel if not found, +callback
-    NULL, //returns channel or NULL if not found, +callback
+    NULL,
+    NULL,
     &ngx_http_push_store_delete_channel,
     
     NULL,
@@ -1416,10 +1120,10 @@ ngx_http_push_store_t  ngx_http_push_store_redis = {
     NULL,
 
     //legacy shared-memory store helpers
-    &ngx_http_push_store_lock_shmem,
-    &ngx_http_push_store_unlock_shmem,
-    &ngx_http_push_slab_alloc_locked,
-    &ngx_http_push_slab_free_locked,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     
     //message stuff
     NULL,
@@ -1430,8 +1134,8 @@ ngx_http_push_store_t  ngx_http_push_store_redis = {
     &ngx_http_push_store_content_type_from_message,
     
     //interprocess communication
-    &ngx_http_push_store_send_worker_message,
-    &ngx_http_push_store_receive_worker_message
+    NULL,
+    NULL
     
 
 };
