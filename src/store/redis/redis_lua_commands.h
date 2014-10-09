@@ -2,8 +2,14 @@
 
 typedef struct {
   //input: keys: [],  values: [ channel_id ]
+  //output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
   // delete this channel and all its messages
   char *delete;
+
+  //input: keys: [],  values: [ channel_id ]
+  //output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
+  // finds and return the info hash of a channel, or nil of channel not found
+  char *find_channel;
 
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //output: result_code, msg_time, msg_tag, message, content_type,  channel_subscriber_count
@@ -13,7 +19,7 @@ typedef struct {
   char *get_message;
 
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]
-  //output: message_tag, channel_hash {ttl, time_last_seen, subscribers}
+  //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   char *publish;
 
   //input:  keys: [], values: [channel_id, status_code]
@@ -27,17 +33,19 @@ typedef struct {
 } nhpm_redis_lua_scripts_t;
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
-  "2fc639771243df0d248029c11d5eaae5ba149ece",
+  "bdcf8ff90e51362024b7cad05711380c9a44e2f3",
+  "44b5b03430a7fe8114f74aa247f7ce5cdc572824",
   "80c9b0d78b96f1b96782e4c6d526dc91fd00706a",
-  "307a3ecbda6ae1046266a8a19a86ccea5b85b774",
+  "03bff46324a60df5a1bb281fe743b75fa3bfbac2",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
-  "cbaad756f5ca49f1d114dd3eca7e6ea4baf50f0e"
+  "8c7941549bab32b74f42edd169a3119a6da1f752"
 };
 
 #define REDIS_LUA_HASH_LENGTH 40
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
   "delete",
+  "find_channel",
   "get_message",
   "publish",
   "publish_status",
@@ -47,6 +55,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   //delete
   "--input: keys: [],  values: [ channel_id ]\n"
+  "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
   "-- delete this channel and all its messages\n"
   "local id = ARGV[1]\n"
   "local key_msg=    'channel:msg:%s:'..id --not finished yet\n"
@@ -54,24 +63,28 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "local messages=   'channel:messages:'..id\n"
   "local subscribers='channel:subscribers:'..id\n"
   "local pubsub=     'channel:pubsub:'..id\n"
+  "\n"
   "local enable_debug=true\n"
   "local dbg = (function(on)\n"
-  "if on then\n"
-  "  return function(...)\n"
-  "  redis.call('echo', table.concat({...}))\n"
+  "if on then return function(...) \n"
+  "local arg, cur = {...}, nil\n"
+  "for i = 1, #arg do\n"
+  "  arg[i]=tostring(arg[i])\n"
   "end\n"
-  "  else\n"
-  "    return function(...)\n"
-  "    return\n"
-  "    end\n"
+  "redis.call('echo', table.concat(arg))\n"
+  "  end; else\n"
+  "    return function(...) return; end\n"
   "  end\n"
   "end)(enable_debug)\n"
+  "\n"
   "dbg(' ####### DELETE #######')\n"
+  "local num_messages = 0\n"
   "--delete all the messages right now mister!\n"
   "local msg\n"
   "while true do\n"
   "  msg = redis.call('LPOP', messages)\n"
   "  if msg then\n"
+  "    num_messages = num_messages + 1\n"
   "    redis.call('DEL', key_msg:format(msg))\n"
   "  else\n"
   "    break\n"
@@ -83,13 +96,50 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  redis.call('PUBLISH', channel_key, del_msg)\n"
   "end\n"
   "\n"
-  "local r= redis.call('DEL', key_channel, messages, subscribers)\n"
+  "local nearly_departed = nil\n"
+  "if redis.call('EXISTS', key_channel) ~= 0 then\n"
+  "  nearly_departed = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')\n"
+  "  for i = 1, #nearly_departed do\n"
+  "    nearly_departed[i]=tonumber(nearly_departed[i]) or 0\n"
+  "  end\n"
+  "  \n"
+  "  --leave some crumbs behind showing this channel was just deleted\n"
+  "  redis.call('setex', \"channel:deleted:\"..id, 5, 1)\n"
+  "  \n"
+  "  table.insert(nearly_departed, num_messages)\n"
+  "end\n"
+  "\n"
+  "redis.call('DEL', key_channel, messages, subscribers)\n"
   "\n"
   "if redis.call('PUBSUB','NUMSUB', pubsub)[2] > 0 then\n"
   "  redis.call('PUBLISH', pubsub, \"delete\")\n"
   "end\n"
   "\n"
-  "return r",
+  "return nearly_departed",
+
+  //find_channel
+  "--input: keys: [],  values: [ channel_id ]\n"
+  "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
+  "-- finds and return the info hash of a channel, or nil of channel not found\n"
+  "local id = ARGV[1]\n"
+  "local key_channel='channel:'..id\n"
+  "\n"
+  "local enable_debug=true\n"
+  "local dbg = (function(on)\n"
+  "if on then return function(...) redis.call('echo', table.concat({...})); end\n"
+  "  else return function(...) return; end end\n"
+  "end)(enable_debug)\n"
+  "\n"
+  "if redis.call('EXISTS', key_channel) ~= 0 then\n"
+  "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')\n"
+  "  for i = 1, #ch do\n"
+  "    ch[i]=tonumber(ch[i]) or 0\n"
+  "  end\n"
+  "  table.insert(ch, redis.call('llen', \"channel:messages:\"..id))\n"
+  "  return ch\n"
+  "else\n"
+  "  return nil\n"
+  "end",
 
   //get_message
   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]\n"
@@ -260,7 +310,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
 
   //publish
   "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]\n"
-  "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers}\n"
+  "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
   "\n"
   "local id=ARGV[1]\n"
   "local time=tonumber(ARGV[2])\n"
@@ -276,8 +326,15 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "}\n"
   "local enable_debug=true\n"
   "local dbg = (function(on)\n"
-  "if on then return function(...) redis.call('echo', table.concat({...})); end\n"
-  "  else return function(...) return; end end\n"
+  "  if on then return function(...) \n"
+  "    local arg, cur = {...}, nil\n"
+  "    for i = 1, #arg do\n"
+  "      arg[i]=tostring(arg[i])\n"
+  "    end\n"
+  "    redis.call('echo', table.concat(arg))\n"
+  "  end; else\n"
+  "    return function(...) return; end\n"
+  "  end\n"
   "end)(enable_debug)\n"
   "\n"
   "if type(msg.content_type)=='string' and msg.content_type:find(':') then\n"
@@ -433,8 +490,10 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  redis.call('PUBLISH', channel_pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))\n"
   "end\n"
   "\n"
+  "local num_messages = redis.call('llen', key.messages);\n"
   "\n"
-  "return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}",
+  "dbg(\"channel \", id, \" ttl: \",channel.ttl, \" subscribers: \", channel.subscribers, \"messages: \", num_messages)\n"
+  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.subscribers or 0), tonumber(num_messages)}, new_channel}",
 
   //publish_status
   "--input:  keys: [], values: [channel_id, status_code]\n"
@@ -495,7 +554,12 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  return {err=\"subscriber_delta is not a number or is 0: \" .. type(ARGV[2]) .. \" \" .. tostring(ARGV[2])}\n"
   "end\n"
   "if redis.call('exists', key) == 0 then\n"
-  "  return {err=(\"%srementing subscriber count for nonexistent channel %s\"), subscriber_delta > 0 and \"inc\" or \"dec\", id}\n"
+  "  if redis.call('exists', \"channel:deleted:\"..id) ~= 0 then\n"
+  "    dbg(\"trying to change sub_count for recently deleted channel\")\n"
+  "    return 0\n"
+  "  else\n"
+  "    return {err=(\"%srementing subscriber count for nonexistent channel %s\"):format(subscriber_delta > 0 and \"inc\" or \"dec\", id)}\n"
+  "  end\n"
   "end\n"
   "\n"
   "local keys={'channel:'..id, 'channel:messages:'..id, 'channel:subscribers:'..id}\n"
@@ -516,7 +580,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "elseif count > 0 and count - subscriber_delta == 0 then\n"
   "  --dbg(\"just added subscribers\")\n"
   "  setkeyttl(channel_active_ttl)\n"
-  "elseif count<0 then\n"
+  "elseif count < 0 then\n"
   "  return {err=\"Subscriber count for channel \" .. id .. \" less than zero: \" .. count}\n"
   "end\n"
   "\n"

@@ -14,10 +14,11 @@ typedef struct {
   ngx_int_t (*get_message) (ngx_str_t *, ngx_http_push_msg_id_t *, callback_pt, void *);
   ngx_int_t (*subscribe)   (ngx_str_t *, ngx_http_push_msg_id_t *, ngx_http_push_loc_conf_t *, callback_pt, void *);
   ngx_int_t (*publish)     (ngx_str_t *, ngx_http_push_msg_t *, ngx_http_push_loc_conf_t *, callback_pt, void *);
-  ngx_int_t (*delete_channel)(ngx_str_t *channel_id);
+  
+  ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
   
   //channel actions
-  ngx_http_push_channel_t *(*find_channel)(ngx_str_t *, time_t, callback_pt, void*);
+  ngx_int_t (*find_channel)(ngx_str_t *, callback_pt, void*);
   
   
   

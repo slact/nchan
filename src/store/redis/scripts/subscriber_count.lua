@@ -20,7 +20,12 @@ if not subscriber_delta or subscriber_delta == 0 then
   return {err="subscriber_delta is not a number or is 0: " .. type(ARGV[2]) .. " " .. tostring(ARGV[2])}
 end
 if redis.call('exists', key) == 0 then
-  return {err=("%srementing subscriber count for nonexistent channel %s"), subscriber_delta > 0 and "inc" or "dec", id}
+  if redis.call('exists', "channel:deleted:"..id) ~= 0 then
+    dbg("trying to change sub_count for recently deleted channel")
+    return 0
+  else
+    return {err=("%srementing subscriber count for nonexistent channel %s"):format(subscriber_delta > 0 and "inc" or "dec", id)}
+  end
 end
 
 local keys={'channel:'..id, 'channel:messages:'..id, 'channel:subscribers:'..id}
@@ -41,7 +46,7 @@ if count == 0 and subscriber_delta < 0 then
 elseif count > 0 and count - subscriber_delta == 0 then
   --dbg("just added subscribers")
   setkeyttl(channel_active_ttl)
-elseif count<0 then
+elseif count < 0 then
   return {err="Subscriber count for channel " .. id .. " less than zero: " .. count}
 end
 

@@ -1,5 +1,5 @@
 --input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]
---output: message_tag, channel_hash {ttl, time_last_seen, subscribers}
+--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local id=ARGV[1]
 local time=tonumber(ARGV[2])
@@ -15,8 +15,15 @@ local msg={
 }
 local enable_debug=true
 local dbg = (function(on)
-if on then return function(...) redis.call('echo', table.concat({...})); end
-  else return function(...) return; end end
+  if on then return function(...) 
+    local arg, cur = {...}, nil
+    for i = 1, #arg do
+      arg[i]=tostring(arg[i])
+    end
+    redis.call('echo', table.concat(arg))
+  end; else
+    return function(...) return; end
+  end
 end)(enable_debug)
 
 if type(msg.content_type)=='string' and msg.content_type:find(':') then
@@ -172,5 +179,7 @@ if redis.call('PUBSUB','NUMSUB', channel_pubsub)[2] > 0 then
   redis.call('PUBLISH', channel_pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))
 end
 
+local num_messages = redis.call('llen', key.messages);
 
-return { msg.tag, {channel.ttl or msg.ttl, channel.time or msg.time, channel.subscribers or 0}, new_channel}
+dbg("channel ", id, " ttl: ",channel.ttl, " subscribers: ", channel.subscribers, "messages: ", num_messages)
+return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.subscribers or 0), tonumber(num_messages)}, new_channel}
