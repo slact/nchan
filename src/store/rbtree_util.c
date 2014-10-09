@@ -8,7 +8,7 @@ ngx_http_push_channel_t * ngx_http_push_clean_channel_locked(ngx_http_push_chann
   while(!ngx_queue_empty(sentinel)){
     msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
     if (msg!=NULL && msg->expires != 0 && now > msg->expires) {
-      ngx_http_push_store->delete_message_locked(channel, msg, 0);
+      //ngx_http_push_store->delete_message_locked(channel, msg, 0);
     }
     else { //definitely a message left to send
       return NULL;
@@ -29,12 +29,12 @@ static ngx_int_t ngx_http_push_delete_node_locked(ngx_rbtree_t *tree, ngx_rbtree
     ngx_queue_t                *next;
     while(cur!=sentinel) {
       next = ngx_queue_next(cur);
-      ngx_http_push_store->free_locked(cur);
+      //ngx_http_push_store->free_locked(cur);
       cur = next;
     }
     
-    ngx_http_push_store->free_locked(trash);
-    ngx_http_push_store->free_locked(sentinel);
+    //ngx_http_push_store->free_locked(trash);
+    //ngx_http_push_store->free_locked(sentinel);
     return NGX_OK;
   }
   return NGX_DECLINED;

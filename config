@@ -16,7 +16,6 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
     ${ngx_addon_dir}/src/hiredis/sds.c \
     ${ngx_addon_dir}/src/hiredis/net.c \
     ${ngx_addon_dir}/src/ngx_http_push_defs.c \
-    ${ngx_addon_dir}/src/store/rbtree_util.c \
     ${ngx_addon_dir}/src/store/ngx_http_push_module_ipc.c \
     ${ngx_addon_dir}/src/store/redis/store.c \
     ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
