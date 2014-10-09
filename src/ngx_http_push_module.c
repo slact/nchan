@@ -548,15 +548,6 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
   return NGX_OK;
 }
 
-static ngx_int_t ngx_http_push_response_channel_info(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t status_code) {
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-
-  channel = channel_id == NULL ? NULL : ngx_http_push_store->find_channel(channel_id, cf->channel_timeout, NULL, NULL);
-
-  return ngx_http_push_response_channel_ptr_info(channel, r, status_code);
-}
-
 static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
   ngx_http_finalize_request(r, status);
   return NGX_OK;
@@ -642,6 +633,12 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   }
 }
 
+static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
+  
+  ngx_http_finalize_request(r, ngx_http_push_response_channel_ptr_info( (ngx_http_push_channel_t *)rptr, r, 0));
+  return NGX_OK;
+}
+
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   ngx_http_push_channel_t *ch = rptr;
   switch(status) {
@@ -656,6 +653,7 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
       return NGX_OK;
       
     case NGX_ERROR:
+    case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error broadcasting message to workers");
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -725,12 +723,11 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       break;
       
     case NGX_HTTP_DELETE:
-      ngx_http_finalize_request(r, ngx_http_push_response_channel_info(channel_id, r, NGX_HTTP_OK));
-      ngx_http_push_store->delete_channel(channel_id);
+      ngx_http_push_store->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
       break;
       
     case NGX_HTTP_GET:
-      ngx_http_finalize_request(r, ngx_http_push_response_channel_info(channel_id, r, NGX_HTTP_OK));
+      ngx_http_push_store->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
       break;
       
     case NGX_HTTP_OPTIONS:
