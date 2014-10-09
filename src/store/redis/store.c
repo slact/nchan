@@ -474,10 +474,10 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
 
-static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
+static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t    *cur, *next;
   nhpm_channel_head_t   *ch = NULL;
-
+  
   //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "ngx_http_push_store_chanhead_cleanup_timer_handler");
   for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
     next=cur->next;
@@ -487,9 +487,9 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "channel_head is empty and expired. delete %p.", ch);
         CHANNEL_HASH_DEL(ch);
         if(ch->shared_cleanup != NULL) {
-
+          
           ngx_str_t *str=&(ch->shared_cleanup->id);
-
+          
           if(str->data == ch->id.data) {
             if((str->data=ngx_palloc(ch->shared_cleanup->pool, ch->id.len)) == NULL) {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate space for channel id for chanhead cleanup");
@@ -518,7 +518,10 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
   else {
     cur->prev=NULL;
   }
+}
 
+static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
+  handle_chanhead_gc_queue(0);
   if (!(ngx_quit || ngx_terminate || ngx_exiting || chanhead_cleanup_head==NULL)) {
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
@@ -659,7 +662,7 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   ngx_http_push_worker_processes = ccf->worker_processes;
   //initialize our little IPC
-  return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
+  return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
@@ -672,14 +675,41 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 }
 
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
-  ngx_http_push_ipc_exit_worker(cycle);
+  nhpm_channel_head_t *cur, *tmp;
+  nhpm_subscriber_t *sub;
+
+  if(rds_ctx()!=NULL)
+    redisAsyncDisconnect(rds_ctx());
+  if(rds_sub_ctx()!=NULL)
+    redisAsyncDisconnect(rds_sub_ctx());
+  
+  handle_chanhead_gc_queue(1);
+  
+  HASH_ITER(hh, subhash, cur, tmp) {
+    //any subscribers?
+    sub = cur->sub;
+    while (sub != NULL) {
+      ngx_http_finalize_request((ngx_http_request_t *)sub->subscriber, NGX_HTTP_CLOSE);
+      sub = sub->next;
+    }
+    if(cur->pool != NULL) {
+      ngx_destroy_pool(cur->pool);
+    }
+    if(cur->cleanlink != NULL) {
+      ngx_free(cur->cleanlink);
+    }
+    HASH_DEL(subhash, cur);
+    ngx_free(cur);
+  }
+  
+  ngx_del_timer(&chanhead_cleanup_timer);
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
   //ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked, ngx_http_push_shm_zone);
   //deinitialize IPC
-  ngx_http_push_shutdown_ipc(cycle);
+  
 }
 
 static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
@@ -808,6 +838,8 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   redisReply                *reply = (redisReply *)vr;
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(d->r, ngx_http_push_module);
   ngx_int_t                  status;
+  ngx_http_push_msg_t        *msg=NULL;
+  
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
   
@@ -831,7 +863,6 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
     ngx_chain_t                *chain=NULL;
     time_t                      last_modified;
     ngx_int_t                   ret;
-    ngx_http_push_msg_t        *msg=NULL;
     
     case 200: //ok
       switch(cf->subscriber_concurrency) {
@@ -884,7 +915,9 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
     default: //shouldn't be here!
       d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, d->r);
   }
-  
+  if(msg != NULL) {
+    ngx_free(msg);
+  }
   ngx_free(d);
 }
 
@@ -1053,7 +1086,7 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
   redisReply *reply=r;
   redisReply *cur;
-  ngx_http_push_msg_id_t msg_id;
+  //ngx_http_push_msg_id_t msg_id;
   ngx_http_push_channel_t ch={{0}};
   
   if (reply->type != REDIS_REPLY_ARRAY) {
@@ -1063,8 +1096,8 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
     d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
   else {
-    msg_id.time=d->msg_time;
-    msg_id.tag=reply->element[0]->integer;
+    //msg_id.time=d->msg_time;
+    //msg_id.tag=reply->element[0]->integer;
     
     cur=reply->element[1];
     if (cur->type == REDIS_REPLY_ARRAY) {
