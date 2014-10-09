@@ -67,7 +67,7 @@ class PubSubTest <  Minitest::Test
     assert_equal 202, pub.response_code
     pub.get
     assert_equal 200, pub.response_code
-    assert_match /last requested: \d+ sec/, pub.response_body
+    assert_match /last requested: -?\d+ sec/, pub.response_body
     
     pub.get "text/json"
     info_json=JSON.parse pub.response_body
@@ -170,7 +170,6 @@ class PubSubTest <  Minitest::Test
     pub, sub = pubsub 5, timeout: 10
     sub.on_failure { false }
     sub.run
-    binding.pry
     sleep 0.2
     pub.delete
     sleep 0.2
