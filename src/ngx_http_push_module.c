@@ -664,13 +664,13 @@ ngx_int_t ngx_http_push_respond_to_subscribers(ngx_http_push_channel_t *channel,
   //copy everything we need first
   ngx_str_t                  *content_type=NULL;
   ngx_str_t                  *etag=NULL;
-  time_t                      last_modified;
+  time_t                      last_modified = 0;
   ngx_chain_t                *chain=NULL;
   ngx_http_request_t         *r;
-  ngx_buf_t                  *buffer;
+  ngx_buf_t                  *buffer = NULL;
   ngx_chain_t                *rchain;
   ngx_buf_t                  *rbuffer;
-  ngx_int_t                  *buf_use_count;
+  ngx_int_t                  *buf_use_count = NULL;
   ngx_http_push_subscriber_cleanup_t *clndata;
   ngx_http_push_subscriber_t *cur=NULL;
   ngx_int_t                   responded_subscribers=0;
