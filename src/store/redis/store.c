@@ -1133,7 +1133,9 @@ typedef struct {
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
 
 static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  redis_publish_callback_data_t *d=NULL;
+  redis_publish_callback_data_t  *d=NULL;
+  u_char                         *msgstart;
+  size_t                          msglen;
   
   assert(callback != NULL);
   
@@ -1155,9 +1157,14 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
 
   //ngx_http_push_store_publish_raw(channel_id, msg, 0, NULL);
   
-  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl]
+  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_messages]
   //output: message_tag, channel_hash
-  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i", nhpm_rds_lua_hashes.publish, STR(channel_id), msg->message_time, BUF(msg->buf), STR(&(msg->content_type)), cf->buffer_timeout);
+  buf = msg->buf;
+  if(ngx_buf_in_memory(buf)) {
+    msgstart = buf->pos;
+    msglen = buf->last - msgstart;
+  }
+  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i %i", nhpm_rds_lua_hashes.publish, STR(channel_id), msg->message_time, msgstart, msglen, STR(&(msg->content_type)), cf->buffer_timeout, cf->max_messages);
   return NGX_OK;
 }
 

@@ -1,4 +1,4 @@
---input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]
+--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size subscriber_channel]
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local id=ARGV[1]
@@ -9,10 +9,13 @@ local msg={
   content_type=ARGV[4],
   ttl= tonumber(ARGV[5]),
   time= time,
-  tag=  0,
-  last_message=nil,
-  oldest_message =nil
+  tag= 0
 }
+local store_at_most_n_messages = ARGV[6]
+if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
+  return {err="Argument 6, max_msg_buf_size, can't be empty"}
+end
+
 local enable_debug=true
 local dbg = (function(on)
   if on then return function(...) 
@@ -125,6 +128,15 @@ if not channel.ttl then
   redis.call('HSET', key.channel, 'ttl', channel.ttl)
 end
 
+if not channel.max_stored_messages then
+  channel.max_stored_messages = store_at_most_n_messages
+  redis.call('HSET', key.channel, 'max_stored_messages', store_at_most_n_messages)
+  dbg("channel.max_stored_messages was not set, but is now ", store_at_most_n_messages)
+else
+  channel.max_stored_messages =tonumber(channel.max_stored_messages)
+  dbg("channel.mas_stored_messages == " , channel.max_stored_messages)
+end
+
 --write message
 hmset(key.message, msg)
 
@@ -150,9 +162,23 @@ local oldestmsg=function(list_key, old_fmt)
     end
   end
 end
-oldestmsg(key.messages, 'channel:msg:%s:'..id)
---update message list
-redis.call('LPUSH', key.messages, msg.id)
+
+local max_stored_msgs = tonumber(redis.call('HGET', key.channel, 'max_stored_messages')) or -1
+
+if max_stored_msgs < 0 then --no limit
+  oldestmsg(key.messages, 'channel:msg:%s:'..id)
+  redis.call('LPUSH', key.messages, msg.id)
+elseif max_stored_msgs > 0 then
+  local stored_messages = tonumber(redis.call('LLEN', key.messages))
+  redis.call('LPUSH', key.messages, msg.id)
+  if stored_messages > max_stored_msgs then
+    local oldmsgid = redis.call('RPOP', key.messages)
+    redis.call('DEL', 'channel:msg:'..id..':'..oldmsgid)
+  end
+  oldestmsg(key.messages, 'channel:msg:%s:'..id)
+end
+
+
 
 --set expiration times for all the things
 redis.call('EXPIRE', key.message, channel.ttl)
@@ -161,7 +187,14 @@ redis.call('EXPIRE', key.messages, channel.ttl)
 --redis.call('EXPIRE', key.subscribers,  channel.ttl)
 
 --publish message
-local msgpacked = cmsgpack.pack({time=msg.time, tag=msg.tag, content_type=msg.content_type, data=msg.data, channel=id})
+local unpacked = { time=msg.time, tag=msg.tag, content_type=msg.content_type, channel=id }
+if #msg.data > 5*1024 then
+  --we don't want long messages re-printf'd per pubsub channel, just send them the message key, that's nice and short. Also for some reason this stopped working for messages >15Kb, so...
+  unpacked.key=key.message
+else
+  unpacked.data=msg.data
+end
+local msgpacked = cmsgpack.pack(unpacked)
 
 --dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
@@ -169,7 +202,16 @@ local subscribers = redis.call('SMEMBERS', key.subscribers)
 if subscribers and #subscribers > 0 then
   for k,channel_key in pairs(subscribers) do
     --not efficient, but useful for a few short-term subscriptions
-    redis.call('PUBLISH', channel_key, msgpacked)
+    local num=redis.call('PUBLISH', channel_key, msgpacked)
+    if type(num) == 'table' then
+      local out={}
+      for i, v in pairs(table) do
+        table.insert(out, ("%s: %s"):format(tostring(i),tostring(v)))
+      end
+      return {err="PUBLISHed message " ..(type(msgpacked)=='string' and "len:"..tostring(#msgpacked) or type(msgpacked)) ..  " to  "..tostring(channel_key).." got reply table {" .. table.concat(out, ", ") .. "}"}
+    elseif num ~= 1 then
+      return {err="PUBLISHed message " ..(type(msgpacked)=='string' and "len:"..tostring(#msgpacked) or type(msgpacked)) ..  " to "..tostring(channel_key).." received by "..tostring(num).." clients. Expected just 1."}
+    end
   end
   --clear short-term subscriber list
   redis.call('DEL', key.subscribers)
