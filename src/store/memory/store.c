@@ -801,7 +801,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
 }
 
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t *etag;
+  ngx_str_t *etag=NULL;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
     return NULL;
@@ -816,7 +816,7 @@ static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *ms
 }
 
 static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t *content_type;
+  ngx_str_t *content_type=NULL;
   ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
     return NULL;
