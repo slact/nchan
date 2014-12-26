@@ -105,7 +105,12 @@ class PubSubTest <  Minitest::Test
     assert_equal yaml_resp2, yaml_resp3
     
     
+    pub.accept="text/json"
     pub.post "FIN"
+    info_json=JSON.parse pub.response_body
+    assert_equal 3, info_json["messages"]
+    #assert_equal 0, info_json["requested"]
+    assert_equal subs, info_json["subscribers"]
     sub.wait
     pub.get "text/json"
     info_json=JSON.parse pub.response_body
@@ -245,6 +250,10 @@ class PubSubTest <  Minitest::Test
     test_broadcast 3
   end
   
+   def test_broadcast_300
+    test_broadcast 300
+  end
+  
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
     pub.post "yeah okay"
@@ -318,22 +327,16 @@ class PubSubTest <  Minitest::Test
   def test_long_message(kb=1)
     pub, sub = pubsub 10, timeout: 10
     sub.run
-    pub.post ["q" * kb * 1024, "FIN"]
+    pub.post ["#{"q"*((kb * 1024)-3)}end", "FIN"]
     sub.wait
     verify pub, sub
     sub.terminate
   end
   
-  def test_long_message_500kb
-    test_long_message 500
-  end
-  
-  def test_long_message_700kb
-    test_long_message 700
-  end
-  
-  def test_long_message_950kb
-    test_long_message 950
+  [5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
+    define_method "test_long_message_#{n}Kb" do 
+      test_long_message n
+    end
   end
   
   def test_message_length_range

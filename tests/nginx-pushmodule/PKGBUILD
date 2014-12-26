@@ -50,7 +50,7 @@ arch=('i686' 'x86_64')
 install=install
 
 
-depends=('pcre' 'zlib' 'openssl')
+depends=('pcre' 'zlib' 'openssl' 'msgpack')
 url="http://nginx.org"
 license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom-dev' 'nginx-custom-slact') 

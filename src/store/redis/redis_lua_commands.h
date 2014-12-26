@@ -18,7 +18,7 @@ typedef struct {
   // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
   char *get_message;
 
-  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]
+  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size subscriber_channel]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   char *publish;
 
@@ -36,7 +36,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "bdcf8ff90e51362024b7cad05711380c9a44e2f3",
   "44b5b03430a7fe8114f74aa247f7ce5cdc572824",
   "80c9b0d78b96f1b96782e4c6d526dc91fd00706a",
-  "03bff46324a60df5a1bb281fe743b75fa3bfbac2",
+  "30a224f8fef5b12b7ef5a09df43766429b381503",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "8c7941549bab32b74f42edd169a3119a6da1f752"
 };
@@ -309,7 +309,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "end",
 
   //publish
-  "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, subscriber_channel]\n"
+  "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size subscriber_channel]\n"
   "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
   "\n"
   "local id=ARGV[1]\n"
@@ -320,10 +320,13 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  content_type=ARGV[4],\n"
   "  ttl= tonumber(ARGV[5]),\n"
   "  time= time,\n"
-  "  tag=  0,\n"
-  "  last_message=nil,\n"
-  "  oldest_message =nil\n"
+  "  tag= 0\n"
   "}\n"
+  "local store_at_most_n_messages = ARGV[6]\n"
+  "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
+  "  return {err=\"Argument 6, max_msg_buf_size, can't be empty\"}\n"
+  "end\n"
+  "\n"
   "local enable_debug=true\n"
   "local dbg = (function(on)\n"
   "  if on then return function(...) \n"
@@ -436,6 +439,15 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "  redis.call('HSET', key.channel, 'ttl', channel.ttl)\n"
   "end\n"
   "\n"
+  "if not channel.max_stored_messages then\n"
+  "  channel.max_stored_messages = store_at_most_n_messages\n"
+  "  redis.call('HSET', key.channel, 'max_stored_messages', store_at_most_n_messages)\n"
+  "  dbg(\"channel.max_stored_messages was not set, but is now \", store_at_most_n_messages)\n"
+  "else\n"
+  "  channel.max_stored_messages =tonumber(channel.max_stored_messages)\n"
+  "  dbg(\"channel.mas_stored_messages == \" , channel.max_stored_messages)\n"
+  "end\n"
+  "\n"
   "--write message\n"
   "hmset(key.message, msg)\n"
   "\n"
@@ -461,9 +473,23 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "    end\n"
   "  end\n"
   "end\n"
-  "oldestmsg(key.messages, 'channel:msg:%s:'..id)\n"
-  "--update message list\n"
-  "redis.call('LPUSH', key.messages, msg.id)\n"
+  "\n"
+  "local max_stored_msgs = tonumber(redis.call('HGET', key.channel, 'max_stored_messages')) or -1\n"
+  "\n"
+  "if max_stored_msgs < 0 then --no limit\n"
+  "  oldestmsg(key.messages, 'channel:msg:%s:'..id)\n"
+  "  redis.call('LPUSH', key.messages, msg.id)\n"
+  "elseif max_stored_msgs > 0 then\n"
+  "  local stored_messages = tonumber(redis.call('LLEN', key.messages))\n"
+  "  redis.call('LPUSH', key.messages, msg.id)\n"
+  "  if stored_messages > max_stored_msgs then\n"
+  "    local oldmsgid = redis.call('RPOP', key.messages)\n"
+  "    redis.call('DEL', 'channel:msg:'..id..':'..oldmsgid)\n"
+  "  end\n"
+  "  oldestmsg(key.messages, 'channel:msg:%s:'..id)\n"
+  "end\n"
+  "\n"
+  "\n"
   "\n"
   "--set expiration times for all the things\n"
   "redis.call('EXPIRE', key.message, channel.ttl)\n"
@@ -472,7 +498,14 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "--redis.call('EXPIRE', key.subscribers,  channel.ttl)\n"
   "\n"
   "--publish message\n"
-  "local msgpacked = cmsgpack.pack({time=msg.time, tag=msg.tag, content_type=msg.content_type, data=msg.data, channel=id})\n"
+  "local unpacked = { time=msg.time, tag=msg.tag, content_type=msg.content_type, channel=id }\n"
+  "if #msg.data > 5*1024 then\n"
+  "  --we don't want long messages re-printf'd per pubsub channel, just send them the message key, that's nice and short. Also for some reason this stopped working for messages >15Kb, so...\n"
+  "  unpacked.key=key.message\n"
+  "else\n"
+  "  unpacked.data=msg.data\n"
+  "end\n"
+  "local msgpacked = cmsgpack.pack(unpacked)\n"
   "\n"
   "--dbg((\"Stored message with id %i:%i => %s\"):format(msg.time, msg.tag, msg.data))\n"
   "\n"
@@ -480,7 +513,16 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "if subscribers and #subscribers > 0 then\n"
   "  for k,channel_key in pairs(subscribers) do\n"
   "    --not efficient, but useful for a few short-term subscriptions\n"
-  "    redis.call('PUBLISH', channel_key, msgpacked)\n"
+  "    local num=redis.call('PUBLISH', channel_key, msgpacked)\n"
+  "    if type(num) == 'table' then\n"
+  "      local out={}\n"
+  "      for i, v in pairs(table) do\n"
+  "        table.insert(out, (\"%s: %s\"):format(tostring(i),tostring(v)))\n"
+  "      end\n"
+  "      return {err=\"PUBLISHed message \" ..(type(msgpacked)=='string' and \"len:\"..tostring(#msgpacked) or type(msgpacked)) ..  \" to  \"..tostring(channel_key)..\" got reply table {\" .. table.concat(out, \", \") .. \"}\"}\n"
+  "    elseif num ~= 1 then\n"
+  "      return {err=\"PUBLISHed message \" ..(type(msgpacked)=='string' and \"len:\"..tostring(#msgpacked) or type(msgpacked)) ..  \" to \"..tostring(channel_key)..\" received by \"..tostring(num)..\" clients. Expected just 1.\"}\n"
+  "    end\n"
   "  end\n"
   "  --clear short-term subscriber list\n"
   "  redis.call('DEL', key.subscribers)\n"

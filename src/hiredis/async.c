@@ -165,6 +165,14 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     return ac;
 }
 
+redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
+                                         const char *source_addr) {
+    redisContext *c = redisConnectBindNonBlock(ip,port,source_addr);
+    redisAsyncContext *ac = redisAsyncInitialize(c);
+    __redisAsyncCopyError(ac);
+    return ac;
+}
+
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c;
     redisAsyncContext *ac;
@@ -174,6 +182,11 @@ redisAsyncContext *redisAsyncConnectUnix(const char *path) {
         return NULL;
 
     ac = redisAsyncInitialize(c);
+    if (ac == NULL) {
+        redisFree(c);
+        return NULL;
+    }
+
     __redisAsyncCopyError(ac);
     return ac;
 }
@@ -386,7 +399,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
 
 void redisProcessCallbacks(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
-    redisCallback cb;
+    redisCallback cb = {NULL, NULL, NULL};
     void *reply = NULL;
     int status;
 
@@ -398,7 +411,7 @@ void redisProcessCallbacks(redisAsyncContext *ac) {
                 __redisAsyncDisconnect(ac);
                 return;
             }
-            
+
             /* If monitor mode, repush callback */
             if(c->flags & REDIS_MONITORING) {
                 __redisPushCallback(&ac->replies,&cb);
@@ -468,7 +481,7 @@ void redisProcessCallbacks(redisAsyncContext *ac) {
 static int __redisAsyncHandleConnect(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
 
-    if (redisCheckSocketError(c,c->fd) == REDIS_ERR) {
+    if (redisCheckSocketError(c) == REDIS_ERR) {
         /* Try again later when connect(2) is still in progress. */
         if (errno == EINPROGRESS)
             return REDIS_OK;

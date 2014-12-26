@@ -33,13 +33,12 @@ puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
 
 sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg
 
-nomsgmessage="\r"*20 + "Received message #"
+nomsgmessage="\r"*30 + "Received message %i, len:%i"
 
 sub.on_message do |msg|
   if no_message
     msg_count+=1
-    print nomsgmessage
-    print msg_count
+    printf nomsgmessage, msg_count, msg.message.length
   else
     if print_content_type
       out = "(#{msg.content_type}) #{msg}"
