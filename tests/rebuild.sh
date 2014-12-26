@@ -23,6 +23,8 @@ for opt in $*; do
       export MUDFLAP=1
       export CC=gcc
       ;;
+    stable|stableversion)
+      export NGINX_STABLEVERSION=1;;
     oldversion|old)
       export NGINX_OLDVERSION=1;;
     veryoldversion|veryold)
