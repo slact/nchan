@@ -1,4 +1,4 @@
---input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size subscriber_channel]
+--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size]
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local id=ARGV[1]
@@ -68,8 +68,11 @@ local key={
   message=      'channel:msg:%s:'..id, --not finished yet
   channel=      'channel:'..id,
   messages=     'channel:messages:'..id,
-  subscribers=  'channel:subscribers:'..id
+  subscribers=  'channel:subscribers:'..id,
+  subscriber_id='channel:next_subscriber_id:'..id, --integer
+  subscriber_list='channel:subscriber_list:'..id --list
 }
+
 local channel_pubsub = 'channel:pubsub:'..id
 
 local new_channel
@@ -179,12 +182,12 @@ elseif max_stored_msgs > 0 then
 end
 
 
-
 --set expiration times for all the things
-redis.call('EXPIRE', key.message, channel.ttl)
-redis.call('EXPIRE', key.channel, channel.ttl)
-redis.call('EXPIRE', key.messages, channel.ttl)
---redis.call('EXPIRE', key.subscribers,  channel.ttl)
+for i, k in pairs(key) do
+  if i ~= 'last_message' then
+    redis.call('EXPIRE', k, channel.ttl)
+  end
+end
 
 --publish message
 local unpacked = { time=msg.time, tag=msg.tag, content_type=msg.content_type, channel=id }
@@ -221,7 +224,7 @@ if redis.call('PUBSUB','NUMSUB', channel_pubsub)[2] > 0 then
   redis.call('PUBLISH', channel_pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))
 end
 
-local num_messages = redis.call('llen', key.messages);
+local num_messages = redis.call('llen', key.messages)
 
-dbg("channel ", id, " ttl: ",channel.ttl, " subscribers: ", channel.subscribers, "messages: ", num_messages)
+dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, ", messages: ", num_messages)
 return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.subscribers or 0), tonumber(num_messages)}, new_channel}

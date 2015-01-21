@@ -68,17 +68,20 @@ class PubSubTest < Minitest::Test
 
   class Msg
     attr_accessor :data, :chid, :time, :tag, :id, :content_type, :channel_info, :ttl
+    def _empty_is_nil(v)
+      v == "" ? nil : v
+    end
     def initialize(channel_id, arg={})
-      @chid= channel_id
+      @chid= _empty_is_nil channel_id
       id(arg[:id]) if arg[:id]
-      @time=arg[:time]
-      @tag=arg[:tag]
-      @data= arg[:data]
+      @time= _empty_is_nil arg[:time]
+      @tag= _empty_is_nil arg[:tag]
+      @data= _empty_is_nil arg[:data]
       if @data && @time.nil?
         @time=Time.now.utc.to_i
       end
-      @ttl=arg[:ttl]
-      @content_type=arg[:content_type]
+      @ttl=_empty_is_nil arg[:ttl]
+      @content_type=_empty_is_nil arg[:content_type]
     end
     def ==(m)
       self.to_s==m.to_s
@@ -116,7 +119,7 @@ class PubSubTest < Minitest::Test
     end
 
     msg.time= Time.now.utc.to_i unless msg.time
-    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.ttl]
+    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.ttl, 100]
     msg.tag=msg_tag
     msg.channel_info=channel_info
     return msg

@@ -12,6 +12,7 @@ typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
 typedef struct nhpm_subscriber_s nhpm_subscriber_t;
 
 struct nhpm_subscriber_s {
+  ngx_uint_t                  id;
   void                       *subscriber;
   subscriber_type_t           type;
   ngx_pool_t                 *pool;
@@ -21,7 +22,7 @@ struct nhpm_subscriber_s {
 };
 
 struct nhpm_channel_head_s {
-  ngx_str_t                    id;
+  ngx_str_t                    id; //channel id
   ngx_pool_t                  *pool;
   nhpm_subscriber_t           *sub;
   ngx_uint_t                   sub_count;
@@ -32,7 +33,7 @@ struct nhpm_channel_head_s {
 
 struct nhpm_channel_head_cleanup_s {
   nhpm_channel_head_t        *head;
-  ngx_str_t                   id;
+  ngx_str_t                   id; //channel id
   ngx_uint_t                  sub_count;
   ngx_pool_t                 *pool;
 };

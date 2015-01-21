@@ -250,8 +250,8 @@ class PubSubTest <  Minitest::Test
     test_broadcast 3
   end
   
-   def test_broadcast_300
-    test_broadcast 300
+   def test_broadcast_20
+    test_broadcast 20
   end
   
   def test_broadcast(clients=400)
@@ -333,11 +333,11 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  [5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
-    define_method "test_long_message_#{n}Kb" do 
-      test_long_message n
-    end
-  end
+  #[5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
+  #  define_method "test_long_message_#{n}Kb" do 
+  #    test_long_message n
+  #  end
+  #end
   
   def test_message_length_range
     pub, sub = pubsub 2, timeout: 6

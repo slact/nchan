@@ -1,5 +1,5 @@
 --input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
---output: result_code, msg_time, msg_tag, message, content_type,  channel_subscriber_count
+--output: result_code, msg_time, msg_tag, message, content_type, channel_subscriber_count
 -- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
 -- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
 -- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
@@ -12,20 +12,36 @@ if time and time ~= 0 and tag then
   msg_id=("%s:%s"):format(time, tag)
 end
 
+-- This script has gotten big and ugly, but there are a few good reasons 
+-- to keep it big and ugly. It needs to do a lot of stuff atomically, and 
+-- redis doesn't do includes. It could be generated pre-insertion into redis, 
+-- but then error messages become less useful, complicating debugging. If you 
+-- have a solution to this, please help.
+
 local key={
-  next_message= 'channel:msg:%s:'..id, --not finished yet
-  message=      'channel:msg:%s:%s', --not done yet
-  channel=      'channel:'..id,
-  messages=     'channel:messages:'..id,
-  pubsub=       'channel:subscribers:'..id
+  next_message= 'channel:msg:%s:'..id, --hash
+  message=      'channel:msg:%s:%s', --hash
+  channel=      'channel:'..id, --hash
+  messages=     'channel:messages:'..id, --list
+  pubsub=       'channel:subscribers:'..id, --set
+  subscriber_id='channel:next_subscriber_id:'..id, --integer
+  subscriber_list='channel:subscriber_list:'..id --list
+
 }
 
-local subscribe = function(unsub)
+local subscribe = function(create_sub_id)
   if subscriber_channel and #subscriber_channel>0 then
     --subscribe to this channel.
-    redis.call(unsub and 'SREM' or 'SADD',  key.pubsub, subscriber_channel)
+    redis.call('SADD',  key.pubsub, subscriber_channel)
   end
 end
+local unsubscribe = function()
+  if subscriber_channel and #subscriber_channel>0 then
+    --unsubscribe from this channel.
+    redis.call('SREM', key.pubsub, subscriber_channel)
+  end
+end
+
 
 local enable_debug=true
 local dbg = (function(on)
@@ -97,7 +113,7 @@ if msg_id==nil then
   if new_channel then
     dbg("new channel")
     subscribe()
-    return {418, nil}
+    return {418, "", "", "", "", subs_count}
   else
     dbg("no msg id given, ord="..no_msgid_order)
     
@@ -112,25 +128,24 @@ if msg_id==nil then
     if found_msg_id == nil then
       --we await a message
       subscribe()
-      return {418, nil}
+      return {418, "", "", "", "", subs_count}
     else
       msg_id = found_msg_id
       local msg=tohash(redis.call('HGETALL', msg_id))
-      subscribe('unsub')
+      unsubscribe()
       if not next(msg) then --empty
-        return {404, nil}
+        return {404, "", "", "", "", subs_count}
       else
-        dbg(("found msg %i:%i  after %i:%i"):format(msg.time, msg.tag, time, tag))
+        dbg(("found msg %s:%s  after %s:%s"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))
         return {200, tonumber(msg.time) or "", tonumber(msg.tag) or "", msg.data or "", msg.content_type or "", subs_count}
       end
     end
   end
 else
-
   if msg_id and channel.current_message == msg_id
    or not channel.current_message then
     subscribe()
-    return {418, nil}
+    return {418, "", "", "", "", subs_count}
   end
 
   key.message=key.message:format(msg_id, id)
@@ -139,10 +154,7 @@ else
   if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there
     dbg("MESSAGE NOT FOUND")
     --subscribe if necessary
-    if subscriber_channel and #subscriber_channel>0 then
-      --subscribe to this channel.
-      redis.call('SADD',  key.pubsub, subscriber_channel)
-    end
+    subscribe(false)
     return {404, nil}
   end
 
