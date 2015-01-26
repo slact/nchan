@@ -123,6 +123,7 @@ build() {
   if [[ $CC == *clang* ]]; then
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
+    CFLAGS="-ferror-limit=5 $CFLAGS"  
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
     CFLAGS="-fdiagnostics-color=always $CFLAGS"
   fi
