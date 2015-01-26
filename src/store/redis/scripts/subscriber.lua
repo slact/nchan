@@ -26,8 +26,7 @@ local keys = {
   channel =     'channel:'..id,
   messages =    'channel:messages:'..id,
   subscribers = 'channel:subscribers:'..id,
-  subscriber_id='channel:next_subscriber_id:'..id, --integer
-  subscriber_list='channel:subscriber_list:'..id --list
+  subscriber_id='channel:next_subscriber_id:'..id --integer
 }
 
 local setkeyttl=function(ttl)
@@ -47,7 +46,7 @@ local check_concurrency_in = function(i, id)
   return id
 end
 
-if concurrency == "FILO" and redis.call('LLEN', keys.subscriber_list) > 0 then
+if concurrency == "FILO" then
   --kick out old subscribers
   
   
@@ -62,7 +61,6 @@ if action == 'subscribe' then
       v = tonumber(redis.call('INCR', keys.subscriber_id))
       sub_ids[i]=check_concurrency_in(i, v)
     end
-    redis.call('LPUSH', keys.subscriber_list, v)
   end
   
   if sub_count > 0 and sub_count == #sub_ids then
@@ -77,7 +75,6 @@ else --unsubscribe
     if v == "-" then
       return {err="Trying to remove id-less subscriber for channel " .. id}
     end
-    redis.call('LREM', keys.subscriber_list, -1, v) --inefficient!
   end
   
   if sub_count == 0 and #sub_ids > 0 then
@@ -86,6 +83,5 @@ else --unsubscribe
     return {err="Subscriber count for channel " .. id .. " less than zero: " .. sub_count}
   end
 end
-
 
 return {sub_count, unpack(sub_ids)}

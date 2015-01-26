@@ -25,7 +25,6 @@ local key={
   messages=     'channel:messages:'..id, --list
   pubsub=       'channel:subscribers:'..id, --set
   subscriber_id='channel:next_subscriber_id:'..id, --integer
-  subscriber_list='channel:subscriber_list:'..id --list
 
 }
 

@@ -70,7 +70,6 @@ local key={
   messages=     'channel:messages:'..id,
   subscribers=  'channel:subscribers:'..id,
   subscriber_id='channel:next_subscriber_id:'..id, --integer
-  subscriber_list='channel:subscriber_list:'..id --list
 }
 
 local channel_pubsub = 'channel:pubsub:'..id
@@ -190,13 +189,25 @@ for i, k in pairs(key) do
 end
 
 --publish message
-local unpacked = { time=msg.time, tag=msg.tag, content_type=msg.content_type, channel=id }
-if #msg.data > 5*1024 then
-  --we don't want long messages re-printf'd per pubsub channel, just send them the message key, that's nice and short. Also for some reason this stopped working for messages >15Kb, so...
-  unpacked.key=key.message
+local unpacked
+
+if #msg.data < 5*1024 then
+  unpacked= {
+    "ch+msg",
+    id,
+    msg.time,
+    msg.tag,
+    msg.data,
+    msg.content_type
+  }
 else
-  unpacked.data=msg.data
+  unpacked= {
+    "ch+msgkey",
+    id,
+    key.message
+  }
 end
+
 local msgpacked = cmsgpack.pack(unpacked)
 
 --dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
@@ -206,6 +217,7 @@ if subscribers and #subscribers > 0 then
   for k,channel_key in pairs(subscribers) do
     --not efficient, but useful for a few short-term subscriptions
     local num=redis.call('PUBLISH', channel_key, msgpacked)
+   
     if type(num) == 'table' then
       local out={}
       for i, v in pairs(table) do
@@ -219,9 +231,19 @@ if subscribers and #subscribers > 0 then
   --clear short-term subscriber list
   redis.call('DEL', key.subscribers)
 end
+
 --now publish to the efficient channel
 if redis.call('PUBSUB','NUMSUB', channel_pubsub)[2] > 0 then
-  redis.call('PUBLISH', channel_pubsub, ('%i:%i:%s:%s'):format(msg.time, msg.tag, msg.content_type, msg.data))
+  if #unpacked > 3 then --full message
+    unpacked[1]="msg"
+    table.remove(unpacked, 2)
+  else
+    unpacked[1]="msgkey"
+    table.remove(unpacked, 2)
+  end
+
+  msgpacked = cmsgpack.pack(unpacked)
+  redis.call('PUBLISH', channel_pubsub, msgpacked)
 end
 
 local num_messages = redis.call('llen', key.messages)

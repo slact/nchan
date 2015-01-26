@@ -211,18 +211,109 @@ static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r
   ngx_free(chid);
 }
 
-#define CHECK_MSGPACK_STRVAL(obj, v) ( obj.type == MSGPACK_OBJECT_RAW && ngx_strcmp(obj.via.raw.ptr, v, obj.via.raw.size) == 0 )
+#define CHECK_MSGPACK_STRVAL(obj, val) ( obj.type == MSGPACK_OBJECT_RAW && ngx_strncmp(obj.via.raw.ptr, val, obj.via.raw.size) == 0 )
+static ngx_int_t msgpack_to_uint(msgpack_object *obj, ngx_uint_t *ret) {
+  switch(obj->type) {
+    case MSGPACK_OBJECT_RAW:
+      *ret = (ngx_uint_t ) ngx_atoi((u_char *) obj->via.raw.ptr, obj->via.raw.size);
+      break;
+    case MSGPACK_OBJECT_POSITIVE_INTEGER:
+      *ret = obj->via.u64;
+      break;
+    case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+      *ret = (ngx_uint_t) obj->via.i64;
+      break;
+    default:
+      return NGX_ERROR;
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t msgpack_to_int(msgpack_object *obj, ngx_int_t *ret) {
+  ngx_uint_t preret;
+  ngx_int_t retcode;
+  retcode = msgpack_to_uint(obj, &preret);
+  *ret = (ngx_int_t) preret;
+  return retcode;
+}
+
+static ngx_int_t msgpack_to_time(msgpack_object *obj, time_t *ret) {
+  switch(obj->type) {
+    case MSGPACK_OBJECT_RAW:
+      *ret = ngx_atotm((u_char *) obj->via.raw.ptr, obj->via.raw.size);
+      break;
+    case MSGPACK_OBJECT_POSITIVE_INTEGER:
+      *ret = (time_t) obj->via.u64;
+      break;
+    case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+      *ret = (time_t) obj->via.i64;
+      break;
+    default:
+      return NGX_ERROR;
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t msgpack_to_str(msgpack_object *obj, ngx_str_t *ret) {
+  if(obj->type == MSGPACK_OBJECT_RAW) {
+    ret->len=obj->via.raw.size;
+    ret->data=(u_char *)obj->via.raw.ptr;
+    return NGX_OK;
+  }
+  else {
+    ret->len=0;
+    ret->data=NULL;
+    return NGX_ERROR;
+  }
+}
+static ngx_int_t msgpack_array_to_msg(msgpack_object *arr, ngx_uint_t offset, ngx_http_push_msg_t *msg, ngx_buf_t *buf) {
+  msgpack_to_time(&arr->via.array.ptr[offset], &(msg->message_time));
+  msgpack_to_int(&arr->via.array.ptr[offset+1], &(msg->message_tag));
+  
+  if(arr->via.array.ptr[offset+2].type == MSGPACK_OBJECT_RAW) {
+    msg->buf = buf;
+    buf->start = buf->pos = (u_char *)arr->via.array.ptr[offset+2].via.raw.ptr;
+    buf->end = buf->last = (u_char *)(buf->start + arr->via.array.ptr[offset+2].via.raw.size);
+    buf->memory = 1;
+    buf->last_buf = 1;
+    buf->last_in_chain = 1;
+  }
+  
+  if(arr->via.array.ptr[offset+3].type == MSGPACK_OBJECT_RAW) {
+    msg->content_type.len=arr->via.array.ptr[offset+3].via.raw.size;
+    msg->content_type.data=(u_char *)arr->via.array.ptr[offset+3].via.raw.ptr;
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, ngx_str_t *msg_redis_hash_key) {
+  ngx_str_t *chid;
+  if((chid=ngx_alloc(sizeof(*chid) + (u_char)channel_id->len, ngx_cycle->log)) == 0) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for channel_id for message hmget");
+    return NGX_ERROR;
+  }
+  chid->len = channel_id->len;
+  chid->data = (u_char *)(chid+1);
+  ngx_memcpy(chid->data, channel_id->data, channel_id->len);
+  redisAsyncCommand(rds_ctx(), &redis_subscriber_messageHMGET_callback, chid, "HMGET %b time tag data content_type", STR(msg_redis_hash_key));
+  return NGX_OK;
+}
 
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
-  redisReply *reply = r;
-  redisReply *el = NULL;
-  ngx_http_push_msg_t msg;
-  ngx_buf_t           buf= {0};
+  redisReply             *reply = r;
+  redisReply             *el = NULL;
+  ngx_http_push_msg_t     msg;
+  ngx_buf_t               buf = {0};
 
-  ngx_str_t           channel_id = {0};
-  ngx_str_t           msg_hash_key = {0};
-  msgpack_unpacked    msgunpack;
-  msgpack_object     *cur;
+  ngx_str_t               chid = {0};
+  ngx_str_t              *channel_id = NULL;
+  ngx_str_t               msg_redis_hash_key = {0};
+  ngx_uint_t              subscriber_id;
+  msgpack_unpacked        msgunpack;
+  
+  nhpm_channel_head_t *chanhead = (nhpm_channel_head_t *)privdata;
+  
+  channel_id = (chanhead == NULL) ? &chid : &(chanhead->id);
   
   msg.expires=0;
   msg.refcount=0;
@@ -234,63 +325,80 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_STR(reply->element[2])) {
 
-
-    //reply->element[1] is channel name
+    //reply->element[1] is the pubsub channel name
     el = reply->element[2];
     
-    /*if(CHECK_REPLY_STRNVAL(el, "delete:", 7)) {
-      //delete channel command
-      channel_id.len=el->len - 7;
-      channel_id.data=(u_char *)(el->str + 7);
-      
-      ngx_http_push_store_publish_raw(&channel_id, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
-
-    }*/
     if(CHECK_REPLY_STR(el)) {
       //maybe a message?
       msgpack_unpacked_init(&msgunpack);
       if(msgpack_unpack_next(&msgunpack, (char *)el->str, el->len, NULL)) {
         msgpack_object  obj = msgunpack.data;
-        uint_t          asize;
+        ngx_uint_t          asize;
 
         if(obj.type == MSGPACK_OBJECT_ARRAY && obj.via.array.size != 0) {
           asize = obj.via.array.size;
           msgpack_object msgtype = obj.via.array.ptr[0];
-          
+
           if(CHECK_MSGPACK_STRVAL(msgtype, "msg")) {
-            
+            if(channel_id != NULL) {
+              msgpack_array_to_msg(&obj, 1, &msg, &buf);
+              ngx_http_push_store_publish_raw(channel_id, &msg, 0, NULL);
+            }
+            else {
+              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msg");
+            }
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msg")) {
-            
+            msgpack_to_str(&obj.via.array.ptr[1], channel_id);
+            msgpack_array_to_msg(&obj, 2, &msg, &buf);
+            ngx_http_push_store_publish_raw(channel_id, &msg, 0, NULL);
           }
+
           else if(CHECK_MSGPACK_STRVAL(msgtype, "msgkey")) {
+            if(channel_id != NULL) {
+              msgpack_to_str(&obj.via.array.ptr[1], &msg_redis_hash_key);
+              get_msg_from_msgkey(channel_id, &msg_redis_hash_key);
+            }
+            else {
+              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msgkey");
+            }
             
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msgkey")) {
-            
+            msgpack_to_str(&obj.via.array.ptr[1], channel_id);
+            msgpack_to_str(&obj.via.array.ptr[2], &msg_redis_hash_key);
+            get_msg_from_msgkey(channel_id, &msg_redis_hash_key);
           }
+
           else if(CHECK_MSGPACK_STRVAL(msgtype, "alert") && asize > 1) {
             msgpack_object alerttype = obj.via.array.ptr[1];
 
             if(CHECK_MSGPACK_STRVAL(alerttype, "delete channel") && asize > 2) {
-              if(obj.via.raw.ptr[2].type == MSGPACK_OBJECT_RAW) {
-                channel_id.len=obj.via.raw.ptr[2].size;
-                channel_id.data=(u_char *)obj.via.raw.ptr[2].ptr;
-                ngx_http_push_store_publish_raw(&channel_id, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+              if(msgpack_to_str(&obj.via.array.ptr[2], channel_id) == NGX_OK) {
+                ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
               }
               else {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack message from redis");
               }
             }
-            else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub one")) {
-              
+
+            else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub one") && asize > 3) {
+              msgpack_to_str(&obj.via.array.ptr[2], channel_id);
+              msgpack_to_uint(&obj.via.array.ptr[3], &subscriber_id);
+              //TODO
             }
-            else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all")) {
-              
+
+            else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all") && asize > 1) {
+              msgpack_to_str(&obj.via.array.ptr[1], channel_id);
+              ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
             }
+
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all except")) {
-              
+              msgpack_to_str(&obj.via.array.ptr[2], channel_id);
+              msgpack_to_uint(&obj.via.array.ptr[3], &subscriber_id);
+              //TODO
             }
+
             else {
               //unknown!
             }
@@ -298,71 +406,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           else {
             //unknown!
           }
-          
-          
-          /*
-          msgpack_object_kv* p;
-          msgpack_object_kv* const pend = o.via.map.ptr + o.via.map.size;
-          for(p = o.via.map.ptr; p < pend; ++p) {
-            cur=&p->val;
-            if(ngx_strncmp("time", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
-              switch(cur->type) {
-                case MSGPACK_OBJECT_POSITIVE_INTEGER:
-                  msg.message_time=(time_t) cur->via.u64;
-                  break;
-                case MSGPACK_OBJECT_NEGATIVE_INTEGER:
-                  msg.message_time=(time_t) cur->via.i64;
-                  break;
-                case MSGPACK_OBJECT_RAW:
-                  msg.message_time=ngx_atotm((u_char *)cur->via.raw.ptr, cur->via.raw.size);
-                  break;
-                default:
-                  msg.message_time=0;
-              }
-            }
-            else if(ngx_strncmp("tag", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
-              switch(cur->type) {
-                case MSGPACK_OBJECT_POSITIVE_INTEGER:
-                  msg.message_tag=(ngx_int_t) cur->via.u64;
-                  break;
-                case MSGPACK_OBJECT_NEGATIVE_INTEGER:
-                  msg.message_tag=(ngx_int_t) cur->via.i64;
-                  break;
-                case MSGPACK_OBJECT_RAW:
-                  msg.message_tag=ngx_atoi((u_char *)cur->via.raw.ptr, cur->via.raw.size);
-                  break;
-                default:
-                  msg.message_tag=0;
-              }
-            }
-            else if(ngx_strncmp("content_type", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
-              if(cur->type == MSGPACK_OBJECT_RAW) {
-                msg.content_type.len=cur->via.raw.size;
-                msg.content_type.data=(u_char *)cur->via.raw.ptr;
-              }
-            }
-            else if(ngx_strncmp("data", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
-              msg.buf=&buf;
-              if(cur->type == MSGPACK_OBJECT_RAW) {
-                buf.start = buf.pos = (u_char *)cur->via.raw.ptr;
-                buf.end = buf.last = (u_char *)(cur->via.raw.ptr + cur->via.raw.size);
-                buf.memory = 1;
-                buf.last_buf = 1;
-                buf.last_in_chain = 1;
-              }
-            }
-            else if(ngx_strncmp("key", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
-              if(cur->type == MSGPACK_OBJECT_RAW) {
-                msg_hash_key.data=(u_char *)cur->via.raw.ptr;
-                msg_hash_key.len=cur->via.raw.size;
-              }
-            }
-            else if(ngx_strncmp("channel", p->key.via.raw.ptr, p->key.via.raw.size)==0) {
-              channel_id.len=cur->via.raw.size;
-              channel_id.data=(u_char *)cur->via.raw.ptr;
-            }
-          }
-          */
+
         }
         else {
           ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack message from redis");
@@ -372,21 +416,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: invalid msgpack message from redis");
       }
       msgpack_unpacked_destroy(&msgunpack);
-      if(msg_hash_key.len == 0) {
-        ngx_http_push_store_publish_raw(&channel_id, &msg, 0, NULL);
-      }
-      else {
-        //message not ready yet. gotta retrieve it from that key first.
-        ngx_str_t *chid;
-        if((chid=ngx_alloc(sizeof(*chid) + (u_char)channel_id.len, ngx_cycle->log)) == 0) {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for channel_id for message hmget");
-          return;
-        }
-        chid->len = channel_id.len;
-        chid->data = (u_char *)(chid+1);
-        ngx_memcpy(chid->data, channel_id.data, channel_id.len);
-        redisAsyncCommand(rds_ctx(), &redis_subscriber_messageHMGET_callback, chid, "HMGET %b time tag data content_type", STR(&msg_hash_key));
-      }
     }
     else { //not a string
       redisEchoCallback(c, el, NULL);
@@ -436,7 +465,6 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
   ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf((ngx_http_request_t *)sub->subscriber, ngx_http_push_module);
   ngx_int_t                     i_am_the_last;
   
-  
   i_am_the_last = sub->prev==NULL && sub->next==NULL;
   
   //remove subscriber from list
@@ -479,6 +507,9 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     }
     head->cleanlink=chanhead_cleanlink;
   }
+  
+  //unsubscribe without delay! (but TODO: delay this cleverly)
+  redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&head->id));
   
   //initialize cleanup timer
   if(!chanhead_cleanup_timer.timer_set) {
@@ -994,9 +1025,13 @@ static ngx_int_t ngx_http_push_store_create_subscriber(ngx_str_t *channel_id, ng
     chanhead->id.len = channel_id->len;
     chanhead->id.data = (u_char *)&chanhead[1];
     ngx_memcpy(chanhead->id.data, channel_id->data, channel_id->len);
-
     chanhead->sub_count=0;
+    chanhead->redis_subscriber_privdata=NULL;
     CHANNEL_HASH_ADD(chanhead);
+    
+    //subscribe here
+    redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, chanhead, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
+    
   }
   else {
     chanhead_gc_withdraw(chanhead);
@@ -1004,7 +1039,7 @@ static ngx_int_t ngx_http_push_store_create_subscriber(ngx_str_t *channel_id, ng
   if(chanhead_ensure_pool_exists(chanhead)==NULL) {
     return NGX_ERROR;
   }
-  
+
   if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
     return NGX_ERROR;
@@ -1150,16 +1185,26 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
 }
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  redis_subscribe_data_t       *d=NULL;
+  redis_subscribe_data_t       *d = NULL;
   ngx_int_t                     create_channel_ttl;
-  
+  nhpm_channel_head_t          *chanhead = NULL;
   assert(callback != NULL);
+  
+  u_char                       *getmessage_subscriber_channel;
   
   if((d=ngx_calloc(sizeof(*d), ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
     return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
   }
 
+  CHANNEL_HASH_FIND(channel_id, chanhead);
+  if(chanhead==NULL || chanhead->redis_subscriber_privdata == NULL) {
+    getmessage_subscriber_channel = (u_char *)"";
+  }
+  else {
+    getmessage_subscriber_channel = subscriber_channel;
+  }
+  
   d->channel_id=channel_id;
   d->msg_id=msg_id;
   d->callback=callback;

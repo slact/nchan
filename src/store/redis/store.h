@@ -28,6 +28,7 @@ struct nhpm_channel_head_s {
   ngx_uint_t                   sub_count;
   nhpm_channel_head_cleanup_t *shared_cleanup;
   nhpm_llist_timed_t          *cleanlink;
+  void                        *redis_subscriber_privdata;
   UT_hash_handle               hh;
 };
 
