@@ -8,7 +8,7 @@ NGINX_OPT=( -p `pwd`/
     -c $NGINX_TEMP_CONFIG
 )
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
-VALGRIND_OPT=( --trace-children=yes --track-origins=yes --read-var-info=yes )
+VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--read-var-info=yes" "--vgdb=yes" )
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF=""
@@ -17,6 +17,13 @@ ERROR_LOG="stderr"
 ERRLOG_LEVEL="notice"
 TMPDIR=""
 MEM="32M"
+
+DEBUGGER_NAME="kdbg"
+DEBUGGER_CMD="kdbg -p %s $SRCDIR/nginx"
+
+#DEBUGGER_NAME="nemiver"
+#DEBUGGER_CMD="nemiver --attach=%s $SRCDIR/nginx"
+
 
 REDIS_CONF="$TESTDIR/redis.conf"
 REDIS_PORT=8537
@@ -32,8 +39,14 @@ for opt in $*; do
     redis-persist)
       persist_redis=1;;
     leak|leakcheck)
-      VALGRIND_OPT+=("--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes");;
-    valgrind)
+      valgrind=1
+      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" );;
+    debug-memcheck)
+      valgrind=1
+      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" )
+      VALGRIND_OPT+=( "--vgdb-error=1" )
+      ATTACH_DDD=1;;
+    valgrind|memcheck)
       valgrind=1;;
     alleyoop)
       alleyoop=1;;
@@ -44,7 +57,7 @@ for opt in $*; do
     worker|one|single) 
       WORKERS=1
       ;;
-    debug|kdbg)
+    debug)
       WORKERS=1
       NGINX_DAEMON="on"
       debugger=1
@@ -107,7 +120,12 @@ else
   echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
 fi
 
-kdbg_pids=()
+
+ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
+ln -sf $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
+
+
+debugger_pids=()
 
 TRAPINT() {
   if [[ -z $persist_redis ]]; then
@@ -115,31 +133,66 @@ TRAPINT() {
     wait $redis_pid
   fi
   if [[ $debugger == 1 ]]; then
-    sudo kill $kdbg_pids
+    sudo kill $debugger_pids
   fi
 }
 
-if [[ $debugger == 1 ]]; then
+attach_debugger() {
+  master_pid=`cat /tmp/pushmodule-test-nginx.pid`
+  while [[ -z $child_pids ]]; do
+    child_pids=`pgrep -P $master_pid`
+    sleep 0.1
+  done
+  while read -r line; do
+    echo "attaching $1 to $line"
+    sudo $(printf $2 $line) &
+    debugger_pids+="$!"
+  done <<< $child_pids
+  echo "$1 at $debugger_pids"
+}
+
+attach_ddd_vgdb() {
+  master_pid=$1
+  echo "attaching DDD for vgdb to master process $master_pid"
+  ddd --eval-command "set non-stop off" --eval-command "target remote | vgdb --pid=$master_pid" "$SRCDIR/nginx" 2>/dev/null &
+  debugger_pids+="$!"
+  sleep 1
+  while [[ -z $child_pids ]]; do
+    child_pids=`pgrep -P $master_pid`
+    sleep 0.3
+  done
+  echo "child pids: $child_pids"
   
+  while read -r line; do
+    echo "attaching DDD for vgdb to $line"
+    ddd --eval-command "set non-stop off" --eval-command "target remote | vgdb --pid=$line" "$SRCDIR/nginx" 2>/dev/null &
+    debugger_pids+="$!"
+  done <<< $child_pids
+  echo "$1 at $debugger_pids"
+}
+
+if [[ $debugger == 1 ]]; then
   ./nginx $NGINX_OPT
   sleep 0.2
-  master_pid=`cat /tmp/pushmodule-test-nginx.pid`
-  child_pids=`pgrep -P $master_pid`
-  ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
-  ln -sf  $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
-  sudo echo "attaching kdbg..."
-  while read -r line; do
-    sudo kdbg -p $line $SRCDIR/nginx &
-    kdbg_pids+="$!"
-  done <<< $child_pids
-  echo "kdbg at $kdbg_pids"
-  wait $kdbg_pids
+  attach_debugger "$DEBUGGER_NAME" "$DEBUGGER_CMD"
+  wait $debugger_pids
   kill $master_pid
   rm -f $SRCDIR/nginx $SRCDIR/nginx-source 2>/dev/null
+  
 elif [[ $valgrind == 1 ]]; then
   mkdir ./coredump 2>/dev/null
   pushd ./coredump >/dev/null
-  valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
+  if [[ $ATTACH_DDD == 1 ]]; then
+    valgrind $VALGRIND_OPT ../nginx $NGINX_OPT &
+    _master_pid=$!
+    echo "nginx at $_master_pid"
+    sleep 4
+    attach_ddd_vgdb $_master_pid
+    wait $debugger_pids
+    kill $master_pid
+  else
+    valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
+  fi
   popd >/dev/null
 elif [[ $alleyoop == 1 ]]; then
   alleyoop ./nginx $NGINX_OPT
