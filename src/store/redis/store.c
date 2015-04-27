@@ -922,8 +922,10 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
     HASH_DEL(subhash, cur);
     ngx_free(cur);
   }
-  
-  ngx_del_timer(&chanhead_cleanup_timer);
+
+  if(chanhead_cleanup_timer.timer_set) {
+    ngx_del_timer(&chanhead_cleanup_timer);
+  }
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
