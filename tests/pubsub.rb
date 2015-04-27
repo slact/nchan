@@ -352,11 +352,21 @@ class Publisher
       elsif response.code == 0
         # Could not get an http response, something's wrong.
         #puts "publisher err: #{response.return_message}"
-        raise "No HTTP response: #{response.return_message}" unless self.nofail
+        errmsg="No HTTP response: #{response.return_message}"
+        if self.nofail then
+          puts errmsg
+        else
+          raise errmsg
+        end
       else
         # Received a non-successful http response.
         #puts "publisher err: #{response.code.to_s}"
-        raise "HTTP request failed: #{response.code.to_s}" unless self.nofail
+        errmsg="HTTP request failed: #{response.code.to_s}"
+        if self.nofail then
+          puts errmsg
+        else
+          raise errmsg
+        end
       end
       block.call(self) if block
     end
