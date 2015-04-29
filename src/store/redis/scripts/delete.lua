@@ -35,9 +35,9 @@ while true do
   end
 end
 
-local del_msg="delete:" .. id
+local del_msgpack =cmsgpack.pack({"alert", "delete channel", id})
 for k,channel_key in pairs(redis.call('SMEMBERS', subscribers)) do
-  redis.call('PUBLISH', channel_key, del_msg)
+  redis.call('PUBLISH', channel_key, del_msgpack)
 end
 
 local nearly_departed = nil
@@ -56,7 +56,7 @@ end
 redis.call('DEL', key_channel, messages, subscribers)
 
 if redis.call('PUBSUB','NUMSUB', pubsub)[2] > 0 then
-  redis.call('PUBLISH', pubsub, "delete")
+  redis.call('PUBLISH', pubsub, del_msgpack)
 end
 
 return nearly_departed
