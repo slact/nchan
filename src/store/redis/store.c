@@ -362,7 +362,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             else {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msgkey");
             }
-            
+
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msgkey")) {
             msgpack_to_str(&obj.via.array.ptr[1], channel_id);
@@ -378,7 +378,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
               }
               else {
-                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack message from redis");
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected \"delete channel\" msgpack message from redis");
               }
             }
 
@@ -400,20 +400,20 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
 
             else {
-              //unknown!
+              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack alert from redis: %s", (char *)el->str);
             }
           }
           else {
-            //unknown!
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack message from redis: %s", (char *)el->str);
           }
 
         }
         else {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack message from redis");
+          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack object from redis: %s", (char *)el->str);
         }
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: invalid msgpack message from redis");
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: invalid msgpack message from redis: %s", (char *)el->str);
       }
       msgpack_unpacked_destroy(&msgunpack);
     }
@@ -426,8 +426,16 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
 
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: subscribed to %s (%i total)", reply->element[1]->str, reply->element[1]->integer);
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
   }
+  else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
+    && CHECK_REPLY_STRVAL(reply->element[0], "unsubscribe")
+    && CHECK_REPLY_STR(reply->element[1])
+    && CHECK_REPLY_INT(reply->element[2])) {
+
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+  }
+  
   else {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no message, something else");
     redisEchoCallback(c,r,privdata);
