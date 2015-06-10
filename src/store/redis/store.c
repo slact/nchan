@@ -302,7 +302,7 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, ngx_str_t *msg_redis
   return NGX_OK;
 }
 
-static ngx_int_t nhpm_subscriber_register(ngx_str_t *channel_id, nhpm_subscriber_t *sub);
+static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub);
 
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply             *reply = r;
@@ -439,7 +439,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
         case NOTREADY:
           chanhead->status = READY;
           for(nhpm_subscriber_t *cur = chanhead->sub; cur != NULL; cur = cur->next) {
-            nhpm_subscriber_register(&chanhead->id, cur);
+            nhpm_subscriber_register(chanhead, cur);
           }
           //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
           break;
@@ -487,10 +487,16 @@ static redisAsyncContext * rds_sub_ctx(void){
 
 static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, void *privdata);
 
-static ngx_int_t nhpm_subscriber_register(ngx_str_t *channel_id, nhpm_subscriber_t *sub) {
+typedef struct {
+  nhpm_channel_head_t *chanhead;
+  ngx_int_t            generation;
+  nhpm_subscriber_t   *sub;
+} nhpm_subscriber_register_t;
+
+static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf((ngx_http_request_t *)sub->subscriber, ngx_http_push_module);
   char                      *concurrency = NULL;
-
+  nhpm_subscriber_register_t *sdata=NULL;
   switch (cf->subscriber_concurrency) {
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
       concurrency = "broadcast";
@@ -511,17 +517,25 @@ static ngx_int_t nhpm_subscriber_register(ngx_str_t *channel_id, nhpm_subscriber
   //  'concurrency' can be 'FIFO', 'FILO', or 'broadcast'
   //output: subscriber_id, num_current_subscribers
   
+  if((sdata = ngx_alloc(sizeof(*sdata), ngx_cycle->log)) == NULL) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "No memory for sdata. Part IV of the Cryptic Error Series.");
+    return NGX_ERROR;
+  }
+  sdata->chanhead = chanhead;
+  sdata->generation = chanhead->generation;
+  sdata->sub = sub;
+
   if (sub->id != 0) {
-    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sub, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(channel_id), sub->id, 0, concurrency);
+    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(&chanhead->id), sub->id, -1, concurrency);
   }
   else {
-    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sub, "EVALSHA %s 0 %b - %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(channel_id), 0, concurrency);
+    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b - %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(&chanhead->id), -1, concurrency);
   }
   return NGX_OK;
 }
 
 static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, void *privdata) {
-  nhpm_subscriber_t         *sub = (nhpm_subscriber_t *)privdata;
+  nhpm_subscriber_register_t *sdata= (nhpm_subscriber_register_t *) privdata;
   redisReply                *reply = (redisReply *)vr;
   
   if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
@@ -534,8 +548,11 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
     redisEchoCallback(c,reply,privdata);
     return;
   }
-  
-  sub->id = reply->element[1]->integer;
+  if(sdata->generation == sdata->chanhead->generation) {
+    //is the subscriber 
+    sdata->sub->id = reply->element[1]->integer;
+  }
+  ngx_free(sdata);
 }
 
 
@@ -556,8 +573,6 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
   nhpm_channel_head_cleanup_t *hcln;
   
   CHANNEL_HASH_FIND(channel_id, head);
-
-
   if(head==NULL) {
     head=(nhpm_channel_head_t *)ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
     if(head==NULL) {
@@ -740,6 +755,8 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
       ngx_http_finalize_request(r, ngx_http_push_respond_status_only(r, status_code, status_line));
     }
   }
+
+  head->generation++;
 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
@@ -1147,7 +1164,7 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
   chanhead->sub_count++;
   
   if(chanhead->status == READY) {
-    nhpm_subscriber_register(&chanhead->id, nextsub);
+    nhpm_subscriber_register(chanhead, nextsub);
   }
 
   ngx_push_longpoll_subscriber_enqueue(nextsub->subscriber, cf->subscriber_timeout);

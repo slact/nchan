@@ -26,6 +26,7 @@ typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
 struct nhpm_channel_head_s {
   ngx_str_t                    id; //channel id
   ngx_pool_t                  *pool;
+  ngx_uint_t                   generation; //subscriber pool generation.
   nhpm_subscriber_t           *sub;
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
