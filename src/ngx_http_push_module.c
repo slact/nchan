@@ -612,7 +612,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           break;
           
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
-          ngx_http_push_store->subscribe(channel_id, &msg_id, cf, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+          ngx_http_push_store->subscribe(channel_id, &msg_id, r, (callback_pt )&subscribe_longpoll_callback, (void *)r);
           break;
       }
       return NGX_DONE;

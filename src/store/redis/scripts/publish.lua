@@ -81,17 +81,17 @@ if redis.call('EXISTS', key.channel) ~= 0 then
 end
 
 if channel~=nil then
-  --dbg("channel present")
+  dbg("channel present")
   if channel.current_message ~= nil then
-    --dbg("channel current_message present")
+    dbg("channel current_message present")
     key.last_message=('channel:msg:%s:%s'):format(channel.current_message, id)
   else
-    --dbg("channel current_message absent")
+    dbg("channel current_message absent")
     key.last_message=nil
   end
   new_channel=false
 else
-  --dbg("channel missing")
+  dbg("channel missing")
   channel={}
   new_channel=true
   key.last_message=nil
@@ -101,15 +101,16 @@ end
 if key.last_message then
   local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
   local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
-  --dbg("last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
+  dbg("New message id: last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
 end
 msg.id=('%i:%i'):format(msg.time, msg.tag)
+
 key.message=key.message:format(msg.id)
-if redis.call('exists', msg.id) ~= 0 then
-  return {err="Message for channel %s id %s already exists"}
+if redis.call('exists', key.message) ~= 0 then
+  return {err=("Message for channel %s id %s already exists"):format(id, msg.id)}
 end
 
 msg.prev=channel.current_message
@@ -193,55 +194,25 @@ local unpacked
 
 if #msg.data < 5*1024 then
   unpacked= {
-    "ch+msg",
-    id,
+    "msg",
     msg.time,
-    msg.tag,
+    tonumber(msg.tag),
     msg.data,
     msg.content_type
   }
 else
   unpacked= {
-    "ch+msgkey",
-    id,
+    "msgkey",
     key.message
   }
 end
 
 local msgpacked = cmsgpack.pack(unpacked)
 
---dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
-
-local subscribers = redis.call('SMEMBERS', key.subscribers)
-if subscribers and #subscribers > 0 then
-  for k,channel_key in pairs(subscribers) do
-    --not efficient, but useful for a few short-term subscriptions
-    local num=redis.call('PUBLISH', channel_key, msgpacked)
-   
-    if type(num) == 'table' then
-      local out={}
-      for i, v in pairs(table) do
-        table.insert(out, ("%s: %s"):format(tostring(i),tostring(v)))
-      end
-      return {err="PUBLISHed message " ..(type(msgpacked)=='string' and "len:"..tostring(#msgpacked) or type(msgpacked)) ..  " to  "..tostring(channel_key).." got reply table {" .. table.concat(out, ", ") .. "}"}
-    elseif num ~= 1 then
-      return {err="PUBLISHed message " ..(type(msgpacked)=='string' and "len:"..tostring(#msgpacked) or type(msgpacked)) ..  " to "..tostring(channel_key).." received by "..tostring(num).." clients. Expected just 1."}
-    end
-  end
-  --clear short-term subscriber list
-  redis.call('DEL', key.subscribers)
-end
+dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
 --now publish to the efficient channel
 if redis.call('PUBSUB','NUMSUB', channel_pubsub)[2] > 0 then
-  if #unpacked > 3 then --full message
-    unpacked[1]="msg"
-    table.remove(unpacked, 2)
-  else
-    unpacked[1]="msgkey"
-    table.remove(unpacked, 2)
-  end
-
   msgpacked = cmsgpack.pack(unpacked)
   redis.call('PUBLISH', channel_pubsub, msgpacked)
 end

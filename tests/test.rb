@@ -1,8 +1,8 @@
 #!/usr/bin/ruby
 require 'minitest'
 require 'minitest/reporters'
-Minitest::Reporters.use! Minitest::Reporters::SpecReporter.new
 require "minitest/autorun"
+Minitest::Reporters.use! [Minitest::Reporters::RubyMateReporter.new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
@@ -340,7 +340,7 @@ class PubSubTest <  Minitest::Test
   #end
   
   def test_message_length_range
-    pub, sub = pubsub 2, timeout: 6
+    pub, sub = pubsub 2, timeout: 15
     sub.run
     
     n=5

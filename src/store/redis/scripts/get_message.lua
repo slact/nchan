@@ -1,4 +1,4 @@
---input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
+--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
 --output: result_code, msg_time, msg_tag, message, content_type, channel_subscriber_count
 -- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
 -- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
@@ -6,7 +6,6 @@
 local id, time, tag, subscribe_if_current = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])
 local no_msgid_order=ARGV[4]
 local create_channel_ttl=tonumber(ARGV[5]) or 0
-local subscriber_channel = ARGV[6]
 local msg_id
 if time and time ~= 0 and tag then
   msg_id=("%s:%s"):format(time, tag)
@@ -23,24 +22,10 @@ local key={
   message=      'channel:msg:%s:%s', --hash
   channel=      'channel:'..id, --hash
   messages=     'channel:messages:'..id, --list
-  pubsub=       'channel:subscribers:'..id, --set
+--  pubsub=       'channel:subscribers:'..id, --set
   subscriber_id='channel:next_subscriber_id:'..id, --integer
 
 }
-
-local subscribe = function(create_sub_id)
-  if subscriber_channel and #subscriber_channel>0 then
-    --subscribe to this channel.
-    redis.call('SADD',  key.pubsub, subscriber_channel)
-  end
-end
-local unsubscribe = function()
-  if subscriber_channel and #subscriber_channel>0 then
-    --unsubscribe from this channel.
-    redis.call('SREM', key.pubsub, subscriber_channel)
-  end
-end
-
 
 local enable_debug=true
 local dbg = (function(on)
@@ -111,7 +96,6 @@ local found_msg_id
 if msg_id==nil then
   if new_channel then
     dbg("new channel")
-    subscribe()
     return {418, "", "", "", "", subs_count}
   else
     dbg("no msg id given, ord="..no_msgid_order)
@@ -126,12 +110,10 @@ if msg_id==nil then
     end
     if found_msg_id == nil then
       --we await a message
-      subscribe()
       return {418, "", "", "", "", subs_count}
     else
       msg_id = found_msg_id
       local msg=tohash(redis.call('HGETALL', msg_id))
-      unsubscribe()
       if not next(msg) then --empty
         return {404, "", "", "", "", subs_count}
       else
@@ -143,7 +125,6 @@ if msg_id==nil then
 else
   if msg_id and channel.current_message == msg_id
    or not channel.current_message then
-    subscribe()
     return {418, "", "", "", "", subs_count}
   end
 
@@ -152,8 +133,6 @@ else
 
   if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there
     dbg("MESSAGE NOT FOUND")
-    --subscribe if necessary
-    subscribe(false)
     return {404, nil}
   end
 

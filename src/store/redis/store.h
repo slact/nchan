@@ -21,10 +21,13 @@ struct nhpm_subscriber_s {
   ngx_http_cleanup_t         *cln;
 };
 
+typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
+
 struct nhpm_channel_head_s {
   ngx_str_t                    id; //channel id
   ngx_pool_t                  *pool;
   nhpm_subscriber_t           *sub;
+  chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
   nhpm_channel_head_cleanup_t *shared_cleanup;
   nhpm_llist_timed_t          *cleanlink;
@@ -52,3 +55,4 @@ struct nhpm_subscriber_cleanup_s {
 #undef uthash_free
 #define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
 #define uthash_free(ptr,sz) ngx_free(ptr)
+
