@@ -177,6 +177,15 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
 #define CHECK_REPLY_NIL(reply) ((reply)->type == REDIS_REPLY_NIL)
 #define CHECK_REPLY_INT_OR_STR(reply) ((reply)->type == REDIS_REPLY_INTEGER || (reply)->type == REDIS_REPLY_STRING)
 
+#define SLOW_REDIS_REPLY 10
+
+static ngx_int_t nhpm_log_redis_reply(char *name, ngx_msec_t t) {
+  ngx_msec_t   dt = ngx_current_msec - t;
+  if(dt >= SLOW_REDIS_REPLY) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis command %s took %i msec", name, dt);
+  }
+}
+
 static ngx_int_t redisReply_to_int(redisReply *el, ngx_int_t *integer) {
   if(CHECK_REPLY_INT(el)) {
     *integer=el->integer;
@@ -842,6 +851,8 @@ static ngx_int_t redis_array_to_channel(redisReply *r, ngx_http_push_channel_t *
 }
 
 typedef struct {
+  ngx_msec_t           t;
+  char                *name;
   ngx_str_t           *channel_id;
   callback_pt          callback;
   void                *privdata;
@@ -851,7 +862,9 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
   redisReply *reply=r;
   redis_channel_callback_data_t *d=(redis_channel_callback_data_t *)privdata;
   ngx_http_push_channel_t channel = {{0}};
-
+  
+  nhpm_log_redis_reply(d->name, d->t);
+  
   switch(redis_array_to_channel(reply, &channel)) {
     case NGX_OK:
       d->callback(NGX_OK, &channel, d->privdata);
@@ -873,6 +886,8 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Failed to allocate memory for some callback data");
     return NGX_ERROR;
   }
+  d->t = ngx_current_msec;
+  d->name = "delete";
   d->channel_id = channel_id;
   d->callback = callback;
   d->privdata = privdata;
@@ -890,6 +905,8 @@ static ngx_int_t ngx_http_push_store_find_channel(ngx_str_t *channel_id, callbac
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Failed to allocate memory for some callback data");
     return NGX_ERROR;
   }
+  d->t = ngx_current_msec;
+  d->name = "find_channel";
   d->channel_id = channel_id;
   d->callback = callback;
   d->privdata = privdata;
@@ -948,6 +965,8 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
 }
 
 typedef struct {
+  ngx_msec_t           t;
+  char                *name;
   ngx_http_request_t  *r;
   ngx_str_t           *channel_id;
   ngx_http_push_msg_id_t *msg_id;
@@ -960,6 +979,9 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
   ngx_http_push_msg_t       *msg=NULL;
   
+  if(d != NULL) {
+    nhpm_log_redis_reply(d->name, d->t);
+  }
   
   //output: result_code, msg_time, msg_tag, message, content_type,  channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
@@ -1005,6 +1027,9 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
   d->msg_id = msg_id;
   d->callback = callback;
   d->privdata = privdata;
+  
+  d->t = ngx_current_msec;
+  d->name = "get_message";
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
@@ -1172,6 +1197,8 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
 }
 
 typedef struct {
+  ngx_msec_t              t;
+  char                   *name;
   ngx_str_t              *channel_id;
   ngx_http_push_msg_id_t *msg_id;
   callback_pt             callback;
@@ -1190,6 +1217,8 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_int_t                  free_d=1;
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
+  
+  nhpm_log_redis_reply(d->name, d->t);
   
   if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
     redisEchoCallback(c,reply,privdata);
@@ -1225,6 +1254,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
           //kick everyone elese out, then subscribe
+          //TODO: profiling
           redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.publish_status, STR(d->channel_id), 409);
           if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
             ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
@@ -1295,6 +1325,8 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->callback=callback;
   d->privdata=privdata;
 
+  d->t = ngx_current_msec;
+  d->name = "get_message";
   
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   
@@ -1335,6 +1367,8 @@ static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_m
 }
 
 typedef struct {
+  ngx_msec_t            t;
+  char                 *name;
   ngx_str_t            *channel_id;
   time_t                msg_time;
   ngx_http_push_msg_t  *msg;
@@ -1367,6 +1401,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   d->callback=callback;
   d->privdata=privdata;
   d->msg_time=msg->message_time;
+  
 
   //ngx_http_push_store_publish_raw(channel_id, msg, 0, NULL);
   
@@ -1390,6 +1425,10 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     }
   }
   d->msglen = msglen;
+  
+  d->t = ngx_current_msec;
+  d->name = "publish";
+  
   redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i %i", nhpm_rds_lua_hashes.publish, STR(channel_id), msg->message_time, msgstart, msglen, STR(&(msg->content_type)), cf->buffer_timeout, cf->max_messages);
   if(mmapped && munmap(msgstart, msglen) == -1) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "munmap was a problem");
