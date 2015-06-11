@@ -689,6 +689,8 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
       chanhead_cleanup_tail=cl->prev;
 
     cl->prev = cl->next = NULL;
+    ngx_free(cl);
+    chanhead->cleanlink = NULL;
   }
   else {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %p (%V), but not in gc queue", chanhead, &chanhead->id);
