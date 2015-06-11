@@ -187,6 +187,7 @@ static ngx_int_t nhpm_log_redis_reply(char *name, ngx_msec_t t) {
   if(dt >= SLOW_REDIS_REPLY) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis command %s took %i msec", name, dt);
   }
+  return NGX_OK;
 }
 
 static ngx_int_t redisReply_to_int(redisReply *el, ngx_int_t *integer) {
