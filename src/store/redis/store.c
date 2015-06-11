@@ -777,20 +777,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 
         ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "channel_head is empty and expired. delete %p.", ch);
         CHANNEL_HASH_DEL(ch);
-        if(ch->shared_cleanup != NULL) {
-          
-          ngx_str_t *str=&(ch->shared_cleanup->id);
-          
-          if(str->data == ch->id.data) {
-            if((str->data=ngx_palloc(ch->shared_cleanup->pool, ch->id.len)) == NULL) {
-              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate space for channel id for chanhead cleanup");
-            }
-            else {
-              str->len = ch->id.len;
-              ngx_memcpy(str->data, ch->id.data, str->len);
-            }
-          }
-        }
         ngx_free(ch);
       }
       else {
