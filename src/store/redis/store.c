@@ -11,12 +11,6 @@
 
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
-   
-#define ENQUEUED_DBG "msg %p enqueued.  ref:%i, p:%p n:%p"
-#define CREATED_DBG  "msg %p created    ref:%i, p:%p n:%p"
-#define FREED_DBG    "msg %p freed.     ref:%i, p:%p n:%p"
-#define RESERVED_DBG "msg %p reserved.  ref:%i, p:%p n:%p"
-#define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
 
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
@@ -433,7 +427,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_INT(reply->element[2])) {
 
     if(chanhead != NULL){
-      HWATCH(chanhead);
       switch(chanhead->status) {
         case NOTREADY:
           chanhead->status = READY;
