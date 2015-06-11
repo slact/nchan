@@ -9,6 +9,9 @@
 
 #include <msgpack.h>
 
+#define REDIS_HOSTNAME "127.0.0.1"
+#define REDIS_PORT 8537
+
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
 
@@ -141,7 +144,7 @@ static redisAsyncContext * rds_ctx(void){
   static redisAsyncContext *c = NULL;
   if(c==NULL) {
     //init redis
-    redis_nginx_open_context((const char *)"localhost", 8537, 1, &c);
+    redis_nginx_open_context((const char *)REDIS_HOSTNAME, REDIS_PORT, 1, &c);
     redisInitScripts(c);
   }
   rds_sub_ctx();
