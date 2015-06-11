@@ -29,6 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+# define _DEFAULT_SOURCE	1
 #include "fmacros.h"
 #include <string.h>
 #include <stdlib.h>

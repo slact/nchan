@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+# define _DEFAULT_SOURCE	1
 #include "fmacros.h"
 #include <sys/types.h>
 #include <sys/socket.h>
