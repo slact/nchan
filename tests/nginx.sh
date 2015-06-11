@@ -48,6 +48,12 @@ for opt in $*; do
       ATTACH_DDD=1;;
     valgrind|memcheck)
       valgrind=1;;
+    callgrind|profile)
+      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes" "--callgrind-out-file='callgrind-nginx-%p.'")   #--collect-systime=yes
+      valgrind=1;;
+    cachegrind)
+      VALGRIND_OPT=( "--tool=cachegrind" )
+      valgrind=1;;
     alleyoop)
       alleyoop=1;;
     cache)
