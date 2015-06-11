@@ -2,7 +2,7 @@
 require 'minitest'
 require 'minitest/reporters'
 require "minitest/autorun"
-Minitest::Reporters.use! [Minitest::Reporters::RubyMateReporter.new(:color => true)]
+Minitest::Reporters.use! [Minitest::Reporters::SpecReporter .new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
