@@ -311,7 +311,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   ngx_buf_t               buf = {0};
 
   ngx_str_t               chid = {0};
-  ngx_str_t              *channel_id = NULL;
+
   ngx_str_t               msg_redis_hash_key = {0};
   ngx_uint_t              subscriber_id;
   msgpack_unpacked        msgunpack;
@@ -319,8 +319,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "redis_subscriber_callback,  privdata=%p", privdata);
   
   nhpm_channel_head_t *chanhead = (nhpm_channel_head_t *)privdata;
-  
-  channel_id = (chanhead == NULL) ? &chid : &(chanhead->id);
   
   msg.expires=0;
   msg.refcount=0;
@@ -347,25 +345,24 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           msgpack_object msgtype = obj.via.array.ptr[0];
 
           if(CHECK_MSGPACK_STRVAL(msgtype, "msg")) {
-            if(channel_id != NULL) {
+            if(chanhead != NULL) {
               msgpack_array_to_msg(&obj, 1, &msg, &buf);
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %i:%i", msg.message_time, msg.message_tag);
-              ngx_http_push_store_publish_raw(channel_id, &msg, 0, NULL);
+              ngx_http_push_store_publish_raw(&chanhead->id, &msg, 0, NULL);
             }
             else {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msg");
             }
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msg")) {
-            msgpack_to_str(&obj.via.array.ptr[1], channel_id);
+            msgpack_to_str(&obj.via.array.ptr[1], &chid);
             msgpack_array_to_msg(&obj, 2, &msg, &buf);
-            ngx_http_push_store_publish_raw(channel_id, &msg, 0, NULL);
+            ngx_http_push_store_publish_raw(&chid, &msg, 0, NULL);
           }
-
           else if(CHECK_MSGPACK_STRVAL(msgtype, "msgkey")) {
-            if(channel_id != NULL) {
+            if(chanhead != NULL) {
               msgpack_to_str(&obj.via.array.ptr[1], &msg_redis_hash_key);
-              get_msg_from_msgkey(channel_id, &msg_redis_hash_key);
+              get_msg_from_msgkey(&chanhead->id, &msg_redis_hash_key);
             }
             else {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msgkey");
@@ -373,17 +370,17 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msgkey")) {
-            msgpack_to_str(&obj.via.array.ptr[1], channel_id);
+            msgpack_to_str(&obj.via.array.ptr[1], &chid);
             msgpack_to_str(&obj.via.array.ptr[2], &msg_redis_hash_key);
-            get_msg_from_msgkey(channel_id, &msg_redis_hash_key);
+            get_msg_from_msgkey(&chid, &msg_redis_hash_key);
           }
 
           else if(CHECK_MSGPACK_STRVAL(msgtype, "alert") && asize > 1) {
             msgpack_object alerttype = obj.via.array.ptr[1];
 
             if(CHECK_MSGPACK_STRVAL(alerttype, "delete channel") && asize > 2) {
-              if(msgpack_to_str(&obj.via.array.ptr[2], channel_id) == NGX_OK) {
-                ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+              if(msgpack_to_str(&obj.via.array.ptr[2], &chid) == NGX_OK) {
+                ngx_http_push_store_publish_raw(&chid, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
               }
               else {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected \"delete channel\" msgpack message from redis");
@@ -391,18 +388,18 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub one") && asize > 3) {
-              msgpack_to_str(&obj.via.array.ptr[2], channel_id);
+              msgpack_to_str(&obj.via.array.ptr[2], &chid);
               msgpack_to_uint(&obj.via.array.ptr[3], &subscriber_id);
               //TODO
             }
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all") && asize > 1) {
-              msgpack_to_str(&obj.via.array.ptr[1], channel_id);
-              ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+              msgpack_to_str(&obj.via.array.ptr[1], &chid);
+              ngx_http_push_store_publish_raw(&chid, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
             }
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all except")) {
-              msgpack_to_str(&obj.via.array.ptr[2], channel_id);
+              msgpack_to_str(&obj.via.array.ptr[2], &chid);
               msgpack_to_uint(&obj.via.array.ptr[3], &subscriber_id);
               //TODO
             }
@@ -429,12 +426,14 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       redisEchoCallback(c, el, NULL);
     }
   }
+
   else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "subscribe")
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
 
     if(chanhead != NULL){
+      HWATCH(chanhead);
       switch(chanhead->status) {
         case NOTREADY:
           chanhead->status = READY;
