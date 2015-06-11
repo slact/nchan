@@ -838,7 +838,6 @@ static ngx_int_t redis_array_to_channel(redisReply *r, ngx_http_push_channel_t *
     //legacy
     ch->message_queue = NULL;
     ch->message_queue = NULL;
-    ch->workers_with_subscribers = NULL;
     
     return NGX_OK;
   }
@@ -1491,9 +1490,4 @@ ngx_http_push_store_t  ngx_http_push_store_redis = {
     &ngx_http_push_store_etag_from_message,
     &ngx_http_push_store_content_type_from_message,
     
-    //interprocess communication
-    NULL,
-    NULL
-    
-
 };

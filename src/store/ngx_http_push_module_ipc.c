@@ -133,7 +133,7 @@ static void ngx_http_push_channel_handler(ngx_event_t *ev) {
 		//ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "push module: channel command: %d", ch.command);
 
 		if (ch.command==NGX_CMD_HTTP_PUSH_CHECK_MESSAGES) {
-			ngx_http_push_store->receive_worker_message();
+			//TODO: receive_worker_message();
 		}
 	}
 }

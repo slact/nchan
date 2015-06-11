@@ -26,34 +26,6 @@ ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t sta
   return ngx_http_send_header(r);
 }
 
-void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev)
-{
-  ngx_http_push_subscriber_t *subscriber = NULL;
-  ngx_http_request_t *r = NULL;
-
-  subscriber = ev->data;
-  r = subscriber->request;
-  
-  if (r->connection->destroyed) {
-    return;
-  }
-
-  ngx_int_t rc = ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_MODIFIED, NULL);
-  ngx_http_finalize_request(r, rc);
-  //the subscriber and channel counter will be freed by the pool cleanup callback
-}
-
-void ngx_http_push_subscriber_del_timer(ngx_http_push_subscriber_t *sb) {
-  if (sb->event.timer_set) {
-    ngx_del_timer(&sb->event);
-  }
-}
-
-void ngx_http_push_subscriber_clear_ctx(ngx_http_push_subscriber_t *sb) {
-  ngx_http_push_subscriber_del_timer(sb);
-  sb->clndata->subscriber = NULL;
-  sb->clndata->channel = NULL;
-}
 
 
 #define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
@@ -189,35 +161,6 @@ ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
   }
   
   return 1;
-}
-
-void ngx_http_push_subscriber_cleanup(ngx_http_push_subscriber_cleanup_t *data) {
-  if(data->subscriber!=NULL) { //still queued up
-    ngx_http_push_subscriber_t* sb = data->subscriber;
-    ngx_http_push_subscriber_del_timer(sb);
-    ngx_queue_remove(&data->subscriber->queue);
-    ngx_pfree(ngx_http_push_pool, data->subscriber); //was there an error? oh whatever.
-  }
-  if (data->rchain != NULL) {
-    ngx_pfree(data->rpool, data->rchain->buf);
-    ngx_pfree(data->rpool, data->rchain);
-    data->rchain=NULL;
-  }
-  if(data->buf_use_count != NULL && --(*data->buf_use_count) <= 0) {
-    ngx_buf_t                      *buf;
-    ngx_pfree(ngx_http_push_pool, data->buf_use_count);
-    buf=data->buf;
-    if(buf->file) {
-      ngx_close_file(buf->file->fd);
-    }
-    ngx_pfree(ngx_http_push_pool, buf);
-  }
-  
-  if(data->channel!=NULL) { //we're expected to decrement the subscriber count
-    //ngx_http_push_store->lock();
-    data->channel->subscribers--;
-    //ngx_http_push_store->unlock();
-  }
 }
 
 ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
