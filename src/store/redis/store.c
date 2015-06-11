@@ -648,9 +648,14 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
       chanhead_cleanup_head = chanhead_cleanlink;
     }
     head->cleanlink=chanhead_cleanlink;
+    
+    head->status = INACTIVE;
+    
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_add chanhead %V", &head->id);
   }
-  
-  head->status = INACTIVE;
+  else {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_add chanhead %V: already added", &head->id);
+  }
 
   //initialize cleanup timer
   if(!chanhead_cleanup_timer.timer_set) {
@@ -662,6 +667,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from cleanup list if we're there
   nhpm_llist_timed_t    *cl;
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %V", &chanhead->id);
   if(chanhead->cleanlink!=NULL) {
     cl=chanhead->cleanlink;
     if(cl->prev!=NULL)
@@ -674,6 +680,9 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
       chanhead_cleanup_tail=cl->prev;
 
     cl->prev = cl->next = NULL;
+  }
+  else {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %p (%V), but not in gc queue", chanhead, &chanhead->id);
   }
   return NGX_OK;
 }
@@ -757,7 +766,8 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t    *cur, *next;
   nhpm_channel_head_t   *ch = NULL;
   
-  //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "ngx_http_push_store_chanhead_cleanup_timer_handler");
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "handle_chanhead_gc_queue");
+  
   for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
@@ -768,12 +778,12 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
         redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
 
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "channel_head is empty and expired. delete %p.", ch);
+        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "channel_head is still being used.");
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "chanhead %p (%V) is still in use.", ch, &ch->id);
       }
       ngx_free(cur);
     }
@@ -794,6 +804,9 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
   handle_chanhead_gc_queue(0);
   if (!(ngx_quit || ngx_terminate || ngx_exiting || chanhead_cleanup_head==NULL)) {
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  }
+  else if(chanhead_cleanup_head==NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "chanhead gc queue looks empty, stop gc_queue handler");
   }
 }
 
@@ -1289,76 +1302,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", create_channel_ttl);
   return NGX_OK;
 }
- /* 
-  ngx_http_push_msg_t            *msg;
-  ngx_int_t                       msg_search_outcome;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store_find_channel(channel_id, cf->channel_timeout, NULL);
-  }else{
-    channel = ngx_http_push_store_get_channel(channel_id, cf->channel_timeout, NULL);
-  }
-  if (channel==NULL) {
-    //unable to allocate channel OR channel not found
-    if(cf->authorize_channel) {
-      return callback(NGX_HTTP_FORBIDDEN, r);
-    }
-    else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate shared memory for channel");
-      return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
-    }
-  }
-  
-  switch(ngx_http_push_handle_subscriber_concurrency(channel, r, cf)) {
-    case NGX_DECLINED: //this request was declined for some reason.
-      //status codes and whatnot should have already been written. just get out of here quickly.
-      return callback(NGX_OK, r);
-    case NGX_ERROR:
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling subscriber concurrency setting");
-      return callback(NGX_ERROR, r);
-  }
-  
-  
-  msg = ngx_http_push_store_get_channel_message(channel, msg_id, &msg_search_outcome, cf);
-  
-  if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
-    msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
-    msg = NULL;
-  }
-  
-  switch(msg_search_outcome) {
-    //for message-found:
-    ngx_str_t                  *etag;
-    ngx_str_t                  *content_type;
-    ngx_chain_t                *chain=NULL;
-    time_t                      last_modified;
-
-    case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
-      // ♫ It's gonna be the future soon ♫
-      if (ngx_http_push_store_create_subscriber(channel, r) == NGX_OK) {
-
-        redisAsyncCommand(rds_ctx(), NULL, NULL, "ECHO SUB channel:%b", STR(&(channel->id)));
-        return callback(NGX_DONE, r);
-      }
-      else {
-        return callback(NGX_ERROR, r);
-      }
-
-    case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
-      //subscriber wants an expired message
-      //TODO: maybe respond with entity-identifiers for oldest available message?
-      return callback(NGX_HTTP_NO_CONTENT, r);
-      
-    case NGX_HTTP_PUSH_MESSAGE_FOUND:
-      ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-      ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-      ngx_http_push_store->release_message(channel, msg);
-      return callback(ret, r);
-      
-    default: //we shouldn't be here.
-      return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
-  }
-*/
 
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *etag;
