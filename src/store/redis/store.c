@@ -643,12 +643,9 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   nhpm_llist_timed_t         *chanhead_cleanlink;
   
-  if(head->cleanlink==NULL) {
-    //add channel head to cleanup list
-    if((chanhead_cleanlink=ngx_alloc(sizeof(*chanhead_cleanlink), ngx_cycle->log))==NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate memory for channel subscriber head cleanup list element");
-      return NGX_ERROR;
-    }
+  if(head->status != INACTIVE) {
+    chanhead_cleanlink = &head->cleanlink;
+    
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
     chanhead_cleanlink->prev=chanhead_cleanup_tail;
@@ -660,7 +657,6 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     if(chanhead_cleanup_head==NULL) {
       chanhead_cleanup_head = chanhead_cleanlink;
     }
-    head->cleanlink=chanhead_cleanlink;
     
     head->status = INACTIVE;
     
@@ -681,8 +677,8 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from cleanup list if we're there
   nhpm_llist_timed_t    *cl;
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %V", &chanhead->id);
-  if(chanhead->cleanlink!=NULL) {
-    cl=chanhead->cleanlink;
+  if(chanhead->status == INACTIVE) {
+    cl=&chanhead->cleanlink;
     if(cl->prev!=NULL)
       cl->prev->next=cl->next;
     if(cl->next!=NULL)
@@ -693,11 +689,9 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
       chanhead_cleanup_tail=cl->prev;
 
     cl->prev = cl->next = NULL;
-    ngx_free(cl);
-    chanhead->cleanlink = NULL;
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %p (%V), but not in gc queue", chanhead, &chanhead->id);
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
   }
   return NGX_OK;
 }
@@ -800,7 +794,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       else {
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "chanhead %p (%V) is still in use.", ch, &ch->id);
       }
-      ngx_free(cur);
     }
     else {
       break;
@@ -1080,9 +1073,6 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
     }
     if(cur->pool != NULL) {
       ngx_destroy_pool(cur->pool);
-    }
-    if(cur->cleanlink != NULL) {
-      ngx_free(cur->cleanlink);
     }
     HASH_DEL(subhash, cur);
     ngx_free(cur);
