@@ -43,7 +43,7 @@ typedef struct {
 
 static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
-  "44b5b03430a7fe8114f74aa247f7ce5cdc572824",
+  "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
   "288679b1de58e6754a2daccd3bba46244de6a629",
   "bf3c7ad15037b0481c2a6a30dc178d00c2b012b4",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
@@ -137,9 +137,11 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "\n"
   "local enable_debug=true\n"
   "local dbg = (function(on)\n"
-  "if on then return function(...) redis.call('echo', table.concat({...})); end\n"
+  "  if on then return function(...) redis.call('echo', table.concat({...})); end\n"
   "  else return function(...) return; end end\n"
   "end)(enable_debug)\n"
+  "\n"
+  "dbg(' #######  FIND_CHANNEL ######## ')\n"
   "\n"
   "if redis.call('EXISTS', key_channel) ~= 0 then\n"
   "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')\n"
