@@ -11,14 +11,21 @@ typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
 typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
 typedef struct nhpm_subscriber_s nhpm_subscriber_t;
 
+struct nhpm_subscriber_cleanup_s {
+  nhpm_channel_head_cleanup_t  *shared;
+  nhpm_subscriber_t            *sub;
+}; //nhpm_subscriber_cleanup_t
+
 struct nhpm_subscriber_s {
   ngx_uint_t                  id;
   void                       *subscriber;
   subscriber_type_t           type;
+  ngx_event_t                 ev;
   ngx_pool_t                 *pool;
   struct nhpm_subscriber_s   *prev;
   struct nhpm_subscriber_s   *next;
-  ngx_http_cleanup_t         *cln;
+  ngx_http_cleanup_t          r_cln;
+  nhpm_subscriber_cleanup_t   clndata;
 };
 
 typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
@@ -43,10 +50,6 @@ struct nhpm_channel_head_cleanup_s {
   ngx_pool_t                 *pool;
 };
 
-struct nhpm_subscriber_cleanup_s {
-  nhpm_channel_head_cleanup_t  *shared;
-  nhpm_subscriber_t            *sub;
-};
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, subhash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
