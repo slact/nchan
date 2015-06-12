@@ -3,7 +3,6 @@
 #include <assert.h>
 #include "store.h"
 #include <store/ngx_rwlock.h>
-#include <store/ngx_http_push_module_ipc.h>
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
@@ -642,9 +641,8 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
   
   i_am_the_last = sub->prev==NULL && sub->next==NULL;
   
-  nhpm_subscriber_remove(sub);
-  
   nhpm_subscriber_unregister(&shared->id, sub);
+  nhpm_subscriber_remove(sub);
   
   if(i_am_the_last) {
     //release pool
@@ -761,12 +759,12 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
     if(sub->ev.timer_set) { //remove timeout timer right away
       ngx_del_timer(&sub->ev);
     }
-    sub->r_cln.handler = (ngx_http_cleanup_pt) subscriber_publishing_cleanup_callback;
+    sub->r_cln->handler = (ngx_http_cleanup_pt) subscriber_publishing_cleanup_callback;
     
     next = sub->next; //becase the cleanup callback will dequeue this subscriber
     
-    if(((nhpm_subscriber_cleanup_t *)sub->r_cln.data)->shared != hcln) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, ((nhpm_subscriber_cleanup_t *)sub->r_cln.data)->shared);
+    if(sub->clndata.shared != hcln) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, sub->clndata.shared);
     }
     
     if(msg!=NULL) {
@@ -1108,6 +1106,7 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
 }
 
 static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
+  
   nhpm_subscriber_t           *sub = cln->sub;
   nhpm_channel_head_cleanup_t *shared = cln->shared;
   nhpm_channel_head_t         *head = shared->head;
@@ -1117,8 +1116,8 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   ngx_int_t done;
   done = sub->prev==NULL && sub->next==NULL;
   
-  nhpm_subscriber_remove(sub);
   nhpm_subscriber_unregister(&shared->id, sub);
+  nhpm_subscriber_remove(sub);
 
   head->sub_count--;
   
@@ -1141,8 +1140,15 @@ static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channe
   headcln->pool = head->pool;
   headcln->sub_count = 0;
   
-  sub->r_cln.data = &sub->clndata;
-  sub->r_cln.handler = (ngx_http_cleanup_pt) cleanup_callback;
+  if(sub->r_cln == NULL) {
+    if((sub->r_cln = ngx_http_cleanup_add((ngx_http_request_t *) sub->subscriber, 0)) == NULL) {
+      ERR("unable to add subscriber request cleanup and callback");
+      return NGX_ERROR;
+    }
+  }
+  
+  sub->r_cln->data = &sub->clndata;
+  sub->r_cln->handler = (ngx_http_cleanup_pt) cleanup_callback;
   
   sub->clndata.sub = sub;
   sub->clndata.shared = headcln;
@@ -1160,7 +1166,6 @@ static void nhpm_subscriber_timeout(ngx_event_t *ev) {
     DBG("subscriber_timeout: connection already destroyed. this probably shouldn't happen.");
     return;
   }
-
 
   rc = ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_MODIFIED, NULL);
   ngx_http_finalize_request(r, rc);

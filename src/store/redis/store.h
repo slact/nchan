@@ -24,7 +24,7 @@ struct nhpm_subscriber_s {
   ngx_pool_t                 *pool;
   struct nhpm_subscriber_s   *prev;
   struct nhpm_subscriber_s   *next;
-  ngx_http_cleanup_t          r_cln;
+  ngx_http_cleanup_t         *r_cln;
   nhpm_subscriber_cleanup_t   clndata;
 };
 
