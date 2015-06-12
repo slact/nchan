@@ -29,18 +29,20 @@ end
 
 class MessageStore
   include Enumerable
-  attr_accessor :msgs, :quit_message
+  attr_accessor :msgs, :quit_message, :name
 
-  def matches? (msg_store)
+  def matches? (other_msg_store)
     my_messages = messages
-    if MessageStore === msg_store
-      other_messages = msg_store.messages
+    if MessageStore === other_msg_store
+      other_messages = other_msg_store.messages
+      other_name = other_msg_store.name
     else
-      other_messages = msg_store
+      other_messages = other_msg_store
+      other_name = "?"
     end
-    return false, "Message count doesn't match. ( #{my_messages.count}, #{other_messages.count})" unless my_messages.count == other_messages.count
+    return false, "Message count doesn't match. ( #{self.name} #{my_messages.count}, #{other_name} #{other_messages.count})" unless my_messages.count == other_messages.count
     other_messages.each_with_index do |msg, i|
-      return false, "Message #{i} doesn't match. (|#{my_messages[i].length}|, |#{msg.length}|) " if my_messages[i] != msg
+      return false, "Message #{i} doesn't match. (#{self.name} |#{my_messages[i].length}|, #{other_name} |#{msg.length}|) " if my_messages[i] != msg
     end
     true
   end
@@ -100,7 +102,7 @@ class Subscriber
     include Celluloid
     attr_accessor :last_modified, :etag, :hydra, :timeout
     def initialize(subscr, opt={})
-      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout] || 10
+      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
@@ -231,6 +233,7 @@ class Subscriber
   def reset
     @errors=[]
     @messages=MessageStore.new :noid => !@care_about_message_ids
+    @messages.name="sub"
     @waiting=0
     @finished=0
     new_client if terminated?
@@ -318,6 +321,7 @@ class Publisher
   def initialize(url)
     @url= url
     @messages = MessageStore.new :noid => true
+    @messages.name = "pub"
   end
   
   def submit(body, method=:POST, content_type= :'text/plain', &block)
