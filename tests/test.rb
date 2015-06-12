@@ -274,7 +274,7 @@ class PubSubTest <  Minitest::Test
   #  test_broadcast 3000
   #end
   
-  def test_subscriber_concurrency
+  def dont_test_subscriber_concurrency
     chan=SecureRandom.hex
     pub_first = Publisher.new url("pub/first#{chan}")
     pub_last = Publisher.new url("pub/last#{chan}")
