@@ -21,6 +21,9 @@
 
 //#define DEBUG_SHM_ALLOC 1
 
+#define DBG(...) ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, __VA_ARGS__)
+#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+
 static nhpm_channel_head_t *subhash = NULL;
 
 //garbage collection for channel heads
@@ -185,7 +188,7 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
 static ngx_int_t nhpm_log_redis_reply(char *name, ngx_msec_t t) {
   ngx_msec_t   dt = ngx_current_msec - t;
   if(dt >= SLOW_REDIS_REPLY) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis command %s took %i msec", name, dt);
+    DBG("redis command %s took %i msec", name, dt);
   }
   return NGX_OK;
 }
@@ -412,20 +415,20 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
 
             else {
-              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack alert from redis: %s", (char *)el->str);
+              ERR("push module: unexpected msgpack alert from redis: %s", (char *)el->str);
             }
           }
           else {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack message from redis: %s", (char *)el->str);
+            ERR("push module: unexpected msgpack message from redis: %s", (char *)el->str);
           }
 
         }
         else {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected msgpack object from redis: %s", (char *)el->str);
+          ERR("push module: unexpected msgpack object from redis: %s", (char *)el->str);
         }
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: invalid msgpack message from redis: %s", (char *)el->str);
+        ERR("push module: invalid msgpack message from redis: %s", (char *)el->str);
       }
       msgpack_unpacked_destroy(&msgunpack);
     }
@@ -449,22 +452,22 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
           break;
         case READY:
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
+          ERR("REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
           break;
         case INACTIVE:
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS: PUB/SUB already unsubscribed from %s, chanhead %p (id %V) INACTIVE.", reply->element[1]->str, chanhead, &chanhead->id);
+          ERR("REDIS: PUB/SUB already unsubscribed from %s, chanhead %p (id %V) INACTIVE.", reply->element[1]->str, chanhead, &chanhead->id);
           break;
       }
     }
     
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    DBG("REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
   }
   else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "unsubscribe")
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
 
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    DBG("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
   }
   
   else {
@@ -590,7 +593,7 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
     head->sub_count=0;
     head->redis_subscriber_privdata = NULL;
     head->status = NOTREADY;
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "SUBSCRIBING to channel:pubsub:%V", channel_id);
+    DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
     redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
     CHANNEL_HASH_ADD(head);
   }
@@ -670,10 +673,10 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     
     head->status = INACTIVE;
     
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_add chanhead %V", &head->id);
+    DBG("gc_add chanhead %V", &head->id);
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_add chanhead %V: already added", &head->id);
+    ERR("gc_add chanhead %V: already added", &head->id);
   }
 
   //initialize cleanup timer
@@ -686,7 +689,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from cleanup list if we're there
   nhpm_llist_timed_t    *cl;
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %V", &chanhead->id);
+  DBG("gc_withdraw chanhead %V", &chanhead->id);
   if(chanhead->status == INACTIVE) {
     cl=&chanhead->cleanlink;
     if(cl->prev!=NULL)
@@ -701,7 +704,7 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
     cl->prev = cl->next = NULL;
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
+    DBG("gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
   }
   return NGX_OK;
 }
@@ -741,7 +744,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
   //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "hcln->id.len == %i, head cleanup: %p", hcln->id.len, hcln);
   hcln->pool=head->pool;
   
-    
+  DBG("chanhead_gc_add from publish_raw adding %p %V", head, &head->id);
   chanhead_gc_add(head);
   
   head->sub_count=0;
@@ -790,7 +793,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t    *cur, *next;
   nhpm_channel_head_t   *ch = NULL;
   
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "handle_chanhead_gc_queue");
+  DBG("handle_chanhead_gc_queue");
   
   for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
     next=cur->next;
@@ -799,15 +802,15 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       if (ch->sub==NULL) { //still no subscribers here
 
         //unsubscribe now
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
+        DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
         redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
 
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+        DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "chanhead %p (%V) is still in use.", ch, &ch->id);
+        ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
       }
     }
     else {
@@ -829,7 +832,7 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   else if(chanhead_cleanup_head==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "chanhead gc queue looks empty, stop gc_queue handler");
+    DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
 }
 
@@ -1109,6 +1112,8 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   nhpm_channel_head_cleanup_t *shared = cln->shared;
   nhpm_channel_head_t         *head = shared->head;
   
+  DBG("subscriber_cleanup_callback for %p on %V", sub, &head->id);
+  
   ngx_int_t done;
   done = sub->prev==NULL && sub->next==NULL;
   
@@ -1150,7 +1155,9 @@ static void nhpm_subscriber_timeout(ngx_event_t *ev) {
   nhpm_subscriber_t         *sub = cln->sub;
   ngx_int_t           rc;
   ngx_http_request_t *r = (ngx_http_request_t *)sub->subscriber;
+  DBG("subscriber_timeout for %p on %V", sub, &sub->clndata.shared->head->id);
   if (r->connection->destroyed) {
+    DBG("subscriber_timeout: connection already destroyed. this probably shouldn't happen.");
     return;
   }
 
