@@ -1239,7 +1239,6 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   ngx_int_t                  status=0;
   ngx_http_push_msg_t       *msg=NULL;
-  ngx_int_t                  free_d=1;
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
   
@@ -1305,7 +1304,6 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         d->callback(NGX_ERROR, NULL, d->privdata);
       }
       else {
-        free_d = 0;
         if (nhpm_subscriber_create(chanhead, r) == NGX_OK) {
           d->callback(NGX_DONE, NULL, d->privdata);
         }
@@ -1329,9 +1327,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   if(msg != NULL) {
     ngx_free(msg);
   }
-  if(free_d) {
-    ngx_free(d);
-  }
+  ngx_free(d);
 }
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, callback_pt callback, void *privdata) {
