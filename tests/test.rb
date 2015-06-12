@@ -106,17 +106,21 @@ class PubSubTest <  Minitest::Test
     
     
     pub.accept="text/json"
+
     pub.post "FIN"
+    #stats right before FIN was issued
     info_json=JSON.parse pub.response_body
     assert_equal 3, info_json["messages"]
     #assert_equal 0, info_json["requested"]
     assert_equal subs, info_json["subscribers"]
+    
     sub.wait
+    
     pub.get "text/json"
     info_json=JSON.parse pub.response_body
-    assert_equal 3, info_json["messages"]
+    assert_equal 3, info_json["messages"], "number of messages received by channel is wrong"
     #assert_equal 0, info_json["requested"]
-    assert_equal 0, info_json["subscribers"]
+    assert_equal 0, info_json["subscribers"], "channel should say there are no subscribers"
     
     sub.terminate
   end
