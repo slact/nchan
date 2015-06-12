@@ -182,7 +182,7 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
 #define CHECK_REPLY_NIL(reply) ((reply)->type == REDIS_REPLY_NIL)
 #define CHECK_REPLY_INT_OR_STR(reply) ((reply)->type == REDIS_REPLY_INTEGER || (reply)->type == REDIS_REPLY_STRING)
 
-#define SLOW_REDIS_REPLY 10
+#define SLOW_REDIS_REPLY 100
 
 static ngx_int_t nhpm_log_redis_reply(char *name, ngx_msec_t t) {
   ngx_msec_t   dt = ngx_current_msec - t;
