@@ -6,6 +6,62 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
+
+typedef struct nhpm_channel_head_s nhpm_channel_head_t;
+typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
+typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
+typedef struct nhpm_subscriber_s nhpm_subscriber_t;
+
+struct nhpm_subscriber_cleanup_s {
+  nhpm_channel_head_cleanup_t  *shared;
+  nhpm_subscriber_t            *sub;
+}; //nhpm_subscriber_cleanup_t
+
+struct nhpm_subscriber_s {
+  ngx_uint_t                  id;
+  void                       *subscriber;
+  subscriber_type_t           type;
+  ngx_event_t                 ev;
+  ngx_pool_t                 *pool;
+  struct nhpm_subscriber_s   *prev;
+  struct nhpm_subscriber_s   *next;
+  ngx_http_cleanup_t         *r_cln;
+  nhpm_subscriber_cleanup_t   clndata;
+};
+
+typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
+
+struct nhpm_channel_head_s {
+  ngx_str_t                    id; //channel id
+  ngx_pool_t                  *pool;
+  ngx_uint_t                   generation; //subscriber pool generation.
+  nhpm_subscriber_t           *sub;
+  chanhead_pubsub_status_t     status;
+  ngx_uint_t                   sub_count;
+  nhpm_channel_head_cleanup_t *shared_cleanup;
+  nhpm_llist_timed_t           cleanlink;
+  void                        *redis_subscriber_privdata;
+  UT_hash_handle               hh;
+};
+
+struct nhpm_channel_head_cleanup_s {
+  nhpm_channel_head_t        *head;
+  ngx_str_t                   id; //channel id
+  ngx_uint_t                  sub_count;
+  ngx_pool_t                 *pool;
+};
+
+
+#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, subhash, (id_buf)->data, (id_buf)->len, p)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
+#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( subhash, chanhead)
+
+#undef uthash_malloc
+#undef uthash_free
+#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
+#define uthash_free(ptr,sz) ngx_free(ptr)
+
+
 #include <msgpack.h>
 
 #define REDIS_HOSTNAME "127.0.0.1"

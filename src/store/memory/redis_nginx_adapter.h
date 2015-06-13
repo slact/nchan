@@ -1,0 +1,1 @@
+../redis/redis_nginx_adapter.h

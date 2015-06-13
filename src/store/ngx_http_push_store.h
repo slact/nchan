@@ -28,3 +28,4 @@ typedef struct {
 
 } ngx_http_push_store_t;
 
+typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET} subscriber_type_t;

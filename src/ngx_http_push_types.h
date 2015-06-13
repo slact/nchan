@@ -17,7 +17,7 @@ typedef struct {
 
 //message queue
 typedef struct {
-  ngx_queue_t                     queue; //this MUST be first.
+//  ngx_queue_t                     queue; //this MUST be first.
   ngx_str_t                       content_type;
   //  ngx_str_t                       charset;
   ngx_buf_t                      *buf;
