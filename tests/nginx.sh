@@ -38,7 +38,7 @@ for opt in $*; do
   case $opt in
     redis-persist)
       persist_redis=1;;
-    leak|leakcheck)
+    leak|leakcheck|valgrind|memcheck)
       valgrind=1
       VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" );;
     debug-memcheck)
@@ -46,8 +46,6 @@ for opt in $*; do
       VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" )
       VALGRIND_OPT+=( "--vgdb-error=1" )
       ATTACH_DDD=1;;
-    valgrind|memcheck)
-      valgrind=1;;
     callgrind|profile)
       VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes" "--callgrind-out-file='callgrind-nginx-%p.'")   #--collect-systime=yes
       valgrind=1;;
