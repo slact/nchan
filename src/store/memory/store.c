@@ -884,12 +884,12 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           ngx_free(ch);
         }
         else {
-          ERR("chanhead %p (%V) is still storing some messages.", ch, &ch->id);
+          //ERR("chanhead %p (%V) is still storing some messages.", ch, &ch->id);
           break;
         }
       }
       else {
-        ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
+        //ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
         break;
       }
     }
@@ -1375,7 +1375,7 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
 }
 
 static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
-  DBG("withdraw message %i:%i from ch %p %V", msg->msg.message_time, msg->msg.message_tag, ch, &ch->id);
+  //DBG("withdraw message %i:%i from ch %p %V", msg->msg.message_time, msg->msg.message_tag, ch, &ch->id);
   if(msg->msg.refcount > 0) {
     ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg.refcount);
     return NGX_ERROR;
@@ -1400,12 +1400,12 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
 }
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
   //TODO: file and buffer closing stuff
-  DBG("free msg %p", msg);
+  //DBG("free msg %p", msg);
   shfree(msg);
   return NGX_OK;
 }
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
-  DBG("messages gc for ch %p %V", ch, &ch->id);
+  //DBG("messages gc for ch %p %V", ch, &ch->id);
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
@@ -1414,13 +1414,13 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   //  DBG("msg %i:%i expires %i, now %i", cur->msg.message_time, cur->msg.message_tag, cur->msg.expires, now);
   //}
   if(cur == NULL) {
-    DBG("msg_first is NULL...");
+    //DBG("msg_first is NULL...");
   }
   while(cur != NULL && now > cur->msg.expires) {
     next = cur->next;
     count ++;
     if(cur->msg.refcount > 0) {
-      ERR("msg %p refcount %i >0", &cur->msg, cur->msg.refcount);
+      //ERR("msg %p refcount %i >0", &cur->msg, cur->msg.refcount);
     }
     else {
       //DBG("withdraw msg %V", chanhead_msg_to_str(cur));
@@ -1523,17 +1523,23 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         assert(d->dbg_msg == NULL);
       }
       else {
-        ngx_str_t *str;
-        str = msg_to_str(msg);
-        DBG("Found redis msg %i:%i \"%V\"", msg->message_time, msg->message_tag, str);
+        if(  msg->message_time != d->dbg_msg->msg.message_time 
+          || msg->message_tag != d->dbg_msg->msg.message_tag
+          || ngx_strncmp(d->dbg_msg->msg.buf->start, msg->buf->start, msg->buf->end - msg->buf->start ))
+          {
+            ngx_str_t *str;
+            str = msg_to_str(msg);
+            ERR("Found redis msg: %i:%i \"%V\"", msg->message_time, msg->message_tag, str);
 
-        if(d->dbg_msg != NULL) {
-          str = chanhead_msg_to_str(d->dbg_msg);
-          DBG("Found memst msg: %i:%i \"%V\"", d->dbg_msg->msg.message_time, d->dbg_msg->msg.message_tag, str);
-        }
-        else {
-          DBG("Found memst msg: NULL");
-        }
+            if(d->dbg_msg != NULL) {
+              str = chanhead_msg_to_str(d->dbg_msg);
+              ERR("Found memst msg: %i:%i \"%V\"", d->dbg_msg->msg.message_time, d->dbg_msg->msg.message_tag, str);
+            }
+            else {
+              ERR("Found memst msg: NULL");
+            }
+            
+          }
       }
 
       switch(cf->subscriber_concurrency) {
@@ -1773,7 +1779,7 @@ static ngx_int_t memstore_publish_message(ngx_str_t *channel_id, ngx_http_push_m
     ngx_memcpy(shbuf->pos, msg->buf->pos, buf_body_size);
   }
   
-  DBG("published message %V to %V", chanhead_msg_to_str(shmsg_link), channel_id);
+  //DBG("published message %V to %V", chanhead_msg_to_str(shmsg_link), channel_id);
   
   chanhead_push_message(ch, shmsg_link);
   return NGX_OK;
