@@ -4,10 +4,20 @@ MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 
 ccached_clang="ccache clang -Qunused-arguments -fcolor-diagnostics"
+
+#clang_memcheck="-fsanitize=address,undefined -fno-omit-frame-pointer"
+clang_sanitize_memory="-fsanitize=memory,undefined -fsanitize-memory-track-origins -fno-omit-frame-pointer"
+clang_sanitize_addres="-fsanitize=address -fno-omit-frame-pointer"
+
+
 for opt in $*; do
   case $opt in
     clang)
       export CC=$ccached_clang;;
+    clang-sanitize|sanitize|sanitize-memory)
+      export CC="$ccached_clang ";;
+    sanitize-address)
+      export CC="$ccached_clang $clang_sanitize_addres";;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     re|remake)
