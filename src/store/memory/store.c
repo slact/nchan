@@ -96,6 +96,8 @@ static nhpm_llist_timed_t *chanhead_cleanup_tail = NULL;
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
+static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
+
 static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
 static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
@@ -871,17 +873,24 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       ch = (nhpm_channel_head_t *)cur->data;
       if (ch->sub==NULL) { //still no subscribers here
+        chanhead_messages_gc(ch);
+        if(ch->msg_first == NULL) {
+          //unsubscribe now
+          //DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
+          redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
 
-        //unsubscribe now
-        //DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
-        redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
-
-        //DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
-        CHANNEL_HASH_DEL(ch);
-        ngx_free(ch);
+          //DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+          CHANNEL_HASH_DEL(ch);
+          ngx_free(ch);
+        }
+        else {
+          ERR("chanhead %p (%V) is still storing some messages.", ch, &ch->id);
+          break;
+        }
       }
       else {
         ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
+        break;
       }
     }
     else {
@@ -903,7 +912,7 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   else if(chanhead_cleanup_head==NULL) {
-    //DBG("chanhead gc queue looks empty, stop gc_queue handler");
+    DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
 }
 
@@ -1339,6 +1348,32 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
 }
 
 
+static ngx_str_t *msg_to_str(ngx_http_push_msg_t *msg) {
+  static ngx_str_t str;
+  ngx_buf_t *buf = msg->buf;
+  if(ngx_buf_in_memory(buf)) {
+    str.data = buf->start;
+    str.len = buf->end - buf->start;
+  }
+  else {
+    str.data= (u_char *)"{not in memory}";
+    str.len =  15;
+  }
+  return &str;
+}
+
+static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
+  static ngx_str_t str;
+  if (msg == NULL) {
+    str.data=(u_char *)"{NULL}";
+    str.len = 6;
+    return &str;
+  }
+  else {
+    return msg_to_str(&msg->msg);
+  }
+}
+
 static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   DBG("withdraw message %i:%i from ch %p %V", msg->msg.message_time, msg->msg.message_tag, ch, &ch->id);
   if(msg->msg.refcount > 0) {
@@ -1346,19 +1381,19 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
     return NGX_ERROR;
   }
   if(ch->msg_first == msg) {
-    DBG("first message removed");
+    //DBG("first message removed");
     ch->msg_first = msg->next;
   }
   if(ch->msg_last == msg) {
-    DBG("last message removed");
+    //DBG("last message removed");
     ch->msg_last = msg->prev;
   }
   if(msg->next != NULL) {
-    DBG("set next");
+    //DBG("set next");
     msg->next->prev = msg->prev;
   }
   if(msg->prev != NULL) {
-    DBG("set prev");
+    //DBG("set prev");
     msg->prev->next = msg->next;
   }
   return NGX_OK;
@@ -1375,29 +1410,34 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
   ngx_int_t       count = 0;
-  if(cur != NULL) {
-    DBG("msg %i:%i expires %i, now %i", cur->msg.message_time, cur->msg.message_tag, cur->msg.expires, now);
+  //if(cur != NULL) {
+  //  DBG("msg %i:%i expires %i, now %i", cur->msg.message_time, cur->msg.message_tag, cur->msg.expires, now);
+  //}
+  if(cur == NULL) {
+    DBG("msg_first is NULL...");
   }
   while(cur != NULL && now > cur->msg.expires) {
     next = cur->next;
+    count ++;
     if(cur->msg.refcount > 0) {
       ERR("msg %p refcount %i >0", &cur->msg, cur->msg.refcount);
     }
     else {
-      DBG("withdraw %p", cur);
+      //DBG("withdraw msg %V", chanhead_msg_to_str(cur));
       if(chanhead_withdraw_message(ch, cur) == NGX_OK) {
-        DBG("delete %p", cur);
+        //DBG("delete msg %V", chanhead_msg_to_str(cur));
         delete_withdrawn_message(cur);
       }
     }
     cur = next;
     count++;
   }
+  //DBG("Tried deleting %i mesages", count);
   return count;
 }
 
 static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
-  DBG("find next message");
+  //DBG("find next message %i:%i", msgid->time, msgid->tag);
   chanhead_messages_gc(ch);
   nhpm_message_t *cur = ch->msg_last;
   
@@ -1406,30 +1446,27 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
     return NULL;
   }
 
-  if(msgid == NULL) {
+  if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
     *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
     return ch->msg_first;
   }
 
   while(cur != NULL) {
-    DBG("msgid %i:%i, cur %p %i:%i", msgid->time, msgid->tag, cur, cur->msg.message_time, cur->msg.message_tag);
-    if((msgid->time < cur->msg.message_time) ||
-      (msgid->time == cur->msg.message_time && msgid->tag > cur->msg.message_tag)) {
-      
+    //DBG("cur: %i:%i %V", cur->msg.message_time, cur->msg.message_tag, chanhead_msg_to_str(cur));
+    
+    if(msgid->time > cur->msg.message_time || (msgid->time == cur->msg.message_time && msgid->tag >= cur->msg.message_tag)){
       if(cur->next != NULL) {
-        DBG("found cur %p %i:%i", cur, cur->msg.message_time, cur->msg.message_tag);
         *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
         return cur->next;
       }
       else {
-        DBG("not found");
         *status = NGX_HTTP_PUSH_MESSAGE_EXPECTED;
         return NULL;
       }
     }
     cur=cur->prev;
   }
-  DBG("looked everywhere, not found");
+  //DBG("looked everywhere, not found");
   *status = NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
   return NULL;
 }
@@ -1439,6 +1476,7 @@ typedef struct {
   char                   *name;
   ngx_str_t              *channel_id;
   ngx_http_push_msg_id_t *msg_id;
+  nhpm_message_t         *dbg_msg;
   callback_pt             callback;
   ngx_http_request_t     *r;
   nhpm_channel_head_t    *chanhead;
@@ -1480,9 +1518,27 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
     nhpm_channel_head_t        *chanhead=NULL;
     
     case 200: //ok
+      msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc);
+      if(msg == NULL) {
+        assert(d->dbg_msg == NULL);
+      }
+      else {
+        ngx_str_t *str;
+        str = msg_to_str(msg);
+        DBG("Found redis msg %i:%i \"%V\"", msg->message_time, msg->message_tag, str);
+
+        if(d->dbg_msg != NULL) {
+          str = chanhead_msg_to_str(d->dbg_msg);
+          DBG("Found memst msg: %i:%i \"%V\"", d->dbg_msg->msg.message_time, d->dbg_msg->msg.message_tag, str);
+        }
+        else {
+          DBG("Found memst msg: NULL");
+        }
+      }
+
       switch(cf->subscriber_concurrency) {
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-          if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
+          if(msg != NULL) {
             ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
             ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
             d->callback(ret, msg, d->privdata);
@@ -1493,7 +1549,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
           //kick everyone elese out, then subscribe
           //TODO: profiling
           redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.publish_status, STR(d->channel_id), 409);
-          if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
+          if(msg != NULL) {
             ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
             ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
             d->callback(ret, NULL, d->privdata);
@@ -1570,7 +1626,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
     //memstore
   ngx_int_t                   findmsg_status;
-  chanhead_find_next_message(d->chanhead, d->msg_id, &findmsg_status);
+  d->dbg_msg = chanhead_find_next_message(d->chanhead, d->msg_id, &findmsg_status);
   //TODO: compare redis message and this one.
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
@@ -1611,15 +1667,27 @@ static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_m
 
 static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   msg->next = NULL;
-  msg->prev = ch->msg_first;
+  msg->prev = ch->msg_last;
   if(msg->prev != NULL) {
     msg->prev->next = msg;
   }
-  ch->msg_last = msg;
-  
+
   if(ch->msg_first == NULL) {
     ch->msg_first = msg;
   }
+
+  //set time and tag
+  if(msg->msg.message_time == 0) {
+    msg->msg.message_time = ngx_time();
+  }
+  if(ch->msg_last && ch->msg_last->msg.message_time == msg->msg.message_time) {
+    msg->msg.message_tag = ch->msg_last->msg.message_tag + 1;
+  }
+  else {
+    msg->msg.message_tag = 0;
+  }
+  
+  ch->msg_last = msg;
   return NGX_OK;
 }
 
@@ -1637,7 +1705,6 @@ typedef struct {
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
 
 static ngx_int_t memstore_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  DBG("publish message to %V", channel_id);
   nhpm_channel_head_t     *ch;
   void                    *shchunk;
   nhpm_message_t          *shmsg_link;
@@ -1705,6 +1772,9 @@ static ngx_int_t memstore_publish_message(ngx_str_t *channel_id, ngx_http_push_m
     shbuf->end=shbuf->last;
     ngx_memcpy(shbuf->pos, msg->buf->pos, buf_body_size);
   }
+  
+  DBG("published message %V to %V", chanhead_msg_to_str(shmsg_link), channel_id);
+  
   chanhead_push_message(ch, shmsg_link);
   return NGX_OK;
 }
@@ -1727,7 +1797,6 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   if(msg->message_time==0) {
     msg->message_time = ngx_time();
   }
-  DBG("buffer timeout %i", cf->buffer_timeout);
   msg->expires = ngx_time() + cf->buffer_timeout;
   
   d->channel_id=channel_id;
