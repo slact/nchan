@@ -1486,8 +1486,7 @@ typedef struct {
 static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscribe_data_t    *d = (redis_subscribe_data_t *) privdata;
   redisReply                *reply = (redisReply *)vr;
-  ngx_http_request_t        *r = (ngx_http_request_t *)d->privdata; //kind of a hack
-  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  //ngx_http_request_t        *r = (ngx_http_request_t *)d->privdata; //kind of a hack
   ngx_int_t                  status=0;
   ngx_http_push_msg_t       *msg=NULL;
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
@@ -1510,13 +1509,6 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   status = reply->element[0]->integer;
   
   switch(status) {
-    ngx_str_t                  *etag;
-    ngx_str_t                  *content_type;
-    ngx_chain_t                *chain=NULL;
-    time_t                      last_modified;
-    ngx_int_t                   ret;
-    nhpm_channel_head_t        *chanhead=NULL;
-    
     case 200: //ok
       msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc);
       if(msg == NULL) {
@@ -1538,69 +1530,11 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
             else {
               ERR("Found memst msg: NULL");
             }
-            
           }
       }
-
-      switch(cf->subscriber_concurrency) {
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-          if(msg != NULL) {
-            ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-            d->callback(ret, msg, d->privdata);
-          }
-          break;
-
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-          //kick everyone elese out, then subscribe
-          //TODO: profiling
-          redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.publish_status, STR(d->channel_id), 409);
-          if(msg != NULL) {
-            ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-            d->callback(ret, NULL, d->privdata);
-          }
-          break;
-
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-          if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 6) && CHECK_REPLY_INT(reply->element[5]) && reply->element[5]->integer > 0 ) {
-            ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-          }
-          break;
-
-        default:
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
-      }
       break;
-    case 418: //not yet available
-    case 403: //channel not found (not authorized)
-      // ♫ It's gonna be the future soon ♫
-      if((chanhead = ngx_http_push_store_get_chanhead(d->channel_id))== NULL) {
-        d->callback(NGX_ERROR, NULL, d->privdata);
-      }
-      else {
-        if (nhpm_subscriber_create(chanhead, r) == NGX_OK) {
-          d->callback(NGX_DONE, NULL, d->privdata);
-        }
-        else {
-          d->callback(NGX_ERROR, NULL, d->privdata);
-        }
-      }
-      break;
-    
-    case 404: //not found
-      d->callback(NGX_HTTP_NOT_FOUND, NULL, d->privdata);
-      break;
-    case 410: //gone
-      //subscriber wants an expired message
-      //TODO: maybe respond with entity-identifiers for oldest available message?
-      d->callback(NGX_HTTP_NO_CONTENT, NULL, d->privdata);
-      break;
-    default: //shouldn't be here!
-      d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
-  
-  
+
   if(msg != NULL) {
     ngx_free(msg);
   }
@@ -1632,8 +1566,90 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
     //memstore
   ngx_int_t                   findmsg_status;
-  d->dbg_msg = chanhead_find_next_message(d->chanhead, d->msg_id, &findmsg_status);
-  //TODO: compare redis message and this one.
+  nhpm_message_t              *chmsg;
+  chmsg = chanhead_find_next_message(d->chanhead, d->msg_id, &findmsg_status);
+  if(chmsg) {
+    assert(&chmsg->msg != NULL);
+    assert(chmsg->msg.buf->pos != NULL);
+  }
+  d->dbg_msg = chmsg;
+  
+  switch(findmsg_status) {
+    ngx_str_t                  *etag;
+    ngx_str_t                  *content_type;
+    ngx_chain_t                *chain=NULL;
+    time_t                      last_modified;
+    ngx_int_t                   ret;
+    ngx_http_push_msg_t        *msg;
+    
+    case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
+      msg = &chmsg->msg;
+      switch(cf->subscriber_concurrency) {
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+          if(msg != NULL) {
+            ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
+            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+            d->callback(ret, msg, d->privdata);
+          }
+          break;
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
+          //kick everyone elese out, then subscribe
+          ngx_http_push_store_publish_raw(channel_id, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+          
+          if(msg != NULL) {
+            ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
+            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
+            d->callback(ret, NULL, d->privdata);
+          }
+          break;
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
+          /*
+           // there are subscribers
+          if() {
+            ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+          }
+          */
+          break;
+
+        default:
+          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
+      }
+      break;
+    case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
+    case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
+      // ♫ It's gonna be the future soon ♫
+      if(d->chanhead == NULL) {
+        if(cf->authorize_channel == 1) {
+          d->callback(NGX_HTTP_NOT_FOUND, NULL, d->privdata);
+        }
+        else {
+          d->callback(NGX_ERROR, NULL, d->privdata);
+        }
+      }
+      else {
+        if (nhpm_subscriber_create(d->chanhead, r) == NGX_OK) {
+          d->callback(NGX_DONE, NULL, d->privdata);
+        }
+        else {
+          d->callback(NGX_ERROR, NULL, d->privdata);
+        }
+      }
+      break;
+    
+    case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
+      //subscriber wants an expired message
+      //TODO: maybe respond with entity-identifiers for oldest available message?
+      d->callback(NGX_HTTP_NO_CONTENT, NULL, d->privdata);
+      break;
+    default: //shouldn't be here!
+      d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
+  }
+  
+  
+  
+  
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
   redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", create_channel_ttl);
@@ -1672,6 +1688,8 @@ static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_m
 }
 
 static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  assert(msg->msg.buf->pos != NULL);
+  
   msg->next = NULL;
   msg->prev = ch->msg_last;
   if(msg->prev != NULL) {
@@ -1710,74 +1728,85 @@ typedef struct {
 
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
 
+
+typedef struct {
+  nhpm_message_t          chmsg;
+  ngx_buf_t               buf;
+  ngx_file_t              file;
+} shmsg_memspace_t;
+
+static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
+  shmsg_memspace_t        *stuff;
+  nhpm_message_t          *chmsg;
+  ngx_http_push_msg_t     *msg;
+  ngx_buf_t               *mbuf = NULL, *buf=NULL;
+  mbuf = m->buf;
+  size_t                   buf_body_size = 0, content_type_size = 0, buf_filename_size = 0;
+  
+  content_type_size += m->content_type.len;
+  if(ngx_buf_in_memory_only(mbuf)) {
+    buf_body_size = ngx_buf_size(mbuf);
+  }
+  if(mbuf->in_file && mbuf->file != NULL) {
+    buf_filename_size = mbuf->file->name.len;
+  }
+
+  if((stuff = shalloc(sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size))) == NULL) {
+    ERR("can't allocate 'shared' memory for msg for channel id");
+    return NULL;
+  }
+  // shmsg memory chunk: |chmsg|buf|fd|filename|content_type_data|msg_body|
+
+  chmsg = &stuff->chmsg;
+  msg = &stuff->chmsg.msg;
+  buf = &stuff->buf;
+  chmsg->prev=NULL;
+  chmsg->next=NULL;
+
+  ngx_memcpy(msg, m, sizeof(*msg));
+  ngx_memcpy(buf, mbuf, sizeof(*buf));
+  
+  msg->buf = buf;
+
+  if(buf->file!=NULL) {
+    buf->file = &stuff->file;
+    ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
+
+    buf->file->fd = NGX_INVALID_FILE;
+    buf->file->log = NULL;
+
+    buf->file->name.data = (u_char *)&stuff[1];
+
+    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size);
+  }
+
+  msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
+
+  msg->content_type.len = content_type_size;
+
+  ngx_memcpy(msg->content_type.data, m->content_type.data, content_type_size);
+
+  if(buf_body_size > 0) {
+    buf->pos = (u_char *)&stuff[1] + buf_filename_size + content_type_size;
+    buf->last = buf->pos + buf_body_size;
+    buf->start = buf->pos;
+    buf->end = buf->last;
+    ngx_memcpy(buf->start, mbuf->start, buf_body_size);
+  }
+
+  return chmsg;
+}
+
 static ngx_int_t memstore_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nhpm_channel_head_t     *ch;
-  void                    *shchunk;
   nhpm_message_t          *shmsg_link;
-  ngx_http_push_msg_t     *shmsg;
-  ngx_buf_t               *buf = NULL, *shbuf=NULL;
-  buf = msg->buf;
-  size_t                   buf_body_size = 0, buf_fd_size = 0, buf_filename_size = 0;
   if((ch = ngx_http_push_store_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
     return NGX_ERROR;
   }
   chanhead_messages_gc(ch);
   
-  if(ngx_buf_in_memory_only(buf)) {
-    buf_body_size = ngx_buf_size(buf);
-  }
-  if(buf->in_file && buf->file != NULL) {
-    buf_filename_size = buf->file->name.len;
-    buf_fd_size = sizeof(*buf->file);
-  }
-
-  if((shchunk = shcalloc(sizeof(*shmsg) + sizeof(ngx_buf_t) + (msg->content_type.len + buf_body_size + buf_fd_size + buf_filename_size))) == NULL) {
-    ERR("can't allocate 'shared' memory for msg for channel id %V", channel_id);
-    return NGX_ERROR;
-  }
-  // shmsg memory chunk: |shmsg_link|shmsg|buf|fd|filename|content_type_data|msg_body|
-
-  shmsg_link = (nhpm_message_t *)shchunk;
-  shchunk+=sizeof(*shmsg);
-
-  shmsg = &shmsg_link->msg;
-  ngx_memcpy(shmsg, msg, sizeof(*msg));
-
-  shmsg->buf = (ngx_buf_t *)shchunk;
-  shchunk+=sizeof(*shmsg->buf);
-
-  shbuf = shmsg->buf;
-  ngx_memcpy(shbuf, msg->buf, sizeof(*shbuf));
-
-  if(shbuf->file!=NULL) {
-    shbuf->file = (ngx_file_t *)shchunk;
-    shchunk+= sizeof(*shbuf->file);
-    ngx_memcpy(shbuf->file, msg->buf->file, sizeof(*shbuf->file));
-
-    shbuf->file->fd = NGX_INVALID_FILE;
-    shbuf->file->log = NULL;
-    
-    shbuf->file->name.data = (u_char *)shchunk;
-    shchunk += shbuf->file->name.len;
-    ngx_memcpy(shbuf->file->name.data, msg->buf->file->name.data, shbuf->file->name.len);
-  }
-  
-  shmsg->content_type.data = (u_char *)shchunk;
-  shchunk += msg->content_type.len;
-  
-  shmsg->content_type.len = msg->content_type.len;
-  ngx_memcpy(shmsg->content_type.data, msg->content_type.data, shmsg->content_type.len);
-  
-  if(buf_body_size > 0) {
-    shbuf->pos = (u_char *)shchunk;
-    shchunk+=buf_body_size;
-    
-    shbuf->last = shbuf->pos + buf_body_size;
-    shbuf->start=shbuf->pos;
-    shbuf->end=shbuf->last;
-    ngx_memcpy(shbuf->pos, msg->buf->pos, buf_body_size);
-  }
+  shmsg_link = create_shared_message(msg);
   
   //DBG("published message %V to %V", chanhead_msg_to_str(shmsg_link), channel_id);
   
