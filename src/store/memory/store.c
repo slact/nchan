@@ -1577,7 +1577,7 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
     buf->last = buf->pos + buf_body_size;
     buf->start = buf->pos;
     buf->end = buf->last;
-    ngx_memcpy(buf->start, mbuf->start, buf_body_size);
+    ngx_memcpy(buf->pos, mbuf->pos, buf_body_size);
   }
 
   return chmsg;
