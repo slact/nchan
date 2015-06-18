@@ -693,6 +693,13 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
   shfree(msg);
   return NGX_OK;
 }
+
+static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
+    delete_withdrawn_message(msg);
+  }
+  return NGX_OK;
+}
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
   ngx_uint_t      min_messages = ch->min_messages;
@@ -700,30 +707,27 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
-  ngx_int_t       count = 1;
-  //if(cur != NULL) {
-  //  DBG("msg %i:%i expires %i, now %i", cur->msg.message_time, cur->msg.message_tag, cur->msg.expires, now);
-  //}
-  if(cur == NULL) {
-    //DBG("msg_first is NULL...");
+  //is the message queue too big?
+  while(cur != NULL && ch->channel.messages > max_messages) {
+    chanhead_delete_message(ch, cur);
+    cur = ch->msg_first;
   }
-  while(cur != NULL && (now > cur->msg.expires || count > max_messages)) {
+  
+  while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg.expires) {
     next = cur->next;
     if(cur->msg.refcount > 0) {
       ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
     }
-    else if (count >= min_messages) {
-      //DBG("withdraw msg %V", chanhead_msg_to_str(cur));
-      if(chanhead_withdraw_message(ch, cur) == NGX_OK) {
-        //DBG("delete msg %V", chanhead_msg_to_str(cur));
-        delete_withdrawn_message(cur);
-      }
+    if(chanhead_withdraw_message(ch, cur) == NGX_OK) {
+       delete_withdrawn_message(cur);
+    }
+    else {
+      ERR("error deleting chanhead_message");
     }
     cur = next;
-    count++;
   }
   //DBG("Tried deleting %i mesages", count);
-  return count;
+  return NGX_OK;
 }
 
 static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
@@ -794,7 +798,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
       msg = &chmsg->msg;
-      DBG("prepub %i:%i %V", msg->message_time, msg->message_tag, msg_to_str(msg));
+      DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
       switch(cf->subscriber_concurrency) {
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
           if(msg != NULL) {
@@ -838,7 +842,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
         callback(NGX_ERROR, NULL, privdata);
       }
       break;
-    
+      
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
       //subscriber wants an expired message
       //TODO: maybe respond with entity-identifiers for oldest available message?
@@ -909,7 +913,7 @@ static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *
   ch->msg_last = msg;
   
   //DBG("create %i:%i %V", msg->msg.message_time, msg->msg.message_tag, chanhead_msg_to_str(msg));
-  
+  chanhead_messages_gc(ch);
   return NGX_OK;
 }
 
@@ -1005,10 +1009,14 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     ERR("can't get chanhead for id %V", channel_id);
     return NGX_ERROR;
   }
-  
-  chead->channel.expires = ngx_time() + cf->channel_timeout;
+
+  chead->channel.expires = ngx_time() + cf->buffer_timeout;
   sub_count = chead->sub_count;
-  chead->min_messages = cf->min_messages;
+  
+  //TODO: address this weirdness
+  //chead->min_messages = cf->min_messages;
+  chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
+  
   chead->max_messages = cf->max_messages;
   //TODO: channel timeout stuff
   
@@ -1023,6 +1031,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
     callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
     ERR("can't enqueue shared message for channel %V", channel_id);
+    return NGX_ERROR;
   }
 
   //do the actual publishing
