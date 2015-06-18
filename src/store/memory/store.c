@@ -712,9 +712,14 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   
   //is the message queue too big?
   while(cur != NULL && ch->channel.messages > max_messages) {
-    DBG("delete queue-too-big msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
-    chanhead_delete_message(ch, cur);
-    cur = ch->msg_first;
+    if(cur->msg.refcount > 0) {
+      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
+    }
+    else {
+      DBG("delete queue-too-big msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
+      chanhead_delete_message(ch, cur);
+      cur = ch->msg_first;
+    }
   }
   
   while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg.expires) {
@@ -1001,9 +1006,11 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
 
   ngx_buf_t               *buf;
   nhpm_channel_head_t     *chead;
-  ngx_http_push_channel_t  channel_copy;
+  ngx_http_push_channel_t  channel_copy_data;
+  ngx_http_push_channel_t *channel_copy = &channel_copy_data;
   nhpm_message_t          *shmsg_link;
   ngx_int_t                sub_count;
+  ngx_http_push_msg_t     *publish_msg;
 
   assert(callback != NULL);
 
@@ -1031,24 +1038,34 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   
   chanhead_messages_gc(chead);
   
-  if((shmsg_link = create_shared_message(msg)) == NULL) {
-    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-    ERR("can't create shared message for channel %V", channel_id);
-    return NGX_ERROR;
+  if(cf->max_messages == 0) {
+    channel_copy = &chead->channel;
+    publish_msg = msg;
+    DBG("publish %i:%i expire %i ", msg->message_time, msg->message_tag, cf->buffer_timeout);
   }
+  else {
+    if((shmsg_link = create_shared_message(msg)) == NULL) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't create shared message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
 
-  if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
-    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-    ERR("can't enqueue shared message for channel %V", channel_id);
-    return NGX_ERROR;
+    if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't enqueue shared message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+    
+    ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
+    channel_copy->subscribers = sub_count;
+    publish_msg = &shmsg_link->msg;
   }
-
+  
   //do the actual publishing
-  ngx_memcpy(&channel_copy, &chead->channel, sizeof(channel_copy));
-  channel_copy.subscribers = sub_count;
-  DBG("publish %i:%i expire %i ", shmsg_link->msg.message_time, shmsg_link->msg.message_tag, cf->buffer_timeout);
-  ngx_http_push_store_publish_raw(chead, &shmsg_link->msg, 0, NULL);
-  callback(sub_count > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED, &channel_copy, privdata);
+  
+  DBG("publish %i:%i expire %i ", publish_msg->message_time, publish_msg->message_tag, cf->buffer_timeout);
+  ngx_http_push_store_publish_raw(chead, publish_msg, 0, NULL);
+  callback(sub_count > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED, channel_copy, privdata);
   
   return NGX_OK;
 }
