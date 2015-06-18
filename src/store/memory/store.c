@@ -1287,7 +1287,13 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
   return NGX_OK;
 }
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
-  //TODO: file and buffer closing stuff
+  ngx_file_t        *f = msg->msg.buf->file;
+  if(f != NULL) {
+    if(f->fd != NGX_INVALID_FILE) {
+      ngx_close_file(f->fd);
+    }
+    ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
+  }
   //DBG("free msg %p", msg);
   shfree(msg);
   return NGX_OK;
@@ -1381,7 +1387,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
   if(chmsg) {
     assert(&chmsg->msg != NULL);
-    assert(chmsg->msg.buf->pos != NULL);
   }
   
   switch(findmsg_status) {
@@ -1483,8 +1488,6 @@ static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_m
 }
 
 static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
-  assert(msg->msg.buf->pos != NULL);
-  
   msg->next = NULL;
   msg->prev = ch->msg_last;
   if(msg->prev != NULL) {
@@ -1535,9 +1538,12 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
   }
   if(mbuf->in_file && mbuf->file != NULL) {
     buf_filename_size = mbuf->file->name.len;
+    if (buf_filename_size > 0) {
+      buf_filename_size ++; //for null-termination
+    }
   }
 
-  if((stuff = shalloc(sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size))) == NULL) {
+  if((stuff = shcalloc(sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size))) == NULL) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
@@ -1563,7 +1569,7 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
 
     buf->file->name.data = (u_char *)&stuff[1];
 
-    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size);
+    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
   }
 
   msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
