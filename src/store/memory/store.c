@@ -320,7 +320,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   }
   
   if(msg!=NULL) {
-    DBG("publish %i:%i %V", msg->message_time, msg->message_tag, msg_to_str(msg));
+    //DBG("publish %i:%i %V", msg->message_time, msg->message_tag, msg_to_str(msg));
     etag = ngx_http_push_store_etag_from_message(msg, head->pool);
     content_type = ngx_http_push_store_content_type_from_message(msg, head->pool);
     chain = ngx_http_push_create_output_chain(msg->buf, head->pool, ngx_cycle->log);
@@ -696,6 +696,7 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
 
 static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
+    DBG("delete msg %i:%i", msg->msg.message_time, msg->msg.message_tag);
     delete_withdrawn_message(msg);
   }
   return NGX_OK;
@@ -707,8 +708,11 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
+  DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
+  
   //is the message queue too big?
   while(cur != NULL && ch->channel.messages > max_messages) {
+    DBG("delete queue-too-big msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
     chanhead_delete_message(ch, cur);
     cur = ch->msg_first;
   }
@@ -719,6 +723,7 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
       ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
     }
     if(chanhead_withdraw_message(ch, cur) == NGX_OK) {
+       DBG("delete msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
        delete_withdrawn_message(cur);
     }
     else {
@@ -731,7 +736,7 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
 }
 
 static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
-  //DBG("find next message %i:%i", msgid->time, msgid->tag);
+  DBG("find next message %i:%i", msgid->time, msgid->tag);
   chanhead_messages_gc(ch);
   nhpm_message_t *cur = ch->msg_last;
   
@@ -741,6 +746,7 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
   }
 
   if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
+    DBG("found message %i:%i", ch->msg_first->msg.message_time, ch->msg_first->msg.message_tag);
     *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
     return ch->msg_first;
   }
@@ -751,6 +757,7 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
     if(msgid->time > cur->msg.message_time || (msgid->time == cur->msg.message_time && msgid->tag >= cur->msg.message_tag)){
       if(cur->next != NULL) {
         *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+        DBG("found message %i:%i", ch->msg_first->msg.message_time, ch->msg_first->msg.message_tag);
         return cur->next;
       }
       else {
@@ -773,6 +780,8 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   nhpm_message_t               *chmsg;
   ngx_int_t                     findmsg_status;
   assert(callback != NULL);
+  
+  DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
   if(cf->authorize_channel && (chanhead = ngx_http_push_store_find_chanhead(channel_id)) == NULL) {
       callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
@@ -1037,6 +1046,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   //do the actual publishing
   ngx_memcpy(&channel_copy, &chead->channel, sizeof(channel_copy));
   channel_copy.subscribers = sub_count;
+  DBG("publish %i:%i expire %i ", shmsg_link->msg.message_time, shmsg_link->msg.message_tag, cf->buffer_timeout);
   ngx_http_push_store_publish_raw(chead, &shmsg_link->msg, 0, NULL);
   callback(sub_count > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED, &channel_copy, privdata);
   
