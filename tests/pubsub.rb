@@ -20,7 +20,7 @@ class Message
     "#{timestamp}:#{etag}"
   end
   def id
-    @id||="#{last_modified}:#{etag}"
+    @id||=serverside_id
   end
   def to_s
     @message
@@ -40,7 +40,15 @@ class MessageStore
       other_messages = other_msg_store
       other_name = "?"
     end
-    return false, "Message count doesn't match. ( #{self.name} #{my_messages.count}, #{other_name} #{other_messages.count})" unless my_messages.count == other_messages.count
+    unless my_messages.count == other_messages.count 
+      err =  "Message count doesn't match:\r\n"
+      err << "#{self.name}: #{my_messages.count}\r\n"
+      err << "#{self.to_s}\r\n"
+      
+      err << "#{other_name}: #{other_messages.count}\r\n"
+      err << "#{other_msg_store.to_s}"
+      return false, err
+    end
     other_messages.each_with_index do |msg, i|
       return false, "Message #{i} doesn't match. (#{self.name} |#{my_messages[i].length}|, #{other_name} |#{msg.length}|) " if my_messages[i] != msg
     end
@@ -69,11 +77,16 @@ class MessageStore
   def to_a
     @array ? @msgs : @msgs.values
   end
-  def pp
+  def to_s
+    buf=""
     each do |msg|
-      puts "\"#{msg.to_s}\" (seen #{msg.times_seen} times.)"
+      m = msg.to_s
+      m = m.length > 20 ? "#{m[0...20]}..." : m
+      buf<< "<#{msg.id}> \"#{m}\" (count: #{msg.times_seen})\r\n"
     end
+    buf
   end
+
   def each
     if @array
       @msgs.each {|msg| yield msg }
