@@ -417,7 +417,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
   if (chain->next == NULL) {
     return chain->buf;
   }
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request. there's gonna be some copying.");
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
     if (ngx_buf_in_memory(chain->buf)) {
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
