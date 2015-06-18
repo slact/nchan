@@ -45,6 +45,8 @@ struct nhpm_channel_head_s {
   nhpm_subscriber_t           *sub;
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
+  ngx_uint_t                   min_messages;
+  ngx_uint_t                   max_messages;
   nhpm_message_t              *msg_first;
   nhpm_message_t              *msg_last;
   nhpm_channel_head_cleanup_t *shared_cleanup;
@@ -630,6 +632,8 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
     head->channel.messages = 0;
     head->channel.subscribers = 0;
     head->channel.last_seen = ngx_time();
+    head->min_messages = 0;
+    head->max_messages = (ngx_int_t) -1;
     // head->channel.expires = ???
 
     //TODO: SUBSCRIBE for change notification maybe?
@@ -1290,23 +1294,24 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
 }
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
+  ngx_uint_t      min_messages = ch->min_messages;
+  ngx_uint_t      max_messages = ch->max_messages;
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
-  ngx_int_t       count = 0;
+  ngx_int_t       count = 1;
   //if(cur != NULL) {
   //  DBG("msg %i:%i expires %i, now %i", cur->msg.message_time, cur->msg.message_tag, cur->msg.expires, now);
   //}
   if(cur == NULL) {
     //DBG("msg_first is NULL...");
   }
-  while(cur != NULL && now > cur->msg.expires) {
+  while(cur != NULL && (now > cur->msg.expires || count > max_messages)) {
     next = cur->next;
-    count ++;
     if(cur->msg.refcount > 0) {
-      //ERR("msg %p refcount %i >0", &cur->msg, cur->msg.refcount);
+      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
     }
-    else {
+    else if (count >= min_messages) {
       //DBG("withdraw msg %V", chanhead_msg_to_str(cur));
       if(chanhead_withdraw_message(ch, cur) == NGX_OK) {
         //DBG("delete msg %V", chanhead_msg_to_str(cur));
@@ -1602,6 +1607,8 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   
   chead->channel.expires = ngx_time() + cf->channel_timeout;
   sub_count = chead->sub_count;
+  chead->min_messages = cf->min_messages;
+  chead->max_messages = cf->max_messages;
   //TODO: channel timeout stuff
   
   chanhead_messages_gc(chead);
