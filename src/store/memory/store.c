@@ -510,8 +510,6 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_channel_head_t *cur, *tmp;
   nhpm_subscriber_t *sub;
 
-  handle_chanhead_gc_queue(1);
-  
   HASH_ITER(hh, subhash, cur, tmp) {
     //any subscribers?
     sub = cur->sub;
@@ -519,13 +517,11 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
       ngx_http_finalize_request((ngx_http_request_t *)sub->subscriber, NGX_HTTP_CLOSE);
       sub = sub->next;
     }
-    if(cur->pool != NULL) {
-      ngx_destroy_pool(cur->pool);
-    }
-    HASH_DEL(subhash, cur);
-    ngx_free(cur);
+    chanhead_gc_add(cur);
   }
 
+  handle_chanhead_gc_queue(1);
+  
   if(chanhead_cleanup_timer.timer_set) {
     ngx_del_timer(&chanhead_cleanup_timer);
   }
