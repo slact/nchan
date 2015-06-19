@@ -319,6 +319,11 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
+  sub = head->sub;
+  if(sub==NULL) { //no subscribers
+    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+  }
+  
   if(msg!=NULL) {
     //DBG("publish %i:%i %V", msg->message_time, msg->message_tag, msg_to_str(msg));
     etag = ngx_http_push_store_etag_from_message(msg, head->pool);
@@ -351,7 +356,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   head->channel.subscribers = 0;
   
   head->pool=NULL; //pool will be destroyed on cleanup
-  sub = head->sub;
+  
   head->sub=NULL;
   
   for( ; sub!=NULL; sub=next) {
