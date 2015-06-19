@@ -977,9 +977,9 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
   if(buf->file!=NULL) {
     buf->file = &stuff->file;
     ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
-
-    buf->file->fd = NGX_INVALID_FILE;
-    buf->file->log = NULL;
+    
+    buf->file->fd = ngx_open_file(mbuf->file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    buf->file->log = ngx_cycle->log;
 
     buf->file->name.data = (u_char *)&stuff[1];
 

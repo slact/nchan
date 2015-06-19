@@ -723,8 +723,8 @@ void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
     }
     if (buf->file!=NULL) {
       cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
-      cbuf->file->fd=NGX_INVALID_FILE;
-      cbuf->file->log=NULL;
+      cbuf->file->fd=buf->file->fd;
+      cbuf->file->log=ngx_cycle->log;
       cbuf->file->offset=buf->file->offset;
       cbuf->file->sys_offset=buf->file->sys_offset;
       cbuf->file->name.len=buf->file->name.len;
