@@ -2,6 +2,7 @@
  *  Copyright 2009 Leo Ponomarev.
  */
 
+#include <assert.h>
 #include <ngx_http_push_module.h>
 
 #include <store/memory/store.h>
@@ -37,7 +38,8 @@ ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t sta
 ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
   ngx_chain_t                    *out;
   ngx_file_t                     *file;
-  
+  ngx_pool_cleanup_t             *cln = NULL;
+  ngx_pool_cleanup_file_t        *clnf = NULL;
   if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
     ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, can't allocate chain  in pool");
     return NULL;
@@ -51,16 +53,42 @@ ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool
   ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
   
   if (buf->file!=NULL) {
-    file = buf_copy->file;
-    file->log=log;
-    if(file->fd==NGX_INVALID_FILE) {
-      file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+    if(buf->mmap) { //just the mmap, please
+      buf->in_file=0;
+      buf->file=NULL;
+      buf->file_pos=0;
+      buf->file_last=0;
     }
-    if(file->fd==NGX_INVALID_FILE) {
-      ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, file in buffer is invalid");
-      return NULL;
+    else {
+      file = buf_copy->file;
+      file->log=log;
+      if(file->fd==NGX_INVALID_FILE) {
+        //ngx_log_error(NGX_LOG_ERR, log, 0, "opening invalid file at %s", file->name.data);
+        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+      }
+      if(file->fd==NGX_INVALID_FILE) {
+        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, file in buffer is invalid");
+        return NULL;
+      }
+      else {
+        //close file on cleanup
+        if((cln = ngx_pool_cleanup_add(pool, sizeof(*clnf))) == NULL) {
+          ngx_close_file(file->fd);
+          file->fd=NGX_INVALID_FILE;
+          ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain file cleanup.");
+          return NULL;
+        }
+        cln->handler = ngx_pool_cleanup_file;
+        clnf = cln->data;
+        clnf->fd = file->fd;
+        clnf->name = file->name.data;
+        clnf->log = pool->log;
+      }
     }
   }
+  
+  
+  
   buf_copy->last_buf = 1;
   out->buf = buf_copy;
   out->next = NULL;
@@ -264,26 +292,6 @@ ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_
     *last_modified = msg->message_time;
   }
   //ngx_http_push_store->unlock();
-  
-  
-  if(pool!=NULL && shared == 0 && ((*chain)->buf->file!=NULL)) {
-    //close file when we're done with it
-    ngx_pool_cleanup_t *cln;
-    ngx_pool_cleanup_file_t *clnf;
-    
-    if((cln = ngx_pool_cleanup_add(pool, sizeof(ngx_pool_cleanup_file_t)))==NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate buffer chain pool cleanup while responding to subscriber request");
-      ngx_pfree(pool, *etag);
-      ngx_pfree(pool, *content_type);
-      ngx_pfree(pool, *chain);
-      return NGX_ERROR;
-    }
-    cln->handler = ngx_pool_cleanup_file;
-    clnf = cln->data;
-    clnf->fd = (*chain)->buf->file->fd;
-    clnf->name = (*chain)->buf->file->name.data;
-    clnf->log = ngx_cycle->log;
-  }
   return NGX_OK;
 }
 
@@ -417,7 +425,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
   if (chain->next == NULL) {
     return chain->buf;
   }
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request. there's gonna be some copying.");
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
     if (ngx_buf_in_memory(chain->buf)) {
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
@@ -497,9 +505,9 @@ static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, void *_, ngx_http
 }
 
 static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, ngx_http_push_msg_t *msg, ngx_http_request_t *r) {
-  ngx_chain_t                *chain;
-  ngx_str_t                  *content_type, *etag;
-  time_t                     last_modified;
+  ngx_chain_t                *chain = NULL;
+  ngx_str_t                  *content_type = NULL, *etag = NULL;
+  time_t                      last_modified = 0;
   switch(msg_search_outcome) {
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       //interval-polling subscriber requests get a 304 with their entity tags preserved.
@@ -723,8 +731,8 @@ void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
     }
     if (buf->file!=NULL) {
       cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
-      cbuf->file->fd=NGX_INVALID_FILE;
-      cbuf->file->log=NULL;
+      cbuf->file->fd=buf->file->fd;
+      cbuf->file->log=ngx_cycle->log;
       cbuf->file->offset=buf->file->offset;
       cbuf->file->sys_offset=buf->file->sys_offset;
       cbuf->file->name.len=buf->file->name.len;

@@ -19,6 +19,7 @@ _NHPM_REDIS_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
 "
 _NHPM_MEMORY_STORE_SRCS="\
+  ${ngx_addon_dir}/src/store/memory/rbtree_util.c \
   ${ngx_addon_dir}/src/store/memory/store.c \
 "
 

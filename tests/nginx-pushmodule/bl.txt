@@ -1,0 +1,6 @@
+fun:ngx_regex_module_init
+fun:ngx_http_script_copy_capture_len_code
+fun:ngx_http_script_copy_capture_code
+fun:ngx_http_parse_request_line
+fun:ngx_writev
+src:*ngx_writev_chain.c
