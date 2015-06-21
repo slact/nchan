@@ -72,11 +72,14 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch")
+  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
+  "bl.txt")
+
 md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
+         'SKIP'
          'SKIP')
 
 build() {
@@ -129,7 +132,8 @@ build() {
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
     CFLAGS="-fdiagnostics-color=always $CFLAGS"
   fi
-
+  
+  echo $CFLAGS
   export CCACHE_CPP2=yes
   if ! [[ -z $CLANG_ANALYZER ]]; then
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
@@ -137,6 +141,7 @@ build() {
   elif ! [[ -z $CONTINUE ]]; then
     make $REMAKE
   else
+    ln -svf $srcdir/bl.txt
     ./configure ${CONFIGURE[@]}
     make
   fi
