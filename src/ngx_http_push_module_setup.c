@@ -174,6 +174,7 @@ static void ngx_http_push_exit_worker(ngx_cycle_t *cycle) {
 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
   ngx_http_push_store->exit_master(cycle);
+  ngx_destroy_pool(ngx_http_push_pool);
 }
 
 static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
