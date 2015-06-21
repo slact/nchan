@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "store.h"
 #include <store/ngx_rwlock.h>
+#include "rbtree_util.h"
 
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
 typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
