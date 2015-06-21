@@ -77,8 +77,9 @@ struct nhpm_channel_head_cleanup_s {
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
 //#define DEBUG_SHM_ALLOC 1
-
-#define DBG(...) ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, __VA_ARGS__)
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
 static nhpm_channel_head_t *subhash = NULL;
@@ -130,12 +131,12 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   nhpm_channel_head_cleanup_t *hcln;
   if(head->pool==NULL) {
     if((head->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for channel subscriber pool");
+      ERR("can't allocate memory for channel subscriber pool");
     }
   }
   if(head->shared_cleanup == NULL) {
     if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for channel head cleanup");
+      ERR("can't allocate memory for channel head cleanup");
     }
     head->shared_cleanup = hcln;
   }
@@ -219,6 +220,7 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
   
   if(i_am_the_last) {
     //release pool
+    DBG("I am the last subscriber.");
     assert(shared->sub_count != 0);
     ngx_destroy_pool(shared->pool);
   }
@@ -307,7 +309,6 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
   }
 }
 
-
 static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_subscriber_t          *sub, *next;
   ngx_buf_t                  *buffer=NULL;
@@ -325,12 +326,19 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   }
   
   if(msg!=NULL) {
-    //DBG("publish %i:%i %V", msg->message_time, msg->message_tag, msg_to_str(msg));
+    DBG("publish %i:%i ", msg->message_time, msg->message_tag, msg_to_str(msg));
     etag = ngx_http_push_store_etag_from_message(msg, head->pool);
     content_type = ngx_http_push_store_content_type_from_message(msg, head->pool);
+    if(msg->buf && msg->buf->file) {
+      DBG("incoming fd %s %i", msg->buf->file->name.data, msg->buf->file->fd);
+    }
     chain = ngx_http_push_create_output_chain(msg->buf, head->pool, ngx_cycle->log);
-    if(chain==NULL) {
+    if(chain == NULL || chain->buf == NULL) {
+      ERR("NULL chain %p or buf %p", chain, chain ? chain->buf : NULL);
       return NGX_ERROR;
+    }
+    if(chain->buf && chain->buf->file) {
+      DBG("publish fd %s %i", chain->buf->file->name.data, chain->buf->file->fd);
     }
     buffer = chain->buf;
     buffer->recycled = 1;
@@ -382,7 +390,12 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
       rbuffer = ngx_pcalloc(sub->pool, sizeof(*rbuffer));
       rchain->next = NULL;
       rchain->buf = rbuffer;
+      if(rchain->buf->file) {
+        DBG("really publish fd %s %i", rchain->buf->file->name.data, rchain->buf->file->fd);
+      }
       ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
+      
+      //DBG("publish fd %s %i", chain->buf->file->name.data, chain->buf->file->fd);
       
       ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, rchain, content_type, etag, msg->message_time));
     }
@@ -400,7 +413,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t    *cur, *next;
   nhpm_channel_head_t   *ch = NULL;
   
-  //DBG("handle_chanhead_gc_queue");
+  DBG("handle_chanhead_gc_queue");
   
   for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
     next=cur->next;
@@ -411,20 +424,24 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         if(ch->msg_first == NULL) {
           //unsubscribe now
           //DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
-          //DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+          ERR("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
           if(ch->pool != NULL) {
+            ERR("destroy pool %p.", ch->pool);
             ngx_destroy_pool(ch->pool);
+          }
+          else {
+            ERR("ch->pool == NULL");
           }
           CHANNEL_HASH_DEL(ch);
           ngx_free(ch);
         }
         else {
-          //ERR("chanhead %p (%V) is still storing some messages.", ch, &ch->id);
+          ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
           break;
         }
       }
       else {
-        //ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
+        ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
         break;
       }
     }
@@ -515,6 +532,7 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 }
 
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
+  DBG("exit worker %i", ngx_pid);
   nhpm_channel_head_t *cur, *tmp;
   nhpm_subscriber_t *sub;
 
@@ -691,10 +709,15 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
   return NGX_OK;
 }
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
-  ngx_file_t        *f = msg->msg.buf->file;
+  ngx_buf_t         *buf = msg->msg.buf;
+  ngx_file_t        *f = buf->file;
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
+      DBG("close fd %u ", f->fd);
       ngx_close_file(f->fd);
+    }
+    else {
+      DBG("delete withdrawn fd invalid");
     }
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
@@ -707,6 +730,9 @@ static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t
   if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
     DBG("delete msg %i:%i", msg->msg.message_time, msg->msg.message_tag);
     delete_withdrawn_message(msg);
+  } 
+  else {
+    ERR("failed to withdraw and delete message %i:%i", msg->msg.message_time, msg->msg.message_tag);
   }
   return NGX_OK;
 }
@@ -717,7 +743,7 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
-  DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
+  //DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
   
   //is the message queue too big?
   while(cur != NULL && ch->channel.messages > max_messages) {
@@ -807,9 +833,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
-  if(chmsg) {
-    assert(&chmsg->msg != NULL);
-  }
   
   switch(findmsg_status) {
     ngx_str_t                  *etag;
@@ -822,6 +845,10 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
       msg = &chmsg->msg;
       DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
+      if(msg == NULL) {
+        ERR("msg is NULL... why?...");
+        return NGX_ERROR;
+      }
       switch(cf->subscriber_concurrency) {
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
           if(msg != NULL) {
@@ -1092,7 +1119,10 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   
   //do the actual publishing
   
-  DBG("publish %i:%i expire %i ", publish_msg->message_time, publish_msg->message_tag, cf->buffer_timeout);
+  DBG("publish %i:%i expire %i", publish_msg->message_time, publish_msg->message_tag, cf->buffer_timeout);
+  if(publish_msg->buf && publish_msg->buf->file) {
+    DBG("fd %i", publish_msg->buf->file->fd);
+  }
   ngx_http_push_store_publish_raw(chead, publish_msg, 0, NULL);
   callback(sub_count > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED, channel_copy, privdata);
   
