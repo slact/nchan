@@ -40,10 +40,10 @@ for opt in $*; do
       persist_redis=1;;
     leak|leakcheck|valgrind|memcheck)
       valgrind=1
-      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" );;
+      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" );;
     debug-memcheck)
       valgrind=1
-      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" )
+      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" )
       VALGRIND_OPT+=( "--vgdb-error=1" )
       ATTACH_DDD=1;;
     callgrind|profile)
