@@ -2,7 +2,7 @@
 require 'minitest'
 require 'minitest/reporters'
 require "minitest/autorun"
-Minitest::Reporters.use! [Minitest::Reporters::SpecReporter .new(:color => true)]
+Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
@@ -152,7 +152,6 @@ class PubSubTest <  Minitest::Test
     assert sub.messages.matches? pub.messages
     sub.terminate
   end
-  
 
   def test_authorized_channels
     #must be published to before subscribing
@@ -210,11 +209,11 @@ class PubSubTest <  Minitest::Test
 
     pub.post ["this message should not be delivered", "nor this one"]
     sub.each {|s| s.run}
-    sleep 0.2
+    sleep 1
     pub.post "received1"
-    sleep 0.2
+    sleep 1
     pub.post "received2"
-    sleep 0.2 
+    sleep 1
     pub.post "FIN"
     sub.each {|s| s.wait}
     sub.each do |s|
@@ -338,10 +337,11 @@ class PubSubTest <  Minitest::Test
   end
   
   #[5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
-  #  define_method "test_long_message_#{n}Kb" do 
-  #    test_long_message n
-  #  end
-  #end
+  [5, 10, 20, 200, 900].each do |n|
+    define_method "test_long_message_#{n}Kb" do 
+      test_long_message n
+    end
+  end
   
   def test_message_length_range
     pub, sub = pubsub 2, timeout: 15
@@ -360,12 +360,13 @@ class PubSubTest <  Minitest::Test
   end
   
   def test_message_timeout
-    pub, sub = pubsub 10, pub: "/pub/2_sec_message_timeout/", timeout: 4
+    pub, sub = pubsub 1, pub: "/pub/2_sec_message_timeout/", timeout: 10
     pub.post %w( foo bar etcetera ) #these shouldn't get delivered
     pub.messages.clear
     sleep 3
-    
+    #binding.pry
     sub.run
+    sleep 1
     pub.post %w( what is this even FIN )
     sub.wait
     verify pub, sub
