@@ -451,14 +451,22 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) 
   }
 }
 
+
+static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
+
+
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
-  ngx_http_push_channel_t  chan;
+  nhpm_message_t           *msg = NULL;
   if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
-    ngx_memcpy(&chan, &ch->channel, sizeof(chan));
     ngx_http_push_store_publish_raw(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
     callback(NGX_OK, &ch->channel, privdata);
+    //delete all messages
+    for(msg = ch->msg_first; msg != NULL; msg = ch->msg_first) {
+      chanhead_delete_message(ch, msg);
+    }
+    chanhead_gc_add(ch);
   }
   else{
     callback(NGX_OK, NULL, privdata);
@@ -974,18 +982,6 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
   
   msg->buf = buf;
 
-  if(buf->file!=NULL) {
-    buf->file = &stuff->file;
-    ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
-    
-    buf->file->fd = ngx_open_file(mbuf->file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
-    buf->file->log = ngx_cycle->log;
-
-    buf->file->name.data = (u_char *)&stuff[1];
-
-    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
-  }
-
   msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
 
   msg->content_type.len = content_type_size;
@@ -999,7 +995,39 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
     buf->end = buf->last;
     ngx_memcpy(buf->pos, mbuf->pos, buf_body_size);
   }
+  
+  if(buf->file!=NULL) {
+    buf->file = &stuff->file;
+    ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
+    
+    /*
+    buf->file->fd = ngx_open_file(mbuf->file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    */
+    buf->file->fd =NGX_INVALID_FILE;
+    buf->file->log = ngx_cycle->log;
 
+    buf->file->name.data = (u_char *)&stuff[1];
+
+    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
+    
+    //don't mmap it
+    /*
+    if((buf->start = mmap(NULL, buf->file_last, PROT_READ, MAP_SHARED, buf->file->fd, 0))==NULL){
+      ERR("mmap failed");
+    }
+    buf->last=buf->start + buf->file_last;
+    buf->pos=buf->start + buf->file_pos;
+    buf->end = buf->start + buf->file_last;
+    //buf->file_pos=0;
+    //buf->file_last=0;
+    
+    buf->last=buf->end;
+    //buf->in_file=0;
+    buf->mmap=1;
+    //buf->file=NULL;
+    */
+  }
+  
   return chmsg;
 }
 
