@@ -60,6 +60,7 @@ static void *ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
   lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->channel_group.data=NULL;
+  lcf->storage_engine.data=NULL;
   return lcf;
 }
 
@@ -78,6 +79,7 @@ static char *  ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
   ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT);
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
+  ngx_conf_merge_str_value(conf->storage_engine, prev->storage_engine, "");
   
   //sanity checks
   if(conf->max_messages < conf->min_messages) {
@@ -108,9 +110,9 @@ typedef struct {
   ngx_int_t                       val;
 } ngx_http_push_strval_t;
 
-static ngx_int_t ngx_http_push_strval(ngx_str_t string, ngx_http_push_strval_t strval[], ngx_int_t strval_len, ngx_int_t *val) {
+static ngx_int_t ngx_http_push_strval(ngx_str_t string, ngx_http_push_strval_t strval[], ngx_int_t *val) {
   ngx_int_t                      i;
-  for(i=0; i<strval_len; i++) {
+  for(i=0; &strval[i] != NULL; i++) {
     if(ngx_strncasecmp(string.data, (u_char *)strval[i].str, string.len)==0) {
       *val = strval[i].val;
       return NGX_OK;
@@ -123,7 +125,8 @@ static char *ngx_http_push_set_subscriber_concurrency(ngx_conf_t *cf, ngx_comman
   static ngx_http_push_strval_t  concurrency[] = {
     { "first"    , NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
     { "last"     , NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN    },
-    { "broadcast", NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST }
+    { "broadcast", NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST },
+    {NULL}
   };
   ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
   
@@ -132,13 +135,36 @@ static char *ngx_http_push_set_subscriber_concurrency(ngx_conf_t *cf, ngx_comman
   }
   
   ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-  if(ngx_http_push_strval(value, concurrency, 3, field)!=NGX_OK) {
+  if(ngx_http_push_strval(value, concurrency,field)!=NGX_OK) {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
     return NGX_CONF_ERROR;
   }
 
   return NGX_CONF_OK;
 }
+
+static char *ngx_http_push_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  static ngx_http_push_strval_t  concurrency[] = {
+    { "first"    , NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
+    { "last"     , NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN    },
+    { "broadcast", NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST },
+    {NULL}
+  };
+  ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
+  
+  if (*field != NGX_CONF_UNSET) {
+    return "is duplicate";
+  }
+  
+  ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
+  if(ngx_http_push_strval(value, concurrency, field)!=NGX_OK) {
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
+    return NGX_CONF_ERROR;
+  }
+
+  return NGX_CONF_OK;
+}
+
 
 static char *ngx_http_push_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_publisher_handler);
@@ -147,7 +173,8 @@ static char *ngx_http_push_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *c
 static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   static ngx_http_push_strval_t  mech[] = {
     { "interval-poll", NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL },
-    { "long-poll"    , NGX_HTTP_PUSH_MECHANISM_LONGPOLL     }  
+    { "long-poll"    , NGX_HTTP_PUSH_MECHANISM_LONGPOLL     },
+    {NULL}
   };
   ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
   if (*field != NGX_CONF_UNSET) {
@@ -159,7 +186,7 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
   }
   else {
     ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-    if(ngx_http_push_strval(value, mech, 2, field)!=NGX_OK) {
+    if(ngx_http_push_strval(value, mech, field)!=NGX_OK) {
       ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber value: %V", &value);
       return NGX_CONF_ERROR;
     }
@@ -330,6 +357,13 @@ static ngx_command_t  ngx_http_push_commands[] = {
       ngx_conf_set_sec_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, channel_timeout),
+      NULL },
+      
+    { ngx_string("push_storage_engine"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_push_loc_conf_t, storage_engine),
       NULL },
 
     ngx_null_command

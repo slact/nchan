@@ -75,6 +75,8 @@ typedef struct {
   ngx_int_t                       max_channel_subscribers;
   ngx_int_t                       ignore_queue_on_no_cache;
   time_t                          channel_timeout;
+  ngx_str_t                       storage_engine;
+  ngx_str_t                       storage_engine_name;
 } ngx_http_push_loc_conf_t;
 
 typedef struct {
