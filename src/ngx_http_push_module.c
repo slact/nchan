@@ -232,6 +232,10 @@ ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_
     r->headers_out.content_type.data = content_type->data;
     r->headers_out.content_type_len = r->headers_out.content_type.len;
   }
+  if(chain == NULL) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header");
+    return NGX_ERROR;
+  }
   if(last_modified) {
     //if-modified-since header
     r->headers_out.last_modified_time=last_modified;

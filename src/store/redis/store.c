@@ -298,8 +298,8 @@ static ngx_int_t msgpack_to_uint(msgpack_object *obj, ngx_uint_t *ret) {
 }
 
 static ngx_int_t msgpack_to_int(msgpack_object *obj, ngx_int_t *ret) {
-  ngx_uint_t preret;
-  ngx_int_t retcode;
+  ngx_uint_t preret = NULL;
+  ngx_int_t retcode = NULL;
   retcode = msgpack_to_uint(obj, &preret);
   *ret = (ngx_int_t) preret;
   return retcode;
@@ -1048,9 +1048,12 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
   ngx_http_push_msg_t       *msg=NULL;
   
-  if(d != NULL) {
-    nhpm_log_redis_reply(d->name, d->t);
+  if(d == NULL) {
+    ERR("redis_get_mesage_callback has NULL userdata");
+    return;
   }
+  
+  nhpm_log_redis_reply(d->name, d->t);
   
   //output: result_code, msg_time, msg_tag, message, content_type,  channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
