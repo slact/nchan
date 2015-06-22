@@ -298,8 +298,8 @@ static ngx_int_t msgpack_to_uint(msgpack_object *obj, ngx_uint_t *ret) {
 }
 
 static ngx_int_t msgpack_to_int(msgpack_object *obj, ngx_int_t *ret) {
-  ngx_uint_t preret = NULL;
-  ngx_int_t retcode = NULL;
+  ngx_uint_t preret = NGX_ERROR;
+  ngx_int_t retcode = NGX_ERROR;
   retcode = msgpack_to_uint(obj, &preret);
   *ret = (ngx_int_t) preret;
   return retcode;
