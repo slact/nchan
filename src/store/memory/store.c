@@ -18,8 +18,8 @@ struct nhpm_subscriber_cleanup_s {
 
 struct nhpm_subscriber_s {
   ngx_uint_t                  id;
-  void                       *subscriber;
   subscriber_type_t           type;
+  ngx_http_request_t         *request;
   ngx_event_t                 ev;
   ngx_pool_t                 *pool;
   struct nhpm_subscriber_s   *prev;
@@ -123,8 +123,6 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_su
 }
 
 static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, nhpm_subscriber_t *sub) {
-  //ngx_http_request_t        *r = (ngx_http_request_t *)sub->subscriber;
-  //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   return NGX_OK;
 }
 
@@ -369,10 +367,6 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   head->sub=NULL;
   
   for( ; sub!=NULL; sub=next) {
-    ngx_chain_t               *rchain;
-    ngx_buf_t                 *rbuffer;
-    ngx_http_request_t        *r=(ngx_http_request_t *)sub->subscriber;
-    //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
 
     if(sub->ev.timer_set) { //remove timeout timer right away
       ngx_del_timer(&sub->ev);
@@ -385,7 +379,11 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, sub->clndata.shared);
     }
     
+    ngx_http_request_t        *r=sub->request;
+    //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
     if(msg!=NULL) {
+      ngx_chain_t               *rchain;
+      ngx_buf_t                 *rbuffer;
       //each response needs its own chain and buffer, though the buffer contents can be shared
       rchain = ngx_pcalloc(sub->pool, sizeof(*rchain));
       rbuffer = ngx_pcalloc(sub->pool, sizeof(*rbuffer));
@@ -541,7 +539,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
     //any subscribers?
     sub = cur->sub;
     while (sub != NULL) {
-      ngx_http_finalize_request((ngx_http_request_t *)sub->subscriber, NGX_HTTP_CLOSE);
+      ngx_http_finalize_request(sub->request, NGX_HTTP_CLOSE);
       sub = sub->next;
     }
     chanhead_gc_add(cur);
@@ -598,7 +596,7 @@ static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channe
   headcln->sub_count = 0;
   
   if(sub->r_cln == NULL) {
-    if((sub->r_cln = ngx_http_cleanup_add((ngx_http_request_t *) sub->subscriber, 0)) == NULL) {
+    if((sub->r_cln = ngx_http_cleanup_add((ngx_http_request_t *) sub->request, 0)) == NULL) {
       ERR("unable to add subscriber request cleanup and callback");
       return NGX_ERROR;
     }
@@ -617,7 +615,7 @@ static void nhpm_subscriber_timeout(ngx_event_t *ev) {
   nhpm_subscriber_cleanup_t *cln = ev->data;
   nhpm_subscriber_t         *sub = cln->sub;
   ngx_int_t           rc;
-  ngx_http_request_t *r = (ngx_http_request_t *)sub->subscriber;
+  ngx_http_request_t *r = sub->request;
   //DBG("subscriber_timeout for %p on %V", sub, &sub->clndata.shared->head->id);
   if (r->connection->destroyed) {
     ERR("subscriber_timeout: connection already destroyed. this probably shouldn't happen.");
@@ -629,7 +627,7 @@ static void nhpm_subscriber_timeout(ngx_event_t *ev) {
   ngx_pfree(cln->shared->pool, sub); //do we even want this?
 }
 
-static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_request_t *r) {
+static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //this is the new shit
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   nhpm_subscriber_t         *nextsub;
@@ -644,9 +642,8 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
   nextsub->next=NULL;
   nextsub->id = 0;
 
-  nextsub->subscriber= (void *)r;
-  nextsub->type= LONGPOLL;
-  nextsub->pool= r->pool;
+  nextsub->subscriber = sub;
+  nextsub->pool= sub->pool;
   if(chanhead->sub != NULL) {
     chanhead->sub->prev = nextsub;
     nextsub->next = chanhead->sub;
@@ -655,16 +652,12 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
     //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "first subscriber for %V (%p): %p", &chanhead->id, chanhead, nextsub);
   }
   chanhead->sub = nextsub;
-  
+
   chanhead->sub_count++;
   chanhead->channel.subscribers++;
+
+  sub->enqueue(sub, cf->subscriber_timeout);
   
-  if(chanhead->status == READY) {
-    nhpm_subscriber_register(chanhead, nextsub);
-  }
-
-  ngx_push_longpoll_subscriber_enqueue(nextsub->subscriber, cf->subscriber_timeout);
-
     //add teardown callbacks and cleaning data
   if(ngx_http_push_store_set_subscriber_cleanup_callback(chanhead, nextsub, (ngx_http_cleanup_pt *)subscriber_cleanup_callback) != NGX_OK) {
     ngx_pfree(chanhead->pool, nextsub);
@@ -1129,28 +1122,4 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   
   return NGX_OK;
 }
-
-ngx_http_push_store_t  ngx_http_push_store_memory = {
-    //init
-    &ngx_http_push_store_init_module,
-    &ngx_http_push_store_init_worker,
-    &ngx_http_push_store_init_postconfig,
-    &ngx_http_push_store_create_main_conf,
-    
-    //shutdown
-    &ngx_http_push_store_exit_worker,
-    &ngx_http_push_store_exit_master,
-    
-    //async-friendly functions with callbacks
-    &ngx_http_push_store_async_get_message, //+callback
-    &ngx_http_push_store_subscribe, //+callback
-    &ngx_http_push_store_publish_message, //+callback
-    
-    &ngx_http_push_store_delete_channel, //+callback
-    &ngx_http_push_store_find_channel, //+callback
-    
-    //message stuff
-    &ngx_http_push_store_etag_from_message,
-    &ngx_http_push_store_content_type_from_message,
-    
-};
+hhhhh

@@ -12,7 +12,7 @@ typedef struct {
   
   //async-friendly functions with callbacks
   ngx_int_t (*get_message) (ngx_str_t *, ngx_http_push_msg_id_t *, callback_pt, void *);
-  ngx_int_t (*subscribe)   (ngx_str_t *, ngx_http_push_msg_id_t *, ngx_http_request_t *, callback_pt, void *);
+  ngx_int_t (*subscribe)   (ngx_str_t *, ngx_http_push_msg_id_t *, subscriber_t *, callback_pt, void *);
   ngx_int_t (*publish)     (ngx_str_t *, ngx_http_push_msg_t *, ngx_http_push_loc_conf_t *, callback_pt, void *);
   
   ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
@@ -27,5 +27,3 @@ typedef struct {
   ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
 
 } ngx_http_push_store_t;
-
-typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET} subscriber_type_t;
