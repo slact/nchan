@@ -96,11 +96,12 @@ typedef struct nhpm_llist_timed_s {
 typedef struct subscriber_s subscriber_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET} subscriber_type_t;
 struct subscriber_s {
-  ngx_int_t            (*enqueue)(struct subscriber_s *self, ngx_int_t timeout);
-  ngx_int_t            (*dequeue)(struct subscriber_s *self);
-  ngx_int_t            (*respond_message)(struct subscriber_s *self, ngx_http_push_msg_t *msg);
-  ngx_int_t            (*respond_status)(struct subscriber_s *self, ngx_http_push_msg_t *msg);
-  void                *(*add_next_response_cleanup)(struct subscriber_s *self, size_t privdata_size);
+  ngx_int_t            (*enqueue)(struct subscriber_s *, ngx_int_t timeout);
+  ngx_int_t            (*dequeue)(struct subscriber_s *);
+  ngx_int_t            (*respond_message)(struct subscriber_s *, ngx_http_push_msg_t *);
+  ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
+  void                *(*add_next_response_cleanup)(struct subscriber_s *, size_t privdata_size);
   subscriber_type_t    type;
-  ngx_http_request_t  *r;
+  unsigned             dequeue_after_response:1;
+  ngx_http_request_t  *request;
 }; //subscriber_t

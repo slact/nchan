@@ -7,6 +7,9 @@ ngx_feature_path=
 ngx_feature_libs=-lmsgpack
 ngx_feature_test=
 
+_NHPM_SUBSCRIBERS_SRCS="\
+  ${ngx_addon_dir}/src/subscribers/longpoll.c \
+"
 
 _NHPM_REDIS_SRCS="\
   ${ngx_addon_dir}/src/hiredis/hiredis.c \
@@ -24,16 +27,20 @@ _NHPM_MEMORY_STORE_SRCS="\
 "
 
 HTTP_MODULES="$HTTP_MODULES ngx_http_push_module"
+
 CORE_INCS="$CORE_INCS \
-	$ngx_addon_dir/src"	
+  $ngx_addon_dir/src
+"
+
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
-    $_NHPM_REDIS_SRCS \
-    ${ngx_addon_dir}/src/ngx_http_push_defs.c \
-    $_NHPM_REDIS_STORE_SRCS \
-    $_NHPM_MEMORY_STORE_SRCS \
-    ${ngx_addon_dir}/src/store/ngx_rwlock.c \
-    ${ngx_addon_dir}/src/ngx_http_push_module.c \
-    "
+  $_NHPM_REDIS_SRCS \
+  ${ngx_addon_dir}/src/ngx_http_push_defs.c \
+  $_NHPM_SUBSCRIBERS_SRCS \
+
+  $_NHPM_MEMORY_STORE_SRCS \
+  ${ngx_addon_dir}/src/store/ngx_rwlock.c \
+  ${ngx_addon_dir}/src/ngx_http_push_module.c \
+"
 
 have=NGX_HTTP_HEADERS . auto/have
 . auto/feature
