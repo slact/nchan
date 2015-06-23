@@ -47,7 +47,7 @@ for opt in $*; do
       VALGRIND_OPT+=( "--vgdb-error=1" )
       ATTACH_DDD=1;;
     callgrind|profile)
-      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes" "--callgrind-out-file='callgrind-nginx-%p.'")   #--collect-systime=yes
+      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
       valgrind=1;;
     cachegrind)
       VALGRIND_OPT=( "--tool=cachegrind" )
