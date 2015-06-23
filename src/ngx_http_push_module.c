@@ -514,8 +514,6 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   switch(r->method) {
     case NGX_HTTP_GET:
       ngx_http_push_subscriber_get_msg_id(r, &msg_id);
-
-      r->main->count++; //let it linger until callback
       switch(cf->subscriber_poll_mechanism) {
         case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
           ngx_http_push_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
