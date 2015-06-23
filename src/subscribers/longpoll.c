@@ -3,17 +3,29 @@
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
+
 static const subscriber_t new_longpoll_sub;
 
+typedef struct {
+  unsigned         finalize_request:1;
+} subscriber_data_t;
+
+typedef struct {
+  subscriber_t       sub;
+  subscriber_data_t  data;
+} full_subscriber_t;
+
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
-  subscriber_t *sub = NULL;
-  if((sub = ngx_alloc(sizeof(*sub), ngx_cycle->log)) == NULL) {
+  full_subscriber_t  *fsub;
+  if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate longpoll subscriber");
     return NULL;
   }
-  ngx_memcpy(sub, &new_longpoll_sub, sizeof(*sub));
-  sub->request = r;
-  return sub;
+  ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
+  fsub->sub.data = &fsub->data;
+  fsub->sub.request = r;
+  fsub->data.finalize_request = 0;
+  return &fsub->sub;
 }
 
 ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
@@ -26,13 +38,32 @@ ngx_int_t longpoll_enqueue(subscriber_t *self, ngx_int_t timeout) {
   self->request->read_event_handler = ngx_http_test_reading;
   self->request->write_event_handler = ngx_http_request_empty_handler;
   self->request->main->count++; //this is the right way to hold and finalize the request... maybe
-  //r->keepalive = 1; //stayin' alive!!
-  
+  ((subscriber_data_t *)self->data)->finalize_request = 1;
   return NGX_OK;
 }
 
 ngx_int_t longpoll_dequeue(subscriber_t *self) {
   return NGX_OK;
+}
+
+static ngx_int_t dequeue_maybe(subscriber_t *self) {
+  if(self->dequeue_after_response) {
+    self->dequeue(self);
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
+  if(((subscriber_data_t *)self->data)->finalize_request) {
+    ngx_http_finalize_request(self->request, rc);
+  }
+  return NGX_OK;
+}
+static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
+  ERR(errmsg);
+  finalize_maybe(sub, NGX_ERROR);
+  dequeue_maybe(sub);
+  return NGX_ERROR;
 }
 
 ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
@@ -46,9 +77,7 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   ngx_pool_cleanup_file_t   *clnf = NULL;
   ngx_int_t                  rc;
   if(buffer == NULL) {
-    ERR("attemtping to respond to subscriber with message with NULL buffer");
-    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-    return NGX_ERROR;
+    return abort_response(self, "attemtping to respond to subscriber with message with NULL buffer");
   }
   //message body
   rchain = ngx_pcalloc(r->pool, sizeof(*rchain));
@@ -63,24 +92,18 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   //ensure the file, if present, is open
   if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
     if(rfile->name.len == 0) {
-      ERR("longpoll subscriber given an invalid fd with no filename");
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return NGX_ERROR;
+      return abort_response(self, "longpoll subscriber given an invalid fd with no filename");
     }
     rfile->fd = ngx_open_file(rfile->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
     if(rfile->fd == NGX_INVALID_FILE) {
-      ERR("can't create output chain, file in buffer won't open");
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return NGX_ERROR;
+      return abort_response(self, "can't create output chain, file in buffer won't open");
     }
     //and that it's closed when we're finished with it
     cln = ngx_pool_cleanup_add(r->pool, sizeof(*clnf));
     if(cln == NULL) {
       ngx_close_file(rfile->fd);
       rfile->fd=NGX_INVALID_FILE;
-      ERR("push module: can't create output chain file cleanup.");
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return NGX_ERROR;
+      return abort_response(self, "push module: can't create output chain file cleanup.");
     }
     cln->handler = ngx_pool_cleanup_file;
     clnf = cln->data;
@@ -103,18 +126,12 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
 
   //etag
   if((etag = ngx_palloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
-    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-    ERR("unable to allocate memory for Etag header in subscriber's request pool");
-    if ((ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return NGX_ERROR;
-    }
+    return abort_response(self, "unable to allocate memory for Etag header in subscriber's request pool");
   }
   etag->data = (u_char *)(etag+1);
   etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
   if ((ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
-    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-    return NGX_ERROR;
+    return abort_response(self, "can't add etag header to response");
   }
   //Vary header needed for proper HTTP caching.
   ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
@@ -126,16 +143,20 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   //we know the entity length, and we're using just one buffer. so no chunking please.
   r->headers_out.content_length_n=ngx_buf_size(rbuffer);
   if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
-    ERR("WTF just happened to request %p?", r);
-    return rc;
+    ERR("request %p, send_header response %i", r, rc);
+    return abort_response(self, "WTF just happened to request?");
   }
 
-  ngx_http_finalize_request(r, ngx_http_output_filter(r, rchain));
+  rc = ngx_http_output_filter(r, rchain);
+  finalize_maybe(self, rc);
+  dequeue_maybe(self);
   return NGX_OK;
 }
 
 ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_finalize_request(self->request, ngx_http_push_respond_status_only(self->request, status_code, status_line));
+  finalize_maybe(self, NGX_OK);
+  dequeue_maybe(self);
   return NGX_OK;
 }
 

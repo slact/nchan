@@ -104,4 +104,5 @@ struct subscriber_s {
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;
   ngx_http_request_t  *request;
+  void                *data;
 }; //subscriber_t
