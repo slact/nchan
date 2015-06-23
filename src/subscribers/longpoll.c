@@ -154,8 +154,8 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
 }
 
 ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_http_finalize_request(self->request, ngx_http_push_respond_status_only(self->request, status_code, status_line));
-  finalize_maybe(self, NGX_OK);
+  ngx_http_push_respond_status_only(self->request, status_code, status_line);
+  finalize_maybe(self, status_code);
   dequeue_maybe(self);
   return NGX_OK;
 }

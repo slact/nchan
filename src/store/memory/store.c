@@ -775,6 +775,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
   if(cf->authorize_channel && (chanhead = ngx_http_push_store_find_chanhead(channel_id)) == NULL) {
+      sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
       callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
       return NGX_OK;
     }
@@ -793,6 +794,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
       msg = &chmsg->msg;
       DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
       if(msg == NULL) {
+        sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
         ERR("msg is NULL... why?...");
         return NGX_ERROR;
       }
