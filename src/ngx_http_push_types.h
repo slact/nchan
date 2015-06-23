@@ -100,7 +100,7 @@ struct subscriber_s {
   ngx_int_t            (*dequeue)(struct subscriber_s *);
   ngx_int_t            (*respond_message)(struct subscriber_s *, ngx_http_push_msg_t *);
   ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
-  void                *(*add_next_response_cleanup)(struct subscriber_s *, size_t privdata_size);
+  ngx_http_cleanup_t  *(*add_next_response_cleanup)(struct subscriber_s *, size_t privdata_size);
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;
   ngx_http_request_t  *request;

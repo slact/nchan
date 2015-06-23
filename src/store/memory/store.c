@@ -804,15 +804,8 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
           //FALL-THROUGH to BROADCAST
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-          if(msg != NULL) {
             ret = sub->respond_message(sub, msg);
             callback(ret, msg, privdata);
-          }
-          else {
-            ERR("found a message for subscriber, but it turned out to be NULL");
-            ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-            callback(ret, msg, privdata);
-          }
           break;
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
