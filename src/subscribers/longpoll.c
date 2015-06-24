@@ -148,7 +148,7 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   }
 
   rc = ngx_http_output_filter(r, rchain);
-  finalize_maybe(self, rc);
+  finalize_maybe(self, NGX_OK);
   dequeue_maybe(self);
   return NGX_OK;
 }

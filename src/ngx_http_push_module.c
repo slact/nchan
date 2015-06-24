@@ -422,6 +422,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
       buf->start = buf->last;
     }
   }
+  buf->last_buf = 1;
   return buf;
 }
 
@@ -568,11 +569,13 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error publishing message");
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
       
     default:
       //for debugging, mostly. I don't expect this branch to behit during regular operation
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error publishing message, status code %i", status);
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
   }
 }
