@@ -154,8 +154,16 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
 }
 
 ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_http_push_respond_status_only(self->request, status_code, status_line);
-  finalize_maybe(self, status_code);
+  ngx_http_request_t    *r = self->request;
+  r->headers_out.status=status_code;
+  if(status_line!=NULL) {
+    r->headers_out.status_line.len =status_line->len;
+    r->headers_out.status_line.data=status_line->data;
+  }
+  r->headers_out.content_length_n = 0;
+  r->header_only = 1;
+  ngx_http_send_header(r);
+  finalize_maybe(self, NGX_OK);
   dequeue_maybe(self);
   return NGX_OK;
 }
