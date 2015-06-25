@@ -23,6 +23,7 @@ _NHPM_REDIS_STORE_SRCS="\
 "
 _NHPM_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/rbtree_util.c \
+  ${ngx_addon_dir}/src/store/memory/shmem.c \
   ${ngx_addon_dir}/src/store/memory/store.c \
 "
 

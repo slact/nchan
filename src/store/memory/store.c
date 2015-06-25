@@ -4,6 +4,8 @@
 #include "store.h"
 #include <store/ngx_rwlock.h>
 #include "rbtree_util.h"
+#include "shmem.h"
+#include <pthread.h>
 
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
 typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
@@ -61,14 +63,14 @@ struct nhpm_channel_head_cleanup_s {
 };
 
 
-#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, subhash, (id_buf)->data, (id_buf)->len, p)
-#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
-#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( subhash, chanhead)
+#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, shdata->subhash, (id_buf)->data, (id_buf)->len, p)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, shdata->subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
+#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( shdata->subhash, chanhead)
 
 #undef uthash_malloc
 #undef uthash_free
-#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
-#define uthash_free(ptr,sz) ngx_free(ptr)
+#define uthash_malloc(sz) shm_alloc(shm, sz, "uthash")
+#define uthash_free(ptr,sz) shm_free(shm, ptr)
 
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
@@ -83,13 +85,6 @@ struct nhpm_channel_head_cleanup_s {
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
-static nhpm_channel_head_t *subhash = NULL;
-
-//garbage collection for channel heads
-static ngx_event_t         chanhead_cleanup_timer = {0};
-static nhpm_llist_timed_t *chanhead_cleanup_head = NULL;
-static nhpm_llist_timed_t *chanhead_cleanup_tail = NULL;
-
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
@@ -98,13 +93,59 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
 static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 
-static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  chanhead_cleanup_timer.data=chanhead_cleanup_head; //don't really care whre this points, so long as it's not null (for some debugging)
-  chanhead_cleanup_timer.handler=&ngx_http_push_store_chanhead_cleanup_timer_handler;
-  chanhead_cleanup_timer.log=ngx_cycle->log;
+typedef struct {
+  nhpm_channel_head_t *subhash;
+  pthread_rwlock_t     hash_lock;
+  pthread_rwlock_t     cleanup_lock;
+  ngx_event_t        *chanhead_cleanup_timer;
+  nhpm_llist_timed_t *chanhead_cleanup_head;
+  nhpm_llist_timed_t *chanhead_cleanup_tail;
+} shm_data_t;
+
+shmem_t *shm = NULL;
+shm_data_t *shdata = NULL;
+
+static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
+  shm_data_t     *d;
+
+  if(data) { //zone being passed after restart
+    zone->data = data;
+    return NGX_OK;
+  }
+
+  if((d = shm_alloc(shm, sizeof(shm_data_t), "root shared data")) == NULL) {
+    return NGX_ERROR;
+  }
+  zone->data = d;
+  shdata = d;
+  
+  shm_init(shm);
+  
+  d->subhash = NULL;
+  d->chanhead_cleanup_timer = NULL;
+  d->chanhead_cleanup_head = NULL;
+  d->chanhead_cleanup_tail = NULL;
+  
+  //initialize locks
+  pthread_rwlock_init(&d->hash_lock, NULL);
+  pthread_rwlock_init(&d->cleanup_lock, NULL);
   
   return NGX_OK;
 }
+
+static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
+  ngx_event_t  *t;
+  if(shdata->chanhead_cleanup_timer == NULL) {
+    if((t = shm_alloc(shm, sizeof(*t), "chanhead cleanup timer")) == NULL) {
+      return NGX_ERROR;
+    }
+    shdata->chanhead_cleanup_timer = t;
+    t->handler=&ngx_http_push_store_chanhead_cleanup_timer_handler;
+    t->log=ngx_cycle->log;
+  }
+  return NGX_OK;
+}
+
 
 void *shalloc(size_t size) {
   return ngx_alloc(size, ngx_cycle->log);
@@ -177,6 +218,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->shared_cleanup = NULL;
   head->status = NOTREADY;
   head->msg_last = NULL;
+
   head->msg_first = NULL;
   
   //set channel
@@ -261,14 +303,14 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=chanhead_cleanup_tail;
-    if(chanhead_cleanup_tail != NULL) {
-      chanhead_cleanup_tail->next=chanhead_cleanlink;
+    chanhead_cleanlink->prev=shdata->chanhead_cleanup_tail;
+    if(shdata->chanhead_cleanup_tail != NULL) {
+      shdata->chanhead_cleanup_tail->next=chanhead_cleanlink;
     }
     chanhead_cleanlink->next=NULL;
-    chanhead_cleanup_tail=chanhead_cleanlink;
-    if(chanhead_cleanup_head==NULL) {
-      chanhead_cleanup_head = chanhead_cleanlink;
+    shdata->chanhead_cleanup_tail=chanhead_cleanlink;
+    if(shdata->chanhead_cleanup_head==NULL) {
+      shdata->chanhead_cleanup_head = chanhead_cleanlink;
     }
     
     head->status = INACTIVE;
@@ -280,9 +322,9 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   }
 
   //initialize cleanup timer
-  if(!chanhead_cleanup_timer.timer_set) {
-    chanhead_cleanup_timer.data=chanhead_cleanup_head; //don't really care whre this points, so long as it's not null (for some
-    ngx_add_timer(&chanhead_cleanup_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  if(shdata->chanhead_cleanup_timer->timer_set) {
+    shdata->chanhead_cleanup_timer->data=shdata->chanhead_cleanup_head; //don't really care whre this points, so long as it's not null (for some debugging)
+    ngx_add_timer(shdata->chanhead_cleanup_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   return NGX_OK;
 }
@@ -297,10 +339,10 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
       cl->prev->next=cl->next;
     if(cl->next!=NULL)
       cl->next->prev=cl->prev;
-    if(chanhead_cleanup_head==cl)
-      chanhead_cleanup_head=cl->next;
-    if(chanhead_cleanup_tail==cl)
-      chanhead_cleanup_tail=cl->prev;
+    if(shdata->chanhead_cleanup_head==cl)
+      shdata->chanhead_cleanup_head=cl->next;
+    if(shdata->chanhead_cleanup_tail==cl)
+      shdata->chanhead_cleanup_tail=cl->prev;
 
     cl->prev = cl->next = NULL;
   }
@@ -404,7 +446,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   
   DBG("handle_chanhead_gc_queue");
   
-  for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
+  for(cur=shdata->chanhead_cleanup_head; cur != NULL; cur=next) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       ch = (nhpm_channel_head_t *)cur->data;
@@ -442,9 +484,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       break;
     }
   }
-  chanhead_cleanup_head=cur;
+  shdata->chanhead_cleanup_head=cur;
   if (cur==NULL) { //we went all the way to the end
-    chanhead_cleanup_tail=NULL;
+    shdata->chanhead_cleanup_tail=NULL;
   }
   else {
     cur->prev=NULL;
@@ -453,10 +495,10 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 
 static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
   handle_chanhead_gc_queue(0);
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || chanhead_cleanup_head==NULL)) {
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || shdata->chanhead_cleanup_head==NULL)) {
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
-  else if(chanhead_cleanup_head==NULL) {
+  else if(shdata->chanhead_cleanup_head==NULL) {
     DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
 }
@@ -511,12 +553,18 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   ngx_http_push_worker_processes = ccf->worker_processes;
+  
   //initialize our little IPC
   return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
-  //nothing to do but be OK.
+  ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
+  ngx_str_t                  name = ngx_string("memstore");
+  if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
+    conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
+  }
+  shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_http_push_module);
   return NGX_OK;
 }
 
@@ -530,7 +578,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_subscriber_t     *sub;
   subscriber_t          *rsub;
     
-  HASH_ITER(hh, subhash, cur, tmp) {
+  HASH_ITER(hh, shdata->subhash, cur, tmp) {
     //any subscribers?
     sub = cur->sub;
     while (sub != NULL) {
@@ -544,16 +592,14 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 
   handle_chanhead_gc_queue(1);
   
-  if(chanhead_cleanup_timer.timer_set) {
-    ngx_del_timer(&chanhead_cleanup_timer);
+  if(shdata->chanhead_cleanup_timer->timer_set) {
+    ngx_del_timer(shdata->chanhead_cleanup_timer);
   }
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
-  //destroy channel tree in shared memory
-  //ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked, ngx_http_push_shm_zone);
   //deinitialize IPC
-  
+  shm_destroy(shm);
 }
 
 static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {

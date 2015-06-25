@@ -61,6 +61,11 @@ for opt in $*; do
     worker|one|single) 
       WORKERS=1
       ;;
+    debugmaster)
+      WORKERS=1
+      debug_master=1
+      NGINX_DAEMON="off"
+      ;;
     debug)
       WORKERS=1
       NGINX_DAEMON="on"
@@ -182,7 +187,10 @@ if [[ $debugger == 1 ]]; then
   wait $debugger_pids
   kill $master_pid
   rm -f $SRCDIR/nginx $SRCDIR/nginx-source 2>/dev/null
-  
+elif [[ $debug_master == 1 ]]; then
+  pushd $SRCDIR
+  kdbg -a "$NGINX_OPT" "./nginx"
+  popd
 elif [[ $valgrind == 1 ]]; then
   mkdir ./coredump 2>/dev/null
   pushd ./coredump >/dev/null
