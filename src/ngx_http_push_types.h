@@ -30,7 +30,8 @@ typedef struct {
 
 
 //our typecast-friendly rbtree node (channel)
-typedef struct {  ngx_rbtree_node_t               node; //this MUST be first.
+typedef struct {
+  ngx_rbtree_node_t               node; //this MUST be first.
   ngx_str_t                       id;
   ngx_http_push_msg_t            *message_queue;
   ngx_uint_t                      messages;
@@ -91,3 +92,18 @@ typedef struct nhpm_llist_timed_s {
   time_t                         time;
   struct nhpm_llist_timed_s     *next;
 } nhpm_llist_timed_t;
+
+typedef struct subscriber_s subscriber_t;
+typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET} subscriber_type_t;
+struct subscriber_s {
+  ngx_int_t            (*enqueue)(struct subscriber_s *, ngx_int_t timeout);
+  ngx_int_t            (*dequeue)(struct subscriber_s *);
+  ngx_int_t            (*respond_message)(struct subscriber_s *, ngx_http_push_msg_t *);
+  ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
+  ngx_http_cleanup_t  *(*add_next_response_cleanup)(struct subscriber_s *, size_t privdata_size);
+  subscriber_type_t    type;
+  unsigned             dequeue_after_response:1;
+  unsigned             destroy_after_dequeue:1;
+  ngx_http_request_t  *request;
+  void                *data;
+}; //subscriber_t

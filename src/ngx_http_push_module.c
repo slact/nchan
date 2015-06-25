@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <ngx_http_push_module.h>
 
+#include <subscribers/longpoll.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 #include <ngx_http_push_module_setup.c>
@@ -13,7 +14,7 @@ ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
 ngx_module_t        ngx_http_push_module;
 
-ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_redis;
+ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_memory;
 
 
 ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
@@ -224,40 +225,7 @@ ngx_int_t ngx_http_push_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_pu
   return NGX_OK;
 }
 
-//allocates nothing
-ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_t *r, ngx_chain_t *chain, ngx_str_t *content_type, ngx_str_t *etag, time_t last_modified) {
-  ngx_int_t                      res;
-  if (content_type!=NULL) {
-    r->headers_out.content_type.len=content_type->len;
-    r->headers_out.content_type.data = content_type->data;
-    r->headers_out.content_type_len = r->headers_out.content_type.len;
-  }
-  if(chain == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header");
-    return NGX_ERROR;
-  }
-  if(last_modified) {
-    //if-modified-since header
-    r->headers_out.last_modified_time=last_modified;
-  }
-  if(etag!=NULL) {
-    //etag, if we need one
-    if ((ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
-      return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-  }
-  //Vary header needed for proper HTTP caching.
-  ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
-  
-  r->headers_out.status=NGX_HTTP_OK;
-  //we know the entity length, and we're using just one buffer. so no chunking please.
-  r->headers_out.content_length_n=ngx_buf_size(chain->buf);
-  if((res = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
-    return res;
-  }
-  
-  return ngx_http_output_filter(r, chain);
-}
+
 
 //allocates message and responds to subscriber
 ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_t shared, ngx_http_push_msg_t *msg, ngx_chain_t **chain, ngx_str_t **content_type, ngx_str_t **etag, time_t *last_modified) {
@@ -390,33 +358,6 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 
-ngx_int_t ngx_push_longpoll_subscriber_enqueue(void *subscriber, ngx_int_t subscriber_timeout) {
-  ngx_http_request_t *r= (ngx_http_request_t *)subscriber;
-  
-  /*
-  //set up subscriber timeout event
-  ngx_memzero(&subscriber->event, sizeof(subscriber->event));
-  if (subscriber_timeout > 0) {
-    subscriber->event.handler = ngx_http_push_clean_timeouted_subscriber;  
-    subscriber->event.data = subscriber;
-    subscriber->event.log = r->connection->log;
-    ngx_add_timer(&subscriber->event, subscriber_timeout * 1000);
-  }
-  */
-  
-  r->read_event_handler = ngx_http_test_reading;
-  r->write_event_handler = ngx_http_request_empty_handler;
-  r->main->count++; //this is the right way to hold and finalize the request... maybe
-  //r->keepalive = 1; //stayin' alive!!
-  return NGX_OK;
-}
-
-/*
-ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subscriber) {
-  return NGX_OK;
-}
-*/
-
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
 static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
@@ -467,6 +408,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
       buf->start = buf->last;
     }
   }
+  buf->last_buf = 1;
   return buf;
 }
 
@@ -504,14 +446,13 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
 }
 
 static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
-  ngx_http_finalize_request(r, status);
   return NGX_OK;
 }
 
 static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, ngx_http_push_msg_t *msg, ngx_http_request_t *r) {
-  ngx_chain_t                *chain = NULL;
-  ngx_str_t                  *content_type = NULL, *etag = NULL;
-  time_t                      last_modified = 0;
+  //inefficient, but close enough for now
+  subscriber_t            *sub;
+  ngx_str_t               *etag;
   switch(msg_search_outcome) {
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
       //interval-polling subscriber requests get a 304 with their entity tags preserved.
@@ -525,9 +466,9 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
       return NGX_OK;
       
     case NGX_HTTP_PUSH_MESSAGE_FOUND:
-      ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-      ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-      ngx_http_finalize_request(r, NGX_OK);
+      sub = longpoll_subscriber_create(r);
+      sub->respond_message(sub, msg);
+      longpoll_subscriber_destroy(sub);
       return NGX_OK;
 
     case NGX_HTTP_PUSH_MESSAGE_NOTFOUND:
@@ -549,6 +490,7 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
   
@@ -559,15 +501,17 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   switch(r->method) {
     case NGX_HTTP_GET:
       ngx_http_push_subscriber_get_msg_id(r, &msg_id);
-
-      r->main->count++; //let it linger until callback
       switch(cf->subscriber_poll_mechanism) {
         case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
           ngx_http_push_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
           break;
           
         case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
-          ngx_http_push_store->subscribe(channel_id, &msg_id, r, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+          if((sub = longpoll_subscriber_create(r)) == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          ngx_http_push_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
           break;
       }
       return NGX_DONE;
