@@ -36,6 +36,7 @@ struct nhpm_message_s {
 }; //nhpm_message_t
 
 struct nhpm_channel_head_s {
+  pthread_rwlock_t             rwl;
   ngx_str_t                    id; //channel id
   ngx_http_push_channel_t      channel;
   ngx_pool_t                  *pool;
@@ -130,6 +131,9 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   nhpm_channel_head_cleanup_t *hcln;
+  if(head == NULL) {
+    return NGX_OK;
+  }
   if(head->pool==NULL) {
     if((head->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
       ERR("can't allocate memory for channel subscriber pool");
@@ -149,10 +153,56 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   return NGX_OK;
 }
 
-static nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
+
+static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   CHANNEL_HASH_FIND(channel_id, head);
-  if(head) {
+  return head;
+}
+
+static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
+  nhpm_channel_head_t *head; 
+  head=(nhpm_channel_head_t *)ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+  if(head == NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
+    return NULL;
+  }
+
+  head->id.len = channel_id->len;
+  head->id.data = (u_char *)&head[1];
+  ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
+  head->sub_count=0;
+  head->sub = NULL;
+  head->pool = NULL;
+  head->shared_cleanup = NULL;
+  head->status = NOTREADY;
+  head->msg_last = NULL;
+  head->msg_first = NULL;
+  
+  //set channel
+  ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
+  head->channel.message_queue=NULL;
+  head->channel.messages = 0;
+  head->channel.subscribers = 0;
+  head->channel.last_seen = ngx_time();
+  head->min_messages = 0;
+  head->max_messages = (ngx_int_t) -1;
+  
+  CHANNEL_HASH_ADD(head);
+  
+  return head;
+}
+
+static ngx_int_t chanhead_memstore_destroy(nhpm_channel_head_t *head) {
+  CHANNEL_HASH_DEL(head);
+  ngx_free(head);
+  return NGX_OK;
+}
+
+
+static nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
+  nhpm_channel_head_t     *head;
+  if((head = chanhead_memstore_find(channel_id)) != NULL) {
     ensure_chanhead_is_ready(head);
   }
   return head;
@@ -160,40 +210,11 @@ static nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channe
 
 static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t          *head;
-  CHANNEL_HASH_FIND(channel_id, head);
+  head = chanhead_memstore_find(channel_id);
   if(head==NULL) {
-    head=(nhpm_channel_head_t *)ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
-    if(head == NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
-      return NULL;
-    }
-
-    head->id.len = channel_id->len;
-    head->id.data = (u_char *)&head[1];
-    ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
-    head->sub_count=0;
-    head->sub = NULL;
-    head->pool = NULL;
-    head->shared_cleanup = NULL;
-    head->status = NOTREADY;
-    head->msg_last = NULL;
-    head->msg_first = NULL;
-
-    //set channel
-    ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
-    head->channel.message_queue=NULL;
-    head->channel.messages = 0;
-    head->channel.subscribers = 0;
-    head->channel.last_seen = ngx_time();
-    head->min_messages = 0;
-    head->max_messages = (ngx_int_t) -1;
-    // head->channel.expires = ???
-
-    //TODO: SUBSCRIBE for change notification maybe?
-    CHANNEL_HASH_ADD(head);
+    head = chanhead_memstore_create(channel_id);
   }
   ensure_chanhead_is_ready(head);
-
   return head;
 }
 
@@ -405,8 +426,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           else {
             ERR("ch->pool == NULL");
           }
-          CHANNEL_HASH_DEL(ch);
-          ngx_free(ch);
+          chanhead_memstore_destroy(ch);
         }
         else {
           ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
