@@ -51,6 +51,10 @@ ngx_rbtree_node_t *rbtree_find_node(rbtree_seed_t *seed, ngx_str_t *id) {
   return rbtree_find_node_generic(seed, id, seed->hash(id), NULL);
 }
 
+ngx_rbtree_node_t   *rbtree_node_from_data(void *data)  {
+  ngx_int_t         offset = offsetof(ngx_rbtree_node_t, data);
+  return (ngx_rbtree_node_t *)((char *)data - offset); //return 
+}
 
 static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) {
   ngx_int_t         offset = offsetof(rbtree_seed_t, sentinel);

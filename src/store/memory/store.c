@@ -162,16 +162,22 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
   nhpm_channel_head_t          *head;
   CHANNEL_HASH_FIND(channel_id, head);
   if(head==NULL) {
-    head=(nhpm_channel_head_t *)ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
-    if(head==NULL) {
+    head=(nhpm_channel_head_t *)ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+    if(head == NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
       return NULL;
     }
+
     head->id.len = channel_id->len;
     head->id.data = (u_char *)&head[1];
     ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
     head->sub_count=0;
+    head->sub = NULL;
+    head->pool = NULL;
+    head->shared_cleanup = NULL;
     head->status = NOTREADY;
+    head->msg_last = NULL;
+    head->msg_first = NULL;
 
     //set channel
     ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
