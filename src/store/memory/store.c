@@ -98,7 +98,7 @@ static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
 static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  chanhead_cleanup_timer.data=NULL;
+  chanhead_cleanup_timer.data=chanhead_cleanup_head; //don't really care whre this points, so long as it's not null (for some debugging)
   chanhead_cleanup_timer.handler=&ngx_http_push_store_chanhead_cleanup_timer_handler;
   chanhead_cleanup_timer.log=ngx_cycle->log;
   
@@ -250,6 +250,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
 
   //initialize cleanup timer
   if(!chanhead_cleanup_timer.timer_set) {
+    chanhead_cleanup_timer.data=chanhead_cleanup_head; //don't really care whre this points, so long as it's not null (for some
     ngx_add_timer(&chanhead_cleanup_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   return NGX_OK;
