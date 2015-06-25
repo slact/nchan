@@ -92,6 +92,15 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
   //copied buffer will point to the original buffer's data
   
+  rfile = rbuffer->file;
+  if(rfile != NULL) {
+    if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
+      return abort_response(self, "couldn't allocate memory for file struct");
+    }
+    ngx_memcpy(rfile, buffer->file, sizeof(*rbuffer));
+    rbuffer->file = rfile;
+  }
+  
   //ensure the file, if present, is open
   if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
     if(rfile->name.len == 0) {
