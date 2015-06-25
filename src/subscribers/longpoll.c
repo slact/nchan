@@ -43,6 +43,9 @@ ngx_int_t longpoll_enqueue(subscriber_t *self, ngx_int_t timeout) {
 }
 
 ngx_int_t longpoll_dequeue(subscriber_t *self) {
+  if(self->destroy_after_dequeue) {
+    longpoll_subscriber_destroy(self);
+  }
   return NGX_OK;
 }
 
@@ -180,5 +183,6 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_add_next_response_cleanup,
   LONGPOLL,
   1, //deque after response
+  1, //destroy after dequeue
   NULL
 };

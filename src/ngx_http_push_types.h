@@ -103,6 +103,7 @@ struct subscriber_s {
   ngx_http_cleanup_t  *(*add_next_response_cleanup)(struct subscriber_s *, size_t privdata_size);
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;
+  unsigned             destroy_after_dequeue:1;
   ngx_http_request_t  *request;
   void                *data;
 }; //subscriber_t
