@@ -36,7 +36,7 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   $_NHPM_REDIS_SRCS \
   ${ngx_addon_dir}/src/ngx_http_push_defs.c \
   $_NHPM_SUBSCRIBERS_SRCS \
-
+  $_NHPM_REDIS_STORE_SRCS \
   $_NHPM_MEMORY_STORE_SRCS \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
   ${ngx_addon_dir}/src/ngx_http_push_module.c \

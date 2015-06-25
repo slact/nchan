@@ -358,20 +358,6 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
 
 
-ngx_int_t ngx_push_longpoll_subscriber_enqueue(subscriber_t *sub, ngx_int_t subscriber_timeout) {
-  sub->request->read_event_handler = ngx_http_test_reading;
-  sub->request->write_event_handler = ngx_http_request_empty_handler;
-  sub->request->main->count++; //this is the right way to hold and finalize the request... maybe
-  //r->keepalive = 1; //stayin' alive!!
-  return NGX_OK;
-}
-
-/*
-ngx_int_t ngx_push_longpoll_subscriber_dequeue(ngx_http_push_subscriber_t *subscriber) {
-  return NGX_OK;
-}
-*/
-
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
 static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {

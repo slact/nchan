@@ -19,7 +19,7 @@ struct nhpm_subscriber_cleanup_s {
 
 struct nhpm_subscriber_s {
   ngx_uint_t                  id;
-  void                       *subscriber;
+  subscriber_t               *subscriber;
   subscriber_type_t           type;
   ngx_event_t                 ev;
   ngx_pool_t                 *pool;
@@ -557,7 +557,7 @@ typedef struct {
 } nhpm_subscriber_register_t;
 
 static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
-  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf((ngx_http_request_t *)sub->subscriber, ngx_http_push_module);
+  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(sub->subscriber->request, ngx_http_push_module);
   char                      *concurrency = NULL;
   nhpm_subscriber_register_t *sdata=NULL;
   switch (cf->subscriber_concurrency) {
@@ -620,7 +620,7 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
 
 
 static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, nhpm_subscriber_t *sub) {
-  ngx_http_request_t        *r = (ngx_http_request_t *)sub->subscriber;
+  ngx_http_request_t        *r = sub->subscriber->request;
   ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   //input: keys: [], values: [channel_id, subscriber_id, empty_ttl]
   // 'subscriber_id' is an existing id
@@ -766,9 +766,6 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
 static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_channel_head_t        *head;
   nhpm_subscriber_t          *sub, *next;
-  ngx_buf_t                  *buffer=NULL;
-  ngx_str_t                  *etag, *content_type;
-  ngx_chain_t                *chain;
   nhpm_channel_head_cleanup_t *hcln;
   
   head = ngx_http_push_store_get_chanhead(channel_id);
@@ -776,16 +773,8 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
-  if(msg!=NULL) {
-    etag = ngx_http_push_store_etag_from_message(msg, head->pool);
-    content_type = ngx_http_push_store_content_type_from_message(msg, head->pool);
-    chain = ngx_http_push_create_output_chain(msg->buf, head->pool, ngx_cycle->log);
-    if(chain==NULL) {
-      return NGX_ERROR;
-    }
-    buffer = chain->buf;
-    buffer->recycled = 1;
-    
+  if (head->sub_count == 0) { //no one is listening, no need to publish
+    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
   //set some things the cleanup callback will need
@@ -807,10 +796,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
   head->sub=NULL;
   
   for( ; sub!=NULL; sub=next) {
-    ngx_chain_t               *rchain;
-    ngx_buf_t                 *rbuffer;
-    ngx_http_request_t        *r=(ngx_http_request_t *)sub->subscriber;
-    //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+    subscriber_t         *rsub = sub->subscriber;
 
     if(sub->ev.timer_set) { //remove timeout timer right away
       ngx_del_timer(&sub->ev);
@@ -824,17 +810,10 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
     }
     
     if(msg!=NULL) {
-      //each response needs its own chain and buffer, though the buffer contents can be shared
-      rchain = ngx_pcalloc(sub->pool, sizeof(*rchain));
-      rbuffer = ngx_pcalloc(sub->pool, sizeof(*rbuffer));
-      rchain->next = NULL;
-      rchain->buf = rbuffer;
-      ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
-      
-      ngx_http_finalize_request(r, ngx_http_push_prepare_response_to_subscriber_request(r, rchain, content_type, etag, msg->message_time));
+      rsub->respond_message(rsub, msg);
     }
     else {
-      ngx_http_finalize_request(r, ngx_http_push_respond_status_only(r, status_code, status_line));
+      rsub->respond_status(rsub, status_code, status_line);
     }
   }
 
@@ -858,8 +837,10 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         //unsubscribe now
         DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
         redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
-
         DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+        if(ch->pool != NULL) {
+          ngx_destroy_pool(ch->pool);
+        }
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
@@ -1131,18 +1112,18 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_subscriber_t *sub;
   redisAsyncContext *ctx;
 
+  handle_chanhead_gc_queue(1);
+  
   if((ctx=rds_ctx())!=NULL)
     redis_nginx_force_close_context(&ctx);
   if((ctx=rds_sub_ctx())!=NULL)
     redis_nginx_force_close_context(&ctx);
   
-  handle_chanhead_gc_queue(1);
-  
   HASH_ITER(hh, subhash, cur, tmp) {
     //any subscribers?
     sub = cur->sub;
     while (sub != NULL) {
-      ngx_http_finalize_request((ngx_http_request_t *)sub->subscriber, NGX_HTTP_CLOSE);
+      sub->subscriber->respond_status(sub->subscriber, NGX_HTTP_CLOSE, NULL);
       sub = sub->next;
     }
     if(cur->pool != NULL) {
@@ -1177,6 +1158,7 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   
   nhpm_subscriber_unregister(&shared->id, sub);
   nhpm_subscriber_remove(sub);
+  sub->subscriber->dequeue(sub->subscriber);
 
   head->sub_count--;
   
@@ -1200,7 +1182,7 @@ static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channe
   headcln->sub_count = 0;
   
   if(sub->r_cln == NULL) {
-    if((sub->r_cln = ngx_http_cleanup_add((ngx_http_request_t *) sub->subscriber, 0)) == NULL) {
+    if((sub->r_cln = sub->subscriber->add_next_response_cleanup(sub->subscriber, 0)) == NULL) {
       ERR("unable to add subscriber request cleanup and callback");
       return NGX_ERROR;
     }
@@ -1218,22 +1200,21 @@ static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channe
 static void nhpm_subscriber_timeout(ngx_event_t *ev) {
   nhpm_subscriber_cleanup_t *cln = ev->data;
   nhpm_subscriber_t         *sub = cln->sub;
-  ngx_int_t           rc;
-  ngx_http_request_t *r = (ngx_http_request_t *)sub->subscriber;
+  subscriber_t              *rsub = sub->subscriber;
+  ngx_http_request_t *r = rsub->request;
   DBG("subscriber_timeout for %p on %V", sub, &sub->clndata.shared->head->id);
   if (r->connection->destroyed) {
-    DBG("subscriber_timeout: connection already destroyed. this probably shouldn't happen.");
+    ERR("subscriber_timeout: connection already destroyed. this probably shouldn't happen.");
     return;
   }
 
-  rc = ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_MODIFIED, NULL);
-  ngx_http_finalize_request(r, rc);
+  rsub->respond_status(rsub, NGX_HTTP_NOT_MODIFIED, NULL);
   ngx_pfree(cln->shared->pool, sub); //do we even want this?
 }
 
-static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_request_t *r) {
+static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //this is the new shit
-  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_subscriber_t         *nextsub;
 
   if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
@@ -1246,9 +1227,9 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
   nextsub->next=NULL;
   nextsub->id = 0;
 
-  nextsub->subscriber= (void *)r;
+  nextsub->subscriber= sub;
   nextsub->type= LONGPOLL;
-  nextsub->pool= r->pool;
+  nextsub->pool= sub->request->pool;
   if(chanhead->sub != NULL) {
     chanhead->sub->prev = nextsub;
     nextsub->next = chanhead->sub;
@@ -1264,8 +1245,6 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
     nhpm_subscriber_register(chanhead, nextsub);
   }
 
-  ngx_push_longpoll_subscriber_enqueue(nextsub->subscriber, cf->subscriber_timeout);
-
     //add teardown callbacks and cleaning data
   if(ngx_http_push_store_set_subscriber_cleanup_callback(chanhead, nextsub, (ngx_http_cleanup_pt *)subscriber_cleanup_callback) != NGX_OK) {
     ngx_pfree(chanhead->pool, nextsub);
@@ -1278,7 +1257,7 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, ngx_http_
     //nextsub->ev should be zeroed;
     nextsub->ev.handler = nhpm_subscriber_timeout;
     nextsub->ev.data = &nextsub->clndata;
-    nextsub->ev.log = r->connection->log;
+    nextsub->ev.log = ngx_cycle->log;
     ngx_add_timer(&nextsub->ev, cf->subscriber_timeout * 1000);
   }
   
@@ -1291,7 +1270,7 @@ typedef struct {
   ngx_str_t              *channel_id;
   ngx_http_push_msg_id_t *msg_id;
   callback_pt             callback;
-  ngx_http_request_t     *r;
+  subscriber_t           *sub;
   nhpm_channel_head_t    *chanhead;
   void                   *privdata;
 } redis_subscribe_data_t;
@@ -1299,8 +1278,8 @@ typedef struct {
 static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscribe_data_t    *d = (redis_subscribe_data_t *) privdata;
   redisReply                *reply = (redisReply *)vr;
-  ngx_http_request_t        *r = (ngx_http_request_t *)d->privdata; //kind of a hack
-  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  subscriber_t              *sub = d->sub;
+  ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   ngx_int_t                  status=0;
   ngx_http_push_msg_t       *msg=NULL;
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
@@ -1323,42 +1302,37 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   status = reply->element[0]->integer;
   
   switch(status) {
-    ngx_str_t                  *etag;
-    ngx_str_t                  *content_type;
-    ngx_chain_t                *chain=NULL;
-    time_t                      last_modified;
     ngx_int_t                   ret;
     nhpm_channel_head_t        *chanhead=NULL;
     
     case 200: //ok
+      msg = msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc);
+      if(msg == NULL) {
+        ERR("expected message, got NULL");
+        ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+        d->callback(ret, msg, privdata);
+      }
       switch(cf->subscriber_concurrency) {
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-          if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
-            ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-            d->callback(ret, msg, d->privdata);
-          }
-          break;
-
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
           //kick everyone elese out, then subscribe
           //TODO: profiling
           redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", nhpm_rds_lua_hashes.publish_status, STR(d->channel_id), 409);
-          if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_nhpm_alloc))) {
-            ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-            ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-            d->callback(ret, NULL, d->privdata);
-          }
+          //FALL-THROUGH to BROADCAST
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+          ret = sub->respond_message(sub, msg);
+          d->callback(ret, msg, d->privdata);
           break;
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
           if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 6) && CHECK_REPLY_INT(reply->element[5]) && reply->element[5]->integer > 0 ) {
-            ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+            ret = sub->respond_status(sub, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+            d->callback(ret, msg, d->privdata);
           }
           break;
 
         default:
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
+          ERR("unexpected subscriber_concurrency config value");
       }
       break;
     case 418: //not yet available
@@ -1368,24 +1342,22 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         d->callback(NGX_ERROR, NULL, d->privdata);
       }
       else {
-        if (nhpm_subscriber_create(chanhead, r) == NGX_OK) {
-          d->callback(NGX_DONE, NULL, d->privdata);
-        }
-        else {
-          d->callback(NGX_ERROR, NULL, d->privdata);
-        }
+        ret = nhpm_subscriber_create(chanhead, sub);
+        d->callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, d->privdata);
       }
       break;
     
     case 404: //not found
+      sub->respond_status(sub, NGX_HTTP_NOT_FOUND, NULL);
       d->callback(NGX_HTTP_NOT_FOUND, NULL, d->privdata);
       break;
     case 410: //gone
       //subscriber wants an expired message
-      //TODO: maybe respond with entity-identifiers for oldest available message?
+      sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
       d->callback(NGX_HTTP_NO_CONTENT, NULL, d->privdata);
       break;
     default: //shouldn't be here!
+      sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
       d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
   if(msg != NULL) {
@@ -1394,18 +1366,22 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_free(d);
 }
 
-static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, callback_pt callback, void *privdata) {
+static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
   ngx_int_t                     create_channel_ttl;
-  ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   assert(callback != NULL);
   
-  if((d=ngx_calloc(sizeof(*d), ngx_cycle->log))==NULL) {
+  if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
     return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
   }
   
-  d->channel_id=channel_id;
+  d->channel_id=(ngx_str_t *)&d[1];
+  d->channel_id->len = channel_id->len;
+  d->channel_id->data = (u_char *)&(d->channel_id)[1];
+  ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
+  
   d->msg_id=msg_id;
   d->callback=callback;
   d->privdata=privdata;
@@ -1413,11 +1389,14 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->t = ngx_current_msec;
   d->name = "get_message";
   
+  d->sub = sub;
+  sub->enqueue(sub, cf->subscriber_timeout);
+  
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
   redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", nhpm_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", create_channel_ttl);
-  return NGX_OK;
+  return NGX_OK; 
 }
 
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
