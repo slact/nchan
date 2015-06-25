@@ -116,10 +116,15 @@ void shfree(void *pt) {
 }
 
 static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
+  chanhead->sub = sub;
+  chanhead->sub_count++;
+  chanhead->channel.subscribers++;
   return NGX_OK;
 }
 
-static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, nhpm_subscriber_t *sub) {
+static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
+  chanhead->sub_count--;
+  chanhead->channel.subscribers--;
   return NGX_OK;
 }
 
@@ -211,7 +216,6 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
   
   i_am_the_last = sub->prev==NULL && sub->next==NULL;
   
-  nhpm_subscriber_unregister(&shared->id, sub);
   nhpm_subscriber_remove(sub);
   
   if(i_am_the_last) {
@@ -313,9 +317,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
-  
-  sub = head->sub;
-  if(sub==NULL) { //no subscribers
+  if (head->channel.subscribers == 0) { //no one is listening, no need to publish
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
@@ -332,11 +334,12 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   //DBG("chanhead_gc_add from publish_raw adding %p %V", head, &head->id);
   chanhead_gc_add(head);
   
-  head->sub_count = 0;
   head->channel.subscribers = 0;
+  head->sub_count = 0;
   
   head->pool=NULL; //pool will be destroyed on cleanup
   
+  sub = head->sub;
   head->sub=NULL;
   
   for( ; sub!=NULL; sub=next) {
@@ -359,15 +362,14 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
     else {
       rsub->respond_status(rsub, status_code, status_line);
     }
-    if(rsub->dequeue_after_response) {
-      rsub->dequeue(rsub);
-    }
   }
 
   head->generation++;
 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
+
+static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
 
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t    *cur, *next;
@@ -380,7 +382,12 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       ch = (nhpm_channel_head_t *)cur->data;
       if (ch->sub==NULL) { //still no subscribers here
-        chanhead_messages_gc(ch);
+        if (!force_delete) {
+          chanhead_messages_gc(ch);
+        }
+        else {
+          chanhead_messages_delete(ch);
+        }
         if(ch->msg_first == NULL) {
           //unsubscribe now
           //DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
@@ -534,11 +541,9 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   ngx_int_t done;
   done = sub->prev==NULL && sub->next==NULL;
   
-  nhpm_subscriber_unregister(&shared->id, sub);
+  nhpm_subscriber_unregister(shared->head, sub);
   nhpm_subscriber_remove(sub);
-
-  head->sub_count--;
-  head->channel.subscribers--;
+  sub->subscriber->dequeue(sub->subscriber);
   
   if(done) {
     //add chanhead to gc list
@@ -609,11 +614,8 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
   else {
     //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "first subscriber for %V (%p): %p", &chanhead->id, chanhead, nextsub);
   }
-  chanhead->sub = nextsub;
-
-  chanhead->sub_count++;
-  chanhead->channel.subscribers++;
-
+  nhpm_subscriber_register(chanhead, nextsub);
+  
   sub->enqueue(sub, cf->subscriber_timeout);
   
   //add teardown callbacks and cleaning data
@@ -727,6 +729,14 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   return NGX_OK;
 }
 
+static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch) {
+  ngx_int_t realmax = ch->max_messages; 
+  ch->max_messages = 0;
+  chanhead_messages_gc(ch);
+  ch->max_messages = realmax;
+  return NGX_OK;
+}
+
 static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
   DBG("find next message %i:%i", msgid->time, msgid->tag);
   chanhead_messages_gc(ch);
@@ -766,7 +776,6 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
 
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
-  ngx_int_t                     create_channel_ttl;
   ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_channel_head_t          *chanhead;
   nhpm_message_t               *chmsg;
@@ -784,7 +793,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     chanhead = ngx_http_push_store_get_chanhead(channel_id);
   }
   
-  create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
   
   switch(findmsg_status) {
@@ -970,7 +978,6 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
 
 static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
 
-  ngx_buf_t               *buf;
   nhpm_channel_head_t     *chead;
   ngx_http_push_channel_t  channel_copy_data;
   ngx_http_push_channel_t *channel_copy = &channel_copy_data;
@@ -984,8 +991,6 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     msg->message_time = ngx_time();
   }
   msg->expires = ngx_time() + cf->buffer_timeout;
-
-  buf = msg->buf;
 
   if((chead = ngx_http_push_store_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
@@ -1033,8 +1038,8 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }
-  ngx_http_push_store_publish_raw(chead, publish_msg, 0, NULL);
-  callback(sub_count > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED, channel_copy, privdata);
+  ;
+  callback(ngx_http_push_store_publish_raw(chead, publish_msg, 0, NULL), channel_copy, privdata);
   
   return NGX_OK;
 }
