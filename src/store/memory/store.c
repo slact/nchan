@@ -403,6 +403,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from gc list if we're there
   nhpm_llist_timed_t    *cl;
+  nhpm_channel_head_t   *gc_head, *gc_tail;
   DBG("gc_withdraw chanhead %V", &chanhead->id);
   
   if(chanhead->status == INACTIVE) {
@@ -412,17 +413,26 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
     if(cl->next!=NULL)
       cl->next->prev=cl->prev;
     
-    
-    if(shdata->chanhead_gc_head==cl || shdata->chanhead_gc_tail==cl) {
-      
-      
-      if(shdata->chanhead_gc_head==cl)
+    rwl_rdlock(&shdata->gc_lock, "gc withdraw check");
+    gc_head = shdata->chanhead_gc_head;
+    gc_tail = shdata->chanhead_gc_tail;
+    rwl_unlock(&shdata->gc_lock, "gc withdraw check");
+    if(gc_head == cl || gc_tail==cl) {
+      rwl_wrlock(&shdata->gc_lock, "gc withdraw set");
+      if(shdata->chanhead_gc_head==cl) {
         shdata->chanhead_gc_head=cl->next;
-      if(shdata->chanhead_gc_tail==cl)
+      }
+      else {
+        ERR("Someone beat us to setting chanhead_gc_head");
+      }
+      if(shdata->chanhead_gc_tail==cl) {
         shdata->chanhead_gc_tail=cl->prev;
+      }
+      else {
+        ERR("Someone beat us to setting chanhead_gc_tail");
+      }
+      rwl_unlock(&shdata->gc_lock, "gc withdraw set");
     }
-    
-    
     cl->prev = cl->next = NULL;
   }
   else {
