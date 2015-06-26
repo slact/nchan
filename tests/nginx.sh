@@ -49,6 +49,10 @@ for opt in $*; do
     callgrind|profile)
       VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
       valgrind=1;;
+    helgrind)
+    VALGRIND_OPT=( "--tool=helgrind" "--free-is-write=yes")
+    valgrind=1
+    ;;
     cachegrind)
       VALGRIND_OPT=( "--tool=cachegrind" )
       valgrind=1;;
