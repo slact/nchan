@@ -178,6 +178,9 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
   rwl_wrlock(&chanhead->rwl, "subscriber unregister");
   chanhead->sub_count--;
   chanhead->channel.subscribers--;
+  if(chanhead->sub == sub) {
+    chanhead->sub = NULL;
+  }
   rwl_unlock(&chanhead->rwl, "subscriber unregister");
   return NGX_OK;
 }
@@ -336,10 +339,12 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   nhpm_llist_timed_t         *chanhead_cleanlink;
   chanhead_pubsub_status_t    status;
-  rwl_rdlock(&head->rwl, "gc_add");
+  unsigned                    gc_timer_set;
+  
+  rwl_rdlock(&head->rwl, "chanhead gc_add");
   status = head->status;
   chanhead_cleanlink = &head->cleanlink;
-  rwl_unlock(&head->rwl, "gc_add");
+  rwl_unlock(&head->rwl, "chanhead gc_add");
   if(status != INACTIVE) {
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
@@ -367,18 +372,17 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   
 
   //initialize gc timer
-  if(shdata->chanhead_gc_timer->timer_set) {
-    
-    
-    if(shdata->chanhead_gc_timer->timer_set) {
+  gc_timer_set = shdata->chanhead_gc_timer->timer_set;
+  if(! gc_timer_set) {
+    if(! shdata->chanhead_gc_timer->timer_set) {
       shdata->chanhead_gc_timer->data=shdata->chanhead_gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
       ngx_add_timer(shdata->chanhead_gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
     }
     else {
-      //someone else did it
+      ERR("someone else did it");
     }
   }
-  
+
   return NGX_OK;
 }
 
@@ -535,7 +539,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         rwl_rdlock(&ch->rwl, "chanhead properties read firstmsg");
         firstmsg = ch->msg_first;
         rwl_unlock(&ch->rwl, "chanhead properties read firstmsg");
-        if(firstmsg != NULL) {
+        if(firstmsg == NULL) {
           //unsubscribe now
           //DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
           rwl_wrlock(&shdata->hash_lock, "hash del");
