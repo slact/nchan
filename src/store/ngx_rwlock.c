@@ -4,8 +4,8 @@
 #define NGX_RWLOCK_SPIN         2048
 #define NGX_RWLOCK_WRITE        -1
 
-#define DISABLE_RWLOCK 1  //just use a regular mutex for everything
-//#define DEBUG_NGX_RWLOCK 1
+#define DISABLE_RWLOCK 0  //just use a regular mutex for everything
+#define DEBUG_NGX_RWLOCK 1
 
 void ngx_rwlock_init(ngx_rwlock_t *lock) {
   lock->mutex=1;
