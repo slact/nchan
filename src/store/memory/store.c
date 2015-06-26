@@ -79,26 +79,35 @@ struct nhpm_channel_head_cleanup_s {
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-//#define DEBUG_SHM_ALLOC 1
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
+#define DEBUG_RWLOCKS 0
+
 static void rwl_init(pthread_rwlock_t *lock, const char *dbg) {
+  #if (DEBUG_RWLOCKS == 1)
   ERR("rwl %p INIT      (%s)", lock, dbg);
+  #endif
   pthread_rwlock_init(lock, NULL);
 }
 static void rwl_rdlock(pthread_rwlock_t *lock, const char *dbg) {
+  #if (DEBUG_RWLOCKS == 1)
   ERR("rwl %p READLOCK  (%s)", lock, dbg);
+  #endif
   pthread_rwlock_rdlock(lock);
 }
 static void rwl_wrlock(pthread_rwlock_t *lock, const char *dbg) {
+  #if (DEBUG_RWLOCKS == 1)
   ERR("rwl %p WRITELOCK (%s)", lock, dbg);
+  #endif
   pthread_rwlock_wrlock(lock);
 }
 static void rwl_unlock(pthread_rwlock_t *lock, const char *dbg) {
+  #if (DEBUG_RWLOCKS == 1)
   ERR("rwl %p UNLOCK    (%s)", lock, dbg);
+  #endif
   pthread_rwlock_unlock(lock);
 }
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
