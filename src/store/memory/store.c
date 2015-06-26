@@ -42,10 +42,10 @@ struct nhpm_channel_head_s {
   ngx_str_t                    id; //channel id
   ngx_http_push_channel_t      channel;
   ngx_pool_t                  *pool;
-  ngx_uint_t                   generation; //subscriber pool generation.
+  ngx_atomic_t                 generation; //subscriber pool generation.
   nhpm_subscriber_t           *sub;
   chanhead_pubsub_status_t     status;
-  ngx_uint_t                   sub_count;
+  ngx_atomic_t                 sub_count;
   ngx_uint_t                   min_messages;
   ngx_uint_t                   max_messages;
   nhpm_message_t              *msg_first;
@@ -85,9 +85,22 @@ struct nhpm_channel_head_cleanup_s {
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
-#define rwl_rdlock(rwlock) pthread_rwlock_rdlock(rwlock)
-#define rwl_wrlock(rwlock) pthread_rwlock_wrlock(rwlock)
-#define rwl_unlock(rwlock) pthread_rwlock_unlock(rwlock)
+static void rwl_init(pthread_rwlock_t *lock, const char *dbg) {
+  ERR("rwl %p INIT      (%s)", lock, dbg);
+  pthread_rwlock_init(lock, NULL);
+}
+static void rwl_rdlock(pthread_rwlock_t *lock, const char *dbg) {
+  ERR("rwl %p READLOCK  (%s)", lock, dbg);
+  pthread_rwlock_rdlock(lock);
+}
+static void rwl_wrlock(pthread_rwlock_t *lock, const char *dbg) {
+  ERR("rwl %p WRITELOCK (%s)", lock, dbg);
+  pthread_rwlock_wrlock(lock);
+}
+static void rwl_unlock(pthread_rwlock_t *lock, const char *dbg) {
+  ERR("rwl %p UNLOCK    (%s)", lock, dbg);
+  pthread_rwlock_unlock(lock);
+}
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
@@ -131,15 +144,15 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   d->chanhead_gc_tail = NULL;
   
   //initialize locks
-  pthread_rwlock_init(&d->hash_lock, NULL);
-  pthread_rwlock_init(&d->gc_lock, NULL);
+  rwl_init(&d->hash_lock, "hash");
+  rwl_init(&d->gc_lock, "gc");
   
   return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_event_t  *t;
-  rwl_wrlock(&shdata->gc_lock);
+  rwl_wrlock(&shdata->gc_lock, "gc");
   if(shdata->chanhead_gc_timer == NULL) {
     if((t = shm_alloc(shm, sizeof(*t), "chanhead cleanup timer")) == NULL) {
       return NGX_ERROR;
@@ -148,54 +161,59 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
     t->handler=&ngx_http_push_store_chanhead_gc_timer_handler;
     t->log=ngx_cycle->log;
   }
-  rwl_unlock(&shdata->gc_lock);
+  rwl_unlock(&shdata->gc_lock, "gc");
   return NGX_OK;
 }
 
-
-void *shalloc(size_t size) {
-  return ngx_alloc(size, ngx_cycle->log);
-}
-void *shcalloc(size_t size) {
-  return ngx_calloc(size, ngx_cycle->log);
-}
-void shfree(void *pt) {
-  ngx_free(pt);
-}
-
 static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
+  rwl_wrlock(&chanhead->rwl, "subscriber register");
   chanhead->sub = sub;
   chanhead->sub_count++;
   chanhead->channel.subscribers++;
+  rwl_unlock(&chanhead->rwl, "subscriber register");
   return NGX_OK;
 }
 
 static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
+  rwl_wrlock(&chanhead->rwl, "subscriber unregister");
   chanhead->sub_count--;
   chanhead->channel.subscribers--;
+  rwl_unlock(&chanhead->rwl, "subscriber unregister");
   return NGX_OK;
 }
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
-  nhpm_channel_head_cleanup_t *hcln;
+  nhpm_channel_head_cleanup_t   *hcln;
+  ngx_pool_t                    *pool;
+  chanhead_pubsub_status_t       status;
+  
   if(head == NULL) {
     return NGX_OK;
   }
-  if(head->pool==NULL) {
+  rwl_rdlock(&head->rwl, "chanhead is ready?");
+  hcln = head->shared_cleanup;
+  pool = head->pool;
+  status = head->status;
+  rwl_unlock(&head->rwl, "chanhead is ready?");
+  
+  if(hcln==NULL || pool == NULL || status == INACTIVE) {
+    rwl_wrlock(&head->rwl, "set chanhead stuff");
+    //TODO: multiprocess this
     if((head->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
       ERR("can't allocate memory for channel subscriber pool");
     }
-  }
-  if(head->shared_cleanup == NULL) {
-    if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
-      ERR("can't allocate memory for channel head cleanup");
+    if(head->shared_cleanup == NULL) {
+      if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
+        ERR("can't allocate memory for channel head cleanup");
+      }
+      head->shared_cleanup = hcln;
     }
-    head->shared_cleanup = hcln;
-  }
-  
-  if (head->status == INACTIVE) { //recycled chanhead
-    chanhead_gc_withdraw(head);
-    head->status = READY;
+    
+    if (head->status == INACTIVE) { //recycled chanhead
+      chanhead_gc_withdraw(head);
+      head->status = READY;
+    }
+    rwl_unlock(&head->rwl, "set chanhead stuff");
   }
   return NGX_OK;
 }
@@ -203,9 +221,9 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
 
 static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
-  rwl_rdlock(&shdata->hash_lock);
+  rwl_rdlock(&shdata->hash_lock, "chanhead find");
   CHANNEL_HASH_FIND(channel_id, head);
-  rwl_unlock(&shdata->hash_lock);
+  rwl_unlock(&shdata->hash_lock, "chanhead find");
   return head;
 }
 
@@ -239,22 +257,14 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->channel.last_seen = ngx_time();
   head->min_messages = 0;
   head->max_messages = (ngx_int_t) -1;
+  rwl_init(&head->rwl, "channel");
   
-  rwl_wrlock(&shdata->hash_lock);
+  rwl_wrlock(&shdata->hash_lock, "hash add");
   CHANNEL_HASH_ADD(head);
-  rwl_unlock(&shdata->hash_lock);
+  rwl_unlock(&shdata->hash_lock, "hash add");
   
   return head;
 }
-
-static ngx_int_t chanhead_memstore_destroy(nhpm_channel_head_t *head) {
-  rwl_wrlock(&shdata->hash_lock);
-  CHANNEL_HASH_DEL(head);
-  rwl_unlock(&shdata->hash_lock);
-  shm_free(shm, head);
-  return NGX_OK;
-}
-
 
 static nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
@@ -275,6 +285,7 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
 }
 
 static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscriber_t *sub) {
+  nhpm_subscriber_t *headsub;
   //remove subscriber from list
   if(sub->prev != NULL) {
     sub->prev->next=sub->next;
@@ -289,8 +300,17 @@ static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscrib
     ngx_del_timer(&sub->ev);
   }
   
-  if(head != NULL && head->sub == sub) {
-    head->sub = NULL;
+  if(head != NULL) {
+    rwl_rdlock(&head->rwl, "remove subscriver headsub check");
+    headsub = head->sub;
+    rwl_unlock(&head->rwl, "remove subscriver headsub check");
+    if(headsub == sub) {
+      rwl_wrlock(&head->rwl, "remove subscriver headsub set");
+      if(head->sub == sub) {
+        head->sub = NULL;
+      }
+      rwl_unlock(&head->rwl, "remove subscriver headsub set");
+    }
   }
   
   return NGX_OK;
@@ -315,29 +335,31 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   nhpm_llist_timed_t         *chanhead_cleanlink;
-  if(head->status != INACTIVE) {
-    chanhead_cleanlink = &head->cleanlink;
-    
-    
+  chanhead_pubsub_status_t    status;
+  rwl_rdlock(&head->rwl, "gc_add");
+  status = head->status;
+  chanhead_cleanlink = &head->cleanlink;
+  rwl_unlock(&head->rwl, "gc_add");
+  if(status != INACTIVE) {
+    chanhead_cleanlink->data=(void *)head;
+    chanhead_cleanlink->time=ngx_time();
+    chanhead_cleanlink->prev=shdata->chanhead_gc_tail;
+    if(shdata->chanhead_gc_tail != NULL) {
+      shdata->chanhead_gc_tail->next=chanhead_cleanlink;
+    }
+    chanhead_cleanlink->next=NULL;
+    shdata->chanhead_gc_tail=chanhead_cleanlink;
+    if(shdata->chanhead_gc_head==NULL) {
+      shdata->chanhead_gc_head = chanhead_cleanlink;
+    }
+    rwl_wrlock(&head->rwl, "gc_add set head status");
     if(head->status != INACTIVE) {
-      chanhead_cleanlink->data=(void *)head;
-      chanhead_cleanlink->time=ngx_time();
-      chanhead_cleanlink->prev=shdata->chanhead_gc_tail;
-      if(shdata->chanhead_gc_tail != NULL) {
-        shdata->chanhead_gc_tail->next=chanhead_cleanlink;
-      }
-      chanhead_cleanlink->next=NULL;
-      shdata->chanhead_gc_tail=chanhead_cleanlink;
-      if(shdata->chanhead_gc_head==NULL) {
-        shdata->chanhead_gc_head = chanhead_cleanlink;
-      }
-      
       head->status = INACTIVE;
     }
     else {
-      //someone else already did it.
+      ERR("someone beat me to it");
     }
-    //DBG("gc_add chanhead %V", &head->id);
+    rwl_unlock(&head->rwl, "gc_add set head status");
   }
   else {
     ERR("gc_add chanhead %V: already added", &head->id);
@@ -426,10 +448,10 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
-  if (head->channel.subscribers == 0) { //no one is listening, no need to publish
+  if (head->sub_count == 0) { //SUPPOSED TO BE ATOMIC.
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
-  
+  rwl_wrlock(&head->rwl, "publish");
   //set some things the cleanup callback will need
   hcln = head->shared_cleanup;
   head->shared_cleanup = NULL;
@@ -441,8 +463,10 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   hcln->pool=head->pool;
   
   //DBG("chanhead_gc_add from publish_raw adding %p %V", head, &head->id);
+  rwl_unlock(&head->rwl, "publish");
   chanhead_gc_add(head);
   
+  rwl_wrlock(&head->rwl, "publish, part 2");
   head->channel.subscribers = 0;
   head->sub_count = 0;
   
@@ -450,6 +474,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   
   sub = head->sub;
   head->sub=NULL;
+  rwl_unlock(&head->rwl, "publish, part 2");
   
   for( ; sub!=NULL; sub=next) {
     subscriber_t      *rsub = sub->subscriber;
@@ -473,7 +498,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
     }
   }
 
-  head->generation++;
+  head->generation++; //should be atomic
 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
@@ -483,10 +508,13 @@ static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t    *orig_head, *cur, *next;
   nhpm_channel_head_t   *ch = NULL;
+  nhpm_message_t        *firstmsg;
+  nhpm_subscriber_t     *firstsub;
   
   DBG("handle_chanhead_gc_queue");
-  
+  rwl_rdlock(&shdata->gc_lock, "chanhhead gc queue");
   cur=shdata->chanhead_gc_head;
+  rwl_unlock(&shdata->gc_lock, "chanhhead gc queue");
   orig_head = cur;
   
   
@@ -494,6 +522,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       ch = (nhpm_channel_head_t *)cur->data;
+      rwl_rdlock(&ch->rwl, "chanhead properties read firstsub");
+        firstsub = ch->sub;
+      rwl_unlock(&ch->rwl, "chanhead properties read firstsub");
       if (ch->sub==NULL) { //still no subscribers here
         if (!force_delete) {
           chanhead_messages_gc(ch);
@@ -501,9 +532,13 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         else {
           chanhead_messages_delete(ch);
         }
-        if(ch->msg_first == NULL) {
+        rwl_rdlock(&ch->rwl, "chanhead properties read firstmsg");
+        firstmsg = ch->msg_first;
+        rwl_unlock(&ch->rwl, "chanhead properties read firstmsg");
+        if(firstmsg != NULL) {
           //unsubscribe now
           //DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
+          rwl_wrlock(&shdata->hash_lock, "hash del");
           ERR("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
           if(ch->pool != NULL) {
             ERR("destroy pool %p.", ch->pool);
@@ -512,7 +547,10 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           else {
             ERR("ch->pool == NULL");
           }
-          chanhead_memstore_destroy(ch);
+          CHANNEL_HASH_DEL(ch);
+          rwl_unlock(&shdata->hash_lock, "hash del");
+          pthread_rwlock_destroy(&ch->rwl);
+          shm_free(shm, ch);
         }
         else {
           ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
@@ -808,7 +846,7 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
   //DBG("free msg %p", msg);
-  shfree(msg);
+  shm_free(shm, msg);
   return NGX_OK;
 }
 
@@ -924,7 +962,6 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   else {
     chanhead = ngx_http_push_store_get_chanhead(channel_id);
   }
-  
   chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
   
   switch(findmsg_status) {
@@ -1042,7 +1079,7 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
     }
   }
 
-  if((stuff = shcalloc(sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size))) == NULL) {
+  if((stuff = shm_calloc(shm, sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size), "message")) == NULL) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
