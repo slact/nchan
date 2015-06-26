@@ -351,6 +351,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   unsigned                    gc_timer_set;
   
   rwl_rdlock(&head->rwl, "chanhead gc_add");
+  DBG("gc_add chanhead %p (%V)", head, &head->id);
   status = head->status;
   chanhead_cleanlink = &head->cleanlink;
   rwl_unlock(&head->rwl, "chanhead gc_add");
