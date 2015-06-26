@@ -567,7 +567,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     }
   }
   
-  
+  rwl_wrlock(&shdata->gc_lock, "chanhhead gc queue finish");
   if(orig_head == shdata->chanhead_gc_head) {
     shdata->chanhead_gc_head=cur;
     if (cur==NULL) { //we went all the way to the end
@@ -580,20 +580,23 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   else {
     ERR("someone beat us to it?....");
   }
+  rwl_unlock(&shdata->gc_lock, "chanhhead gc queue finish");
   
   
 }
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
+  nhpm_llist_timed_t  *head;
   handle_chanhead_gc_queue(0);
-  
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || shdata->chanhead_gc_head==NULL)) {
+  rwl_rdlock(&shdata->gc_lock, "gc timer check");
+  head = shdata->chanhead_gc_head;
+  rwl_unlock(&shdata->gc_lock, "gc timer check");
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL)) {
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
-  else if(shdata->chanhead_gc_head==NULL) {
+  else if(head == NULL) {
     DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
-  
 }
 
 
@@ -601,15 +604,20 @@ static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t
 
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nhpm_channel_head_t      *ch;
-  nhpm_message_t           *msg = NULL;
+  nhpm_channel_head_t      *ch, *next;
+  nhpm_message_t           *msg = NULL, *nextmsg;
   if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
     ngx_http_push_store_publish_raw(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
+    rwl_rdlock(&ch->rwl, "delete channel");
     callback(NGX_OK, &ch->channel, privdata);
+    msg = ch->msg_first;
+    rwl_unlock(&ch->rwl, "delete channel");
     //delete all messages
-    for(msg = ch->msg_first; msg != NULL; msg = ch->msg_first) {
+    while(msg != NULL) {
+      nextmsg = msg->next;
       chanhead_delete_message(ch, msg);
+      msg = nextmsg;
     }
     chanhead_gc_add(ch);
   }
