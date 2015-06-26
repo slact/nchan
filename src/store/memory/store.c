@@ -90,16 +90,17 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
-static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
+static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 
 typedef struct {
   nhpm_channel_head_t *subhash;
   pthread_rwlock_t     hash_lock;
-  pthread_rwlock_t     cleanup_lock;
-  ngx_event_t        *chanhead_cleanup_timer;
-  nhpm_llist_timed_t *chanhead_cleanup_head;
-  nhpm_llist_timed_t *chanhead_cleanup_tail;
+  
+  pthread_rwlock_t     gc_lock;
+  ngx_event_t        *chanhead_gc_timer;
+  nhpm_llist_timed_t *chanhead_gc_head;
+  nhpm_llist_timed_t *chanhead_gc_tail;
 } shm_data_t;
 
 shmem_t *shm = NULL;
@@ -122,27 +123,29 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   shm_init(shm);
   
   d->subhash = NULL;
-  d->chanhead_cleanup_timer = NULL;
-  d->chanhead_cleanup_head = NULL;
-  d->chanhead_cleanup_tail = NULL;
+  d->chanhead_gc_timer = NULL;
+  d->chanhead_gc_head = NULL;
+  d->chanhead_gc_tail = NULL;
   
   //initialize locks
   pthread_rwlock_init(&d->hash_lock, NULL);
-  pthread_rwlock_init(&d->cleanup_lock, NULL);
+  pthread_rwlock_init(&d->gc_lock, NULL);
   
   return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_event_t  *t;
-  if(shdata->chanhead_cleanup_timer == NULL) {
+  pthread_rwlock_wrlock(&shdata->gc_lock);
+  if(shdata->chanhead_gc_timer == NULL) {
     if((t = shm_alloc(shm, sizeof(*t), "chanhead cleanup timer")) == NULL) {
       return NGX_ERROR;
     }
-    shdata->chanhead_cleanup_timer = t;
-    t->handler=&ngx_http_push_store_chanhead_cleanup_timer_handler;
+    shdata->chanhead_gc_timer = t;
+    t->handler=&ngx_http_push_store_chanhead_gc_timer_handler;
     t->log=ngx_cycle->log;
   }
+  pthread_rwlock_unlock(&shdata->gc_lock);
   return NGX_OK;
 }
 
@@ -260,7 +263,7 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
   return head;
 }
 
-static ngx_int_t nhpm_subscriber_remove(nhpm_subscriber_t *sub) {
+static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscriber_t *sub) {
   //remove subscriber from list
   if(sub->prev != NULL) {
     sub->prev->next=sub->next;
@@ -275,6 +278,10 @@ static ngx_int_t nhpm_subscriber_remove(nhpm_subscriber_t *sub) {
     ngx_del_timer(&sub->ev);
   }
   
+  if(head != NULL && head->sub == sub) {
+    head->sub = NULL;
+  }
+  
   return NGX_OK;
 }
 
@@ -285,7 +292,7 @@ static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cl
   
   i_am_the_last = sub->prev==NULL && sub->next==NULL;
   
-  nhpm_subscriber_remove(sub);
+  nhpm_subscriber_remove(shared->head, sub);
   
   if(i_am_the_last) {
     //release pool
@@ -303,14 +310,14 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=shdata->chanhead_cleanup_tail;
-    if(shdata->chanhead_cleanup_tail != NULL) {
-      shdata->chanhead_cleanup_tail->next=chanhead_cleanlink;
+    chanhead_cleanlink->prev=shdata->chanhead_gc_tail;
+    if(shdata->chanhead_gc_tail != NULL) {
+      shdata->chanhead_gc_tail->next=chanhead_cleanlink;
     }
     chanhead_cleanlink->next=NULL;
-    shdata->chanhead_cleanup_tail=chanhead_cleanlink;
-    if(shdata->chanhead_cleanup_head==NULL) {
-      shdata->chanhead_cleanup_head = chanhead_cleanlink;
+    shdata->chanhead_gc_tail=chanhead_cleanlink;
+    if(shdata->chanhead_gc_head==NULL) {
+      shdata->chanhead_gc_head = chanhead_cleanlink;
     }
     
     head->status = INACTIVE;
@@ -321,16 +328,16 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     ERR("gc_add chanhead %V: already added", &head->id);
   }
 
-  //initialize cleanup timer
-  if(shdata->chanhead_cleanup_timer->timer_set) {
-    shdata->chanhead_cleanup_timer->data=shdata->chanhead_cleanup_head; //don't really care whre this points, so long as it's not null (for some debugging)
-    ngx_add_timer(shdata->chanhead_cleanup_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  //initialize gc timer
+  if(shdata->chanhead_gc_timer->timer_set) {
+    shdata->chanhead_gc_timer->data=shdata->chanhead_gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
+    ngx_add_timer(shdata->chanhead_gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   return NGX_OK;
 }
 
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
-  //remove from cleanup list if we're there
+  //remove from gc list if we're there
   nhpm_llist_timed_t    *cl;
   //DBG("gc_withdraw chanhead %V", &chanhead->id);
   if(chanhead->status == INACTIVE) {
@@ -339,10 +346,10 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
       cl->prev->next=cl->next;
     if(cl->next!=NULL)
       cl->next->prev=cl->prev;
-    if(shdata->chanhead_cleanup_head==cl)
-      shdata->chanhead_cleanup_head=cl->next;
-    if(shdata->chanhead_cleanup_tail==cl)
-      shdata->chanhead_cleanup_tail=cl->prev;
+    if(shdata->chanhead_gc_head==cl)
+      shdata->chanhead_gc_head=cl->next;
+    if(shdata->chanhead_gc_tail==cl)
+      shdata->chanhead_gc_tail=cl->prev;
 
     cl->prev = cl->next = NULL;
   }
@@ -446,7 +453,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   
   DBG("handle_chanhead_gc_queue");
   
-  for(cur=shdata->chanhead_cleanup_head; cur != NULL; cur=next) {
+  for(cur=shdata->chanhead_gc_head; cur != NULL; cur=next) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       ch = (nhpm_channel_head_t *)cur->data;
@@ -484,21 +491,21 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       break;
     }
   }
-  shdata->chanhead_cleanup_head=cur;
+  shdata->chanhead_gc_head=cur;
   if (cur==NULL) { //we went all the way to the end
-    shdata->chanhead_cleanup_tail=NULL;
+    shdata->chanhead_gc_tail=NULL;
   }
   else {
     cur->prev=NULL;
   }
 }
 
-static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
+static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   handle_chanhead_gc_queue(0);
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || shdata->chanhead_cleanup_head==NULL)) {
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || shdata->chanhead_gc_head==NULL)) {
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
-  else if(shdata->chanhead_cleanup_head==NULL) {
+  else if(shdata->chanhead_gc_head==NULL) {
     DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
 }
@@ -592,8 +599,8 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 
   handle_chanhead_gc_queue(1);
   
-  if(shdata->chanhead_cleanup_timer->timer_set) {
-    ngx_del_timer(shdata->chanhead_cleanup_timer);
+  if(shdata->chanhead_gc_timer->timer_set) {
+    ngx_del_timer(shdata->chanhead_gc_timer);
   }
 }
 
@@ -614,7 +621,7 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   done = sub->prev==NULL && sub->next==NULL;
   
   nhpm_subscriber_unregister(shared->head, sub);
-  nhpm_subscriber_remove(sub);
+  nhpm_subscriber_remove(shared->head, sub);
   sub->subscriber->dequeue(sub->subscriber);
   
   if(done) {
@@ -652,14 +659,19 @@ static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channe
   return NGX_OK; 
 }
 
+static void subscriber_no_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
+  
+}
+
 static void nhpm_subscriber_timeout(ngx_event_t *ev) {
   nhpm_subscriber_cleanup_t *cln = ev->data;
   nhpm_subscriber_t         *sub = cln->sub;
   subscriber_t              *rsub = sub->subscriber;
-
+  sub->r_cln->handler = (ngx_http_cleanup_pt )subscriber_no_cleanup_callback;
   rsub->dequeue_after_response = 1;
+  nhpm_subscriber_unregister(cln->shared->head, sub);
+  nhpm_subscriber_remove(cln->shared->head, sub);
   rsub->respond_status(rsub, NGX_HTTP_NOT_MODIFIED, NULL);
-  //TODO: nhpm_subscriber_destroy
 }
 
 static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
