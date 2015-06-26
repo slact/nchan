@@ -372,8 +372,11 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   
 
   //initialize gc timer
+  rwl_rdlock(&shdata->gc_lock, "check gc timer");
   gc_timer_set = shdata->chanhead_gc_timer->timer_set;
+  rwl_unlock(&shdata->gc_lock, "check gc timer");
   if(! gc_timer_set) {
+    rwl_wrlock(&shdata->gc_lock, "start gc timer");
     if(! shdata->chanhead_gc_timer->timer_set) {
       shdata->chanhead_gc_timer->data=shdata->chanhead_gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
       ngx_add_timer(shdata->chanhead_gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
@@ -381,6 +384,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     else {
       ERR("someone else did it");
     }
+    rwl_unlock(&shdata->gc_lock, "start gc timer");
   }
 
   return NGX_OK;
@@ -389,7 +393,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from gc list if we're there
   nhpm_llist_timed_t    *cl;
-  //DBG("gc_withdraw chanhead %V", &chanhead->id);
+  DBG("gc_withdraw chanhead %V", &chanhead->id);
   
   if(chanhead->status == INACTIVE) {
     cl=&chanhead->cleanlink;
@@ -608,7 +612,7 @@ static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t
 
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nhpm_channel_head_t      *ch, *next;
+  nhpm_channel_head_t      *ch;
   nhpm_message_t           *msg = NULL, *nextmsg;
   if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
     ngx_http_push_store_publish_raw(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
@@ -634,7 +638,9 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
 static ngx_int_t ngx_http_push_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
   if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
+    rwl_rdlock(&ch->rwl, "find channel callback");
     callback(NGX_OK, &ch->channel, privdata);
+    rwl_unlock(&ch->rwl, "find channel callback");
   }
   else{
     callback(NGX_OK, NULL, privdata);
@@ -679,11 +685,14 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   DBG("exit worker %i", ngx_pid);
-  nhpm_channel_head_t   *cur, *tmp;
+  nhpm_channel_head_t   *head, *cur, *tmp;
   nhpm_subscriber_t     *sub;
   subscriber_t          *rsub;
     
-  HASH_ITER(hh, shdata->subhash, cur, tmp) {
+  rwl_rdlock(&shdata->hash_lock, "exit worker");
+  head = shdata->subhash;
+  rwl_unlock(&shdata->hash_lock, "exit worker");
+  HASH_ITER(hh, head, cur, tmp) {
     //any subscribers?
     sub = cur->sub;
     while (sub != NULL) {
@@ -697,9 +706,11 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 
   handle_chanhead_gc_queue(1);
   
+  rwl_wrlock(&shdata->gc_lock, "clear gc timer");
   if(shdata->chanhead_gc_timer->timer_set) {
     ngx_del_timer(shdata->chanhead_gc_timer);
   }
+  rwl_unlock(&shdata->gc_lock, "clear gc timer");
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
