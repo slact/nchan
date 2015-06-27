@@ -554,8 +554,10 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_worker_chanhead_data_t *data;
   ngx_int_t                    sub_count;
   ngx_int_t                    i;
+  DBG("handling chanhead GC queue");
   
   if(force_delete) {
+    DBG("Forced delete");
     ngx_shmtx_lock(&shdata->gc_mutex);
   }
   else {
@@ -806,8 +808,7 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
       chanhead_gc_add(head);
     }
     else {
-      ERR("What do I do? I think this is okay... but is it?");
-      assert(0);
+      ERR("subscriber count is nonzero during subscriber cleanup callback");
     }
   }
 }
