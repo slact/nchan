@@ -628,6 +628,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       }
       else {
         DBG("nothing to erase right now");
+        break; //dijkstra probably hates this
       }
     }
   }
