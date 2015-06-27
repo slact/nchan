@@ -196,7 +196,7 @@ static nhpm_worker_chanhead_data_t *chanhead_worker_data(nhpm_channel_head_t *he
 static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
   nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   
-  data->sub_count++;
+  data->sub_count++; //doesn't need to be atomic
   chanhead->sub_count++; //atomic
   chanhead->channel.subscribers++; //also atomic
   data->sub = sub;
@@ -209,7 +209,7 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
   chanhead->sub_count--; //atomic
   chanhead->channel.subscribers--; //also atomic
   data->sub_count--; //doesn't need to be atomic
-  if(data->sub == sub) {
+  if(data->sub == sub) { //head subscriber
     data->sub = NULL;
   }
   return NGX_OK;
@@ -270,7 +270,6 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
     return NULL;
   }
-  size_t workers_size;
   
   //no lock needed, no one else knows about this chanhead yet.
   head->worker = (nhpm_worker_chanhead_data_t *)&head[1];
@@ -449,7 +448,7 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
     cl->prev = cl->next = NULL;
   }
   else {
-    //DBG("gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
+    DBG("gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
   }
   
   return NGX_OK;
@@ -495,7 +494,6 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   
   data = chanhead_worker_data(head);
   
-  //TODO: this is WRONG for multiprocess
   //set some things the cleanup callback will need
   hcln = data->shared_cleanup;
   data->shared_cleanup = NULL;
@@ -646,6 +644,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   else {
     ERR("someone beat us to it?....");
   }
+  DBG("done with handle chanhead gc. gc head:%p", shdata->chanhead_gc_head);
   rwl_unlock(&shdata->gc_lock, "chanhhead gc queue  update");
   ngx_shmtx_unlock(&shdata->gc_mutex);
 }
@@ -657,6 +656,7 @@ static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   head = shdata->chanhead_gc_head;
   rwl_unlock(&shdata->gc_lock, "gc timer check");
   if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL)) {
+    DBG("re-adding chanhead gc event timer");
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   else if(head == NULL) {
@@ -785,6 +785,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
+  DBG("memstore exit master from pid %i", ngx_pid);
   //deinitialize IPC
   shm_destroy(shm);
 }
@@ -920,7 +921,6 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
 
 static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   //DBG("withdraw message %i:%i from ch %p %V", msg->msg.message_time, msg->msg.message_tag, ch, &ch->id);
-  nhpm_message_t *first, *last;
   if(msg->msg.refcount > 0) {
     ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg.refcount);
     return NGX_ERROR;
@@ -942,8 +942,8 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
     //DBG("set prev");
     msg->prev->next = msg->next;
   }
-  ch->channel.messages --;
   rwl_unlock(&ch->rwl, "withdraw message set");
+  ch->channel.messages --; //supposed to be atomic
   return NGX_OK;
 }
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
@@ -974,10 +974,8 @@ static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t
   }
   return NGX_OK;
 }
-static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
-  //DBG("messages gc for ch %p %V", ch, &ch->id);
-  ngx_uint_t      min_messages = ch->min_messages;
-  ngx_uint_t      max_messages = ch->max_messages;
+
+static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
@@ -1015,28 +1013,41 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
   return NGX_OK;
 }
 
+static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
+  //DBG("messages gc for ch %p %V", ch, &ch->id);
+  ngx_uint_t      min_messages, max_messages;
+  rwl_rdlock(&ch->rwl, "chanhead message queue size");
+  min_messages = ch->min_messages;
+  max_messages = ch->max_messages;
+  rwl_unlock(&ch->rwl, "chanhead message queue size");
+  return chanhead_messages_gc_custom(ch, min_messages, max_messages);
+}
+
 static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch) {
-  ngx_int_t realmax = ch->max_messages; 
-  ch->max_messages = 0;
-  chanhead_messages_gc(ch);
-  ch->max_messages = realmax;
+  chanhead_messages_gc_custom(ch, 0, 0);
   return NGX_OK;
 }
 
 static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
   DBG("find next message %i:%i", msgid->time, msgid->tag);
   chanhead_messages_gc(ch);
-  nhpm_message_t *cur = ch->msg_last;
+  nhpm_message_t *cur, *first, *last;
+  rwl_rdlock(&ch->rwl, "find next message (long)");
+  first = ch->msg_first;
+  last = ch->msg_last;
+  cur = last;
   
   if(cur == NULL) {
     *status = msgid == NULL ? NGX_HTTP_PUSH_MESSAGE_EXPECTED : NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
+    rwl_unlock(&ch->rwl, "find next message (long)");
     return NULL;
   }
 
   if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
-    DBG("found message %i:%i", ch->msg_first->msg.message_time, ch->msg_first->msg.message_tag);
+    DBG("found message %i:%i", first->msg.message_time, first->msg.message_tag);
     *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
-    return ch->msg_first;
+    rwl_unlock(&ch->rwl, "find next message (long)");
+    return first;
   }
 
   while(cur != NULL) {
@@ -1045,11 +1056,13 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
     if(msgid->time > cur->msg.message_time || (msgid->time == cur->msg.message_time && msgid->tag >= cur->msg.message_tag)){
       if(cur->next != NULL) {
         *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
-        DBG("found message %i:%i", ch->msg_first->msg.message_time, ch->msg_first->msg.message_tag);
+        DBG("found message %i:%i", cur->next->msg.message_time, cur->next->msg.message_tag);
+        rwl_unlock(&ch->rwl, "find next message (long)");
         return cur->next;
       }
       else {
         *status = NGX_HTTP_PUSH_MESSAGE_EXPECTED;
+        rwl_unlock(&ch->rwl, "find next message (long)");
         return NULL;
       }
     }
@@ -1057,6 +1070,7 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
   }
   //DBG("looked everywhere, not found");
   *status = NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
+  rwl_unlock(&ch->rwl, "find next message (long)");
   return NULL;
 }
 
@@ -1137,8 +1151,10 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   return NGX_OK;
 }
 
+//big ol' writelock here
 static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   msg->next = NULL;
+  rwl_wrlock(&ch->rwl, "push message write");
   msg->prev = ch->msg_last;
   if(msg->prev != NULL) {
     msg->prev->next = msg;
@@ -1162,6 +1178,7 @@ static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *
   ch->channel.messages++;
 
   ch->msg_last = msg;
+  rwl_unlock(&ch->rwl, "push message write");
   
   //DBG("create %i:%i %V", msg->msg.message_time, msg->msg.message_tag, chanhead_msg_to_str(msg));
   chanhead_messages_gc(ch);
@@ -1281,7 +1298,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     ERR("can't get chanhead for id %V", channel_id);
     return NGX_ERROR;
   }
-
+  rwl_wrlock(&chead->rwl, "publish");
   chead->channel.expires = ngx_time() + cf->buffer_timeout;
   sub_count = chead->sub_count;
   
@@ -1290,12 +1307,14 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
   
   chead->max_messages = cf->max_messages;
-  //TODO: channel timeout stuff
+  
+  rwl_unlock(&chead->rwl, "publish");
   
   chanhead_messages_gc(chead);
-  
   if(cf->max_messages == 0) {
-    channel_copy = &chead->channel;
+    rwl_rdlock(&chead->rwl, "publish channel copy");
+    ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy)); //to avoid a read-lock later
+    rwl_unlock(&chead->rwl, "publish channel copy");
     publish_msg = msg;
     DBG("publish %i:%i expire %i ", msg->message_time, msg->message_tag, cf->buffer_timeout);
   }
@@ -1311,8 +1330,9 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
       ERR("can't enqueue shared message for channel %V", channel_id);
       return NGX_ERROR;
     }
-    
+    rwl_rdlock(&chead->rwl, "publish channel copy alt");
     ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
+    rwl_unlock(&chead->rwl, "publish channel copy alt");
     channel_copy->subscribers = sub_count;
     publish_msg = &shmsg_link->msg;
   }
