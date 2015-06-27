@@ -208,6 +208,7 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
   nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   chanhead->sub_count--; //atomic
   chanhead->channel.subscribers--; //also atomic
+  data->sub_count--; //doesn't need to be atomic
   if(data->sub == sub) {
     data->sub = NULL;
   }
@@ -514,6 +515,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_
   
   head->channel.subscribers -= data->sub_count; //atomic
   head->sub_count -= data->sub_count; //also atomic
+  data->sub_count = 0;
   sub = data->sub;
   data->sub=NULL;
   
