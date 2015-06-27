@@ -375,7 +375,7 @@ class PubSubTest <  Minitest::Test
   
   def test_subscriber_timeout
     chan=SecureRandom.hex
-    sub=Subscriber.new(url("sub/timeout/#{chan}"), 2, timeout: 10)
+    sub=Subscriber.new(url("sub/timeout/#{chan}"), 5, timeout: 10)
     sub.on_failure { false }
     pub=Publisher.new url("pub/#{chan}")
     sub.run
@@ -383,6 +383,7 @@ class PubSubTest <  Minitest::Test
     sub.wait
     verify pub, sub, false
     assert sub.match_errors(/code 304/)
+    sub.terminate
   end
   
   def assert_header_includes(response, header, str)
