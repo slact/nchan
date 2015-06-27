@@ -623,7 +623,12 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       shm_free(shm, ch);
     }
     else {
-      //nothing to do
+      if(force_delete) {
+        ERR("failed to force-delete %p", cur);
+      }
+      else {
+        DBG("nothing to erase right now");
+      }
     }
   }
   
