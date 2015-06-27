@@ -599,7 +599,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       //unsubscribe now
       DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
       //do we need a read lock here? I don't think so...
-      for(i=0; i < ngx_last_process; i++) {
+      for(i=0; i < ngx_last_process+1; i++) {
         data = &workers[i];
         if(i == ngx_process_slot) {
           //that's me!
@@ -745,7 +745,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   HASH_ITER(hh, head, cur, tmp) {
     //any subscribers?
     
-    for(i = 0; i < ngx_last_process; i++) {
+    for(i = 0; i < ngx_last_process + 1; i++) {
       data = &cur->worker[i];
       if (i == ngx_process_slot) {
         //my own subs
