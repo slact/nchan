@@ -29,13 +29,12 @@ typedef struct {
 } ngx_http_push_msg_t;
 
 
-//our typecast-friendly rbtree node (channel)
 typedef struct {
   ngx_rbtree_node_t               node; //this MUST be first.
   ngx_str_t                       id;
   ngx_http_push_msg_t            *message_queue;
-  ngx_uint_t                      messages;
-  ngx_uint_t                      subscribers;
+  ngx_atomic_t                    messages;
+  ngx_atomic_t                    subscribers;
   time_t                          last_seen;
   time_t                          expires;
 } ngx_http_push_channel_t;
