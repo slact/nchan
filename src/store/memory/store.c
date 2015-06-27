@@ -40,7 +40,7 @@ struct nhpm_message_s {
 typedef struct {
   nhpm_channel_head_cleanup_t *shared_cleanup;
   nhpm_subscriber_t           *sub;
-  ngx_uint_t                   sub_count;
+  ngx_atomic_t                 sub_count;
   ngx_pool_t                  *pool;
 } nhpm_worker_chanhead_data_t;
 
@@ -67,6 +67,7 @@ struct nhpm_channel_head_cleanup_s {
   ngx_pool_t                 *pool;
 };
 
+static ngx_int_t max_workers = 0;
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, shdata->subhash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, shdata->subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
@@ -170,6 +171,8 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 }
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
+  ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  max_workers = ccf->worker_processes; //quite important for other logic
   ngx_event_t  *t;
   rwl_wrlock(&shdata->gc_lock, "gc");
   if(shdata->chanhead_gc_timer == NULL) {
@@ -181,6 +184,7 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
     t->log=ngx_cycle->log;
   }
   rwl_unlock(&shdata->gc_lock, "gc");
+  DBG("init memstore worker pid:%i slot:%i max workers:%i", ngx_pid, ngx_process_slot, max_workers);
   return NGX_OK;
 }
 
@@ -196,7 +200,7 @@ static nhpm_worker_chanhead_data_t *chanhead_worker_data(nhpm_channel_head_t *he
 static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
   nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   
-  data->sub_count++; //doesn't need to be atomic
+  data->sub_count++; //atomic
   chanhead->sub_count++; //atomic
   chanhead->channel.subscribers++; //also atomic
   data->sub = sub;
@@ -208,7 +212,7 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
   nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   chanhead->sub_count--; //atomic
   chanhead->channel.subscribers--; //also atomic
-  data->sub_count--; //doesn't need to be atomic
+  data->sub_count--; //also atomic
   if(data->sub == sub) { //head subscriber
     data->sub = NULL;
   }
@@ -264,7 +268,7 @@ static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
 static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   nhpm_channel_head_t         *head;
   nhpm_worker_chanhead_data_t *data;
-  ngx_int_t                    num_processes = ngx_last_process + 1;
+  ngx_int_t                    num_processes = max_workers;
   head=shm_alloc(shm, sizeof(*head) + sizeof(*data)*num_processes +  sizeof(u_char)*(channel_id->len), "chanhead");
   if(head == NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
@@ -601,7 +605,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       //unsubscribe now
       DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
       //do we need a read lock here? I don't think so...
-      for(i=0; i < ngx_last_process+1; i++) {
+      for(i=0; i < max_workers; i++) {
         data = &workers[i];
         if(i == ngx_process_slot) {
           //that's me!
@@ -755,7 +759,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   HASH_ITER(hh, head, cur, tmp) {
     //any subscribers?
     
-    for(i = 0; i < ngx_last_process + 1; i++) {
+    for(i = 0; i < max_workers; i++) {
       data = &cur->worker[i];
       if (i == ngx_process_slot) {
         //my own subs
