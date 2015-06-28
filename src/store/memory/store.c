@@ -37,13 +37,6 @@ struct nhpm_message_s {
   nhpm_message_t           *next;
 }; //nhpm_message_t
 
-typedef struct {
-  nhpm_channel_head_cleanup_t *shared_cleanup;
-  nhpm_subscriber_t           *sub;
-  ngx_atomic_t                 sub_count;
-  ngx_atomic_uint_t            pid;
-} nhpm_worker_chanhead_data_t;
-
 struct nhpm_channel_head_s {
   ngx_str_t                      id; //channel id
   ngx_http_push_channel_t        channel;
@@ -55,7 +48,8 @@ struct nhpm_channel_head_s {
   ngx_uint_t                     max_messages;
   nhpm_message_t                *msg_first;
   nhpm_message_t                *msg_last;
-  nhpm_worker_chanhead_data_t   *worker;
+  nhpm_channel_head_cleanup_t   *shared_cleanup;
+  nhpm_subscriber_t             *sub;
   nhpm_llist_timed_t             cleanlink;
   UT_hash_handle                 hh;
 };
@@ -102,7 +96,6 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
-static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 
 typedef struct {
   nhpm_channel_head_t *subhash;
@@ -159,66 +152,42 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
 }
 
 
-static nhpm_worker_chanhead_data_t *chanhead_worker_data(nhpm_channel_head_t *head) {
-  nhpm_worker_chanhead_data_t *data;
-  data = &head->worker[ngx_process_slot];
-  return data;
-}
-
 static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
-  nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
-  
-  data->sub_count++; //atomic
-  chanhead->sub_count++; //atomic
-  chanhead->channel.subscribers++; //also atomic
-  data->sub = sub;
+  chanhead->sub_count++;
+  chanhead->channel.subscribers++;
+  chanhead->sub = sub;
   
   return NGX_OK;
 }
 
 static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
-  nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   assert(chanhead->sub_count>0);
-  chanhead->sub_count--; //atomic
-  chanhead->channel.subscribers--; //also atomic
-  data->sub_count--; //also atomic
-  assert(data->sub_count >= 0);
-  if(data->sub == sub) { //head subscriber
-    data->sub = NULL;
+  chanhead->sub_count--;
+  chanhead->channel.subscribers--;
+  if(chanhead->sub == sub) { //head subscriber
+    chanhead->sub = NULL;
   }
   return NGX_OK;
 }
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   nhpm_channel_head_cleanup_t   *hcln;
-  chanhead_pubsub_status_t       status;
-  nhpm_worker_chanhead_data_t   *data;
   
   if(head == NULL) {
     return NGX_OK;
   }
-  status = head->status;
-  data = &head->worker[ngx_process_slot];
-
   //do we have everything ready for this worker?
-  if(data->pid == 0) {
-    data->pid = ngx_pid;
-  }
-  else if (data->pid != ngx_pid) {
-    ERR("Got some chanhead data that used to belong to process %i. taking over.");
-    data->pid = ngx_pid;
-  }
   
   if(head->pool == NULL) {
     if((head->pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
       ERR("can't allocate memory for channel subscriber pool");
     }
   }
-  if(data->shared_cleanup == NULL) {
+  if(head->shared_cleanup == NULL) {
     if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
       ERR("can't allocate memory for channel head cleanup");
     }
-    data->shared_cleanup = hcln;
+    head->shared_cleanup = hcln;
   }
   
   if(head->status == INACTIVE) {//recycled chanhead
@@ -237,24 +206,23 @@ static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
 
 static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   nhpm_channel_head_t         *head;
-  nhpm_worker_chanhead_data_t *data;
-  ngx_int_t                    num_processes = max_workers;
-  head=shm_alloc(shm, sizeof(*head) + sizeof(*data)*num_processes +  sizeof(u_char)*(channel_id->len), "chanhead");
+  head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   if(head == NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
     return NULL;
   }
   
   //no lock needed, no one else knows about this chanhead yet.
-  head->worker = (nhpm_worker_chanhead_data_t *)&head[1];
   head->id.len = channel_id->len;
-  head->id.data = (u_char *)&head->worker[num_processes];
+  head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
   head->sub_count=0;
   head->status = NOTREADY;
   head->msg_last = NULL;
   head->msg_first = NULL;
-  ngx_memzero(head->worker, sizeof(*data)*num_processes);
+  head->pool = NULL;
+  head->shared_cleanup = NULL;
+  head->sub = NULL;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
   head->channel.message_queue=NULL;
@@ -288,7 +256,6 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
 }
 
 static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscriber_t *sub) {
-  nhpm_worker_chanhead_data_t   *data;
   //remove subscriber from list
   if(sub->prev != NULL) {
     sub->prev->next=sub->next;
@@ -303,9 +270,8 @@ static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscrib
     ngx_del_timer(&sub->ev);
   }
   if(head != NULL) {
-    data = chanhead_worker_data(head);
-    if(data->sub == sub) {
-      data->sub = NULL;
+    if(head->sub == sub) {
+      head->sub = NULL;
     }
   }
   return NGX_OK;
@@ -414,83 +380,21 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
   }
 }
 
-static void ipc_alert_handler(ngx_uint_t code, void *data[]) {
-  nhpm_channel_head_t *head = NULL;
-  ngx_http_push_msg_t *msg = NULL;
-  ngx_int_t            status_code = NGX_ERROR;
-  const ngx_str_t     *status_line = NULL;
-  
-  switch(code) {
-    case PUBLISH_MESSAGE:
-      head = (nhpm_channel_head_t *)data[0];
-      msg = (ngx_http_push_msg_t *)data[1];
-      break;
-    case PUBLISH_STATUS:
-      head = (nhpm_channel_head_t *)data[0];
-      status_code = (ngx_int_t )data[1];
-      status_line = (ngx_str_t *)data[2];
-      break;
-  }
-  ngx_http_push_store_publish_locally(head, msg, status_code, status_line);
-}
-
-static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
-
 static ngx_int_t ngx_http_push_store_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
-  ngx_uint_t   alert_code;
-  void        *alert_data[3];
-  ngx_int_t    i;
-  if(msg == NULL) {
-    alert_code = PUBLISH_STATUS;
-    alert_data[0]=(void *)head;
-    alert_data[1]=(void *)status_code;
-    alert_data[2]=(void *)status_line;
-  }
-  else {
-    alert_code = PUBLISH_MESSAGE;
-    alert_data[0]=(void *)head;
-    alert_data[1]=(void *)msg;
-    alert_data[2]=NULL;
-  }
-  
-  nhpm_worker_chanhead_data_t *data;
-  for(i=0; i < max_workers; i++) {
-    data = &head->worker[i];
-    if (ngx_process_slot == i) {
-      if(ngx_pid != data->pid) {
-        ERR("found chanhead worker data with matching slot (%i) but differen pids (%i %i)", i, ngx_pid, data->pid);
-      }
-    }
-    else {
-      if(data->pid != 0 && data->sub_count > 0) {
-        ipc_alert(ipc, data->pid, i, alert_code, alert_data);
-      }
-      else {
-        DBG("No subscribers to channel %p at slot %i", head, i);
-      }
-    }
-  }
-  return ngx_http_push_store_publish_locally(head, msg, status_code, status_line);
-}
-
-//only publish to this worker's subscribers
-static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_subscriber_t          *sub, *next;
   nhpm_channel_head_cleanup_t *hcln;
-  nhpm_worker_chanhead_data_t *data;
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
-  data = chanhead_worker_data(head);
-  if (data->sub_count == 0) { //SUPPOSED TO BE ATOMIC.
+  if (head->sub_count == 0) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
   //set some things the cleanup callback will need
-  hcln = data->shared_cleanup;
-  data->shared_cleanup = NULL;
-  hcln->sub_count=data->sub_count;
+  hcln = head->shared_cleanup;
+  head->shared_cleanup = NULL;
+  hcln->sub_count=head->sub_count;
   hcln->head=NULL;
   
   //IS THIS SAFE? i think so...
@@ -503,11 +407,10 @@ static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, 
   
   chanhead_gc_add(head);
   
-  head->channel.subscribers -= data->sub_count; //atomic
-  head->sub_count -= data->sub_count; //also atomic
-  data->sub_count = 0;
-  sub = data->sub;
-  data->sub=NULL;
+  head->channel.subscribers = 0;
+  head->sub_count = 0;
+  sub = head->sub;
+  head->sub=NULL;
   
   for( ; sub!=NULL; sub=next) {
     subscriber_t      *rsub = sub->subscriber;
@@ -535,6 +438,27 @@ static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, 
 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
+
+static void ipc_alert_handler(ngx_uint_t code, void *data[]) {
+  nhpm_channel_head_t *head = NULL;
+  ngx_http_push_msg_t *msg = NULL;
+  ngx_int_t            status_code = NGX_ERROR;
+  const ngx_str_t     *status_line = NULL;
+  
+  switch(code) {
+    case PUBLISH_MESSAGE:
+      head = (nhpm_channel_head_t *)data[0];
+      msg = (ngx_http_push_msg_t *)data[1];
+      break;
+    case PUBLISH_STATUS:
+      head = (nhpm_channel_head_t *)data[0];
+      status_code = (ngx_int_t )data[1];
+      status_line = (ngx_str_t *)data[2];
+      break;
+  }
+  ngx_http_push_store_publish_generic(head, msg, status_code, status_line);
+}
+
 
 static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
 
@@ -567,7 +491,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       }
       
       CHANNEL_HASH_DEL(ch);
-      shm_free(shm, ch);
+      ngx_free(ch);
     }
     else {
       break; //dijkstra probably hates this
@@ -670,7 +594,6 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_channel_head_t         *cur, *tmp;
   nhpm_subscriber_t           *sub;
   subscriber_t                *rsub;
-  nhpm_worker_chanhead_data_t *data;
   ngx_int_t                    i;
   
     
@@ -678,10 +601,9 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
     //any subscribers?
     
     for(i = 0; i < max_workers; i++) {
-      data = &cur->worker[i];
       if (i == ngx_process_slot) {
         //my own subs
-        sub = data->sub;
+        sub = cur->sub;
         while (sub != NULL) {
           rsub = sub->subscriber;
           rsub->dequeue_after_response = 1;
@@ -722,7 +644,6 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   nhpm_subscriber_t           *sub = cln->sub;
   nhpm_channel_head_cleanup_t *shared = cln->shared;
   nhpm_channel_head_t         *head = shared->head;
-  nhpm_worker_chanhead_data_t *data = chanhead_worker_data(head);
   
   //DBG("subscriber_cleanup_callback for %p on %V", sub, &head->id);
   
@@ -734,7 +655,7 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   
   if(done) {
     //add chanhead to gc list
-    data->sub=NULL;
+    head->sub=NULL;
     if(head->sub_count == 0) {
       chanhead_gc_add(head);
     }
@@ -746,17 +667,14 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
 
 static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channel_head_t *head, nhpm_subscriber_t *sub, ngx_http_cleanup_pt *cleanup_callback) {
   nhpm_channel_head_cleanup_t *headcln;
-  nhpm_worker_chanhead_data_t *data;
 
-  data = &head->worker[ngx_process_slot];
-  headcln = data->shared_cleanup;
+  headcln = head->shared_cleanup;
   headcln->id.len = head->id.len;
   headcln->id.data = head->id.data;
   //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   
-  headcln = data->shared_cleanup;
   headcln->head = head;
-  
+
   headcln->pool = head->pool;
   headcln->sub_count = 0;
   
@@ -795,7 +713,6 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
   //this is the new shit
   ngx_http_push_loc_conf_t    *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_subscriber_t           *nextsub;
-  nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   
   if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
@@ -810,9 +727,9 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
   nextsub->subscriber = sub;
   nextsub->pool= sub->request->pool;
   
-  if(data->sub != NULL) {
-    data->sub->prev = nextsub;
-    nextsub->next = data->sub;
+  if(chanhead->sub != NULL) {
+    chanhead->sub->prev = nextsub;
+    nextsub->next = chanhead->sub;
   }
   
   else {
