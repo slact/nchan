@@ -234,9 +234,11 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_su
 
 static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
   nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
+  assert(chanhead->sub_count>0);
   chanhead->sub_count--; //atomic
   chanhead->channel.subscribers--; //also atomic
   data->sub_count--; //also atomic
+  assert(data->sub_count >= 0);
   if(data->sub == sub) { //head subscriber
     data->sub = NULL;
   }
