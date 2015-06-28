@@ -492,7 +492,6 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   return NGX_OK;
 }
 
-
 static ngx_str_t *msg_to_str(ngx_http_push_msg_t *msg) {
   static ngx_str_t str;
   ngx_buf_t *buf = msg->buf;
@@ -608,7 +607,6 @@ static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, 
   hcln->pool=data->pool;
   data->pool=NULL; //pool will be destroyed on cleanup
   
-  //DBG("chanhead_gc_add from publish_raw adding %p %V", head, &head->id);
   chanhead_gc_add(head);
   
   head->channel.subscribers -= data->sub_count; //atomic
