@@ -5,6 +5,7 @@
 #include <store/ngx_rwlock.h>
 #include "rbtree_util.h"
 #include "shmem.h"
+#include "ipc.h"
 #include <pthread.h>
 
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
@@ -41,6 +42,7 @@ typedef struct {
   nhpm_channel_head_cleanup_t *shared_cleanup;
   nhpm_subscriber_t           *sub;
   ngx_atomic_t                 sub_count;
+  ngx_atomic_uint_t            pid;
   ngx_pool_t                  *pool;
 } nhpm_worker_chanhead_data_t;
 
@@ -69,6 +71,9 @@ struct nhpm_channel_head_cleanup_s {
 
 static ngx_int_t max_workers = 0;
 
+
+static ipc_t *ipc;
+
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, shdata->subhash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, shdata->subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( shdata->subhash, chanhead)
@@ -89,6 +94,9 @@ static ngx_int_t max_workers = 0;
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+
+#define PUBLISH_STATUS 1
+#define PUBLISH_MESSAGE 2
 
 #define DEBUG_RWLOCKS 0
 
@@ -122,7 +130,7 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
-static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
+static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 
 typedef struct {
   nhpm_channel_head_t *subhash;
@@ -184,6 +192,9 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
     t->log=ngx_cycle->log;
   }
   rwl_unlock(&shdata->gc_lock, "gc");
+
+  ipc_start(ipc, cycle);
+  
   DBG("init memstore worker pid:%i slot:%i max workers:%i", ngx_pid, ngx_process_slot, max_workers);
   return NGX_OK;
 }
@@ -233,6 +244,14 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   rwl_unlock(&head->rwl, "chanhead is ready?");
   
   //do we have everything ready for this worker?
+  if(data->pid == 0) {
+    data->pid = ngx_pid;
+  }
+  else if (data->pid != ngx_pid) {
+    ERR("Got some chanhead data that used to belong to process %i. taking over.");
+    data->pid = ngx_pid;
+  }
+  
   if(data->pool == NULL) {
     if((data->pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
       ERR("can't allocate memory for channel subscriber pool");
@@ -485,18 +504,80 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
   }
 }
 
-static ngx_int_t ngx_http_push_store_publish_raw(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+static void ipc_alert_handler(ngx_uint_t code, void *data[]) {
+  nhpm_channel_head_t *head = NULL;
+  ngx_http_push_msg_t *msg = NULL;
+  ngx_int_t            status_code = NGX_ERROR;
+  const ngx_str_t     *status_line = NULL;
+  
+  switch(code) {
+    case PUBLISH_MESSAGE:
+      head = (nhpm_channel_head_t *)data[0];
+      msg = (ngx_http_push_msg_t *)data[1];
+      break;
+    case PUBLISH_STATUS:
+      head = (nhpm_channel_head_t *)data[0];
+      status_code = (ngx_int_t )data[1];
+      status_line = (ngx_str_t *)data[2];
+      break;
+  }
+  ngx_http_push_store_publish_locally(head, msg, status_code, status_line);
+}
+
+static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
+
+static ngx_int_t ngx_http_push_store_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+  ngx_uint_t   alert_code;
+  void        *alert_data[3];
+  ngx_int_t    i;
+  if(msg == NULL) {
+    alert_code = PUBLISH_STATUS;
+    alert_data[0]=(void *)head;
+    alert_data[1]=(void *)status_code;
+    alert_data[2]=(void *)status_line;
+  }
+  else {
+    alert_code = PUBLISH_MESSAGE;
+    alert_data[0]=(void *)head;
+    alert_data[1]=(void *)msg;
+    alert_data[2]=NULL;
+  }
+  
+  nhpm_worker_chanhead_data_t *data;
+  rwl_rdlock(&head->rwl, "publish to other workers");
+  for(i=0; i < max_workers; i++) {
+    data = &head->worker[i];
+    if (ngx_process_slot == i) {
+      if(ngx_pid != data->pid) {
+        ERR("found chanhead worker data with matching slot (%i) but differen pids (%i %i)", i, ngx_pid, data->pid);
+      }
+    }
+    else {
+      if(data->pid != 0 && data->sub_count > 0) {
+        ipc_alert(ipc, data->pid, i, alert_code, alert_data);
+      }
+      else {
+        DBG("No subscribers to channel %p at slot %i", head, i);
+      }
+    }
+  }
+  rwl_unlock(&head->rwl, "publish to other workers");
+  return ngx_http_push_store_publish_locally(head, msg, status_code, status_line);
+}
+
+//only publish to this worker's subscribers
+static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_subscriber_t          *sub, *next;
   nhpm_channel_head_cleanup_t *hcln;
   nhpm_worker_chanhead_data_t *data;
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
-  if (head->sub_count == 0) { //SUPPOSED TO BE ATOMIC.
-    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
-  }
   
   data = chanhead_worker_data(head);
+  if (data->sub_count == 0) { //SUPPOSED TO BE ATOMIC.
+    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+  }
   
   //set some things the cleanup callback will need
   hcln = data->shared_cleanup;
@@ -676,7 +757,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
   nhpm_channel_head_t      *ch;
   nhpm_message_t           *msg = NULL, *nextmsg;
   if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
-    ngx_http_push_store_publish_raw(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+    ngx_http_push_store_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
     rwl_rdlock(&ch->rwl, "delete channel");
     callback(NGX_OK, &ch->channel, privdata);
@@ -724,9 +805,15 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  ngx_http_push_worker_processes = ccf->worker_processes;
+  ngx_int_t                       max_worker_processes = ccf->worker_processes;
   
+  DBG("memstore init_module pid %p", ngx_pid);
+
   //initialize our little IPC
+  ipc = ipc_create(cycle);
+  ipc_open(ipc,cycle, max_worker_processes);
+  ipc_set_handler(ipc, ipc_alert_handler);
+
   return NGX_OK;
 }
 
@@ -786,11 +873,18 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
     ngx_del_timer(shdata->chanhead_gc_timer);
   }
   rwl_unlock(&shdata->gc_lock, "clear gc timer");
+  
+  ipc_close(ipc, cycle);
+  ipc_destroy(ipc, cycle); //only for this worker...
+  shm_destroy(shm); //just for this worker...
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   DBG("memstore exit master from pid %i", ngx_pid);
-  //deinitialize IPC
+  
+  ipc_close(ipc, cycle);
+  ipc_destroy(ipc, cycle);
+  
   shm_destroy(shm);
 }
 
@@ -1290,7 +1384,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   nhpm_message_t          *shmsg_link;
   ngx_int_t                sub_count;
   ngx_http_push_msg_t     *publish_msg;
-
+  
   assert(callback != NULL);
 
   if(msg->message_time==0) {
@@ -1348,7 +1442,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     DBG("fd %i", publish_msg->buf->file->fd);
   }
   ;
-  callback(ngx_http_push_store_publish_raw(chead, publish_msg, 0, NULL), channel_copy, privdata);
+  callback(ngx_http_push_store_publish_generic(chead, publish_msg, 0, NULL), channel_copy, privdata);
   
   return NGX_OK;
 }
