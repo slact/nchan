@@ -872,8 +872,8 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
         }
       }
       else {
-        ERR("I don't know how to do this yet");
-        assert(0);
+        ERR("Don't know how to handle this yet");
+        //TODO: this
       }
     }
     chanhead_gc_add(cur);
