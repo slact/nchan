@@ -42,13 +42,13 @@ typedef struct {
   nhpm_subscriber_t           *sub;
   ngx_atomic_t                 sub_count;
   ngx_atomic_uint_t            pid;
-  ngx_pool_t                  *pool;
 } nhpm_worker_chanhead_data_t;
 
 struct nhpm_channel_head_s {
   ngx_str_t                      id; //channel id
   ngx_http_push_channel_t        channel;
   ngx_atomic_t                   generation; //subscriber pool generation.
+  ngx_pool_t                    *pool;
   chanhead_pubsub_status_t       status;
   ngx_atomic_t                   sub_count;
   ngx_uint_t                     min_messages;
@@ -209,13 +209,13 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     data->pid = ngx_pid;
   }
   
-  if(data->pool == NULL) {
-    if((data->pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
+  if(head->pool == NULL) {
+    if((head->pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
       ERR("can't allocate memory for channel subscriber pool");
     }
   }
   if(data->shared_cleanup == NULL) {
-    if((hcln=ngx_pcalloc(data->pool, sizeof(*hcln)))==NULL) {
+    if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
       ERR("can't allocate memory for channel head cleanup");
     }
     data->shared_cleanup = hcln;
@@ -498,8 +498,8 @@ static ngx_int_t ngx_http_push_store_publish_locally(nhpm_channel_head_t *head, 
   hcln->id.data = head->id.data;
   
   //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "hcln->id.len == %i, head cleanup: %p", hcln->id.len, hcln);
-  hcln->pool=data->pool;
-  data->pool=NULL; //pool will be destroyed on cleanup
+  hcln->pool=head->pool;
+  head->pool=NULL; //pool will be destroyed on cleanup
   
   chanhead_gc_add(head);
   
@@ -541,8 +541,6 @@ static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t          *cur, *next;
   nhpm_channel_head_t         *ch = NULL;
-  nhpm_worker_chanhead_data_t *data;
-  ngx_int_t                    i;
   DBG("handling chanhead GC queue");
   
   for(cur=shdata->chanhead_gc_head ; cur != NULL; cur=next) {
@@ -563,19 +561,11 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       //unsubscribe now
       DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
       //do we need a read lock here? I don't think so...
-      for(i=0; i < max_workers; i++) {
-        data = &ch->worker[i];
-        if(i == ngx_process_slot) {
-          //that's me!
-          assert(data->sub_count == 0);
-          if(data->pool != NULL) {
-            ngx_destroy_pool(data->pool);
-          }
-        }
-        else {
-          ERR("someone else's crap");
-        }
+      
+      if(ch->pool != NULL) {
+        ngx_destroy_pool(ch->pool);
       }
+      
       CHANNEL_HASH_DEL(ch);
       shm_free(shm, ch);
     }
@@ -767,7 +757,7 @@ static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channe
   headcln = data->shared_cleanup;
   headcln->head = head;
   
-  headcln->pool = data->pool;
+  headcln->pool = head->pool;
   headcln->sub_count = 0;
   
   if(sub->r_cln == NULL) {
@@ -807,7 +797,7 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
   nhpm_subscriber_t           *nextsub;
   nhpm_worker_chanhead_data_t *data = chanhead_worker_data(chanhead);
   
-  if((nextsub=ngx_pcalloc(data->pool, sizeof(*nextsub)))==NULL) {
+  if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
     return NGX_ERROR;
   }
@@ -834,7 +824,7 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
   
   //add teardown callbacks and cleaning data
   if(ngx_http_push_store_set_subscriber_cleanup_callback(chanhead, nextsub, (ngx_http_cleanup_pt *)subscriber_cleanup_callback) != NGX_OK) {
-    ngx_pfree(data->pool, nextsub);
+    ngx_pfree(chanhead->pool, nextsub);
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber cleanup in channel pool");
     return NGX_ERROR;
   }
