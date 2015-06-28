@@ -32,7 +32,7 @@ struct nhpm_subscriber_s {
 typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
 
 struct nhpm_message_s {
-  ngx_http_push_msg_t       msg;
+  ngx_http_push_msg_t      *msg;
   nhpm_message_t           *prev;
   nhpm_message_t           *next;
 }; //nhpm_message_t
@@ -376,7 +376,7 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
     return &str;
   }
   else {
-    return msg_to_str(&msg->msg);
+    return msg_to_str(msg->msg); //WHOA, shared space!
   }
 }
 
@@ -758,9 +758,9 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
 }
 
 static ngx_int_t chanhead_withdraw_message_locked(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
-  //DBG("withdraw message %i:%i from ch %p %V", msg->msg.message_time, msg->msg.message_tag, ch, &ch->id);
-  if(msg->msg.refcount > 0) {
-    ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg.refcount);
+  //DBG("withdraw message %i:%i from ch %p %V", msg->msg->message_time, msg->msg->message_tag, ch, &ch->id);
+  if(msg->msg->refcount > 0) {
+    ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg->refcount);
     return NGX_ERROR;
   }
   if(ch->msg_first == msg) {
@@ -789,7 +789,7 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
 }
 
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
-  ngx_buf_t         *buf = msg->msg.buf;
+  ngx_buf_t         *buf = msg->msg->buf;
   ngx_file_t        *f = buf->file;
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
@@ -802,17 +802,18 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
   //DBG("free msg %p", msg);
-  shm_free(shm, msg);
+  shm_free(shm, msg->msg);
+  ngx_free(msg);
   return NGX_OK;
 }
 
 static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
-    DBG("delete msg %i:%i", msg->msg.message_time, msg->msg.message_tag);
+    DBG("delete msg %i:%i", msg->msg->message_time, msg->msg->message_tag);
     delete_withdrawn_message(msg);
   } 
   else {
-    ERR("failed to withdraw and delete message %i:%i", msg->msg.message_time, msg->msg.message_tag);
+    ERR("failed to withdraw and delete message %i:%i", msg->msg->message_time, msg->msg->message_tag);
   }
   return NGX_OK;
 }
@@ -826,20 +827,20 @@ static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t
   //is the message queue too big?
   while(cur != NULL && ch->channel.messages > max_messages) {
     next = cur->next;
-    if(cur->msg.refcount > 0) {
-      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
+    if(cur->msg->refcount > 0) {
+      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
     }
     else {
-      DBG("delete queue-too-big msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
+      DBG("delete queue-too-big msg %i:%i", cur->msg->message_time, cur->msg->message_tag);
       chanhead_delete_message(ch, cur);
     }
     cur = next;
   }
   
-  while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg.expires) {
+  while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg->expires) {
     next = cur->next;
-    if(cur->msg.refcount > 0) {
-      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
+    if(cur->msg->refcount > 0) {
+      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
     }
     else {
       chanhead_delete_message(ch, cur);
@@ -873,18 +874,18 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
   }
 
   if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
-    DBG("found message %i:%i", first->msg.message_time, first->msg.message_tag);
+    DBG("found message %i:%i", first->msg->message_time, first->msg->message_tag);
     *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
     return first;
   }
 
   while(cur != NULL) {
-    //DBG("cur: %i:%i %V", cur->msg.message_time, cur->msg.message_tag, chanhead_msg_to_str(cur));
+    //DBG("cur: %i:%i %V", cur->msg->message_time, cur->msg->message_tag, chanhead_msg_to_str(cur));
     
-    if(msgid->time > cur->msg.message_time || (msgid->time == cur->msg.message_time && msgid->tag >= cur->msg.message_tag)){
+    if(msgid->time > cur->msg->message_time || (msgid->time == cur->msg->message_time && msgid->tag >= cur->msg->message_tag)){
       if(cur->next != NULL) {
         *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
-        DBG("found message %i:%i", cur->next->msg.message_time, cur->next->msg.message_tag);
+        DBG("found message %i:%i", cur->next->msg->message_time, cur->next->msg->message_tag);
         return cur->next;
       }
       else {
@@ -899,13 +900,44 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
   return NULL;
 }
 
+static ngx_int_t channel_owner(ngx_str_t *id) {
+  return ngx_process_slot;
+}
+
+typedef struct {
+  subscriber_t             *sub;
+  nhpm_channel_head_t      *chanhead;
+  callback_pt               cb;
+  void                     *cb_privdata;
+  unsigned                  allocd:1;
+} subscribe_data_t;
+
+static ngx_int_t ask_owner_for_next_message(ngx_int_t owner, ngx_str_t *shm_channel_id, ngx_http_push_msg_id_t *msg_id, subscribe_data_t *d) {
+  return NGX_OK;
+}
+
+static ngx_int_t handle_find_next_message(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, subscribe_data_t *d);
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_channel_head_t          *chanhead;
   nhpm_message_t               *chmsg;
   ngx_int_t                     findmsg_status;
+  ngx_int_t                    owner = channel_owner(channel_id);
+  subscribe_data_t             data;
+  subscribe_data_t            *d;
   assert(callback != NULL);
+  if(ngx_process_slot != owner) {
+    d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+    d->allocd = 1;
+  }
+  else {
+    d = &data;
+    d->allocd = 0;
+  }
+  d->cb = callback;
+  d->cb_privdata = privdata;
+  d->sub = sub;
   
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
@@ -917,20 +949,29 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   else {
     chanhead = ngx_http_push_store_get_chanhead(channel_id);
   }
-  chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
+  d->chanhead = chanhead;
+  if(ngx_process_slot != owner) {
+    return ask_owner_for_next_message(owner, shm_copy_string(shm, channel_id), msg_id, d);
+  }
+  else {
+    chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
+    return handle_find_next_message(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+  }
+}
+
+static ngx_int_t handle_find_next_message(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, subscribe_data_t *d) {
+  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(d->sub->request, ngx_http_push_module);
+  ngx_int_t                   ret;
+  subscriber_t               *sub = d->sub;
+  nhpm_channel_head_t        *chanhead = d->chanhead;
+  callback_pt                 callback = d->cb;
+  void                       *privdata = d->cb_privdata;
   
   switch(findmsg_status) {
-    ngx_int_t                   ret;
-    ngx_http_push_msg_t        *msg;
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
-      msg = &chmsg->msg;
+      assert(msg != NULL);
       DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
-      if(msg == NULL) {
-        sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-        ERR("msg is NULL... why?...");
-        return NGX_ERROR;
-      }
       switch(cf->subscriber_concurrency) {
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
@@ -972,7 +1013,10 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
       sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
   }
-
+  
+  if(d->allocd) {
+    ngx_free(d);
+  }
   return NGX_OK;
 }
 
@@ -984,39 +1028,37 @@ static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *
     msg->prev->next = msg;
   }
 
+  //set time and tag
+  if(msg->msg->message_time == 0) {
+    msg->msg->message_time = ngx_time();
+  }
+  if(ch->msg_last && ch->msg_last->msg->message_time == msg->msg->message_time) {
+    msg->msg->message_tag = ch->msg_last->msg->message_tag + 1;
+  }
+  else {
+    msg->msg->message_tag = 0;
+  }
+
   if(ch->msg_first == NULL) {
     ch->msg_first = msg;
   }
-
-  //set time and tag
-  if(msg->msg.message_time == 0) {
-    msg->msg.message_time = ngx_time();
-  }
-  if(ch->msg_last && ch->msg_last->msg.message_time == msg->msg.message_time) {
-    msg->msg.message_tag = ch->msg_last->msg.message_tag + 1;
-  }
-  else {
-    msg->msg.message_tag = 0;
-  }
-
   ch->channel.messages++;
 
   ch->msg_last = msg;
   
-  //DBG("create %i:%i %V", msg->msg.message_time, msg->msg.message_tag, chanhead_msg_to_str(msg));
+  //DBG("create %i:%i %V", msg->msg->message_time, msg->msg->message_tag, chanhead_msg_to_str(msg));
   chanhead_messages_gc(ch);
   return NGX_OK;
 }
 
 typedef struct {
-  nhpm_message_t          chmsg;
+  ngx_http_push_msg_t     msg;
   ngx_buf_t               buf;
   ngx_file_t              file;
 } shmsg_memspace_t;
 
-static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
+static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
   shmsg_memspace_t        *stuff;
-  nhpm_message_t          *chmsg;
   ngx_http_push_msg_t     *msg;
   ngx_buf_t               *mbuf = NULL, *buf=NULL;
   mbuf = m->buf;
@@ -1041,11 +1083,8 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
   }
   // shmsg memory chunk: |chmsg|buf|fd|filename|content_type_data|msg_body|
 
-  chmsg = &stuff->chmsg;
-  msg = &stuff->chmsg.msg;
+  msg = &stuff->msg;
   buf = &stuff->buf;
-  chmsg->prev=NULL;
-  chmsg->next=NULL;
 
   ngx_memcpy(msg, m, sizeof(*msg));
   ngx_memcpy(buf, mbuf, sizeof(*buf));
@@ -1098,7 +1137,29 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
     */
   }
   
+  return msg;
+}
+
+
+
+
+static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
+  nhpm_message_t          *chmsg;
+  ngx_http_push_msg_t     *msg;
+  
+  if((msg=create_shm_msg(m)) == NULL ) {
+    return NULL;
+  }
+  if((chmsg = ngx_alloc(sizeof(*chmsg), ngx_cycle->log)) != NULL) {
+    chmsg->prev = NULL;
+    chmsg->next = NULL;
+    chmsg->msg  = msg;
+  }
   return chmsg;
+}
+
+static ngx_int_t publish_for_owner(ngx_int_t owner, ngx_str_t *shid, ngx_http_push_msg_t* publish_msg) {
+  return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
@@ -1109,7 +1170,8 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   nhpm_message_t          *shmsg_link;
   ngx_int_t                sub_count;
   ngx_http_push_msg_t     *publish_msg;
-  
+  ngx_str_t               *shid;
+  ngx_int_t                owner = channel_owner(channel_id);
   assert(callback != NULL);
 
   if(msg->message_time==0) {
@@ -1121,6 +1183,14 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     ERR("can't get chanhead for id %V", channel_id);
     return NGX_ERROR;
   }
+  
+  if(ngx_process_slot != owner) {
+    shid = shm_copy_string(shm, channel_id);
+    publish_msg = create_shm_msg(msg);
+    publish_for_owner(owner, shid, publish_msg);
+    return NGX_OK;
+  }
+  
   chead->channel.expires = ngx_time() + cf->buffer_timeout;
   sub_count = chead->sub_count;
   
@@ -1129,7 +1199,6 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
   
   chead->max_messages = cf->max_messages;
-  
   
   chanhead_messages_gc(chead);
   if(cf->max_messages == 0) {
@@ -1151,7 +1220,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     }
     ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
     channel_copy->subscribers = sub_count;
-    publish_msg = &shmsg_link->msg;
+    publish_msg = shmsg_link->msg;
   }
   
   //do the actual publishing
