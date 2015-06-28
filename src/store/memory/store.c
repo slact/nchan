@@ -100,11 +100,24 @@ static ipc_t *ipc;
 
 #define DEBUG_RWLOCKS 1
 
-static void rwl_init(pthread_rwlock_t *lock, const char *dbg) {
+static ngx_int_t rwl_init(pthread_rwlock_t *lock, const char *dbg) {
   #if (DEBUG_RWLOCKS == 1)
   ERR("rwl %p INIT      (%s)", lock, dbg);
   #endif
-  pthread_rwlock_init(lock, NULL);
+  pthread_rwlockattr_t  attr;
+  if(pthread_rwlockattr_init(&attr) != 0) {
+    ERR("failed to initialize pthreads rwlock attr");
+    return NGX_ERROR;
+  }
+  if(pthread_rwlockattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) != 0) {
+    ERR("failed to initialize pthreads rwlock attr");
+    return NGX_ERROR;
+  }
+  if(pthread_rwlock_init(lock, &attr) != 0) {
+    ERR("failed to initialize pthreads rwlock");
+    return NGX_ERROR;
+  }
+  return NGX_OK;
 }
 static void rwl_rdlock(pthread_rwlock_t *lock, const char *dbg) {
   #if (DEBUG_RWLOCKS == 1)
