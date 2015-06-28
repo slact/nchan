@@ -8,3 +8,5 @@ ngx_int_t         shm_destroy(shmem_t *shm);
 void             *shm_alloc(shmem_t *shm, size_t size, const char *label);
 void             *shm_calloc(shmem_t *shm, size_t size, const char *label);
 void              shm_free(shmem_t *shm, void *p);
+
+ngx_str_t        *shm_copy_string(shmem_t *shm, ngx_str_t *str);
