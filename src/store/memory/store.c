@@ -98,7 +98,7 @@ static ipc_t *ipc;
 #define PUBLISH_STATUS 1
 #define PUBLISH_MESSAGE 2
 
-#define DEBUG_RWLOCKS 0
+#define DEBUG_RWLOCKS 1
 
 static void rwl_init(pthread_rwlock_t *lock, const char *dbg) {
   #if (DEBUG_RWLOCKS == 1)
@@ -1208,7 +1208,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
           //kick everyone elese out, then subscribe
-          ngx_http_push_store_publish_raw(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+          ngx_http_push_store_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
           //FALL-THROUGH to BROADCAST
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
