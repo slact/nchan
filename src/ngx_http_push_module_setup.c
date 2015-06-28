@@ -197,6 +197,7 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
 
 static void ngx_http_push_exit_worker(ngx_cycle_t *cycle) {
   ngx_http_push_store->exit_worker(cycle);
+  ngx_destroy_pool(ngx_http_push_pool); // just for this worker
 }
 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
