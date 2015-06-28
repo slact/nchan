@@ -1030,13 +1030,12 @@ static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscribe
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+static ngx_int_t chanhead_withdraw_message_locked(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   //DBG("withdraw message %i:%i from ch %p %V", msg->msg.message_time, msg->msg.message_tag, ch, &ch->id);
   if(msg->msg.refcount > 0) {
     ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg.refcount);
     return NGX_ERROR;
   }
-  rwl_wrlock(&ch->rwl, "withdraw message set");
   if(ch->msg_first == msg) {
     //DBG("first message removed");
     ch->msg_first = msg->next;
@@ -1053,10 +1052,19 @@ static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message
     //DBG("set prev");
     msg->prev->next = msg->next;
   }
-  rwl_unlock(&ch->rwl, "withdraw message set");
+  
   ch->channel.messages --; //supposed to be atomic
   return NGX_OK;
 }
+
+static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  ngx_int_t rc;
+  rwl_wrlock(&ch->rwl, "withdraw message set");
+  rc = chanhead_withdraw_message_locked(ch, msg);
+  rwl_unlock(&ch->rwl, "withdraw message set");
+  return rc;
+}
+
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
   ngx_buf_t         *buf = msg->msg.buf;
   ngx_file_t        *f = buf->file;
@@ -1086,6 +1094,17 @@ static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t
   return NGX_OK;
 }
 
+static ngx_int_t chanhead_delete_message_locked(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  if(chanhead_withdraw_message_locked(ch, msg) == NGX_OK) {
+    DBG("delete msg %i:%i", msg->msg.message_time, msg->msg.message_tag);
+    delete_withdrawn_message(msg);
+  } 
+  else {
+    ERR("failed to withdraw and delete message %i:%i", msg->msg.message_time, msg->msg.message_tag);
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
@@ -1093,7 +1112,7 @@ static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t
   //DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
   
   //is the message queue too big?
-  //ch->channel.messages is ATOMIC
+  rwl_wrlock(&ch->rwl, "chanhead messages gc"); //TODO: per-channel message-queue lock
   while(cur != NULL && ch->channel.messages > max_messages) {
     next = cur->next;
     if(cur->msg.refcount > 0) {
@@ -1101,7 +1120,7 @@ static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t
     }
     else {
       DBG("delete queue-too-big msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
-      chanhead_delete_message(ch, cur);
+      chanhead_delete_message_locked(ch, cur);
     }
     cur = next;
   }
@@ -1111,15 +1130,12 @@ static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t
     if(cur->msg.refcount > 0) {
       ERR("msg %p refcount %i > 0", &cur->msg, cur->msg.refcount);
     }
-    if(chanhead_withdraw_message(ch, cur) == NGX_OK) {
-       DBG("delete msg %i:%i", cur->msg.message_time, cur->msg.message_tag);
-       delete_withdrawn_message(cur);
-    }
     else {
-      ERR("error deleting chanhead_message");
+      chanhead_delete_message_locked(ch, cur);
     }
     cur = next;
   }
+  rwl_unlock(&ch->rwl, "chanhead messages gc"); //TODO: per-channel message-queue lock
   //DBG("Tried deleting %i mesages", count);
   return NGX_OK;
 }
