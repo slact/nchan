@@ -6,19 +6,21 @@
 typedef struct recycloc_trash_s recycloc_trash_t;
 typedef struct recycloc_s recycloc_t;
 
-struct recycloc_trash_s {
-  size_t            size;
+struct recycloc_llist_s {
   void             *data;
   struct recycloc_page_t  *prev;
   struct recycloc_page_t  *next;
 };
 
 struct recycloc_s {
-  
-  
+  const char       *name;
+  recycloc_llist_s *head;
+  recycloc_llist_s *tail;
+  recycloc_llist_s *prealloc_start;
+  recycloc_llist_s *prealloc_end;
 }
 
-recycloc_t *recycloc_create(const char *name, size_t data_size, size_t page_size) {
+recycloc_t *recycloc_init(const char *name, recycloc_t *ptr, size_t data_size, size_t prealloc_count) {
   recycloc_t rec = NULL;
   if(page_size > ngx_pagesize) {
     ERR("can't create recycloc: page_size %i > ngx_pagesize %i", page_size, ngx_pagesize);
@@ -30,7 +32,16 @@ recycloc_t *recycloc_create(const char *name, size_t data_size, size_t page_size
   }
   rec->name=name;
   rec->data_size = data_size
+  return rec;
+  
   
 }
 
-recycloc_destroy
+void * recycloc_alloc(recycloc_t *self);
+
+
+
+recycloc_t *recycloc_destroy(recycloc_t *self) {
+  
+  
+}
