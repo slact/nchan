@@ -341,7 +341,9 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
 }
 
 ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
-  nhpm_subscriber_t          *sub, *next;
+  nhpm_subscriber_t           *sub, *next, *new_first_sub = NULL;
+  ngx_int_t                    reused_subs = 0;
+  ngx_int_t                    reusable = 0;
   nhpm_channel_head_cleanup_t *hcln;
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
@@ -375,17 +377,17 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
   head->channel.subscribers = 0;
   head->sub_count = 0;
   sub = head->sub;
-  head->sub=NULL;
+  head->sub;
   
   for( ; sub!=NULL; sub=next) {
     subscriber_t      *rsub = sub->subscriber;
-
+    reusable = rsub->dequeue_after_response == 0;
     if(sub->ev.timer_set) { //remove timeout timer right away
       ngx_del_timer(&sub->ev);
     }
     sub->r_cln->handler = (ngx_http_cleanup_pt) subscriber_publishing_cleanup_callback;
     
-    next = sub->next; //becase the cleanup callback will dequeue this subscriber
+    next = sub->next; //becase the cleanup callback may dequeue this subscriber
     
     if(sub->clndata.shared != hcln) {
       ERR("wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, sub->clndata.shared);
@@ -397,8 +399,21 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
     else {
       rsub->respond_status(rsub, status_code, status_line);
     }
+    
+    if(reusable) { //re-use these.
+      sub->next = new_first_sub;
+      sub->prev = NULL;
+      if(new_first_sub) {
+        new_first_sub->prev = sub;
+      }
+      new_first_sub = sub;
+      reused_subs++;
+    }
   }
 
+  head->sub = new_first_sub;
+  head->sub_count += reused_subs;
+  head->channel.subscribers = head->sub_count;
   head->generation++; //should be atomic
 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
@@ -896,7 +911,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
-      memstore_ipc_send_get_message(ipc, owner, shm_copy_string(shm, channel_id), msg_id, d);
+      memstore_ipc_send_get_message(ipc, owner, channel_id, msg_id, d);
       return NGX_OK;
     }
   }

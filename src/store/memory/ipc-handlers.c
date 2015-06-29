@@ -7,12 +7,14 @@
 
 #define IPC_SUBSCRIBE               1
 #define IPC_SUBSCRIBE_REPLY         2
-#define IPC_PUBLISH                 3
-#define IPC_PUBLISH_REPLY           4
-#define IPC_GET_MESSAGE             5
-#define IPC_GET_MESSAGE_REPLY       6
-#define IPC_DELETE                  7
-#define IPC_DELETE_REPLY            8
+#define IPC_UNSUBSCRIBE             3
+#define IPC_UNSUBSCRIBE_REPLY       4
+#define IPC_PUBLISH                 5
+#define IPC_PUBLISH_REPLY           6
+#define IPC_GET_MESSAGE             7
+#define IPC_GET_MESSAGE_REPLY       8
+#define IPC_DELETE                  9
+#define IPC_DELETE_REPLY            10
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -23,6 +25,8 @@ ngx_int_t get_pid(ngx_int_t owner_slot) {
   return 1;
 }
 
+
+////////// SUBSCRIBE ////////////////
 typedef struct {
   ngx_str_t    *shm_chid;
   ngx_atomic_t *shm_sub_count;
@@ -50,18 +54,45 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
 
 
 
+////////// UNSUBSCRIBE ////////////////
+typedef struct {
+  ngx_str_t    *shm_chid;
+  void         *subscriber;
+  void         *privdata;
+} unsubscribe_data_t;
+ngx_int_t memstore_ipc_send_unsubscribe(ipc_t *ipc, ngx_int_t owner, ngx_str_t *shm_chid, void *subscriber, void* privdata) {
+  unsubscribe_data_t        data = {shm_chid, subscriber, privdata};
+  return ipc_alert(ipc, owner, IPC_UNSUBSCRIBE, &data);
+}
+static void receive_unsubscribe(ngx_int_t sender, void *data) {
+  nhpm_channel_head_t *head;
+  unsubscribe_data_t *d = (unsubscribe_data_t *)data;
+  DBG("received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
+  head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
+  //TODO: unsubscriber code
+  ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_UNSUBSCRIBE_REPLY, d);
+}
+static void receive_unsubscribe_reply(ngx_int_t sender, void *data) {
+  unsubscribe_data_t *d = (unsubscribe_data_t *)data;
+  DBG("received subscribe reply for channel %V pridata", d->shm_chid, d->privdata);
+  //TODO
+}
 
 
+
+////////// PUBLISH  ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
   ngx_http_push_msg_t       *shm_msg;
   ngx_http_push_loc_conf_t  *cf;
   void                      *privdata;
 } publish_data_t;
+
 typedef struct {
   callback_pt    cb;
   void          *pd;
 } publish_extradata_t;
+
 ngx_int_t memstore_ipc_send_publish_message(ipc_t *ipc, ngx_int_t owner, ngx_str_t *chid, ngx_http_push_msg_t *shm_msg, ngx_http_push_loc_conf_t  *cf, callback_pt callback, void *privdata) {
   //nhpm_channel_head_t *head;
   ngx_str_t              *shm_chid = shm_copy_string(ngx_http_push_memstore_get_shm(), chid);
@@ -71,11 +102,14 @@ ngx_int_t memstore_ipc_send_publish_message(ipc_t *ipc, ngx_int_t owner, ngx_str
   publish_data_t  data = {shm_chid, shm_msg, cf, ed};
   return ipc_alert(ipc, owner, IPC_PUBLISH, &data);
 }
+
 typedef struct {
   ngx_int_t        sender;
   publish_data_t  *d;
 } publish_callback_data;
+
 static ngx_int_t publish_message_generic_callback(ngx_int_t, void *, void *);
+
 static void receive_publish(ngx_int_t sender, void *data) {
   publish_data_t         *d = (publish_data_t *)data;
   publish_callback_data   cd;
@@ -93,6 +127,7 @@ static void receive_publish(ngx_int_t sender, void *data) {
     //don't deallocate shm_msg
   }
 }
+
 typedef struct {
   ngx_str_t   *shm_chid;
   ngx_int_t    status;// NGX_HTTP_PUSH_MESSAGE_RECEIVED or NGX_HTTP_PUSH_MESSAGE_QUEUED;
@@ -132,20 +167,23 @@ static void receive_publish_reply(ngx_int_t sender, void *data) {
 }
 
 
-
+////////// GET MESSAGE ////////////////
 typedef struct {
   ngx_str_t              *shm_chid;
   ngx_http_push_msg_id_t  msgid;
   void                   *privdata;
 } getmessage_data_t;
+
 typedef struct {
   ngx_str_t           *shm_chid;
   ngx_http_push_msg_t *shm_msg;
   ngx_int_t            getmsg_code;
   void                *privdata;
 } getmessage_reply_data_t;
+
 //incidentally these two are the same size. if they weren't there'd be a bug.
-ngx_int_t memstore_ipc_send_get_message(ipc_t *ipc, ngx_int_t owner, ngx_str_t *shm_chid, ngx_http_push_msg_id_t *msgid, void *privdata) {
+ngx_int_t memstore_ipc_send_get_message(ipc_t *ipc, ngx_int_t owner, ngx_str_t *chid, ngx_http_push_msg_id_t *msgid, void *privdata) {
+  ngx_str_t             *shm_chid = shm_copy_string(ngx_http_push_memstore_get_shm(), chid);
   getmessage_data_t      data = {shm_chid, {0}, privdata};
   data.msgid.time = msgid->time;
   data.msgid.tag = msgid->tag;
@@ -178,8 +216,13 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
   getmessage_reply_data_t *d = (getmessage_reply_data_t *)data;
   DBG("received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
   ngx_http_push_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
+  shm_free(ngx_http_push_memstore_get_shm(), d->shm_chid);
 }
 
+
+
+
+////////// DELETE ////////////////
 typedef struct {
   ngx_str_t           *shm_chid;
   void                *privdata;
@@ -200,6 +243,8 @@ static void receive_delete_reply(ngx_int_t sender, void *data) {
 static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_SUBSCRIBE] =             receive_subscribe,
   [IPC_SUBSCRIBE_REPLY] =       receive_subscribe_reply,
+  [IPC_UNSUBSCRIBE] =           receive_unsubscribe,
+  [IPC_UNSUBSCRIBE_REPLY] =     receive_unsubscribe_reply,
   [IPC_PUBLISH] =               receive_publish,
   [IPC_PUBLISH_REPLY] =         receive_publish_reply,
   [IPC_GET_MESSAGE] =           receive_get_message,

@@ -196,6 +196,7 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_respond_message,
   &longpoll_respond_status,
   &longpoll_add_next_response_cleanup,
+  "longpoll",
   LONGPOLL,
   1, //deque after response
   1, //destroy after dequeue
