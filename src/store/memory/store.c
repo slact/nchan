@@ -50,6 +50,7 @@ struct nhpm_channel_head_s {
   nhpm_message_t                *msg_last;
   nhpm_channel_head_cleanup_t   *shared_cleanup;
   nhpm_subscriber_t             *sub;
+  ngx_http_push_msg_id_t         last_msgid;
   nhpm_llist_timed_t             cleanlink;
   UT_hash_handle                 hh;
 };
@@ -385,6 +386,11 @@ static ngx_int_t ngx_http_push_store_publish_generic(nhpm_channel_head_t *head, 
   nhpm_channel_head_cleanup_t *hcln;
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+  }
+  
+  if(msg) {
+    head->last_msgid.time = msg->message_time;
+    head->last_msgid.tag = msg->message_tag;
   }
   
   if (head->sub_count == 0) {
