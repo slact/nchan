@@ -6,6 +6,7 @@
 #include "rbtree_util.h"
 #include "shmem.h"
 #include "ipc.h"
+#include "ipc-handlers.h"
 
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
 typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
@@ -87,9 +88,6 @@ static ipc_t *ipc;
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
-
-#define PUBLISH_STATUS 1
-#define PUBLISH_MESSAGE 2
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
@@ -445,27 +443,6 @@ static ngx_int_t ngx_http_push_store_publish_generic(nhpm_channel_head_t *head, 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
 
-static void ipc_alert_handler(ngx_uint_t code, void *data[]) {
-  nhpm_channel_head_t *head = NULL;
-  ngx_http_push_msg_t *msg = NULL;
-  ngx_int_t            status_code = NGX_ERROR;
-  const ngx_str_t     *status_line = NULL;
-  
-  switch(code) {
-    case PUBLISH_MESSAGE:
-      head = (nhpm_channel_head_t *)data[0];
-      msg = (ngx_http_push_msg_t *)data[1];
-      break;
-    case PUBLISH_STATUS:
-      head = (nhpm_channel_head_t *)data[0];
-      status_code = (ngx_int_t )data[1];
-      status_line = (ngx_str_t *)data[2];
-      break;
-  }
-  ngx_http_push_store_publish_generic(head, msg, status_code, status_line);
-}
-
-
 static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
 
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
@@ -525,13 +502,32 @@ static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   }
 }
 
+static ngx_int_t channel_owner(ngx_str_t *id) {
+  return ngx_process_slot;
+}
 
 static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
 
+typedef struct {
+  callback_pt  cb;
+  void        *pd;
+} delete_data_t;
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
   nhpm_message_t           *msg = NULL;
+   ngx_int_t                owner = channel_owner(channel_id);
+   if(ngx_process_slot != owner) {
+     delete_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+     if(d == NULL) {
+       ERR("Couldn't allocate delete callback data");
+       return NGX_ERROR;
+     }
+     d->cb = callback;
+     d->pd = privdata;
+     memstore_ipc_send_delete(ipc, owner, shm_copy_string(shm, channel_id), d);
+     return NGX_OK;
+   }
   if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
     ngx_http_push_store_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
@@ -576,7 +572,7 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   //initialize our little IPC
   ipc = ipc_create(cycle);
   ipc_open(ipc,cycle, max_worker_processes);
-  ipc_set_handler(ipc, ipc_alert_handler);
+  ipc_set_handler(ipc, memstore_ipc_alert_handler);
 
   return NGX_OK;
 }
@@ -600,27 +596,16 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_channel_head_t         *cur, *tmp;
   nhpm_subscriber_t           *sub;
   subscriber_t                *rsub;
-  ngx_int_t                    i;
   
     
   HASH_ITER(hh, shdata->subhash, cur, tmp) {
     //any subscribers?
-    
-    for(i = 0; i < max_workers; i++) {
-      if (i == ngx_process_slot) {
-        //my own subs
-        sub = cur->sub;
-        while (sub != NULL) {
-          rsub = sub->subscriber;
-          rsub->dequeue_after_response = 1;
-          rsub->respond_status(rsub, NGX_HTTP_CLOSE, NULL);
-          sub = sub->next;
-        }
-      }
-      else {
-        ERR("Don't know how to handle this yet");
-        //TODO: this
-      }
+    sub = cur->sub;
+    while (sub != NULL) {
+      rsub = sub->subscriber;
+      rsub->dequeue_after_response = 1;
+      rsub->respond_status(rsub, NGX_HTTP_CLOSE, NULL);
+      sub = sub->next;
     }
     chanhead_gc_add(cur);
   }
@@ -906,10 +891,6 @@ static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_h
   return NULL;
 }
 
-static ngx_int_t channel_owner(ngx_str_t *id) {
-  return ngx_process_slot;
-}
-
 typedef struct {
   subscriber_t             *sub;
   nhpm_channel_head_t      *chanhead;
@@ -956,8 +937,17 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     chanhead = ngx_http_push_store_get_chanhead(channel_id);
   }
   d->chanhead = chanhead;
+  
   if(ngx_process_slot != owner) {
-    return ask_owner_for_next_message(owner, shm_copy_string(shm, channel_id), msg_id, d);
+    //check if we need to ask for a message
+    if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
+      //we're here for the latest message, no need to check.
+      return handle_find_next_message(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
+    }
+    else {
+      memstore_ipc_send_get_message(ipc, owner, shm_copy_string(shm, channel_id), d);
+      return NGX_OK;
+    }
   }
   else {
     chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
