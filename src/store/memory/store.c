@@ -39,8 +39,8 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
@@ -144,7 +144,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   if(owner != ngx_process_slot) {
     if(head->ipc_sub == NULL) {
       head->status = NOTREADY;
-      memstore_ipc_send_subscribe(ipc, owner, shm_copy_string(shm, &head->id), head);
+      memstore_ipc_send_subscribe(ipc, owner, &head->id, head);
     }
     else {
       head->status = READY;
@@ -183,6 +183,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->pool = NULL;
   head->shared_cleanup = NULL;
   head->sub = NULL;
+  head->ipc_sub = NULL;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
   head->channel.message_queue=NULL;
@@ -377,7 +378,7 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
   head->channel.subscribers = 0;
   head->sub_count = 0;
   sub = head->sub;
-  head->sub;
+  head->sub = NULL;
   
   for( ; sub!=NULL; sub=next) {
     subscriber_t      *rsub = sub->subscriber;

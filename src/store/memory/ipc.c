@@ -4,6 +4,10 @@
 #include "ipc.h"
 #include <assert.h>
 
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
+#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+
 static void ipc_channel_handler(ngx_event_t *ev);
 
 ipc_t *ipc_create(ngx_cycle_t *cycle) {
@@ -12,10 +16,12 @@ ipc_t *ipc_create(ngx_cycle_t *cycle) {
   if(ipc == NULL) {
     return NULL;
   }
+  DBG("created IPC %p", ipc);
   return ipc;
 }
 
 ngx_int_t ipc_destroy(ipc_t *ipc, ngx_cycle_t *cycle) {
+  DBG("destroying IPC %p", ipc);
   ngx_free(ipc);
   return NGX_OK;
 }
@@ -127,6 +133,7 @@ typedef struct {
 } ipc_alert_t;
 
 ngx_int_t ipc_read_channel(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *log) {
+  DBG("IPC read channel");
   ssize_t             n;
   ngx_err_t           err;
   struct iovec        iov[1];
@@ -183,6 +190,7 @@ ngx_int_t ipc_read_channel(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *log) {
  }
 
 static void ipc_channel_handler(ngx_event_t *ev) {
+  DBG("IPC channel handler");
   //copypasta from os/unix/ngx_process_cycle.c (ngx_channel_handler)
   ngx_int_t          n;
   ipc_alert_t        alert = {0};
@@ -221,6 +229,7 @@ static void ipc_channel_handler(ngx_event_t *ev) {
 } 
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data) {
+  DBG("IPC send alert code %i to slot %i", code, slot);
   //ripped from ngx_send_channel
   
   ipc_alert_t         alert;
@@ -232,7 +241,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data) {
   alert.ipc = ipc;
   alert.src_slot = ngx_process_slot;
   alert.dst_slot = slot;
-//   alert.code = code;
+  alert.code = code;
   ngx_memcpy(&alert.data, data, sizeof(alert.data));
   
   ngx_socket_t        s = ipc->socketpairs[slot][0];

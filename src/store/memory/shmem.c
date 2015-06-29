@@ -80,6 +80,6 @@ ngx_str_t *shm_copy_string(shmem_t *shm, ngx_str_t *str_in) {
   }
   str->len=str_in->len;
   str->data=(u_char *)&str[1];
-  ngx_memcpy(&str->data, str_in->data, str->len);
+  ngx_memcpy(str->data, str_in->data, str->len);
   return str;
 }
