@@ -52,6 +52,7 @@ struct nhpm_channel_head_s {
   nhpm_channel_head_cleanup_t   *shared_cleanup;
   nhpm_subscriber_t             *sub;
   ngx_http_push_msg_id_t         last_msgid;
+  void                          *ipc_sub; //points to NULL or inacceessible memory.
   nhpm_llist_timed_t             cleanlink;
   UT_hash_handle                 hh;
 };
@@ -63,7 +64,7 @@ struct nhpm_channel_head_cleanup_s {
   ngx_pool_t                 *pool;
 };
 
-static ngx_int_t max_workers = 0;
+static ngx_int_t max_worker_processes = 0;
 
 
 static ipc_t *ipc;
@@ -106,6 +107,11 @@ typedef struct {
 shmem_t *shm = NULL;
 shm_data_t *shdata = NULL;
 
+static ngx_int_t channel_owner(ngx_str_t *id) {
+  ngx_int_t h = ngx_crc32_short(id->data, id->len);
+  return h % max_worker_processes;
+}
+
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   shm_data_t     *d;
 
@@ -132,8 +138,6 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  max_workers = ccf->worker_processes; //quite important for other logic
   ngx_event_t  *t;
   if(shdata->chanhead_gc_timer == NULL) {
     if((t = shm_alloc(shm, sizeof(*t), "chanhead cleanup timer")) == NULL) {
@@ -146,7 +150,7 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
 
   ipc_start(ipc, cycle);
   
-  DBG("init memstore worker pid:%i slot:%i max workers:%i", ngx_pid, ngx_process_slot, max_workers);
+  DBG("init memstore worker pid:%i slot:%i max workers:%i", ngx_pid, ngx_process_slot, max_worker_processes);
   return NGX_OK;
 }
 
@@ -171,7 +175,7 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   nhpm_channel_head_cleanup_t   *hcln;
-  
+  ngx_int_t                      owner = channel_owner(&head->id);
   if(head == NULL) {
     return NGX_OK;
   }
@@ -191,8 +195,21 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head);
+  }
+  
+  if(owner != ngx_process_slot) {
+    if(head->ipc_sub == NULL) {
+      head->status = NOTREADY;
+      memstore_ipc_send_subscribe(ipc, owner, shm_copy_string(shm, &head->id), head);
+    }
+    else {
+      head->status = READY;
+    }
+  }
+  else {
     head->status = READY;
   }
+  
   return NGX_OK;
 }
 
@@ -502,10 +519,6 @@ static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   }
 }
 
-static ngx_int_t channel_owner(ngx_str_t *id) {
-  return ngx_process_slot;
-}
-
 static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
 
 typedef struct {
@@ -565,7 +578,7 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  ngx_int_t                       max_worker_processes = ccf->worker_processes;
+  max_worker_processes = ccf->worker_processes;
   
   DBG("memstore init_module pid %p", ngx_pid);
 

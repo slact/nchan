@@ -211,7 +211,8 @@ static void ipc_channel_handler(ngx_event_t *ev) {
     //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "push module: channel command: %d", ch.command);
 
     if(ngx_pid != alert.dst_pid) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i", ngx_pid, alert.dst_pid);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_pid, alert.dst_pid);
+      alert.ipc->handler(alert.code, alert.data);
     }
     else {
       alert.ipc->handler(alert.code, alert.data);

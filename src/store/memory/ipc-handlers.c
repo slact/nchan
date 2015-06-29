@@ -24,7 +24,7 @@ typedef struct {
   ngx_str_t *shm_chid;
   void      *privdata;
 } subscribe_data_t;
-ngx_int_t memstore_ipc_send_subscribe_channel(ipc_t *ipc, ngx_int_t owner, ngx_str_t *shm_chid, void* privdata) {
+ngx_int_t memstore_ipc_send_subscribe(ipc_t *ipc, ngx_int_t owner, ngx_str_t *shm_chid, void* privdata) {
   ngx_int_t               pid = 123;
   subscribe_data_t        data = {shm_chid, privdata};
   return ipc_alert(ipc, pid, owner, IPC_SUBSCRIBE, &data);
