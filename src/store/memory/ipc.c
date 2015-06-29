@@ -20,7 +20,7 @@ ngx_int_t ipc_destroy(ipc_t *ipc, ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
-ngx_int_t ipc_set_handler(ipc_t *ipc, void (*alert_handler)(ngx_uint_t, void *)) {
+ngx_int_t ipc_set_handler(ipc_t *ipc, void (*alert_handler)(ngx_int_t, ngx_uint_t, void *)) {
   ipc->handler=alert_handler;
   return NGX_OK;
 }
@@ -120,8 +120,8 @@ ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
 
 typedef struct {
   ipc_t          *ipc;
-  ngx_pid_t       src_pid;
-  ngx_pid_t       dst_pid;
+  ngx_int_t       src_slot;
+  ngx_int_t       dst_slot;
   ngx_uint_t      code;
   void           *data[IPC_DATA_SIZE];
 } ipc_alert_t;
@@ -210,17 +210,17 @@ static void ipc_channel_handler(ngx_event_t *ev) {
     }
     //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "push module: channel command: %d", ch.command);
 
-    if(ngx_pid != alert.dst_pid) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_pid, alert.dst_pid);
-      alert.ipc->handler(alert.code, alert.data);
+    if(ngx_process_slot != alert.dst_slot) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_process_slot, alert.dst_slot);
+      alert.ipc->handler(alert.src_slot, alert.code, alert.data);
     }
     else {
-      alert.ipc->handler(alert.code, alert.data);
+      alert.ipc->handler(alert.src_slot, alert.code, alert.data);
     }
   }
 } 
 
-ngx_int_t ipc_alert(ipc_t *ipc, ngx_pid_t pid, ngx_int_t slot, ngx_uint_t code, void *data) {
+ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data) {
   //ripped from ngx_send_channel
   
   ipc_alert_t         alert;
@@ -230,9 +230,9 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_pid_t pid, ngx_int_t slot, ngx_uint_t code, 
   struct msghdr       msg;
   
   alert.ipc = ipc;
-  alert.src_pid = ngx_pid;
-  alert.dst_pid = pid;
-  alert.code = code;
+  alert.src_slot = ngx_process_slot;
+  alert.dst_slot = slot;
+//   alert.code = code;
   ngx_memcpy(&alert.data, data, sizeof(alert.data));
   
   ngx_socket_t        s = ipc->socketpairs[slot][0];

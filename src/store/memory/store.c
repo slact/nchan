@@ -7,67 +7,21 @@
 #include "shmem.h"
 #include "ipc.h"
 #include "ipc-handlers.h"
-
-typedef struct nhpm_channel_head_s nhpm_channel_head_t;
-typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
-typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
-typedef struct nhpm_subscriber_s nhpm_subscriber_t;
-typedef struct nhpm_message_s nhpm_message_t;
-
-struct nhpm_subscriber_cleanup_s {
-  nhpm_channel_head_cleanup_t  *shared;
-  nhpm_subscriber_t            *sub;
-}; //nhpm_subscriber_cleanup_t
-
-struct nhpm_subscriber_s {
-  ngx_uint_t                  id;
-  subscriber_t                *subscriber;
-  ngx_event_t                 ev;
-  ngx_pool_t                 *pool;
-  struct nhpm_subscriber_s   *prev;
-  struct nhpm_subscriber_s   *next;
-  ngx_http_cleanup_t         *r_cln;
-  nhpm_subscriber_cleanup_t   clndata;
-};
-
-typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
-
-struct nhpm_message_s {
-  ngx_http_push_msg_t      *msg;
-  nhpm_message_t           *prev;
-  nhpm_message_t           *next;
-}; //nhpm_message_t
-
-struct nhpm_channel_head_s {
-  ngx_str_t                      id; //channel id
-  ngx_http_push_channel_t        channel;
-  ngx_atomic_t                   generation; //subscriber pool generation.
-  ngx_pool_t                    *pool;
-  chanhead_pubsub_status_t       status;
-  ngx_atomic_t                   sub_count;
-  ngx_uint_t                     min_messages;
-  ngx_uint_t                     max_messages;
-  nhpm_message_t                *msg_first;
-  nhpm_message_t                *msg_last;
-  nhpm_channel_head_cleanup_t   *shared_cleanup;
-  nhpm_subscriber_t             *sub;
-  ngx_http_push_msg_id_t         last_msgid;
-  void                          *ipc_sub; //points to NULL or inacceessible memory.
-  nhpm_llist_timed_t             cleanlink;
-  UT_hash_handle                 hh;
-};
-
-struct nhpm_channel_head_cleanup_s {
-  nhpm_channel_head_t        *head;
-  ngx_str_t                   id; //channel id
-  ngx_uint_t                  sub_count;
-  ngx_pool_t                 *pool;
-};
+#include "store-private.h"
 
 static ngx_int_t max_worker_processes = 0;
 
+static shmem_t         *shm = NULL;
+static shm_data_t      *shdata = NULL;
+static ipc_t           *ipc;
 
-static ipc_t *ipc;
+shmem_t *ngx_http_push_memstore_get_shm(void){
+  return shm;
+}
+
+ipc_t *ngx_http_push_memstore_get_ipc(void){
+  return ipc;
+}
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, shdata->subhash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, shdata->subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
@@ -96,16 +50,6 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
-
-typedef struct {
-  nhpm_channel_head_t *subhash;
-  ngx_event_t         *chanhead_gc_timer;
-  nhpm_llist_timed_t  *chanhead_gc_head;
-  nhpm_llist_timed_t  *chanhead_gc_tail;
-} shm_data_t;
-
-shmem_t *shm = NULL;
-shm_data_t *shdata = NULL;
 
 static ngx_int_t channel_owner(ngx_str_t *id) {
   ngx_int_t h = ngx_crc32_short(id->data, id->len);
@@ -253,7 +197,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   return head;
 }
 
-static nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
+nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   if((head = chanhead_memstore_find(channel_id)) != NULL) {
     ensure_chanhead_is_ready(head);
@@ -865,7 +809,7 @@ static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch) {
   return NGX_OK;
 }
 
-static nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
+nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
   DBG("find next message %i:%i", msgid->time, msgid->tag);
   chanhead_messages_gc(ch);
   nhpm_message_t *cur, *first;
@@ -916,8 +860,6 @@ static ngx_int_t ask_owner_for_next_message(ngx_int_t owner, ngx_str_t *shm_chan
   return NGX_OK;
 }
 
-static ngx_int_t handle_find_next_message(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, subscribe_data_t *d);
-
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_channel_head_t          *chanhead;
@@ -955,26 +897,27 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     //check if we need to ask for a message
     if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
-      return handle_find_next_message(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
+      return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
-      memstore_ipc_send_get_message(ipc, owner, shm_copy_string(shm, channel_id), d);
+      memstore_ipc_send_get_message(ipc, owner, shm_copy_string(shm, channel_id), msg_id, d);
       return NGX_OK;
     }
   }
   else {
     chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
-    return handle_find_next_message(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+    return ngx_http_push_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
 }
 
-static ngx_int_t handle_find_next_message(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, subscribe_data_t *d) {
-  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(d->sub->request, ngx_http_push_module);
+ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, void *data) {
+  subscribe_data_t           *d = (subscribe_data_t *)data;
   ngx_int_t                   ret;
   subscriber_t               *sub = d->sub;
   nhpm_channel_head_t        *chanhead = d->chanhead;
   callback_pt                 callback = d->cb;
   void                       *privdata = d->cb_privdata;
+  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   
   switch(findmsg_status) {
     
@@ -1005,13 +948,20 @@ static ngx_int_t handle_find_next_message(ngx_http_push_msg_t *msg, ngx_int_t fi
           callback(ret, msg, privdata);
       }
       break;
-    case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
+
     case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
+      if(cf->authorize_channel) {
+        sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
+        callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
+        break;
+      }
+      //fall-through
+    case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
       ret = nhpm_subscriber_create(chanhead, sub);
       callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
       break;
-      
+
     case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
       //subscriber wants an expired message
       //TODO: maybe respond with entity-identifiers for oldest available message?
