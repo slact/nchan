@@ -203,6 +203,8 @@ if #msg.data < 5*1024 then
 else
   unpacked= {
     "msgkey",
+    msg.time,
+    tonumber(msg.tag),
     key.message
   }
 end

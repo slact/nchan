@@ -45,7 +45,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
   "288679b1de58e6754a2daccd3bba46244de6a629",
-  "bf3c7ad15037b0481c2a6a30dc178d00c2b012b4",
+  "55e920cfdf327a9f381cacc67b9bf75a0a055b06",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -517,6 +517,8 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
   "else\n"
   "  unpacked= {\n"
   "    \"msgkey\",\n"
+  "    msg.time,\n"
+  "    tonumber(msg.tag),\n"
   "    key.message\n"
   "  }\n"
   "end\n"
