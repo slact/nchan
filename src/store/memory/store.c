@@ -197,7 +197,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   return head;
 }
 
-nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
+nhpm_channel_head_t * ngx_http_push_memstore_find_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   if((head = chanhead_memstore_find(channel_id)) != NULL) {
     ensure_chanhead_is_ready(head);
@@ -205,7 +205,7 @@ nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id) {
   return head;
 }
 
-static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel_id) {
+nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t          *head;
   head = chanhead_memstore_find(channel_id);
   if(head==NULL) {
@@ -485,7 +485,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
      memstore_ipc_send_delete(ipc, owner, shm_copy_string(shm, channel_id), d);
      return NGX_OK;
    }
-  if((ch = ngx_http_push_store_find_chanhead(channel_id))) {
+  if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
     ngx_http_push_store_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
     callback(NGX_OK, &ch->channel, privdata);
@@ -502,7 +502,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
 }
 
 static ngx_int_t ngx_http_push_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nhpm_channel_head_t      *ch = ngx_http_push_store_find_chanhead(channel_id);
+  nhpm_channel_head_t      *ch = ngx_http_push_memstore_find_chanhead(channel_id);
   callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
   return NGX_OK;
 }
@@ -856,10 +856,6 @@ typedef struct {
   unsigned                  allocd:1;
 } subscribe_data_t;
 
-static ngx_int_t ask_owner_for_next_message(ngx_int_t owner, ngx_str_t *shm_channel_id, ngx_http_push_msg_id_t *msg_id, subscribe_data_t *d) {
-  return NGX_OK;
-}
-
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_channel_head_t          *chanhead;
@@ -883,13 +879,13 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
-  if(cf->authorize_channel && (chanhead = ngx_http_push_store_find_chanhead(channel_id)) == NULL) {
+  if(cf->authorize_channel && (chanhead = ngx_http_push_memstore_find_chanhead(channel_id)) == NULL) {
       sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
       callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
       return NGX_OK;
     }
   else {
-    chanhead = ngx_http_push_store_get_chanhead(channel_id);
+    chanhead = ngx_http_push_memstore_get_chanhead(channel_id);
   }
   d->chanhead = chanhead;
   
@@ -1138,7 +1134,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   }
   msg->expires = ngx_time() + cf->buffer_timeout;
 
-  if((chead = ngx_http_push_store_get_chanhead(channel_id)) == NULL) {
+  if((chead = ngx_http_push_memstore_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
     return NGX_ERROR;
   }

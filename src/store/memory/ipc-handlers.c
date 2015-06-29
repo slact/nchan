@@ -24,20 +24,27 @@ ngx_int_t get_pid(ngx_int_t owner_slot) {
 }
 
 typedef struct {
-  ngx_str_t *shm_chid;
-  void      *privdata;
+  ngx_str_t    *shm_chid;
+  ngx_atomic_t *shm_sub_count;
+  void         *privdata;
 } subscribe_data_t;
 ngx_int_t memstore_ipc_send_subscribe(ipc_t *ipc, ngx_int_t owner, ngx_str_t *shm_chid, void* privdata) {
-  subscribe_data_t        data = {shm_chid, privdata};
+  subscribe_data_t        data = {shm_chid, NULL, privdata};
   return ipc_alert(ipc, owner, IPC_SUBSCRIBE, &data);
 }
 static void receive_subscribe(ngx_int_t sender, void *data) {
+  nhpm_channel_head_t *head;
   subscribe_data_t *d = (subscribe_data_t *)data;
   DBG("received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
+  head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
+  //TODO: subscriber code
+  d->shm_sub_count = &head->sub_count; //fake for now
+  ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d);
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t *d = (subscribe_data_t *)data;
   DBG("received subscribe reply for channel %V pridata", d->shm_chid, d->privdata);
+  //TODO
 }
 
 typedef struct {
@@ -87,7 +94,7 @@ static void receive_get_message(ngx_int_t sender, void *data) {
   getmessage_reply_data_t *rd = (getmessage_reply_data_t *)data;
   DBG("received get_message request for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
   
-  head = ngx_http_push_store_find_chanhead(d->shm_chid);
+  head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
   if(head == NULL) {
     //no such thing here. reply.
     rd->getmsg_code = NGX_HTTP_PUSH_MESSAGE_NOTFOUND;

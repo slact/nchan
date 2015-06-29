@@ -62,7 +62,8 @@ typedef struct {
   nhpm_llist_timed_t  *chanhead_gc_tail;
 } shm_data_t;
 
-nhpm_channel_head_t * ngx_http_push_store_find_chanhead(ngx_str_t *channel_id);
+nhpm_channel_head_t *ngx_http_push_memstore_find_chanhead(ngx_str_t *channel_id);
+nhpm_channel_head_t *ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id);
 nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status);
 shmem_t *ngx_http_push_memstore_get_shm(void);
 ipc_t *ngx_http_push_memstore_get_ipc(void);
