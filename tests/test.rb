@@ -40,10 +40,11 @@ class PubSubTest <  Minitest::Test
   def test_interval_poll
     pub, sub=pubsub 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.1
     sub.run
+    sleep 0.4
     pub.post ["hello this", "is a thing"]
-    sleep 1
+    sleep 0.3
     pub.post ["oh now what", "is this even a thing?"]
-    sleep 1
+    sleep 0.6
     pub.post "FIN"
     sub.wait
     verify pub, sub
@@ -330,6 +331,7 @@ class PubSubTest <  Minitest::Test
   def test_long_message(kb=1)
     pub, sub = pubsub 10, timeout: 10
     sub.run
+    sleep 0.2
     pub.post ["#{"q"*((kb * 1024)-3)}end", "FIN"]
     sub.wait
     verify pub, sub
@@ -379,6 +381,7 @@ class PubSubTest <  Minitest::Test
     sub.on_failure { false }
     pub=Publisher.new url("pub/#{chan}")
     sub.run
+    sleep 0.1
     pub.post "hello"
     sub.wait
     verify pub, sub, false
@@ -409,6 +412,7 @@ class PubSubTest <  Minitest::Test
     #bug: turning on gzip cleared the response etag
     pub, sub = pubsub 1, sub: "/sub/gzip/", gzip: true, retry_delay: 0.3
     sub.run
+    sleep 0.1
     pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]
     sleep 1
     pub.post "foobar"
