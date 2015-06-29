@@ -1,4 +1,4 @@
-#define IPC_DATA_SIZE 4
+#define IPC_DATA_SIZE 10
 
 typedef struct {
   const char      *name;

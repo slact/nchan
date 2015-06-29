@@ -51,7 +51,7 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
-static ngx_int_t channel_owner(ngx_str_t *id) {
+ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   ngx_int_t h = ngx_crc32_short(id->data, id->len);
   return h % max_worker_processes;
 }
@@ -119,7 +119,7 @@ static ngx_int_t nhpm_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   nhpm_channel_head_cleanup_t   *hcln;
-  ngx_int_t                      owner = channel_owner(&head->id);
+  ngx_int_t                      owner = memstore_channel_owner(&head->id);
   if(head == NULL) {
     return NGX_OK;
   }
@@ -340,7 +340,7 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
   }
 }
 
-static ngx_int_t ngx_http_push_store_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_subscriber_t          *sub, *next;
   nhpm_channel_head_cleanup_t *hcln;
   if(head==NULL) {
@@ -473,7 +473,7 @@ typedef struct {
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
   nhpm_message_t           *msg = NULL;
-   ngx_int_t                owner = channel_owner(channel_id);
+   ngx_int_t                owner = memstore_channel_owner(channel_id);
    if(ngx_process_slot != owner) {
      delete_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
      if(d == NULL) {
@@ -486,7 +486,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
      return NGX_OK;
    }
   if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
-    ngx_http_push_store_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+    ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
     callback(NGX_OK, &ch->channel, privdata);
     //delete all messages
@@ -861,7 +861,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   nhpm_channel_head_t          *chanhead;
   nhpm_message_t               *chmsg;
   ngx_int_t                     findmsg_status;
-  ngx_int_t                    owner = channel_owner(channel_id);
+  ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t             data;
   subscribe_data_t            *d;
   assert(callback != NULL);
@@ -924,7 +924,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
           //kick everyone elese out, then subscribe
-          ngx_http_push_store_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+          ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
           //FALL-THROUGH to BROADCAST
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
@@ -1098,12 +1098,17 @@ static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
 
 
 
-static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
+static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t msg_in_shm) {
   nhpm_message_t          *chmsg;
   ngx_http_push_msg_t     *msg;
   
-  if((msg=create_shm_msg(m)) == NULL ) {
-    return NULL;
+  if(msg_in_shm) {
+    msg = m;
+  }
+  else {
+    if((msg=create_shm_msg(m)) == NULL ) {
+      return NULL;
+    }
   }
   if((chmsg = ngx_alloc(sizeof(*chmsg), ngx_cycle->log)) != NULL) {
     chmsg->prev = NULL;
@@ -1113,36 +1118,41 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m) {
   return chmsg;
 }
 
-static ngx_int_t publish_for_owner(ngx_int_t owner, ngx_str_t *shid, ngx_http_push_msg_t* publish_msg) {
+static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
+  return ngx_http_push_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
+}
+  
+static ngx_int_t empty_callback(){
   return NGX_OK;
 }
-
-static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
-
+  
+ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nhpm_channel_head_t     *chead;
   ngx_http_push_channel_t  channel_copy_data;
   ngx_http_push_channel_t *channel_copy = &channel_copy_data;
   nhpm_message_t          *shmsg_link;
   ngx_int_t                sub_count;
   ngx_http_push_msg_t     *publish_msg;
-  ngx_str_t               *shid;
-  ngx_int_t                owner = channel_owner(channel_id);
-  assert(callback != NULL);
+  ngx_int_t                owner = memstore_channel_owner(channel_id);
+  ngx_int_t                rc;
+  if(callback == NULL) {
+    callback = empty_callback;
+  }
 
+  //this coould be dangerous!!
   if(msg->message_time==0) {
     msg->message_time = ngx_time();
   }
   msg->expires = ngx_time() + cf->buffer_timeout;
-
+  
   if((chead = ngx_http_push_memstore_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
     return NGX_ERROR;
   }
   
   if(ngx_process_slot != owner) {
-    shid = shm_copy_string(shm, channel_id);
     publish_msg = create_shm_msg(msg);
-    publish_for_owner(owner, shid, publish_msg);
+    memstore_ipc_send_publish_message(ipc, owner, channel_id, publish_msg, cf, callback, privdata);
     return NGX_OK;
   }
   
@@ -1162,7 +1172,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     DBG("publish %i:%i expire %i ", msg->message_time, msg->message_tag, cf->buffer_timeout);
   }
   else {
-    if((shmsg_link = create_shared_message(msg)) == NULL) {
+    if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't create shared message for channel %V", channel_id);
       return NGX_ERROR;
@@ -1185,9 +1195,10 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
     DBG("fd %i", publish_msg->buf->file->fd);
   }
   ;
-  callback(ngx_http_push_store_publish_generic(chead, publish_msg, 0, NULL), channel_copy, privdata);
-  
-  return NGX_OK;
+  rc = ngx_http_push_memstore_publish_generic(chead, publish_msg, 0, NULL);
+  callback(rc, channel_copy, privdata);
+
+  return rc;
 }
 
 ngx_http_push_store_t  ngx_http_push_store_memory = {
