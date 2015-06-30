@@ -150,6 +150,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   if(owner != ngx_process_slot) {
     if(head->ipc_sub == NULL) {
       head->status = NOTREADY;
+      DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
       memstore_ipc_send_subscribe(owner, &head->id, head);
     }
     else {
@@ -321,6 +322,7 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   return NGX_OK;
 }
 
+/*
 static ngx_str_t *msg_to_str(ngx_http_push_msg_t *msg) {
   static ngx_str_t str;
   ngx_buf_t *buf = msg->buf;
@@ -346,6 +348,7 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
     return msg_to_str(msg->msg); //WHOA, shared space!
   }
 }
+*/
 
 ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_subscriber_t           *sub, *next, *new_first_sub = NULL;
@@ -705,8 +708,6 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscri
   
   nhpm_memstore_subscriber_register(chanhead, nextsub);
   
-  sub->enqueue(sub, cf->subscriber_timeout);
-  
   //add teardown callbacks and cleaning data
   if(ngx_http_push_store_set_subscriber_cleanup_callback(chanhead, nextsub, (ngx_http_cleanup_pt *)subscriber_cleanup_callback) != NGX_OK) {
     ngx_pfree(chanhead->pool, nextsub);
@@ -915,6 +916,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
+      sub->enqueue(sub);
       memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
       return NGX_OK;
     }
@@ -972,6 +974,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
       //fall-through
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
+      sub->enqueue(sub);
       ret = nhpm_memstore_subscriber_create(chanhead, sub);
       callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
       break;

@@ -39,7 +39,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
-ngx_int_t longpoll_enqueue(subscriber_t *self, ngx_int_t timeout) {
+ngx_int_t longpoll_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("longpoll enqueue sub %p req %p", self, fsub->data.request);
   fsub->data.request->read_event_handler = ngx_http_test_reading;

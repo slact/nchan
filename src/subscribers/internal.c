@@ -1,4 +1,6 @@
 #include <ngx_http_push_module.h>
+#include "internal.h"
+
 #define DEBUG_LEVEL NGX_LOG_INFO
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
@@ -39,7 +41,11 @@ ngx_int_t internal_subscriber_set_respond_status_handler(subscriber_t *sub, call
 
 subscriber_t *internal_subscriber_create(void *privdata) {
   DBG("internal subscriver create with privdata %p");
-  full_subscriber_t  *fsub;
+  full_subscriber_t               *fsub;
+  static ngx_http_push_loc_conf_t  dummy_config = {0};
+  dummy_config.buffer_timeout = 0;
+  dummy_config.max_messages = -1;
+  
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate internal subscriber");
     return NULL;
@@ -50,6 +56,12 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   fsub->respond_status = empty_callback;
   ngx_memcpy(&fsub->sub, &new_internal_sub, sizeof(new_internal_sub));
   fsub->privdata = privdata;
+  
+  fsub->sub.pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
+  fsub->sub.cf = &dummy_config;
+  
+  fsub->cln.handler = NULL;
+  fsub->cln.data = NULL;
   return &fsub->sub;
 }
 
@@ -62,10 +74,10 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   ngx_free(sub);
   return NGX_OK;
 }
-static ngx_int_t internal_enqueue(subscriber_t *self, ngx_int_t timeout) {
+static ngx_int_t internal_enqueue(subscriber_t *self) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
   DBG("internal subscriber enqueue sub %p", self);
-  return f->enqueue(timeout, NULL, f->privdata);
+  return f->enqueue(f->sub.cf->buffer_timeout, NULL, f->privdata);
   return NGX_OK;
 }
 

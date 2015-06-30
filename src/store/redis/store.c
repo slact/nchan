@@ -1296,7 +1296,6 @@ static void nhpm_subscriber_timeout(ngx_event_t *ev) {
 
 static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //this is the new shit
-  ngx_http_push_loc_conf_t  *cf = sub->cf;
   nhpm_subscriber_t         *nextsub;
 
   if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
@@ -1473,7 +1472,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->name = "get_message (subscribe)";
   
   d->sub = sub;
-  sub->enqueue(sub, cf->subscriber_timeout);
+  sub->enqueue(sub);
   
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   

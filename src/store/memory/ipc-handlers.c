@@ -162,7 +162,7 @@ typedef struct {
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ngx_http_push_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
   //nhpm_channel_head_t *head;
-  publish_extradata_t    *ed = ngx_alloc(sizeof(ed), ngx_cycle->log);
+  publish_extradata_t    *ed = ngx_alloc(sizeof(*ed), ngx_cycle->log);
   ed->cb = callback;
   ed->pd = privdata;
   publish_data_t  data = {str_shm_copy(chid), shm_msg, msg_timeout, max_msgs, min_msgs, ed};

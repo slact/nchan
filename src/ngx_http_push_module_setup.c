@@ -362,7 +362,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
       
     { ngx_string("push_storage_engine"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_str_slot,
+      ngx_http_push_set_storage_engine,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_push_loc_conf_t, storage_engine),
       NULL },

@@ -14,8 +14,6 @@ typedef struct {
   void        *foreign_chanhead;
 } sub_data_t;
 
-static const subscriber_t new_memstore_sub;
-
 static ngx_int_t empty_callback(){
   return NGX_OK;
 }
@@ -65,6 +63,9 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
-
+  d->chid = chid;
+  d->originator = originator_slot;
+  d->foreign_chanhead = foreign_chanhead;
+  
   return sub;
 }

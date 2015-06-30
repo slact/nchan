@@ -1,5 +1,7 @@
 extern subscriber_t nhpm_internal_subscriber;
 
+#define NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE 1024
+
 extern subscriber_t *internal_subscriber_create(void *privdata);
 extern ngx_int_t internal_subscriber_destroy(subscriber_t *sub);
 

@@ -95,7 +95,7 @@ typedef struct nhpm_llist_timed_s {
 typedef struct subscriber_s subscriber_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
 struct subscriber_s {
-  ngx_int_t            (*enqueue)(struct subscriber_s *, ngx_int_t timeout);
+  ngx_int_t            (*enqueue)(struct subscriber_s *);
   ngx_int_t            (*dequeue)(struct subscriber_s *);
   ngx_int_t            (*respond_message)(struct subscriber_s *, ngx_http_push_msg_t *);
   ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
