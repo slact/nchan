@@ -104,6 +104,7 @@ struct subscriber_s {
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;
   unsigned             destroy_after_dequeue:1;
-  ngx_http_request_t  *request;
+  ngx_http_push_loc_conf_t *cf;
+  ngx_pool_t          *pool;
   void                *data;
 }; //subscriber_t

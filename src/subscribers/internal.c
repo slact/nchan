@@ -54,7 +54,7 @@ subscriber_t *internal_subscriber_create(void *privdata) {
 }
 
 ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
-  DBG("internal subscriver destroy %p for req %p", sub, sub->request);
+  DBG("internal subscriver destroy %p", sub);
   full_subscriber_t  *f = (full_subscriber_t *) sub;
   if(f->cln.data != NULL) {
     ngx_free(f->cln.data);
@@ -64,7 +64,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 }
 static ngx_int_t internal_enqueue(subscriber_t *self, ngx_int_t timeout) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("internal subscriber enqueue sub %p req", self);
+  DBG("internal subscriber enqueue sub %p", self);
   return f->enqueue(timeout, NULL, f->privdata);
   return NGX_OK;
 }
@@ -95,7 +95,7 @@ static ngx_int_t internal_respond_message(subscriber_t *self, ngx_http_push_msg_
 
 static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("longpoll respond sub %p req %p status %i", self, self->request, status_code);
+  DBG("longpoll respond sub %p status %i", self, status_code);
   f->respond_message(status_code, (void *)status_line, f->privdata);
   if(f->cln.handler) {
     f->cln.handler(f->cln.data);
@@ -106,7 +106,7 @@ static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_co
 
 static ngx_http_cleanup_t *internal_add_next_response_cleanup(subscriber_t *self, size_t privdata_size) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("longpoll %p req %p add_response_cleanup", self, self->request);
+  DBG("longpoll %p add_response_cleanup", self);
   if(privdata_size > 0) {
     f->cln.data = ngx_alloc(privdata_size, ngx_cycle->log);
   }

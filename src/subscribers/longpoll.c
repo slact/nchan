@@ -7,7 +7,8 @@
 static const subscriber_t new_longpoll_sub;
 
 typedef struct {
-  unsigned         finalize_request:1;
+  ngx_http_request_t  *request;
+  unsigned             finalize_request:1;
 } subscriber_data_t;
 
 typedef struct {
@@ -24,28 +25,33 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   }
   ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
   fsub->sub.data = &fsub->data;
-  fsub->sub.request = r;
+  fsub->data.request = r;
   fsub->data.finalize_request = 0;
+  fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  fsub->sub.pool = r->pool;
   return &fsub->sub;
 }
 
 ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
-  DBG("longpoll destroy %p for req %p", sub, sub->request);
+  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  DBG("longpoll destroy %p for req %p", sub, fsub->data.request);
   ngx_free(sub);
   return NGX_OK;
 }
 
 ngx_int_t longpoll_enqueue(subscriber_t *self, ngx_int_t timeout) {
-  DBG("longpoll enqueue sub %p req %p", self, self->request);
-  self->request->read_event_handler = ngx_http_test_reading;
-  self->request->write_event_handler = ngx_http_request_empty_handler;
-  self->request->main->count++; //this is the right way to hold and finalize the request... maybe
-  ((subscriber_data_t *)self->data)->finalize_request = 1;
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("longpoll enqueue sub %p req %p", self, fsub->data.request);
+  fsub->data.request->read_event_handler = ngx_http_test_reading;
+  fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
+  fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
+  fsub->data.finalize_request = 1;
   return NGX_OK;
 }
 
 ngx_int_t longpoll_dequeue(subscriber_t *self) {
-  DBG("longpoll dequeue sub %p req %p", self, self->request);
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("longpoll dequeue sub %p req %p", self, fsub->data.request);
   if(self->destroy_after_dequeue) {
     longpoll_subscriber_destroy(self);
   }
@@ -60,8 +66,9 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 }
 
 static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   if(((subscriber_data_t *)self->data)->finalize_request) {
-    ngx_http_finalize_request(self->request, rc);
+    ngx_http_finalize_request(fsub->data.request, rc);
   }
   return NGX_OK;
 }
@@ -73,8 +80,8 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
 }
 
 ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
-  DBG("longpoll respond sub %p req %p msg %p", self, self->request, msg);
-  ngx_http_request_t        *r = self->request;
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  ngx_http_request_t        *r = fsub->data.request;
   ngx_chain_t               *rchain;
   ngx_buf_t                 *buffer = msg->buf;
   ngx_buf_t                 *rbuffer;
@@ -83,9 +90,12 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   ngx_pool_cleanup_t        *cln = NULL;
   ngx_pool_cleanup_file_t   *clnf = NULL;
   ngx_int_t                  rc;
+  DBG("longpoll respond sub %p req %p msg %p", self, fsub->data.request, msg);
   if(buffer == NULL) {
     return abort_response(self, "attemtping to respond to subscriber with message with NULL buffer");
   }
+  
+
   //message body
   rchain = ngx_pcalloc(r->pool, sizeof(*rchain));
   rbuffer = ngx_pcalloc(r->pool, sizeof(*rbuffer));
@@ -170,8 +180,8 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
 }
 
 ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  DBG("longpoll respond sub %p req %p status %i", self, self->request, status_code);
-  ngx_http_request_t    *r = self->request;
+  ngx_http_request_t    *r = ((full_subscriber_t *)self)->data.request;
+  DBG("longpoll respond sub %p req %p status %i", self, r, status_code);
   r->headers_out.status=status_code;
   if(status_line!=NULL) {
     r->headers_out.status_line.len =status_line->len;
@@ -186,8 +196,9 @@ ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, con
 }
 
 ngx_http_cleanup_t *longpoll_add_next_response_cleanup(subscriber_t *self, size_t privdata_size) {
-  DBG("longpoll %p req %p add_response_cleanup", self, self->request);
-  return ngx_http_cleanup_add(self->request, privdata_size);
+  ngx_http_request_t   *r=((full_subscriber_t *)self)->data.request;
+  DBG("longpoll %p req %p add_response_cleanup", self, r);
+  return ngx_http_cleanup_add(r, privdata_size);
 }
 
 static const subscriber_t new_longpoll_sub = {

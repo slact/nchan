@@ -493,8 +493,6 @@ typedef struct {
 } delete_data_t;
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nhpm_channel_head_t      *ch;
-  nhpm_message_t           *msg = NULL;
   ngx_int_t                owner = memstore_channel_owner(channel_id);
   if(ngx_process_slot != owner) {
     delete_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
@@ -689,12 +687,8 @@ static void nhpm_subscriber_timeout(ngx_event_t *ev) {
 
 ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //this is the new shit
-  ngx_http_push_loc_conf_t    *cf = NULL;
+  ngx_http_push_loc_conf_t    *cf = sub->cf;
   nhpm_subscriber_t           *nextsub;
-  ngx_int_t                    sub_timeout;
-  if(sub->request != NULL) {
-    cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
-  }
 
   if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
@@ -707,7 +701,7 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscri
   nextsub->id = 0;
 
   nextsub->subscriber = sub;
-  nextsub->pool= sub->request->pool;
+  nextsub->pool= sub->pool;
   
   nhpm_memstore_subscriber_register(chanhead, nextsub);
   
@@ -883,7 +877,6 @@ typedef struct {
 } subscribe_data_t;
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
-  ngx_http_push_loc_conf_t     *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   nhpm_channel_head_t          *chanhead;
   nhpm_message_t               *chmsg;
   ngx_int_t                     findmsg_status;
@@ -905,7 +898,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
-  if(cf->authorize_channel && (chanhead = ngx_http_push_memstore_find_chanhead(channel_id)) == NULL) {
+  if(sub->cf->authorize_channel && (chanhead = ngx_http_push_memstore_find_chanhead(channel_id)) == NULL) {
       sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
       callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
       return NGX_OK;
@@ -939,14 +932,13 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
   nhpm_channel_head_t        *chanhead = d->chanhead;
   callback_pt                 callback = d->cb;
   void                       *privdata = d->cb_privdata;
-  ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(sub->request, ngx_http_push_module);
   
   switch(findmsg_status) {
     
     case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
       assert(msg != NULL);
       DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
-      switch(cf->subscriber_concurrency) {
+      switch(sub->cf->subscriber_concurrency) {
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
           //kick everyone elese out, then subscribe
@@ -972,7 +964,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
       break;
 
     case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
-      if(cf->authorize_channel) {
+      if(sub->cf->authorize_channel) {
         sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
         callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
         break;
