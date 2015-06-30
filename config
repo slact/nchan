@@ -10,6 +10,7 @@ ngx_feature_test=
 _NHPM_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
   ${ngx_addon_dir}/src/subscribers/internal.c \
+  ${ngx_addon_dir}/src/subscribers/memstore.c \
 "
 
 _NHPM_REDIS_SRCS="\

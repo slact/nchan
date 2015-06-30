@@ -14,6 +14,11 @@ static ngx_int_t max_worker_processes = 0;
 static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
 static ipc_t           *ipc;
+ngx_event_t            *chanhead_gc_timer = NULL;
+nhpm_llist_timed_t     *chanhead_gc_head = NULL;
+nhpm_llist_timed_t     *chanhead_gc_tail = NULL;
+
+nhpm_channel_head_t    *memstore_hash;
 
 shmem_t *ngx_http_push_memstore_get_shm(void){
   return shm;
@@ -23,9 +28,9 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
   return ipc;
 }
 
-#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, shdata->subhash, (id_buf)->data, (id_buf)->len, p)
-#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, shdata->subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
-#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( shdata->subhash, chanhead)
+#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, memstore_hash, (id_buf)->data, (id_buf)->len, p)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, memstore_hash, (chanhead->id).data, (chanhead->id).len, chanhead)
+#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( memstore_hash, chanhead)
 
 #undef uthash_malloc
 #undef uthash_free
@@ -71,11 +76,6 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   shdata = d;
   
   shm_init(shm);
-  
-  d->subhash = NULL;
-  d->chanhead_gc_timer = NULL;
-  d->chanhead_gc_head = NULL;
-  d->chanhead_gc_tail = NULL;
     
   return NGX_OK;
 }
@@ -83,11 +83,11 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_event_t  *t;
-  if(shdata->chanhead_gc_timer == NULL) {
+  if(chanhead_gc_timer == NULL) {
     if((t = shm_alloc(shm, sizeof(*t), "chanhead cleanup timer")) == NULL) {
       return NGX_ERROR;
     }
-    shdata->chanhead_gc_timer = t;
+    chanhead_gc_timer = t;
     t->handler=&ngx_http_push_store_chanhead_gc_timer_handler;
     t->log=ngx_cycle->log;
   }
@@ -144,7 +144,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   if(owner != ngx_process_slot) {
     if(head->ipc_sub == NULL) {
       head->status = NOTREADY;
-      memstore_ipc_send_subscribe(ipc, owner, &head->id, head);
+      memstore_ipc_send_subscribe(owner, &head->id, head);
     }
     else {
       head->status = READY;
@@ -264,14 +264,14 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   if(head->status != INACTIVE) {
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=shdata->chanhead_gc_tail;
-    if(shdata->chanhead_gc_tail != NULL) {
-      shdata->chanhead_gc_tail->next=chanhead_cleanlink;
+    chanhead_cleanlink->prev=chanhead_gc_tail;
+    if(chanhead_gc_tail != NULL) {
+      chanhead_gc_tail->next=chanhead_cleanlink;
     }
     chanhead_cleanlink->next=NULL;
-    shdata->chanhead_gc_tail=chanhead_cleanlink;
-    if(shdata->chanhead_gc_head==NULL) {
-      shdata->chanhead_gc_head = chanhead_cleanlink;
+    chanhead_gc_tail=chanhead_cleanlink;
+    if(chanhead_gc_head==NULL) {
+      chanhead_gc_head = chanhead_cleanlink;
     }
     head->status = INACTIVE;  
   }
@@ -280,9 +280,9 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   }
 
   //initialize gc timer
-  if(! shdata->chanhead_gc_timer->timer_set) {
-    shdata->chanhead_gc_timer->data=shdata->chanhead_gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
-    ngx_add_timer(shdata->chanhead_gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  if(! chanhead_gc_timer->timer_set) {
+    chanhead_gc_timer->data=chanhead_gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
+    ngx_add_timer(chanhead_gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
 
   return NGX_OK;
@@ -300,11 +300,11 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
     if(cl->next!=NULL)
       cl->next->prev=cl->prev;
 
-    if(shdata->chanhead_gc_head==cl) {
-      shdata->chanhead_gc_head=cl->next;
+    if(chanhead_gc_head==cl) {
+      chanhead_gc_head=cl->next;
     }
-    if(shdata->chanhead_gc_tail==cl) {
-      shdata->chanhead_gc_tail=cl->prev;
+    if(chanhead_gc_tail==cl) {
+      chanhead_gc_tail=cl->prev;
     }
     cl->prev = cl->next = NULL;
   }
@@ -427,7 +427,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_channel_head_t         *ch = NULL;
   DBG("handling chanhead GC queue");
   
-  for(cur=shdata->chanhead_gc_head ; cur != NULL; cur=next) {
+  for(cur=chanhead_gc_head ; cur != NULL; cur=next) {
     ch = (nhpm_channel_head_t *)cur->data;
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
@@ -458,9 +458,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     }
   }
    
-  shdata->chanhead_gc_head=cur;
+  chanhead_gc_head=cur;
   if (cur==NULL) { //we went all the way to the end
-    shdata->chanhead_gc_tail=NULL;
+    chanhead_gc_tail=NULL;
   }
   else {
     cur->prev=NULL;
@@ -468,7 +468,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 }
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
-  nhpm_llist_timed_t  *head = shdata->chanhead_gc_head;
+  nhpm_llist_timed_t  *head = chanhead_gc_head;
   handle_chanhead_gc_queue(0);
   if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL)) {
     DBG("re-adding chanhead gc event timer");
@@ -498,7 +498,7 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
      }
      d->cb = callback;
      d->pd = privdata;
-     memstore_ipc_send_delete(ipc, owner, shm_copy_string(shm, channel_id), d);
+     memstore_ipc_send_delete(owner, shm_copy_string(shm, channel_id), d);
      return NGX_OK;
    }
   if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
@@ -571,7 +571,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   subscriber_t                *rsub;
   
     
-  HASH_ITER(hh, shdata->subhash, cur, tmp) {
+  HASH_ITER(hh, memstore_hash, cur, tmp) {
     //any subscribers?
     sub = cur->sub;
     while (sub != NULL) {
@@ -585,8 +585,8 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 
   handle_chanhead_gc_queue(1);
   
-  if(shdata->chanhead_gc_timer->timer_set) {
-    ngx_del_timer(shdata->chanhead_gc_timer);
+  if(chanhead_gc_timer->timer_set) {
+    ngx_del_timer(chanhead_gc_timer);
   }
   
   ipc_close(ipc, cycle);
@@ -912,7 +912,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
-      memstore_ipc_send_get_message(ipc, owner, channel_id, msg_id, d);
+      memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
       return NGX_OK;
     }
   }
@@ -1135,14 +1135,14 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t m
 }
 
 static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  return ngx_http_push_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
+  return ngx_http_push_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
 }
   
 static ngx_int_t empty_callback(){
   return NGX_OK;
 }
   
-ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
+ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
   nhpm_channel_head_t     *chead;
   ngx_http_push_channel_t  channel_copy_data;
   ngx_http_push_channel_t *channel_copy = &channel_copy_data;
@@ -1159,7 +1159,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   if(msg->message_time==0) {
     msg->message_time = ngx_time();
   }
-  msg->expires = ngx_time() + cf->buffer_timeout;
+  msg->expires = ngx_time() + msg_timeout;
   
   if((chead = ngx_http_push_memstore_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
@@ -1168,24 +1168,24 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   
   if(ngx_process_slot != owner) {
     publish_msg = create_shm_msg(msg);
-    memstore_ipc_send_publish_message(ipc, owner, channel_id, publish_msg, cf, callback, privdata);
+    memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
     return NGX_OK;
   }
   
-  chead->channel.expires = ngx_time() + cf->buffer_timeout;
+  chead->channel.expires = ngx_time() + msg_timeout;
   sub_count = chead->sub_count;
   
   //TODO: address this weirdness
   //chead->min_messages = cf->min_messages;
   chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
   
-  chead->max_messages = cf->max_messages;
+  chead->max_messages = max_msgs;
   
   chanhead_messages_gc(chead);
-  if(cf->max_messages == 0) {
+  if(max_msgs == 0) {
     channel_copy=&chead->channel;
     publish_msg = msg;
-    DBG("publish %i:%i expire %i ", msg->message_time, msg->message_tag, cf->buffer_timeout);
+    DBG("publish %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
   }
   else {
     if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
@@ -1206,7 +1206,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   
   //do the actual publishing
   
-  DBG("publish %i:%i expire %i", publish_msg->message_time, publish_msg->message_tag, cf->buffer_timeout);
+  DBG("publish %i:%i expire %i", publish_msg->message_time, publish_msg->message_tag, msg_timeout);
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }

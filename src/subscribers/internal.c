@@ -6,7 +6,7 @@
 
 static const subscriber_t new_internal_sub;
 
-static ngx_int_t empty_callback(ngx_int_t *code, void *ptr, void *d) {
+static ngx_int_t empty_callback(ngx_int_t code, void *ptr, void *d) {
   return NGX_OK;
 }
 
