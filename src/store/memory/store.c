@@ -189,6 +189,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->msg_first = NULL;
   head->pool = NULL;
   head->shared_cleanup = NULL;
+  head->shared_cleanup = NULL; 
   head->sub = NULL;
   head->ipc_sub = NULL;
   //set channel
@@ -352,7 +353,7 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
 */
 
 ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
-  nhpm_subscriber_t           *sub, *next, *new_first_sub = NULL;
+  nhpm_subscriber_t           *sub, *next, *reusable_subs = NULL;
   ngx_int_t                    reused_subs = 0;
   ngx_int_t                    reusable = 0;
   nhpm_channel_head_cleanup_t *hcln;
@@ -411,25 +412,26 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
     }
     
     if(reusable) { //re-use these.
-      sub->next = new_first_sub;
+      ERR("got reusable sub %p", sub);
+      sub->next = reusable_subs;
       sub->prev = NULL;
-      if(new_first_sub) {
-        new_first_sub->prev = sub;
+      if(reusable_subs) {
+        reusable_subs->prev = sub;
       }
-      new_first_sub = sub;
+      reusable_subs = sub;
       reused_subs++;
     }
   }
 
   head->generation++; //should be atomic
   
-  if(new_first_sub != NULL) {
+  if(reusable_subs != NULL) {
     ensure_chanhead_is_ready(head);
-    for(sub = new_first_sub; sub!=NULL; sub = sub->next) {
+    ERR("got some reusable subs. %i to be exact.", reused_subs);
+    for(sub = reusable_subs; sub!=NULL; sub = sub->next) {
       nhpm_memstore_subscriber_create(head, sub->subscriber);
+      //MAYBE ngx_pfree old subscriber wrapping? it's part of the pool, so not necessary.
     }
-    head->sub = new_first_sub;
-    head->sub_count += reused_subs;
   }
   
   head->channel.subscribers = head->sub_count;
@@ -641,7 +643,7 @@ static void subscriber_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_clea
   
   if(done) {
     //add chanhead to gc list
-    head->sub=NULL;
+    //head->sub=NULL; // pretty sure this is unnecesary.
     if(head->sub_count == 0) {
       chanhead_gc_add(head);
     }
@@ -683,7 +685,6 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_
   //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   headcln->head = head;
   headcln->pool = head->pool;
-  headcln->sub_count = 0;
   
   nextsub->clndata.sub = nextsub;
   nextsub->clndata.shared = headcln;
