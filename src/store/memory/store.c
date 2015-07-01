@@ -19,9 +19,13 @@ typedef struct {
   ngx_int_t               fake_slot;
 } memstore_data_t;
 
-static memstore_data_t  mdata = {{0}, NULL, NULL, NULL, 0};
 
- memstore_data_t *mpt = &mdata;
+#define MAX_FAKE_WORKERS 1
+static memstore_data_t  mdata[MAX_FAKE_WORKERS];
+
+static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL, -1};
+
+memstore_data_t *mpt = &fake_default_mdata;
 
 static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
@@ -51,14 +55,46 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i; " fmt, mpt->fake_slot, ##args)
+
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i; " fmt, mpt->fake_slot, ##args)
+
+
 static ngx_int_t current_slot() {
   return mpt->fake_slot;
 }
+static nhpm_llist_timed_t *fakeprocess_top = NULL;
+void memstore_fakeprocess_push(ngx_int_t slot) {
+  nhpm_llist_timed_t *link = ngx_calloc(sizeof(*fakeprocess_top), ngx_cycle->log);
+  link->data = (void *)slot;
+  link->time = ngx_time();
+  link->next = fakeprocess_top;
+  if(fakeprocess_top != NULL) {
+    fakeprocess_top->prev = link;
+  }
+  fakeprocess_top = link;
+  ERR("Switching to fakeprocess %i", slot);
+  mpt = &mdata[slot];
+}
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+void memstore_fakeprocess_pop(void) {
+  nhpm_llist_timed_t   *next;
+  if(fakeprocess_top == NULL) {
+    ERR("can't pop empty fakeprocess stack");
+    return;
+  }
+  else if((next = fakeprocess_top->next) == NULL) {
+    ERR("can't pop last item off of fakeprocess stack");
+    return;
+  }
+  ERR("Switching back to fakeprocess %i from %i", (ngx_int_t)next->data, (ngx_int_t )fakeprocess_top->data);
+  ngx_free(fakeprocess_top);
+  next->prev = NULL;
+  fakeprocess_top = next;
+  mpt = &mdata[(ngx_int_t )fakeprocess_top->data];
+}
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
@@ -67,9 +103,10 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
+
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   ngx_int_t h = ngx_crc32_short(id->data, id->len);
-  return h % max_worker_processes;
+  return h % MAX_FAKE_WORKERS;
 }
 
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
@@ -93,14 +130,18 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  if(mpt->gc_timer.handler == NULL) {
-    mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
-    mpt->gc_timer.log=ngx_cycle->log;
+  ngx_int_t        i;
+  memstore_data_t *cur;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+    cur = &mdata[i];
+    if(cur->gc_timer.handler == NULL) {
+      cur->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
+      cur->gc_timer.log=ngx_cycle->log;
+    }
   }
-
   ipc_start(ipc, cycle);
   
-  DBG("init memstore worker pid:%i slot:%i max workers:%i", ngx_pid, ngx_process_slot, max_worker_processes);
+  DBG("init memstore worker pid:%i slot:%i max workers (fake):%i", ngx_pid, current_slot(), max_worker_processes);
   return NGX_OK;
 }
 
@@ -572,8 +613,10 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
 
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
-  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  max_worker_processes = ccf->worker_processes;
+//  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  max_worker_processes = MAX_FAKE_WORKERS;
+  
+  memstore_fakeprocess_push(0);
   
   DBG("memstore init_module pid %p", ngx_pid);
 

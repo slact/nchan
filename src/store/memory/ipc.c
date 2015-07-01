@@ -3,6 +3,9 @@
 #include <ngx_channel.h>
 #include "ipc.h"
 #include <assert.h>
+#include "shmem.h"
+#include "store-private.h"
+
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
@@ -233,10 +236,6 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   //ripped from ngx_send_channel
   
   ipc_alert_t         alert = {0};
-  ssize_t             n;
-  ngx_err_t           err;
-  struct iovec        iov[1];
-  struct msghdr       msg;
   
   alert.ipc = ipc;
   alert.src_slot = ngx_process_slot;
@@ -244,37 +243,12 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
   
-  ngx_socket_t        s = ipc->socketpairs[slot][0];
- 
+  //switch to destination
+  memstore_fakeprocess_push(alert.dst_slot);
+  alert.ipc->handler(alert.src_slot, alert.code, alert.data);
+  memstore_fakeprocess_pop();
+  //switch back  
   
-#if (NGX_HAVE_MSGHDR_MSG_CONTROL)
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-#else
-  msg.msg_accrights = NULL;
-  msg.msg_accrightslen = 0;
-#endif
- 
-  iov[0].iov_base = (char *) &alert;
-  iov[0].iov_len = sizeof(alert);
- 
-  msg.msg_name = NULL;
-  msg.msg_namelen = 0;
-  msg.msg_iov = iov;
-  msg.msg_iovlen = 1;
- 
-  n = sendmsg(s, &msg, 0);
- 
-  if (n == -1) {
-    err = ngx_errno;
-    if (err == NGX_EAGAIN) {
-      return NGX_AGAIN;
-    }
- 
-    ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "sendmsg() failed");
-    return NGX_ERROR;
-  }
- 
   return NGX_OK;
 }
 

@@ -70,3 +70,7 @@ ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_
 ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub);
 ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub);
+
+
+void memstore_fakeprocess_push(ngx_int_t slot);
+void memstore_fakeprocess_pop();
