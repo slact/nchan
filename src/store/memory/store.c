@@ -199,6 +199,10 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->channel.last_seen = ngx_time();
   head->min_messages = 0;
   head->max_messages = (ngx_int_t) -1;
+  
+  
+  head->last_msgid.time=0;
+  head->last_msgid.tag=0;
 
   CHANNEL_HASH_ADD(head);
   
@@ -234,9 +238,6 @@ static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscrib
   
   sub->next = sub->prev = NULL;
   
-  if(sub->ev.timer_set) {
-    ngx_del_timer(&sub->ev);
-  }
   if(head != NULL) {
     if(head->sub == sub) {
       head->sub = NULL;
@@ -245,7 +246,7 @@ static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscrib
   return NGX_OK;
 }
 
-static void subscriber_publishing_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
+static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
   nhpm_subscriber_t            *sub = cln->sub;
   nhpm_channel_head_cleanup_t  *shared = cln->shared;
   ngx_int_t                     i_am_the_last;
@@ -392,15 +393,14 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
   for( ; sub!=NULL; sub=next) {
     subscriber_t      *rsub = sub->subscriber;
     reusable = rsub->dequeue_after_response == 0;
-    if(sub->ev.timer_set) { //remove timeout timer right away
-      ngx_del_timer(&sub->ev);
-    }
-    sub->r_cln->handler = (ngx_http_cleanup_pt) subscriber_publishing_cleanup_callback;
+    
+    rsub->set_dequeue_callback(rsub, (subscriber_callback_pt )subscriber_publishing_cleanup_callback, &sub->clndata);
     
     next = sub->next; //becase the cleanup callback may dequeue this subscriber
     
     if(sub->clndata.shared != hcln) {
       ERR("wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, sub->clndata.shared);
+      assert(0);
     }
 
     if(msg!=NULL) {
@@ -421,10 +421,18 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
     }
   }
 
-  head->sub = new_first_sub;
-  head->sub_count += reused_subs;
-  head->channel.subscribers = head->sub_count;
   head->generation++; //should be atomic
+  
+  if(new_first_sub != NULL) {
+    ensure_chanhead_is_ready(head);
+    for(sub = new_first_sub; sub!=NULL; sub = sub->next) {
+      nhpm_memstore_subscriber_create(head, sub->subscriber);
+    }
+    head->sub = new_first_sub;
+    head->sub_count += reused_subs;
+  }
+  
+  head->channel.subscribers = head->sub_count;
 
   return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
 }
@@ -618,7 +626,7 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   shm_destroy(shm);
 }
 
-static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
+static void subscriber_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
   
   nhpm_subscriber_t           *sub = cln->sub;
   nhpm_channel_head_cleanup_t *shared = cln->shared;
@@ -630,7 +638,6 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   
   nhpm_memstore_subscriber_unregister(shared->head, sub);
   nhpm_subscriber_remove(shared->head, sub);
-  sub->subscriber->dequeue(sub->subscriber);
   
   if(done) {
     //add chanhead to gc list
@@ -644,56 +651,16 @@ static void subscriber_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
   }
 }
 
-static ngx_int_t ngx_http_push_store_set_subscriber_cleanup_callback(nhpm_channel_head_t *head, nhpm_subscriber_t *sub, ngx_http_cleanup_pt *cleanup_callback) {
+static void nhpm_subscriber_timeout_handler(subscriber_t *sub, nhpm_subscriber_cleanup_t *cln) {
+  sub->dequeue_after_response = 1;
+}
+
+ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_t *sub) {
+  //this is the new shit
+  nhpm_subscriber_t           *nextsub;
   nhpm_channel_head_cleanup_t *headcln;
 
-  headcln = head->shared_cleanup;
-  headcln->id.len = head->id.len;
-  headcln->id.data = head->id.data;
-  //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  
-  headcln->head = head;
-
-  headcln->pool = head->pool;
-  headcln->sub_count = 0;
-  
-  if(sub->r_cln == NULL) {
-    if((sub->r_cln = sub->subscriber->add_next_response_cleanup(sub->subscriber, 0)) == NULL) {
-      ERR("unable to add subscriber request cleanup and callback");
-      return NGX_ERROR;
-    }
-  }
-  
-  sub->r_cln->data = &sub->clndata;
-  sub->r_cln->handler = (ngx_http_cleanup_pt) cleanup_callback;
-  
-  sub->clndata.sub = sub;
-  sub->clndata.shared = headcln;
-  
-  return NGX_OK; 
-}
-
-static void subscriber_no_cleanup_callback(nhpm_subscriber_cleanup_t *cln) {
-  
-}
-
-static void nhpm_subscriber_timeout(ngx_event_t *ev) {
-  nhpm_subscriber_cleanup_t *cln = ev->data;
-  nhpm_subscriber_t         *sub = cln->sub;
-  subscriber_t              *rsub = sub->subscriber;
-  sub->r_cln->handler = (ngx_http_cleanup_pt )subscriber_no_cleanup_callback;
-  rsub->dequeue_after_response = 1;
-  nhpm_memstore_subscriber_unregister(cln->shared->head, sub);
-  nhpm_subscriber_remove(cln->shared->head, sub);
-  rsub->respond_status(rsub, NGX_HTTP_NOT_MODIFIED, NULL);
-}
-
-ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
-  //this is the new shit
-  ngx_http_push_loc_conf_t    *cf = sub->cf;
-  nhpm_subscriber_t           *nextsub;
-
-  if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
+  if((nextsub=ngx_pcalloc(head->pool, sizeof(*nextsub)))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
     return NGX_ERROR;
   }
@@ -706,23 +673,24 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscri
   nextsub->subscriber = sub;
   nextsub->pool= sub->pool;
   
-  nhpm_memstore_subscriber_register(chanhead, nextsub);
+  nhpm_memstore_subscriber_register(head, nextsub);
   
   //add teardown callbacks and cleaning data
-  if(ngx_http_push_store_set_subscriber_cleanup_callback(chanhead, nextsub, (ngx_http_cleanup_pt *)subscriber_cleanup_callback) != NGX_OK) {
-    ngx_pfree(chanhead->pool, nextsub);
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber cleanup in channel pool");
-    return NGX_ERROR;
-  }
+
+  headcln = head->shared_cleanup;
+  headcln->id.len = head->id.len;
+  headcln->id.data = head->id.data;
+  //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  headcln->head = head;
+  headcln->pool = head->pool;
+  headcln->sub_count = 0;
   
-  if(cf->subscriber_timeout > 0) {
-    //add timeout timer
-    //nextsub->ev should be zeroed;
-    nextsub->ev.handler = nhpm_subscriber_timeout;
-    nextsub->ev.data = &nextsub->clndata;
-    nextsub->ev.log = ngx_cycle->log;
-    ngx_add_timer(&nextsub->ev, cf->subscriber_timeout * 1000);
-  }
+  nextsub->clndata.sub = nextsub;
+  nextsub->clndata.shared = headcln;
+  
+  
+  sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &nextsub->clndata);
+  sub->set_timeout_callback(sub, (subscriber_callback_pt )nhpm_subscriber_timeout_handler, &nextsub->clndata);
   return NGX_OK;
 }
 

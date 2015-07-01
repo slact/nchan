@@ -228,11 +228,11 @@ static void ipc_channel_handler(ngx_event_t *ev) {
   }
 } 
 
-ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data) {
+ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
   //ripped from ngx_send_channel
   
-  ipc_alert_t         alert;
+  ipc_alert_t         alert = {0};
   ssize_t             n;
   ngx_err_t           err;
   struct iovec        iov[1];
@@ -242,7 +242,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data) {
   alert.src_slot = ngx_process_slot;
   alert.dst_slot = slot;
   alert.code = code;
-  ngx_memcpy(&alert.data, data, sizeof(alert.data));
+  ngx_memcpy(alert.data, data, data_size);
   
   ngx_socket_t        s = ipc->socketpairs[slot][0];
  

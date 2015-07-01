@@ -1,3 +1,5 @@
+typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
+
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
@@ -94,12 +96,14 @@ typedef struct nhpm_llist_timed_s {
 
 typedef struct subscriber_s subscriber_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
+typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 struct subscriber_s {
   ngx_int_t            (*enqueue)(struct subscriber_s *);
   ngx_int_t            (*dequeue)(struct subscriber_s *);
   ngx_int_t            (*respond_message)(struct subscriber_s *, ngx_http_push_msg_t *);
   ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
-  ngx_http_cleanup_t  *(*add_next_response_cleanup)(struct subscriber_s *, size_t privdata_size);
+  ngx_int_t            (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
+  ngx_int_t            (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   const char          *name;
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;

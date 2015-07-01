@@ -1,4 +1,3 @@
-typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 typedef struct {
   //init
   ngx_int_t (*init_module)(ngx_cycle_t *cycle);

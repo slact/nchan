@@ -11,15 +11,20 @@ static const subscriber_t new_internal_sub;
 static ngx_int_t empty_callback(ngx_int_t code, void *ptr, void *d) {
   return NGX_OK;
 }
+static void sub_empty_callback(){ }
 
 typedef struct {
-  subscriber_t        sub;
-  callback_pt         enqueue;
-  callback_pt         dequeue;
-  callback_pt         respond_message;
-  callback_pt         respond_status;
-  ngx_http_cleanup_t  cln;
-  void               *privdata;
+  subscriber_t            sub;
+  callback_pt             enqueue;
+  callback_pt             dequeue;
+  callback_pt             respond_message;
+  callback_pt             respond_status;
+  ngx_event_t             timeout_ev;
+  subscriber_callback_pt  timeout_handler;
+  void                   *timeout_handler_data;
+  subscriber_callback_pt  dequeue_handler;
+  void                   *dequeue_handler_data;
+  void                   *privdata;
 } full_subscriber_t;
 
 ngx_int_t internal_subscriber_set_enqueue_handler(subscriber_t *sub, callback_pt handler) {
@@ -60,24 +65,46 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   fsub->sub.pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
   fsub->sub.cf = &dummy_config;
   
-  fsub->cln.handler = NULL;
-  fsub->cln.data = NULL;
+  fsub->timeout_handler = sub_empty_callback;
+  fsub->dequeue_handler = sub_empty_callback;
   return &fsub->sub;
 }
 
 ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   DBG("internal subscriver destroy %p", sub);
-  full_subscriber_t  *f = (full_subscriber_t *) sub;
-  if(f->cln.data != NULL) {
-    ngx_free(f->cln.data);
-  }
   ngx_free(sub);
   return NGX_OK;
 }
+
+
+static void reset_timer(full_subscriber_t *f) {
+  if(f->sub.cf->subscriber_timeout > 0) {
+    if(f->timeout_ev.timer_set) {
+      ngx_del_timer(&f->timeout_ev);
+    }
+    ngx_add_timer(&f->timeout_ev, f->sub.cf->subscriber_timeout * 1000);
+  }
+}
+
+static void timeout_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
+  fsub->sub.dequeue_after_response = 1;
+  fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+}
+
 static ngx_int_t internal_enqueue(subscriber_t *self) {
-  full_subscriber_t   *f = (full_subscriber_t *)self;
+  full_subscriber_t   *fsub = (full_subscriber_t *)self;
   DBG("internal subscriber enqueue sub %p", self);
-  return f->enqueue(f->sub.cf->buffer_timeout, NULL, f->privdata);
+  if(self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
+    //add timeout timer
+    //nextsub->ev should be zeroed;
+    fsub->timeout_ev.handler = timeout_ev_handler;
+    fsub->timeout_ev.data = fsub;
+    fsub->timeout_ev.log = ngx_cycle->log;
+    reset_timer(fsub);
+  }
+  fsub->enqueue(fsub->sub.cf->buffer_timeout, NULL, fsub->privdata);
   return NGX_OK;
 }
 
@@ -85,6 +112,10 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
   DBG("longpoll dequeue sub %p", self);
   f->dequeue(NGX_OK, NULL, f->privdata);
+  f->dequeue_handler(self, f->privdata);
+  if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
+    ngx_del_timer(&f->timeout_ev);
+  }
   if(self->destroy_after_dequeue) {
     internal_subscriber_destroy(self);
   }
@@ -102,6 +133,7 @@ static ngx_int_t internal_respond_message(subscriber_t *self, ngx_http_push_msg_
   full_subscriber_t   *f = (full_subscriber_t *)self;
   DBG("internal subscriber respond sub %p msg %p", self, msg);
   f->respond_message(NGX_OK, msg, f->privdata);
+  reset_timer(f);
   return dequeue_maybe(self);
 }
 
@@ -109,26 +141,31 @@ static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_co
   full_subscriber_t   *f = (full_subscriber_t *)self;
   DBG("longpoll respond sub %p status %i", self, status_code);
   f->respond_message(status_code, (void *)status_line, f->privdata);
-  if(f->cln.handler) {
-    f->cln.handler(f->cln.data);
-    //don't run cln.next
-  }
+  reset_timer(f);
   return dequeue_maybe(self);
 }
 
-static ngx_http_cleanup_t *internal_add_next_response_cleanup(subscriber_t *self, size_t privdata_size) {
+static ngx_int_t internal_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("longpoll %p add_response_cleanup", self);
-  if(privdata_size > 0) {
-    f->cln.data = ngx_alloc(privdata_size, ngx_cycle->log);
+  if(cb != NULL) {
+    f->timeout_handler = cb;
   }
-  if(f->cln.handler) {
-    f->cln.handler(f->cln.data);
-    //don't run cln.next
+  if(privdata != NULL) {
+    f->timeout_handler_data = privdata;
   }
-  return &f->cln;
+  return NGX_OK;
 }
 
+static ngx_int_t internal_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+  full_subscriber_t   *f = (full_subscriber_t *)self;
+  if(cb != NULL) {
+    f->dequeue_handler = cb;
+  }
+  if(privdata != NULL) {
+    f->dequeue_handler_data = privdata;
+  }
+  return NGX_OK;
+}
 
 ngx_int_t internal_subscriber_set_name(subscriber_t *self, const char *name) {
   self->name = name;
@@ -140,7 +177,8 @@ static const subscriber_t new_internal_sub = {
   &internal_dequeue,
   &internal_respond_message,
   &internal_respond_status,
-  &internal_add_next_response_cleanup,
+  &internal_set_timeout_callback,
+  &internal_set_dequeue_callback,
   "internal",
   INTERNAL,
   0, //stick around after response

@@ -7,14 +7,22 @@
 static const subscriber_t new_longpoll_sub;
 
 typedef struct {
-  ngx_http_request_t  *request;
-  unsigned             finalize_request:1;
+  ngx_http_request_t      *request;
+  ngx_http_cleanup_t      *cln;
+  subscriber_callback_pt  dequeue_handler;
+  void                   *dequeue_handler_data;
+  ngx_event_t             timeout_ev;
+  subscriber_callback_pt  timeout_handler;
+  void                   *timeout_handler_data;
+  unsigned                finalize_request:1;
 } subscriber_data_t;
 
 typedef struct {
   subscriber_t       sub;
   subscriber_data_t  data;
 } full_subscriber_t;
+
+static void empty_handler() { }
 
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   DBG("longpoll create for req %p", r);
@@ -26,9 +34,15 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
   fsub->sub.data = &fsub->data;
   fsub->data.request = r;
+  fsub->data.cln = NULL;
   fsub->data.finalize_request = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   fsub->sub.pool = r->pool;
+  ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
+  fsub->data.timeout_handler = empty_handler;
+  fsub->data.timeout_handler_data = NULL;
+  fsub->data.dequeue_handler = empty_handler;
+  fsub->data.dequeue_handler_data = NULL;
   return &fsub->sub;
 }
 
@@ -39,6 +53,13 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
+static void timeout_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
+  fsub->sub.dequeue_after_response = 1;
+  fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+}
+
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("longpoll enqueue sub %p req %p", self, fsub->data.request);
@@ -46,12 +67,25 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
   fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
   fsub->data.finalize_request = 1;
+  
+  if(self->cf->subscriber_timeout > 0) {
+    //add timeout timer
+    //nextsub->ev should be zeroed;
+    fsub->data.timeout_ev.handler = timeout_ev_handler;
+    fsub->data.timeout_ev.data = fsub;
+    fsub->data.timeout_ev.log = ngx_cycle->log;
+    ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
+  }
   return NGX_OK;
 }
 
-ngx_int_t longpoll_dequeue(subscriber_t *self) {
+static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+  }
   DBG("longpoll dequeue sub %p req %p", self, fsub->data.request);
+  fsub->data.dequeue_handler(&fsub->sub, fsub->data.dequeue_handler_data);
   if(self->destroy_after_dequeue) {
     longpoll_subscriber_destroy(self);
   }
@@ -79,7 +113,7 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   return NGX_ERROR;
 }
 
-ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_http_request_t        *r = fsub->data.request;
   ngx_chain_t               *rchain;
@@ -179,7 +213,7 @@ ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg)
   return NGX_OK;
 }
 
-ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_request_t    *r = ((full_subscriber_t *)self)->data.request;
   DBG("longpoll respond sub %p req %p status %i", self, r, status_code);
   r->headers_out.status=status_code;
@@ -195,10 +229,28 @@ ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, con
   return NGX_OK;
 }
 
-ngx_http_cleanup_t *longpoll_add_next_response_cleanup(subscriber_t *self, size_t privdata_size) {
-  ngx_http_request_t   *r=((full_subscriber_t *)self)->data.request;
-  DBG("longpoll %p req %p add_response_cleanup", self, r);
-  return ngx_http_cleanup_add(r, privdata_size);
+static ngx_int_t longpoll_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  fsub->data.timeout_handler = cb;
+  fsub->data.timeout_handler_data = privdata;
+  return NGX_OK;
+}
+
+static void request_cleanup_handler(subscriber_t *sub) {
+
+}
+
+
+static ngx_int_t longpoll_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  if(fsub->data.cln == NULL) {
+    fsub->data.cln = ngx_http_cleanup_add(fsub->data.request, 0);
+    fsub->data.cln->data = self;
+    fsub->data.cln->handler = (ngx_http_cleanup_pt )request_cleanup_handler;
+  }
+  fsub->data.dequeue_handler = cb;
+  fsub->data.dequeue_handler_data = privdata;
+  return NGX_OK;
 }
 
 static const subscriber_t new_longpoll_sub = {
@@ -206,7 +258,8 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_dequeue,
   &longpoll_respond_message,
   &longpoll_respond_status,
-  &longpoll_add_next_response_cleanup,
+  &longpoll_set_timeout_callback,
+  &longpoll_set_dequeue_callback,
   "longpoll",
   LONGPOLL,
   1, //deque after response
