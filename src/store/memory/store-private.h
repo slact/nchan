@@ -19,7 +19,7 @@ struct nhpm_subscriber_s {
   nhpm_subscriber_cleanup_t   clndata;
 };
 
-typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
+typedef enum {INACTIVE, NOTREADY, WAITING, READY} chanhead_pubsub_status_t;
 
 struct nhpm_message_s {
   ngx_http_push_msg_t      *msg;

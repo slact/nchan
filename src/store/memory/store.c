@@ -148,8 +148,8 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   }
   
   if(owner != ngx_process_slot) {
-    if(head->ipc_sub == NULL) {
-      head->status = NOTREADY;
+    if(head->ipc_sub == NULL && head->status != WAITING) {
+      head->status = WAITING;
       DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
       memstore_ipc_send_subscribe(owner, &head->id, head);
     }
