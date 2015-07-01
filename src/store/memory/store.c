@@ -12,13 +12,16 @@
 static ngx_int_t max_worker_processes = 0;
 
 typedef struct {
-  ngx_event_t            *gc_timer;
+  ngx_event_t             gc_timer;
   nhpm_llist_timed_t     *gc_head;
   nhpm_llist_timed_t     *gc_tail;
   nhpm_channel_head_t    *hash;
+  ngx_int_t               fake_slot;
 } memstore_data_t;
 
-static memstore_data_t  mdata = {NULL, NULL, NULL, NULL};
+static memstore_data_t  mdata = {{0}, NULL, NULL, NULL, 0};
+
+ memstore_data_t *mpt = &mdata;
 
 static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
@@ -32,9 +35,9 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
   return ipc;
 }
 
-#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, mdata.hash, (id_buf)->data, (id_buf)->len, p)
-#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, mdata.hash, (chanhead->id).data, (chanhead->id).len, chanhead)
-#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( mdata.hash, chanhead)
+#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, mpt->hash, (id_buf)->data, (id_buf)->len, p)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, mpt->hash, (chanhead->id).data, (chanhead->id).len, chanhead)
+#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( mpt->hash, chanhead)
 
 #undef uthash_malloc
 #undef uthash_free
@@ -47,6 +50,10 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
+
+static ngx_int_t current_slot() {
+  return mpt->fake_slot;
+}
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -86,14 +93,9 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  ngx_event_t  *t;
-  if(mdata.gc_timer == NULL) {
-    if((t = shm_alloc(shm, sizeof(*t), "chanhead cleanup timer")) == NULL) {
-      return NGX_ERROR;
-    }
-    mdata.gc_timer = t;
-    t->handler=&ngx_http_push_store_chanhead_gc_timer_handler;
-    t->log=ngx_cycle->log;
+  if(mpt->gc_timer.handler == NULL) {
+    mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
+    mpt->gc_timer.log=ngx_cycle->log;
   }
 
   ipc_start(ipc, cycle);
@@ -152,7 +154,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     chanhead_gc_withdraw(head);
   }
   
-  if(owner != ngx_process_slot) {
+  if(owner != current_slot()) {
     if(head->ipc_sub == NULL && head->status != WAITING) {
       head->status = WAITING;
       DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
@@ -280,14 +282,14 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   if(head->status != INACTIVE) {
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=mdata.gc_tail;
-    if(mdata.gc_tail != NULL) {
-      mdata.gc_tail->next=chanhead_cleanlink;
+    chanhead_cleanlink->prev=mpt->gc_tail;
+    if(mpt->gc_tail != NULL) {
+      mpt->gc_tail->next=chanhead_cleanlink;
     }
     chanhead_cleanlink->next=NULL;
-    mdata.gc_tail=chanhead_cleanlink;
-    if(mdata.gc_head==NULL) {
-      mdata.gc_head = chanhead_cleanlink;
+    mpt->gc_tail=chanhead_cleanlink;
+    if(mpt->gc_head==NULL) {
+      mpt->gc_head = chanhead_cleanlink;
     }
     head->status = INACTIVE;  
   }
@@ -296,9 +298,9 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   }
 
   //initialize gc timer
-  if(! mdata.gc_timer->timer_set) {
-    mdata.gc_timer->data=mdata.gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
-    ngx_add_timer(mdata.gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  if(! mpt->gc_timer.timer_set) {
+    mpt->gc_timer.data=mpt->gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
+    ngx_add_timer(&mpt->gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
 
   return NGX_OK;
@@ -316,11 +318,11 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
     if(cl->next!=NULL)
       cl->next->prev=cl->prev;
 
-    if(mdata.gc_head==cl) {
-      mdata.gc_head=cl->next;
+    if(mpt->gc_head==cl) {
+      mpt->gc_head=cl->next;
     }
-    if(mdata.gc_tail==cl) {
-      mdata.gc_tail=cl->prev;
+    if(mpt->gc_tail==cl) {
+      mpt->gc_tail=cl->prev;
     }
     cl->prev = cl->next = NULL;
   }
@@ -454,7 +456,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_channel_head_t         *ch = NULL;
   DBG("handling chanhead GC queue");
   
-  for(cur=mdata.gc_head ; cur != NULL; cur=next) {
+  for(cur=mpt->gc_head ; cur != NULL; cur=next) {
     ch = (nhpm_channel_head_t *)cur->data;
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
@@ -485,9 +487,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     }
   }
    
-  mdata.gc_head=cur;
+  mpt->gc_head=cur;
   if (cur==NULL) { //we went all the way to the end
-    mdata.gc_tail=NULL;
+    mpt->gc_tail=NULL;
   }
   else {
     cur->prev=NULL;
@@ -495,7 +497,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 }
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
-  nhpm_llist_timed_t  *head = mdata.gc_head;
+  nhpm_llist_timed_t  *head = mpt->gc_head;
   handle_chanhead_gc_queue(0);
   if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL)) {
     DBG("re-adding chanhead gc event timer");
@@ -515,7 +517,7 @@ typedef struct {
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   ngx_int_t                owner = memstore_channel_owner(channel_id);
-  if(ngx_process_slot != owner) {
+  if(current_slot() != owner) {
     delete_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     if(d == NULL) {
       ERR("Couldn't allocate delete callback data");
@@ -604,7 +606,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   subscriber_t                *rsub;
   
     
-  HASH_ITER(hh, mdata.hash, cur, tmp) {
+  HASH_ITER(hh, mpt->hash, cur, tmp) {
     //any subscribers?
     sub = cur->sub;
     while (sub != NULL) {
@@ -618,8 +620,8 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
 
   handle_chanhead_gc_queue(1);
   
-  if(mdata.gc_timer->timer_set) {
-    ngx_del_timer(mdata.gc_timer);
+  if(mpt->gc_timer.timer_set) {
+    ngx_del_timer(&mpt->gc_timer);
   }
   
   ipc_close(ipc, cycle);
@@ -864,7 +866,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   subscribe_data_t             data;
   subscribe_data_t            *d;
   assert(callback != NULL);
-  if(ngx_process_slot != owner) {
+  if(current_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
   }
@@ -888,7 +890,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   }
   d->chanhead = chanhead;
   
-  if(ngx_process_slot != owner) {
+  if(current_slot() != owner) {
     //check if we need to ask for a message
     if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
@@ -1150,7 +1152,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
     return NGX_ERROR;
   }
   
-  if(ngx_process_slot != owner) {
+  if(current_slot() != owner) {
     publish_msg = create_shm_msg(msg);
     memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
     return NGX_OK;
