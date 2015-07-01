@@ -20,9 +20,8 @@
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
-
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i ipc-handler: " fmt, mpt->fake_slot, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i ipc-handler: " fmt, mpt->fake_slot, ##args)
 static ngx_int_t empty_callback() {
   return NGX_OK;
 }
@@ -183,7 +182,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   cd.sender = sender;
   
   DBG("IPC: received publish request for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
-  if(memstore_channel_owner(d->shm_chid) == ngx_process_slot) {
+  if(memstore_channel_owner(d->shm_chid) == current_slot()) {
     ngx_http_push_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, d->msg_timeout, d->max_msgs, d->min_msgs, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
     str_shm_free(d->shm_chid);
   }

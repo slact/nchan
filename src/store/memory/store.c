@@ -11,16 +11,9 @@
 
 static ngx_int_t max_worker_processes = 0;
 
-typedef struct {
-  ngx_event_t             gc_timer;
-  nhpm_llist_timed_t     *gc_head;
-  nhpm_llist_timed_t     *gc_tail;
-  nhpm_channel_head_t    *hash;
-  ngx_int_t               fake_slot;
-} memstore_data_t;
 
 
-#define MAX_FAKE_WORKERS 1
+#define MAX_FAKE_WORKERS 3
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
 
 static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL, -1};
@@ -55,14 +48,13 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i; " fmt, mpt->fake_slot, ##args)
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
 
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i; " fmt, mpt->fake_slot, ##args)
 
-
-static ngx_int_t current_slot() {
+ngx_int_t current_slot() {
   return mpt->fake_slot;
 }
 static nhpm_llist_timed_t *fakeprocess_top = NULL;
@@ -615,6 +607,13 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
 //  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   max_worker_processes = MAX_FAKE_WORKERS;
+  
+  ngx_int_t        i;
+  memstore_data_t *cur;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+    cur = &mdata[i];
+    cur->fake_slot = i;
+  }
   
   memstore_fakeprocess_push(0);
   

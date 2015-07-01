@@ -72,5 +72,14 @@ ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, cal
 ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 
 
+typedef struct {
+  ngx_event_t             gc_timer;
+  nhpm_llist_timed_t     *gc_head;
+  nhpm_llist_timed_t     *gc_tail;
+  nhpm_channel_head_t    *hash;
+  ngx_int_t               fake_slot;
+} memstore_data_t;
+memstore_data_t *mpt;
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_pop();
+ngx_int_t current_slot();

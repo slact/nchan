@@ -8,8 +8,8 @@
 
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i ipc: " fmt, mpt->fake_slot, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i ipc: " fmt, mpt->fake_slot, ##args)
 
 static void ipc_channel_handler(ngx_event_t *ev);
 
