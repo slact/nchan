@@ -87,6 +87,7 @@ static void reset_timer(full_subscriber_t *f) {
 }
 
 static void timeout_ev_handler(ngx_event_t *ev) {
+  DBG("internal sub timeout");
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
   fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
@@ -110,7 +111,7 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
 
 static ngx_int_t internal_dequeue(subscriber_t *self) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("longpoll dequeue sub %p", self);
+  DBG("internal sub dequeue sub %p", self);
   f->dequeue(NGX_OK, NULL, f->privdata);
   f->dequeue_handler(self, f->privdata);
   if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
@@ -146,11 +147,14 @@ static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_co
 }
 
 static ngx_int_t internal_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+
   full_subscriber_t   *f = (full_subscriber_t *)self;
   if(cb != NULL) {
+    DBG("internal sub set timeout handler to %p", cb);
     f->timeout_handler = cb;
   }
   if(privdata != NULL) {
+    DBG("internal sub set timeout handler data to %p", privdata);
     f->timeout_handler_data = privdata;
   }
   return NGX_OK;

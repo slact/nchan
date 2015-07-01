@@ -140,6 +140,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
       ERR("can't allocate memory for channel head cleanup");
     }
+    ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
     head->shared_cleanup = hcln;
   }
   
@@ -188,6 +189,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->msg_last = NULL;
   head->msg_first = NULL;
   head->pool = NULL;
+  ERR("setting chanhead %V shared_cleanup to NULL", &head->id);
   head->shared_cleanup = NULL;
   head->shared_cleanup = NULL; 
   head->sub = NULL;
@@ -251,6 +253,8 @@ static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, nhpm_subs
   nhpm_subscriber_t            *sub = cln->sub;
   nhpm_channel_head_cleanup_t  *shared = cln->shared;
   ngx_int_t                     i_am_the_last;
+  //ERR("publishing cleanup callback for sub %p %p %s", sub, sub->subscriber, sub->subscriber->name);
+  
   
   i_am_the_last = sub->prev==NULL && sub->next==NULL;
   
@@ -373,6 +377,7 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
   //set some things the cleanup callback will need
   hcln = head->shared_cleanup;
   head->shared_cleanup = NULL;
+  ERR("setting chanhead %V shared_cleanup to NULL, after it was %p", &head->id, hcln);
   hcln->sub_count=head->sub_count;
   hcln->head=NULL;
   
@@ -400,7 +405,7 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
     next = sub->next; //becase the cleanup callback may dequeue this subscriber
     
     if(sub->clndata.shared != hcln) {
-      ERR("wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, sub->clndata.shared);
+      ERR("wrong shared cleanup for subscriber %p sub %p (%s): should be %p, is %p", sub, sub->subscriber, sub->subscriber->name, hcln, sub->clndata.shared);
       assert(0);
     }
 
@@ -662,11 +667,13 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_
   nhpm_subscriber_t           *nextsub;
   nhpm_channel_head_cleanup_t *headcln;
 
+  
   if((nextsub=ngx_pcalloc(head->pool, sizeof(*nextsub)))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
     return NGX_ERROR;
   }
 
+  ERR("create subscriber %p from sub %p (%s)", nextsub, sub, sub->name);
   //let's be explicit about this
   nextsub->prev=NULL;
   nextsub->next=NULL;
@@ -688,7 +695,7 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_
   
   nextsub->clndata.sub = nextsub;
   nextsub->clndata.shared = headcln;
-  
+  ERR("set clndata for sub %p shared to %p", nextsub, headcln);
   
   sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &nextsub->clndata);
   sub->set_timeout_callback(sub, (subscriber_callback_pt )nhpm_subscriber_timeout_handler, &nextsub->clndata);
