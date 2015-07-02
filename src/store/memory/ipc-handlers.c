@@ -182,7 +182,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   cd.sender = sender;
   
   DBG("IPC: received publish request for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
-  if(memstore_channel_owner(d->shm_chid) == current_slot()) {
+  if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
     ngx_http_push_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, d->msg_timeout, d->max_msgs, d->min_msgs, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
     //string will be freed on publish response
   }

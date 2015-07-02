@@ -54,7 +54,7 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
 
 
-ngx_int_t current_slot() {
+ngx_int_t memstore_slot() {
   return mpt->fake_slot;
 }
 static nhpm_llist_timed_t *fakeprocess_top = NULL;
@@ -133,7 +133,7 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   }
   ipc_start(ipc, cycle);
   
-  DBG("init memstore worker pid:%i slot:%i max workers (fake):%i", ngx_pid, current_slot(), max_worker_processes);
+  DBG("init memstore worker pid:%i slot:%i max workers (fake):%i", ngx_pid, memstore_slot(), max_worker_processes);
   return NGX_OK;
 }
 
@@ -187,7 +187,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     chanhead_gc_withdraw(head);
   }
   
-  if(owner != current_slot()) {
+  if(owner != memstore_slot()) {
     if(head->ipc_sub == NULL && head->status != WAITING) {
       head->status = WAITING;
       //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
@@ -549,7 +549,7 @@ static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   ngx_int_t                owner = memstore_channel_owner(channel_id);
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     memstore_ipc_send_delete(owner, channel_id, callback, privdata);
   }
   else {
@@ -904,7 +904,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   subscribe_data_t             data;
   subscribe_data_t            *d;
   assert(callback != NULL);
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
     d->already_enqueued = 1;
@@ -930,7 +930,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   }
   d->chanhead = chanhead;
   
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     //check if we need to ask for a message
     sub->enqueue(sub);
     if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
@@ -1190,7 +1190,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
     return NGX_ERROR;
   }
   
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
     memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
     return NGX_OK;

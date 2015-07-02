@@ -82,4 +82,4 @@ typedef struct {
 memstore_data_t *mpt;
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_pop();
-ngx_int_t current_slot();
+ngx_int_t memstore_slot();
