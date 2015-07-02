@@ -185,7 +185,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   DBG("IPC: received publish request for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
   if(memstore_channel_owner(d->shm_chid) == ngx_process_slot) {
     ngx_http_push_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, d->msg_timeout, d->max_msgs, d->min_msgs, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
-    str_shm_free(d->shm_chid);
+    //string will be freed on publish response
   }
   else {
     head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
@@ -260,11 +260,11 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, ngx_http
 }
 static void receive_get_message(ngx_int_t sender, void *data) {
   nhpm_channel_head_t *head;
-  nhpm_message_t *msg;
-  ngx_int_t       status;
+  nhpm_message_t *msg = NULL;
+  ngx_int_t       status = NGX_ERROR;
   getmessage_data_t *d = (getmessage_data_t *)data;
   getmessage_reply_data_t *rd = (getmessage_reply_data_t *)data;
-  DBG("IPC: received get_message request for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
+  DBG("IPC: received get_message request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
   if(head == NULL) {
@@ -277,13 +277,13 @@ static void receive_get_message(ngx_int_t sender, void *data) {
     rd->getmsg_code = status;
     rd->shm_msg = msg == NULL ? NULL : msg->msg;
   }
-  DBG("IPC: send get_message_reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
+  DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, rd, sizeof(*rd));
 }
 
 static void receive_get_message_reply(ngx_int_t sender, void *data) {
   getmessage_reply_data_t *d = (getmessage_reply_data_t *)data;
-  DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
+  DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
   ngx_http_push_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   str_shm_free(d->shm_chid);
 }
