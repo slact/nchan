@@ -25,6 +25,10 @@ typedef struct {
 
 static void empty_handler() { }
 
+static void sudden_abort_handler(subscriber_t *sub) {
+  sub->dequeue(sub);
+}
+
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   DBG("longpoll create for req %p", r);
   full_subscriber_t  *fsub;
@@ -45,6 +49,15 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_enqueued = 0;
+  
+  //http request sudden close cleanup
+  if((fsub->data.cln = ngx_http_cleanup_add(r, 0)) == NULL) {
+    ERR("Unable to add request cleanup for longpoll subscriber");
+    return NULL;
+  }
+  fsub->data.cln->data = fsub;
+  fsub->data.cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
+  
   return &fsub->sub;
 }
 
@@ -134,7 +147,9 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
     return abort_response(self, "attemtping to respond to subscriber with message with NULL buffer");
   }
   
-
+  //disable abort handler
+  fsub->data.cln->handler = empty_handler;
+  
   //message body
   rchain = ngx_pcalloc(r->pool, sizeof(*rchain));
   rbuffer = ngx_pcalloc(r->pool, sizeof(*rbuffer));
@@ -228,6 +243,10 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   }
   r->headers_out.content_length_n = 0;
   r->header_only = 1;
+  
+  //disable abort handler
+  ((full_subscriber_t *)self)->data.cln->handler = empty_handler;
+  
   ngx_http_send_header(r);
   finalize_maybe(self, NGX_OK);
   dequeue_maybe(self);
