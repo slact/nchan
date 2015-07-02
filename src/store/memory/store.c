@@ -16,10 +16,9 @@ typedef struct {
   nhpm_llist_timed_t     *gc_head;
   nhpm_llist_timed_t     *gc_tail;
   nhpm_channel_head_t    *hash;
-  ngx_int_t               fake_slot;
 } memstore_data_t;
 
-static memstore_data_t  mdata = {{0}, NULL, NULL, NULL, 0};
+static memstore_data_t  mdata = {{0}, NULL, NULL, NULL};
 
  memstore_data_t *mpt = &mdata;
 
@@ -51,8 +50,8 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-static ngx_int_t current_slot() {
-  return mpt->fake_slot;
+ngx_int_t memstore_slot() {
+  return ngx_process_slot;
 }
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -146,7 +145,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
       ERR("can't allocate memory for channel head cleanup");
     }
-    ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
+    //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
     head->shared_cleanup = hcln;
   }
   
@@ -154,10 +153,10 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     chanhead_gc_withdraw(head);
   }
   
-  if(owner != current_slot()) {
+  if(owner != memstore_slot()) {
     if(head->ipc_sub == NULL && head->status != WAITING) {
       head->status = WAITING;
-      DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
+      //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
       memstore_ipc_send_subscribe(owner, &head->id, head);
     }
     else {
@@ -195,7 +194,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->msg_last = NULL;
   head->msg_first = NULL;
   head->pool = NULL;
-  ERR("setting chanhead %V shared_cleanup to NULL", &head->id);
+  //ERR("setting chanhead %V shared_cleanup to NULL", &head->id);
   head->shared_cleanup = NULL; 
   head->sub = NULL;
   head->ipc_sub = NULL;
@@ -508,24 +507,16 @@ static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   }
 }
 
-static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
+static ngx_int_t empty_callback(){
+  return NGX_OK;
+}
 
-typedef struct {
-  callback_pt  cb;
-  void        *pd;
-} delete_data_t;
+static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   ngx_int_t                owner = memstore_channel_owner(channel_id);
-  if(current_slot() != owner) {
-    delete_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-    if(d == NULL) {
-      ERR("Couldn't allocate delete callback data");
-      return NGX_ERROR;
-    }
-    d->cb = callback;
-    d->pd = privdata;
-    memstore_ipc_send_delete(owner, channel_id, d);
+  if(memstore_slot() != owner) {
+    memstore_ipc_send_delete(owner, channel_id, callback, privdata);
   }
   else {
     ngx_http_push_memstore_force_delete_channel(channel_id, callback, privdata);
@@ -536,6 +527,9 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
 ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
   nhpm_message_t           *msg = NULL;
+  if(callback == NULL) {
+    callback = empty_callback;
+  }
   if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
     ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
@@ -678,7 +672,7 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_
     return NGX_ERROR;
   }
 
-  ERR("create subscriber %p from sub %p (%s)", nextsub, sub, sub->name);
+  //DBG("create subscriber %p from sub %p (%s)", nextsub, sub, sub->name);
   //let's be explicit about this
   nextsub->prev=NULL;
   nextsub->next=NULL;
@@ -700,7 +694,7 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_
   
   nextsub->clndata.sub = nextsub;
   nextsub->clndata.shared = headcln;
-  ERR("set clndata for sub %p shared to %p", nextsub, headcln);
+  //DBG("set clndata for sub %p shared to %p", nextsub, headcln);
   
   sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &nextsub->clndata);
   sub->set_timeout_callback(sub, (subscriber_callback_pt )nhpm_subscriber_timeout_handler, &nextsub->clndata);
@@ -855,6 +849,7 @@ typedef struct {
   nhpm_channel_head_t      *chanhead;
   callback_pt               cb;
   void                     *cb_privdata;
+  unsigned                  already_enqueued:1;
   unsigned                  allocd:1;
 } subscribe_data_t;
 
@@ -866,13 +861,15 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   subscribe_data_t             data;
   subscribe_data_t            *d;
   assert(callback != NULL);
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
+    d->already_enqueued = 1;
   }
   else {
     d = &data;
     d->allocd = 0;
+    d->already_enqueued = 0;
   }
   d->cb = callback;
   d->cb_privdata = privdata;
@@ -890,14 +887,14 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   }
   d->chanhead = chanhead;
   
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     //check if we need to ask for a message
+    sub->enqueue(sub);
     if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
-      sub->enqueue(sub);
       memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
       return NGX_OK;
     }
@@ -955,7 +952,9 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
       //fall-through
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
-      sub->enqueue(sub);
+      if(!d->already_enqueued) {
+        sub->enqueue(sub);
+      }
       ret = nhpm_memstore_subscriber_create(chanhead, sub);
       callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
       break;
@@ -1124,10 +1123,6 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   return ngx_http_push_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
 }
   
-static ngx_int_t empty_callback(){
-  return NGX_OK;
-}
-  
 ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
   nhpm_channel_head_t     *chead;
   ngx_http_push_channel_t  channel_copy_data;
@@ -1152,7 +1147,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
     return NGX_ERROR;
   }
   
-  if(current_slot() != owner) {
+  if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
     memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
     return NGX_OK;
