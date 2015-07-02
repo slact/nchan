@@ -897,6 +897,7 @@ typedef struct {
   nhpm_channel_head_t      *chanhead;
   callback_pt               cb;
   void                     *cb_privdata;
+  unsigned                  already_enqueued:1;
   unsigned                  allocd:1;
 } subscribe_data_t;
 
@@ -911,10 +912,12 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   if(current_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
+    d->already_enqueued = 1;
   }
   else {
     d = &data;
     d->allocd = 0;
+    d->already_enqueued = 0;
   }
   d->cb = callback;
   d->cb_privdata = privdata;
@@ -997,7 +1000,9 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
       //fall-through
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
-      sub->enqueue(sub);
+      if(!d->already_enqueued) {
+        sub->enqueue(sub);
+      }
       ret = nhpm_memstore_subscriber_create(chanhead, sub);
       callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
       break;
