@@ -293,21 +293,33 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
 ////////// DELETE ////////////////
 typedef struct {
   ngx_str_t           *shm_chid;
+  ngx_int_t            return_code;
+  ngx_int_t            sender;
+  callback_pt          callback;
   void                *privdata;
 } delete_data_t;
-ngx_int_t memstore_ipc_send_delete(ngx_int_t dst, ngx_str_t *chid, void *privdata) {
-  delete_data_t  data = {str_shm_copy(chid), privdata};
+ngx_int_t memstore_ipc_send_delete(ngx_int_t dst, ngx_str_t *chid, callback_pt callback,void *privdata) {
+  delete_data_t  data = {str_shm_copy(chid), 0, 0, callback, privdata};
   DBG("IPC: send delete to %i ch %V", dst, chid);
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_DELETE, &data, sizeof(data));
 }
+static ngx_int_t delete_callback_handler(ngx_int_t, void *, void*);
 static void receive_delete(ngx_int_t sender, void *data) {
   delete_data_t *d = (delete_data_t *)data;
-  DBG("IPC received delete request for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
-  ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_DELETE_REPLY, d, sizeof(*d));
+  d->sender = sender;
+  DBG("IPC received delete request for channel %V pridata %p", d->shm_chid, d->privdata);
+  ngx_http_push_memstore_force_delete_channel(d->shm_chid, delete_callback_handler, d);
+}
+static ngx_int_t delete_callback_handler(ngx_int_t code, void *nothing, void* privdata) {
+  delete_data_t *d = (delete_data_t *)privdata;
+  d->return_code = code;
+  ipc_alert(ngx_http_push_memstore_get_ipc(), d->sender, IPC_DELETE_REPLY, d, sizeof(*d));
+  return NGX_OK;
 }
 static void receive_delete_reply(ngx_int_t sender, void *data) {
   delete_data_t *d = (delete_data_t *)data;
   DBG("IPC received delete reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
+  d->callback(d->return_code, NULL, d->privdata); 
   str_shm_free(d->shm_chid);
 }
 

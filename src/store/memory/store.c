@@ -541,24 +541,16 @@ static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   }
 }
 
-static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
+static ngx_int_t empty_callback(){
+  return NGX_OK;
+}
 
-typedef struct {
-  callback_pt  cb;
-  void        *pd;
-} delete_data_t;
+static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
 
 static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   ngx_int_t                owner = memstore_channel_owner(channel_id);
   if(current_slot() != owner) {
-    delete_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-    if(d == NULL) {
-      ERR("Couldn't allocate delete callback data");
-      return NGX_ERROR;
-    }
-    d->cb = callback;
-    d->pd = privdata;
-    memstore_ipc_send_delete(owner, channel_id, d);
+    memstore_ipc_send_delete(owner, channel_id, callback, privdata);
   }
   else {
     ngx_http_push_memstore_force_delete_channel(channel_id, callback, privdata);
@@ -569,6 +561,9 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
 ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
   nhpm_message_t           *msg = NULL;
+  if(callback == NULL) {
+    callback = empty_callback;
+  }
   if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
     ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
     //TODO: publish to other workers
@@ -1169,10 +1164,6 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t m
 
 static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
   return ngx_http_push_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
-}
-  
-static ngx_int_t empty_callback(){
-  return NGX_OK;
 }
   
 ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
