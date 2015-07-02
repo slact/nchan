@@ -937,12 +937,12 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   if(current_slot() != owner) {
     //check if we need to ask for a message
+    sub->enqueue(sub);
     if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
-      sub->enqueue(sub);
       memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
       return NGX_OK;
     }
