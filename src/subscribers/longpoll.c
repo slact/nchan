@@ -15,6 +15,7 @@ typedef struct {
   subscriber_callback_pt  timeout_handler;
   void                   *timeout_handler_data;
   unsigned                finalize_request:1;
+  unsigned                already_enqueued:1;
 } subscriber_data_t;
 
 typedef struct {
@@ -43,6 +44,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.timeout_handler_data = NULL;
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
+  fsub->data.already_enqueued = 0;
   return &fsub->sub;
 }
 
@@ -61,15 +63,15 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 }
 
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
-  assert(self->already_enqueued == 0);
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  assert(fsub->data.already_enqueued == 0);
   DBG("longpoll enqueue sub %p req %p", self, fsub->data.request);
   fsub->data.request->read_event_handler = ngx_http_test_reading;
   fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
   fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
   fsub->data.finalize_request = 1;
   
-  self->already_enqueued = 1;
+  fsub->data.already_enqueued = 1;
   
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
