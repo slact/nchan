@@ -51,7 +51,7 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
 ngx_int_t memstore_slot() {
-  return ngx_process_slot;
+  return 0; //always in one place.
 }
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
