@@ -11,7 +11,7 @@ struct nhpm_message_s {
   nhpm_message_t           *next;
 }; //nhpm_message_t
 
-#include "spool.h"
+#include "../spool.h"
 
 struct nhpm_channel_head_s {
   ngx_str_t                       id; //channel id
