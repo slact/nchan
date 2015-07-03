@@ -8,48 +8,23 @@
 
 
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
-typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
-typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
-typedef struct nhpm_subscriber_s nhpm_subscriber_t;
 
-struct nhpm_subscriber_cleanup_s {
-  nhpm_channel_head_cleanup_t  *shared;
-  nhpm_subscriber_t            *sub;
-}; //nhpm_subscriber_cleanup_t
 
-struct nhpm_subscriber_s {
-  ngx_uint_t                  id;
-  subscriber_t               *subscriber;
-  ngx_pool_t                 *pool;
-  struct nhpm_subscriber_s   *prev;
-  struct nhpm_subscriber_s   *next;
-  nhpm_subscriber_cleanup_t   clndata;
-};
+#include "../spool.h"
 
 typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
 
 struct nhpm_channel_head_s {
   ngx_str_t                    id; //channel id
-  ngx_pool_t                  *pool;
+  channel_spooler_t            spooler;
   ngx_uint_t                   generation; //subscriber pool generation.
-  nhpm_subscriber_t           *sub;
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
-  nhpm_channel_head_cleanup_t *shared_cleanup;
-  nhpm_llist_timed_t           cleanlink;
   ngx_http_push_msg_id_t       last_msgid;
   void                        *redis_subscriber_privdata;
+  nhpm_llist_timed_t           cleanlink;
   UT_hash_handle               hh;
 };
-
-struct nhpm_channel_head_cleanup_s {
-  nhpm_channel_head_t        *head;
-  ngx_str_t                   id; //channel id
-  ngx_uint_t                  sub_count;
-  ngx_pool_t                 *pool;
-  nhpm_subscriber_t          *first_sub;
-};
-
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, subhash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
@@ -94,9 +69,6 @@ static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_m
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
 
 static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel_id);
-static nhpm_channel_head_cleanup_t *put_current_subscribers_in_limbo(nhpm_channel_head_t *head);
-static ngx_int_t publish_to_subscribers_in_limbo(nhpm_channel_head_cleanup_t *hcln, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
-
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   redis_nginx_init();
   
@@ -269,7 +241,6 @@ typedef struct {
   char                         *name;
   ngx_str_t                     channel_id;
   ngx_http_push_msg_id_t       *msg_id;
-  nhpm_channel_head_cleanup_t  *hcln;
 } redis_get_message_from_key_data_t;
 
 static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r, void *privdata) {
@@ -279,10 +250,6 @@ static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r
   ngx_str_t            *chid = &d->channel_id;
   DBG("Message HMGET callback");
   nhpm_log_redis_reply(d->name, d->t);
-  if(d->hcln == NULL) {
-    DBG("nothing to do for HMGET callback, no subscribers found in limbo");
-    assert(0);
-  }
   
   if(chid == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "channel_id is null after HMGET");
@@ -293,7 +260,7 @@ static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r
     return;
   }
   
-  publish_to_subscribers_in_limbo(d->hcln, msg, 0, NULL);
+  //TODO: Complete this.
   ngx_free(msg);
   ngx_free(d);
 }
@@ -396,13 +363,14 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, ngx_http_push_msg_id
   d->t = ngx_current_msec;
   d->name = "HMGET message";
   
-  d->hcln = put_current_subscribers_in_limbo(head);
-  assert(d->hcln != 0);
+  //d->hcln = put_current_subscribers_in_limbo(head);
+  //assert(d->hcln != 0);
+  
   redisAsyncCommand(rds_ctx(), &redis_subscriber_messageHMGET_callback, d, "HMGET %b time tag data content_type", STR(msg_redis_hash_key));
   return NGX_OK;
 }
 
-static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub);
+static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply             *reply = r;
@@ -546,9 +514,9 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       switch(chanhead->status) {
         case NOTREADY:
           chanhead->status = READY;
-          for(nhpm_subscriber_t *cur = chanhead->sub; cur != NULL; cur = cur->next) {
-            nhpm_subscriber_register(chanhead, cur);
-          }
+          
+          //TODO: register all subscribers
+          
           //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
           break;
         case READY:
@@ -598,12 +566,14 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
 typedef struct {
   nhpm_channel_head_t *chanhead;
   ngx_int_t            generation;
-  nhpm_subscriber_t   *sub;
+  subscriber_t        *sub;
 } nhpm_subscriber_register_t;
 
-static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
+static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   char                      *concurrency = NULL;
   nhpm_subscriber_register_t *sdata=NULL;
+  
+  /*
   switch (sub->subscriber->cf->subscriber_concurrency) {
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
       concurrency = "broadcast";
@@ -617,6 +587,7 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_su
     default:
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unknown concurrency setting");
   }
+  */
   
   //input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
   //  'subscriber_id' can be '-' for new id, or an existing id
@@ -632,8 +603,9 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_su
   sdata->generation = chanhead->generation;
   sdata->sub = sub;
 
-  if (sub->id != 0) {
-    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(&chanhead->id), sub->id, -1, concurrency);
+  if (0 != 0) { //TODO: check the subscriber's id
+    
+    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b %i %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(&chanhead->id), 0 /*TODO: current sub's ID*/, -1, concurrency);
   }
   else {
     redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b - %i %s", nhpm_rds_lua_hashes.subscriber_register, STR(&chanhead->id), -1, concurrency);
@@ -656,55 +628,66 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
     return;
   }
   if(sdata->generation == sdata->chanhead->generation) {
-    //is the subscriber 
-    sdata->sub->id = reply->element[1]->integer;
+    //is the subscriber     
+    //TODO: set subscriber id
+    //sdata->sub->id = reply->element[1]->integer;
   }
   ngx_free(sdata);
 }
 
 
-static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, nhpm_subscriber_t *sub) {
-  ngx_http_push_loc_conf_t  *cf = sub->subscriber->cf;
+static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub) {
+  ngx_http_push_loc_conf_t  *cf = sub->cf;
   //input: keys: [], values: [channel_id, subscriber_id, empty_ttl]
   // 'subscriber_id' is an existing id
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
   //output: subscriber_id, num_current_subscribers
-  redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i %i", nhpm_rds_lua_hashes.subscriber_unregister, STR(channel_id), sub->id, cf->channel_timeout);
+  redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i %i", nhpm_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
   return NGX_OK;
 }
 
+static nhpm_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) {
+  nhpm_channel_head_t *head;
+  
+  head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+  if(head==NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
+    return NULL;
+  }
+  head->id.len = channel_id->len;
+  head->id.data = (u_char *)&head[1];
+  ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
+  head->sub_count=0;
+  head->redis_subscriber_privdata = NULL;
+  head->status = NOTREADY;
+  head->generation = 0;
+  head->last_msgid.time=0;
+  head->last_msgid.tag=0;
+  
+  head->spooler.running=0;
+  start_spooler(&head->spooler);
+  
+  //TODO: add and dequeue handlers
+  head->spooler.set_add_handler(&head->spooler, NULL, head);
+  head->spooler.set_dequeue_handler(&head->spooler, NULL, head);
+
+  DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
+  redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
+  CHANNEL_HASH_ADD(head);
+  
+  return head;
+}
 
 static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
-  nhpm_channel_head_cleanup_t *hcln;
   
   CHANNEL_HASH_FIND(channel_id, head);
   if(head==NULL) {
-    head=(nhpm_channel_head_t *)ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
-    if(head==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
-      return NULL;
-    }
-    head->id.len = channel_id->len;
-    head->id.data = (u_char *)&head[1];
-    ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
-    head->sub_count=0;
-    head->redis_subscriber_privdata = NULL;
-    head->status = NOTREADY;
-    DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
-    redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
-    CHANNEL_HASH_ADD(head);
+    head = chanhead_redis_create(channel_id);
   }
-  if(head->pool==NULL) {
-    if((head->pool=ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for channel subscriber pool");
-    }
-  }
-  if(head->shared_cleanup == NULL) {
-    if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for channel head cleanup");
-    }
-    head->shared_cleanup = hcln;
+  if(head == NULL) {
+    ERR("can't create chanhead for redis store");
+    return NULL;
   }
   
   if (head->status == INACTIVE) { //recycled chanhead
@@ -712,23 +695,19 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
     head->status = READY;
   }
 
+  
   return head;
 }
 
-static ngx_int_t nhpm_subscriber_remove(nhpm_subscriber_t *sub) {
+static ngx_int_t nhpm_subscriber_remove(subscriber_t *sub) {
   //remove subscriber from list
-  if(sub->prev != NULL) {
-    sub->prev->next=sub->next;
-  }
-  if(sub->next != NULL) {
-    sub->next->prev=sub->prev;
-  }
-  
-  sub->next = sub->prev = NULL;
+ //TODO: maybe?..
   return NGX_OK;
 }
 
-static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
+static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, void *cln) {
+  //TODO?...
+  /*
   nhpm_subscriber_t            *sub = cln->sub;
   nhpm_channel_head_cleanup_t  *shared = cln->shared;
   ngx_int_t                     i_am_the_last;
@@ -743,6 +722,7 @@ static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, nhpm_subs
     assert(shared->sub_count != 0);
     ngx_destroy_pool(shared->pool);
   }
+  */
 }
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
@@ -801,9 +781,7 @@ static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   return NGX_OK;
 }
 
-static nhpm_channel_head_cleanup_t *put_current_subscribers_in_limbo(nhpm_channel_head_t *head) {
-  nhpm_channel_head_cleanup_t *hcln;
-  
+static void *put_current_subscribers_in_limbo(nhpm_channel_head_t *head) {
   if(head==NULL) {
     ERR(" No head given. not putting anyone in limbo");
     return NULL;
@@ -814,31 +792,15 @@ static nhpm_channel_head_cleanup_t *put_current_subscribers_in_limbo(nhpm_channe
     return NULL;
   }
   
-  //set some things the cleanup callback will need
-  hcln = head->shared_cleanup;
-  hcln->sub_count=head->sub_count;
-  hcln->head=head;
-  hcln->id.len = head->id.len;
-  hcln->id.data = head->id.data;
-  hcln->first_sub = head->sub;
-  hcln->pool=head->pool;
-  //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "hcln->id.len == %i, head cleanup: %p", hcln->id.len, hcln);
+  //TODO: set up detached (?) spooler?
   
-  head->sub_count=0;
-  head->pool=NULL; //pool will be destroyed on cleanup
-  head->sub=NULL;
-  head->shared_cleanup = NULL;
-  
-  return hcln;
+  return NULL;
 }
 
 static void empty_callback(){}
 
-static ngx_int_t publish_to_subscribers_in_limbo(nhpm_channel_head_cleanup_t *hcln, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  nhpm_subscriber_t          *sub, *next;
-  nhpm_channel_head_t        *head = hcln->head;
-  hcln->head=NULL;
-  
+static ngx_int_t publish_to_subscribers_in_limbo(ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+  /*
   if(msg) {
     head->last_msgid.time = msg->message_time;
     head->last_msgid.tag = msg->message_tag;
@@ -870,13 +832,14 @@ static ngx_int_t publish_to_subscribers_in_limbo(nhpm_channel_head_cleanup_t *hc
       rsub->respond_status(rsub, status_code, status_line);
     }
   }
-
-  head->generation++;
+  */
+  //head->generation++;
   return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
-  nhpm_channel_head_t        *head;
+  //nhpm_channel_head_t        *head;
+  /*
   nhpm_channel_head_cleanup_t *hcln;
   
   head = ngx_http_push_store_get_chanhead(channel_id);
@@ -895,6 +858,8 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
   else {
     return NGX_ERROR;
   }
+  */
+  return NGX_OK;
 }
 
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
@@ -907,15 +872,13 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       ch = (nhpm_channel_head_t *)cur->data;
-      if (ch->sub==NULL) { //still no subscribers here
+      
+      if (ch->sub_count == 0) { //still no subscribers here
 
         //unsubscribe now
         DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
         redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
         DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
-        if(ch->pool != NULL) {
-          ngx_destroy_pool(ch->pool);
-        }
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
@@ -1184,7 +1147,6 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_channel_head_t *cur, *tmp;
-  nhpm_subscriber_t *sub;
   redisAsyncContext *ctx;
 
   handle_chanhead_gc_queue(1);
@@ -1196,14 +1158,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   
   HASH_ITER(hh, subhash, cur, tmp) {
     //any subscribers?
-    sub = cur->sub;
-    while (sub != NULL) {
-      sub->subscriber->respond_status(sub->subscriber, NGX_HTTP_CLOSE, NULL);
-      sub = sub->next;
-    }
-    if(cur->pool != NULL) {
-      ngx_destroy_pool(cur->pool);
-    }
+    //TODO: respond to all subscribers
     HASH_DEL(subhash, cur);
     ngx_free(cur);
   }
@@ -1220,8 +1175,8 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   
 }
 
-static void subscriber_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
-  
+static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
+  /*
   nhpm_subscriber_t           *sub = cln->sub;
   nhpm_channel_head_cleanup_t *shared = cln->shared;
   nhpm_channel_head_t         *head = shared->head;
@@ -1242,56 +1197,23 @@ static void subscriber_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_clea
     head->sub=NULL;
     chanhead_gc_add(head);
   }
+  */
 }
 
-static void nhpm_subscriber_timeout_handler(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
-  nhpm_subscriber_t         *sub = cln->sub;
-  ngx_pfree(cln->shared->pool, sub); //do we even want this?
+static void nhpm_subscriber_timeout_handler(subscriber_t *rsub, void *foo) {
+  //nhpm_subscriber_t         *sub = cln->sub;
+  //ngx_pfree(cln->shared->pool, sub); //do we even want this?
 }
 
 static ngx_int_t nhpm_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //this is the new shit
-  nhpm_subscriber_t         *nextsub;
-  nhpm_channel_head_cleanup_t *headcln;
+  void *foo = NULL;
   
-  if((nextsub=ngx_pcalloc(chanhead->pool, sizeof(*nextsub)))==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
-    return NGX_ERROR;
-  }
-
-  //let's be explicit about this
-  nextsub->prev=NULL;
-  nextsub->next=NULL;
-  nextsub->id = 0;
-
-  nextsub->subscriber = sub;
-  nextsub->pool= sub->pool;
+  //TODO
   
-  chanhead->sub = nextsub;
+  sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &foo);
   
-  chanhead->sub_count++;
-  
-  if(chanhead->status == READY) {
-    nhpm_subscriber_register(chanhead, nextsub);
-  }
-
-
-  //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  headcln = chanhead->shared_cleanup;
-  headcln->head = chanhead;
-  
-  headcln->id.len = chanhead->id.len;
-  headcln->id.data = chanhead->id.data;
-  
-  headcln->pool = chanhead->pool;
-  headcln->sub_count = 0;
-  
-  nextsub->clndata.sub = nextsub;
-  nextsub->clndata.shared = headcln;
-  
-  sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &nextsub->clndata);
-  
-  sub->set_timeout_callback(sub, (subscriber_callback_pt )nhpm_subscriber_timeout_handler, &nextsub->clndata);
+  sub->set_timeout_callback(sub, (subscriber_callback_pt )nhpm_subscriber_timeout_handler, &foo);
   
   return NGX_OK;
 }
@@ -1327,6 +1249,8 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   
   if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 1) || !CHECK_REPLY_INT(reply->element[0]) ) {
     //no good
+    redisEchoCallback(c,reply,privdata);
+    ERR("Invalid redis getmessage return data");
     ngx_free(d);
     return;
   }
@@ -1371,11 +1295,12 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
     case 418: //not yet available
     case 403: //channel not found (not authorized)
       // ♫ It's gonna be the future soon ♫
+      
       if((chanhead = ngx_http_push_store_get_chanhead(d->channel_id))== NULL) {
         d->callback(NGX_ERROR, NULL, d->privdata);
       }
       else {
-        ret = nhpm_subscriber_create(chanhead, sub);
+        ret = chanhead->spooler.add(&chanhead->spooler, sub);
         d->callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, d->privdata);
       }
       break;
@@ -1423,7 +1348,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->name = "get_message (subscribe)";
   
   d->sub = sub;
-  sub->enqueue(sub);
+  //subscriber should already be enqueued
   
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   
