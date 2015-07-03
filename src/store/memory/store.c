@@ -52,7 +52,7 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
 ngx_int_t memstore_slot() {
-  return 0; //always in one place.
+  return ngx_process_slot;
 }
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -68,8 +68,7 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t h = ngx_crc32_short(id->data, id->len);
-  return h % max_worker_processes;
+  return 0;
 }
 
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
