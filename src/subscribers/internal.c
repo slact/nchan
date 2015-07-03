@@ -70,6 +70,7 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   
   fsub->timeout_handler = sub_empty_callback;
   fsub->dequeue_handler = sub_empty_callback;
+  fsub->dequeue_handler_data = NULL;
   return &fsub->sub;
 }
 
@@ -118,7 +119,7 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
   f->already_dequeued = 1;
   DBG("internal sub dequeue sub %p", self);
   f->dequeue(NGX_OK, NULL, f->privdata);
-  f->dequeue_handler(self, f->privdata);
+  f->dequeue_handler(self, f->dequeue_handler_data);
   if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
     ngx_del_timer(&f->timeout_ev);
   }
