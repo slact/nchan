@@ -27,6 +27,7 @@ _NHPM_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/ipc.c \
   ${ngx_addon_dir}/src/store/memory/rbtree_util.c \
   ${ngx_addon_dir}/src/store/memory/shmem.c \
+  ${ngx_addon_dir}/src/store/memory/spool.c \
   ${ngx_addon_dir}/src/store/memory/ipc-handlers.c \
   ${ngx_addon_dir}/src/store/memory/store.c \
 "

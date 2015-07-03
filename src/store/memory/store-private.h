@@ -27,23 +27,26 @@ struct nhpm_message_s {
   nhpm_message_t           *next;
 }; //nhpm_message_t
 
+#include "spool.h"
+
 struct nhpm_channel_head_s {
-  ngx_str_t                      id; //channel id
-  ngx_http_push_channel_t        channel;
-  ngx_atomic_t                   generation; //subscriber pool generation.
-  ngx_pool_t                    *pool;
-  chanhead_pubsub_status_t       status;
-  ngx_atomic_t                   sub_count;
-  ngx_uint_t                     min_messages;
-  ngx_uint_t                     max_messages;
-  nhpm_message_t                *msg_first;
-  nhpm_message_t                *msg_last;
-  nhpm_channel_head_cleanup_t   *shared_cleanup;
-  nhpm_subscriber_t             *sub;
-  ngx_http_push_msg_id_t         last_msgid;
-  void                          *ipc_sub; //points to NULL or inacceessible memory.
-  nhpm_llist_timed_t             cleanlink;
-  UT_hash_handle                 hh;
+  ngx_str_t                       id; //channel id
+  ngx_http_push_channel_t         channel;
+  channel_spooler_t              *spooler;
+  ngx_atomic_t                    generation; //subscriber pool generation.
+  ngx_pool_t                     *pool;
+  chanhead_pubsub_status_t        status;
+  ngx_atomic_t                    sub_count;
+  ngx_uint_t                      min_messages;
+  ngx_uint_t                      max_messages;
+  nhpm_message_t                 *msg_first;
+  nhpm_message_t                 *msg_last;
+  nhpm_channel_head_cleanup_t    *shared_cleanup;
+  nhpm_subscriber_t              *sub;
+  ngx_http_push_msg_id_t          last_msgid;
+  void                           *ipc_sub; //points to NULL or inaacceessible memory.
+  nhpm_llist_timed_t              cleanlink;
+  UT_hash_handle                  hh;
 };
 
 struct nhpm_channel_head_cleanup_s {
