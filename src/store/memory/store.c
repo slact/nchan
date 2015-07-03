@@ -761,6 +761,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
       if(!d->already_enqueued) {
+        ERR("memstore: Sub %p should already have been enqueued. ...", sub);
         sub->enqueue(sub);
       }
       ret = chanhead->spooler.add(&chanhead->spooler, sub);
