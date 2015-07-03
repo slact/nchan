@@ -339,7 +339,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_llist_timed_t          *cur, *next;
   nhpm_channel_head_t         *ch = NULL;
   DBG("handling chanhead GC queue");
-  
   for(cur=mpt->gc_head ; cur != NULL; cur=next) {
     ch = (nhpm_channel_head_t *)cur->data;
     next=cur->next;
@@ -348,17 +347,16 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
         if(force_delete) {
           ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
+          //ch->spooler.prepare_to_stop(&ch->spooler);
           ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
-          assert(ch->sub_count == 0);
         }
         else {
           ERR("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
           break;
         }
       }
-      
       stop_spooler(&ch->spooler);
-      
+      assert(ch->sub_count == 0);
       force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
       if(ch->msg_first != NULL) {
@@ -376,7 +374,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       break; //dijkstra probably hates this
     }
   }
-   
   mpt->gc_head=cur;
   if (cur==NULL) { //we went all the way to the end
     mpt->gc_tail=NULL;
@@ -699,6 +696,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   if(memstore_slot() != owner) {
     //check if we need to ask for a message
+    sub->enqueue(sub);
     if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
