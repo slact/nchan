@@ -8,15 +8,15 @@
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
+#include "spool.h"
 
 static ngx_int_t max_worker_processes = 0;
-
 
 
 #define MAX_FAKE_WORKERS 3
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
 
-static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL, -1};
+static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL};
 
 memstore_data_t *mpt = &fake_default_mdata;
 
@@ -48,15 +48,17 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
+ngx_int_t memstore_slot() {
+  return mpt->fake_slot;
+}
+
+
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
 
 
-ngx_int_t memstore_slot() {
-  return mpt->fake_slot;
-}
 static nhpm_llist_timed_t *fakeprocess_top = NULL;
 void memstore_fakeprocess_push(ngx_int_t slot) {
   nhpm_llist_timed_t *link = ngx_calloc(sizeof(*fakeprocess_top), ngx_cycle->log);
@@ -138,64 +140,34 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
 }
 
 
-ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
-  chanhead->sub_count++;
-  chanhead->channel.subscribers++;
-  
-  if(chanhead->sub != NULL) {
-    chanhead->sub->prev = sub;
-    sub->next = chanhead->sub;
-  }
-  sub->prev = NULL;
-  chanhead->sub = sub;
-  
+ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
+  //nothing....
   return NGX_OK;
 }
 
-ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub) {
-  assert(chanhead->sub_count>0);
-  chanhead->sub_count--;
-  chanhead->channel.subscribers--;
-  if(chanhead->sub == sub) { //head subscriber
-    chanhead->sub = NULL;
-  }
+ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
+  //don't do anything, really
+  chanhead->channel.subscribers = chanhead->sub_count;
   return NGX_OK;
 }
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
-  nhpm_channel_head_cleanup_t   *hcln;
   ngx_int_t                      owner = memstore_channel_owner(&head->id);
   if(head == NULL) {
     return NGX_OK;
   }
-  //do we have everything ready for this worker?
-  
-  if(head->pool == NULL) {
-    if((head->pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log))==NULL) {
-      ERR("can't allocate memory for channel subscriber pool");
-    }
-  }
-  if(head->shared_cleanup == NULL) {
-    if((hcln=ngx_pcalloc(head->pool, sizeof(*hcln)))==NULL) {
-      ERR("can't allocate memory for channel head cleanup");
-    }
     //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
-    head->shared_cleanup = hcln;
-  }
   
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head);
   }
   
-  if(owner != memstore_slot()) {
-    if(head->ipc_sub == NULL && head->status != WAITING) {
-      head->status = WAITING;
-      //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
-      memstore_ipc_send_subscribe(owner, &head->id, head);
-    }
-    else {
-      head->status = READY;
-    }
+  if( owner != memstore_slot() 
+   && head->ipc_sub == NULL 
+   && head->status != WAITING) {
+    head->status = WAITING;
+    //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
+    memstore_ipc_send_subscribe(owner, &head->id, head);
   }
   else {
     head->status = READY;
@@ -209,6 +181,20 @@ static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   CHANNEL_HASH_FIND(channel_id, head);
   return head;
+}
+
+static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+  nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
+  head->sub_count++;
+  head->channel.subscribers++;
+}
+
+static void spooler_dequeue_handler(channel_spooler_t *spl, ngx_int_t count, void *privdata) {
+  nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
+  head->sub_count -= count;
+  head->channel.subscribers -= count;
+  assert(head->sub_count >= 0);
+  assert(head->channel.subscribers >= 0);
 }
 
 static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
@@ -227,11 +213,8 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->status = NOTREADY;
   head->msg_last = NULL;
   head->msg_first = NULL;
-  head->pool = NULL;
-  //ERR("setting chanhead %V shared_cleanup to NULL", &head->id);
-  head->shared_cleanup = NULL; 
-  head->sub = NULL;
   head->ipc_sub = NULL;
+  head->generation = 0;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
   head->channel.message_queue=NULL;
@@ -241,9 +224,13 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->min_messages = 0;
   head->max_messages = (ngx_int_t) -1;
   
-  
   head->last_msgid.time=0;
   head->last_msgid.tag=0;
+  
+  head->spooler.running=0;
+  start_spooler(&head->spooler);
+  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
+  head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
 
   CHANNEL_HASH_ADD(head);
   
@@ -266,44 +253,6 @@ nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id)
   }
   ensure_chanhead_is_ready(head);
   return head;
-}
-
-static ngx_int_t nhpm_subscriber_remove(nhpm_channel_head_t *head, nhpm_subscriber_t *sub) {
-  //remove subscriber from list
-  if(sub->prev != NULL) {
-    sub->prev->next=sub->next;
-  }
-  if(sub->next != NULL) {
-    sub->next->prev=sub->prev;
-  }
-  
-  sub->next = sub->prev = NULL;
-  
-  if(head != NULL) {
-    if(head->sub == sub) {
-      head->sub = NULL;
-    }
-  }
-  return NGX_OK;
-}
-
-static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
-  nhpm_subscriber_t            *sub = cln->sub;
-  nhpm_channel_head_cleanup_t  *shared = cln->shared;
-  ngx_int_t                     i_am_the_last;
-  //ERR("publishing cleanup callback for sub %p %p %s", sub, sub->subscriber, sub->subscriber->name);
-  
-  
-  i_am_the_last = sub->prev==NULL && sub->next==NULL;
-  
-  nhpm_subscriber_remove(shared->head, sub);
-  
-  if(i_am_the_last) {
-    //release pool
-    DBG("I am the last subscriber.");
-    assert(shared->sub_count != 0);
-    ngx_destroy_pool(shared->pool);
-  }
 }
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
@@ -395,87 +344,25 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
 */
 
 ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
-  nhpm_subscriber_t           *sub, *next, *reusable_subs = NULL;
-  ngx_int_t                    reused_subs = 0;
-  ngx_int_t                    reusable = 0;
-  nhpm_channel_head_cleanup_t *hcln;
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
-  }
-  
-  if(msg) {
-    head->last_msgid.time = msg->message_time;
-    head->last_msgid.tag = msg->message_tag;
   }
   
   if (head->sub_count == 0) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
+
+  if(msg) {
+    head->last_msgid.time = msg->message_time;
+    head->last_msgid.tag = msg->message_tag;
+    head->spooler.respond_message(&head->spooler, msg);
+  }
+  else {
+    head->spooler.respond_status(&head->spooler, status_code, status_line);
+  }
   
-  //set some things the cleanup callback will need
-  hcln = head->shared_cleanup;
-  head->shared_cleanup = NULL;
-  ERR("setting chanhead %V shared_cleanup to NULL, after it was %p", &head->id, hcln);
-  hcln->sub_count=head->sub_count;
-  hcln->head=NULL;
-  
-  //IS THIS SAFE? i think so...
-  hcln->id.len = head->id.len;
-  hcln->id.data = head->id.data;
-  
-  //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "hcln->id.len == %i, head cleanup: %p", hcln->id.len, hcln);
-  hcln->pool=head->pool;
-  head->pool=NULL; //pool will be destroyed on cleanup
-  
+  //TODO: be smarter about garbage-collecting chanheads
   chanhead_gc_add(head);
-  
-  head->channel.subscribers = 0;
-  head->sub_count = 0;
-  sub = head->sub;
-  head->sub = NULL;
-  
-  for( ; sub!=NULL; sub=next) {
-    subscriber_t      *rsub = sub->subscriber;
-    reusable = rsub->dequeue_after_response == 0;
-    
-    rsub->set_dequeue_callback(rsub, (subscriber_callback_pt )subscriber_publishing_cleanup_callback, &sub->clndata);
-    
-    next = sub->next; //becase the cleanup callback may dequeue this subscriber
-    
-    if(sub->clndata.shared != hcln) {
-      ERR("wrong shared cleanup for subscriber %p sub %p (%s): should be %p, is %p", sub, sub->subscriber, sub->subscriber->name, hcln, sub->clndata.shared);
-      assert(0);
-    }
-
-    if(msg!=NULL) {
-      rsub->respond_message(rsub, msg);
-    }
-    else {
-      rsub->respond_status(rsub, status_code, status_line);
-    }
-    
-    if(reusable) { //re-use these.
-      ERR("got reusable sub %p", sub);
-      sub->next = reusable_subs;
-      sub->prev = NULL;
-      if(reusable_subs) {
-        reusable_subs->prev = sub;
-      }
-      reusable_subs = sub;
-      reused_subs++;
-    }
-  }
-
-  head->generation++; //should be atomic
-  
-  if(reusable_subs != NULL) {
-    ensure_chanhead_is_ready(head);
-    ERR("got some reusable subs. %i to be exact.", reused_subs);
-    for(sub = reusable_subs; sub!=NULL; sub = sub->next) {
-      nhpm_memstore_subscriber_create(head, sub->subscriber);
-      //MAYBE ngx_pfree old subscriber wrapping? it's part of the pool, so not necessary.
-    }
-  }
   
   head->channel.subscribers = head->sub_count;
 
@@ -495,8 +382,18 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       if (ch->sub_count > 0 ) { //there are subscribers
         ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
-        break;
+        if(force_delete) {
+          ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
+          ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+          assert(ch->sub_count == 0);
+        }
+        else {
+          ERR("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
+          break;
+        }
       }
+      
+      stop_spooler(&ch->spooler);
       
       force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
@@ -507,10 +404,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       //unsubscribe now
       DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
       //do we need a read lock here? I don't think so...
-      
-      if(ch->pool != NULL) {
-        ngx_destroy_pool(ch->pool);
-      }
       
       CHANNEL_HASH_DEL(ch);
       ngx_free(ch);
@@ -639,22 +532,10 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   DBG("exit worker %i", ngx_pid);
   nhpm_channel_head_t         *cur, *tmp;
-  nhpm_subscriber_t           *sub;
-  subscriber_t                *rsub;
-  
     
   HASH_ITER(hh, mpt->hash, cur, tmp) {
-    //any subscribers?
-    sub = cur->sub;
-    while (sub != NULL) {
-      rsub = sub->subscriber;
-      rsub->dequeue_after_response = 1;
-      rsub->respond_status(rsub, NGX_HTTP_CLOSE, NULL);
-      sub = sub->next;
-    }
     chanhead_gc_add(cur);
   }
-
   handle_chanhead_gc_queue(1);
   
   if(mpt->gc_timer.timer_set) {
@@ -673,75 +554,6 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   ipc_destroy(ipc, cycle);
   
   shm_destroy(shm);
-}
-
-static void subscriber_cleanup_callback(subscriber_t *rsub, nhpm_subscriber_cleanup_t *cln) {
-  
-  nhpm_subscriber_t           *sub = cln->sub;
-  nhpm_channel_head_cleanup_t *shared = cln->shared;
-  nhpm_channel_head_t         *head = shared->head;
-  
-  //DBG("subscriber_cleanup_callback for %p on %V", sub, &head->id);
-  
-  ngx_int_t      done = sub->prev==NULL && sub->next==NULL;
-  
-  nhpm_memstore_subscriber_unregister(shared->head, sub);
-  nhpm_subscriber_remove(shared->head, sub);
-  
-  if(done) {
-    //add chanhead to gc list
-    //head->sub=NULL; // pretty sure this is unnecesary.
-    if(head->sub_count == 0) {
-      chanhead_gc_add(head);
-    }
-    else {
-      ERR("subscriber count is nonzero during subscriber cleanup callback");
-    }
-  }
-}
-
-static void nhpm_subscriber_timeout_handler(subscriber_t *sub, nhpm_subscriber_cleanup_t *cln) {
-  sub->dequeue_after_response = 1;
-}
-
-ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *head, subscriber_t *sub) {
-  //this is the new shit
-  nhpm_subscriber_t           *nextsub;
-  nhpm_channel_head_cleanup_t *headcln;
-
-  
-  if((nextsub=ngx_pcalloc(head->pool, sizeof(*nextsub)))==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) subscriber in channel sub pool");
-    return NGX_ERROR;
-  }
-
-  //DBG("create subscriber %p from sub %p (%s)", nextsub, sub, sub->name);
-  //let's be explicit about this
-  nextsub->prev=NULL;
-  nextsub->next=NULL;
-  nextsub->id = 0;
-
-  nextsub->subscriber = sub;
-  nextsub->pool= sub->pool;
-  
-  nhpm_memstore_subscriber_register(head, nextsub);
-  
-  //add teardown callbacks and cleaning data
-
-  headcln = head->shared_cleanup;
-  headcln->id.len = head->id.len;
-  headcln->id.data = head->id.data;
-  //ngx_http_push_loc_conf_t  *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  headcln->head = head;
-  headcln->pool = head->pool;
-  
-  nextsub->clndata.sub = nextsub;
-  nextsub->clndata.shared = headcln;
-  //DBG("set clndata for sub %p shared to %p", nextsub, headcln);
-  
-  sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &nextsub->clndata);
-  sub->set_timeout_callback(sub, (subscriber_callback_pt )nhpm_subscriber_timeout_handler, &nextsub->clndata);
-  return NGX_OK;
 }
 
 static ngx_int_t chanhead_withdraw_message_locked(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
@@ -998,7 +810,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
       if(!d->already_enqueued) {
         sub->enqueue(sub);
       }
-      ret = nhpm_memstore_subscriber_create(chanhead, sub);
+      ret = chanhead->spooler.add(&chanhead->spooler, sub);
       callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
       break;
 
