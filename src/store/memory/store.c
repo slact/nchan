@@ -8,7 +8,7 @@
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
-#include "spool.h"
+#include "../spool.h"
 
 static ngx_int_t max_worker_processes = 0;
 

@@ -27,7 +27,6 @@ _NHPM_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/ipc.c \
   ${ngx_addon_dir}/src/store/memory/rbtree_util.c \
   ${ngx_addon_dir}/src/store/memory/shmem.c \
-  ${ngx_addon_dir}/src/store/memory/spool.c \
   ${ngx_addon_dir}/src/store/memory/ipc-handlers.c \
   ${ngx_addon_dir}/src/store/memory/store.c \
 "
@@ -43,8 +42,9 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   ${ngx_addon_dir}/src/ngx_http_push_defs.c \
   $_NHPM_SUBSCRIBERS_SRCS \
   $_NHPM_REDIS_STORE_SRCS \
-  $_NHPM_MEMORY_STORE_SRCS \
+  ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
+  $_NHPM_MEMORY_STORE_SRCS \
   ${ngx_addon_dir}/src/ngx_http_push_module.c \
 "
 
