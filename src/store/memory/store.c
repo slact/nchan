@@ -41,8 +41,8 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 
 #undef uthash_malloc
 #undef uthash_free
-#define uthash_malloc(sz) shm_alloc(shm, sz, "uthash")
-#define uthash_free(ptr,sz) shm_free(shm, ptr)
+#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
+#define uthash_free(ptr,sz) ngx_free(ptr)
 
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
