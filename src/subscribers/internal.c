@@ -1,5 +1,6 @@
 #include <ngx_http_push_module.h>
 #include "internal.h"
+#include <assert.h>
 
 #define DEBUG_LEVEL NGX_LOG_INFO
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
@@ -25,6 +26,7 @@ typedef struct {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   void                   *privdata;
+  unsigned                already_dequeued:1;
 } full_subscriber_t;
 
 ngx_int_t internal_subscriber_set_enqueue_handler(subscriber_t *sub, callback_pt handler) {
@@ -64,6 +66,7 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   
   fsub->sub.pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
   fsub->sub.cf = &dummy_config;
+  fsub->already_dequeued = 0;
   
   fsub->timeout_handler = sub_empty_callback;
   fsub->dequeue_handler = sub_empty_callback;
@@ -111,6 +114,8 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
 
 static ngx_int_t internal_dequeue(subscriber_t *self) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
+  assert(!f->already_dequeued);
+  f->already_dequeued = 1;
   DBG("internal sub dequeue sub %p", self);
   f->dequeue(NGX_OK, NULL, f->privdata);
   f->dequeue_handler(self, f->privdata);
@@ -140,8 +145,11 @@ static ngx_int_t internal_respond_message(subscriber_t *self, ngx_http_push_msg_
 
 static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("longpoll respond sub %p status %i", self, status_code);
-  f->respond_message(status_code, (void *)status_line, f->privdata);
+  DBG("internal respond sub %p status %i", self, status_code);
+  if(status_code == NGX_HTTP_GONE) {
+    self->dequeue_after_response = 1;
+  }
+  f->respond_status(status_code, (void *)status_line, f->privdata);
   reset_timer(f);
   return dequeue_maybe(self);
 }

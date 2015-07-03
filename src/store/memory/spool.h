@@ -27,7 +27,8 @@ struct subscriber_pool_s{
   ngx_pool_t           *pool;
   ngx_uint_t            sub_count;
   nhpm_llist_timed_t    cleanlink; //unused for now
-
+  ngx_uint_t            generation;
+  ngx_int_t             responded_subs;
   ngx_int_t             (*add)(subscriber_pool_t *self, subscriber_t *sub);
   ngx_int_t             (*respond_message)(subscriber_pool_t *self, ngx_http_push_msg_t *msg);
   ngx_int_t             (*respond_status)(subscriber_pool_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
@@ -43,13 +44,21 @@ struct channel_spooler_s {
   subscriber_pool_t     *persistent;
   ngx_uint_t             responded_count;
   ngx_atomic_t          *shared_sub_count;
+  unsigned               running:1;
+  unsigned               want_to_stop:1;
   ngx_int_t              (*add)(channel_spooler_t *self, subscriber_t *sub);
   ngx_int_t              (*respond_message)(channel_spooler_t *self, ngx_http_push_msg_t *msg);
   ngx_int_t              (*respond_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
 
+  ngx_int_t              (*prepare_to_stop)(channel_spooler_t *self);
+
   ngx_int_t              (*set_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, ngx_int_t, void*), void*);
   void                   (*dequeue_handler)(channel_spooler_t *, ngx_int_t, void *); //called after dequeueing 1 or many subs
   void                  *dequeue_handler_privdata;
+
+  ngx_int_t              (*set_add_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void *), void*);
+  void                   (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
+  void                  *add_handler_privdata;
   
 }; //nhpm_channel_head_spooler_t
 
