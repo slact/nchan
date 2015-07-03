@@ -783,7 +783,6 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
   return NGX_OK;
 }
 
-//big ol' writelock here
 static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   msg->next = NULL;
   msg->prev = ch->msg_last;
