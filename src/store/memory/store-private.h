@@ -1,23 +1,7 @@
 #include "uthash.h"
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
 typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
-typedef struct nhpm_subscriber_cleanup_s nhpm_subscriber_cleanup_t;
-typedef struct nhpm_subscriber_s nhpm_subscriber_t;
 typedef struct nhpm_message_s nhpm_message_t;
-
-struct nhpm_subscriber_cleanup_s {
-  nhpm_channel_head_cleanup_t  *shared;
-  nhpm_subscriber_t            *sub;
-}; //nhpm_subscriber_cleanup_t
-
-struct nhpm_subscriber_s {
-  ngx_uint_t                  id;
-  subscriber_t               *subscriber;
-  ngx_pool_t                 *pool;
-  struct nhpm_subscriber_s   *prev;
-  struct nhpm_subscriber_s   *next;
-  nhpm_subscriber_cleanup_t   clndata;
-};
 
 typedef enum {INACTIVE, NOTREADY, WAITING, READY} chanhead_pubsub_status_t;
 
@@ -32,28 +16,18 @@ struct nhpm_message_s {
 struct nhpm_channel_head_s {
   ngx_str_t                       id; //channel id
   ngx_http_push_channel_t         channel;
-  channel_spooler_t              *spooler;
+  channel_spooler_t               spooler;
   ngx_atomic_t                    generation; //subscriber pool generation.
-  ngx_pool_t                     *pool;
   chanhead_pubsub_status_t        status;
   ngx_atomic_t                    sub_count;
   ngx_uint_t                      min_messages;
   ngx_uint_t                      max_messages;
   nhpm_message_t                 *msg_first;
   nhpm_message_t                 *msg_last;
-  nhpm_channel_head_cleanup_t    *shared_cleanup;
-  nhpm_subscriber_t              *sub;
   ngx_http_push_msg_id_t          last_msgid;
   void                           *ipc_sub; //points to NULL or inaacceessible memory.
   nhpm_llist_timed_t              cleanlink;
   UT_hash_handle                  hh;
-};
-
-struct nhpm_channel_head_cleanup_s {
-  nhpm_channel_head_t        *head;
-  ngx_str_t                   id; //channel id
-  ngx_uint_t                  sub_count;
-  ngx_pool_t                 *pool;
 };
 
 typedef struct {
@@ -69,7 +43,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
 ngx_int_t memstore_channel_owner(ngx_str_t *id);
 ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msg,  ngx_int_t min_msg, callback_pt callback, void *privdata);
 ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
-ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub);
-ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, nhpm_subscriber_t *sub);
+ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub);
+ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub);ngx_int_t memstore_slot();

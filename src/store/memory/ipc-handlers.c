@@ -62,7 +62,8 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   }
   else {
     sub = memstore_subscriber_create(sender, &head->id, d->subscriber);
-    nhpm_memstore_subscriber_create(head, sub);
+    sub->enqueue(sub);
+    head->spooler.add(&head->spooler, sub);
     d->subscriber = sub;
     d->shm_sub_count = 0;
   }
