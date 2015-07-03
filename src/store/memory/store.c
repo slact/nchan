@@ -386,7 +386,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
           if(force_delete) {
             ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
-            //ch->spooler.prepare_to_stop(&ch->spooler);
+          //ch->spooler.prepare_to_stop(&ch->spooler);
             ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
           }
           else {

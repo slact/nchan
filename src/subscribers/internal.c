@@ -146,7 +146,7 @@ static ngx_int_t internal_respond_message(subscriber_t *self, ngx_http_push_msg_
 static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
   DBG("internal respond sub %p status %i", self, status_code);
-  if(status_code = NGX_HTTP_GONE) {
+  if(status_code == NGX_HTTP_GONE) {
     self->dequeue_after_response = 1;
   }
   f->respond_status(status_code, (void *)status_line, f->privdata);
