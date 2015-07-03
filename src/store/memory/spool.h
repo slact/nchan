@@ -45,9 +45,12 @@ struct channel_spooler_s {
   ngx_uint_t             responded_count;
   ngx_atomic_t          *shared_sub_count;
   unsigned               running:1;
+  unsigned               want_to_stop:1;
   ngx_int_t              (*add)(channel_spooler_t *self, subscriber_t *sub);
   ngx_int_t              (*respond_message)(channel_spooler_t *self, ngx_http_push_msg_t *msg);
   ngx_int_t              (*respond_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
+
+  ngx_int_t              (*prepare_to_stop)(channel_spooler_t *self);
 
   ngx_int_t              (*set_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, ngx_int_t, void*), void*);
   void                   (*dequeue_handler)(channel_spooler_t *, ngx_int_t, void *); //called after dequeueing 1 or many subs

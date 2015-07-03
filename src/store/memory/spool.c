@@ -1,7 +1,7 @@
 #include <ngx_http_push_module.h>
 #include "spool.h"
-#include "spool.h"
 #include <assert.h>
+
 
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (2 * 1024)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
@@ -232,6 +232,11 @@ channel_spooler_t *create_spooler() {
 }
 
 static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *sub) {
+  if(self->want_to_stop) {
+    ERR("Not accepting new subscribers right now. want to stop.");
+    return NGX_ERROR;
+  }
+  
   if(COMMAND_SPOOL(self->shortlived, add, sub) != NGX_OK) {
     if(COMMAND_SPOOL(self->persistent, add, sub) != NGX_OK) {
       ERR("couldn't add subscriber to any spool");
@@ -303,6 +308,16 @@ static void terribly_named_dequeue_handler(subscriber_pool_t *spool, ngx_int_t c
   spl->dequeue_handler(spl, count, spl->dequeue_handler_privdata);
 }
 
+static ngx_int_t spooler_prepare_to_stop(channel_spooler_t *spl) {
+  spooled_subscriber_t  *ssub;
+  for(ssub = spl->persistent->first; ssub != NULL; ssub = ssub->next) {
+    ssub->sub->dequeue_after_response = 1;
+  }
+  spl->want_to_stop = 1;
+  return NGX_OK;
+}
+
+
 channel_spooler_t *start_spooler(channel_spooler_t *spl) {
   if(!spl->running) {
     spl->shortlived = create_spool(SHORTLIVED);
@@ -312,12 +327,14 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl) {
     spl->respond_status = spooler_respond_status;
     spl->set_dequeue_handler = spooler_set_dequeue_handler;
     spl->set_add_handler = spooler_set_add_handler;
+    spl->prepare_to_stop = spooler_prepare_to_stop;
     spl->dequeue_handler = NULL;
     spl->dequeue_handler_privdata = NULL;
     spl->add_handler = NULL;
     spl->add_handler_privdata = NULL;
     COMMAND_SPOOL(spl->shortlived, set_dequeue_handler, terribly_named_dequeue_handler, spl);
     spl->running = 1;
+    spl->want_to_stop = 0;
     return spl;
   }
   else {
