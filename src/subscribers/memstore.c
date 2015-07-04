@@ -4,9 +4,9 @@
 #include "../store/memory/store-private.h"
 #include "../store/memory/ipc-handlers.h"
 #include "internal.h"
-#define DEBUG_LEVEL NGX_LOG_INFO
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+#define DEBUG_LEVEL NGX_LOG_WARN
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:MEM-IPC:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:MEM-IPC:" fmt, ##arg)
 
 typedef struct {
   ngx_str_t   *chid;

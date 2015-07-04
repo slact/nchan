@@ -53,10 +53,10 @@ ngx_int_t memstore_slot() {
 }
 
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i store: " fmt, mpt->fake_slot, ##args)
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FakeProc:%i: " fmt, mpt->fake_slot, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FakeProc:%i: " fmt, mpt->fake_slot, ##args)
 
 
 static nhpm_llist_timed_t *fakeprocess_top = NULL;
@@ -70,21 +70,21 @@ void memstore_fakeprocess_push(ngx_int_t slot) {
     fakeprocess_top->prev = link;
   }
   fakeprocess_top = link;
-  ERR("Switching to fakeprocess %i", slot);
+  DBG("push fakeprocess %i onto stack", slot);
   mpt = &mdata[slot];
 }
 
 void memstore_fakeprocess_pop(void) {
   nhpm_llist_timed_t   *next;
   if(fakeprocess_top == NULL) {
-    ERR("can't pop empty fakeprocess stack");
+    DBG("can't pop empty fakeprocess stack");
     return;
   }
   else if((next = fakeprocess_top->next) == NULL) {
-    ERR("can't pop last item off of fakeprocess stack");
+    DBG("can't pop last item off of fakeprocess stack");
     return;
   }
-  ERR("Switching back to fakeprocess %i from %i", (ngx_int_t)next->data, (ngx_int_t )fakeprocess_top->data);
+  DBG("pop fakeprocess to return to %i", (ngx_int_t)next->data);
   ngx_free(fakeprocess_top);
   next->prev = NULL;
   fakeprocess_top = next;
@@ -551,11 +551,13 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle); //only for this worker...
+  shm_free(shm, shdata);
   shm_destroy(shm); //just for this worker...
+  ngx_free(fakeprocess_top);
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
-  DBG("memstore exit master from pid %i", ngx_pid);
+  DBG("exit master from pid %i", ngx_pid);
   
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle);
