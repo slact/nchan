@@ -496,6 +496,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle); //only for this worker...
+  shm_free(shm, shdata);
   shm_destroy(shm); //just for this worker...
 }
 

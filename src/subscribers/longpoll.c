@@ -1,7 +1,7 @@
 #include <ngx_http_push_module.h>
 #define DEBUG_LEVEL NGX_LOG_WARN
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #include <assert.h>
 
 static const subscriber_t new_longpoll_sub;
@@ -30,10 +30,10 @@ static void sudden_abort_handler(subscriber_t *sub) {
 }
 
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
-  DBG("longpoll create for req %p", r);
+  DBG("create for req %p", r);
   full_subscriber_t  *fsub;
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
-    ERR("Unable to allocate longpoll subscriber");
+    ERR("Unable to allocate");
     return NULL;
   }
   ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
@@ -57,13 +57,13 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   }
   fsub->data.cln->data = fsub;
   fsub->data.cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
-  
+  DBG("%p created for request %p", &fsub->sub, r);
   return &fsub->sub;
 }
 
 ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
-  DBG("longpoll destroy %p for req %p", sub, fsub->data.request);
+  DBG("%p destroy for req %p", sub, fsub->data.request);
   ngx_free(sub);
   return NGX_OK;
 }
@@ -78,7 +78,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(fsub->data.already_enqueued == 0);
-  DBG("longpoll enqueue sub %p req %p", self, fsub->data.request);
+  DBG("%p enqueue", self);
   fsub->data.request->read_event_handler = ngx_http_test_reading;
   fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
   fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
@@ -102,7 +102,7 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
-  DBG("longpoll dequeue sub %p req %p", self, fsub->data.request);
+  DBG("%p dequeue", self);
   fsub->data.dequeue_handler(&fsub->sub, fsub->data.dequeue_handler_data);
   if(self->destroy_after_dequeue) {
     longpoll_subscriber_destroy(self);
@@ -125,7 +125,7 @@ static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
   return NGX_OK;
 }
 static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
-  ERR(errmsg);
+  ERR("abort! %s", errmsg);
   finalize_maybe(sub, NGX_ERROR);
   dequeue_maybe(sub);
   return NGX_ERROR;
@@ -142,7 +142,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
   ngx_pool_cleanup_t        *cln = NULL;
   ngx_pool_cleanup_file_t   *clnf = NULL;
   ngx_int_t                  rc;
-  DBG("longpoll respond sub %p req %p msg %p", self, fsub->data.request, msg);
+  DBG("%p respond req %p msg %p", self, fsub->data.request, msg);
   if(buffer == NULL) {
     return abort_response(self, "attemtping to respond to subscriber with message with NULL buffer");
   }
@@ -235,7 +235,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_request_t    *r = ((full_subscriber_t *)self)->data.request;
-  DBG("longpoll respond sub %p req %p status %i", self, r, status_code);
+  DBG("%p respond req %p status %i", self, r, status_code);
   r->headers_out.status=status_code;
   if(status_line!=NULL) {
     r->headers_out.status_line.len =status_line->len;
