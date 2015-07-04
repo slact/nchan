@@ -36,6 +36,17 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("memstore subscriber respond with status");
+  switch(status) {
+    case NGX_HTTP_NO_CONTENT: //message expired
+    case NGX_HTTP_GONE: //delete
+    case NGX_HTTP_CLOSE: //delete
+    case NGX_HTTP_NOT_MODIFIED: //timeout?
+    case NGX_HTTP_FORBIDDEN:
+      //do nothing, will be dequeued automatically
+      break;
+    default:
+      ERR("unknown status %i", status);
+  }
   return NGX_OK;
 }
 
