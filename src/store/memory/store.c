@@ -79,14 +79,15 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     zone->data = data;
     return NGX_OK;
   }
-
+  shm_init(shm);
+  
   if((d = shm_alloc(shm, sizeof(shm_data_t), "root shared data")) == NULL) {
     return NGX_ERROR;
   }
   zone->data = d;
   shdata = d;
   
-  shm_init(shm);
+
     
   return NGX_OK;
 }
