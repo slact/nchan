@@ -84,18 +84,24 @@ static ngx_int_t spool_add(subscriber_pool_t *self, subscriber_t *sub) {
 }
 
 static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssub) {
-  if(ssub->next) {
-    ssub->next->prev = ssub->prev;
+  assert(ssub->next != ssub);
+  assert(ssub->prev != ssub);
+  spooled_subscriber_t   *prev, *next;
+  prev = ssub->prev;
+  next = ssub->next;
+  if(next) {
+    next->prev = prev;
   }
-  if(ssub->prev) {
-    ssub->prev->next = ssub->next;
+  if(prev) {
+    prev->next = next;
   }
   if(ssub == self->first) {
-    self->first = ssub->next;
+    self->first = next;
   }
   if(self->pool) {
     assert(self->type == SHORTLIVED);
     //ngx_pfree(self->pool, ssub);
+    ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
   }
   else {
     assert(self->type == PERSISTENT);
@@ -103,7 +109,6 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   }
   self->sub_count--;
   assert(self->sub_count >= 0);
-  ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
 
   return NGX_OK;
 }
