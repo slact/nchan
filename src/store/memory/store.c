@@ -61,6 +61,7 @@ ngx_int_t memstore_slot() {
 
 static nhpm_llist_timed_t *fakeprocess_top = NULL;
 void memstore_fakeprocess_push(ngx_int_t slot) {
+  assert(slot < MAX_FAKE_WORKERS);
   nhpm_llist_timed_t *link = ngx_calloc(sizeof(*fakeprocess_top), ngx_cycle->log);
   link->data = (void *)slot;
   link->time = ngx_time();
@@ -88,6 +89,10 @@ void memstore_fakeprocess_pop(void) {
   next->prev = NULL;
   fakeprocess_top = next;
   mpt = &mdata[(ngx_int_t )fakeprocess_top->data];
+}
+
+void memstore_fakeprocess_push_random(void) {
+  return memstore_fakeprocess_push(rand() % MAX_FAKE_WORKERS);
 }
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);

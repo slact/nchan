@@ -9,6 +9,9 @@
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 #include <ngx_http_push_module_setup.c>
+#include <store/memory/ipc.h>
+#include <store/memory/shmem.h>
+#include <store/memory/store-private.h>
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
@@ -494,6 +497,8 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
   
+  memstore_fakeprocess_push_random();
+  
   if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
@@ -530,6 +535,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
       return NGX_HTTP_NOT_ALLOWED;
   }
+  memstore_fakeprocess_pop();
 }
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
@@ -585,7 +591,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
-  
+  memstore_fakeprocess_push_random();
   switch(method) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
@@ -646,6 +652,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
       break;
   }
+  memstore_fakeprocess_pop();
 }
 
 

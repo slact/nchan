@@ -58,5 +58,6 @@ typedef struct {
 } memstore_data_t;
 memstore_data_t *mpt;
 void memstore_fakeprocess_push(ngx_int_t slot);
+void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
