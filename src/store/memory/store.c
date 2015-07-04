@@ -41,8 +41,8 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 
 #undef uthash_malloc
 #undef uthash_free
-#define uthash_malloc(sz) shm_alloc(shm, sz, "uthash")
-#define uthash_free(ptr,sz) shm_free(shm, ptr)
+#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
+#define uthash_free(ptr,sz) ngx_free(ptr)
 
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
@@ -696,14 +696,15 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   if(memstore_slot() != owner) {
     //check if we need to ask for a message
     sub->enqueue(sub);
-    if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
+    /*if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
     }
     else {
-      memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
-      return NGX_OK;
-    }
+      
+    }*/
+    memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
+    return NGX_OK;
   }
   else {
     chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
@@ -759,6 +760,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
       if(!d->already_enqueued) {
+        ERR("memstore: Sub %p should already have been enqueued. ...", sub);
         sub->enqueue(sub);
       }
       ret = chanhead->spooler.add(&chanhead->spooler, sub);
@@ -782,7 +784,6 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
   return NGX_OK;
 }
 
-//big ol' writelock here
 static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   msg->next = NULL;
   msg->prev = ch->msg_last;
