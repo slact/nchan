@@ -95,7 +95,7 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   if(prev) {
     prev->next = next;
   }
-  if(ssub == self->first) {
+  if(self->first == ssub) {
     self->first = next;
   }
   if(self->pool) {
@@ -104,8 +104,16 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
     ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
   }
   else {
+    int                      i=0;
+    spooled_subscriber_t    *scur;
     assert(self->type == PERSISTENT);
     ngx_free(ssub);
+    DBG("Just freed %p. first sub is now %p", ssub, self->first);
+    for(scur = self->first; scur != NULL; scur = scur->next) {
+      i++;
+      DBG("sub #%i is %p", i, scur);
+    }
+    
   }
   self->sub_count--;
   assert(self->sub_count >= 0);
@@ -113,29 +121,31 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   return NGX_OK;
 }
 
-static ngx_int_t spool_respond_message(subscriber_pool_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t spool_respond_general(subscriber_pool_t *self, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   self->generation++;
+  
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
     self->responded_subs++;
     nnext = nsub->next;
-    sub->respond_message(sub, msg);
+    if(msg) {
+      sub->respond_message(sub, msg);
+    }
+    else {
+      sub->respond_status(sub, status_code, status_line);
+    }
   }
   return NGX_OK;
 }
 
 static ngx_int_t spool_respond_status(subscriber_pool_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  spooled_subscriber_t       *nsub;
-  subscriber_t               *sub;
-  self->generation++;
-  for(nsub = self->first; nsub != NULL; nsub = nsub->next) {
-    sub = nsub->sub;
-    self->responded_subs++;
-    sub->respond_status(sub, status_code, status_line);
-  }
-  return NGX_OK;
+  return spool_respond_general(self, NULL, status_code, status_line);
+}
+
+static ngx_int_t spool_respond_message(subscriber_pool_t *self, ngx_http_push_msg_t *msg) {
+  return spool_respond_general(self, msg, NULL, NULL);
 }
 
 static ngx_int_t spool_set_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, ngx_int_t, void*), void *privdata) {
