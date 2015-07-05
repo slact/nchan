@@ -239,7 +239,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   struct msghdr       msg;
   
   alert.ipc = ipc;
-  alert.src_slot = ngx_process_slot;
+  alert.src_slot = memstore_slot();
   alert.dst_slot = slot;
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
