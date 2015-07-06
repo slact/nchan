@@ -13,7 +13,7 @@
 static ngx_int_t max_worker_processes = 0;
 
 
-#define MAX_FAKE_WORKERS 3
+#define MAX_FAKE_WORKERS 5
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
 
 static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL};
