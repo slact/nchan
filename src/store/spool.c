@@ -25,17 +25,19 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
     if(spool->type == SHORTLIVED) {
       if(spool->generation == 0) {
         //just some random aborted subscriber
-        spool->dequeue_handler(spool, 1, pd);
+        spool->dequeue_handler(spool, sub->type, 1, pd);
       }
+
       else {
         //first response. pretend to dequeue everything right away
         if(spool->responded_subs == 1) {
-          spool->dequeue_handler(spool, spool->sub_count + 1, pd);
+          //assumes all SHORTLIVED subs are the same type. This is okay for now, but may lead to bugs.
+          spool->dequeue_handler(spool, sub->type, spool->sub_count + 1, pd);
         }
       }
     }
     else {
-      spool->dequeue_handler(spool, 1, pd);
+      spool->dequeue_handler(spool, sub->type, 1, pd);
     }
   }
 }
@@ -145,10 +147,10 @@ static ngx_int_t spool_respond_status(subscriber_pool_t *self, ngx_int_t status_
 }
 
 static ngx_int_t spool_respond_message(subscriber_pool_t *self, ngx_http_push_msg_t *msg) {
-  return spool_respond_general(self, msg, NULL, NULL);
+  return spool_respond_general(self, msg, 0, NULL);
 }
 
-static ngx_int_t spool_set_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, ngx_int_t, void*), void *privdata) {
+static ngx_int_t spool_set_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, subscriber_type_t , ngx_int_t, void*), void *privdata) {
   if(handler != NULL) {
     self->dequeue_handler = handler;
   }
@@ -267,7 +269,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 }
 
 
-static void terribly_named_dequeue_handler(subscriber_pool_t *spool, ngx_int_t count, void *privdata);
+static void terribly_named_dequeue_handler(subscriber_pool_t *, subscriber_type_t, ngx_int_t, void *);
 
 
 static ngx_int_t spooler_respond_generic(channel_spooler_t *self, ngx_http_push_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
@@ -297,7 +299,7 @@ static ngx_int_t spooler_respond_status(channel_spooler_t *self, ngx_int_t code,
   return spooler_respond_generic(self, NULL, code, line);
 }
 
-static ngx_int_t spooler_set_dequeue_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, ngx_int_t, void*), void *privdata) {
+static ngx_int_t spooler_set_dequeue_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void*), void *privdata) {
   if(handler != NULL) {
     self->dequeue_handler = handler;
   }
@@ -317,10 +319,10 @@ static ngx_int_t spooler_set_add_handler(channel_spooler_t *self, void (*handler
   return NGX_OK;
 }
 
-static void terribly_named_dequeue_handler(subscriber_pool_t *spool, ngx_int_t count, void *privdata) {
+static void terribly_named_dequeue_handler(subscriber_pool_t *spool, subscriber_type_t type, ngx_int_t count, void *privdata) {
   channel_spooler_t *spl = (channel_spooler_t *)privdata;
   //bubble on up, yeah
-  spl->dequeue_handler(spl, count, spl->dequeue_handler_privdata);
+  spl->dequeue_handler(spl, type, count, spl->dequeue_handler_privdata);
 }
 
 static ngx_int_t spooler_prepare_to_stop(channel_spooler_t *spl) {
