@@ -165,7 +165,7 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
     head->internal_sub_count -= count;
   }
   head->sub_count -= count;
-  head->channel.subscribers = head->sub_count = head->internal_sub_count;
+  head->channel.subscribers = head->sub_count - head->internal_sub_count;
   assert(head->sub_count >= 0);
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
