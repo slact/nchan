@@ -192,14 +192,28 @@ static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
   head->sub_count++;
-  head->channel.subscribers++;
+  if(sub->type == INTERNAL) {
+    head->internal_sub_count++;
+  }
+  else {
+    head->channel.subscribers++;
+  }
+  
+  
 }
 
-static void spooler_dequeue_handler(channel_spooler_t *spl, ngx_int_t count, void *privdata) {
+static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
   nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
-  head->sub_count -= count;
-  head->channel.subscribers -= count;
+  if (type == INTERNAL) {
+    //internal subscribers are *special* and don't really count
+    head->internal_sub_count -= count;
+  }
+  else {
+    head->sub_count -= count;
+  }
+  head->channel.subscribers = head->sub_count = head->internal_sub_count;
   assert(head->sub_count >= 0);
+  assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
 }
 
@@ -216,6 +230,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
   head->sub_count=0;
+  head->internal_sub_count=0;
   head->status = NOTREADY;
   head->msg_last = NULL;
   head->msg_first = NULL;
