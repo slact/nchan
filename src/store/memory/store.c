@@ -95,8 +95,8 @@ void memstore_fakeprocess_push_random(void) {
   return memstore_fakeprocess_push(rand() % MAX_FAKE_WORKERS);
 }
 
-static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
-static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
+ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
+ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
@@ -280,7 +280,7 @@ nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id)
   return head;
 }
 
-static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
+ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   nhpm_llist_timed_t         *chanhead_cleanlink;
   
   DBG("gc_add chanhead %p (%V)", head, &head->id); 
@@ -313,7 +313,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
+ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from gc list if we're there
   nhpm_llist_timed_t    *cl;
   DBG("gc_withdraw chanhead %V", &chanhead->id);
@@ -415,13 +415,11 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
             ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
           }
           else {
-            ERR("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
-            break;
+            ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
+            //break;
           }
         }
-        DBG("sub count: %i internal count: %i (%i) shortlived count: %i", ch->sub_count, ch->internal_sub_count, ch->spooler.persistent->sub_count, ch->spooler.shortlived->sub_count);
         stop_spooler(&ch->spooler);
-        DBG("sub count: %i internal count: %i (%i) shortlived count: %i", ch->sub_count, ch->internal_sub_count, ch->spooler.persistent->sub_count, ch->spooler.shortlived->sub_count);
         assert(ch->sub_count == 0);
         force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
@@ -432,13 +430,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         //unsubscribe now
         DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
         //do we need a read lock here? I don't think so...
-        
-        if(ch->ipc_sub != NULL) {
-          ngx_int_t                owner = memstore_channel_owner(&ch->id);
-          assert(memstore_slot() != owner);
-          memstore_ipc_send_unsubscribe(owner, &ch->id, ch->ipc_sub, NULL);
-          ch->ipc_sub = NULL;
-        }
         
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
