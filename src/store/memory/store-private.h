@@ -13,6 +13,12 @@ struct nhpm_message_s {
 
 #include "../spool.h"
 
+typedef struct {
+  ngx_atomic_t                sub_count;
+  ngx_atomic_t                internal_sub_count;
+  ngx_atomic_t                messages_seen;
+} nhpm_channel_head_shm_t;
+
 struct nhpm_channel_head_s {
   ngx_str_t                       id; //channel id
   ngx_http_push_channel_t         channel;
@@ -20,6 +26,7 @@ struct nhpm_channel_head_s {
   ngx_atomic_t                    generation; //subscriber pool generation.
   chanhead_pubsub_status_t        status;
   ngx_atomic_t                    sub_count;
+  nhpm_channel_head_shm_t        *shared;
   ngx_int_t                       internal_sub_count;
   ngx_uint_t                      min_messages;
   ngx_uint_t                      max_messages;

@@ -113,7 +113,7 @@ ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subsc
 
 ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //don't do anything, really
-  chanhead->channel.subscribers = chanhead->sub_count;
+  chanhead->channel.subscribers = chanhead->sub_count - chanhead->internal_sub_count;
   return NGX_OK;
 }
 
@@ -151,14 +151,11 @@ static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
   head->sub_count++;
+  head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
   }
-  else {
-    head->channel.subscribers++;
-  }
-  
-  
+  assert(head->sub_count >= head->internal_sub_count);
 }
 
 static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
@@ -167,22 +164,29 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
     //internal subscribers are *special* and don't really count
     head->internal_sub_count -= count;
   }
-  else {
-    head->sub_count -= count;
-  }
+  head->sub_count -= count;
   head->channel.subscribers = head->sub_count = head->internal_sub_count;
   assert(head->sub_count >= 0);
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
+  assert(head->sub_count >= head->internal_sub_count);
 }
 
 static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   nhpm_channel_head_t         *head;
   head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   if(head == NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
+    ERR("can't allocate memory for (new) chanhead");
     return NULL;
   }
+  if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
+    ERR("can't allocate shared memory for (new) chanhead");
+    return NULL;
+  }
+  
+  head->shared->sub_count = 0;
+  head->shared->internal_sub_count = 0;
+  head->shared->messages_seen = 0;
   
   //no lock needed, no one else knows about this chanhead yet.
   head->id.len = channel_id->len;
@@ -371,7 +375,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           break;
         }
       }
+        DBG("sub count: %i internal count: %i (%i) shortlived count: %i", ch->sub_count, ch->internal_sub_count, ch->spooler.persistent->sub_count, ch->spooler.shortlived->sub_count);
       stop_spooler(&ch->spooler);
+        DBG("sub count: %i internal count: %i (%i) shortlived count: %i", ch->sub_count, ch->internal_sub_count, ch->spooler.persistent->sub_count, ch->spooler.shortlived->sub_count);
       assert(ch->sub_count == 0);
       force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
@@ -383,6 +389,13 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
       //do we need a read lock here? I don't think so...
       
+        if(ch->ipc_sub != NULL) {
+          ngx_int_t                owner = memstore_channel_owner(&ch->id);
+          assert(memstore_slot() != owner);
+          memstore_ipc_send_unsubscribe(owner, &ch->id, ch->ipc_sub, NULL);
+          ch->ipc_sub = NULL;
+        }
+        
       CHANNEL_HASH_DEL(ch);
       ngx_free(ch);
     }
@@ -975,11 +988,12 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
     memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
+    chanhead_gc_add(chead);
     return NGX_OK;
   }
   
   chead->channel.expires = ngx_time() + msg_timeout;
-  sub_count = chead->sub_count;
+  sub_count = chead->channel.subscribers;
   
   //TODO: address this weirdness
   //chead->min_messages = cf->min_messages;
