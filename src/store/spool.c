@@ -21,24 +21,23 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
   
   spool_remove(spool, d->ssub);
   
-  if(spool->dequeue_handler) {
-    if(spool->type == SHORTLIVED) {
-      if(spool->generation == 0) {
-        //just some random aborted subscriber
-        spool->dequeue_handler(spool, sub->type, 1, pd);
-      }
-
-      else {
-        //first response. pretend to dequeue everything right away
-        if(spool->responded_subs == 1) {
-          //assumes all SHORTLIVED subs are the same type. This is okay for now, but may lead to bugs.
-          spool->dequeue_handler(spool, sub->type, spool->sub_count + 1, pd);
-        }
-      }
-    }
-    else {
+  assert(spool->dequeue_handler != NULL);
+  if(spool->type == SHORTLIVED) {
+    if(spool->generation == 0) {
+      //just some random aborted subscriber
       spool->dequeue_handler(spool, sub->type, 1, pd);
     }
+
+    else {
+      //first response. pretend to dequeue everything right away
+      if(spool->responded_subs == 1) {
+        //assumes all SHORTLIVED subs are the same type. This is okay for now, but may lead to bugs.
+        spool->dequeue_handler(spool, sub->type, spool->sub_count + 1, pd);
+      }
+    }
+  }
+  else {
+    spool->dequeue_handler(spool, sub->type, 1, pd);
   }
 }
 
@@ -350,6 +349,7 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl) {
     spl->add_handler = NULL;
     spl->add_handler_privdata = NULL;
     COMMAND_SPOOL(spl->shortlived, set_dequeue_handler, terribly_named_dequeue_handler, spl);
+    COMMAND_SPOOL(spl->persistent, set_dequeue_handler, terribly_named_dequeue_handler, spl);
     spl->running = 1;
     spl->want_to_stop = 0;
     return spl;
