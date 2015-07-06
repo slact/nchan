@@ -20,6 +20,7 @@ struct nhpm_channel_head_s {
   ngx_atomic_t                    generation; //subscriber pool generation.
   chanhead_pubsub_status_t        status;
   ngx_atomic_t                    sub_count;
+  ngx_int_t                       internal_sub_count;
   ngx_uint_t                      min_messages;
   ngx_uint_t                      max_messages;
   nhpm_message_t                 *msg_first;

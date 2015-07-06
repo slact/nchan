@@ -4,9 +4,9 @@
 
 
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (2 * 1024)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
-#define DBG(...) ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, __VA_ARGS__)
-
+#define DEBUG_LEVEL NGX_LOG_WARN
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 #define COMMAND_SPOOL(spool, fn_name, arg...) ((spool)->fn_name((spool), ##arg))
 
 //////// SPOOLs -- Subscriber Pools  /////////
@@ -25,17 +25,19 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
     if(spool->type == SHORTLIVED) {
       if(spool->generation == 0) {
         //just some random aborted subscriber
-        spool->dequeue_handler(spool, 1, pd);
+        spool->dequeue_handler(spool, sub->type, 1, pd);
       }
+
       else {
         //first response. pretend to dequeue everything right away
         if(spool->responded_subs == 1) {
-          spool->dequeue_handler(spool, spool->sub_count + 1, pd);
+          //assumes all SHORTLIVED subs are the same type. This is okay for now, but may lead to bugs.
+          spool->dequeue_handler(spool, sub->type, spool->sub_count + 1, pd);
         }
       }
     }
     else {
-      spool->dequeue_handler(spool, 1, pd);
+      spool->dequeue_handler(spool, sub->type, 1, pd);
     }
   }
 }
@@ -84,56 +86,71 @@ static ngx_int_t spool_add(subscriber_pool_t *self, subscriber_t *sub) {
 }
 
 static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssub) {
-  if(ssub->next) {
-    ssub->next->prev = ssub->prev;
+  assert(ssub->next != ssub);
+  assert(ssub->prev != ssub);
+  spooled_subscriber_t   *prev, *next;
+  prev = ssub->prev;
+  next = ssub->next;
+  if(next) {
+    next->prev = prev;
   }
-  if(ssub->prev) {
-    ssub->prev->next = ssub->next;
+  if(prev) {
+    prev->next = next;
   }
-  if(ssub == self->first) {
-    self->first = ssub->next;
+  if(self->first == ssub) {
+    self->first = next;
   }
   if(self->pool) {
     assert(self->type == SHORTLIVED);
     //ngx_pfree(self->pool, ssub);
+    ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
   }
   else {
+    int                      i=0;
+    spooled_subscriber_t    *scur;
     assert(self->type == PERSISTENT);
     ngx_free(ssub);
+    DBG("Just freed %p. first sub is now %p", ssub, self->first);
+    for(scur = self->first; scur != NULL; scur = scur->next) {
+      i++;
+      DBG("sub #%i is %p", i, scur);
+    }
+    
   }
   self->sub_count--;
   assert(self->sub_count >= 0);
-  ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
 
   return NGX_OK;
 }
 
-static ngx_int_t spool_respond_message(subscriber_pool_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t spool_respond_general(subscriber_pool_t *self, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   self->generation++;
+  
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
     self->responded_subs++;
     nnext = nsub->next;
-    sub->respond_message(sub, msg);
+    if(msg) {
+      sub->respond_message(sub, msg);
+    }
+    else {
+      sub->respond_status(sub, status_code, status_line);
+    }
   }
   return NGX_OK;
 }
 
 static ngx_int_t spool_respond_status(subscriber_pool_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  spooled_subscriber_t       *nsub;
-  subscriber_t               *sub;
-  self->generation++;
-  for(nsub = self->first; nsub != NULL; nsub = nsub->next) {
-    sub = nsub->sub;
-    self->responded_subs++;
-    sub->respond_status(sub, status_code, status_line);
-  }
-  return NGX_OK;
+  return spool_respond_general(self, NULL, status_code, status_line);
 }
 
-static ngx_int_t spool_set_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, ngx_int_t, void*), void *privdata) {
+static ngx_int_t spool_respond_message(subscriber_pool_t *self, ngx_http_push_msg_t *msg) {
+  return spool_respond_general(self, msg, 0, NULL);
+}
+
+static ngx_int_t spool_set_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, subscriber_type_t , ngx_int_t, void*), void *privdata) {
   if(handler != NULL) {
     self->dequeue_handler = handler;
   }
@@ -252,7 +269,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 }
 
 
-static void terribly_named_dequeue_handler(subscriber_pool_t *spool, ngx_int_t count, void *privdata);
+static void terribly_named_dequeue_handler(subscriber_pool_t *, subscriber_type_t, ngx_int_t, void *);
 
 
 static ngx_int_t spooler_respond_generic(channel_spooler_t *self, ngx_http_push_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
@@ -282,7 +299,7 @@ static ngx_int_t spooler_respond_status(channel_spooler_t *self, ngx_int_t code,
   return spooler_respond_generic(self, NULL, code, line);
 }
 
-static ngx_int_t spooler_set_dequeue_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, ngx_int_t, void*), void *privdata) {
+static ngx_int_t spooler_set_dequeue_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void*), void *privdata) {
   if(handler != NULL) {
     self->dequeue_handler = handler;
   }
@@ -302,10 +319,10 @@ static ngx_int_t spooler_set_add_handler(channel_spooler_t *self, void (*handler
   return NGX_OK;
 }
 
-static void terribly_named_dequeue_handler(subscriber_pool_t *spool, ngx_int_t count, void *privdata) {
+static void terribly_named_dequeue_handler(subscriber_pool_t *spool, subscriber_type_t type, ngx_int_t count, void *privdata) {
   channel_spooler_t *spl = (channel_spooler_t *)privdata;
   //bubble on up, yeah
-  spl->dequeue_handler(spl, count, spl->dequeue_handler_privdata);
+  spl->dequeue_handler(spl, type, count, spl->dequeue_handler_privdata);
 }
 
 static ngx_int_t spooler_prepare_to_stop(channel_spooler_t *spl) {
