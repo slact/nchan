@@ -8,7 +8,7 @@
 
 #define IPC_SUBSCRIBE               1
 #define IPC_SUBSCRIBE_REPLY         2
-#define IPC_UNSUBSCRIBE             3
+#define IPC_UNSUBSCRIBE             3  //NOT USED
 #define IPC_UNSUBSCRIBED            4
 #define IPC_PUBLISH_MESSAGE         5
 #define IPC_PUBLISH_MESSAGE_REPLY   6
@@ -42,7 +42,7 @@ typedef struct {
   void         *privdata;
 } subscribe_data_t;
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
-  DBG("IPC: send subscribe to %i, %V", dst, chid);
+  DBG("send subscribe to %i, %V", dst, chid);
   subscribe_data_t        data = {str_shm_copy(chid), NULL, NULL, privdata};
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
 }
@@ -51,7 +51,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   subscribe_data_t        *d = (subscribe_data_t *)data;
   subscriber_t            *sub;
   
-  DBG("IPC: received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
   head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   
   if(head == NULL) {
@@ -72,7 +72,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t *d = (subscribe_data_t *)data;
-  DBG("IPC: received subscribe reply for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received subscribe reply for channel %V pridata", d->shm_chid, d->privdata);
   //we have the chanhead address, but are too afraid to use it.
   nhpm_channel_head_t   *head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   if(head == NULL) {
@@ -86,28 +86,43 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
 
 
 
-////////// UNSUBSCRIBE ////////////////
+////////// UNSUBSCRIBED ////////////////
 typedef struct {
   ngx_str_t    *shm_chid;
-  void         *subscriber;
   void         *privdata;
-} unsubscribe_data_t;
-ngx_int_t memstore_ipc_send_unsubscribe(ngx_int_t dst, ngx_str_t *chid, void *subscriber, void* privdata) {
-  DBG("IPC: send unsubscribe to %i %V", dst, chid);
-  unsubscribe_data_t        data = {str_shm_copy(chid), subscriber, privdata};
-  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_UNSUBSCRIBE, &data, sizeof(data));
+} unsubscribed_data_t;
+ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
+  DBG("send unsubscribed to %i %V", dst, chid);
+  unsubscribed_data_t        data = {str_shm_copy(chid), privdata};
+  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_UNSUBSCRIBED, &data, sizeof(data));
 }
-static void receive_unsubscribe(ngx_int_t sender, void *data) {
-  unsubscribe_data_t    *d = (unsubscribe_data_t *)data;
-  subscriber_t          *sub;
-  DBG("IPC: received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
-  sub = (subscriber_t *)d->subscriber;
-  //hope this pointer we got is still good...
-  sub->dequeue(sub);
+static void receive_unsubscribed(ngx_int_t sender, void *data) {
+  unsubscribed_data_t    *d = (unsubscribed_data_t *)data;
+  DBG("received unsubscribed request for channel %V pridata", d->shm_chid, d->privdata);
+  if(memstore_channel_owner(d->shm_chid) != memstore_slot()) {
+    nhpm_channel_head_t    *head;
+    //find channel
+    head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
+    if(head == NULL) {
+      //already deleted maybe?
+      DBG("already unsubscribed...");
+      return;
+    }
+    //gc if no subscribers
+    if(head->sub_count == 0) {
+      DBG("add %p to GC", head);
+      chanhead_gc_add(head);
+    }
+    else {
+      //subscribe again?...
+      DBG("maybe subscribe again?...");
+    }
+  }
+  else {
+    ERR("makes no sense...");
+  }
+  str_shm_free(d->shm_chid);
 }
-
-
-
 
 
 /////////// PUBLISH STATUS ///////////
@@ -118,7 +133,7 @@ typedef struct {
 } publish_status_data_t;
 ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status,  void* privdata) {
   publish_status_data_t        data = {str_shm_copy(chid), status, privdata};
-  DBG("IPC: send publish status to %i %V", dst, chid);
+  DBG("send publish status to %i %V", dst, chid);
   ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
   return NGX_OK;
 }
@@ -327,7 +342,7 @@ static void receive_delete_reply(ngx_int_t sender, void *data) {
 static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_SUBSCRIBE] =             receive_subscribe,
   [IPC_SUBSCRIBE_REPLY] =       receive_subscribe_reply,
-  [IPC_UNSUBSCRIBE] =           receive_unsubscribe,
+  [IPC_UNSUBSCRIBED] =          receive_unsubscribed,
   [IPC_PUBLISH_MESSAGE] =       receive_publish_message,
   [IPC_PUBLISH_MESSAGE_REPLY] = receive_publish_message_reply,
   [IPC_PUBLISH_STATUS] =        receive_publish_status,

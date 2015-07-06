@@ -69,3 +69,6 @@ void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
+
+ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
+ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);

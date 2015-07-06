@@ -81,6 +81,11 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 }
 
 
+void *internal_subscriber_get_privdata(subscriber_t *sub) {
+  full_subscriber_t               *fsub = (full_subscriber_t *)sub;
+  return fsub->privdata;
+}
+
 static void reset_timer(full_subscriber_t *f) {
   if(f->sub.cf->subscriber_timeout > 0) {
     if(f->timeout_ev.timer_set) {
