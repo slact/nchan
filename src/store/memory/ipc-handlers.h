@@ -7,3 +7,4 @@ ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_i
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t owner, ngx_str_t *shm_chid, ngx_http_push_msg_id_t *msgid, void * privdata);
 ngx_int_t memstore_ipc_send_delete(ngx_int_t owner, ngx_str_t *shm_chid, callback_pt callback, void *privdata);
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data);
+ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, void *ch, callback_pt callback, void *privdata);

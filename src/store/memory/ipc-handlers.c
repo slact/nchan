@@ -20,6 +20,9 @@
 #define IPC_DELETE_REPLY            11
 #define IPC_GET_CHANNEL_INFO        12
 #define IPC_GET_CHANNEL_INFO_REPLY  13
+#define IPC_SUBSCRIBER_KEEPALIVE    14
+#define IPC_SUBSCRIBER_KEEPALIVE_REPLY 15
+
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -391,6 +394,51 @@ static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
 }
 
 
+
+/////////// SUBSCRIBER KEEPALIVE ///////////
+typedef struct {
+  ngx_str_t             *shm_chid;
+  subscriber_t          *ipc_sub;
+  nhpm_channel_head_t   *originator;
+  unsigned               renew:1;
+  callback_pt            callback;
+  void                  *privdata;
+} sub_keepalive_data_t;
+
+ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, void *ch, callback_pt callback, void *privdata) {
+  sub_keepalive_data_t        data = {str_shm_copy(chid), sub, (nhpm_channel_head_t *)ch, 0, callback, privdata};
+  DBG("send SUBBSCRIBER KEEPALIVE to %i %V", dst, chid);
+  ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_SUBSCRIBER_KEEPALIVE, &data, sizeof(data));
+  return NGX_OK;
+}
+static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
+  sub_keepalive_data_t   *d = (sub_keepalive_data_t *)data;
+  nhpm_channel_head_t    *head;
+  DBG("received subscriber keepalive for channel %V", d->shm_chid);
+  head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
+  if(head == NULL) {
+    DBG("not subscribed anymore");
+    d->renew = 0;
+  }
+  else {
+    assert(head->ipc_sub == d->ipc_sub);
+    if(head->sub_count == 0) {
+      d->renew = 0;
+      chanhead_gc_add(head);
+    }
+    else {
+      d->renew = 1;
+    }
+  }
+  ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_SUBSCRIBER_KEEPALIVE_REPLY, d, sizeof(*d));
+}
+
+static void receive_subscriber_keepalive_reply(ngx_int_t sender, void *data) {
+  sub_keepalive_data_t *d = (sub_keepalive_data_t *)data;
+  d->callback(d->renew, NULL, d->privdata);
+  str_shm_free(d->shm_chid);
+}
+
 static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_SUBSCRIBE] =             receive_subscribe,
   [IPC_SUBSCRIBE_REPLY] =       receive_subscribe_reply,
@@ -403,7 +451,9 @@ static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_DELETE] =                receive_delete,
   [IPC_DELETE_REPLY] =          receive_delete_reply,
   [IPC_GET_CHANNEL_INFO] =      receive_get_channel_info,
-  [IPC_GET_CHANNEL_INFO_REPLY]= receive_get_channel_info_reply
+  [IPC_GET_CHANNEL_INFO_REPLY]= receive_get_channel_info_reply,
+  [IPC_SUBSCRIBER_KEEPALIVE] =  receive_subscriber_keepalive,
+  [IPC_SUBSCRIBER_KEEPALIVE_REPLY] = receive_subscriber_keepalive_reply
 };
 
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {

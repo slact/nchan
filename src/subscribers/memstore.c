@@ -14,17 +14,12 @@
 
 typedef struct sub_data_s sub_data_t;
 
-typedef struct {
-  sub_data_t     *d;
-  subscriber_t   *sub;
-} timeout_data_t;
-
 struct sub_data_s {
+  subscriber_t   *sub;
   ngx_str_t      *chid;
   ngx_int_t       originator;
   void           *foreign_chanhead;
   ngx_event_t     timeout_ev;
-  timeout_data_t *timeout_data;
 }; //sub_data_t
 
 static ngx_int_t empty_callback(){
@@ -73,43 +68,47 @@ static void reset_timer(sub_data_t *data) {
   ngx_add_timer(&data->timeout_ev, MEMSTORE_IPC_SUBSCRIBER_TIMEOUT * 1000);
 }
 
-static void timeout_ev_handler(ngx_event_t *ev) {
-  timeout_data_t *d = (timeout_data_t *)ev->data;
-  DBG("timeout event. dequeue!");
-  d->sub->dequeue(d->sub);
+
+static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
+  sub_data_t *d = (sub_data_t *)pd;
+  if(renew) {
+    reset_timer(d);
+  }
+  else{
+    d->sub->dequeue(d->sub);
+  }
+  return NGX_OK;
 }
-typedef struct {
-  sub_data_t     d;
-  timeout_data_t t;
-} memstore_subscriber_slab_t;
+static void timeout_ev_handler(ngx_event_t *ev) {
+  sub_data_t *d = (sub_data_t *)ev->data;
+  DBG("timeout event. Ping originator to see if still needed.");
+  memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
+}
 
 subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) {
   DBG("memstore subscriver create with privdata %p");
   sub_data_t                 *d;
-  memstore_subscriber_slab_t *s;
-  s = ngx_alloc(sizeof(*s), ngx_cycle->log);
-  if(s == NULL) {
+  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  if(d == NULL) {
     ERR("couldn't allocate memstore subscriber data");
     return NULL;
   }
-  d = &s->d;
-  d->timeout_data = &s->t;
-  
+
   subscriber_t *sub = internal_subscriber_create(d);
+  sub->destroy_after_dequeue = 1;
   internal_subscriber_set_name(sub, "memstore-ipc");
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
+  d->sub = sub;
   d->chid = chid;
   d->originator = originator_slot;
   d->foreign_chanhead = foreign_chanhead;
   
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
   d->timeout_ev.handler = timeout_ev_handler;
-  d->timeout_ev.data = &s->t;
-  s->t.sub = sub;
-  s->t.d=d;
+  d->timeout_ev.data = d;
   d->timeout_ev.log = ngx_cycle->log;
   reset_timer(d);
   return sub;
