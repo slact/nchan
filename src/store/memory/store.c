@@ -53,8 +53,8 @@ ngx_int_t memstore_slot() {
 }
 
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FakeProc:%i: " fmt, mpt->fake_slot, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FakeProc:%i: " fmt, mpt->fake_slot, ##args)
 
@@ -70,7 +70,7 @@ void memstore_fakeprocess_push(ngx_int_t slot) {
     fakeprocess_top->prev = link;
   }
   fakeprocess_top = link;
-  DBG("push fakeprocess %i onto stack", slot);
+  //DBG("push fakeprocess %i onto stack", slot);
   mpt = &mdata[slot];
 }
 
@@ -84,7 +84,7 @@ void memstore_fakeprocess_pop(void) {
     DBG("can't pop last item off of fakeprocess stack");
     return;
   }
-  DBG("pop fakeprocess to return to %i", (ngx_int_t)next->data);
+  //DBG("pop fakeprocess to return to %i", (ngx_int_t)next->data);
   ngx_free(fakeprocess_top);
   next->prev = NULL;
   fakeprocess_top = next;
@@ -221,6 +221,9 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
   assert(head->sub_count >= head->internal_sub_count);
+  if(head->sub_count == 0) {
+    chanhead_gc_add(head);
+  }
 }
 
 static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
@@ -444,13 +447,13 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
         if(ch->msg_first != NULL) {
+          assert(ch->channel.messages != 0);
           ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
           break;
         }
         //unsubscribe now
-        DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
         //do we need a read lock here? I don't think so...
-        
         CHANNEL_HASH_DEL(ch);
         owner = memstore_channel_owner(&ch->id);
         if(owner == memstore_slot()) {
@@ -609,8 +612,31 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   shm_destroy(shm);
 }
 
-static ngx_int_t chanhead_withdraw_message_locked(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+static ngx_int_t validate_chanhead_messages(nhpm_channel_head_t *ch) {
+  ngx_int_t              count = ch->channel.messages;
+  ngx_int_t              rev_count = count;
+  ngx_int_t              owner = memstore_channel_owner(&ch->id);
+  nhpm_message_t        *cur;
+  
+  if(memstore_slot() == owner) {
+    assert(ch->shared->stored_message_count == ch->channel.messages);
+  }
+  //walk it forwards
+  for(cur = ch->msg_first; cur != NULL; cur=cur->next){
+    count--;
+  }
+  for(cur = ch->msg_last; cur != NULL; cur=cur->prev){
+    rev_count--;
+  }
+  
+  assert(count == 0);
+  assert(rev_count == 0);
+  return NGX_OK;
+}
+
+static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
   //DBG("withdraw message %i:%i from ch %p %V", msg->msg->message_time, msg->msg->message_tag, ch, &ch->id);
+  validate_chanhead_messages(ch);
   if(msg->msg->refcount > 0) {
     ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg->refcount);
     return NGX_ERROR;
@@ -632,12 +658,14 @@ static ngx_int_t chanhead_withdraw_message_locked(nhpm_channel_head_t *ch, nhpm_
     msg->prev->next = msg->next;
   }
   
-  ch->channel.messages --; //supposed to be atomic
+  ch->channel.messages--; //supposed to be atomic
+  ch->shared->stored_message_count--;
+  if(ch->channel.messages == 0) {
+    assert(ch->msg_first == NULL);
+    assert(ch->msg_last == NULL);
+  }
+  validate_chanhead_messages(ch);
   return NGX_OK;
-}
-
-static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
-  return chanhead_withdraw_message_locked(ch, msg);
 }
 
 static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
@@ -660,19 +688,20 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
 }
 
 static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  validate_chanhead_messages(ch);
   if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
     DBG("delete msg %i:%i", msg->msg->message_time, msg->msg->message_tag);
     delete_withdrawn_message(msg);
-    ch->channel.messages--;
-    ch->shared->stored_message_count--;
   }
   else {
     ERR("failed to withdraw and delete message %i:%i", msg->msg->message_time, msg->msg->message_tag);
   }
+  validate_chanhead_messages(ch);
   return NGX_OK;
 }
 
 static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
+  validate_chanhead_messages(ch);
   nhpm_message_t *cur = ch->msg_first;
   nhpm_message_t *next = NULL;
   time_t          now = ngx_time();
@@ -702,6 +731,7 @@ static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t
     cur = next;
   }
   //DBG("Tried deleting %i mesages", count);
+  validate_chanhead_messages(ch);
   return NGX_OK;
 }
 
