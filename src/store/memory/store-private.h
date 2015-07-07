@@ -16,7 +16,9 @@ struct nhpm_message_s {
 typedef struct {
   ngx_atomic_t                sub_count;
   ngx_atomic_t                internal_sub_count;
-  ngx_atomic_t                messages_seen;
+  ngx_atomic_t                total_message_count;
+  ngx_atomic_t                stored_message_count;
+  ngx_atomic_t                last_seen;
 } nhpm_channel_head_shm_t;
 
 struct nhpm_channel_head_s {

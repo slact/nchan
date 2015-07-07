@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
+#include <assert.h>
 #include "../../subscribers/memstore.h"
 
 #define IPC_SUBSCRIBE               1
@@ -17,6 +18,8 @@
 #define IPC_GET_MESSAGE_REPLY       9
 #define IPC_DELETE                  10
 #define IPC_DELETE_REPLY            11
+#define IPC_GET_CHANNEL_INFO        12
+#define IPC_GET_CHANNEL_INFO_REPLY  13
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -36,10 +39,10 @@ static void str_shm_free(ngx_str_t *str) {
 
 ////////// SUBSCRIBE ////////////////
 typedef struct {
-  ngx_str_t    *shm_chid;
-  ngx_atomic_t *shm_sub_count;
-  void         *subscriber;
-  void         *privdata;
+  ngx_str_t               *shm_chid;
+  nhpm_channel_head_shm_t *shared_channel_data;
+  void                    *subscriber;
+  void                    *privdata;
 } subscribe_data_t;
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
   DBG("send subscribe to %i, %V", dst, chid);
@@ -56,7 +59,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   
   if(head == NULL) {
     ERR("couldn't get chanhead while receiving subscribe ipc msg");
-    d->shm_sub_count = 0;
+    d->shared_channel_data = NULL;
     d->subscriber = NULL;
   }
   else {
@@ -64,10 +67,9 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     sub->enqueue(sub);
     head->spooler.add(&head->spooler, sub);
     d->subscriber = sub;
-    d->shm_sub_count = 0;
+    d->shared_channel_data = head->shared;
   }
 
-  d->shm_sub_count = &head->sub_count; //fake for now
   ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
@@ -78,6 +80,9 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
   }
+  assert(head->shared == NULL);
+  head->shared = d->shared_channel_data;
+  assert(head->shared != NULL);
   head->ipc_sub = d->subscriber;
   //TODO: shared counts
   head->status = READY;
@@ -339,6 +344,53 @@ static void receive_delete_reply(ngx_int_t sender, void *data) {
   str_shm_free(d->shm_chid);
 }
 
+
+
+
+////////// GET CHANNEL INFO ////////////////
+typedef struct {
+  ngx_str_t               *shm_chid;
+  nhpm_channel_head_shm_t *channel_info;
+  callback_pt              callback;
+  void                    *privdata;
+} channel_info_data_t;
+ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
+  DBG("send get_channel_info to %i %V", dst, chid);
+  channel_info_data_t        data = {str_shm_copy(chid), NULL, callback, privdata};
+  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_GET_CHANNEL_INFO, &data, sizeof(data));
+}
+static void receive_get_channel_info(ngx_int_t sender, void *data) {
+  channel_info_data_t    *d = (channel_info_data_t *)data;
+  nhpm_channel_head_t    *head;
+  DBG("received get_channel_info request for channel %V pridata", d->shm_chid, d->privdata);
+  head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
+  if(head == NULL) {
+    //already deleted maybe?
+    DBG("channel not for for get_channel_info");
+    return;
+    d->channel_info = NULL;
+  }
+  else {
+    d->channel_info = head->shared;
+  }
+  ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_GET_CHANNEL_INFO_REPLY, d, sizeof(*d));
+}
+
+static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
+  channel_info_data_t      *d = (channel_info_data_t *)data;
+  ngx_http_push_channel_t  chan;
+  nhpm_channel_head_shm_t  *chinfo = d->channel_info;
+  
+  //construct channel
+  chan.subscribers = chinfo->sub_count;
+  chan.last_seen = chinfo->last_seen;
+  chan.id.data = d->shm_chid->data;
+  chan.id.len = d->shm_chid->len;
+  chan.messages = chinfo->stored_message_count;
+  d->callback(NGX_OK, &chan, d->privdata);
+}
+
+
 static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_SUBSCRIBE] =             receive_subscribe,
   [IPC_SUBSCRIBE_REPLY] =       receive_subscribe_reply,
@@ -349,7 +401,9 @@ static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_GET_MESSAGE] =           receive_get_message,
   [IPC_GET_MESSAGE_REPLY] =     receive_get_message_reply,
   [IPC_DELETE] =                receive_delete,
-  [IPC_DELETE_REPLY] =          receive_delete_reply
+  [IPC_DELETE_REPLY] =          receive_delete_reply,
+  [IPC_GET_CHANNEL_INFO] =      receive_get_channel_info,
+  [IPC_GET_CHANNEL_INFO_REPLY]= receive_get_channel_info_reply
 };
 
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {
