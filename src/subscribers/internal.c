@@ -6,6 +6,10 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 
+void memstore_fakeprocess_push(ngx_int_t slot);
+void memstore_fakeprocess_push_random(void);
+void memstore_fakeprocess_pop();
+ngx_int_t memstore_slot();
 
 static const subscriber_t new_internal_sub;
 
@@ -26,6 +30,7 @@ typedef struct {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   void                   *privdata;
+  ngx_int_t               owner;
   unsigned                already_dequeued:1;
 } full_subscriber_t;
 
@@ -71,6 +76,8 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   fsub->timeout_handler = sub_empty_callback;
   fsub->dequeue_handler = sub_empty_callback;
   fsub->dequeue_handler_data = NULL;
+  
+  fsub->owner = memstore_slot();
   return &fsub->sub;
 }
 
@@ -92,10 +99,12 @@ static void reset_timer(full_subscriber_t *f) {
 
 static void timeout_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  memstore_fakeprocess_push(fsub->owner);
   DBG("%p timeout", fsub);
   fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+  memstore_fakeprocess_pop(fsub->owner);
 }
 
 static ngx_int_t internal_enqueue(subscriber_t *self) {
