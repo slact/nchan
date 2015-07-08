@@ -274,6 +274,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     }
  
     ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "sendmsg() failed");
+    assert(0);
     return NGX_ERROR;
   }
  
