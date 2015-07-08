@@ -48,7 +48,12 @@ ngx_int_t shm_destroy(shmem_t *shm) {
 }
 void *shm_alloc(shmem_t *shm, size_t size, const char *label) {
   void         *p;
+#if FAKESHARD
   if((p = ngx_alloc(size, ngx_cycle->log))==NULL) {
+#else
+  if((p = ngx_slab_alloc(SHPOOL(shm), size))==NULL) {
+#endif
+  
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "shpool alloc failed");
   }
   #if (DEBUG_SHM_ALLOC == 1)
@@ -67,7 +72,11 @@ void *shm_calloc(shmem_t *shm, size_t size, const char *label) {
   return p;
 }
 void shm_free(shmem_t *shm, void *p) {
+#if FAKESHARD
   ngx_free(p);
+#else
+  ngx_slab_free(SHPOOL(shm), p);
+#endif
   #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);
   #endif

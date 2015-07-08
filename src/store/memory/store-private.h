@@ -28,8 +28,8 @@ typedef struct {
 
 struct nhpm_channel_head_s {
   ngx_str_t                       id; //channel id
-  ngx_uint_t                      owner;
-  ngx_uint_t                      slot;
+  ngx_uint_t                      owner;  //for debugging
+  ngx_uint_t                      slot;  //also mostly for debugging
   ngx_http_push_channel_t         channel;
   channel_spooler_t               spooler;
   ngx_atomic_t                    generation; //subscriber pool generation.
@@ -66,20 +66,13 @@ ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, sub
 ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 
-
-typedef struct {
-  ngx_event_t             gc_timer;
-  nhpm_llist_timed_t     *gc_head;
-  nhpm_llist_timed_t     *gc_tail;
-  nhpm_channel_head_t    *hash;
-  ngx_int_t               fake_slot;
-} memstore_data_t;
-memstore_data_t *mpt;
+#if FAKESHARD
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
-void memstore_fakeprocess_pop();
-ngx_int_t memstore_slot();
+void memstore_fakeprocess_pop(void);
+#endif
 
+ngx_int_t memstore_slot(void);
 nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id);
 ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *);
 ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead, const char *);

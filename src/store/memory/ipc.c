@@ -1,15 +1,17 @@
 //worker processes of the world, unite.
 #include <ngx_http_push_module.h>
 #include <ngx_channel.h>
-#include "ipc.h"
 #include <assert.h>
+#include "ipc.h"
 #include "shmem.h"
 #include "store-private.h"
 
-
 #define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i ipc: " fmt, mpt->fake_slot, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i ipc: " fmt, mpt->fake_slot, ##args)
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC(%i):" fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC(%i):" fmt, memstore_slot(), ##args)
+
+
 
 static void ipc_channel_handler(ngx_event_t *ev);
 
@@ -245,12 +247,51 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   assert(alert.src_slot != alert.dst_slot);
   
+#if (FAKESHARD)
+  
   //switch to destination
   memstore_fakeprocess_push(alert.dst_slot);
   alert.ipc->handler(alert.src_slot, alert.code, alert.data);
   memstore_fakeprocess_pop();
   //switch back  
   
+#else
+  ssize_t             n;
+  ngx_err_t           err;
+  struct iovec        iov[1];
+  struct msghdr       msg;
+  ngx_socket_t        s = ipc->socketpairs[slot][0];
+  
+#if (NGX_HAVE_MSGHDR_MSG_CONTROL)
+  msg.msg_control = NULL;
+  msg.msg_controllen = 0;
+#else
+  msg.msg_accrights = NULL;
+  msg.msg_accrightslen = 0;
+#endif
+ 
+  iov[0].iov_base = (char *) &alert;
+  iov[0].iov_len = sizeof(alert);
+ 
+  msg.msg_name = NULL;
+  msg.msg_namelen = 0;
+  msg.msg_iov = iov;
+  msg.msg_iovlen = 1;
+ 
+  n = sendmsg(s, &msg, 0);
+ 
+  if (n == -1) {
+    err = ngx_errno;
+    if (err == NGX_EAGAIN) {
+      return NGX_AGAIN;
+    }
+ 
+    ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "sendmsg() failed");
+    assert(0);
+    return NGX_ERROR;
+  }
+#endif
+
   return NGX_OK;
 }
 

@@ -12,13 +12,38 @@
 
 static ngx_int_t max_worker_processes = 0;
 
+typedef struct {
+  ngx_event_t             gc_timer;
+  nhpm_llist_timed_t     *gc_head;
+  nhpm_llist_timed_t     *gc_tail;
+  nhpm_channel_head_t    *hash;
+#if FAKESHARD
+  ngx_int_t               fake_slot;
+#endif
+} memstore_data_t;
+
+#if FAKESHARD
 
 #define MAX_FAKE_WORKERS 5
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
-
 static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL};
-
 memstore_data_t *mpt = &fake_default_mdata;
+
+ngx_int_t memstore_slot() {
+  return mpt->fake_slot;
+}
+
+#else
+
+static memstore_data_t  mdata = {{0}, NULL, NULL, NULL};
+memstore_data_t *mpt = &mdata;
+
+ngx_int_t memstore_slot() {
+  return ngx_process_slot;
+}
+
+#endif
+
 
 static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
@@ -48,16 +73,15 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-ngx_int_t memstore_slot() {
-  return mpt->fake_slot;
-}
-
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FakeProc:%i: " fmt, mpt->fake_slot, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FakeProc:%i: " fmt, mpt->fake_slot, ##args)
 
+
+#if FAKESHARD
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:(fake)%i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:(fake)%i: " fmt, memstore_slot(), ##args)
 
 static nhpm_llist_timed_t *fakeprocess_top = NULL;
 void memstore_fakeprocess_push(ngx_int_t slot) {
@@ -95,15 +119,27 @@ void memstore_fakeprocess_push_random(void) {
   return memstore_fakeprocess_push(rand() % MAX_FAKE_WORKERS);
 }
 
+#else
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%i: " fmt, memstore_slot(), ##args)
+
+#endif
+
+
+ngx_int_t memstore_channel_owner(ngx_str_t *id) {
+  ngx_int_t h = ngx_crc32_short(id->data, id->len);
+#if FAKESHARD
+  return h % MAX_FAKE_WORKERS;
+#else
+  return h % max_worker_processes;
+#endif
+}
+
 
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
-
-ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t h = ngx_crc32_short(id->data, id->len);
-  return h % MAX_FAKE_WORKERS;
-}
 
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   shm_data_t     *d;
@@ -127,18 +163,25 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
+
+#if FAKESHARD
   ngx_int_t        i;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-    memstore_fakeprocess_push(i);
-    if(mpt->gc_timer.handler == NULL) {
-      mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
-      mpt->gc_timer.log=ngx_cycle->log;
-    }
-    memstore_fakeprocess_pop();
+  memstore_fakeprocess_push(i);
+#endif
+  if(mpt->gc_timer.handler == NULL) {
+    mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
+    mpt->gc_timer.log=ngx_cycle->log;
   }
+
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+  }
+#endif
+
   ipc_start(ipc, cycle);
   
-  DBG("init memstore worker pid:%i slot:%i max workers (fake):%i", ngx_pid, memstore_slot(), max_worker_processes);
+  DBG("init memstore worker pid:%i slot:%i max workers :%i", ngx_pid, memstore_slot(), max_worker_processes);
   return NGX_OK;
 }
 
@@ -210,28 +253,27 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   if(head == NULL) {
     return NGX_OK;
   }
-    //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
-  
+  DBG("(ensure_chanhead is_ready) setting chanhead %p, status %i, ipc_sub:%p", head, head->status, head->ipc_sub);
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
-  
   if(!head->spooler.running) {
     DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
     start_chanhead_spooler(head);
   }
   
-  if( owner != memstore_slot() 
-   && head->ipc_sub == NULL 
-   && head->status != WAITING) {
-    head->status = WAITING;
-    //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
-    memstore_ipc_send_subscribe(owner, &head->id, head);
+  if(owner != memstore_slot()) {
+    if(head->ipc_sub == NULL && head->status != WAITING) {
+      head->status = WAITING;
+      memstore_ipc_send_subscribe(owner, &head->id, head);
+    }
+    else if(head->ipc_sub != NULL && head->status == WAITING) {
+      head->status = READY;
+    }
   }
   else {
     head->status = READY;
   }
-  
   return NGX_OK;
 }
 
@@ -445,64 +487,68 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nhpm_channel_head_t         *ch = NULL;
   ngx_int_t                    owner;
   DBG("handling chanhead GC queue");
+#if FAKESHARD
   ngx_int_t        i;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-    memstore_fakeprocess_push(i);
-    for(cur=mpt->gc_head ; cur != NULL; cur=next) {
-      ch = (nhpm_channel_head_t *)cur->data;
-      next=cur->next;
-      if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
-        if (ch->sub_count > 0 ) { //there are subscribers
-          ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
-          if(force_delete) {
-            ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
+  memstore_fakeprocess_push(i);
+#endif
+  
+  
+  for(cur=mpt->gc_head ; cur != NULL; cur=next) {
+    ch = (nhpm_channel_head_t *)cur->data;
+    next=cur->next;
+    if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
+      if (ch->sub_count > 0 ) { //there are subscribers
+        ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
+        if(force_delete) {
+          ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
           //ch->spooler.prepare_to_stop(&ch->spooler);
-            ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
-          }
-          else {
-            ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
-            //break;
-          }
+          ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
         }
-        stop_chanhead_spooler(ch);
-        assert(ch->sub_count == 0);
-        force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
+        else {
+          ERR("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
+          //break;
+        }
+      }
+      stop_chanhead_spooler(ch);
+      assert(ch->sub_count == 0);
+      force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
-        if(ch->msg_first != NULL) {
-          assert(ch->channel.messages != 0);
-          ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
-          break;
-        }
-        //unsubscribe now
-        //do we need a read lock here? I don't think so...
-        owner = memstore_channel_owner(&ch->id);
-        if(owner == memstore_slot()) {
-          shm_free(shm, ch->shared);
-        }
-        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
-        CHANNEL_HASH_DEL(ch);
-        ngx_free(ch);
+      if(ch->msg_first != NULL) {
+        assert(ch->channel.messages != 0);
+        ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
+        break;
       }
-      else {
-        break; //dijkstra probably hates this
+      //unsubscribe now
+      //do we need a read lock here? I don't think so...
+      owner = memstore_channel_owner(&ch->id);
+      if(owner == memstore_slot()) {
+        shm_free(shm, ch->shared);
       }
-    }
-    mpt->gc_head=cur;
-    if (cur==NULL) { //we went all the way to the end
-      mpt->gc_tail=NULL;
+      DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
+      CHANNEL_HASH_DEL(ch);
+      ngx_free(ch);
     }
     else {
-      cur->prev=NULL;
+      break; //dijkstra probably hates this
     }
-    memstore_fakeprocess_pop();
+  }
+  mpt->gc_head=cur;
+  if (cur==NULL) { //we went all the way to the end
+    mpt->gc_tail=NULL;
+  }
+  else {
+    cur->prev=NULL;
+  }
+  
+#if FAKESHARD
+  memstore_fakeprocess_pop();
   }
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
     memstore_fakeprocess_push(i);
-
     memstore_fakeprocess_pop();
   }
-  
-  
+#endif
 }
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
@@ -576,7 +622,9 @@ static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ng
 
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
-//  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+
+#if FAKESHARD
+
   max_worker_processes = MAX_FAKE_WORKERS;
   
   ngx_int_t        i;
@@ -587,6 +635,13 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
   }
   
   memstore_fakeprocess_push(0);
+
+#else
+
+  ngx_core_conf_t   *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  max_worker_processes = ccf->worker_processes;
+
+#endif
   
   DBG("memstore init_module pid %p", ngx_pid);
 
@@ -615,30 +670,32 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   DBG("exit worker %i", ngx_pid);
   nhpm_channel_head_t         *cur, *tmp;
+  
+#if FAKESHARD
   ngx_int_t        i;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-    memstore_fakeprocess_push(i);
-    HASH_ITER(hh, mpt->hash, cur, tmp) {
-      chanhead_gc_add(cur, "exit worker");
-    }
-    memstore_fakeprocess_pop();
+  memstore_fakeprocess_push(i);
+#endif
+  HASH_ITER(hh, mpt->hash, cur, tmp) {
+    chanhead_gc_add(cur, "exit worker");
   }
-  
   handle_chanhead_gc_queue(1);
-  
-  
-  
-  
   
   if(mpt->gc_timer.timer_set) {
     ngx_del_timer(&mpt->gc_timer);
   }
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+  }
+#endif
   
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle); //only for this worker...
   shm_free(shm, shdata);
   shm_destroy(shm); //just for this worker...
+#if FAKESHARD
   ngx_free(fakeprocess_top);
+#endif
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {

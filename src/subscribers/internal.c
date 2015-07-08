@@ -112,7 +112,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
 #if FAKESHARD
-  memstore_fakeprocess_pop(fsub->owner);
+  memstore_fakeprocess_pop();
 #endif
 }
 

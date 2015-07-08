@@ -497,7 +497,9 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
   
+#if FAKESHARD  
   memstore_fakeprocess_push_random();
+#endif
   
   if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -535,7 +537,9 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
       return NGX_HTTP_NOT_ALLOWED;
   }
+#if FAKESHARD
   memstore_fakeprocess_pop();
+#endif
 }
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
@@ -591,7 +595,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
+#if FAKESHARD
   memstore_fakeprocess_push_random();
+#endif
   switch(method) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
@@ -652,7 +658,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
       break;
   }
+#if FAKESHARD
   memstore_fakeprocess_pop();
+#endif
 }
 
 

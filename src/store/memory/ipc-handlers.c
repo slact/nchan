@@ -26,8 +26,11 @@
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "FP:%i ipc-handler: " fmt, mpt->fake_slot, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "FP:%i ipc-handler: " fmt, mpt->fake_slot, ##args)
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
+
+
 static ngx_int_t empty_callback() {
   return NGX_OK;
 }
@@ -72,7 +75,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     d->subscriber = sub;
     d->shared_channel_data = head->shared;
   }
-
+  DBG("send subscribe reply for channel %V", d->shm_chid);
   ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
@@ -86,6 +89,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   if(head->shared) {
     assert(head->shared == d->shared_channel_data);
   }
+  DBG("recv subscr proceed to do ipc_sub stuff");
   head->shared = d->shared_channel_data;
   assert(head->shared != NULL);
   if(head->ipc_sub) {
