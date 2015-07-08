@@ -110,7 +110,7 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
   assert(foreign_chanhead != NULL);
   d->foreign_chanhead = foreign_chanhead;
   d->owner = memstore_slot();
-  
+  d->originator = -1;
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
   d->timeout_ev.handler = timeout_ev_handler;
   d->timeout_ev.data = d;
