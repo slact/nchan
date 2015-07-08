@@ -610,8 +610,14 @@ ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, cal
 }
 
 static ngx_int_t ngx_http_push_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nhpm_channel_head_t      *ch = ngx_http_push_memstore_find_chanhead(channel_id);
-  callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
+  ngx_int_t owner = memstore_channel_owner(channel_id);
+  if(memstore_slot() == owner) {
+    nhpm_channel_head_t      *ch = ngx_http_push_memstore_find_chanhead(channel_id);
+    callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
+  }
+  else {
+    memstore_ipc_send_get_channel_info(owner, channel_id, callback, privdata);
+  }
   return NGX_OK;
 }
 
