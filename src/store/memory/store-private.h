@@ -32,7 +32,7 @@ struct nhpm_channel_head_s {
   ngx_uint_t                      slot;  //also mostly for debugging
   ngx_http_push_channel_t         channel;
   channel_spooler_t               spooler;
-  ngx_atomic_t                    generation; //subscriber pool generation.
+  unsigned                        shutting_down:1;
   chanhead_pubsub_status_t        status;
   ngx_atomic_t                    sub_count;
   time_t                          last_subscribed;

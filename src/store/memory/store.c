@@ -295,6 +295,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   }
   head->slot = memstore_slot();
   head->owner = owner;
+  head->shutting_down = 0;
 
   if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
@@ -322,7 +323,6 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->msg_first = NULL;
   head->ipc_sub = NULL;
   head->last_subscribed = 0;
-  head->generation = 0;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
   head->channel.message_queue=NULL;
@@ -366,7 +366,12 @@ ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
   
   DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
   chanhead_cleanlink = &head->cleanlink;
-  assert(head->ipc_sub == NULL); //we don't accept still-subscribed chanheads
+  if(!head->shutting_down) {
+    assert(head->ipc_sub == NULL); //we don't accept still-subscribed chanheads
+  }
+  if(head->slot != head->owner) {
+    head->shared = NULL;
+  }
   assert(head->slot == memstore_slot());
   if(head->status != INACTIVE) {
     chanhead_cleanlink->data=(void *)head;
@@ -677,6 +682,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   memstore_fakeprocess_push(i);
 #endif
   HASH_ITER(hh, mpt->hash, cur, tmp) {
+    cur->shutting_down = 1;
     chanhead_gc_add(cur, "exit worker");
   }
   handle_chanhead_gc_queue(1);
