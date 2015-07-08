@@ -18,6 +18,7 @@ struct sub_data_s {
   subscriber_t   *sub;
   ngx_str_t      *chid;
   ngx_int_t       originator;
+  ngx_int_t       owner;
   void           *foreign_chanhead;
   ngx_event_t     timeout_ev;
 }; //sub_data_t
@@ -81,8 +82,10 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 }
 static void timeout_ev_handler(ngx_event_t *ev) {
   sub_data_t *d = (sub_data_t *)ev->data;
+  memstore_fakeprocess_push(d->owner);
   DBG("timeout event. Ping originator to see if still needed.");
   memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
+  memstore_fakeprocess_pop();
 }
 
 subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) {
@@ -106,6 +109,7 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
   d->originator = originator_slot;
   assert(foreign_chanhead != NULL);
   d->foreign_chanhead = foreign_chanhead;
+  d->owner = memstore_slot();
   
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
   d->timeout_ev.handler = timeout_ev_handler;
