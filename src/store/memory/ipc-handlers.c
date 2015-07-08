@@ -72,7 +72,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     d->subscriber = sub;
     d->shared_channel_data = head->shared;
   }
-
+  DBG("send subscribe reply for channel %V", d->shm_chid);
   ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
@@ -86,6 +86,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   if(head->shared) {
     assert(head->shared == d->shared_channel_data);
   }
+  DBG("recv subscr proceed to do ipc_sub stuff");
   head->shared = d->shared_channel_data;
   assert(head->shared != NULL);
   if(head->ipc_sub) {

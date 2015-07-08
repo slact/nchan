@@ -58,7 +58,7 @@ ngx_int_t memstore_slot() {
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE: " fmt, memstore_slot(), ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%i: " fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%i: " fmt, memstore_slot(), ##args)
 
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
@@ -170,28 +170,28 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
   if(head == NULL) {
     return NGX_OK;
   }
-    //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
-  
+  DBG("(ensure_chanhead is_ready) setting chanhead %p %V, status %i, ipc_sub:%p", head, &head->id, head->status, head->ipc_sub);
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
-  
   if(!head->spooler.running) {
     DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
     start_chanhead_spooler(head);
   }
   
-  if( owner != memstore_slot() 
-   && head->ipc_sub == NULL 
-   && head->status != WAITING) {
-    head->status = WAITING;
-    //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
-    memstore_ipc_send_subscribe(owner, &head->id, head);
+  if(owner != memstore_slot()) {
+    if(head->ipc_sub == NULL && head->status != WAITING) {
+      head->status = WAITING;
+      memstore_ipc_send_subscribe(owner, &head->id, head);
+    }
+    else if(head->ipc_sub != NULL && head->status == WAITING) {
+      head->status = READY;
+    }
   }
   else {
     head->status = READY;
   }
-  
+    DBG("(chanhead readiness ensured) for chanhead %p %V", head, &head->id);
   return NGX_OK;
 }
 

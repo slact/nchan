@@ -244,6 +244,8 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
   
+  assert(alert.src_slot != alert.dst_slot);
+  
   ngx_socket_t        s = ipc->socketpairs[slot][0];
  
   
