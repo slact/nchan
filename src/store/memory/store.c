@@ -95,8 +95,6 @@ void memstore_fakeprocess_push_random(void) {
   return memstore_fakeprocess_push(rand() % MAX_FAKE_WORKERS);
 }
 
-ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
-ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
 static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
@@ -192,8 +190,8 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
   assert(head->sub_count >= head->internal_sub_count);
-  if(head->sub_count == 0) {
-    chanhead_gc_add(head);
+  if(head->sub_count == 0 && head->ipc_sub == NULL) {
+    chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
   }
 }
 
@@ -201,10 +199,12 @@ static ngx_int_t start_chanhead_spooler(nhpm_channel_head_t *head) {
   start_spooler(&head->spooler);
   head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+  return NGX_OK;
 }
 
 static ngx_int_t stop_chanhead_spooler(nhpm_channel_head_t *head) {
   stop_spooler(&head->spooler);
+  return NGX_OK;
 }
 
 static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
@@ -215,7 +215,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
     //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
   
   if(head->status == INACTIVE) {//recycled chanhead
-    chanhead_gc_withdraw(head);
+    chanhead_gc_withdraw(head, "readying INACTIVE");
   }
   
   if(!head->spooler.running) {
@@ -253,8 +253,10 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
     ERR("can't allocate memory for (new) chanhead");
     return NULL;
   }
-  
-  if(memstore_slot() == owner) {
+  head->slot = memstore_slot();
+  head->owner = owner;
+
+  if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
       ERR("can't allocate shared memory for (new) chanhead");
       return NULL;
@@ -319,12 +321,13 @@ nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id)
   return head;
 }
 
-ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
+ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
   nhpm_llist_timed_t         *chanhead_cleanlink;
   
-  DBG("gc_add chanhead %p (%V)", head, &head->id); 
+  DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
   chanhead_cleanlink = &head->cleanlink;
-
+  assert(head->ipc_sub == NULL); //we don't accept still-subscribed chanheads
+  assert(head->slot == memstore_slot());
   if(head->status != INACTIVE) {
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
@@ -337,7 +340,7 @@ ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
     if(mpt->gc_head==NULL) {
       mpt->gc_head = chanhead_cleanlink;
     }
-    head->status = INACTIVE;  
+    head->status = INACTIVE;
   }
   else {
     ERR("gc_add chanhead %V: already added", &head->id);
@@ -352,10 +355,10 @@ ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
   return NGX_OK;
 }
 
-ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
+ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead, const char *reason) {
   //remove from gc list if we're there
   nhpm_llist_timed_t    *cl;
-  DBG("gc_withdraw chanhead %V", &chanhead->id);
+  DBG("Chanhead gc withdraw %p %V: %s", chanhead, &chanhead->id, reason);
   
   if(chanhead->status == INACTIVE) {
     cl=&chanhead->cleanlink;
@@ -407,12 +410,13 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
 }
 */
 
-ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_int_t          shared_sub_count = head->shared->sub_count;
+
   if(head==NULL) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
-  
+
   if (head->sub_count == 0) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
@@ -425,10 +429,12 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
   else {
     head->spooler.respond_status(&head->spooler, status_code, status_line);
   }
-  
+
   //TODO: be smarter about garbage-collecting chanheads
-  chanhead_gc_add(head);
-  
+  if(memstore_channel_owner(&head->id) == memstore_slot()) {
+    chanhead_gc_add(head, "add owner chanhead after publish");
+  }
+
   head->channel.subscribers = head->shared->sub_count;
 
   return (shared_sub_count > 0) ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
@@ -470,12 +476,12 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           break;
         }
         //unsubscribe now
-        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
         //do we need a read lock here? I don't think so...
         owner = memstore_channel_owner(&ch->id);
         if(owner == memstore_slot()) {
           shm_free(shm, ch->shared);
         }
+        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
@@ -537,7 +543,7 @@ ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, cal
     while((msg = ch->msg_first) != NULL) {
       chanhead_delete_message(ch, msg);
     }
-    chanhead_gc_add(ch);
+    chanhead_gc_add(ch, "forced delete");
   }
   else{
     callback(NGX_OK, NULL, privdata);
@@ -606,7 +612,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   nhpm_channel_head_t         *cur, *tmp;
     
   HASH_ITER(hh, mpt->hash, cur, tmp) {
-    chanhead_gc_add(cur);
+    chanhead_gc_add(cur, "exit worker");
   }
   handle_chanhead_gc_queue(1);
   
@@ -1111,7 +1117,6 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
     memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
-    chanhead_gc_add(chead);
     return NGX_OK;
   }
   

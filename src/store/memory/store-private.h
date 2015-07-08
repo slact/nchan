@@ -27,6 +27,8 @@ typedef struct {
 
 struct nhpm_channel_head_s {
   ngx_str_t                       id; //channel id
+  ngx_uint_t                      owner;
+  ngx_uint_t                      slot;
   ngx_http_push_channel_t         channel;
   channel_spooler_t               spooler;
   ngx_atomic_t                    generation; //subscriber pool generation.
@@ -77,7 +79,7 @@ void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
 
-ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
-ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
+ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *);
+ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead, const char *);
 
 #endif

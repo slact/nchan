@@ -243,6 +243,8 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
   
+  assert(alert.src_slot != alert.dst_slot);
+  
   //switch to destination
   memstore_fakeprocess_push(alert.dst_slot);
   alert.ipc->handler(alert.src_slot, alert.code, alert.data);

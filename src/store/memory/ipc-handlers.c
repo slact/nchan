@@ -83,7 +83,9 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
   }
-  assert(head->shared == NULL);
+  if(head->shared) {
+    assert(head->shared == d->shared_channel_data);
+  }
   head->shared = d->shared_channel_data;
   assert(head->shared != NULL);
   assert(head->ipc_sub == NULL);
@@ -120,7 +122,8 @@ static void receive_unsubscribed(ngx_int_t sender, void *data) {
     //gc if no subscribers
     if(head->sub_count == 0) {
       DBG("add %p to GC", head);
-      chanhead_gc_add(head);
+      head->ipc_sub = NULL;
+      chanhead_gc_add(head, "received UNSUBPSCRIVED over ipc, sub_count == 0");
     }
     else {
       //subscribe again?...
@@ -175,20 +178,13 @@ typedef struct {
   ngx_int_t                  msg_timeout;
   ngx_int_t                  max_msgs;
   ngx_int_t                  min_msgs;
-  void                      *privdata;
+  callback_pt                callback;
+  void                      *callback_privdata;
 } publish_data_t;
-
-typedef struct {
-  callback_pt    cb;
-  void          *pd;
-} publish_extradata_t;
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ngx_http_push_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
   DBG("IPC: send publish message to %i ch %V", dst, chid);
-  publish_extradata_t    *ed = ngx_alloc(sizeof(*ed), ngx_cycle->log);
-  ed->cb = callback;
-  ed->pd = privdata;
-  publish_data_t  data = {str_shm_copy(chid), shm_msg, msg_timeout, max_msgs, min_msgs, ed};
+  publish_data_t  data = {str_shm_copy(chid), shm_msg, msg_timeout, max_msgs, min_msgs, callback, privdata};
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
 }
 
@@ -206,7 +202,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   cd.d = d;
   cd.sender = sender;
   
-  DBG("IPC: received publish request for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
+  DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
     ngx_http_push_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, d->msg_timeout, d->max_msgs, d->min_msgs, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
     //string will be freed on publish response
@@ -224,7 +220,8 @@ typedef struct {
   time_t       last_seen;
   ngx_uint_t   subscribers;
   ngx_uint_t   messages;
-  void        *privdata;
+  callback_pt  callback;
+  void        *callback_privdata;
 } publish_response_data;
 
 static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, void *privdata) {
@@ -234,7 +231,8 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   ngx_http_push_channel_t *ch = (ngx_http_push_channel_t *)rptr;
   rd.shm_chid = cd->d->shm_chid;
   rd.status = status;
-  rd.privdata = cd->d->privdata;
+  rd.callback = cd->d->callback;
+  rd.callback_privdata = cd->d->callback_privdata;
   if(ch != NULL) {
     rd.last_seen = ch->last_seen;
     rd.subscribers = ch->subscribers;
@@ -247,16 +245,14 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
 static void receive_publish_message_reply(ngx_int_t sender, void *data) {
   ngx_http_push_channel_t   ch;
   publish_response_data    *d = (publish_response_data *)data;
-  publish_extradata_t      *ed = (publish_extradata_t *)d->privdata;
-  DBG("IPC: received publish reply for channel %V  pridata %p", d->shm_chid, d->privdata);
+  DBG("IPC: received publish reply for channel %V", d->shm_chid);
   
   ch.last_seen = d->last_seen;
   ch.subscribers = d->subscribers;
   ch.messages = d->messages;
-  ed->cb(d->status, &ch, ed->pd);
+  d->callback(d->status, &ch, d->callback_privdata);
   
   str_shm_free(d->shm_chid);
-  ngx_free(ed);
 }
 
 

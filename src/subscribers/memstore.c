@@ -93,7 +93,7 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
     ERR("couldn't allocate memstore subscriber data");
     return NULL;
   }
-
+  assert(originator_slot != memstore_slot());
   subscriber_t *sub = internal_subscriber_create(d);
   internal_subscriber_set_name(sub, "memstore-ipc");
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
