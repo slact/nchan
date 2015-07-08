@@ -4,6 +4,11 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #include <assert.h>
 
+void memstore_fakeprocess_push(ngx_int_t slot);
+void memstore_fakeprocess_push_random(void);
+void memstore_fakeprocess_pop();
+ngx_int_t memstore_slot();
+
 static const subscriber_t new_longpoll_sub;
 
 typedef struct {
@@ -14,6 +19,7 @@ typedef struct {
   ngx_event_t             timeout_ev;
   subscriber_callback_pt  timeout_handler;
   void                   *timeout_handler_data;
+  ngx_int_t               owner;
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
 } subscriber_data_t;
@@ -50,6 +56,8 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_enqueued = 0;
   
+  fsub->data.owner = memstore_slot();
+  
   //http request sudden close cleanup
   if((fsub->data.cln = ngx_http_cleanup_add(r, 0)) == NULL) {
     ERR("Unable to add request cleanup for longpoll subscriber");
@@ -70,9 +78,11 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
 
 static void timeout_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  memstore_fakeprocess_push(fsub->data.owner);
   fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+  memstore_fakeprocess_pop();
 }
 
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
