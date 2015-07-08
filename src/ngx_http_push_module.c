@@ -9,6 +9,9 @@
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 #include <ngx_http_push_module_setup.c>
+#include <store/memory/ipc.h>
+#include <store/memory/shmem.h>
+#include <store/memory/store-private.h>
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
@@ -585,7 +588,6 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
-  
   switch(method) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
