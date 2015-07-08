@@ -100,7 +100,6 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
-
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   ngx_int_t h = ngx_crc32_short(id->data, id->len);
   return h % MAX_FAKE_WORKERS;
@@ -152,7 +151,6 @@ ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subsc
 
 ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //don't do anything, really
-  chanhead->channel.subscribers = chanhead->sub_count - chanhead->internal_sub_count;
   //chanhead->shared.sub_count = chanhead->channel.subscribers;
   return NGX_OK;
 }
@@ -238,7 +236,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
 }
 
 
-static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
+nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   CHANNEL_HASH_FIND(channel_id, head);
   return head;
@@ -627,6 +625,8 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   }
   
   handle_chanhead_gc_queue(1);
+  
+  
   
   
   

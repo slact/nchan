@@ -212,10 +212,12 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
     ngx_http_push_memstore_publish_generic(head, d->shm_msg, 0, NULL);
     //don't deallocate shm_msg
   }
+  
+  str_shm_free(d->shm_chid);
+  d->shm_chid=NULL;
 }
 
 typedef struct {
-  ngx_str_t   *shm_chid;
   ngx_int_t    status;// NGX_HTTP_PUSH_MESSAGE_RECEIVED or NGX_HTTP_PUSH_MESSAGE_QUEUED;
   time_t       last_seen;
   ngx_uint_t   subscribers;
@@ -229,7 +231,6 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   publish_callback_data   *cd = (publish_callback_data *)privdata;
   publish_response_data    rd;
   ngx_http_push_channel_t *ch = (ngx_http_push_channel_t *)rptr;
-  rd.shm_chid = cd->d->shm_chid;
   rd.status = status;
   rd.callback = cd->d->callback;
   rd.callback_privdata = cd->d->callback_privdata;
@@ -245,14 +246,12 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
 static void receive_publish_message_reply(ngx_int_t sender, void *data) {
   ngx_http_push_channel_t   ch;
   publish_response_data    *d = (publish_response_data *)data;
-  DBG("IPC: received publish reply for channel %V", d->shm_chid);
+  DBG("IPC: received publish reply");
   
   ch.last_seen = d->last_seen;
   ch.subscribers = d->subscribers;
   ch.messages = d->messages;
   d->callback(d->status, &ch, d->callback_privdata);
-  
-  str_shm_free(d->shm_chid);
 }
 
 
