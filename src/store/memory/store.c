@@ -129,13 +129,13 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   ngx_int_t        i;
-  memstore_data_t *cur;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-    cur = &mdata[i];
-    if(cur->gc_timer.handler == NULL) {
-      cur->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
-      cur->gc_timer.log=ngx_cycle->log;
+    memstore_fakeprocess_push(i);
+    if(mpt->gc_timer.handler == NULL) {
+      mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
+      mpt->gc_timer.log=ngx_cycle->log;
     }
+    memstore_fakeprocess_pop();
   }
   ipc_start(ipc, cycle);
   
@@ -498,6 +498,13 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     }
     memstore_fakeprocess_pop();
   }
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+    memstore_fakeprocess_push(i);
+
+    memstore_fakeprocess_pop();
+  }
+  
+  
 }
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
@@ -610,11 +617,18 @@ static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_m
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   DBG("exit worker %i", ngx_pid);
   nhpm_channel_head_t         *cur, *tmp;
-    
-  HASH_ITER(hh, mpt->hash, cur, tmp) {
-    chanhead_gc_add(cur, "exit worker");
+  ngx_int_t        i;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+    memstore_fakeprocess_push(i);
+    HASH_ITER(hh, mpt->hash, cur, tmp) {
+      chanhead_gc_add(cur, "exit worker");
+    }
+    memstore_fakeprocess_pop();
   }
+  
   handle_chanhead_gc_queue(1);
+  
+  
   
   if(mpt->gc_timer.timer_set) {
     ngx_del_timer(&mpt->gc_timer);
