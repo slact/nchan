@@ -2,10 +2,14 @@
 #include "internal.h"
 #include <assert.h>
 
-#define DEBUG_LEVEL NGX_LOG_INFO
+#define DEBUG_LEVEL NGX_LOG_WARN
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 
+void memstore_fakeprocess_push(ngx_int_t slot);
+void memstore_fakeprocess_push_random(void);
+void memstore_fakeprocess_pop();
+ngx_int_t memstore_slot();
 
 static const subscriber_t new_internal_sub;
 
@@ -26,6 +30,7 @@ typedef struct {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   void                   *privdata;
+  ngx_int_t               owner;
   unsigned                already_dequeued:1;
 } full_subscriber_t;
 
@@ -71,6 +76,8 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   fsub->timeout_handler = sub_empty_callback;
   fsub->dequeue_handler = sub_empty_callback;
   fsub->dequeue_handler_data = NULL;
+  
+  fsub->owner = memstore_slot();
   return &fsub->sub;
 }
 
@@ -80,6 +87,11 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
+
+void *internal_subscriber_get_privdata(subscriber_t *sub) {
+  full_subscriber_t               *fsub = (full_subscriber_t *)sub;
+  return fsub->privdata;
+}
 
 static void reset_timer(full_subscriber_t *f) {
   if(f->sub.cf->subscriber_timeout > 0) {
@@ -146,18 +158,10 @@ static ngx_int_t internal_respond_message(subscriber_t *self, ngx_http_push_msg_
 
 static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("internal respond sub %p status %i", self, status_code);
-  switch(status_code) {
-    case NGX_HTTP_GONE: //delete
-    case NGX_HTTP_CLOSE: //delete
-    case NGX_HTTP_NOT_MODIFIED: //timeout?
-    case NGX_HTTP_NOT_FOUND: //not found triggers a dequeue, too?
-    case NGX_HTTP_FORBIDDEN:
-    case NGX_HTTP_INTERNAL_SERVER_ERROR:
-      self->dequeue_after_response = 1;
-      break;
+  DBG("%p status %i", self, status_code);
+  if(status_code == NGX_HTTP_GONE) {
+    self->dequeue_after_response = 1;
   }
-  
   f->respond_status(status_code, (void *)status_line, f->privdata);
   reset_timer(f);
   return dequeue_maybe(self);

@@ -64,32 +64,34 @@ local memmap_add
 do
   local bucketsize=0
   memmap_add= function(starthex, size, val)
-  if not poolsize or not poolstart then return err("poolsize or poolstart not known") end  
-  val = val or 1
-  local start=tonumber(starthex, 16)
-  if not start then return err("starthex was not a hex number") end
-  --start should be relative to pool start
-  start=start-poolstart
-  
-  if not size then
-    if shm[starthex] then
-      size=shm[starthex].size
-    else
-      err("shm[%s] is nil", starthex)
+    if not poolsize or not poolstart then return err("poolsize or poolstart not known") end  
+    val = val or 1
+    local start=tonumber(starthex, 16)
+    if not start then return err("starthex was not a hex number") end
+    --start should be relative to pool start
+    start=start-poolstart
+    
+    if not size then
+      if shm[starthex] then
+        size=shm[starthex].size
+      else
+        err("shm[%s] is nil", starthex)
+      end
+    end
+    
+    local bstart = math.floor(start/poolsize * membuckets)
+    local bend =   math.floor((start+size)/poolsize * membuckets)
+    if bstart == math.huge then
+      return err("alloc before shm init")
+    end    
+    for i=bstart, bend do
+      memmap[i]=(memmap[i] or 0)+val
+      if memmap[i]<0 then
+        err("negative memmap at bucket %s", i)
+        memmap[i]=0
+      end
     end
   end
-  
-  local bstart = math.floor(start/poolsize * membuckets)
-  local bend =   math.floor((start+size)/poolsize * membuckets)
-  
-  for i=bstart, bend do
-    memmap[i]=(memmap[i] or 0)+val
-    if memmap[i]<0 then
-      err("negative memmap at bucket %s", i)
-      memmap[i]=0
-    end
-  end
-end
 end
 
 function alloc(ptr, size, label, time, pid)
