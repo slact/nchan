@@ -66,7 +66,8 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  return 0;
+  ngx_int_t h = ngx_crc32_short(id->data, id->len);
+  return h % max_worker_processes;
 }
 
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
