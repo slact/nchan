@@ -480,8 +480,10 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
     chanhead_gc_add(head, "add owner chanhead after publish");
   }
 
-  head->channel.subscribers = head->shared->sub_count;
-
+  if(head->shared) {
+    head->channel.subscribers = head->shared->sub_count;
+  }
+  
   return (shared_sub_count > 0) ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
 }
 
@@ -1048,7 +1050,7 @@ static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *
   
   //DBG("create %i:%i %V", msg->msg->message_time, msg->msg->message_tag, chanhead_msg_to_str(msg));
   chanhead_messages_gc(ch);
-  return NGX_OK;
+  return ch->msg_last == msg ? NGX_OK : NGX_ERROR;
 }
 
 typedef struct {
@@ -1226,6 +1228,8 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
     }
     ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
     channel_copy->subscribers = sub_count;
+    assert(shmsg_link != NULL);
+    assert(chead->msg_last == shmsg_link);
     publish_msg = shmsg_link->msg;
   }
   

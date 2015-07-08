@@ -85,6 +85,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   nhpm_channel_head_t   *head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
+    assert(0);
   }
   if(head->shared) {
     assert(head->shared == d->shared_channel_data);
