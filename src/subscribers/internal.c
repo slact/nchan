@@ -2,7 +2,7 @@
 #include "internal.h"
 #include <assert.h>
 
-#define DEBUG_LEVEL NGX_LOG_INFO
+#define DEBUG_LEVEL NGX_LOG_WARN
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 
