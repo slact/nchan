@@ -88,9 +88,12 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   }
   head->shared = d->shared_channel_data;
   assert(head->shared != NULL);
-  assert(head->ipc_sub == NULL);
-  head->ipc_sub = d->subscriber;
-  //TODO: shared counts
+  if(head->ipc_sub) {
+    assert(head->ipc_sub == d->subscriber);
+  }
+  else {
+    head->ipc_sub = d->subscriber;
+  }
   head->status = READY;
   str_shm_free(d->shm_chid);
 }
