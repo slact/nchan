@@ -108,13 +108,12 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
     int                      i=0;
     spooled_subscriber_t    *scur;
     assert(self->type == PERSISTENT);
+    DBG("Freeing %p. first sub is now %p", ssub, self->first);
     ngx_free(ssub);
-    DBG("Just freed %p. first sub is now %p", ssub, self->first);
     for(scur = self->first; scur != NULL; scur = scur->next) {
       i++;
       DBG("sub #%i is %p", i, scur);
     }
-    
   }
   self->sub_count--;
   assert(self->sub_count >= 0);

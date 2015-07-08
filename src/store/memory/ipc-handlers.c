@@ -85,6 +85,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   nhpm_channel_head_t   *head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
+    assert(0);
   }
   if(head->shared) {
     assert(head->shared == d->shared_channel_data);
@@ -370,10 +371,10 @@ static void receive_get_channel_info(ngx_int_t sender, void *data) {
   nhpm_channel_head_t    *head;
   DBG("received get_channel_info request for channel %V pridata", d->shm_chid, d->privdata);
   head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
+  assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
   if(head == NULL) {
     //already deleted maybe?
     DBG("channel not for for get_channel_info");
-    return;
     d->channel_info = NULL;
   }
   else {
@@ -386,14 +387,19 @@ static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
   channel_info_data_t      *d = (channel_info_data_t *)data;
   ngx_http_push_channel_t  chan;
   nhpm_channel_head_shm_t  *chinfo = d->channel_info;
-  
-  //construct channel
-  chan.subscribers = chinfo->sub_count;
-  chan.last_seen = chinfo->last_seen;
-  chan.id.data = d->shm_chid->data;
-  chan.id.len = d->shm_chid->len;
-  chan.messages = chinfo->stored_message_count;
-  d->callback(NGX_OK, &chan, d->privdata);
+  if(chinfo) {
+    //construct channel
+    chan.subscribers = chinfo->sub_count;
+    chan.last_seen = chinfo->last_seen;
+    chan.id.data = d->shm_chid->data;
+    chan.id.len = d->shm_chid->len;
+    chan.messages = chinfo->stored_message_count;
+    d->callback(NGX_OK, &chan, d->privdata);
+  }
+  else {
+    d->callback(NGX_OK, NULL, d->privdata);
+  }
+  str_shm_free(d->shm_chid);
 }
 
 
