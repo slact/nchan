@@ -159,37 +159,6 @@ ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, sub
   return NGX_OK;
 }
 
-static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
-  ngx_int_t                      owner = memstore_channel_owner(&head->id);
-  if(head == NULL) {
-    return NGX_OK;
-  }
-    //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
-  
-  if(head->status == INACTIVE) {//recycled chanhead
-    chanhead_gc_withdraw(head);
-  }
-  
-  if( owner != memstore_slot() 
-   && head->ipc_sub == NULL 
-   && head->status != WAITING) {
-    head->status = WAITING;
-    //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
-    memstore_ipc_send_subscribe(owner, &head->id, head);
-  }
-  else {
-    head->status = READY;
-  }
-  
-  return NGX_OK;
-}
-
-
-static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
-  nhpm_channel_head_t     *head;
-  CHANNEL_HASH_FIND(channel_id, head);
-  return head;
-}
 
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
@@ -202,6 +171,8 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   else {
     head->shared->sub_count++;
   }
+  head->last_subscribed = ngx_time();
+  head->shared->last_seen = ngx_time();
   assert(head->sub_count >= head->internal_sub_count);
 }
 
@@ -225,6 +196,54 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
     chanhead_gc_add(head);
   }
 }
+
+static ngx_int_t start_chanhead_spooler(nhpm_channel_head_t *head) {
+  start_spooler(&head->spooler);
+  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
+  head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+}
+
+static ngx_int_t stop_chanhead_spooler(nhpm_channel_head_t *head) {
+  stop_spooler(&head->spooler);
+}
+
+static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
+  ngx_int_t                      owner = memstore_channel_owner(&head->id);
+  if(head == NULL) {
+    return NGX_OK;
+  }
+    //ERR("(ensure_chanhead is_ready) setting chanhead %V shared_cleanup to %p", &head->id, hcln);
+  
+  if(head->status == INACTIVE) {//recycled chanhead
+    chanhead_gc_withdraw(head);
+  }
+  
+  if(!head->spooler.running) {
+    DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
+    start_chanhead_spooler(head);
+  }
+  
+  if( owner != memstore_slot() 
+   && head->ipc_sub == NULL 
+   && head->status != WAITING) {
+    head->status = WAITING;
+    //DBG("owner: %i, id:%V, head:%p", owner, &head->id, head);
+    memstore_ipc_send_subscribe(owner, &head->id, head);
+  }
+  else {
+    head->status = READY;
+  }
+  
+  return NGX_OK;
+}
+
+
+static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
+  nhpm_channel_head_t     *head;
+  CHANNEL_HASH_FIND(channel_id, head);
+  return head;
+}
+
 
 static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   nhpm_channel_head_t         *head;
@@ -260,6 +279,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->msg_last = NULL;
   head->msg_first = NULL;
   head->ipc_sub = NULL;
+  head->last_subscribed = 0;
   head->generation = 0;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
@@ -274,9 +294,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->last_msgid.tag=0;
   
   head->spooler.running=0;
-  start_spooler(&head->spooler);
-  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+  start_chanhead_spooler(head);
 
   CHANNEL_HASH_ADD(head);
   
@@ -442,7 +460,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
             //break;
           }
         }
-        stop_spooler(&ch->spooler);
+        stop_chanhead_spooler(ch);
         assert(ch->sub_count == 0);
         force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
@@ -454,11 +472,11 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         //unsubscribe now
         DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
         //do we need a read lock here? I don't think so...
-        CHANNEL_HASH_DEL(ch);
         owner = memstore_channel_owner(&ch->id);
         if(owner == memstore_slot()) {
           shm_free(shm, ch->shared);
         }
+        CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
       else {

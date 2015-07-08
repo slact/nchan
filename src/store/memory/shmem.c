@@ -1,6 +1,6 @@
 #include <ngx_http_push_module.h>
 #include "shmem.h"
-#define DEBUG_SHM_ALLOC 1
+#define DEBUG_SHM_ALLOC 0
 
 #define SHPOOL(shmem) ((ngx_slab_pool_t *)(shmem)->zone->shm.addr)
 

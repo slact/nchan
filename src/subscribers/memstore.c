@@ -4,8 +4,8 @@
 #include "../store/memory/store-private.h"
 #include "../store/memory/ipc-handlers.h"
 #include "internal.h"
-
-#define MEMSTORE_IPC_SUBSCRIBER_TIMEOUT 5
+#include "memstore.h"
+#include <assert.h>
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:MEM-IPC:" fmt, ##arg)
@@ -95,15 +95,16 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
   }
 
   subscriber_t *sub = internal_subscriber_create(d);
-  sub->destroy_after_dequeue = 1;
   internal_subscriber_set_name(sub, "memstore-ipc");
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
+  sub->destroy_after_dequeue = 1;
   d->sub = sub;
   d->chid = chid;
   d->originator = originator_slot;
+  assert(foreign_chanhead != NULL);
   d->foreign_chanhead = foreign_chanhead;
   
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));

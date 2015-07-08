@@ -44,12 +44,12 @@ static void str_shm_free(ngx_str_t *str) {
 typedef struct {
   ngx_str_t               *shm_chid;
   nhpm_channel_head_shm_t *shared_channel_data;
-  void                    *subscriber;
-  void                    *privdata;
+  nhpm_channel_head_t     *origin_chanhead;
+  subscriber_t            *subscriber;
 } subscribe_data_t;
-ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
+ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nhpm_channel_head_t *origin_chanhead) {
   DBG("send subscribe to %i, %V", dst, chid);
-  subscribe_data_t        data = {str_shm_copy(chid), NULL, NULL, privdata};
+  subscribe_data_t        data = {str_shm_copy(chid), NULL, origin_chanhead, NULL};
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
 }
 static void receive_subscribe(ngx_int_t sender, void *data) {
@@ -57,7 +57,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   subscribe_data_t        *d = (subscribe_data_t *)data;
   subscriber_t            *sub;
   
-  DBG("received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received subscribe request for channel %V", d->shm_chid);
   head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   
   if(head == NULL) {
@@ -66,7 +66,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     d->subscriber = NULL;
   }
   else {
-    sub = memstore_subscriber_create(sender, &head->id, d->subscriber);
+    sub = memstore_subscriber_create(sender, &head->id, d->origin_chanhead);
     sub->enqueue(sub);
     head->spooler.add(&head->spooler, sub);
     d->subscriber = sub;
@@ -77,7 +77,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t *d = (subscribe_data_t *)data;
-  DBG("received subscribe reply for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
   nhpm_channel_head_t   *head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   if(head == NULL) {
@@ -86,6 +86,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   assert(head->shared == NULL);
   head->shared = d->shared_channel_data;
   assert(head->shared != NULL);
+  assert(head->ipc_sub == NULL);
   head->ipc_sub = d->subscriber;
   //TODO: shared counts
   head->status = READY;
@@ -405,8 +406,8 @@ typedef struct {
   void                  *privdata;
 } sub_keepalive_data_t;
 
-ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, void *ch, callback_pt callback, void *privdata) {
-  sub_keepalive_data_t        data = {str_shm_copy(chid), sub, (nhpm_channel_head_t *)ch, 0, callback, privdata};
+ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, nhpm_channel_head_t *ch, callback_pt callback, void *privdata) {
+  sub_keepalive_data_t        data = {str_shm_copy(chid), sub, ch, 0, callback, privdata};
   DBG("send SUBBSCRIBER KEEPALIVE to %i %V", dst, chid);
   ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_SUBSCRIBER_KEEPALIVE, &data, sizeof(data));
   return NGX_OK;
@@ -421,10 +422,16 @@ static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
     d->renew = 0;
   }
   else {
+    assert(head == d->originator);
     assert(head->ipc_sub == d->ipc_sub);
     if(head->sub_count == 0) {
-      d->renew = 0;
-      chanhead_gc_add(head);
+      if(ngx_time() - head->last_subscribed > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
+        d->renew = 0;
+      }
+      else {
+        DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed);
+        d->renew = 1;
+      }
     }
     else {
       d->renew = 1;

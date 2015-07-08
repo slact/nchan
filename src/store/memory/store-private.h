@@ -1,3 +1,7 @@
+#ifndef MEMSTORE_PRIVATE_HEADER
+#define MEMSTORE_PRIVATE_HEADER
+
+
 #include "uthash.h"
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
 typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
@@ -28,6 +32,7 @@ struct nhpm_channel_head_s {
   ngx_atomic_t                    generation; //subscriber pool generation.
   chanhead_pubsub_status_t        status;
   ngx_atomic_t                    sub_count;
+  time_t                          last_subscribed;
   nhpm_channel_head_shm_t        *shared;
   ngx_int_t                       internal_sub_count;
   ngx_uint_t                      min_messages;
@@ -35,7 +40,7 @@ struct nhpm_channel_head_s {
   nhpm_message_t                 *msg_first;
   nhpm_message_t                 *msg_last;
   ngx_http_push_msg_id_t          last_msgid;
-  void                           *ipc_sub; //points to NULL or inaacceessible memory.
+  subscriber_t                   *ipc_sub; //points to NULL or inaacceessible memory.
   nhpm_llist_timed_t              cleanlink;
   UT_hash_handle                  hh;
 };
@@ -74,3 +79,5 @@ ngx_int_t memstore_slot();
 
 ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
+
+#endif
