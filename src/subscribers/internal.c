@@ -104,12 +104,16 @@ static void reset_timer(full_subscriber_t *f) {
 
 static void timeout_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+#if FAKESHARD
   memstore_fakeprocess_push(fsub->owner);
+#endif
   DBG("%p timeout", fsub);
   fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+#if FAKESHARD
   memstore_fakeprocess_pop(fsub->owner);
+#endif
 }
 
 static ngx_int_t internal_enqueue(subscriber_t *self) {

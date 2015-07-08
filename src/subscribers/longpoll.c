@@ -78,11 +78,15 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
 
 static void timeout_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+#if FAKESHARD
   memstore_fakeprocess_push(fsub->data.owner);
+#endif
   fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+#if FAKESHARD
   memstore_fakeprocess_pop();
+#endif
 }
 
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
