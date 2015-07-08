@@ -102,7 +102,6 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
-
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   ngx_int_t h = ngx_crc32_short(id->data, id->len);
   return h % MAX_FAKE_WORKERS;
@@ -153,7 +152,6 @@ ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subsc
 
 ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
   //don't do anything, really
-  chanhead->channel.subscribers = chanhead->sub_count - chanhead->internal_sub_count;
   return NGX_OK;
 }
 
@@ -183,7 +181,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
 }
 
 
-static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
+nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   CHANNEL_HASH_FIND(channel_id, head);
   return head;
@@ -191,10 +189,12 @@ static nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
 
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
+  head->shared->sub_count++;
   head->sub_count++;
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
+    head->shared->internal_sub_count++;
   }
   assert(head->sub_count >= head->internal_sub_count);
 }
@@ -204,9 +204,14 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
     head->internal_sub_count -= count;
+    if(head->shared) {
+      head->shared->internal_sub_count -= count;
+    }
+  }
+  if(head->shared) {
+    head->shared->sub_count -= count;
   }
   head->sub_count -= count;
-  head->channel.subscribers = head->sub_count - head->internal_sub_count;
   assert(head->sub_count >= 0);
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);

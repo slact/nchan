@@ -99,11 +99,19 @@ ngx_int_t memstore_ipc_send_unsubscribe(ngx_int_t dst, ngx_str_t *chid, void *su
 }
 static void receive_unsubscribe(ngx_int_t sender, void *data) {
   unsubscribe_data_t    *d = (unsubscribe_data_t *)data;
-  subscriber_t          *sub;
+  subscriber_t          *sub = (subscriber_t *)d->subscriber;
+  nhpm_channel_head_t   *head;
   DBG("IPC: received subscribe request for channel %V pridata", d->shm_chid, d->privdata);
-  sub = (subscriber_t *)d->subscriber;
-  //hope this pointer we got is still good...
-  sub->dequeue(sub);
+  head = chanhead_memstore_find(d->shm_chid); // don't ready the chanhead, just retrieve it as it is.
+  str_shm_free(d->shm_chid);
+  if(head == NULL){
+    DBG("IPC: channel already gone.");
+    return;
+  }
+  if(head->status != INACTIVE) {
+    DBG("IPC: channel already inactive. There's nothing to dequeue here.");
+    sub->dequeue(sub);
+  }
 }
 
 
