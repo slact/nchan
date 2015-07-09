@@ -92,6 +92,10 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   }
   DBG("recv subscr proceed to do ipc_sub stuff");
   head->shared = d->shared_channel_data;
+  
+  head->shared->sub_count += head->sub_count;
+  head->shared->internal_sub_count += head->internal_sub_count;
+  
   assert(head->shared != NULL);
   if(head->ipc_sub) {
     assert(head->ipc_sub == d->subscriber);
