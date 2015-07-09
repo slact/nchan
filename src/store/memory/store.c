@@ -1196,6 +1196,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   
   if((chead = ngx_http_push_memstore_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
+    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
     return NGX_ERROR;
   }
   

@@ -22,6 +22,7 @@ typedef struct {
   ngx_int_t               owner;
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
+  unsigned                already_responded:1;
 } subscriber_data_t;
 
 typedef struct {
@@ -55,6 +56,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_enqueued = 0;
+  fsub->data.already_responded = 0;
   
   fsub->data.owner = memstore_slot();
   
@@ -157,6 +159,8 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
   ngx_pool_cleanup_file_t   *clnf = NULL;
   ngx_int_t                  rc;
   DBG("%p respond req %p msg %p", self, fsub->data.request, msg);
+  assert(fsub->data.already_responded != 1);
+  fsub->data.already_responded = 1;
   if(buffer == NULL) {
     return abort_response(self, "attemtping to respond to subscriber with message with NULL buffer");
   }
