@@ -351,7 +351,7 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, void *nothing, void* pr
 static void receive_delete_reply(ngx_int_t sender, void *data) {
   delete_data_t *d = (delete_data_t *)data;
   DBG("IPC received delete reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
-  d->callback(d->return_code, NULL, d->privdata); 
+  d->callback(d->return_code, NULL, d->privdata);
   str_shm_free(d->shm_chid);
 }
 
@@ -413,7 +413,7 @@ typedef struct {
   ngx_str_t             *shm_chid;
   subscriber_t          *ipc_sub;
   nhpm_channel_head_t   *originator;
-  unsigned               renew:1;
+  ngx_uint_t             renew;
   callback_pt            callback;
   void                  *privdata;
 } sub_keepalive_data_t;

@@ -34,6 +34,7 @@ struct nhpm_channel_head_s {
   channel_spooler_t               spooler;
   unsigned                        shutting_down:1;
   chanhead_pubsub_status_t        status;
+  nhpm_llist_timed_t             *waiting_for_publish_response;
   ngx_atomic_t                    sub_count;
   time_t                          last_subscribed;
   nhpm_channel_head_shm_t        *shared;

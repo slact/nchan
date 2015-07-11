@@ -23,6 +23,7 @@ typedef struct {
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
   unsigned                already_responded:1;
+  unsigned                already_freed:1;
 } subscriber_data_t;
 
 typedef struct {
@@ -57,6 +58,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_enqueued = 0;
   fsub->data.already_responded = 0;
+  fsub->data.already_freed = 0;
   
   fsub->data.owner = memstore_slot();
   

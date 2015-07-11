@@ -319,6 +319,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   head->sub_count=0;
   head->internal_sub_count=0;
   head->status = NOTREADY;
+  head->waiting_for_publish_response = NULL;
   head->msg_last = NULL;
   head->msg_first = NULL;
   head->ipc_sub = NULL;
