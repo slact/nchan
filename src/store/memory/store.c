@@ -215,7 +215,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   assert(head->sub_count >= head->internal_sub_count);
 }
 
-static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
+static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
   nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
@@ -239,7 +239,7 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_type_t ty
 static ngx_int_t start_chanhead_spooler(nhpm_channel_head_t *head) {
   start_spooler(&head->spooler);
   head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+  head->spooler.set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
   return NGX_OK;
 }
 
