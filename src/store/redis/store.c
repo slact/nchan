@@ -48,8 +48,6 @@ struct nhpm_channel_head_s {
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-//#define DEBUG_SHM_ALLOC 1
-
 #define DBG(...) ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
@@ -341,7 +339,6 @@ static ngx_int_t msgpack_array_to_msg(msgpack_object *arr, ngx_uint_t offset, ng
 }
 
 
-
 static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msgid, ngx_str_t *msg_redis_hash_key) {
   nhpm_channel_head_t               *head;
   redis_get_message_from_key_data_t *d;
@@ -561,6 +558,27 @@ static redisAsyncContext * rds_sub_ctx(void){
 }
 
 
+static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub);
+static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub);
+static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+  nhpm_channel_head_t *head = (nhpm_channel_head_t *)privdata;
+  nhpm_subscriber_register(head, sub);
+}
+
+static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+  //need individual subscriber
+  //TODO
+  nhpm_channel_head_t *head = (nhpm_channel_head_t *)privdata;
+  nhpm_subscriber_unregister(head, sub);
+}
+
+static ngx_int_t start_chanhead_spooler(nhpm_channel_head_t *head) {
+  start_spooler(&head->spooler);
+  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
+  head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+  return NGX_OK;
+}
+
 static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, void *privdata);
 
 typedef struct {
@@ -665,11 +683,7 @@ static nhpm_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) {
   head->last_msgid.tag=0;
   
   head->spooler.running=0;
-  start_spooler(&head->spooler);
-  
-  //TODO: add and dequeue handlers
-  head->spooler.set_add_handler(&head->spooler, NULL, head);
-  head->spooler.set_dequeue_handler(&head->spooler, NULL, head);
+  start_chanhead_spooler(head);
 
   DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
   redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
@@ -695,6 +709,10 @@ static nhpm_channel_head_t * ngx_http_push_store_get_chanhead(ngx_str_t *channel
     head->status = READY;
   }
 
+  if(!head->spooler.running) {
+    DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
+    start_chanhead_spooler(head);
+  }
   
   return head;
 }
@@ -703,26 +721,6 @@ static ngx_int_t nhpm_subscriber_remove(subscriber_t *sub) {
   //remove subscriber from list
  //TODO: maybe?..
   return NGX_OK;
-}
-
-static void subscriber_publishing_cleanup_callback(subscriber_t *rsub, void *cln) {
-  //TODO?...
-  /*
-  nhpm_subscriber_t            *sub = cln->sub;
-  nhpm_channel_head_cleanup_t  *shared = cln->shared;
-  ngx_int_t                     i_am_the_last;
-  
-  i_am_the_last = sub->prev==NULL && sub->next==NULL;
-  
-  nhpm_subscriber_unregister(&shared->id, sub);
-  nhpm_subscriber_remove(sub);
-  
-  if(i_am_the_last) {
-    //release pool
-    assert(shared->sub_count != 0);
-    ngx_destroy_pool(shared->pool);
-  }
-  */
 }
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
@@ -1053,13 +1051,12 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
 }
 
 typedef struct {
-  ngx_msec_t           t;
-  char                *name;
-  ngx_http_request_t  *r;
-  ngx_str_t           *channel_id;
+  ngx_msec_t              t;
+  char                   *name;
+  ngx_str_t              *channel_id;
   ngx_http_push_msg_id_t *msg_id;
-  callback_pt          callback;
-  void                *privdata;
+  callback_pt             callback;
+  void                  *privdata;
 } redis_get_message_data_t;
 
 static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
