@@ -1,7 +1,7 @@
 #ifndef MEMSTORE_PRIVATE_HEADER
 #define MEMSTORE_PRIVATE_HEADER
 
-#define FAKESHARD 0
+#define FAKESHARD 1
 
 #include "uthash.h"
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
