@@ -2,6 +2,8 @@
 #define MEMSTORE_PRIVATE_HEADER
 
 #define FAKESHARD 1
+#define PUB_FAKE_WORKER 1
+#define SUB_FAKE_WORKER 2
 
 #include "uthash.h"
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;

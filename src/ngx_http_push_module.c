@@ -498,7 +498,11 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_http_push_msg_id_t          msg_id;
   
 #if FAKESHARD  
+  #ifdef SUB_FAKE_WORKER
+  memstore_fakeprocess_push(SUB_FAKE_WORKER);
+  #else
   memstore_fakeprocess_push_random();
+  #endif
 #endif
   
   if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
@@ -596,7 +600,11 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     return;
   }
 #if FAKESHARD
+  #ifdef PUB_FAKE_WORKER
+  memstore_fakeprocess_push(PUB_FAKE_WORKER);
+  #else
   memstore_fakeprocess_push_random();
+  #endif
 #endif
   switch(method) {
     case NGX_HTTP_POST:

@@ -24,7 +24,9 @@ typedef struct {
 
 #if FAKESHARD
 
+#define ONE_FAKE_CHANNEL_OWNER 0
 #define MAX_FAKE_WORKERS 5
+
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
 static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL};
 memstore_data_t *mpt = &fake_default_mdata;
@@ -130,7 +132,11 @@ void memstore_fakeprocess_push_random(void) {
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   ngx_int_t h = ngx_crc32_short(id->data, id->len);
 #if FAKESHARD
+  #ifdef ONE_FAKE_CHANNEL_OWNER
+  return ONE_FAKE_CHANNEL_OWNER;
+  #else
   return h % MAX_FAKE_WORKERS;
+  #endif
 #else
   return h % max_worker_processes;
 #endif
