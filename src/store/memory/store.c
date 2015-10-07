@@ -902,17 +902,23 @@ nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_pus
 
 typedef struct {
   subscriber_t             *sub;
+  ngx_int_t                 channel_owner;
   nhpm_channel_head_t      *chanhead;
+  ngx_str_t                *channel_id;
+  ngx_http_push_msg_id_t   *msg_id;
   callback_pt               cb;
   void                     *cb_privdata;
   unsigned                  already_enqueued:1;
   unsigned                  allocd:1;
 } subscribe_data_t;
 
+#define SUB_CHANNEL_UNAUTHORIZED 0
+#define SUB_CHANNEL_AUTHORIZED 1
+#define SUB_CHANNEL_NOTSURE 2
+
+static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_uint_t channel_status, void* _, subscribe_data_t *d);
+
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
-  nhpm_channel_head_t          *chanhead;
-  nhpm_message_t               *chmsg;
-  ngx_int_t                     findmsg_status;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t             data;
   subscribe_data_t            *d;
@@ -927,25 +933,58 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     d->allocd = 0;
     d->already_enqueued = 0;
   }
+  d->msg_id = msg_id;
+  d->channel_owner = owner;
+  d->channel_id = channel_id;
   d->cb = callback;
   d->cb_privdata = privdata;
   d->sub = sub;
   
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
-  if(sub->cf->authorize_channel && (chanhead = ngx_http_push_memstore_find_chanhead(channel_id)) == NULL) {
-      sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
-      callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
-      return NGX_OK;
+  if(sub->cf->authorize_channel) {
+    if(memstore_slot() != owner) {
+      memstore_ipc_send_does_channel_exist(owner, channel_id, &ngx_http_push_store_subscribe_continued, d);
     }
-  else {
-    chanhead = ngx_http_push_memstore_get_chanhead(channel_id);
+    else {
+      ngx_http_push_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
+    }
   }
+  else {
+    ngx_http_push_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+  }
+  
+  return NGX_OK;
+}
+  
+static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_uint_t channel_status, void* _, subscribe_data_t *d) {
+  nhpm_channel_head_t       *chanhead;
+  nhpm_message_t            *chmsg;
+    ngx_int_t                findmsg_status;
+  switch(channel_status) {
+    case SUB_CHANNEL_AUTHORIZED:
+      chanhead = ngx_http_push_memstore_get_chanhead(d->channel_id);
+      break;
+    case SUB_CHANNEL_UNAUTHORIZED:
+      chanhead = NULL;
+      break;
+    case SUB_CHANNEL_NOTSURE:
+      chanhead = ngx_http_push_memstore_find_chanhead(d->channel_id);
+      break;
+  }
+  
+  if (chanhead == NULL) {
+    d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
+    return NGX_OK;
+  }
+  
   d->chanhead = chanhead;
   
-  if(memstore_slot() != owner) {
+  if(memstore_slot() != d->channel_owner) {
     //check if we need to ask for a message
-    sub->enqueue(sub);
+    d->sub->enqueue(d->sub);
+    //TODO: use knowledge about the last message id to determine if the owner needs to be queried
     /*if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
       return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
@@ -953,11 +992,11 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     else {
       
     }*/
-    memstore_ipc_send_get_message(owner, channel_id, msg_id, d);
+    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, d->msg_id, d);
     return NGX_OK;
   }
   else {
-    chmsg = chanhead_find_next_message(chanhead, msg_id, &findmsg_status);
+    chmsg = chanhead_find_next_message(chanhead, d->msg_id, &findmsg_status);
     return ngx_http_push_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
 }
