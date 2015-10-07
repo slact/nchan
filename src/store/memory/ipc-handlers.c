@@ -20,12 +20,14 @@
 #define IPC_DELETE_REPLY            11
 #define IPC_GET_CHANNEL_INFO        12
 #define IPC_GET_CHANNEL_INFO_REPLY  13
-#define IPC_SUBSCRIBER_KEEPALIVE    14
-#define IPC_SUBSCRIBER_KEEPALIVE_REPLY 15
+#define IPC_DOES_CHANNEL_EXIST      14
+#define IPC_DOES_CHANNEL_EXIST_REPLY 15
+#define IPC_SUBSCRIBER_KEEPALIVE    16
+#define IPC_SUBSCRIBER_KEEPALIVE_REPLY 17
 
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
@@ -407,6 +409,33 @@ static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
 }
 
 
+////////// DOES CHANNEL EXIST? ////////////////
+typedef struct {
+  ngx_str_t               *shm_chid;
+  ngx_int_t                channel_exists;
+  callback_pt              callback;
+  void                    *privdata;
+} channel_existence_data_t;
+ngx_int_t memstore_ipc_send_does_channel_exist(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
+  DBG("send does_channel_exist to %i %V", dst, chid);
+  channel_existence_data_t        data = {str_shm_copy(chid), 0, callback, privdata};
+  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_DOES_CHANNEL_EXIST, &data, sizeof(data));
+}
+static void receive_does_channel_exist(ngx_int_t sender, void *data) {
+  channel_existence_data_t    *d = (channel_existence_data_t *)data;
+  nhpm_channel_head_t    *head;
+  DBG("received does_channel_exist request for channel %V pridata", d->shm_chid, d->privdata);
+  head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
+  assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
+  d->channel_exists = (head != NULL);
+  ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_DOES_CHANNEL_EXIST_REPLY, d, sizeof(*d));
+}
+
+static void receive_does_channel_exist_reply(ngx_int_t sender, void *data) {
+  channel_existence_data_t      *d = (channel_existence_data_t *)data;
+  d->callback(d->channel_exists, NULL, d->privdata);
+  str_shm_free(d->shm_chid);
+}
 
 /////////// SUBSCRIBER KEEPALIVE ///////////
 typedef struct {
@@ -471,6 +500,8 @@ static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
   [IPC_DELETE_REPLY] =          receive_delete_reply,
   [IPC_GET_CHANNEL_INFO] =      receive_get_channel_info,
   [IPC_GET_CHANNEL_INFO_REPLY]= receive_get_channel_info_reply,
+  [IPC_DOES_CHANNEL_EXIST] =    receive_does_channel_exist,
+  [IPC_DOES_CHANNEL_EXIST_REPLY]= receive_does_channel_exist_reply,
   [IPC_SUBSCRIBER_KEEPALIVE] =  receive_subscriber_keepalive,
   [IPC_SUBSCRIBER_KEEPALIVE_REPLY] = receive_subscriber_keepalive_reply
 };
