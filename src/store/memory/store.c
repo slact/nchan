@@ -74,8 +74,8 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 
 #if FAKESHARD
@@ -507,14 +507,14 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
       if (ch->sub_count > 0 ) { //there are subscribers
-        ERR("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
+        DBG("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
         if(force_delete) {
           ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
           //ch->spooler.prepare_to_stop(&ch->spooler);
           ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
         }
         else {
-          ERR("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
+          DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
           //break;
         }
       }
@@ -524,7 +524,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 
       if(ch->msg_first != NULL) {
         assert(ch->channel.messages != 0);
-        ERR("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
+        DBG("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
         break;
       }
       //unsubscribe now
