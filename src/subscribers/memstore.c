@@ -48,17 +48,27 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("memstore subscriber respond with status");
+  const ngx_str_t *status_line = NULL;
   switch(status) {
-    case NGX_HTTP_NO_CONTENT: //message expired
     case NGX_HTTP_GONE: //delete
+      status_line = &NGX_HTTP_PUSH_HTTP_STATUS_410;
+      break;
+    case NGX_HTTP_CONFLICT:
+      status_line = &NGX_HTTP_PUSH_HTTP_STATUS_409;
+      break;
+    case NGX_HTTP_NO_CONTENT: //message expired
+      break;
     case NGX_HTTP_CLOSE: //delete
+      break;
     case NGX_HTTP_NOT_MODIFIED: //timeout?
+      break;
     case NGX_HTTP_FORBIDDEN:
-      //do nothing, will be dequeued automatically
       break;
     default:
       ERR("unknown status %i", status);
   }
+  memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
+  
   return NGX_OK;
 }
 static void reset_timer(sub_data_t *data) {

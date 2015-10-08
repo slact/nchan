@@ -14,16 +14,17 @@
 #define IPC_PUBLISH_MESSAGE         5
 #define IPC_PUBLISH_MESSAGE_REPLY   6
 #define IPC_PUBLISH_STATUS          7
-#define IPC_GET_MESSAGE             8
-#define IPC_GET_MESSAGE_REPLY       9
-#define IPC_DELETE                  10
-#define IPC_DELETE_REPLY            11
-#define IPC_GET_CHANNEL_INFO        12
-#define IPC_GET_CHANNEL_INFO_REPLY  13
-#define IPC_DOES_CHANNEL_EXIST      14
-#define IPC_DOES_CHANNEL_EXIST_REPLY 15
-#define IPC_SUBSCRIBER_KEEPALIVE    16
-#define IPC_SUBSCRIBER_KEEPALIVE_REPLY 17
+#define IPC_PUBLISH_STATUS_reply    8
+#define IPC_GET_MESSAGE             9
+#define IPC_GET_MESSAGE_REPLY       10
+#define IPC_DELETE                  11
+#define IPC_DELETE_REPLY            12
+#define IPC_GET_CHANNEL_INFO        13
+#define IPC_GET_CHANNEL_INFO_REPLY  14
+#define IPC_DOES_CHANNEL_EXIST      15
+#define IPC_DOES_CHANNEL_EXIST_REPLY 16
+#define IPC_SUBSCRIBER_KEEPALIVE    17
+#define IPC_SUBSCRIBER_KEEPALIVE_REPLY 18
 
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -33,9 +34,13 @@
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 
 
-static ngx_int_t empty_callback() {
-  return NGX_OK;
-}
+//lots of copypasta here, but it's the fastest way for me to write these IPC handlers
+//maybe TODO: simplify this stuff, but probably not as it's not a performance penalty and the code is simple
+
+
+//static ngx_int_t empty_callback() {
+//  return NGX_OK;
+//}
 
 static ngx_str_t *str_shm_copy(ngx_str_t *str){
   return shm_copy_string(ngx_http_push_memstore_get_shm(), str);
@@ -150,40 +155,49 @@ static void receive_unsubscribed(ngx_int_t sender, void *data) {
   str_shm_free(d->shm_chid);
 }
 
-
-/////////// PUBLISH STATUS ///////////
+////////// PUBLISH STATUS ////////////////
 typedef struct {
-  ngx_str_t    *shm_chid;
-  ngx_int_t     status;
-  void         *privdata;
+  ngx_str_t                 *shm_chid;
+  ngx_int_t                  status_code;
+  const ngx_str_t           *status_line;
+  callback_pt                callback;
+  void                      *callback_privdata;
 } publish_status_data_t;
-ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status,  void* privdata) {
-  publish_status_data_t        data = {str_shm_copy(chid), status, privdata};
-  DBG("send publish status to %i %V", dst, chid);
-  ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
-  return NGX_OK;
+
+ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status_code, const ngx_str_t *status_line, callback_pt callback, void *privdata) {
+  DBG("IPC: send publish status to %i ch %V", dst, chid);
+  publish_status_data_t  data = {str_shm_copy(chid), status_code, status_line, callback, privdata};
+  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
 }
+
+typedef struct {
+  ngx_int_t        sender;
+  publish_status_data_t  *d;
+} publish_status_callback_data;
+
 static void receive_publish_status(ngx_int_t sender, void *data) {
-  publish_status_data_t *d = (publish_status_data_t *)data;
-  DBG("received publish status reply for channel %V", d->shm_chid);
-  switch (d->status) {
-    case NGX_HTTP_NO_CONTENT: //message expired
-      ERR("It's... not... possible!!!!");
-      break;
-    case NGX_HTTP_GONE: //delete
-    case NGX_HTTP_CLOSE: //delete
-    case NGX_HTTP_NOT_MODIFIED: //timeout?
-    case NGX_HTTP_FORBIDDEN:
-      ngx_http_push_memstore_force_delete_channel(d->shm_chid, empty_callback, NULL);
-      break;
-    default:
-      ERR("Nothing grittier than a mouthful of grit.");
-      break;
+  
+  publish_status_data_t         *d = (publish_status_data_t *)data;
+  publish_status_callback_data   cd;
+  nhpm_channel_head_t           *chead;
+  cd.d = d;
+  cd.sender = sender;
+  
+  //assert(memstore_channel_owner(d->shm_chid) == memstore_slot());
+  
+  if((chead = ngx_http_push_memstore_get_chanhead(d->shm_chid)) == NULL) {
+    ERR("can't get chanhead for id %V", d->shm_chid);
+    assert(0);
+    return;
   }
+  
+  DBG("IPC: received publish status for channel %V status %i %s", d->shm_chid, d->status_code, d->status_line);
+  
+  ngx_http_push_memstore_publish_generic(chead, NULL, d->status_code, d->status_line);
+  
   str_shm_free(d->shm_chid);
+  d->shm_chid=NULL;
 }
-
-
 
 ////////// PUBLISH  ////////////////
 typedef struct {
@@ -327,33 +341,51 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
 ////////// DELETE ////////////////
 typedef struct {
   ngx_str_t           *shm_chid;
-  ngx_int_t            return_code;
   ngx_int_t            sender;
+  ngx_http_push_channel_t *shm_channel_info;
+  ngx_int_t            code;
   callback_pt          callback;
   void                *privdata;
 } delete_data_t;
 ngx_int_t memstore_ipc_send_delete(ngx_int_t dst, ngx_str_t *chid, callback_pt callback,void *privdata) {
-  delete_data_t  data = {str_shm_copy(chid), 0, 0, callback, privdata};
+  delete_data_t  data = {str_shm_copy(chid), 0, NULL, 0, callback, privdata};
   DBG("IPC: send delete to %i ch %V", dst, chid);
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_DELETE, &data, sizeof(data));
 }
+
 static ngx_int_t delete_callback_handler(ngx_int_t, void *, void*);
+
 static void receive_delete(ngx_int_t sender, void *data) {
   delete_data_t *d = (delete_data_t *)data;
   d->sender = sender;
   DBG("IPC received delete request for channel %V pridata %p", d->shm_chid, d->privdata);
   ngx_http_push_memstore_force_delete_channel(d->shm_chid, delete_callback_handler, d);
 }
-static ngx_int_t delete_callback_handler(ngx_int_t code, void *nothing, void* privdata) {
+
+static ngx_int_t delete_callback_handler(ngx_int_t code, void *ch, void* privdata) {
+  ngx_http_push_channel_t *chan = (ngx_http_push_channel_t *)ch;
+  ngx_http_push_channel_t *chan_info;
   delete_data_t *d = (delete_data_t *)privdata;
-  d->return_code = code;
+  d->code = code;
+  if (ch) {
+    chan_info = shm_alloc(ngx_http_push_memstore_get_shm(), sizeof(nhpm_channel_head_shm_t), "channel info for delete IPC response");
+    d->shm_channel_info= chan_info;
+    chan_info->messages = chan->messages;
+    chan_info->subscribers = chan->subscribers;
+    chan_info->last_seen = chan->last_seen;
+  }
+  else {
+    d->shm_channel_info = NULL;
+  }
   ipc_alert(ngx_http_push_memstore_get_ipc(), d->sender, IPC_DELETE_REPLY, d, sizeof(*d));
   return NGX_OK;
 }
 static void receive_delete_reply(ngx_int_t sender, void *data) {
   delete_data_t *d = (delete_data_t *)data;
   DBG("IPC received delete reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
-  d->callback(d->return_code, NULL, d->privdata);
+  d->callback(d->code, d->shm_channel_info, d->privdata);
+  
+  shm_free(ngx_http_push_memstore_get_shm(), d->shm_channel_info);
   str_shm_free(d->shm_chid);
 }
 
