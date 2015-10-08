@@ -176,13 +176,15 @@ class PubSubTest <  Minitest::Test
 
   def test_deletion
     #delete active channel
-    pub, sub = pubsub 5, timeout: 10
+    par=5
+    pub, sub = pubsub par, timeout: 10
     sub.on_failure { false }
     sub.run
     sleep 0.2
     pub.delete
-    sleep 0.2
+    sleep 0.1
     assert_equal 200, pub.response_code
+    assert_equal pub.response_body.match(/subscribers:\s+(\d)/)[1].to_i, 5
     sub.wait
     assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
 
