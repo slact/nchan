@@ -1204,7 +1204,7 @@ static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
     //buf->file=NULL;
     */
   }
-  
+  msg->shared=1;
   return msg;
 }
 

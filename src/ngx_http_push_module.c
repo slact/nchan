@@ -610,6 +610,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     case NGX_HTTP_POST:
     case NGX_HTTP_PUT:
       msg = ngx_pcalloc(r->pool, sizeof(*msg));
+      msg->shared = 0;
       NGX_REQUEST_VAL_CHECK(msg, NULL, r, "push module: can't allocate msg in request pool");
       //buf = ngx_create_temp_buf(r->pool, 0);
       //NGX_REQUEST_VAL_CHECK(buf, NULL, r, "push module: can't allocate buf in request pool");
