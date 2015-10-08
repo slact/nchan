@@ -596,14 +596,21 @@ static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callb
 
 ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
+  ngx_http_push_channel_t   chaninfo_copy;
   nhpm_message_t           *msg = NULL;
+  
+  assert(memstore_channel_owner(channel_id) == memstore_slot());
+  
   if(callback == NULL) {
     callback = empty_callback;
   }
   if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
+    chaninfo_copy.messages = ch->shared->stored_message_count;
+    chaninfo_copy.subscribers = ch->shared->sub_count;
+    chaninfo_copy.last_seen = ch->shared->last_seen;
+    
     ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
-    //TODO: publish to other workers
-    callback(NGX_OK, &ch->channel, privdata);
+    callback(NGX_OK, &chaninfo_copy, privdata);
     //delete all messages
     while((msg = ch->msg_first) != NULL) {
       chanhead_delete_message(ch, msg);
@@ -916,7 +923,7 @@ typedef struct {
 #define SUB_CHANNEL_AUTHORIZED 1
 #define SUB_CHANNEL_NOTSURE 2
 
-static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_uint_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
@@ -944,7 +951,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   if(sub->cf->authorize_channel) {
     if(memstore_slot() != owner) {
-      memstore_ipc_send_does_channel_exist(owner, channel_id, &ngx_http_push_store_subscribe_continued, d);
+      memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )ngx_http_push_store_subscribe_continued, d);
     }
     else {
       ngx_http_push_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
@@ -957,7 +964,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   return NGX_OK;
 }
   
-static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_uint_t channel_status, void* _, subscribe_data_t *d) {
+static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   nhpm_channel_head_t       *chanhead;
   nhpm_message_t            *chmsg;
     ngx_int_t                findmsg_status;
