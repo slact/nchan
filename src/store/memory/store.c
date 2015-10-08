@@ -920,6 +920,7 @@ typedef struct {
 #define SUB_CHANNEL_NOTSURE 2
 
 static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t ngx_http_push_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
 static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
@@ -947,7 +948,8 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   if(sub->cf->authorize_channel) {
     if(memstore_slot() != owner) {
-      memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )ngx_http_push_store_subscribe_continued, d);
+      sub->reserve(sub);
+      memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )ngx_http_push_store_subscribe_sub_reserved_check, d);
     }
     else {
       ngx_http_push_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
@@ -959,7 +961,16 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   
   return NGX_OK;
 }
-  
+
+static ngx_int_t ngx_http_push_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
+  if(d->sub->release(d->sub) == NGX_OK) {
+    return ngx_http_push_store_subscribe_continued(channel_status, _, d);
+  }
+  else {//don't go any further, the sub has been deleted
+    return NGX_OK;
+  }
+}
+
 static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   nhpm_channel_head_t       *chanhead;
   nhpm_message_t            *chmsg;

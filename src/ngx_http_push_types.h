@@ -104,6 +104,8 @@ struct subscriber_s {
   ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
   ngx_int_t            (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t            (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
+  ngx_int_t            (*reserve)(struct subscriber_s *);
+  ngx_int_t            (*release)(struct subscriber_s *);
   const char          *name;
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;

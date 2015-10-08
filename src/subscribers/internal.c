@@ -33,6 +33,8 @@ typedef struct {
   void                   *privdata;
   ngx_int_t               owner;
   unsigned                already_dequeued:1;
+  unsigned                awaiting_destruction:1;
+  unsigned                reserved;
 } full_subscriber_t;
 
 ngx_int_t internal_subscriber_set_enqueue_handler(subscriber_t *sub, callback_pt handler) {
@@ -73,6 +75,8 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   fsub->sub.pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
   fsub->sub.cf = &dummy_config;
   fsub->already_dequeued = 0;
+  fsub->awaiting_destruction = 0;
+  fsub->reserved = 0;
   
   fsub->timeout_handler = sub_empty_callback;
   fsub->dequeue_handler = sub_empty_callback;
@@ -83,11 +87,36 @@ subscriber_t *internal_subscriber_create(void *privdata) {
 }
 
 ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
-  DBG("destroy %p", sub);
-  ngx_free(sub);
+  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  if(fsub->reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i)", sub, fsub->reserved);
+    fsub->awaiting_destruction = 1;
+  }
+  else {
+    DBG("%p destroy", sub);
+    ngx_free(fsub);
+  }
   return NGX_OK;
 }
 
+static ngx_int_t internal_reserve(subscriber_t *self) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("%p reserve", self);
+  fsub->reserved++;
+  return NGX_OK;
+}
+static ngx_int_t internal_release(subscriber_t *self) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("%p release", self);
+  fsub->reserved--;
+  if(fsub->awaiting_destruction == 1 && fsub->reserved == 0) {
+    ngx_free(fsub);
+    return NGX_ABORT;
+  }
+  else {
+    return NGX_OK;
+  }
+}
 
 void *internal_subscriber_get_privdata(subscriber_t *sub) {
   full_subscriber_t               *fsub = (full_subscriber_t *)sub;
@@ -213,6 +242,8 @@ static const subscriber_t new_internal_sub = {
   &internal_respond_status,
   &internal_set_timeout_callback,
   &internal_set_dequeue_callback,
+  &internal_reserve,
+  &internal_release,
   "internal",
   INTERNAL,
   0, //stick around after response

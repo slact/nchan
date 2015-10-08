@@ -24,7 +24,8 @@ typedef struct {
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
   unsigned                already_responded:1;
-  unsigned                already_freed:1;
+  unsigned                awaiting_destruction:1;
+  unsigned                reserved;
 } subscriber_data_t;
 
 typedef struct {
@@ -59,7 +60,8 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_enqueued = 0;
   fsub->data.already_responded = 0;
-  fsub->data.already_freed = 0;
+  fsub->data.awaiting_destruction = 0;
+  fsub->data.reserved = 0;
   
   fsub->data.owner = memstore_slot();
   
@@ -76,9 +78,34 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
 
 ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
-  DBG("%p destroy for req %p", sub, fsub->data.request);
-  ngx_free(sub);
+  if(fsub->data.reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, fsub->data.reserved, fsub->data.request);
+    fsub->data.awaiting_destruction = 1;
+  }
+  else {
+    DBG("%p destroy for req %p", sub, fsub->data.request);
+    ngx_free(fsub);
+  }
   return NGX_OK;
+}
+
+static ngx_int_t longpoll_reserve(subscriber_t *self) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("%p reserve for req %p", self, fsub->data.request);
+  fsub->data.reserved++;
+  return NGX_OK;
+}
+static ngx_int_t longpoll_release(subscriber_t *self) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("%p release for req %p", self, fsub->data.request);
+  fsub->data.reserved--;
+  if(fsub->data.awaiting_destruction == 1 && fsub->data.reserved == 0) {
+    ngx_free(fsub);
+    return NGX_ABORT;
+  }
+  else {
+    return NGX_OK;
+  }
 }
 
 static void timeout_ev_handler(ngx_event_t *ev) {
@@ -305,6 +332,8 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_respond_status,
   &longpoll_set_timeout_callback,
   &longpoll_set_dequeue_callback,
+  &longpoll_reserve,
+  &longpoll_release,
   "longpoll",
   LONGPOLL,
   1, //deque after response
