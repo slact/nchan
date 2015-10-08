@@ -178,10 +178,7 @@ typedef struct {
 static void receive_publish_status(ngx_int_t sender, void *data) {
   
   publish_status_data_t         *d = (publish_status_data_t *)data;
-  publish_status_callback_data   cd;
   nhpm_channel_head_t           *chead;
-  cd.d = d;
-  cd.sender = sender;
   
   //assert(memstore_channel_owner(d->shm_chid) == memstore_slot());
   
