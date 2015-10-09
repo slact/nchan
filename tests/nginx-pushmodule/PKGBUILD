@@ -1,6 +1,7 @@
 #!/bin/zsh
-_nginx_ver=1.6.0
-_nginx_ver_nopool=1.7.2
+_nginx_ver_latest=1.9.5
+_nginx_ver_stable=1.8.0
+_nginx_ver_nopool=1.9.3
 _nginx_ver_old=1.0.1
 _nginx_ver_very_old=0.8.40
 
@@ -14,6 +15,10 @@ elif [[ $NGINX_OLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_old
 elif [[ $NGINX_VERYOLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_very_old
+elif [[ $NGINX_STABLEVERSION == 1 ]]; then
+  _nginx_ver=$_nginx_ver_stable
+else
+  _nginx_ver=$_nginx_ver_latest
 fi
 
 
@@ -45,7 +50,7 @@ arch=('i686' 'x86_64')
 install=install
 
 
-depends=('pcre' 'zlib' 'openssl')
+depends=('pcre' 'zlib' 'openssl' 'msgpack')
 url="http://nginx.org"
 license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom-dev' 'nginx-custom-slact') 
@@ -67,11 +72,14 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch")
+  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
+  "bl.txt")
+
 md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
+         'SKIP'
          'SKIP')
 
 build() {
@@ -79,14 +87,16 @@ build() {
   ln -sf $_src_dir $srcdir/nginx
   local _build_dir="${_src_dir}/objs"
   cd $_src_dir
-
-  if [[ $NO_POOL == 1 ]]; then
-    echo "using the no-pool patch"
-    patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
-  fi
-  if [[ $NGX_SLAB_PATCH == 1 ]]; then
-    echo "using the ngx_slab patch to fix large alloc/frees"
-    patch -p1 < "${startdir}/ngx_slab.patch"
+  
+  if [[ -z $CONTINUE ]]; then
+    if [[ $NO_POOL == 1 ]]; then
+      echo "using the no-pool patch"
+      patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
+    fi
+    if [[ $NGX_SLAB_PATCH == 1 ]]; then
+      echo "using the ngx_slab patch to fix large alloc/frees"
+      patch -p1 < "${startdir}/ngx_slab.patch"
+    fi
   fi
 
   if [[ $MUDFLAP == 1 ]]; then
@@ -116,11 +126,14 @@ build() {
   if [[ $CC == *clang* ]]; then
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
-    CFLAGS="$CFLAGS  -Wconditional-uninitialized"
+    if [[ -z $CLANG_ANALYZER ]]; then
+      CFLAGS="-ferror-limit=5 $CFLAGS"
+    fi
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
     CFLAGS="-fdiagnostics-color=always $CFLAGS"
   fi
-
+  
+  echo $CFLAGS
   export CCACHE_CPP2=yes
   if ! [[ -z $CLANG_ANALYZER ]]; then
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
@@ -128,6 +141,7 @@ build() {
   elif ! [[ -z $CONTINUE ]]; then
     make $REMAKE
   else
+    ln -svf $srcdir/bl.txt
     ./configure ${CONFIGURE[@]}
     make
   fi

@@ -1,3 +1,8 @@
+The pushmodule is being vastly upgraded. It is not yet stable.
+For the old pushmodule, see the "pushmodule" branch.
+
+THIS CODE IS NOT YET READY FOR RELEASE. BUILDER BEWARE.
+
 NGiNX HTTP push module - Turn NGiNX into an adept HTTP Push (Comet) server.
 
 This module takes care of all the connection juggling, and exposes a simple

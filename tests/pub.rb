@@ -6,15 +6,30 @@ server= "localhost:8082"
 msg=false
 loop=false
 repeat_sec=0.5
+content_type=nil
+msg_gen = false
+on_response=Proc.new {}
+method=:POST
+runonce=false
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
   opts.on("-v", "--verbose", "Blabberhttp"){Typhoeus::Config.verbose=true}
-  opts.on("-r", "--repeat [SECONDS]", "re-send message every N seconds (#{repeat_sec})") do |v| 
+  opts.on("-l", "--loop [SECONDS]", "re-send message every N seconds (#{repeat_sec})") do |v| 
     loop=true
     repeat_sec=Float(v) unless v.nil?
   end 
   opts.on("-m", "--message MSG", "publish this message instead of prompting"){|v| msg=v}
+  opts.on("-1", "--once", "run once then exit"){runonce=true}
+  opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
+  opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
+  opts.on("-d", "--delete", "delete channel via a DELETE request"){method = :DELETE}
+  opts.on("-r",  "--response", 'Show response code and body') do
+    on_response = Proc.new do |pub|
+      puts pub.response_code
+      puts pub.response_body
+    end
+  end
 end
 opt.banner="Usage: pub.rb [options] url"
 opt.parse!
@@ -27,28 +42,36 @@ puts "Publishing to #{url}."
 loopmsg=("\r"*20) + "sending message #"
 
 pub = Publisher.new url
+pub.nofail=true
 repeat=true
 i=1
+if loop then
+  puts "Press enter to send message."
+end
 while repeat do
-  if msg
+  if msg or msg_gen
     if loop
       sleep repeat_sec
-      print loopmsg
-      print i
-      i+=1
-    else
-      puts "Press enter to send message."
+      print "#{loopmsg} #{i}"
+    elsif !runonce
       STDIN.gets
     end
-    pub.post msg
-    
+    if msg
+      pub.submit msg, method, content_type, &on_response
+    elsif msg_gen
+      this_msg = msg_gen.call(i).to_s
+      puts this_msg
+      pub.submit this_msg, method, content_type, &on_response
+    end
   else
     if loop
       puts "Can't repeat with custom message. use -m option"
     end
     puts "Enter one-line message, press enter."
     message=STDIN.gets #doesn't work when there are parameters. wtf?
-    pub.post message
+    pub.submit message, method, content_type, &on_response
     puts ""
   end
+  i+=1
+  exit 0 if runonce
 end

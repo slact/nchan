@@ -1,1130 +1,1381 @@
 #include <ngx_http_push_module.h>
 
+#include <assert.h>
 #include "store.h"
-#include <store/rbtree_util.h>
 #include <store/ngx_rwlock.h>
-#include <store/ngx_http_push_module_ipc.h>
+#include "rbtree_util.h"
+#include "shmem.h"
+#include "ipc.h"
+#include "ipc-handlers.h"
+#include "store-private.h"
+#include "../spool.h"
 
-#define NGX_HTTP_PUSH_BROADCAST_CHECK(val, fail, r, errormessage)             \
-    if (val == fail) {                                                        \
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-        return NULL;                                                          \
-  }
+static ngx_int_t max_worker_processes = 0;
 
-#define NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(val, fail, r, errormessage, shpool) \
-    if (val == fail) {                                                        \
-        ngx_shmtx_unlock(&(shpool)->mutex);                                   \
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-        return NULL;                                                          \
-    }
-
-#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
-    (sizeof(*buf) +                                                           \
-   (((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
-   (((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
-
-#define ENQUEUED_DBG "msg %p enqueued.  ref:%i, p:%p n:%p"
-#define CREATED_DBG  "msg %p created    ref:%i, p:%p n:%p"
-#define FREED_DBG    "msg %p freed.     ref:%i, p:%p n:%p"
-#define RESERVED_DBG "msg %p reserved.  ref:%i, p:%p n:%p"
-#define RELEASED_DBG "msg %p released.  ref:%i, p:%p n:%p"
-
-//#define DEBUG_SHM_ALLOC 1
-
-static ngx_http_push_channel_queue_t channel_gc_sentinel;
-static ngx_slab_pool_t    *ngx_http_push_shpool = NULL;
-static ngx_shm_zone_t     *ngx_http_push_shm_zone = NULL;
-
-static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code);
-
-static ngx_int_t ngx_http_push_channel_collector(ngx_http_push_channel_t * channel) {
-  if((ngx_http_push_clean_channel_locked(channel))!=NULL) { //we're up for deletion
-    ngx_http_push_channel_queue_t *trashy;
-    if((trashy = ngx_alloc(sizeof(*trashy), ngx_cycle->log))!=NULL) {
-      //yeah, i'm allocating memory during garbage collection. sue me.
-      trashy->channel=channel;
-      ngx_queue_insert_tail(&channel_gc_sentinel.queue, &trashy->queue);
-      return NGX_OK;
-    }
-    return NGX_ERROR;
-  }
-  return NGX_OK;
-}
-
-static void ngx_http_push_store_lock_shmem(void){
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-}
-static void ngx_http_push_store_unlock_shmem(void){
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-}
-
-//garbage-collecting slab allocator
-static void * ngx_http_push_slab_alloc_locked(size_t size, char *label) {
-  void  *p;
-  if((p = ngx_slab_alloc_locked(ngx_http_push_shpool, size))==NULL) {
-    ngx_http_push_channel_queue_t *ccur, *cnext;
-    ngx_uint_t                  collected = 0;
-    //failed. emergency garbage sweep, then.
-    
-    //collect channels
-    ngx_queue_init(&channel_gc_sentinel.queue);
-    ngx_http_push_walk_rbtree(ngx_http_push_channel_collector, ngx_http_push_shm_zone);
-    for(ccur=(ngx_http_push_channel_queue_t *)ngx_queue_next(&channel_gc_sentinel.queue); ccur != &channel_gc_sentinel; ccur=cnext) {
-      cnext = (ngx_http_push_channel_queue_t *)ngx_queue_next(&ccur->queue);
-      ngx_http_push_delete_channel_locked(ccur->channel, ngx_http_push_shm_zone);
-      ngx_free(ccur);
-      collected++;
-    }
-    
-    //todo: collect worker messages maybe
-    
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: out of shared memory. emergency garbage collection deleted %ui unused channels.", collected);
-    
-    p = ngx_slab_alloc_locked(ngx_http_push_shpool, size);
-  }
-#if (DEBUG_SHM_ALLOC == 1)
-  if (p != NULL) {
-    if(label==NULL)
-      label="none";
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %p size %ui label %s", p, size, label);
-  }
+typedef struct {
+  ngx_event_t             gc_timer;
+  nhpm_llist_timed_t     *gc_head;
+  nhpm_llist_timed_t     *gc_tail;
+  nhpm_channel_head_t     unbuffered_dummy_chanhead;
+  nhpm_channel_head_shm_t dummy_shared_chaninfo;
+  nhpm_channel_head_t    *hash;
+#if FAKESHARD
+  ngx_int_t               fake_slot;
 #endif
-  return p;
+} memstore_data_t;
+
+
+static void init_mpt(memstore_data_t *m) {
+  ngx_memzero(&m->gc_timer, sizeof(m->gc_timer));
+  m->gc_head = NULL;
+  m->gc_tail = NULL;
+  ngx_memzero(&m->unbuffered_dummy_chanhead, sizeof(nhpm_channel_head_t));
+  m->unbuffered_dummy_chanhead.id.data= (u_char *)"unbuffered fake";
+  m->unbuffered_dummy_chanhead.id.len=15;
+  m->unbuffered_dummy_chanhead.owner = memstore_slot();
+  m->unbuffered_dummy_chanhead.slot = memstore_slot();
+  m->unbuffered_dummy_chanhead.status = READY;
+  m->unbuffered_dummy_chanhead.min_messages = 0;
+  m->unbuffered_dummy_chanhead.max_messages = (ngx_uint_t )-1;
+  m->unbuffered_dummy_chanhead.shared = &m->dummy_shared_chaninfo;
 }
 
-static void * ngx_http_push_slab_alloc(size_t size, char *label) {
-  void * p;
-  ngx_http_push_store_lock_shmem();
-  p= ngx_http_push_slab_alloc_locked(size, label);
-  ngx_http_push_store_unlock_shmem();
-  return p;
+#if FAKESHARD
+
+static memstore_data_t  mdata[MAX_FAKE_WORKERS];
+static memstore_data_t fake_default_mdata;
+memstore_data_t *mpt = &fake_default_mdata;
+
+ngx_int_t memstore_slot() {
+  return mpt->fake_slot;
 }
 
-static void ngx_http_push_slab_free_locked(void *ptr) {
-  ngx_slab_free_locked(ngx_http_push_shpool, ptr);
-  #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", ptr);
+#else
+
+static memstore_data_t  mdata;
+memstore_data_t *mpt = &mdata;
+
+
+ngx_int_t memstore_slot() {
+  return ngx_process_slot;
+}
+
+#endif
+
+
+static shmem_t         *shm = NULL;
+static shm_data_t      *shdata = NULL;
+static ipc_t           *ipc;
+
+shmem_t *ngx_http_push_memstore_get_shm(void){
+  return shm;
+}
+
+ipc_t *ngx_http_push_memstore_get_ipc(void){
+  return ipc;
+}
+
+#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, mpt->hash, (id_buf)->data, (id_buf)->len, p)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, mpt->hash, (chanhead->id).data, (chanhead->id).len, chanhead)
+#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( mpt->hash, chanhead)
+
+#undef uthash_malloc
+#undef uthash_free
+#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
+#define uthash_free(ptr,sz) ngx_free(ptr)
+
+#define STR(buf) (buf)->data, (buf)->len
+#define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
+
+#define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
+#define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
+#define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
+#define NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC 10
+
+
+
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+
+
+#if FAKESHARD
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:(fake)%i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:(fake)%i: " fmt, memstore_slot(), ##args)
+
+static nhpm_llist_timed_t *fakeprocess_top = NULL;
+void memstore_fakeprocess_push(ngx_int_t slot) {
+  assert(slot < MAX_FAKE_WORKERS);
+  nhpm_llist_timed_t *link = ngx_calloc(sizeof(*fakeprocess_top), ngx_cycle->log);
+  link->data = (void *)slot;
+  link->time = ngx_time();
+  link->next = fakeprocess_top;
+  if(fakeprocess_top != NULL) {
+    fakeprocess_top->prev = link;
+  }
+  fakeprocess_top = link;
+  //DBG("push fakeprocess %i onto stack", slot);
+  mpt = &mdata[slot];
+}
+
+void memstore_fakeprocess_pop(void) {
+  nhpm_llist_timed_t   *next;
+  if(fakeprocess_top == NULL) {
+    DBG("can't pop empty fakeprocess stack");
+    return;
+  }
+  else if((next = fakeprocess_top->next) == NULL) {
+    DBG("can't pop last item off of fakeprocess stack");
+    return;
+  }
+  //DBG("pop fakeprocess to return to %i", (ngx_int_t)next->data);
+  ngx_free(fakeprocess_top);
+  next->prev = NULL;
+  fakeprocess_top = next;
+  mpt = &mdata[(ngx_int_t )fakeprocess_top->data];
+}
+
+void memstore_fakeprocess_push_random(void) {
+  return memstore_fakeprocess_push(rand() % MAX_FAKE_WORKERS);
+}
+
+#else
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%i: " fmt, memstore_slot(), ##args)
+
+#endif
+
+
+ngx_int_t memstore_channel_owner(ngx_str_t *id) {
+  ngx_int_t h = ngx_crc32_short(id->data, id->len);
+#if FAKESHARD
+  #ifdef ONE_FAKE_CHANNEL_OWNER
+  h++; //just to avoid the unused variable warning
+  return ONE_FAKE_CHANNEL_OWNER;
+  #else
+  return h % MAX_FAKE_WORKERS;
   #endif
-}
-/*
-static void ngx_http_push_slab_free(void *ptr) {
-  ngx_http_push_store_lock_shmem();
-  ngx_http_push_slab_free_locked(ptr);
-  ngx_http_push_store_unlock_shmem();
-}*/
-
-//shpool is assumed to be locked.
-static ngx_http_push_msg_t *ngx_http_push_get_latest_message_locked(ngx_http_push_channel_t * channel) {
-  ngx_queue_t                    *sentinel = &channel->message_queue->queue; 
-  if(ngx_queue_empty(sentinel)) {
-    return NULL;
-  }
-  ngx_queue_t                    *qmsg = ngx_queue_last(sentinel);
-  return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
-}
-
-//shpool must be locked. No memory is freed. O(1)
-static ngx_http_push_msg_t *ngx_http_push_get_oldest_message_locked(ngx_http_push_channel_t * channel) {
-  ngx_queue_t                    *sentinel = &channel->message_queue->queue; 
-  if(ngx_queue_empty(sentinel)) {
-    return NULL;
-  }
-  ngx_queue_t                    *qmsg = ngx_queue_head(sentinel);
-  return ngx_queue_data(qmsg, ngx_http_push_msg_t, queue);
-}
-
-static void ngx_http_push_store_reserve_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
-  if(msg == NULL) {
-    return;
-  }
-  msg->refcount++;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RESERVED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
-  //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
-}
-
-static void ngx_http_push_store_reserve_message_num_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t reservations) {
-  if(msg == NULL) {
-    return;
-  }
-  msg->refcount+=reservations;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RESERVED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
-  //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
-}
-
-static void ngx_http_push_store_reserve_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_http_push_store_reserve_message_locked(channel, msg);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  //we need a refcount because channel messages MAY be dequed before they are used up. It thus falls on the IPC stuff to free it.
+#else
+  return h % max_worker_processes;
+#endif
 }
 
 
+static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch);
 
-//free memory for a message. 
-static ngx_inline void ngx_http_push_free_message_locked(ngx_http_push_msg_t *msg, ngx_slab_pool_t *shpool) {
-  if(msg->buf->file!=NULL) {
-    // i'd like to release the shpool lock here while i do stuff to this file, but that 
-    // might unlock during channel rbtree traversal, which is Bad News.
-    if(msg->buf->file->fd!=NGX_INVALID_FILE) {
-      ngx_close_file(msg->buf->file->fd);
-    }
-    ngx_delete_file(msg->buf->file->name.data); //should I care about deletion errors? doubt it.
-  }
-  ngx_http_push_slab_free_locked(msg->buf); //separate block, remember?
-  ngx_http_push_slab_free_locked(msg);
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, FREED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
-  if(msg->refcount < 0) { //something worth exploring went wrong
-    raise(SIGSEGV);
-  }
-  ((ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data)->messages--;
-}
+static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *);
 
-// remove a message from queue and free all associated memory. assumes shpool is already locked.
-static ngx_int_t ngx_http_push_delete_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force) {
-  if (msg==NULL) {
+static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
+  shm_data_t     *d;
+
+  if(data) { //zone being passed after restart
+    zone->data = data;
     return NGX_OK;
   }
-  if(channel!=NULL) {
-    ngx_queue_remove(&msg->queue);
-    channel->messages--;
+  shm_init(shm);
+  
+  if((d = shm_alloc(shm, sizeof(shm_data_t), "root shared data")) == NULL) {
+    return NGX_ERROR;
   }
-  if(msg->refcount<=0 || force) {
-    //nobody needs this message, or we were forced at integer-point to delete
-    ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
-  }
+  zone->data = d;
+  shdata = d;
+
   return NGX_OK;
 }
 
-static void ngx_http_push_store_release_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
-  if(msg == NULL) {
-    return;
+
+static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
+
+#if FAKESHARD
+  ngx_int_t        i;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+  memstore_fakeprocess_push(i);
+#endif
+  
+  
+  init_mpt(mpt);
+  
+  if(mpt->gc_timer.handler == NULL) {
+    mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
+    mpt->gc_timer.log=ngx_cycle->log;
   }
-  msg->refcount--;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, RELEASED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
-  if(msg->queue.next==NULL && msg->refcount<=0) { 
-    //message had been dequeued and nobody needs it anymore
-    ngx_http_push_free_message_locked(msg, ngx_http_push_shpool);
+
+#if FAKESHARD
+  memstore_fakeprocess_pop();
   }
-  if(channel != NULL && channel->messages > msg->delete_oldest_received_min_messages && ngx_http_push_get_oldest_message_locked(channel) == msg) {
-    ngx_http_push_delete_message_locked(channel, msg, 0);
+#endif
+
+  ipc_start(ipc, cycle);
+  
+  DBG("init memstore worker pid:%i slot:%i max workers :%i", ngx_pid, memstore_slot(), max_worker_processes);
+  return NGX_OK;
+}
+
+
+ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
+  //nothing....
+  //chanhead->shared.sub_count = chanhead->channel.subscribers;
+  return NGX_OK;
+}
+
+ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub) {
+  //don't do anything, really
+  //chanhead->shared.sub_count = chanhead->channel.subscribers;
+  return NGX_OK;
+}
+
+
+static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+  nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
+  head->sub_count++;
+  head->channel.subscribers++;
+  if(sub->type == INTERNAL) {
+    head->internal_sub_count++;
+    head->shared->internal_sub_count++;
+  }
+  else {
+    head->shared->sub_count++;
+  }
+  head->last_subscribed = ngx_time();
+  head->shared->last_seen = ngx_time();
+  assert(head->sub_count >= head->internal_sub_count);
+}
+
+static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
+  nhpm_channel_head_t   *head = (nhpm_channel_head_t *)privdata;
+  if (type == INTERNAL) {
+    //internal subscribers are *special* and don't really count
+    head->internal_sub_count -= count;
+    head->shared->internal_sub_count -= count;
+  }
+  else {
+    head->shared->sub_count -= count;
+  }
+  head->sub_count -= count;
+  head->channel.subscribers = head->sub_count - head->internal_sub_count;
+  assert(head->sub_count >= 0);
+  assert(head->internal_sub_count >= 0);
+  assert(head->channel.subscribers >= 0);
+  assert(head->sub_count >= head->internal_sub_count);
+  if(head->sub_count == 0 && head->ipc_sub == NULL) {
+    chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
   }
 }
 
-static void ngx_http_push_store_release_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg) {
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_http_push_store_release_message_locked(channel, msg);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+static ngx_int_t start_chanhead_spooler(nhpm_channel_head_t *head) {
+  start_spooler(&head->spooler);
+  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
+  head->spooler.set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
+  return NGX_OK;
 }
 
-static ngx_int_t ngx_http_push_delete_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t force) {
-  ngx_int_t ret;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ret = ngx_http_push_delete_message_locked(channel, msg, force);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return ret;
+static ngx_int_t stop_chanhead_spooler(nhpm_channel_head_t *head) {
+  stop_spooler(&head->spooler);
+  return NGX_OK;
 }
 
-
-/** find message with entity tags matching those of the request r.
-  * @param r subscriber request
-  */
-static ngx_http_push_msg_t * ngx_http_push_find_message_locked(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
-  //TODO: consider using an RBTree for message storage.
-  ngx_queue_t                    *sentinel = &channel->message_queue->queue;
-  ngx_queue_t                    *cur = ngx_queue_head(sentinel);
-  ngx_http_push_msg_t            *msg;
-  
-  time_t                          time = msgid->time;
-  ngx_int_t                       tag = msgid->tag;
-  
-  //channel's message buffer empty?
-  if(channel->messages==0) {
-    *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED; //wait.
-    return NULL;
+static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
+  ngx_int_t                      owner = memstore_channel_owner(&head->id);
+  if(head == NULL) {
+    return NGX_OK;
+  }
+  DBG("(ensure_chanhead is_ready) setting chanhead %p, status %i, ipc_sub:%p", head, head->status, head->ipc_sub);
+  if(head->status == INACTIVE) {//recycled chanhead
+    chanhead_gc_withdraw(head, "readying INACTIVE");
+  }
+  if(!head->spooler.running) {
+    DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
+    start_chanhead_spooler(head);
   }
   
-  // do we want a future message?
-  msg = ngx_queue_data(sentinel->prev, ngx_http_push_msg_t, queue); 
-  if(time <= msg->message_time) { //that's an empty check (Sentinel's values are zero)
-    if(time == msg->message_time) {
-      if(tag >= msg->message_tag) {
-        *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
-        return NULL;
-      }
+  if(owner != memstore_slot()) {
+    if(head->ipc_sub == NULL && head->status != WAITING) {
+      head->status = WAITING;
+      memstore_ipc_send_subscribe(owner, &head->id, head);
+    }
+    else if(head->ipc_sub != NULL && head->status == WAITING) {
+      head->status = READY;
     }
   }
   else {
-    *status=NGX_HTTP_PUSH_MESSAGE_EXPECTED;
+    head->status = READY;
+  }
+  return NGX_OK;
+}
+
+
+nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
+  nhpm_channel_head_t     *head;
+  CHANNEL_HASH_FIND(channel_id, head);
+  return head;
+}
+
+
+static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
+  nhpm_channel_head_t         *head;
+  head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+  ngx_int_t                owner = memstore_channel_owner(channel_id);
+  if(head == NULL) {
+    ERR("can't allocate memory for (new) chanhead");
     return NULL;
   }
-  
-  while(cur!=sentinel) {
-    msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
-    if (time < msg->message_time) {
-      *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
-      return msg;
+  head->slot = memstore_slot();
+  head->owner = owner;
+  head->shutting_down = 0;
+
+  if(head->slot == owner) {
+    if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
+      ERR("can't allocate shared memory for (new) chanhead");
+      return NULL;
     }
-    else if(time == msg->message_time) {
-      while (tag >= msg->message_tag  && time == msg->message_time && ngx_queue_next(cur)!=sentinel) {
-        cur=ngx_queue_next(cur);
-        msg = ngx_queue_data(cur, ngx_http_push_msg_t, queue);
-      }
-      if(time == msg->message_time && tag < msg->message_tag) {
-        *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
-        return msg;
-      }
-      continue;
-    }
-    cur=ngx_queue_next(cur);
+    head->shared->sub_count = 0;
+    head->shared->internal_sub_count = 0;
+    head->shared->total_message_count = 0;
+    head->shared->stored_message_count = 0;
+    head->shared->last_seen = ngx_time();
   }
-  *status = NGX_HTTP_PUSH_MESSAGE_EXPIRED; //message too old and was not found.
-  return NULL;
+  else {
+    head->shared = NULL;
+  }
+  
+  //no lock needed, no one else knows about this chanhead yet.
+  head->id.len = channel_id->len;
+  head->id.data = (u_char *)&head[1];
+  ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
+  head->sub_count=0;
+  head->internal_sub_count=0;
+  head->status = NOTREADY;
+  head->waiting_for_publish_response = NULL;
+  head->msg_last = NULL;
+  head->msg_first = NULL;
+  head->ipc_sub = NULL;
+  head->last_subscribed = 0;
+  //set channel
+  ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
+  head->channel.message_queue=NULL;
+  head->channel.messages = 0;
+  head->channel.subscribers = 0;
+  head->channel.last_seen = ngx_time();
+  head->min_messages = 0;
+  head->max_messages = (ngx_int_t) -1;
+  
+  head->last_msgid.time=0;
+  head->last_msgid.tag=0;
+  
+  head->spooler.running=0;
+  start_chanhead_spooler(head);
+
+  CHANNEL_HASH_ADD(head);
+  
+  return head;
 }
 
-static ngx_http_push_channel_t * ngx_http_push_store_find_channel(ngx_str_t *id, time_t channel_timeout, ngx_int_t (*callback)(ngx_http_push_channel_t *channel)) {
-  //get the channel and check channel authorization while we're at it.
-  ngx_http_push_channel_t        *channel;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  channel = ngx_http_push_find_channel(id, channel_timeout, ngx_http_push_shm_zone);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  if(callback!=NULL) {
-    callback(channel);
+nhpm_channel_head_t * ngx_http_push_memstore_find_chanhead(ngx_str_t *channel_id) {
+  nhpm_channel_head_t     *head;
+  if((head = chanhead_memstore_find(channel_id)) != NULL) {
+    ensure_chanhead_is_ready(head);
   }
-  return channel;
+  return head;
 }
 
-//temporary cheat
-static ngx_int_t ngx_http_push_store_publish_raw(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id) {
+  nhpm_channel_head_t          *head;
+  head = chanhead_memstore_find(channel_id);
+  if(head==NULL) {
+    head = chanhead_memstore_create(channel_id);
+  }
+  ensure_chanhead_is_ready(head);
+  return head;
+}
+
+ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
+  nhpm_llist_timed_t         *chanhead_cleanlink;
   
-  //subscribers are queued up in a local pool. Queue heads, however, are located
-  //in shared memory, identified by pid.
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_http_push_pid_queue_t     *sentinel = channel->workers_with_subscribers;
-  ngx_http_push_subscriber_t    *subscriber_sentinels[NGX_MAX_PROCESSES];
-  ngx_http_push_pid_queue_t     *pid_queues[NGX_MAX_PROCESSES];
-  ngx_int_t                      sub_sentinel_count=0;
-  
-  ngx_http_push_pid_queue_t     *cur;
-  ngx_int_t                      i, received;
-  received = channel->subscribers > 0 ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
-  
-  //we need to reserve the message for all the workers in advance
-  for(cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&sentinel->queue); cur != sentinel; cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue)) {
-    if(cur->subscriber_sentinel != NULL) {
-      pid_queues[sub_sentinel_count] = cur;
-      subscriber_sentinels[sub_sentinel_count] = cur->subscriber_sentinel;
-      /*
-       *     each time all of a worker's subscribers are removed, so is the sentinel. 
-       *     this is done to make garbage collection easier. Assuming we want to avoid
-       *     placing the sentinel in shared memory (for now -- it's a little tricky
-       *     to debug), the owner of the worker pool must be the one to free said sentinel.
-       *     But channels may be deleted by different worker processes, and it seems unwieldy
-       *     (for now) to do IPC just to delete one stinkin' sentinel. Hence a new sentinel
-       *     is used every time the subscriber queue is emptied.
-       */
-      cur->subscriber_sentinel = NULL; //think about it it terms of garbage collection. it'll make sense. sort of.
-      sub_sentinel_count++;
+  DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
+  chanhead_cleanlink = &head->cleanlink;
+  if(!head->shutting_down) {
+    assert(head->ipc_sub == NULL); //we don't accept still-subscribed chanheads
+  }
+  if(head->slot != head->owner) {
+    head->shared = NULL;
+  }
+  assert(head->slot == memstore_slot());
+  if(head->status != INACTIVE) {
+    chanhead_cleanlink->data=(void *)head;
+    chanhead_cleanlink->time=ngx_time();
+    chanhead_cleanlink->prev=mpt->gc_tail;
+    if(mpt->gc_tail != NULL) {
+      mpt->gc_tail->next=chanhead_cleanlink;
     }
+    chanhead_cleanlink->next=NULL;
+    mpt->gc_tail=chanhead_cleanlink;
+    if(mpt->gc_head==NULL) {
+      mpt->gc_head = chanhead_cleanlink;
+    }
+    head->status = INACTIVE;
   }
-  if(sub_sentinel_count > 0) {
-    ngx_http_push_store_reserve_message_num_locked(channel, msg, sub_sentinel_count);
+  else {
+    ERR("gc_add chanhead %V: already added", &head->id);
   }
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
+
+  //initialize gc timer
+  if(! mpt->gc_timer.timer_set) {
+    mpt->gc_timer.data=mpt->gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
+    ngx_add_timer(&mpt->gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  }
+
+  return NGX_OK;
+}
+
+ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead, const char *reason) {
+  //remove from gc list if we're there
+  nhpm_llist_timed_t    *cl;
+  DBG("Chanhead gc withdraw %p %V: %s", chanhead, &chanhead->id, reason);
   
-  ngx_http_push_subscriber_t *subscriber_sentinel=NULL;
-  for(i=0; i < sub_sentinel_count; i++) {
-    ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-    subscriber_sentinel = subscriber_sentinels[i];
-    pid_t           worker_pid  = pid_queues[i]->pid;
-    ngx_int_t       worker_slot = pid_queues[i]->slot;
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-    //if(msg != NULL)
-    //  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "publish msg %p (ref: %i) for worker %i (slot %i)", msg, msg->refcount, worker_pid, worker_slot);
-    
-    
-    if(subscriber_sentinel != NULL) {
-      if(worker_pid == ngx_pid) {
-        //my subscribers
-        ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-      }
-      else {
-        //some other worker's subscribers
-        //interprocess communication breakdown
-        if(ngx_http_push_store_send_worker_message(channel, subscriber_sentinel, worker_pid, worker_slot, msg, status_code) != NGX_ERROR) {
-          ngx_http_push_alert_worker(worker_pid, worker_slot);
+  if(chanhead->status == INACTIVE) {
+    cl=&chanhead->cleanlink;
+    if(cl->prev!=NULL)
+      cl->prev->next=cl->next;
+    if(cl->next!=NULL)
+      cl->next->prev=cl->prev;
+
+    if(mpt->gc_head==cl) {
+      mpt->gc_head=cl->next;
+    }
+    if(mpt->gc_tail==cl) {
+      mpt->gc_tail=cl->prev;
+    }
+    cl->prev = cl->next = NULL;
+  }
+  else {
+    DBG("gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
+  }
+  
+  return NGX_OK;
+}
+
+/*
+static ngx_str_t *msg_to_str(ngx_http_push_msg_t *msg) {
+  static ngx_str_t str;
+  ngx_buf_t *buf = msg->buf;
+  if(ngx_buf_in_memory(buf)) {
+    str.data = buf->start;
+    str.len = buf->end - buf->start;
+  }
+  else {
+    str.data= (u_char *)"{not in memory}";
+    str.len =  15;
+  }
+  return &str;
+}
+
+static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
+  static ngx_str_t str;
+  if (msg == NULL) {
+    str.data=(u_char *)"{NULL}";
+    str.len = 6;
+    return &str;
+  }
+  else {
+    return msg_to_str(msg->msg); //WHOA, shared space!
+  }
+}
+*/
+
+ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+  ngx_int_t          shared_sub_count = head->shared->sub_count;
+
+  if(head==NULL) {
+    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+  }
+
+  if (head->sub_count == 0) {
+    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+  }
+
+  if(msg) {
+    head->last_msgid.time = msg->message_time;
+    head->last_msgid.tag = msg->message_tag;
+    head->spooler.respond_message(&head->spooler, msg);
+  }
+  else {
+    head->spooler.respond_status(&head->spooler, status_code, status_line);
+  }
+
+  //TODO: be smarter about garbage-collecting chanheads
+  if(memstore_channel_owner(&head->id) == memstore_slot()) {
+    chanhead_gc_add(head, "add owner chanhead after publish");
+  }
+
+  if(head->shared) {
+    head->channel.subscribers = head->shared->sub_count;
+  }
+  
+  return (shared_sub_count > 0) ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
+}
+
+static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
+
+static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
+  nhpm_llist_timed_t          *cur, *next;
+  nhpm_channel_head_t         *ch = NULL;
+  ngx_int_t                    owner;
+  DBG("handling chanhead GC queue");
+#if FAKESHARD
+  ngx_int_t        i;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+  memstore_fakeprocess_push(i);
+#endif
+  
+  
+  for(cur=mpt->gc_head ; cur != NULL; cur=next) {
+    ch = (nhpm_channel_head_t *)cur->data;
+    next=cur->next;
+    if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
+      if (ch->sub_count > 0 ) { //there are subscribers
+        DBG("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
+        if(force_delete) {
+          ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
+          //ch->spooler.prepare_to_stop(&ch->spooler);
+          ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
         }
         else {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: error communicating with some other worker process");
+          DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
+          //break;
         }
       }
-    } else {
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "subscriber sentinel is NULL");
+      stop_chanhead_spooler(ch);
+      assert(ch->sub_count == 0);
+      force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
+
+      if(ch->msg_first != NULL) {
+        assert(ch->channel.messages != 0);
+        DBG("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
+        break;
+      }
+      //unsubscribe now
+      //do we need a read lock here? I don't think so...
+      owner = memstore_channel_owner(&ch->id);
+      if(owner == memstore_slot()) {
+        shm_free(shm, ch->shared);
+      }
+      DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
+      CHANNEL_HASH_DEL(ch);
+      ngx_free(ch);
     }
-    
-    
+    else {
+      break; //dijkstra probably hates this
+    }
   }
-  return received;
+  mpt->gc_head=cur;
+  if (cur==NULL) { //we went all the way to the end
+    mpt->gc_tail=NULL;
+  }
+  else {
+    cur->prev=NULL;
+  }
+  
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+  }
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+    memstore_fakeprocess_push(i);
+    memstore_fakeprocess_pop();
+  }
+#endif
 }
 
-static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id) {
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_msg_t            *msg, *sentinel;
-  ngx_http_push_store_lock_shmem();
-  channel = ngx_http_push_find_channel(channel_id, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT, ngx_http_push_shm_zone);
-  if (channel == NULL) {
-    ngx_http_push_store_unlock_shmem();
-    return NGX_OK;
+static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete);
+
+static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
+  nhpm_llist_timed_t  *head = mpt->gc_head;
+  handle_chanhead_gc_queue(0);
+  handle_unbuffered_messages_gc(0);
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL || mpt->unbuffered_dummy_chanhead.msg_first == NULL)) {
+    DBG("re-adding chanhead gc event timer");
+    ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
-  sentinel = channel->message_queue; 
-  msg = sentinel;
-        
-  while((msg=(ngx_http_push_msg_t *)ngx_queue_next(&msg->queue))!=sentinel) {
-    //force-delete all the messages
-    ngx_http_push_delete_message_locked(NULL, msg, 1);
+  else if(head == NULL) {
+    DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
-  channel->messages=0;
-  
-  //410 gone
-  ngx_http_push_store_unlock_shmem();
-  
-  ngx_http_push_store_publish_raw(channel, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
-  
-  ngx_http_push_store_lock_shmem();
-  ngx_http_push_delete_channel_locked(channel, ngx_http_push_shm_zone);
-  ngx_http_push_store_unlock_shmem();
+}
+
+static ngx_int_t empty_callback(){
   return NGX_OK;
 }
 
-static ngx_http_push_channel_t * ngx_http_push_store_get_channel(ngx_str_t *id, time_t channel_timeout, ngx_int_t (*callback)(ngx_http_push_channel_t *channel)) {
-  //get the channel and check channel authorization while we're at it.
-  ngx_http_push_channel_t        *channel;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  channel = ngx_http_push_get_channel(id, channel_timeout, ngx_http_push_shm_zone);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  if(channel==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for new channel");
-  }
-  if(callback!=NULL) {
-    callback(channel);
-  }
-  return channel;
-}
+static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg);
 
-static ngx_http_push_msg_t * ngx_http_push_store_get_channel_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_id_t *msgid, ngx_int_t *msg_search_outcome, ngx_http_push_loc_conf_t *cf) {
-  ngx_http_push_msg_t *msg;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  msg = ngx_http_push_find_message_locked(channel, msgid, msg_search_outcome);
-  if(*msg_search_outcome == NGX_HTTP_PUSH_MESSAGE_FOUND) {
-    ngx_http_push_store_reserve_message_locked(channel, msg);
+static ngx_int_t ngx_http_push_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+  ngx_int_t                owner = memstore_channel_owner(channel_id);
+  if(memstore_slot() != owner) {
+    memstore_ipc_send_delete(owner, channel_id, callback, privdata);
   }
-  channel->last_seen = ngx_time();
-  channel->expires = ngx_time() + cf->channel_timeout;
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return msg;
-}
-
-static ngx_int_t default_get_message_callback(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r) {
+  else {
+    ngx_http_push_memstore_force_delete_channel(channel_id, callback, privdata);
+  }
   return NGX_OK;
 }
 
-static ngx_http_push_msg_t * ngx_http_push_store_get_message(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_int_t *msg_search_outcome, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_http_push_msg_t *msg, ngx_int_t msg_search_outcome, ngx_http_request_t *r)) {
-  ngx_http_push_channel_t            *channel;
-  ngx_http_push_msg_t                *msg;
+ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+  nhpm_channel_head_t      *ch;
+  ngx_http_push_channel_t   chaninfo_copy;
+  nhpm_message_t           *msg = NULL;
+  
+  assert(memstore_channel_owner(channel_id) == memstore_slot());
+  
+  if(callback == NULL) {
+    callback = empty_callback;
+  }
+  if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
+    chaninfo_copy.messages = ch->shared->stored_message_count;
+    chaninfo_copy.subscribers = ch->shared->sub_count;
+    chaninfo_copy.last_seen = ch->shared->last_seen;
+    
+    ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+    callback(NGX_OK, &chaninfo_copy, privdata);
+    //delete all messages
+    while((msg = ch->msg_first) != NULL) {
+      chanhead_delete_message(ch, msg);
+    }
+    chanhead_gc_add(ch, "forced delete");
+  }
+  else{
+    callback(NGX_OK, NULL, privdata);
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t ngx_http_push_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+  ngx_int_t owner = memstore_channel_owner(channel_id);
+  if(memstore_slot() == owner) {
+    nhpm_channel_head_t      *ch = ngx_http_push_memstore_find_chanhead(channel_id);
+    callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
+  }
+  else {
+    memstore_ipc_send_get_channel_info(owner, channel_id, callback, privdata);
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t ngx_http_push_store_async_get_message(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+  
   if(callback==NULL) {
-    callback=&default_get_message_callback;
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
+    return NGX_ERROR;
   }
-  ngx_http_push_store_lock_shmem();
-  channel = ngx_http_push_get_channel(channel_id, NGX_HTTP_PUSH_DEFAULT_CHANNEL_TIMEOUT, ngx_http_push_shm_zone);
-  ngx_http_push_store_unlock_shmem();
-  if (channel == NULL) {
-    return NULL;
-  }
-  msg = ngx_http_push_store_get_channel_message(channel, msg_id, msg_search_outcome, ngx_http_get_module_loc_conf(r, ngx_http_push_module));
-  callback(msg, *msg_search_outcome, r);
-  return msg;
-}
-
-// shared memory zone initializer
-static ngx_int_t  ngx_http_push_init_shm_zone(ngx_shm_zone_t * shm_zone, void *data) {
-  if(data) { /* zone already initialized */
-    shm_zone->data = data;
-    return NGX_OK;
-  }
-
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
-  ngx_rbtree_node_t              *sentinel;
-  ngx_http_push_shm_data_t       *d;
   
-  ngx_http_push_shpool = shpool; //we'll be using this a bit.
-  #if (DEBUG_SHM_ALLOC == 1)
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ngx_http_push_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
-  #endif
+  // TODO: do this?
   
-  if ((d = (ngx_http_push_shm_data_t *)ngx_http_push_slab_alloc(sizeof(*d), "shm data")) == NULL) { //shm_data
-    return NGX_ERROR;
-  }
-  d->channels=0;
-  d->messages=0;
-  shm_zone->data = d;
-  d->ipc=NULL;
-  //initialize rbtree
-  if ((sentinel = ngx_http_push_slab_alloc(sizeof(*sentinel), "channel rbtree sentinel"))==NULL) {
-    return NGX_ERROR;
-  }
-  ngx_rbtree_init(&d->tree, sentinel, ngx_http_push_rbtree_insert);
-  return NGX_OK;
-}
-
-//shared memory
-static ngx_str_t  ngx_push_shm_name = ngx_string("push_module"); //shared memory segment name
-static ngx_int_t  ngx_http_push_set_up_shm(ngx_conf_t *cf, size_t shm_size) {
-  ngx_http_push_shm_zone = ngx_shared_memory_add(cf, &ngx_push_shm_name, shm_size, &ngx_http_push_module);
-  if (ngx_http_push_shm_zone == NULL) {
-    return NGX_ERROR;
-  }
-  ngx_http_push_shm_zone->init = ngx_http_push_init_shm_zone;
-  ngx_http_push_shm_zone->data = (void *) 1; 
-  return NGX_OK;
+  return NGX_OK; //async only now!
 }
 
 //initialization
 static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
-  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  ngx_http_push_worker_processes = ccf->worker_processes;
+
+#if FAKESHARD
+
+  max_worker_processes = MAX_FAKE_WORKERS;
+  
+  ngx_int_t        i;
+  memstore_data_t *cur;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+    cur = &mdata[i];
+    cur->fake_slot = i;
+  }
+  
+  memstore_fakeprocess_push(0);
+
+#else
+
+  ngx_core_conf_t   *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  max_worker_processes = ccf->worker_processes;
+
+#endif
+  
+  DBG("memstore init_module pid %p", ngx_pid);
+
   //initialize our little IPC
-  return ngx_http_push_init_ipc(cycle, ngx_http_push_worker_processes);
-}
+  ipc = ipc_create(cycle);
+  ipc_open(ipc,cycle, max_worker_processes);
+  ipc_set_handler(ipc, memstore_ipc_alert_handler);
 
-//will be called once per worker
-static ngx_int_t ngx_http_push_store_init_ipc_shm(ngx_int_t workers) {
-  ngx_slab_pool_t                *shpool = (ngx_slab_pool_t *) ngx_http_push_shm_zone->shm.addr;
-  ngx_http_push_shm_data_t       *d = (ngx_http_push_shm_data_t *) ngx_http_push_shm_zone->data;
-  ngx_http_push_worker_msg_sentinel_t     *worker_messages=NULL;
-  ngx_shmtx_lock(&shpool->mutex);
-  if(d->ipc==NULL) {
-    //ipc uninitialized. get it done!
-    if((worker_messages = ngx_http_push_slab_alloc_locked(sizeof(*worker_messages)*NGX_MAX_PROCESSES, "IPC worker message sentinel array"))==NULL) {
-      ngx_shmtx_unlock(&shpool->mutex);
-      return NGX_ERROR;
-    }
-    d->ipc=worker_messages;
-  }
-  else {
-    worker_messages=d->ipc;
-  }
-  
-  ngx_queue_init(&worker_messages[ngx_process_slot].queue);
-  ngx_rwlock_init(&worker_messages[ngx_process_slot].lock);
-  
-  ngx_shmtx_unlock(&shpool->mutex);
   return NGX_OK;
-}
-
-static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
-  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  if(ngx_http_push_store_init_ipc_shm(ccf->worker_processes) == NGX_OK) {
-    return ngx_http_push_ipc_init_worker(cycle);
-  }
-  else {
-    return NGX_ERROR;
-  }
 }
 
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
   ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
-
-  //initialize shared memory
-  size_t                       shm_size;
+  ngx_str_t                  name = ngx_string("memstore");
   if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
     conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
   }
-  shm_size = ngx_align(conf->shm_size, ngx_pagesize);
-  if (shm_size < 8 * ngx_pagesize) {
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "The push_max_reserved_memory value must be at least %udKiB", (8 * ngx_pagesize) >> 10);
-        shm_size = 8 * ngx_pagesize;
-    }
-  if(ngx_http_push_shm_zone && ngx_http_push_shm_zone->shm.size != shm_size) {
-    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
-  }
-  ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
-  
-  return ngx_http_push_set_up_shm(cf, shm_size);
+  shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_http_push_module);
+  return NGX_OK;
 }
 
 static void ngx_http_push_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_main_conf_t *mcf) {
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
-//great justice appears to be at hand
-static ngx_int_t ngx_http_push_movezig_channel_locked(ngx_http_push_channel_t * channel) {
-  ngx_queue_t                 *sentinel = &channel->message_queue->queue;
-  ngx_http_push_msg_t         *msg=NULL;
-  while(!ngx_queue_empty(sentinel)) {
-    msg = ngx_queue_data(ngx_queue_head(sentinel), ngx_http_push_msg_t, queue);
-    ngx_http_push_delete_message_locked(channel, msg, 1);
-  }
-  return NGX_OK;
-}
-static ngx_int_t ngx_http_push_store_channel_subscribers(ngx_http_push_channel_t * channel) {
-  ngx_int_t subs;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  subs = channel->subscribers;
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return subs;
-}
-
-static ngx_int_t ngx_http_push_store_channel_worker_subscribers(ngx_http_push_subscriber_t * worker_sentinel) {
-  ngx_http_push_subscriber_t *cur;
-  ngx_int_t count=0;
-  cur=(ngx_http_push_subscriber_t *)ngx_queue_head(&worker_sentinel->queue);
-  while(cur!=worker_sentinel) {
-    count++;
-    cur=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
-  }
-  return count;
-}
-
-static ngx_http_push_subscriber_t *ngx_http_push_store_channel_next_subscriber(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel, ngx_http_push_subscriber_t *cur, int release_previous) {
-  ngx_http_push_subscriber_t *next;
-  if(cur==NULL) {
-    next=(ngx_http_push_subscriber_t *)ngx_queue_head(&sentinel->queue);
-  }
-  else{
-    next=(ngx_http_push_subscriber_t *)ngx_queue_next(&cur->queue);
-    if(release_previous==1 && cur!=sentinel) {
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "freeing subscriber cursor at %p.", cur);
-      ngx_pfree(ngx_http_push_pool, cur);
-    }
-  }
-  return next!=sentinel ? next : NULL;
-}
-
-static ngx_int_t ngx_http_push_store_channel_release_subscriber_sentinel(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *sentinel) {
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "freeing subscriber sentinel at %p.", sentinel);
-  ngx_pfree(ngx_http_push_pool, sentinel);
-  return NGX_OK;
-}
-
 static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
-  ngx_http_push_ipc_exit_worker(cycle);
+  DBG("exit worker %i", ngx_pid);
+  nhpm_channel_head_t         *cur, *tmp;
+  
+#if FAKESHARD
+  ngx_int_t        i;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+  memstore_fakeprocess_push(i);
+#endif
+  HASH_ITER(hh, mpt->hash, cur, tmp) {
+    cur->shutting_down = 1;
+    chanhead_gc_add(cur, "exit worker");
+  }
+  handle_chanhead_gc_queue(1);
+  handle_unbuffered_messages_gc(1);
+  
+  if(mpt->gc_timer.timer_set) {
+    ngx_del_timer(&mpt->gc_timer);
+  }
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+  }
+#endif
+  
+  ipc_close(ipc, cycle);
+  ipc_destroy(ipc, cycle); //only for this worker...
+  shm_free(shm, shdata);
+  shm_destroy(shm); //just for this worker...
+#if FAKESHARD
+  ngx_free(fakeprocess_top);
+#endif
 }
 
 static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
-  //destroy channel tree in shared memory
-  ngx_http_push_walk_rbtree(ngx_http_push_movezig_channel_locked, ngx_http_push_shm_zone);
-  //deinitialize IPC
-  ngx_http_push_shutdown_ipc(cycle);
+  DBG("exit master from pid %i", ngx_pid);
+  
+  ipc_close(ipc, cycle);
+  ipc_destroy(ipc, cycle);
+  
+  shm_destroy(shm);
 }
 
-static ngx_http_push_subscriber_t * ngx_http_push_store_subscribe_raw(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
-  ngx_http_push_pid_queue_t  *sentinel, *cur, *found;
-  ngx_http_push_subscriber_t *subscriber;
-  ngx_http_push_subscriber_t *subscriber_sentinel;
-  //ngx_http_push_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+static ngx_int_t validate_chanhead_messages(nhpm_channel_head_t *ch) {
+  ngx_int_t              count = ch->channel.messages;
+  ngx_int_t              rev_count = count;
+  ngx_int_t              owner = memstore_channel_owner(&ch->id);
+  nhpm_message_t        *cur;
   
-  //subscribers are queued up in a local pool. Queue sentinels are separate and also local, but not in the pool.
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  sentinel = channel->workers_with_subscribers;
-  cur = (ngx_http_push_pid_queue_t *)ngx_queue_head(&sentinel->queue);
-  found = NULL;
-  
-  while(cur!=sentinel) {
-    if(cur->pid==ngx_pid) {
-      found = cur;
-      break;
-    }
-    cur = (ngx_http_push_pid_queue_t *)ngx_queue_next(&cur->queue);
+  if(memstore_slot() == owner) {
+    assert(ch->shared->stored_message_count == ch->channel.messages);
   }
-  if(found == NULL) { //found nothing
-    if((found=ngx_http_push_slab_alloc_locked(sizeof(*found), "worker subscriber sentinel"))==NULL) {
-      ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate worker subscriber queue marker in shared memory");
-      return NULL;
-    }
-    //initialize
-    ngx_queue_insert_tail(&sentinel->queue, &found->queue);
-    found->pid=ngx_pid;
-    found->slot=ngx_process_slot;
-    found->subscriber_sentinel=NULL;
+  //walk it forwards
+  for(cur = ch->msg_first; cur != NULL; cur=cur->next){
+    count--;
   }
-  if((subscriber = ngx_palloc(ngx_http_push_pool, sizeof(*subscriber)))==NULL) { //unable to allocate request queue element
-    ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate subscriber worker's memory pool");
-    return NULL;
+  for(cur = ch->msg_last; cur != NULL; cur=cur->prev){
+    rev_count--;
   }
-  channel->subscribers++; // do this only when we know everything went okay.
   
-  //figure out the subscriber sentinel
-  subscriber_sentinel = ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel;
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "reserve subscriber sentinel at %p", subscriber_sentinel);
-  
-  if(subscriber_sentinel==NULL) {
-    //it's perfectly normal for the sentinel to be NULL.
-    if((subscriber_sentinel=ngx_palloc(ngx_http_push_pool, sizeof(*subscriber_sentinel)))==NULL) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: unable to allocate channel subscriber sentinel");
-      return NULL;
-    }
-    ngx_queue_init(&subscriber_sentinel->queue);
-    ((ngx_http_push_pid_queue_t *)found)->subscriber_sentinel=subscriber_sentinel;
-  }
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "add to subscriber sentinel at %p", subscriber_sentinel);
-  ngx_queue_insert_tail(&subscriber_sentinel->queue, &subscriber->queue);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  
-  subscriber->request = r;
-  return subscriber;
+  assert(count == 0);
+  assert(rev_count == 0);
+  return NGX_OK;
 }
 
-static ngx_int_t ngx_http_push_handle_subscriber_concurrency(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
-  ngx_int_t                      max_subscribers = cf->max_channel_subscribers;
-  ngx_int_t                      current_subscribers = ngx_http_push_store->channel_subscribers(channel) ;
-  
-  
-  if(current_subscribers==0) { 
-    //empty channels are always okay.
-    return NGX_OK;
-  }  
-  
-  if(max_subscribers!=0 && current_subscribers >= max_subscribers) {
-    //max_channel_subscribers setting
-    ngx_http_push_respond_status_only(r, NGX_HTTP_FORBIDDEN, NULL);
-    return NGX_DECLINED;
+static ngx_int_t chanhead_withdraw_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  //DBG("withdraw message %i:%i from ch %p %V", msg->msg->message_time, msg->msg->message_tag, ch, &ch->id);
+  validate_chanhead_messages(ch);
+  if(msg->msg->refcount > 0) {
+    ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg->refcount);
+    return NGX_ERROR;
+  }
+  if(ch->msg_first == msg) {
+    //DBG("first message removed");
+    ch->msg_first = msg->next;
+  }
+  if(ch->msg_last == msg) {
+    //DBG("last message removed");
+    ch->msg_last = msg->prev;
+  }
+  if(msg->next != NULL) {
+    //DBG("set next");
+    msg->next->prev = msg->prev;
+  }
+  if(msg->prev != NULL) {
+    //DBG("set prev");
+    msg->prev->next = msg->next;
   }
   
-  //nonzero number of subscribers present
-  switch(cf->subscriber_concurrency) {
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-      return NGX_OK;
-      
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-      //send "everyone" a 409 Conflict response.
-      //in most reasonable cases, there'll be at most one subscriber on the
-      //channel. However, since settings are bound to locations and not
-      //specific channels, this assumption need not hold. Hence this broadcast.
-      ngx_http_push_store_publish_raw(channel, NULL, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-      
-      return NGX_OK;
-      
-    case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-      ngx_http_push_respond_status_only(r, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-      return NGX_DECLINED;
-      
-    default:
-      return NGX_ERROR;
+  ch->channel.messages--; //supposed to be atomic
+  ch->shared->stored_message_count--;
+  if(ch->channel.messages == 0) {
+    assert(ch->msg_first == NULL);
+    assert(ch->msg_last == NULL);
   }
+  validate_chanhead_messages(ch);
+  return NGX_OK;
 }
 
-static ngx_int_t default_subscribe_callback(ngx_int_t status, ngx_http_request_t *r) {
-  return status;
-}
-
-static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_request_t *r)) {
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_msg_t            *msg;
-  ngx_int_t                       msg_search_outcome;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-
-  
-  if(callback == NULL) {
-    callback=&default_subscribe_callback;
-  }
-  
-  if (cf->authorize_channel==1) {
-    channel = ngx_http_push_store_find_channel(channel_id, cf->channel_timeout, NULL);
-  }else{
-    channel = ngx_http_push_store_get_channel(channel_id, cf->channel_timeout, NULL);
-  }
-  if (channel==NULL) {
-    //unable to allocate channel OR channel not found
-    if(cf->authorize_channel) {
-      return callback(NGX_HTTP_FORBIDDEN, r);
+static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
+  ngx_buf_t         *buf = msg->msg->buf;
+  ngx_file_t        *f = buf->file;
+  if(f != NULL) {
+    if(f->fd != NGX_INVALID_FILE) {
+      DBG("close fd %u ", f->fd);
+      ngx_close_file(f->fd);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate shared memory for channel");
-      return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
+      DBG("delete withdrawn fd invalid");
     }
+    ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
+  }
+  //DBG("free msg %p", msg);
+  shm_free(shm, msg->msg);
+  ngx_free(msg);
+  return NGX_OK;
+}
+
+static ngx_int_t chanhead_delete_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  validate_chanhead_messages(ch);
+  if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
+    DBG("delete msg %i:%i", msg->msg->message_time, msg->msg->message_tag);
+    delete_withdrawn_message(msg);
+  }
+  else {
+    ERR("failed to withdraw and delete message %i:%i", msg->msg->message_time, msg->msg->message_tag);
+  }
+  validate_chanhead_messages(ch);
+  return NGX_OK;
+}
+
+static ngx_int_t chanhead_messages_gc_custom(nhpm_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
+  validate_chanhead_messages(ch);
+  nhpm_message_t *cur = ch->msg_first;
+  nhpm_message_t *next = NULL;
+  time_t          now = ngx_time();
+  //DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
+  
+  //is the message queue too big?
+  while(cur != NULL && ch->channel.messages > max_messages) {
+    next = cur->next;
+    if(cur->msg->refcount > 0) {
+      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
+    }
+    else {
+      DBG("delete queue-too-big msg %i:%i", cur->msg->message_time, cur->msg->message_tag);
+      chanhead_delete_message(ch, cur);
+    }
+    cur = next;
   }
   
-  switch(ngx_http_push_handle_subscriber_concurrency(channel, r, cf)) {
-    case NGX_DECLINED: //this request was declined for some reason.
-      //status codes and whatnot should have already been written. just get out of here quickly.
-      return callback(NGX_OK, r);
-    case NGX_ERROR:
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error handling subscriber concurrency setting");
-      return callback(NGX_ERROR, r);
+  while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg->expires) {
+    next = cur->next;
+    if(cur->msg->refcount > 0) {
+      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
+    }
+    else {
+      chanhead_delete_message(ch, cur);
+    }
+    cur = next;
+  }
+  //DBG("Tried deleting %i mesages", count);
+  validate_chanhead_messages(ch);
+  return NGX_OK;
+}
+
+static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
+  //DBG("messages gc for ch %p %V", ch, &ch->id);
+  return chanhead_messages_gc_custom(ch, ch->min_messages, ch->max_messages);
+}
+
+static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch) {
+  chanhead_messages_gc_custom(ch, 0, 0);
+  return NGX_OK;
+}
+
+static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
+  nhpm_channel_head_t         *ch = &mpt->unbuffered_dummy_chanhead;
+  DBG("handling unbuffered messages GC queue");
+  
+  #if FAKESHARD
+  ngx_int_t        i;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+  memstore_fakeprocess_push(i);
+  #endif
+  if(!force_delete) {
+    chanhead_messages_gc(ch);
+  }
+  else {
+    chanhead_messages_delete(ch);
   }
   
-  
-  msg = ngx_http_push_store->get_channel_message(channel, msg_id, &msg_search_outcome, cf);
-  
-  if (cf->ignore_queue_on_no_cache && !ngx_http_push_allow_caching(r)) {
-    msg_search_outcome = NGX_HTTP_PUSH_MESSAGE_EXPECTED; 
-    msg = NULL;
+  #if FAKESHARD
+  memstore_fakeprocess_pop();
   }
+  #endif
+  return NGX_OK;
+}
+
+nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
+  DBG("find next message %i:%i", msgid->time, msgid->tag);
+  chanhead_messages_gc(ch);
+  nhpm_message_t *cur, *first;
+  first = ch->msg_first;
+  cur = ch->msg_last;
   
-  switch(msg_search_outcome) {
-    //for message-found:
-    ngx_str_t                  *etag;
-    ngx_str_t                  *content_type;
-    ngx_chain_t                *chain;
-    time_t                      last_modified;
-    ngx_http_push_subscriber_t *subscriber;
+  if(cur == NULL) {
+    *status = msgid == NULL ? NGX_HTTP_PUSH_MESSAGE_EXPECTED : NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
+    return NULL;
+  }
+
+  if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
+    DBG("found message %i:%i", first->msg->message_time, first->msg->message_tag);
+    *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+    return first;
+  }
+
+  while(cur != NULL) {
+    //DBG("cur: %i:%i %V", cur->msg->message_time, cur->msg->message_tag, chanhead_msg_to_str(cur));
     
-    case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
-      // ♫ It's gonna be the future soon ♫
-      if ((subscriber = ngx_http_push_store_subscribe_raw(channel, r))==NULL) {
-        return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
-      }
-      if(ngx_push_longpoll_subscriber_enqueue(channel, subscriber, cf->subscriber_timeout) == NGX_OK) {
-        return callback(NGX_DONE, r);
+    if(msgid->time > cur->msg->message_time || (msgid->time == cur->msg->message_time && msgid->tag >= cur->msg->message_tag)){
+      if(cur->next != NULL) {
+        *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+        DBG("found message %i:%i", cur->next->msg->message_time, cur->next->msg->message_tag);
+        return cur->next;
       }
       else {
-        return callback(NGX_ERROR, r);
+        *status = NGX_HTTP_PUSH_MESSAGE_EXPECTED;
+        return NULL;
       }
+    }
+    cur=cur->prev;
+  }
+  //DBG("looked everywhere, not found");
+  *status = NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
+  return NULL;
+}
+
+typedef struct {
+  subscriber_t             *sub;
+  ngx_int_t                 channel_owner;
+  nhpm_channel_head_t      *chanhead;
+  ngx_str_t                *channel_id;
+  ngx_http_push_msg_id_t   *msg_id;
+  callback_pt               cb;
+  void                     *cb_privdata;
+  unsigned                  already_enqueued:1;
+  unsigned                  allocd:1;
+} subscribe_data_t;
+
+#define SUB_CHANNEL_UNAUTHORIZED 0
+#define SUB_CHANNEL_AUTHORIZED 1
+#define SUB_CHANNEL_NOTSURE 2
+
+static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t ngx_http_push_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+
+static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
+  ngx_int_t                    owner = memstore_channel_owner(channel_id);
+  subscribe_data_t             data;
+  subscribe_data_t            *d;
+  assert(callback != NULL);
+  if(memstore_slot() != owner) {
+    d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+    d->allocd = 1;
+    d->already_enqueued = 1;
+  }
+  else {
+    d = &data;
+    d->allocd = 0;
+    d->already_enqueued = 0;
+  }
+  d->msg_id = msg_id;
+  d->channel_owner = owner;
+  d->channel_id = channel_id;
+  d->cb = callback;
+  d->cb_privdata = privdata;
+  d->sub = sub;
+  
+  DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
+  
+  if(sub->cf->authorize_channel) {
+    if(memstore_slot() != owner) {
+      sub->reserve(sub);
+      memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )ngx_http_push_store_subscribe_sub_reserved_check, d);
+    }
+    else {
+      ngx_http_push_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
+    }
+  }
+  else {
+    ngx_http_push_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+  }
+  
+  return NGX_OK;
+}
+
+static ngx_int_t ngx_http_push_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
+  if(d->sub->release(d->sub) == NGX_OK) {
+    return ngx_http_push_store_subscribe_continued(channel_status, _, d);
+  }
+  else {//don't go any further, the sub has been deleted
+    return NGX_OK;
+  }
+}
+
+static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
+  nhpm_channel_head_t       *chanhead;
+  nhpm_message_t            *chmsg;
+    ngx_int_t                findmsg_status;
+  switch(channel_status) {
+    case SUB_CHANNEL_AUTHORIZED:
+      chanhead = ngx_http_push_memstore_get_chanhead(d->channel_id);
+      break;
+    case SUB_CHANNEL_UNAUTHORIZED:
+      chanhead = NULL;
+      break;
+    case SUB_CHANNEL_NOTSURE:
+      chanhead = ngx_http_push_memstore_find_chanhead(d->channel_id);
+      break;
+  }
+  
+  if (chanhead == NULL) {
+    d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
+    return NGX_OK;
+  }
+  
+  d->chanhead = chanhead;
+  
+  if(memstore_slot() != d->channel_owner) {
+    //check if we need to ask for a message
+    d->sub->enqueue(d->sub);
+    //TODO: use knowledge about the last message id to determine if the owner needs to be queried
+    /*if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
+      //we're here for the latest message, no need to check.
+      return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
+    }
+    else {
+      
+    }*/
+    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, d->msg_id, d);
+    return NGX_OK;
+  }
+  else {
+    chmsg = chanhead_find_next_message(chanhead, d->msg_id, &findmsg_status);
+    return ngx_http_push_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+  }
+}
+
+ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, void *data) {
+  subscribe_data_t           *d = (subscribe_data_t *)data;
+  ngx_int_t                   ret;
+  subscriber_t               *sub = d->sub;
+  nhpm_channel_head_t        *chanhead = d->chanhead;
+  callback_pt                 callback = d->cb;
+  void                       *privdata = d->cb_privdata;
+  
+  switch(findmsg_status) {
     
-    case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
+    case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
+      assert(msg != NULL);
+      DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
+      switch(sub->cf->subscriber_concurrency) {
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
+          //kick everyone elese out, then subscribe
+          ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+          //FALL-THROUGH to BROADCAST
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+            ret = sub->respond_message(sub, msg);
+            callback(ret, msg, privdata);
+          break;
+
+        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
+          ERR("first-in concurrency setting not supported");
+            ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+            callback(ret, msg, privdata);
+          break;
+
+        default:
+          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
+          ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+          callback(ret, msg, privdata);
+      }
+      break;
+
+    case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
+      if(sub->cf->authorize_channel) {
+        sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
+        callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
+        break;
+      }
+      //fall-through
+    case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
+      // ♫ It's gonna be the future soon ♫
+      if(!d->already_enqueued) {
+        ERR("memstore: Sub %p should already have been enqueued. ...", sub);
+        sub->enqueue(sub);
+      }
+      ret = chanhead->spooler.add(&chanhead->spooler, sub);
+      callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
+      break;
+
+    case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
       //subscriber wants an expired message
       //TODO: maybe respond with entity-identifiers for oldest available message?
-      return callback(NGX_HTTP_NO_CONTENT, r);
-      
-    case NGX_HTTP_PUSH_MESSAGE_FOUND:
-      ngx_http_push_alloc_for_subscriber_response(r->pool, 0, msg, &chain, &content_type, &etag, &last_modified);
-      ngx_int_t ret=ngx_http_push_prepare_response_to_subscriber_request(r, chain, content_type, etag, last_modified);
-      ngx_http_push_store->release_message(channel, msg);
-      return callback(ret, r);
-      
-    default: //we shouldn't be here.
-      return callback(NGX_HTTP_INTERNAL_SERVER_ERROR, r);
+      sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
+      callback(NGX_HTTP_NO_CONTENT, NULL, privdata);
+      break;
+    default: //shouldn't be here!
+      sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
   }
-}
-
-static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t *etag = NULL;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
-    return NULL;
-  }
-  else if(pool==NULL && (etag = ngx_alloc(sizeof(*etag) + NGX_INT_T_LEN, ngx_cycle->log))==NULL) {
-    return NULL;
-  }
-  etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return etag;
-}
-
-static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t *content_type = NULL;
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
-    return NULL;
-  }
-  else if(pool == NULL && (content_type = ngx_alloc(sizeof(*content_type) + msg->content_type.len, ngx_cycle->log))==NULL) {
-    return NULL;
-  }
-  content_type->data = (u_char *)(content_type+1);
-  content_type->len = msg->content_type.len;
-  ngx_memcpy(content_type->data, msg->content_type.data, content_type->len);
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  return content_type;
-}
-
-// this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
-static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
-  ngx_buf_t *buf = NULL;
-  ngx_chain_t *chain;
-  ssize_t n;
-  off_t len;
-
-  chain = r->request_body->bufs;
-  if (chain->next == NULL) {
-    return chain->buf;
-  }
-  if (chain->buf->in_file) {
-    if (ngx_buf_in_memory(chain->buf)) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
-    }
-    if (chain->next != NULL) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error reading request body with multiple ");
-    }
-    return chain->buf;
-  }
-  buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
-  if (buf != NULL) {
-    ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
-    while ((chain != NULL) && (chain->buf != NULL)) {
-      len = ngx_buf_size(chain->buf);
-      // if buffer is equal to content length all the content is in this buffer
-      if (len >= r->headers_in.content_length_n) {
-        buf->start = buf->pos;
-        buf->last = buf->pos;
-        len = r->headers_in.content_length_n;
-      }
-      if (chain->buf->in_file) {
-        n = ngx_read_file(chain->buf->file, buf->start, len, 0);
-        if (n == NGX_FILE_ERROR) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: cannot read file with request body");
-          return NULL;
-        }
-        buf->last = buf->last + len;
-        ngx_delete_file(chain->buf->file->name.data);
-        chain->buf->file->fd = NGX_INVALID_FILE;
-      } else {
-        buf->last = ngx_copy(buf->start, chain->buf->pos, len);
-      }
-
-      chain = chain->next;
-      buf->start = buf->last;
-    }
-  }
-  return buf;
-}
-
-
-static ngx_http_push_msg_t * ngx_http_push_store_create_message(ngx_http_push_channel_t *channel, ngx_http_request_t *r) {
-  ngx_buf_t                      *buf = NULL, *buf_copy;
-  size_t                          content_type_len;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_http_push_msg_t            *msg, *previous_msg;
   
-  //first off, we'll want to extract the body buffer
-  
-  //note: this works mostly because of r->request_body_in_single_buf = 1; 
-  //which, i suppose, makes this module a little slower than it could be.
-  //this block is a little hacky. might be a thorn for forward-compatibility.
-  if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
-    buf = ngx_create_temp_buf(r->pool, 0);
-    //this buffer will get copied to shared memory in a few lines, 
-    //so it does't matter what pool we make it in.
+  if(d->allocd) {
+    ngx_free(d);
   }
-  else if(r->request_body->bufs!=NULL) {
-    buf = ngx_http_push_request_body_to_single_buffer(r);
+  return NGX_OK;
+}
+
+static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *msg) {
+  msg->next = NULL;
+  msg->prev = ch->msg_last;
+  if(msg->prev != NULL) {
+    msg->prev->next = msg;
+  }
+
+  //set time and tag
+  if(msg->msg->message_time == 0) {
+    msg->msg->message_time = ngx_time();
+  }
+  if(ch->msg_last && ch->msg_last->msg->message_time == msg->msg->message_time) {
+    msg->msg->message_tag = ch->msg_last->msg->message_tag + 1;
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
+    msg->msg->message_tag = 0;
+  }
+
+  if(ch->msg_first == NULL) {
+    ch->msg_first = msg;
+  }
+  ch->channel.messages++;
+  ch->shared->stored_message_count++;
+  ch->shared->total_message_count++;
+
+  ch->msg_last = msg;
+  
+  //DBG("create %i:%i %V", msg->msg->message_time, msg->msg->message_tag, chanhead_msg_to_str(msg));
+  chanhead_messages_gc(ch);
+  return ch->msg_last == msg ? NGX_OK : NGX_ERROR;
+}
+
+typedef struct {
+  ngx_http_push_msg_t     msg;
+  ngx_buf_t               buf;
+  ngx_file_t              file;
+} shmsg_memspace_t;
+
+static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
+  shmsg_memspace_t        *stuff;
+  ngx_http_push_msg_t     *msg;
+  ngx_buf_t               *mbuf = NULL, *buf=NULL;
+  mbuf = m->buf;
+  
+  
+  size_t                   buf_body_size = 0, content_type_size = 0, buf_filename_size = 0;
+  
+  content_type_size += m->content_type.len;
+  if(ngx_buf_in_memory_only(mbuf)) {
+    buf_body_size = ngx_buf_size(mbuf);
+  }
+  if(mbuf->in_file && mbuf->file != NULL) {
+    buf_filename_size = mbuf->file->name.len;
+    if (buf_filename_size > 0) {
+      buf_filename_size ++; //for null-termination
+    }
+  }
+
+  if((stuff = shm_calloc(shm, sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size), "message")) == NULL) {
+    ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
+  // shmsg memory chunk: |chmsg|buf|fd|filename|content_type_data|msg_body|
+
+  msg = &stuff->msg;
+  buf = &stuff->buf;
+
+  ngx_memcpy(msg, m, sizeof(*msg));
+  ngx_memcpy(buf, mbuf, sizeof(*buf));
   
-  NGX_HTTP_PUSH_BROADCAST_CHECK(buf, NULL, r, "push module: can't find or allocate publisher request body buffer");
-      
-  content_type_len = (r->headers_in.content_type!=NULL ? r->headers_in.content_type->value.len : 0);
-  
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  
-  //create a buffer copy in shared mem
-  msg = ngx_http_push_slab_alloc_locked(sizeof(*msg) + content_type_len, "message + content_type");
-  NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(msg, NULL, r, "push module: unable to allocate message in shared memory", ngx_http_push_shpool);
-  previous_msg=ngx_http_push_get_latest_message_locked(channel); //need this for entity-tags generation
-  
-  buf_copy = ngx_http_push_slab_alloc_locked(NGX_HTTP_BUF_ALLOC_SIZE(buf), "message buffer copy");
-  NGX_HTTP_PUSH_BROADCAST_CHECK_LOCKED(buf_copy, NULL, r, "push module: unable to allocate buffer in shared memory", ngx_http_push_shpool) //magic nullcheck
-  ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
-  
-  msg->buf=buf_copy;
-  
-  //Stamp the new message with entity tags
-  msg->message_time=ngx_time(); //ESSENTIAL TODO: make sure this ends up producing GMT time
-  msg->message_tag=(previous_msg!=NULL && msg->message_time == previous_msg->message_time) ? (previous_msg->message_tag + 1) : 0;    
-  
-  //store the content-type
-  if(content_type_len>0) {
-    msg->content_type.len=r->headers_in.content_type->value.len;
-    msg->content_type.data=(u_char *) (msg+1); //we had reserved a contiguous chunk, myes?
-    ngx_memcpy(msg->content_type.data, r->headers_in.content_type->value.data, msg->content_type.len);
-  }
-  else {
-    msg->content_type.len=0;
-    msg->content_type.data=NULL;
+  msg->buf = buf;
+
+  msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
+
+  msg->content_type.len = content_type_size;
+
+  ngx_memcpy(msg->content_type.data, m->content_type.data, content_type_size);
+
+  if(buf_body_size > 0) {
+    buf->pos = (u_char *)&stuff[1] + buf_filename_size + content_type_size;
+    buf->last = buf->pos + buf_body_size;
+    buf->start = buf->pos;
+    buf->end = buf->last;
+    ngx_memcpy(buf->pos, mbuf->pos, buf_body_size);
   }
   
-  //queue stuff ought to be NULL
-  msg->queue.prev=NULL;
-  msg->queue.next=NULL;
-  
-  msg->refcount=0;
-  
-  //set message expiration time
-  time_t                  message_timeout = cf->buffer_timeout;
-  msg->expires = (message_timeout==0 ? 0 : (ngx_time() + message_timeout));
-  
-  msg->delete_oldest_received_min_messages = cf->delete_oldest_received_message ? (ngx_uint_t) cf->min_messages : NGX_MAX_UINT32_VALUE;
-  //NGX_MAX_UINT32_VALUE to disable, otherwise = min_message_buffer_size of the publisher location from whence the message came
-  
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, CREATED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
+  if(buf->file!=NULL) {
+    buf->file = &stuff->file;
+    ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
+    
+    /*
+    buf->file->fd = ngx_open_file(mbuf->file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    */
+    buf->file->fd =NGX_INVALID_FILE;
+    buf->file->log = ngx_cycle->log;
+
+    buf->file->name.data = (u_char *)&stuff[1];
+
+    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
+    
+    //don't mmap it
+    /*
+    if((buf->start = mmap(NULL, buf->file_last, PROT_READ, MAP_SHARED, buf->file->fd, 0))==NULL){
+      ERR("mmap failed");
+    }
+    buf->last=buf->start + buf->file_last;
+    buf->pos=buf->start + buf->file_pos;
+    buf->end = buf->start + buf->file_last;
+    //buf->file_pos=0;
+    //buf->file_last=0;
+    
+    buf->last=buf->end;
+    //buf->in_file=0;
+    buf->mmap=1;
+    //buf->file=NULL;
+    */
+  }
+  msg->shared=1;
   return msg;
 }
 
-static ngx_int_t ngx_http_push_store_enqueue_message(ngx_http_push_channel_t *channel, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf) {
-  ngx_shmtx_lock(&ngx_http_push_shpool->mutex);
-  ngx_queue_insert_tail(&channel->message_queue->queue, &msg->queue);
-  channel->messages++;
-  
-  //now see if the queue is too big
-  if(channel->messages > (ngx_uint_t) cf->max_messages) {
-    //exceeeds max queue size. don't force it, someone might still be using this message.
-    ngx_http_push_delete_message_locked(channel, ngx_http_push_get_oldest_message_locked(channel), 0);
-  }
-  if(channel->messages > (ngx_uint_t) cf->min_messages) {
-    //exceeeds min queue size. maybe delete the oldest message
-    //no, don't do anything for now. This feature is badly implemented and I think I'll deprecate it.
-  }
 
-  ngx_shmtx_unlock(&ngx_http_push_shpool->mutex);
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, ENQUEUED_DBG, msg, msg->refcount, msg->queue.prev, msg->queue.next);
-  return NGX_OK;
+
+
+static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t msg_in_shm) {
+  nhpm_message_t          *chmsg;
+  ngx_http_push_msg_t     *msg;
+  
+  if(msg_in_shm) {
+    msg = m;
+  }
+  else {
+    if((msg=create_shm_msg(m)) == NULL ) {
+      return NULL;
+    }
+  }
+  if((chmsg = ngx_alloc(sizeof(*chmsg), ngx_cycle->log)) != NULL) {
+    chmsg->prev = NULL;
+    chmsg->next = NULL;
+    chmsg->msg  = msg;
+  }
+  return chmsg;
 }
 
-static ngx_int_t default_publish_callback(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r) {
-  return status;
+static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
+  return ngx_http_push_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
 }
-
-static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_http_request_t *r, ngx_int_t (*callback)(ngx_int_t status, ngx_http_push_channel_t *ch, ngx_http_request_t *r)) {
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_msg_t            *msg;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  ngx_int_t                       result=0;
-  if(callback==NULL) {
-    callback=&default_publish_callback;
-  }
-  if((channel=ngx_http_push_store_get_channel(channel_id, cf->channel_timeout, NULL))==NULL) { //always returns a channel, unless no memory left
-    return callback(NGX_ERROR, NULL, r);
-    //ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-  }
   
-  if((msg = ngx_http_push_store_create_message(channel, r))==NULL) {
-    return callback(NGX_ERROR, channel, r);
-    //ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+  nhpm_channel_head_t     *chead;
+  ngx_http_push_channel_t  channel_copy_data;
+  ngx_http_push_channel_t *channel_copy = &channel_copy_data;
+  nhpm_message_t          *shmsg_link;
+  ngx_int_t                sub_count;
+  ngx_http_push_msg_t     *publish_msg;
+  ngx_int_t                owner = memstore_channel_owner(channel_id);
+  ngx_int_t                rc;
+  if(callback == NULL) {
+    callback = empty_callback;
   }
-  
-  if(cf->max_messages > 0) { //channel buffers exist
-    ngx_http_push_store_enqueue_message(channel, msg, cf);
-  }
-  else if(cf->max_messages == 0) {
-    ngx_http_push_store_reserve_message(NULL, msg);
-  }
-  result= ngx_http_push_store_publish_raw(channel, msg, 0, NULL);
-  return callback(result, channel, r);
-}
 
-static ngx_int_t ngx_http_push_store_send_worker_message(ngx_http_push_channel_t *channel, ngx_http_push_subscriber_t *subscriber_sentinel, ngx_pid_t pid, ngx_int_t worker_slot, ngx_http_push_msg_t *msg, ngx_int_t status_code) {
-  ngx_http_push_worker_msg_sentinel_t   *worker_messages = ((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc;
-  ngx_http_push_worker_msg_sentinel_t   *sentinel = &worker_messages[worker_slot];
-  ngx_http_push_worker_msg_t            *newmessage;
-  if((newmessage=ngx_http_push_slab_alloc(sizeof(*newmessage), "IPC worker message"))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate worker message");
+  //this coould be dangerous!!
+  if(msg->message_time==0) {
+    msg->message_time = ngx_time();
+  }
+  msg->expires = ngx_time() + msg_timeout;
+  
+  if((chead = ngx_http_push_memstore_get_chanhead(channel_id)) == NULL) {
+    ERR("can't get chanhead for id %V", channel_id);
+    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
     return NGX_ERROR;
   }
-  newmessage->msg = msg;
-  newmessage->status_code = status_code;
-  newmessage->pid = pid;
-  newmessage->subscriber_sentinel = subscriber_sentinel;
-  newmessage->channel = channel;
   
-  ngx_http_push_store_lock_shmem();
-  ngx_queue_insert_tail(&sentinel->queue, &newmessage->queue);
-  ngx_http_push_store_unlock_shmem();
-  return NGX_OK;
-  
-}
-
-static void ngx_http_push_store_receive_worker_message(void) {
-  ngx_http_push_worker_msg_t     *prev_worker_msg, *worker_msg;
-  ngx_http_push_worker_msg_sentinel_t    *sentinel;
-  const ngx_str_t                *status_line = NULL;
-  ngx_http_push_channel_t        *channel;
-  ngx_http_push_subscriber_t     *subscriber_sentinel;
-  ngx_int_t                       worker_msg_pid;
-  
-  ngx_int_t                       status_code;
-  ngx_http_push_msg_t            *msg;
-  
-  sentinel = &(((ngx_http_push_shm_data_t *)ngx_http_push_shm_zone->data)->ipc)[ngx_process_slot];
-  
-  ngx_http_push_store_lock_shmem();
-  worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&sentinel->queue);
-  ngx_http_push_store_unlock_shmem();
-  while((void *)worker_msg != (void *)sentinel) {
-    
-    ngx_http_push_store_lock_shmem();
-    worker_msg_pid = worker_msg->pid;
-    ngx_http_push_store_unlock_shmem();
-    
-    if(worker_msg_pid == ngx_pid) {
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing proper worker_msg ");
-      //everything is okay.
-      
-      ngx_http_push_store_lock_shmem();
-      status_code = worker_msg->status_code;
-      msg = worker_msg->msg;
-      channel = worker_msg->channel;
-      subscriber_sentinel = worker_msg->subscriber_sentinel;
-      ngx_http_push_store_unlock_shmem();
-      
-      if(msg==NULL) {
-        //just a status line, is all    
-        //status code only.
-        switch(status_code) {
-          case NGX_HTTP_CONFLICT:
-            status_line=&NGX_HTTP_PUSH_HTTP_STATUS_409;
-            break;
-            
-          case NGX_HTTP_GONE:
-            status_line=&NGX_HTTP_PUSH_HTTP_STATUS_410;
-            break;
-            
-          case 0:
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker message contains neither a channel message nor a status code");
-            //let's let the subscribers know that something went wrong and they might've missed a message
-            status_code = NGX_HTTP_INTERNAL_SERVER_ERROR; 
-            //intentional fall-through
-          default:
-            status_line=NULL;
-        }
-      }
-      
-      ngx_http_push_respond_to_subscribers(channel, subscriber_sentinel, msg, status_code, status_line);
-    }
-    else {
-      //that's quite bad you see. a previous worker died with an undelivered message.
-      //but all its subscribers' connections presumably got canned, too. so it's not so bad after all.
-      //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message processing INVALID worker_msg ");
-      
-      ngx_http_push_store_lock_shmem();
-      
-      ngx_http_push_pid_queue_t     *channel_worker_sentinel = worker_msg->channel->workers_with_subscribers;
-      
-      ngx_http_push_pid_queue_t     *channel_worker_cur = channel_worker_sentinel;
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: worker %i intercepted a message intended for another worker process (%i) that probably died", ngx_pid, worker_msg->pid);
-      
-      //delete that invalid sucker.
-      while((channel_worker_cur=(ngx_http_push_pid_queue_t *)ngx_queue_next(&channel_worker_cur->queue))!=channel_worker_sentinel) {
-        if(channel_worker_cur->pid == worker_msg->pid) {
-          ngx_queue_remove(&channel_worker_cur->queue);
-          ngx_http_push_slab_free_locked(channel_worker_cur);
-          break;
-        }
-      }
-      
-      ngx_http_push_store_unlock_shmem();
-      
-    }
-    //It may be worth it to memzero worker_msg for debugging purposes.
-    prev_worker_msg = worker_msg;
-    
-    ngx_http_push_store_lock_shmem();
-    worker_msg = (ngx_http_push_worker_msg_t *)ngx_queue_next(&worker_msg->queue);
-    ngx_http_push_slab_free_locked(prev_worker_msg);
-    ngx_http_push_store_unlock_shmem();
-
+  if(memstore_slot() != owner) {
+    publish_msg = create_shm_msg(msg);
+    memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
+    return NGX_OK;
   }
-  ngx_http_push_store_lock_shmem();
-  ngx_queue_init(&sentinel->queue); //reset the worker message sentinel
-  ngx_http_push_store_unlock_shmem();
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "process_worker_message finished");
-  return;
+  
+  chead->channel.expires = ngx_time() + msg_timeout;
+  sub_count = chead->shared->sub_count;
+  
+  //TODO: address this weirdness
+  //chead->min_messages = cf->min_messages;
+  chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
+  
+  chead->max_messages = max_msgs;
+  
+  chanhead_messages_gc(chead);
+  if(max_msgs == 0) {
+    channel_copy=&chead->channel;
+    publish_msg = create_shm_msg(msg);
+    publish_msg->expires = ngx_time() + NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC;
+    DBG("publish unbuffer msg %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
+    
+    if((shmsg_link = create_shared_message(msg, 1)) == NULL) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't create unbuffered message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+    
+    if(chanhead_push_message(&mpt->unbuffered_dummy_chanhead, shmsg_link) != NGX_OK) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't enqueue unbuffered message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+    
+  }
+  else {
+    if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't create shared message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+
+    if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't enqueue shared message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+    ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
+    channel_copy->subscribers = sub_count;
+    assert(shmsg_link != NULL);
+    assert(chead->msg_last == shmsg_link);
+    publish_msg = shmsg_link->msg;
+  }
+  
+  //do the actual publishing
+  
+  DBG("publish %i:%i expire %i", publish_msg->message_time, publish_msg->message_tag, msg_timeout);
+  if(publish_msg->buf && publish_msg->buf->file) {
+    DBG("fd %i", publish_msg->buf->file->fd);
+  }
+  rc = ngx_http_push_memstore_publish_generic(chead, publish_msg, 0, NULL);
+  callback(rc, channel_copy, privdata);
+
+  return rc;
 }
 
 ngx_http_push_store_t  ngx_http_push_store_memory = {
@@ -1139,42 +1390,16 @@ ngx_http_push_store_t  ngx_http_push_store_memory = {
     &ngx_http_push_store_exit_master,
     
     //async-friendly functions with callbacks
-    &ngx_http_push_store_get_message, //+callback
+    &ngx_http_push_store_async_get_message, //+callback
     &ngx_http_push_store_subscribe, //+callback
     &ngx_http_push_store_publish_message, //+callback
     
-    //channel stuff,
-    &ngx_http_push_store_get_channel, //creates channel if not found, +callback
-    &ngx_http_push_store_find_channel, //returns channel or NULL if not found, +callback
-    &ngx_http_push_store_delete_channel,
-    
-    &ngx_http_push_store_get_channel_message,
-    &ngx_http_push_store_reserve_message,
-    &ngx_http_push_store_release_message,
-    
-    //channel properties
-    &ngx_http_push_store_channel_subscribers,
-    &ngx_http_push_store_channel_worker_subscribers,
-    &ngx_http_push_store_channel_next_subscriber,
-    &ngx_http_push_store_channel_release_subscriber_sentinel,
-
-    //legacy shared-memory store helpers
-    &ngx_http_push_store_lock_shmem,
-    &ngx_http_push_store_unlock_shmem,
-    &ngx_http_push_slab_alloc_locked,
-    &ngx_http_push_slab_free_locked,
+    &ngx_http_push_store_delete_channel, //+callback
+    &ngx_http_push_store_find_channel, //+callback
     
     //message stuff
-    &ngx_http_push_store_create_message,
-    &ngx_http_push_delete_message,
-    &ngx_http_push_delete_message_locked,
-    &ngx_http_push_store_enqueue_message,
-    &ngx_http_push_store_etag_from_message,
-    &ngx_http_push_store_content_type_from_message,
+    NULL,
+    NULL,
     
-    //interprocess communication
-    &ngx_http_push_store_send_worker_message,
-    &ngx_http_push_store_receive_worker_message
-    
-
 };
+

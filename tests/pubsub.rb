@@ -3,6 +3,7 @@ require 'typhoeus'
 require 'json'
 require 'pry'
 require 'celluloid'
+require 'date'
 Typhoeus::Config.memoize = false
 
 class Message
@@ -11,8 +12,15 @@ class Message
     @times_seen=1
     @message, @last_modified, @etag = msg, last_modified, etag
   end
+  def serverside_id
+    timestamp=nil
+    if last_modified
+      timestamp = DateTime.httpdate(last_modified).to_time.utc.to_i
+    end
+    "#{timestamp}:#{etag}"
+  end
   def id
-    @id||="#{last_modified}:#{etag}"
+    @id||=serverside_id
   end
   def to_s
     @message
@@ -21,18 +29,28 @@ end
 
 class MessageStore
   include Enumerable
-  attr_accessor :msgs, :quit_message
+  attr_accessor :msgs, :quit_message, :name
 
-  def matches? (msg_store)
+  def matches? (other_msg_store)
     my_messages = messages
-    if MessageStore === msg_store
-      other_messages = msg_store.messages
+    if MessageStore === other_msg_store
+      other_messages = other_msg_store.messages
+      other_name = other_msg_store.name
     else
-      other_messages = msg_store
+      other_messages = other_msg_store
+      other_name = "?"
     end
-    return false, "Message count doesn't match. ( #{my_messages.count}, #{other_messages.count})" unless my_messages.count == other_messages.count
+    unless my_messages.count == other_messages.count 
+      err =  "Message count doesn't match:\r\n"
+      err << "#{self.name}: #{my_messages.count}\r\n"
+      err << "#{self.to_s}\r\n"
+      
+      err << "#{other_name}: #{other_messages.count}\r\n"
+      err << "#{other_msg_store.to_s}"
+      return false, err
+    end
     other_messages.each_with_index do |msg, i|
-      return false, "Message #{i} doesn't match. (|#{my_messages[i].length}|, |#{msg.length}|) " if my_messages[i] != msg
+      return false, "Message #{i} doesn't match. (#{self.name} |#{my_messages[i].length}|, #{other_name} |#{msg.length}|) " if my_messages[i] != msg
     end
     true
   end
@@ -59,11 +77,16 @@ class MessageStore
   def to_a
     @array ? @msgs : @msgs.values
   end
-  def pp
+  def to_s
+    buf=""
     each do |msg|
-      puts "\"#{msg.to_s}\" (seen #{msg.times_seen} times.)"
+      m = msg.to_s
+      m = m.length > 20 ? "#{m[0...20]}..." : m
+      buf<< "<#{msg.id}> \"#{m}\" (count: #{msg.times_seen})\r\n"
     end
+    buf
   end
+
   def each
     if @array
       @msgs.each {|msg| yield msg }
@@ -76,7 +99,7 @@ class MessageStore
       @msgs << msg
     else
       if (cur_msg=@msgs[msg.id])
-        puts "Received different messages with same message id #{msg.id}: '#{cur_msg.message}' and '#{msg.message}'" unless cur_msg.message == msg.message
+        puts "Different messages with same id: #{msg.serverside_id}, \"#{msg.to_s}\" then \"#{cur_msg.to_s}\"" unless cur_msg.message == msg.message
         cur_msg.times_seen+=1
         cur_msg.times_seen
       else
@@ -92,7 +115,7 @@ class Subscriber
     include Celluloid
     attr_accessor :last_modified, :etag, :hydra, :timeout
     def initialize(subscr, opt={})
-      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout] || 10
+      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
@@ -223,6 +246,7 @@ class Subscriber
   def reset
     @errors=[]
     @messages=MessageStore.new :noid => !@care_about_message_ids
+    @messages.name="sub"
     @waiting=0
     @finished=0
     new_client if terminated?
@@ -310,6 +334,7 @@ class Publisher
   def initialize(url)
     @url= url
     @messages = MessageStore.new :noid => true
+    @messages.name = "pub"
   end
   
   def submit(body, method=:POST, content_type= :'text/plain', &block)
@@ -344,11 +369,21 @@ class Publisher
       elsif response.code == 0
         # Could not get an http response, something's wrong.
         #puts "publisher err: #{response.return_message}"
-        raise "No HTTP response: #{response.return_message}" unless self.nofail
+        errmsg="No HTTP response: #{response.return_message}"
+        if self.nofail then
+          puts errmsg
+        else
+          raise errmsg
+        end
       else
         # Received a non-successful http response.
         #puts "publisher err: #{response.code.to_s}"
-        raise "HTTP request failed: #{response.code.to_s}" unless self.nofail
+        errmsg="HTTP request failed: #{response.code.to_s}"
+        if self.nofail then
+          puts errmsg
+        else
+          raise errmsg
+        end
       end
       block.call(self) if block
     end

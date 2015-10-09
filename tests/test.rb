@@ -1,8 +1,8 @@
 #!/usr/bin/ruby
 require 'minitest'
 require 'minitest/reporters'
-Minitest::Reporters.use! Minitest::Reporters::SpecReporter.new
 require "minitest/autorun"
+Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
@@ -40,10 +40,11 @@ class PubSubTest <  Minitest::Test
   def test_interval_poll
     pub, sub=pubsub 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.1
     sub.run
+    sleep 0.4
     pub.post ["hello this", "is a thing"]
-    sleep 1
+    sleep 0.3
     pub.post ["oh now what", "is this even a thing?"]
-    sleep 1
+    sleep 0.6
     pub.post "FIN"
     sub.wait
     verify pub, sub
@@ -67,7 +68,7 @@ class PubSubTest <  Minitest::Test
     assert_equal 202, pub.response_code
     pub.get
     assert_equal 200, pub.response_code
-    assert_match /last requested: \d+ sec/, pub.response_body
+    assert_match /last requested: -?\d+ sec/, pub.response_body
     
     pub.get "text/json"
     info_json=JSON.parse pub.response_body
@@ -105,13 +106,22 @@ class PubSubTest <  Minitest::Test
     assert_equal yaml_resp2, yaml_resp3
     
     
+    pub.accept="text/json"
+
     pub.post "FIN"
-    sub.wait
-    pub.get "text/json"
+    #stats right before FIN was issued
     info_json=JSON.parse pub.response_body
     assert_equal 3, info_json["messages"]
     #assert_equal 0, info_json["requested"]
-    assert_equal 0, info_json["subscribers"]
+    assert_equal subs, info_json["subscribers"]
+    
+    sub.wait
+    
+    pub.get "text/json"
+    info_json=JSON.parse pub.response_body
+    assert_equal 3, info_json["messages"], "number of messages received by channel is wrong"
+    #assert_equal 0, info_json["requested"]
+    assert_equal 0, info_json["subscribers"], "channel should say there are no subscribers"
     
     sub.terminate
   end
@@ -128,6 +138,17 @@ class PubSubTest <  Minitest::Test
     pub.post "FIN"
     assert_equal 201, pub.response_code
     sleep 0.2
+    assert_equal 2, sub.messages.messages.count
+    assert sub.messages.matches? pub.messages
+    sub.terminate
+  end
+  
+  def test_publish_then_subscribe
+    pub, sub = pubsub
+    pub.post "hi there"
+    sub.run
+    pub.post "FIN"
+    sub.wait
     assert_equal 2, sub.messages.messages.count
     assert sub.messages.matches? pub.messages
     sub.terminate
@@ -155,13 +176,15 @@ class PubSubTest <  Minitest::Test
 
   def test_deletion
     #delete active channel
-    pub, sub = pubsub 5, timeout: 10
+    par=5
+    pub, sub = pubsub par, timeout: 10
     sub.on_failure { false }
     sub.run
     sleep 0.2
     pub.delete
-    sleep 0.2
+    sleep 0.1
     assert_equal 200, pub.response_code
+    assert_equal pub.response_body.match(/subscribers:\s+(\d)/)[1].to_i, 5
     sub.wait
     assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
 
@@ -189,11 +212,11 @@ class PubSubTest <  Minitest::Test
 
     pub.post ["this message should not be delivered", "nor this one"]
     sub.each {|s| s.run}
-    sleep 0.2
+    sleep 1
     pub.post "received1"
-    sleep 0.2
+    sleep 1
     pub.post "received2"
-    sleep 0.2 
+    sleep 1
     pub.post "FIN"
     sub.each {|s| s.wait}
     sub.each do |s|
@@ -229,6 +252,14 @@ class PubSubTest <  Minitest::Test
     sub.each {|s| s.terminate }
   end
   
+  def test_broadcast_3
+    test_broadcast 3
+  end
+  
+   def test_broadcast_20
+    test_broadcast 20
+  end
+  
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
     pub.post "yeah okay"
@@ -245,7 +276,7 @@ class PubSubTest <  Minitest::Test
   #  test_broadcast 3000
   #end
   
-  def test_subscriber_concurrency
+  def dont_test_subscriber_concurrency
     chan=SecureRandom.hex
     pub_first = Publisher.new url("pub/first#{chan}")
     pub_last = Publisher.new url("pub/last#{chan}")
@@ -291,7 +322,7 @@ class PubSubTest <  Minitest::Test
 
   def test_queueing
     pub, sub = pubsub 5
-    pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN )
+    pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN ), 'text/plain'
     sleep 0.3
     sub.run
     sub.wait
@@ -302,26 +333,22 @@ class PubSubTest <  Minitest::Test
   def test_long_message(kb=1)
     pub, sub = pubsub 10, timeout: 10
     sub.run
-    pub.post ["q" * kb * 1024, "FIN"]
+    sleep 0.2
+    pub.post ["#{"q"*((kb * 1024)-3)}end", "FIN"]
     sub.wait
     verify pub, sub
     sub.terminate
   end
   
-  def test_long_message_500kb
-    test_long_message 500
-  end
-  
-  def test_long_message_700kb
-    test_long_message 700
-  end
-  
-  def test_long_message_950kb
-    test_long_message 950
+  #[5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
+  [5, 10, 20, 200, 900].each do |n|
+    define_method "test_long_message_#{n}Kb" do 
+      test_long_message n
+    end
   end
   
   def test_message_length_range
-    pub, sub = pubsub 2, timeout: 6
+    pub, sub = pubsub 2, timeout: 15
     sub.run
     
     n=5
@@ -337,12 +364,13 @@ class PubSubTest <  Minitest::Test
   end
   
   def test_message_timeout
-    pub, sub = pubsub 10, pub: "/pub/2_sec_message_timeout/", timeout: 4
+    pub, sub = pubsub 1, pub: "/pub/2_sec_message_timeout/", timeout: 10
     pub.post %w( foo bar etcetera ) #these shouldn't get delivered
     pub.messages.clear
     sleep 3
-    
+    #binding.pry
     sub.run
+    sleep 1
     pub.post %w( what is this even FIN )
     sub.wait
     verify pub, sub
@@ -351,14 +379,16 @@ class PubSubTest <  Minitest::Test
   
   def test_subscriber_timeout
     chan=SecureRandom.hex
-    sub=Subscriber.new(url("sub/timeout/#{chan}"), 2, timeout: 10)
+    sub=Subscriber.new(url("sub/timeout/#{chan}"), 5, timeout: 10)
     sub.on_failure { false }
     pub=Publisher.new url("pub/#{chan}")
     sub.run
+    sleep 0.1
     pub.post "hello"
     sub.wait
     verify pub, sub, false
     assert sub.match_errors(/code 304/)
+    sub.terminate
   end
   
   def assert_header_includes(response, header, str)
@@ -384,6 +414,7 @@ class PubSubTest <  Minitest::Test
     #bug: turning on gzip cleared the response etag
     pub, sub = pubsub 1, sub: "/sub/gzip/", gzip: true, retry_delay: 0.3
     sub.run
+    sleep 0.1
     pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]
     sleep 1
     pub.post "foobar"

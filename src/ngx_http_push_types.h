@@ -1,3 +1,5 @@
+typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
+
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
@@ -17,7 +19,7 @@ typedef struct {
 
 //message queue
 typedef struct {
-  ngx_queue_t                     queue; //this MUST be first.
+//  ngx_queue_t                     queue; //this MUST be first.
   ngx_str_t                       content_type;
   //  ngx_str_t                       charset;
   ngx_buf_t                      *buf;
@@ -25,47 +27,21 @@ typedef struct {
   ngx_uint_t                      delete_oldest_received_min_messages; //NGX_MAX_UINT32_VALUE for 'never'
   time_t                          message_time; //tag message by time
   ngx_int_t                       message_tag;  //used in conjunction with message_time if more than one message have the same time.
+  unsigned                        shared:1; //for debugging
   ngx_int_t                       refcount;
 } ngx_http_push_msg_t;
 
-typedef struct ngx_http_push_subscriber_cleanup_s ngx_http_push_subscriber_cleanup_t;
 
-//subscriber request queue
-typedef struct {
-  ngx_queue_t                     queue; //this MUST be first.
-  ngx_http_request_t             *request;
-  ngx_http_push_subscriber_cleanup_t *clndata; 
-  ngx_event_t                     event;
-} ngx_http_push_subscriber_t;
-
-typedef struct {
-  ngx_queue_t                     queue;
-  pid_t                           pid;
-  ngx_int_t                       slot;
-  ngx_http_push_subscriber_t     *subscriber_sentinel;
-} ngx_http_push_pid_queue_t; 
-
-//our typecast-friendly rbtree node (channel)
 typedef struct {
   ngx_rbtree_node_t               node; //this MUST be first.
   ngx_str_t                       id;
   ngx_http_push_msg_t            *message_queue;
-  ngx_uint_t                      messages;
-  ngx_http_push_pid_queue_t      *workers_with_subscribers;
-  ngx_uint_t                      subscribers;
+  ngx_atomic_t                    messages;
+  ngx_atomic_t                    subscribers;
   time_t                          last_seen;
   time_t                          expires;
-} ngx_http_push_channel_t; 
+} ngx_http_push_channel_t;
 
-//cleaning supplies
-struct ngx_http_push_subscriber_cleanup_s {
-  ngx_http_push_subscriber_t    *subscriber;
-  ngx_http_push_channel_t       *channel;
-  ngx_int_t                     *buf_use_count;
-  ngx_buf_t                     *buf;
-  ngx_chain_t                   *rchain;
-  ngx_pool_t                    *rpool;
-};
 
 //garbage collecting goodness
 typedef struct {
@@ -73,15 +49,6 @@ typedef struct {
   ngx_http_push_channel_t        *channel;
 } ngx_http_push_channel_queue_t;
 
-//messages to worker processes
-typedef struct {
-  ngx_queue_t                     queue;
-  ngx_http_push_msg_t            *msg; //->shared memory
-  ngx_int_t                       status_code;
-  ngx_pid_t                       pid; 
-  ngx_http_push_channel_t        *channel; //->shared memory
-  ngx_http_push_subscriber_t     *subscriber_sentinel; //->a worker's local pool
-} ngx_http_push_worker_msg_t;
 
 typedef struct {
   ngx_queue_t                    queue;
@@ -111,6 +78,8 @@ typedef struct {
   ngx_int_t                       max_channel_subscribers;
   ngx_int_t                       ignore_queue_on_no_cache;
   time_t                          channel_timeout;
+  ngx_str_t                       storage_engine;
+  ngx_str_t                       storage_engine_name;
 } ngx_http_push_loc_conf_t;
 
 typedef struct {
@@ -118,3 +87,31 @@ typedef struct {
   size_t len;
   const ngx_str_t *format;
 } ngx_http_push_content_subtype_t;
+
+typedef struct nhpm_llist_timed_s {
+  struct nhpm_llist_timed_s     *prev;
+  void                          *data;
+  time_t                         time;
+  struct nhpm_llist_timed_s     *next;
+} nhpm_llist_timed_t;
+
+typedef struct subscriber_s subscriber_t;
+typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
+typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
+struct subscriber_s {
+  ngx_int_t            (*enqueue)(struct subscriber_s *);
+  ngx_int_t            (*dequeue)(struct subscriber_s *);
+  ngx_int_t            (*respond_message)(struct subscriber_s *, ngx_http_push_msg_t *);
+  ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
+  ngx_int_t            (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
+  ngx_int_t            (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
+  ngx_int_t            (*reserve)(struct subscriber_s *);
+  ngx_int_t            (*release)(struct subscriber_s *);
+  const char          *name;
+  subscriber_type_t    type;
+  unsigned             dequeue_after_response:1;
+  unsigned             destroy_after_dequeue:1;
+  ngx_http_push_loc_conf_t *cf;
+  ngx_pool_t          *pool;
+  void                *data;
+}; //subscriber_t
