@@ -208,10 +208,15 @@ typedef struct {
 } publish_data_t;
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ngx_http_push_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+  ngx_int_t ret;
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
+  assert(chid->data != NULL);
   publish_data_t  data = {str_shm_copy(chid), shm_msg, msg_timeout, max_msgs, min_msgs, callback, privdata};
-  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
+  assert(data.shm_chid->data != NULL);
+  ret= ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
+  assert(data.shm_chid->data != NULL);
+  return ret;
 }
 
 typedef struct {
@@ -227,6 +232,8 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   nhpm_channel_head_t    *head;
   cd.d = d;
   cd.sender = sender;
+  
+  assert(d->shm_chid->data != NULL);
   
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
