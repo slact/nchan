@@ -8,7 +8,7 @@ NGINX_OPT=( -p `pwd`/
     -c $NGINX_TEMP_CONFIG
 )
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
-VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--read-var-info=yes" "--vgdb=yes" )
+VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--expensive-definedness-checks=yes" "--read-var-info=yes" "--vgdb=yes" )
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF=""
