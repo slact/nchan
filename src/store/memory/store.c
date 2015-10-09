@@ -761,6 +761,7 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t validate_chanhead_messages(nhpm_channel_head_t *ch) {
+  /*
   ngx_int_t              count = ch->channel.messages;
   ngx_int_t              rev_count = count;
   ngx_int_t              owner = memstore_channel_owner(&ch->id);
@@ -779,6 +780,7 @@ static ngx_int_t validate_chanhead_messages(nhpm_channel_head_t *ch) {
   
   assert(count == 0);
   assert(rev_count == 0);
+  */
   return NGX_OK;
 }
 
