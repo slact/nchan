@@ -84,7 +84,7 @@ md5sums=('SKIP'
 
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
-  ln -sf $_src_dir $srcdir/nginx
+  ln -sfT "$_src_dir" "$srcdir/nginx"
   local _build_dir="${_src_dir}/objs"
   cd $_src_dir
   
