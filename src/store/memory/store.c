@@ -16,16 +16,34 @@ typedef struct {
   ngx_event_t             gc_timer;
   nhpm_llist_timed_t     *gc_head;
   nhpm_llist_timed_t     *gc_tail;
+  nhpm_channel_head_t     unbuffered_dummy_chanhead;
+  nhpm_channel_head_shm_t dummy_shared_chaninfo;
   nhpm_channel_head_t    *hash;
 #if FAKESHARD
   ngx_int_t               fake_slot;
 #endif
 } memstore_data_t;
 
+
+static void init_mpt(memstore_data_t *m) {
+  ngx_memzero(&m->gc_timer, sizeof(m->gc_timer));
+  m->gc_head = NULL;
+  m->gc_tail = NULL;
+  ngx_memzero(&m->unbuffered_dummy_chanhead, sizeof(nhpm_channel_head_t));
+  m->unbuffered_dummy_chanhead.id.data= (u_char *)"unbuffered fake";
+  m->unbuffered_dummy_chanhead.id.len=15;
+  m->unbuffered_dummy_chanhead.owner = memstore_slot();
+  m->unbuffered_dummy_chanhead.slot = memstore_slot();
+  m->unbuffered_dummy_chanhead.status = READY;
+  m->unbuffered_dummy_chanhead.min_messages = 0;
+  m->unbuffered_dummy_chanhead.max_messages = (ngx_uint_t )-1;
+  m->unbuffered_dummy_chanhead.shared = &m->dummy_shared_chaninfo;
+}
+
 #if FAKESHARD
 
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
-static memstore_data_t fake_default_mdata = {{0}, NULL, NULL, NULL};
+static memstore_data_t fake_default_mdata;
 memstore_data_t *mpt = &fake_default_mdata;
 
 ngx_int_t memstore_slot() {
@@ -34,8 +52,9 @@ ngx_int_t memstore_slot() {
 
 #else
 
-static memstore_data_t  mdata = {{0}, NULL, NULL, NULL};
+static memstore_data_t  mdata;
 memstore_data_t *mpt = &mdata;
+
 
 ngx_int_t memstore_slot() {
   return ngx_process_slot;
@@ -71,6 +90,8 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
+#define NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC 10
+
 
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -171,6 +192,10 @@ static ngx_int_t ngx_http_push_store_init_worker(ngx_cycle_t *cycle) {
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
   memstore_fakeprocess_push(i);
 #endif
+  
+  
+  init_mpt(mpt);
+  
   if(mpt->gc_timer.handler == NULL) {
     mpt->gc_timer.handler=&ngx_http_push_store_chanhead_gc_timer_handler;
     mpt->gc_timer.log=ngx_cycle->log;
@@ -561,10 +586,13 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 #endif
 }
 
+static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete);
+
 static void ngx_http_push_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   nhpm_llist_timed_t  *head = mpt->gc_head;
   handle_chanhead_gc_queue(0);
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL)) {
+  handle_unbuffered_messages_gc(0);
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL || mpt->unbuffered_dummy_chanhead.msg_first == NULL)) {
     DBG("re-adding chanhead gc event timer");
     ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
@@ -704,6 +732,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
     chanhead_gc_add(cur, "exit worker");
   }
   handle_chanhead_gc_queue(1);
+  handle_unbuffered_messages_gc(1);
   
   if(mpt->gc_timer.timer_set) {
     ngx_del_timer(&mpt->gc_timer);
@@ -861,6 +890,29 @@ static ngx_int_t chanhead_messages_gc(nhpm_channel_head_t *ch) {
 
 static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch) {
   chanhead_messages_gc_custom(ch, 0, 0);
+  return NGX_OK;
+}
+
+static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
+  nhpm_channel_head_t         *ch = &mpt->unbuffered_dummy_chanhead;
+  DBG("handling unbuffered messages GC queue");
+  
+  #if FAKESHARD
+  ngx_int_t        i;
+  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
+  memstore_fakeprocess_push(i);
+  #endif
+  if(!force_delete) {
+    chanhead_messages_gc(ch);
+  }
+  else {
+    chanhead_messages_delete(ch);
+  }
+  
+  #if FAKESHARD
+  memstore_fakeprocess_pop();
+  }
+  #endif
   return NGX_OK;
 }
 
@@ -1278,8 +1330,22 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
   chanhead_messages_gc(chead);
   if(max_msgs == 0) {
     channel_copy=&chead->channel;
-    publish_msg = msg;
-    DBG("publish %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
+    publish_msg = create_shm_msg(msg);
+    publish_msg->expires = ngx_time() + NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC;
+    DBG("publish unbuffer msg %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
+    
+    if((shmsg_link = create_shared_message(msg, 1)) == NULL) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't create unbuffered message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+    
+    if(chanhead_push_message(&mpt->unbuffered_dummy_chanhead, shmsg_link) != NGX_OK) {
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      ERR("can't enqueue unbuffered message for channel %V", channel_id);
+      return NGX_ERROR;
+    }
+    
   }
   else {
     if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
