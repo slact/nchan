@@ -156,12 +156,12 @@ class PubSubTest <  Minitest::Test
 
   def test_authorized_channels
     #must be published to before subscribing
-    pub, sub = pubsub 5, timeout: 1, sub: "sub/authorized/"
+    pub, sub = pubsub 5, timeout: 20, sub: "sub/authorized/"
     sub.on_failure { false }
     sub.run
     sub.wait
     assert_equal 5, sub.finished
-    assert sub.match_errors(/code 40[34]/)
+    assert sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
     sub.reset
     pub.post %w( fweep )
     assert_match /20[12]/, pub.response_code.to_s
