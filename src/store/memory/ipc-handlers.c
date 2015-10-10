@@ -43,11 +43,19 @@
 //}
 
 static ngx_str_t *str_shm_copy(ngx_str_t *str){
-  return shm_copy_string(ngx_http_push_memstore_get_shm(), str);
+  ngx_str_t *out;
+  out = shm_copy_immutable_string(ngx_http_push_memstore_get_shm(), str);
+  DBG("create shm_str %p (data@ %p) %V", out, out->data, out);
+  return out;
 }
 
 static void str_shm_free(ngx_str_t *str) {
-  shm_free(ngx_http_push_memstore_get_shm(), str);
+  DBG("free shm_str %V @ %p", str, str->data);
+  shm_free_immutable_string(ngx_http_push_memstore_get_shm(), str);
+}
+
+static void str_shm_verify(ngx_str_t *str) {
+  shm_verify_immutable_string(ngx_http_push_memstore_get_shm(), str);
 }
 
 ////////// SUBSCRIBE ////////////////
@@ -57,6 +65,7 @@ typedef struct {
   nhpm_channel_head_t     *origin_chanhead;
   subscriber_t            *subscriber;
 } subscribe_data_t;
+
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nhpm_channel_head_t *origin_chanhead) {
   DBG("send subscribe to %i, %V", dst, chid);
   subscribe_data_t        data = {str_shm_copy(chid), NULL, origin_chanhead, NULL};
@@ -67,6 +76,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   subscribe_data_t        *d = (subscribe_data_t *)data;
   subscriber_t            *sub;
   
+  str_shm_verify(d->shm_chid);
   DBG("received subscribe request for channel %V", d->shm_chid);
   head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   
@@ -89,6 +99,9 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t *d = (subscribe_data_t *)data;
   DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
+  
+  str_shm_verify(d->shm_chid);
+  
   nhpm_channel_head_t   *head = ngx_http_push_memstore_get_chanhead(d->shm_chid);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
@@ -180,7 +193,7 @@ static void receive_publish_status(ngx_int_t sender, void *data) {
   publish_status_data_t         *d = (publish_status_data_t *)data;
   nhpm_channel_head_t           *chead;
   
-  //assert(memstore_channel_owner(d->shm_chid) == memstore_slot());
+  str_shm_verify(d->shm_chid);
   
   if((chead = ngx_http_push_memstore_get_chanhead(d->shm_chid)) == NULL) {
     ERR("can't get chanhead for id %V", d->shm_chid);
@@ -208,10 +221,17 @@ typedef struct {
 } publish_data_t;
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ngx_http_push_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+  ngx_int_t ret;
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
+  assert(chid->data != NULL);
   publish_data_t  data = {str_shm_copy(chid), shm_msg, msg_timeout, max_msgs, min_msgs, callback, privdata};
-  return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
+  assert(data.shm_chid->data != NULL);
+
+  str_shm_verify(data.shm_chid);
+  
+  ret= ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
+  return ret;
 }
 
 typedef struct {
@@ -227,6 +247,9 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   nhpm_channel_head_t    *head;
   cd.d = d;
   cd.sender = sender;
+  
+  str_shm_verify(d->shm_chid);
+  assert(d->shm_chid->data != NULL);
   
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
@@ -298,6 +321,8 @@ typedef struct {
 //incidentally these two are the same size. if they weren't there'd be a bug.
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, ngx_http_push_msg_id_t *msgid, void *privdata) {
   getmessage_data_t      data = {str_shm_copy(chid), {0}, privdata};
+  assert(data.shm_chid->len>1);
+  assert(data.shm_chid->data!=NULL);
   data.msgid.time = msgid->time;
   data.msgid.tag = msgid->tag;
   DBG("IPC: send get message from %i ch %V", dst, chid);
@@ -308,7 +333,12 @@ static void receive_get_message(ngx_int_t sender, void *data) {
   nhpm_message_t *msg = NULL;
   ngx_int_t       status = NGX_ERROR;
   getmessage_data_t *d = (getmessage_data_t *)data;
+  str_shm_verify(d->shm_chid);
+  assert(d->shm_chid->len>1);
+  assert(d->shm_chid->data!=NULL);
   getmessage_reply_data_t *rd = (getmessage_reply_data_t *)data;
+  assert(rd->shm_chid->len>1);
+  assert(rd->shm_chid->data!=NULL);
   DBG("IPC: received get_message request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
@@ -328,6 +358,9 @@ static void receive_get_message(ngx_int_t sender, void *data) {
 
 static void receive_get_message_reply(ngx_int_t sender, void *data) {
   getmessage_reply_data_t *d = (getmessage_reply_data_t *)data;
+  str_shm_verify(d->shm_chid);
+  assert(d->shm_chid->len>1);
+  assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
   ngx_http_push_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   str_shm_free(d->shm_chid);
@@ -380,6 +413,9 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, void *ch, void* privdat
 }
 static void receive_delete_reply(ngx_int_t sender, void *data) {
   delete_data_t *d = (delete_data_t *)data;
+
+  str_shm_verify(d->shm_chid);
+  
   DBG("IPC received delete reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
   d->callback(d->code, d->shm_channel_info, d->privdata);
   

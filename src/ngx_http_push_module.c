@@ -373,7 +373,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
   if (chain->next == NULL) {
     return chain->buf;
   }
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request, need memcpy :(");
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
     if (ngx_buf_in_memory(chain->buf)) {
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
@@ -682,6 +682,9 @@ ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
   r->request_body_in_persistent_file = 1;
   r->request_body_in_clean_file = 0;
   r->request_body_file_log_level = 0;
+  
+  //don't buffer the request body --send it right on through
+  //r->request_body_no_buffering = 1;
 
   rc = ngx_http_read_client_request_body(r, ngx_http_push_publisher_body_handler);
   if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {

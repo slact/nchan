@@ -88,7 +88,7 @@ build() {
   local _build_dir="${_src_dir}/objs"
   cd $_src_dir
   
-  if [[ -z $CONTINUE ]]; then
+  if [[ -z $CONTINUE ]] && [[ -z $NO_EXTRACT_SOURCE ]]; then
     if [[ $NO_POOL == 1 ]]; then
       echo "using the no-pool patch"
       patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"

@@ -307,6 +307,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
 
 nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
+  assert(channel_id->data != NULL);
   CHANNEL_HASH_FIND(channel_id, head);
   return head;
 }
@@ -416,7 +417,7 @@ ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
     head->status = INACTIVE;
   }
   else {
-    ERR("gc_add chanhead %V: already added", &head->id);
+    DBG("gc_add chanhead %V: already added", &head->id);
   }
 
   //initialize gc timer
@@ -541,7 +542,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
         }
         else {
-          DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
+          //DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
           //break;
         }
       }
@@ -761,6 +762,7 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t validate_chanhead_messages(nhpm_channel_head_t *ch) {
+  /*
   ngx_int_t              count = ch->channel.messages;
   ngx_int_t              rev_count = count;
   ngx_int_t              owner = memstore_channel_owner(&ch->id);
@@ -779,6 +781,7 @@ static ngx_int_t validate_chanhead_messages(nhpm_channel_head_t *ch) {
   
   assert(count == 0);
   assert(rev_count == 0);
+  */
   return NGX_OK;
 }
 
@@ -1115,7 +1118,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
     case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
       // ♫ It's gonna be the future soon ♫
       if(!d->already_enqueued) {
-        ERR("memstore: Sub %p should already have been enqueued. ...", sub);
+        DBG("memstore: Sub %p should already have been enqueued. ...", sub);
         sub->enqueue(sub);
       }
       ret = chanhead->spooler.add(&chanhead->spooler, sub);
@@ -1353,7 +1356,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
       ERR("can't create shared message for channel %V", channel_id);
       return NGX_ERROR;
     }
-
+    
     if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't enqueue shared message for channel %V", channel_id);

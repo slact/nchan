@@ -27,6 +27,8 @@ for opt in $*; do
       export CONTINUE=1;;
     c|continue|cont)
       export CONTINUE=1;;
+    noextract)
+      export NO_EXTRACT_SOURCE=1;;
     nomake)
       export NO_MAKE=1;;
     nodebug)
@@ -55,7 +57,7 @@ if [[ -z $NO_MAKE ]]; then
   ../src/store/redis/genlua.rb file
   pushd ./nginx-pushmodule >/dev/null
   
-  if [[ $CONTINUE == 1 ]]; then
+  if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
     makepkg -f -e
   else
     makepkg -f
