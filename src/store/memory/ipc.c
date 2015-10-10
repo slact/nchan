@@ -243,6 +243,8 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert.src_slot = memstore_slot();
   alert.dst_slot = slot;
   alert.code = code;
+  assert(data_size < IPC_DATA_SIZE * sizeof(void *));
+  
   ngx_memcpy(alert.data, data, data_size);
   
   assert(alert.src_slot != alert.dst_slot);
