@@ -591,8 +591,8 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscri
   char                      *concurrency = NULL;
   nhpm_subscriber_register_t *sdata=NULL;
   
-  /*
-  switch (sub->subscriber->cf->subscriber_concurrency) {
+  
+  switch (sub->cf->subscriber_concurrency) {
     case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
       concurrency = "broadcast";
       break;
@@ -605,7 +605,6 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscri
     default:
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unknown concurrency setting");
   }
-  */
   
   //input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
   //  'subscriber_id' can be '-' for new id, or an existing id
@@ -1345,7 +1344,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->name = "get_message (subscribe)";
   
   d->sub = sub;
-  //subscriber should already be enqueued
+  sub->reserve(sub);
   
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   
