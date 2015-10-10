@@ -48,7 +48,10 @@ struct nhpm_channel_head_s {
 #define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
 
-#define DBG(...) ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, __VA_ARGS__)
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
+
+#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
 
 static nhpm_channel_head_t *subhash = NULL;
@@ -62,7 +65,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
 static void ngx_http_push_store_chanhead_cleanup_timer_handler(ngx_event_t *);
-static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
+static ngx_int_t ngx_http_push_store_publish_generic(ngx_str_t *, ngx_http_push_msg_t *, ngx_int_t, const ngx_str_t *);
 static ngx_str_t * ngx_http_push_store_content_type_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
 static ngx_str_t * ngx_http_push_store_etag_from_message(ngx_http_push_msg_t *, ngx_pool_t *);
 
@@ -414,7 +417,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             if(chanhead != NULL) {
               msgpack_array_to_msg(&obj, 1, &msg, &buf);
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %i:%i", msg.message_time, msg.message_tag);
-              ngx_http_push_store_publish_raw(&chanhead->id, &msg, 0, NULL);
+              ngx_http_push_store_publish_generic(&chanhead->id, &msg, 0, NULL);
             }
             else {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msg");
@@ -423,7 +426,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msg")) {
             msgpack_to_str(&obj.via.array.ptr[1], &chid);
             msgpack_array_to_msg(&obj, 2, &msg, &buf);
-            ngx_http_push_store_publish_raw(&chid, &msg, 0, NULL);
+            ngx_http_push_store_publish_generic(&chid, &msg, 0, NULL);
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "msgkey")) {
             if(chanhead != NULL) {
@@ -455,7 +458,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
             if(CHECK_MSGPACK_STRVAL(alerttype, "delete channel") && asize > 2) {
               if(msgpack_to_str(&obj.via.array.ptr[2], &chid) == NGX_OK) {
-                ngx_http_push_store_publish_raw(&chid, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+                ngx_http_push_store_publish_generic(&chid, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
               }
               else {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected \"delete channel\" msgpack message from redis");
@@ -470,7 +473,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all") && asize > 1) {
               msgpack_to_str(&obj.via.array.ptr[1], &chid);
-              ngx_http_push_store_publish_raw(&chid, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+              ngx_http_push_store_publish_generic(&chid, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
             }
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all except")) {
@@ -834,16 +837,17 @@ static ngx_int_t publish_to_subscribers_in_limbo(ngx_http_push_msg_t *msg, ngx_i
   return NGX_OK;
 }
 
-static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
-  //nhpm_channel_head_t        *head;
-  /*
-  nhpm_channel_head_cleanup_t *hcln;
+static ngx_int_t ngx_http_push_store_publish_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+  nhpm_channel_head_t        *head;
+  //nhpm_channel_head_cleanup_t *hcln;
   
   head = ngx_http_push_store_get_chanhead(channel_id);
   if(head->sub_count == 0) {
     return NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
   
+  
+ /* 
   if((hcln = put_current_subscribers_in_limbo(head)) == NULL) {
     ERR("unable to put subsribers in limbo");
     return NGX_ERROR;
@@ -855,7 +859,7 @@ static ngx_int_t ngx_http_push_store_publish_raw(ngx_str_t *channel_id, ngx_http
   else {
     return NGX_ERROR;
   }
-  */
+ */
   return NGX_OK;
 }
 
@@ -1421,7 +1425,7 @@ static ngx_int_t ngx_http_push_store_publish_message(ngx_str_t *channel_id, ngx_
   d->msg_time=msg->message_time;
   
 
-  //ngx_http_push_store_publish_raw(channel_id, msg, 0, NULL);
+  //ngx_http_push_store_publish_generic(channel_id, msg, 0, NULL);
   
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_messages]
   //output: message_tag, channel_hash
