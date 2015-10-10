@@ -682,6 +682,9 @@ ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
   r->request_body_in_persistent_file = 1;
   r->request_body_in_clean_file = 0;
   r->request_body_file_log_level = 0;
+  
+  //don't buffer the request body --send it right on through
+  //r->request_body_no_buffering = 1;
 
   rc = ngx_http_read_client_request_body(r, ngx_http_push_publisher_body_handler);
   if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
