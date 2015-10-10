@@ -60,6 +60,7 @@ static ngx_int_t spool_add(subscriber_pool_t *self, subscriber_t *sub) {
       return NGX_ERROR;
     }
     ssub = ngx_palloc(self->pool, sizeof(*ssub));
+    DBG("add sub %p to shortlived spool %p", sub, self);
   }
   else if(self->type == PERSISTENT) {
     assert(self->pool == NULL);
@@ -67,6 +68,7 @@ static ngx_int_t spool_add(subscriber_pool_t *self, subscriber_t *sub) {
       return NGX_ERROR;
     }
     ssub = ngx_alloc(sizeof(*ssub), ngx_cycle->log);
+    DBG("add sub %p to persistent spool %p", sub, self);
   }
   else {
     ERR("Weird spool type. it sounds benign, but it's actually CATASTROPHIC.");
@@ -111,13 +113,14 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   if(self->pool) {
     assert(self->type == SHORTLIVED);
     //ngx_pfree(self->pool, ssub);
+    DBG("remove spooled_sub %p from shortlived spool %p", ssub, self);
     ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
   }
   else {
     int                      i=0;
     spooled_subscriber_t    *scur;
     assert(self->type == PERSISTENT);
-    DBG("Freeing %p. first sub is now %p", ssub, self->first);
+    DBG("remove spooled_sub %p from persistent spool %p. first sub is now %p", ssub, self, self->first);
     ngx_free(ssub);
     for(scur = self->first; scur != NULL; scur = scur->next) {
       i++;
@@ -134,6 +137,8 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, ngx_http_push_ms
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   self->generation++;
+  
+  DBG("spool %p respond with msg %p or code %i", self, msg, status_code);
   
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
@@ -295,6 +300,9 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   if(self->add_handler != NULL) {
     self->add_handler(self, sub, self->add_handler_privdata);
   }
+  else {
+    ERR("SPOOLER %p has no add_handler, couldn't add subscriber %p", self, sub);
+  }
 
   return NGX_OK;
 }
@@ -302,8 +310,15 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 
 static ngx_int_t spooler_respond_generic(channel_spooler_t *self, ngx_http_push_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
   subscriber_pool_t       *old = self->shortlived;
-
-  //replacement shpool
+  
+  if(msg) {
+    DBG("SPOOLER %p respond msg %p", self, msg);
+  }
+  else {
+    DBG("SPOOLER %p respond code %i", self, code);
+  }
+  
+  //replacement spool
   self->shortlived = recreate_spool(old);
   if(msg) {
     COMMAND_SPOOL(old, respond_message, msg);
@@ -398,6 +413,9 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl) {
     spl->dequeue_handler_privdata = NULL;
     spl->bulk_dequeue_handler = NULL;
     spl->bulk_dequeue_handler_privdata = NULL;
+    
+    DBG("start SPOOLER %p", *spl);
+    
     COMMAND_SPOOL(spl->shortlived, set_dequeue_handler, bubbleup_dequeue_handler, spl);
     COMMAND_SPOOL(spl->persistent, set_dequeue_handler, bubbleup_dequeue_handler, spl);
     COMMAND_SPOOL(spl->shortlived, set_bulk_dequeue_handler, bubbleup_bulk_dequeue_handler, spl);
@@ -416,6 +434,7 @@ ngx_int_t stop_spooler(channel_spooler_t *spl) {
   if(spl->running) {
     safely_destroy_spool(spl->shortlived);
     safely_destroy_spool(spl->persistent);
+    DBG("stopped SPOOLER %p", *spl);
   }
   spl->running = 0;
   return NGX_OK;
