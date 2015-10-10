@@ -307,6 +307,7 @@ static ngx_int_t ensure_chanhead_is_ready(nhpm_channel_head_t *head) {
 
 nhpm_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
+  assert(channel_id->data != NULL);
   CHANNEL_HASH_FIND(channel_id, head);
   return head;
 }
@@ -1355,7 +1356,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
       ERR("can't create shared message for channel %V", channel_id);
       return NGX_ERROR;
     }
-
+    
     if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't enqueue shared message for channel %V", channel_id);
