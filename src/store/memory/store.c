@@ -1266,11 +1266,11 @@ static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
 
 
 
-static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t msg_in_shm) {
+static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t msg_already_in_shm) {
   nhpm_message_t          *chmsg;
   ngx_http_push_msg_t     *msg;
   
-  if(msg_in_shm) {
+  if(msg_already_in_shm) {
     msg = m;
   }
   else {
