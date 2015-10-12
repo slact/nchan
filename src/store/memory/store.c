@@ -1217,8 +1217,12 @@ static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
   msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
 
   msg->content_type.len = content_type_size;
-
-  ngx_memcpy(msg->content_type.data, m->content_type.data, content_type_size);
+  if(content_type_size > 0) {
+    ngx_memcpy(msg->content_type.data, m->content_type.data, content_type_size);
+  }
+  else {
+    msg->content_type.data = NULL; //mostly for debugging, this isn't really necessary for correct operation.
+  }
 
   if(buf_body_size > 0) {
     buf->pos = (u_char *)&stuff[1] + buf_filename_size + content_type_size;
