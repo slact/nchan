@@ -20,6 +20,7 @@ struct nhpm_channel_head_s {
   ngx_uint_t                   generation; //subscriber pool generation.
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
+  ngx_uint_t                   internal_sub_count;
   ngx_http_push_msg_id_t       last_msgid;
   void                        *redis_subscriber_privdata;
   nhpm_llist_timed_t           cleanlink;
@@ -431,28 +432,27 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           else if(CHECK_MSGPACK_STRVAL(msgtype, "msgkey")) {
             if(chanhead != NULL) {
               ngx_http_push_msg_id_t        msgid;
-
+              
               msgpack_to_time(&obj.via.array.ptr[1], &msgid.time);
               msgpack_to_int(&obj.via.array.ptr[2], &msgid.tag);
-
+              
               msgpack_to_str(&obj.via.array.ptr[3], &msg_redis_hash_key);
               get_msg_from_msgkey(&chanhead->id, &msgid, &msg_redis_hash_key);
             }
             else {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msgkey");
             }
-
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msgkey")) {
             ngx_http_push_msg_id_t        msgid;
-
+            
             msgpack_to_str( &obj.via.array.ptr[1], &chid);
             msgpack_to_time(&obj.via.array.ptr[2], &msgid.time);
             msgpack_to_int( &obj.via.array.ptr[3], &msgid.tag);
             msgpack_to_str( &obj.via.array.ptr[4], &msg_redis_hash_key);
             get_msg_from_msgkey(&chid, &msgid, &msg_redis_hash_key);
           }
-
+          
           else if(CHECK_MSGPACK_STRVAL(msgtype, "alert") && asize > 1) {
             msgpack_object alerttype = obj.via.array.ptr[1];
 
@@ -565,6 +565,10 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscri
 static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub);
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nhpm_channel_head_t *head = (nhpm_channel_head_t *)privdata;
+  head->sub_count++;
+  if(sub->type == INTERNAL) {
+    head->internal_sub_count++;
+  }
   nhpm_subscriber_register(head, sub);
 }
 
@@ -572,6 +576,12 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
   //need individual subscriber
   //TODO
   nhpm_channel_head_t *head = (nhpm_channel_head_t *)privdata;
+  
+  head->sub_count--;
+  if(sub->type == INTERNAL) {
+    head->internal_sub_count--;
+  }
+  
   nhpm_subscriber_unregister(head, sub);
 }
 
@@ -839,28 +849,26 @@ static ngx_int_t publish_to_subscribers_in_limbo(ngx_http_push_msg_t *msg, ngx_i
 
 static ngx_int_t ngx_http_push_store_publish_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_channel_head_t        *head;
+  ngx_int_t                   ret;
   //nhpm_channel_head_cleanup_t *hcln;
   
   head = ngx_http_push_store_get_chanhead(channel_id);
-  if(head->sub_count == 0) {
-    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
-  }
   
-  
- /* 
-  if((hcln = put_current_subscribers_in_limbo(head)) == NULL) {
-    ERR("unable to put subsribers in limbo");
-    return NGX_ERROR;
-  }
-  
-  if(publish_to_subscribers_in_limbo(hcln, msg, status_code, status_line) == NGX_OK) {
-    return NGX_HTTP_PUSH_MESSAGE_RECEIVED;
+  if(head->sub_count > 0) {
+    if(msg) {
+      head->last_msgid.time = msg->message_time;
+      head->last_msgid.tag = msg->message_tag;
+      head->spooler.respond_message(&head->spooler, msg);
+    }
+    else {
+      head->spooler.respond_status(&head->spooler, status_code, status_line);
+    }
+    ret= NGX_OK;
   }
   else {
-    return NGX_ERROR;
+    ret= NGX_HTTP_PUSH_MESSAGE_QUEUED;
   }
- */
-  return NGX_OK;
+  return ret;
 }
 
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
@@ -1236,6 +1244,9 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_http_push_loc_conf_t  *cf = sub->cf;
   ngx_int_t                  status=0;
   ngx_http_push_msg_t       *msg=NULL;
+  
+  sub->release(sub); //let the sub be destroyed if needed.
+  
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
   DBG("redis getmessage callback for %s", d->name);
