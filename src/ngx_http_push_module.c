@@ -52,6 +52,7 @@ ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool
   ngx_buf_t                      *buf_copy;
   
   if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
+    //TODO: don't zero the whole thing!
     ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, can't allocate buffer copy in pool");
     return NULL;
   }
