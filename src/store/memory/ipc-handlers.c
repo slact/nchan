@@ -74,7 +74,7 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nhpm_chann
 static void receive_subscribe(ngx_int_t sender, void *data) {
   nhpm_channel_head_t     *head;
   subscribe_data_t        *d = (subscribe_data_t *)data;
-  subscriber_t            *sub;
+  subscriber_t            *ipc_sub;
   
   str_shm_verify(d->shm_chid);
   DBG("received subscribe request for channel %V", d->shm_chid);
@@ -86,10 +86,10 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     d->subscriber = NULL;
   }
   else {
-    sub = memstore_subscriber_create(sender, &head->id, d->origin_chanhead);
-    sub->enqueue(sub);
-    head->spooler.add(&head->spooler, sub);
-    d->subscriber = sub;
+    ipc_sub = memstore_subscriber_create(sender, &head->id, d->origin_chanhead);
+    ipc_sub->enqueue(ipc_sub);
+    head->spooler.add(&head->spooler, ipc_sub);
+    d->subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
   }
   DBG("send subscribe reply for channel %V", d->shm_chid);
@@ -182,11 +182,6 @@ ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_i
   publish_status_data_t  data = {str_shm_copy(chid), status_code, status_line, callback, privdata};
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
 }
-
-typedef struct {
-  ngx_int_t        sender;
-  publish_status_data_t  *d;
-} publish_status_callback_data;
 
 static void receive_publish_status(ngx_int_t sender, void *data) {
   
@@ -556,22 +551,22 @@ static void receive_subscriber_keepalive_reply(ngx_int_t sender, void *data) {
 }
 
 static void (*ipc_alert_handler[])(ngx_int_t, void *) = {
-  [IPC_SUBSCRIBE] =             receive_subscribe,
-  [IPC_SUBSCRIBE_REPLY] =       receive_subscribe_reply,
-  [IPC_UNSUBSCRIBED] =          receive_unsubscribed,
-  [IPC_PUBLISH_MESSAGE] =       receive_publish_message,
-  [IPC_PUBLISH_MESSAGE_REPLY] = receive_publish_message_reply,
-  [IPC_PUBLISH_STATUS] =        receive_publish_status,
-  [IPC_GET_MESSAGE] =           receive_get_message,
-  [IPC_GET_MESSAGE_REPLY] =     receive_get_message_reply,
-  [IPC_DELETE] =                receive_delete,
-  [IPC_DELETE_REPLY] =          receive_delete_reply,
-  [IPC_GET_CHANNEL_INFO] =      receive_get_channel_info,
-  [IPC_GET_CHANNEL_INFO_REPLY]= receive_get_channel_info_reply,
-  [IPC_DOES_CHANNEL_EXIST] =    receive_does_channel_exist,
-  [IPC_DOES_CHANNEL_EXIST_REPLY]= receive_does_channel_exist_reply,
-  [IPC_SUBSCRIBER_KEEPALIVE] =  receive_subscriber_keepalive,
-  [IPC_SUBSCRIBER_KEEPALIVE_REPLY] = receive_subscriber_keepalive_reply
+  [IPC_SUBSCRIBE] =                   receive_subscribe,
+  [IPC_SUBSCRIBE_REPLY] =             receive_subscribe_reply,
+  [IPC_UNSUBSCRIBED] =                receive_unsubscribed,
+  [IPC_PUBLISH_MESSAGE] =             receive_publish_message,
+  [IPC_PUBLISH_MESSAGE_REPLY] =       receive_publish_message_reply,
+  [IPC_PUBLISH_STATUS] =              receive_publish_status,
+  [IPC_GET_MESSAGE] =                 receive_get_message,
+  [IPC_GET_MESSAGE_REPLY] =           receive_get_message_reply,
+  [IPC_DELETE] =                      receive_delete,
+  [IPC_DELETE_REPLY] =                receive_delete_reply,
+  [IPC_GET_CHANNEL_INFO] =            receive_get_channel_info,
+  [IPC_GET_CHANNEL_INFO_REPLY]=       receive_get_channel_info_reply,
+  [IPC_DOES_CHANNEL_EXIST] =          receive_does_channel_exist,
+  [IPC_DOES_CHANNEL_EXIST_REPLY]=     receive_does_channel_exist_reply,
+  [IPC_SUBSCRIBER_KEEPALIVE] =        receive_subscriber_keepalive,
+  [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  receive_subscriber_keepalive_reply
 };
 
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {
