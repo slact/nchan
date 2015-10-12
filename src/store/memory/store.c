@@ -1337,7 +1337,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
     publish_msg->expires = ngx_time() + NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC;
     DBG("publish unbuffer msg %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
     
-    if((shmsg_link = create_shared_message(msg, 1)) == NULL) {
+    if((shmsg_link = create_shared_message(msg, 0)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't create unbuffered message for channel %V", channel_id);
       return NGX_ERROR;
