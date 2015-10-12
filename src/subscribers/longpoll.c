@@ -21,6 +21,7 @@ typedef struct {
   subscriber_callback_pt  timeout_handler;
   void                   *timeout_handler_data;
   ngx_int_t               owner;
+  unsigned                holding:1;
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
   unsigned                already_responded:1;
@@ -51,6 +52,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.request = r;
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 0;
+  fsub->data.holding = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   fsub->sub.pool = r->pool;
   ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
@@ -89,15 +91,27 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
+static void ensure_request_hold(full_subscriber_t *fsub) {
+  if(fsub->data.holding == 0) {
+    DBG("hodl request %p", fsub->data.request);
+    fsub->data.holding = 1;
+    fsub->data.request->read_event_handler = ngx_http_test_reading;
+    fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
+    fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
+  }
+}
+
 static ngx_int_t longpoll_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("%p reserve for req %p", self, fsub->data.request);
+  ensure_request_hold(fsub);
   fsub->data.reserved++;
   return NGX_OK;
 }
 static ngx_int_t longpoll_release(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("%p release for req %p", self, fsub->data.request);
+  assert(fsub->data.reserved > 0);
   fsub->data.reserved--;
   if(fsub->data.awaiting_destruction == 1 && fsub->data.reserved == 0) {
     ngx_free(fsub);
@@ -125,13 +139,11 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(fsub->data.already_enqueued == 0);
   DBG("%p enqueue", self);
-  fsub->data.request->read_event_handler = ngx_http_test_reading;
-  fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
-  fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
+  
   fsub->data.finalize_request = 1;
   
   fsub->data.already_enqueued = 1;
-  
+  ensure_request_hold(fsub);
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
     //nextsub->ev should be zeroed;
