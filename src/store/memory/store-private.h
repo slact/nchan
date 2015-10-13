@@ -76,7 +76,7 @@ ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscri
 #if FAKESHARD
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
-void memstore_fakeprocess_pop(void);
+ngx_int_t memstore_fakeprocess_pop(void);
 #endif
 
 ngx_int_t memstore_slot(void);

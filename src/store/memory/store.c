@@ -118,21 +118,23 @@ void memstore_fakeprocess_push(ngx_int_t slot) {
   mpt = &mdata[slot];
 }
 
-void memstore_fakeprocess_pop(void) {
+ngx_int_t memstore_fakeprocess_pop(void) {
   nhpm_llist_timed_t   *next;
   if(fakeprocess_top == NULL) {
     DBG("can't pop empty fakeprocess stack");
-    return;
+    return 0;
   }
-  else if((next = fakeprocess_top->next) == NULL) {
+  next = fakeprocess_top->next;
+  ngx_free(fakeprocess_top);
+  if(next == NULL) {
     DBG("can't pop last item off of fakeprocess stack");
-    return;
+    return 0;
   }
   //DBG("pop fakeprocess to return to %i", (ngx_int_t)next->data);
-  ngx_free(fakeprocess_top);
   next->prev = NULL;
   fakeprocess_top = next;
   mpt = &mdata[(ngx_int_t )fakeprocess_top->data];
+  return 1;
 }
 
 void memstore_fakeprocess_push_random(void) {
@@ -748,7 +750,7 @@ static void ngx_http_push_store_exit_worker(ngx_cycle_t *cycle) {
   
   shm_destroy(shm); //just for this worker...
 #if FAKESHARD
-  ngx_free(fakeprocess_top);
+  while(memstore_fakeprocess_pop()) {  };
 #endif
 }
 
@@ -757,7 +759,9 @@ static void ngx_http_push_store_exit_master(ngx_cycle_t *cycle) {
   
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle);
-  
+#if FAKESHARD
+  while(memstore_fakeprocess_pop()) {  };
+ #endif
   shm_free(shm, shdata);
   shm_destroy(shm);
 }
