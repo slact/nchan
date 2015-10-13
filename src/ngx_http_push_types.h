@@ -21,14 +21,14 @@ typedef struct {
 typedef struct {
 //  ngx_queue_t                     queue; //this MUST be first.
   ngx_str_t                       content_type;
-  //  ngx_str_t                       charset;
+  //  ngx_str_t                   charset;
   ngx_buf_t                      *buf;
   time_t                          expires;
   ngx_uint_t                      delete_oldest_received_min_messages; //NGX_MAX_UINT32_VALUE for 'never'
   time_t                          message_time; //tag message by time
   ngx_int_t                       message_tag;  //used in conjunction with message_time if more than one message have the same time.
   unsigned                        shared:1; //for debugging
-  ngx_int_t                       refcount;
+  ngx_atomic_t                    refcount;
 } ngx_http_push_msg_t;
 
 
