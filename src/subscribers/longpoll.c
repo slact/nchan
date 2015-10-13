@@ -288,9 +288,9 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
   }
 
   rc = ngx_http_output_filter(r, rchain);
-  finalize_maybe(self, NGX_OK);
+  finalize_maybe(self, rc);
   dequeue_maybe(self);
-  return NGX_OK;
+  return rc;
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {

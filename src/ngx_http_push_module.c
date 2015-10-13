@@ -242,11 +242,13 @@ ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_
   if(content_type != NULL && (*content_type= ngx_http_push_store->message_content_type(msg, pool))==NULL) {
     //oh, nevermind...
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Content Type header");
-    if(pool == NULL) {
-      ngx_free(*etag);
-    }
-    else {
-      ngx_pfree(pool, *etag);
+    if(etag) {
+      if(pool == NULL) {
+        ngx_free(*etag);
+      }
+      else {
+        ngx_pfree(pool, *etag);
+      }
     }
     return NGX_ERROR;
   }
@@ -255,12 +257,12 @@ ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_
   if(chain != NULL && (*chain = ngx_http_push_create_output_chain(msg->buf, pool, ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
     if(pool == NULL) {
-      ngx_free(*etag);
-      ngx_free(*content_type);
+      if (etag != NULL) ngx_free(*etag);
+      if (content_type != NULL) ngx_free(*content_type);
     }
     else {
-      ngx_pfree(pool, *etag);
-      ngx_pfree(pool, *content_type);
+      if (etag != NULL) ngx_pfree(pool, *etag);
+      if (content_type != NULL) ngx_pfree(pool, *content_type);
     }
     return NGX_ERROR;
   }
@@ -412,8 +414,8 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
       chain = chain->next;
       buf->start = buf->last;
     }
+    buf->last_buf = 1;
   }
-  buf->last_buf = 1;
   return buf;
 }
 

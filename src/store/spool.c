@@ -200,9 +200,14 @@ static subscriber_pool_t *create_spool(spool_type_t type) {
   else if(type == PERSISTENT) {
     if((spool = ngx_alloc(sizeof(*spool), ngx_cycle->log)) == NULL) {
       ERR("couldn't allocate PERSIST spool");
+      return NULL;
     }
     spool->pool = NULL;
     spool->type = PERSISTENT;
+  }
+  else {
+    ERR("Unable to allocate unknown spool type");
+    return NULL;
   }
   spool->first = NULL;
   spool->sub_count = 0;

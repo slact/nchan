@@ -1027,7 +1027,7 @@ static ngx_int_t ngx_http_push_store_subscribe_sub_reserved_check(ngx_int_t chan
 }
 
 static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
-  nhpm_channel_head_t       *chanhead;
+  nhpm_channel_head_t       *chanhead = NULL;
   nhpm_message_t            *chmsg;
     ngx_int_t                findmsg_status;
   switch(channel_status) {
@@ -1232,7 +1232,7 @@ static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
     ngx_memcpy(buf->pos, mbuf->pos, buf_body_size);
   }
   
-  if(buf->file!=NULL) {
+  if(mbuf->file!=NULL) {
     buf->file = &stuff->file;
     ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
     
@@ -1355,6 +1355,7 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
     
   }
   else {
+    
     if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't create shared message for channel %V", channel_id);
