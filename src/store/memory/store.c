@@ -833,7 +833,11 @@ static ngx_int_t delete_withdrawn_message( nhpm_message_t *msg ) {
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
   //DBG("free msg %p", msg);
+  
+  ngx_memzero(msg->msg, sizeof(*msg->msg)); //debug stuff
   shm_free(shm, msg->msg);
+  
+  ngx_memzero(msg, sizeof(*msg)); //debug stuff
   ngx_free(msg);
   return NGX_OK;
 }
