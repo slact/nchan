@@ -8,7 +8,16 @@ NGINX_OPT=( -p `pwd`/
     -c $NGINX_TEMP_CONFIG
 )
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
-VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--expensive-definedness-checks=yes" "--read-var-info=yes" "--vgdb=yes" "--time-stamp=yes" )
+VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--expensive-definedness-checks=yes" "--read-var-info=yes")
+
+VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${TESTDIR}/vg.supp" )
+
+#generate suppresions
+#VG_MEMCHECK_OPT+=("--gen-suppressions=all")
+
+#track files
+#VG_MEMCHECK_OPT+=("--track-fds=yes")
+
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF=""
@@ -40,12 +49,13 @@ for opt in $*; do
       persist_redis=1;;
     leak|leakcheck|valgrind|memcheck)
       valgrind=1
-      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" );;
+      VALGRIND_OPT+=($VG_MEMCHECK_OPT);;
     debug-memcheck)
       valgrind=1
-      VALGRIND_OPT+=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--track-fds=yes" "--keep-stacktraces=alloc-and-free" )
-      VALGRIND_OPT+=( "--vgdb-error=1" )
-      ATTACH_DDD=1;;
+      VALGRIND_OPT+=($VG_MEMCHECK_OPT)
+      VALGRIND_OPT+=( "--vgdb=yes" "--vgdb-error=1" )
+      ATTACH_DDD=1
+      ;;
     callgrind|profile)
       VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
       valgrind=1;;
