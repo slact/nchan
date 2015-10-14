@@ -1147,17 +1147,15 @@
    fun:ngx_http_core_server
 }
 
-
-
-
-
-
-
-
-
-
-
-
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_crc32_table_init
+   fun:main
+}
 
 
 {
