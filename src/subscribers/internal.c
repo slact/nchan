@@ -72,7 +72,6 @@ subscriber_t *internal_subscriber_create(void *privdata) {
   ngx_memcpy(&fsub->sub, &new_internal_sub, sizeof(new_internal_sub));
   fsub->privdata = privdata;
   
-  fsub->sub.pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
   fsub->sub.cf = &dummy_config;
   fsub->already_dequeued = 0;
   fsub->awaiting_destruction = 0;

@@ -54,7 +54,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.finalize_request = 0;
   fsub->data.holding = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
-  fsub->sub.pool = r->pool;
   ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
   fsub->data.timeout_handler = empty_handler;
   fsub->data.timeout_handler_data = NULL;
