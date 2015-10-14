@@ -37,7 +37,14 @@ typedef struct {
 static void empty_handler() { }
 
 static void sudden_abort_handler(subscriber_t *sub) {
+#if FAKESHARD
+  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  memstore_fakeprocess_push(fsub->data.owner);
+#endif
   sub->dequeue(sub);
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+#endif
 }
 
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {

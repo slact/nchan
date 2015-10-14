@@ -4,6 +4,16 @@
 #include <store/ngx_http_push_store.h>
 
 
+//debugging config
+//#define FAKESHARD 1
+#if FAKESHARD
+//#define PUB_FAKE_WORKER 1
+//#define SUB_FAKE_WORKER 2
+//#define ONE_FAKE_CHANNEL_OWNER 0
+#define MAX_FAKE_WORKERS 5
+#endif
+
+
 extern ngx_pool_t *ngx_http_push_pool;
 extern ngx_int_t ngx_http_push_worker_processes;
 extern ngx_module_t ngx_http_push_module;

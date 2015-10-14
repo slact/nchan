@@ -1,14 +1,6 @@
 #ifndef MEMSTORE_PRIVATE_HEADER
 #define MEMSTORE_PRIVATE_HEADER
 
-#define FAKESHARD 0
-#if FAKESHARD
-#define PUB_FAKE_WORKER 0
-#define SUB_FAKE_WORKER 0
-#define ONE_FAKE_CHANNEL_OWNER 0
-#define MAX_FAKE_WORKERS 5
-#endif
-
 #include "uthash.h"
 typedef struct nhpm_channel_head_s nhpm_channel_head_t;
 typedef struct nhpm_channel_head_cleanup_s nhpm_channel_head_cleanup_t;
