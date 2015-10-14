@@ -531,6 +531,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
     if(head->sub_count == 0) {
       if(ngx_time() - head->last_subscribed > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
         d->renew = 0;
+        DBG("No subscribers lately. Time... to die.");
       }
       else {
         DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed);

@@ -28,12 +28,12 @@ static ngx_int_t empty_callback(){
 }
 
 static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
-  DBG("memstore subsriber enqueued ok");
+  DBG("%p memstore subsriber enqueued ok", d->sub);
   return NGX_OK;
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  DBG("memstore subscriber dequeue: notify owner");
+  DBG("%p memstore subscriber dequeue: notify owner", d->sub);
   if(d->timeout_ev.timer_set) {
     ngx_del_timer(&d->timeout_ev);
   }
@@ -41,13 +41,13 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
-  DBG("memstore subscriber respond with message");
+  DBG("%p memstore subscriber respond with message", d->sub);
   ngx_http_push_msg_t     *msg = (ngx_http_push_msg_t *) ptr;
   return memstore_ipc_send_publish_message(d->originator, d->chid, msg, 50, 0, 0, empty_callback, NULL);
 }
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
-  DBG("memstore subscriber respond with status");
+  DBG("%p memstore subscriber respond with status", d->sub);
   const ngx_str_t *status_line = NULL;
   switch(status) {
     case NGX_HTTP_GONE: //delete
@@ -72,7 +72,6 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
   return NGX_OK;
 }
 static void reset_timer(sub_data_t *data) {
-  DBG("RESET tIMER");
   if(data->timeout_ev.timer_set) {
     ngx_del_timer(&data->timeout_ev);
   }
@@ -95,7 +94,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_push(d->owner);
 #endif
-  DBG("timeout event. Ping originator to see if still needed.");
+  DBG("%p timeout event. Ping originator to see if still needed.", d->sub);
   memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -109,6 +108,7 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
     ERR("couldn't allocate memstore subscriber data");
     return NULL;
   }
+  
   assert(originator_slot != memstore_slot());
   subscriber_t *sub = internal_subscriber_create("memstore-ipc", d);
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
@@ -127,5 +127,6 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
   d->timeout_ev.data = d;
   d->timeout_ev.log = ngx_cycle->log;
   reset_timer(d);
+  DBG("%p created memstore subscriber created with privdata %p", d->sub, d);
   return sub;
 }

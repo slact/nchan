@@ -8,7 +8,6 @@
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 //#define DEBUG_LEVEL NGX_LOG_WARN
 
-
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 #define COMMAND_SPOOL(spool, fn_name, arg...) ((spool)->fn_name((spool), ##arg))
@@ -258,21 +257,30 @@ ngx_int_t  safely_destroy_spool(subscriber_pool_t *spool) {
   }
   else{
     spool->respond_status(spool, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
-    if(spool->type == SHORTLIVED) {
-      assert(spool->sub_count == 0);
-      assert(spool->first == NULL);
-      assert(spool->pool != NULL);
-      //will be deleted when subsribers are done responding
-      return NGX_OK;
-    }
-    else {
-      for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
-        sub = ssub->sub;
-        sub->dequeue(sub);
-      }
-      assert(spool->sub_count == 0);
-      assert(spool->first == NULL);
-      destroy_that_spool_right_NOW(spool);
+    switch(spool->type) {
+      case SHORTLIVED:
+        assert(spool->sub_count == 0);
+        assert(spool->first == NULL);
+        assert(spool->pool != NULL);
+        //will be deleted when subsribers are done responding
+        break;
+      
+      case PERSISTENT:  
+        for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
+          sub = ssub->sub;
+          DBG("dequeue sub %p in PERSISTENT spool %p", sub, spool);
+          sub->dequeue(sub);
+        }
+        assert(spool->sub_count == 0);
+        assert(spool->first == NULL);
+        DBG("destroy PERSISTENT spool %p right now", spool);
+        destroy_that_spool_right_NOW(spool);
+        break;
+      
+      default:
+        ERR("unknown spool type");
+        return NGX_ERROR;
+        break;
     }
   }
   return NGX_OK;
@@ -316,12 +324,14 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 static ngx_int_t spooler_respond_generic(channel_spooler_t *self, ngx_http_push_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
   subscriber_pool_t       *old = self->shortlived;
   
+  /*
   if(msg) {
     DBG("SPOOLER %p respond msg %p", self, msg);
   }
   else {
     DBG("SPOOLER %p respond code %i", self, code);
   }
+  */
   
   //replacement spool
   self->shortlived = recreate_spool(old);
