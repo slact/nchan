@@ -33,11 +33,14 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
+  ngx_int_t       ret;
   DBG("%p memstore subscriber dequeue: notify owner", d->sub);
   if(d->timeout_ev.timer_set) {
     ngx_del_timer(&d->timeout_ev);
   }
-  return memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
+  ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
+  ngx_free(d);
+  return ret;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {

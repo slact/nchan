@@ -1031,6 +1031,9 @@ static ngx_int_t ngx_http_push_store_subscribe_sub_reserved_check(ngx_int_t chan
     return ngx_http_push_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
+    if(d->allocd) {
+      ngx_free(d);
+    }
     return NGX_OK;
   }
 }
@@ -1054,6 +1057,9 @@ static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_statu
   if (chanhead == NULL) {
     d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
+    if(d->allocd) {
+      ngx_free(d);
+    }
     return NGX_OK;
   }
   
