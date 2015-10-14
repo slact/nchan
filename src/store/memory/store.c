@@ -251,8 +251,11 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
     head->internal_sub_count -= count;
     head->shared->internal_sub_count -= count;
   }
-  else {
+  else if(head->shared){
     head->shared->sub_count -= count;
+  }
+  else if(head->shared == NULL) {
+    assert(head->shutting_down = 1);
   }
   head->sub_count -= count;
   head->channel.subscribers = head->sub_count - head->internal_sub_count;
