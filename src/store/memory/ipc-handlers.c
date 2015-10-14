@@ -394,11 +394,17 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, void *ch, void* privdat
   delete_data_t *d = (delete_data_t *)privdata;
   d->code = code;
   if (ch) {
-    chan_info = shm_alloc(ngx_http_push_memstore_get_shm(), sizeof(nhpm_channel_head_shm_t), "channel info for delete IPC response");
-    d->shm_channel_info= chan_info;
-    chan_info->messages = chan->messages;
-    chan_info->subscribers = chan->subscribers;
-    chan_info->last_seen = chan->last_seen;
+    if((chan_info = shm_alloc(ngx_http_push_memstore_get_shm(), sizeof(*chan_info), "channel info for delete IPC response")) == NULL) {
+      d->shm_channel_info = NULL;
+      //yeah
+      ERR("unable to allocate chan_info");
+    }
+    else {
+      d->shm_channel_info= chan_info;
+      chan_info->messages = chan->messages;
+      chan_info->subscribers = chan->subscribers;
+      chan_info->last_seen = chan->last_seen;
+    }
   }
   else {
     d->shm_channel_info = NULL;
