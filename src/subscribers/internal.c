@@ -54,8 +54,7 @@ ngx_int_t internal_subscriber_set_respond_status_handler(subscriber_t *sub, call
   return NGX_OK;
 }
 
-subscriber_t *internal_subscriber_create(void *privdata) {
-  DBG("create with privdata %p");
+subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   full_subscriber_t               *fsub;
   static ngx_http_push_loc_conf_t  dummy_config = {0};
   dummy_config.buffer_timeout = 0;
@@ -65,11 +64,14 @@ subscriber_t *internal_subscriber_create(void *privdata) {
     ERR("Unable to allocate");
     return NULL;
   }
+  
   fsub->enqueue = empty_callback;
   fsub->dequeue = empty_callback;
   fsub->respond_message = empty_callback;
   fsub->respond_status = empty_callback;
   ngx_memcpy(&fsub->sub, &new_internal_sub, sizeof(new_internal_sub));
+  fsub->sub.name= (name == NULL ? "internal" : name);
+  DBG("%p create %s with privdata %p", fsub, fsub->sub.name, privdata);
   fsub->privdata = privdata;
   
   fsub->sub.cf = &dummy_config;
@@ -92,7 +94,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
     fsub->awaiting_destruction = 1;
   }
   else {
-    DBG("%p destroy", sub);
+    DBG("%p (%s) destroy", sub, fsub->sub.name);
     ngx_free(fsub);
   }
   return NGX_OK;
@@ -100,15 +102,16 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 
 static ngx_int_t internal_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  DBG("%p reserve", self);
+  DBG("%p )%s) reserve", self, fsub->sub.name);
   fsub->reserved++;
   return NGX_OK;
 }
 static ngx_int_t internal_release(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  DBG("%p release", self);
+  DBG("%p (%s) release", self, fsub->sub.name);
   fsub->reserved--;
   if(fsub->awaiting_destruction == 1 && fsub->reserved == 0) {
+    DBG("%p (%s) free", self, fsub->sub.name);
     ngx_free(fsub);
     return NGX_ABORT;
   }
@@ -136,7 +139,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_push(fsub->owner);
 #endif
-  DBG("%p timeout", fsub);
+  DBG("%p (%s) timeout", fsub, fsub->sub.name);
   fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
@@ -147,7 +150,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 
 static ngx_int_t internal_enqueue(subscriber_t *self) {
   full_subscriber_t   *fsub = (full_subscriber_t *)self;
-  DBG("%p enqueue", self);
+  DBG("%p (%s) enqueue", self, fsub->sub.name);
   if(self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
     //add timeout timer
     //nextsub->ev should be zeroed;
@@ -164,7 +167,7 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
   assert(!f->already_dequeued);
   f->already_dequeued = 1;
-  DBG("%p dequeue sub", self);
+  DBG("%p (%s) dequeue sub", self, f->sub.name);
   f->dequeue(NGX_OK, NULL, f->privdata);
   f->dequeue_handler(self, f->dequeue_handler_data);
   if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
@@ -185,7 +188,7 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t internal_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
   full_subscriber_t   *f = (full_subscriber_t *)self;
-  DBG("%p respond msg %p", self, msg);
+  DBG("%p (%s) respond msg %p", self, f->sub.name, msg);
   f->respond_message(NGX_OK, msg, f->privdata);
   reset_timer(f);
   return dequeue_maybe(self);

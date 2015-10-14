@@ -103,7 +103,6 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 }
 
 subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) {
-  DBG("memstore subscriver create with privdata %p");
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
@@ -111,8 +110,7 @@ subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *c
     return NULL;
   }
   assert(originator_slot != memstore_slot());
-  subscriber_t *sub = internal_subscriber_create(d);
-  internal_subscriber_set_name(sub, "memstore-ipc");
+  subscriber_t *sub = internal_subscriber_create("memstore-ipc", d);
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
