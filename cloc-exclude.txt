@@ -1,0 +1,5 @@
+src/uthash.h
+src/hiredis
+src/nginx-source
+tests/nginx-pushmodule
+tests/src
