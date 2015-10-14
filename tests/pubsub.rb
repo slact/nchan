@@ -370,18 +370,14 @@ class Publisher
         # Could not get an http response, something's wrong.
         #puts "publisher err: #{response.return_message}"
         errmsg="No HTTP response: #{response.return_message}"
-        if self.nofail then
-          puts errmsg
-        else
+        unless self.nofail then
           raise errmsg
         end
       else
         # Received a non-successful http response.
         #puts "publisher err: #{response.code.to_s}"
         errmsg="HTTP request failed: #{response.code.to_s}"
-        if self.nofail then
-          puts errmsg
-        else
+        unless self.nofail then
           raise errmsg
         end
       end
