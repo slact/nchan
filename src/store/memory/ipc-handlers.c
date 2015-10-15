@@ -313,13 +313,14 @@ typedef struct {
   void                *privdata;
 } getmessage_reply_data_t;
 
-//incidentally these two are the same size. if they weren't there'd be a bug.
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, ngx_http_push_msg_id_t *msgid, void *privdata) {
-  getmessage_data_t      data = {str_shm_copy(chid), {0}, privdata};
-  assert(data.shm_chid->len>1);
-  assert(data.shm_chid->data!=NULL);
-  data.msgid.time = msgid->time;
-  data.msgid.tag = msgid->tag;
+  getmessage_data_t      data;
+  
+  data.shm_chid= str_shm_copy(chid);
+  ngx_memcpy(&data.msgid, msgid, sizeof(*msgid));
+  data.privdata = privdata;
+  
+  
   DBG("IPC: send get message from %i ch %V", dst, chid);
   return ipc_alert(ngx_http_push_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
 }
@@ -494,8 +495,11 @@ static void receive_does_channel_exist(ngx_int_t sender, void *data) {
   channel_existence_data_t    *d = (channel_existence_data_t *)data;
   nhpm_channel_head_t    *head;
   DBG("received does_channel_exist request for channel %V pridata", d->shm_chid, d->privdata);
+  
   head = ngx_http_push_memstore_find_chanhead(d->shm_chid);
+  
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
+  
   d->channel_exists = (head != NULL);
   ipc_alert(ngx_http_push_memstore_get_ipc(), sender, IPC_DOES_CHANNEL_EXIST_REPLY, d, sizeof(*d));
 }

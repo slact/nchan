@@ -975,7 +975,7 @@ typedef struct {
   ngx_int_t                 channel_owner;
   nhpm_channel_head_t      *chanhead;
   ngx_str_t                *channel_id;
-  ngx_http_push_msg_id_t   *msg_id;
+  ngx_http_push_msg_id_t    msg_id;
   callback_pt               cb;
   void                     *cb_privdata;
   unsigned                  already_enqueued:1;
@@ -1004,7 +1004,9 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
     d->allocd = 0;
     d->already_enqueued = 0;
   }
-  d->msg_id = msg_id;
+  
+  ngx_memcpy(&d->msg_id, msg_id, sizeof(*msg_id));
+  
   d->channel_owner = owner;
   d->channel_id = channel_id;
   d->cb = callback;
@@ -1079,11 +1081,11 @@ static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_statu
     else {
       
     }*/
-    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, d->msg_id, d);
+    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
     return NGX_OK;
   }
   else {
-    chmsg = chanhead_find_next_message(chanhead, d->msg_id, &findmsg_status);
+    chmsg = chanhead_find_next_message(chanhead, &d->msg_id, &findmsg_status);
     return ngx_http_push_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
 }
