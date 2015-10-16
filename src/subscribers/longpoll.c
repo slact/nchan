@@ -50,6 +50,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
+  //TODO: allocate from pool (but not the request's pool)
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
     return NULL;
