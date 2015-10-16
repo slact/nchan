@@ -68,6 +68,12 @@ push_max_reserved_memory [ size ]
   The size of the memory chunk this module will use for all message queuing
   and buffering. 
 
+push_min_message_recipients [ size ]
+  default: 0
+  context: http
+  The minimum number of recipients that need to receive a channel's message
+  before it is purged.
+
 push_min_message_buffer_length [ number ]
   default: 1
   context: http, server, location
