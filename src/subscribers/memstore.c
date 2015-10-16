@@ -35,13 +35,23 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  ngx_int_t       ret;
+  ngx_int_t           ret;
+  internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
   DBG("%p memstore subscriber dequeue: notify owner", d->sub);
   if(d->timeout_ev.timer_set) {
     ngx_del_timer(&d->timeout_ev);
   }
   ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
-  ngx_free(d);
+  
+  if(fsub->reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i)", fsub, fsub->reserved);
+    fsub->awaiting_destruction = 1;
+  }
+  else {
+    DBG("%p (%s) destroy", fsub, fsub->sub.name);
+    ngx_free(d);
+  }
+  
   return ret;
 }
 
@@ -86,11 +96,13 @@ static void reset_timer(sub_data_t *data) {
 
 static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
   sub_data_t *d = (sub_data_t *)pd;
-  if(renew) {
-    reset_timer(d);
-  }
-  else{
-    d->sub->dequeue(d->sub);
+  if(d->sub->release(d->sub) == NGX_OK) {
+    if(renew) {
+      reset_timer(d);
+    }
+    else{
+      d->sub->dequeue(d->sub);
+    }
   }
   return NGX_OK;
 }
@@ -100,6 +112,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   memstore_fakeprocess_push(d->owner);
 #endif
   DBG("%p timeout event. Ping originator to see if still needed.", d->sub);
+  d->sub->reserve(d->sub);
   memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
 #if FAKESHARD
   memstore_fakeprocess_pop();

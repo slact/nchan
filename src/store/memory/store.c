@@ -978,6 +978,7 @@ typedef struct {
   ngx_http_push_msg_id_t    msg_id;
   callback_pt               cb;
   void                     *cb_privdata;
+  unsigned                  sub_reserved:1;
   unsigned                  already_enqueued:1;
   unsigned                  allocd:1;
 } subscribe_data_t;
@@ -1012,6 +1013,7 @@ static ngx_int_t ngx_http_push_store_subscribe(ngx_str_t *channel_id, ngx_http_p
   d->cb = callback;
   d->cb_privdata = privdata;
   d->sub = sub;
+  d->sub_reserved = 0;
   
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
@@ -1081,6 +1083,10 @@ static ngx_int_t ngx_http_push_store_subscribe_continued(ngx_int_t channel_statu
     else {
       
     }*/
+    
+    d->sub->reserve(d->sub); //just in case the sub's connection gets dropped while we're waiting for ipc response
+    d->sub_reserved = 1;
+    
     memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
     return NGX_OK;
   }
@@ -1096,66 +1102,73 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
   subscriber_t               *sub = d->sub;
   nhpm_channel_head_t        *chanhead = d->chanhead;
   callback_pt                 callback = d->cb;
-  void                       *privdata = d->cb_privdata;
+  void                       *privdata = d->cb_privdata;  
+  ngx_int_t                   still_alive;
   
-  switch(findmsg_status) {
-    
-    case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
-      assert(msg != NULL);
-      DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
-      switch(sub->cf->subscriber_concurrency) {
+  still_alive = d->sub_reserved ? (sub->release(sub) == NGX_OK) : 1;
 
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
-          //kick everyone elese out, then subscribe
-          ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
-          //FALL-THROUGH to BROADCAST
+  if (still_alive) {
+    switch(findmsg_status) {
+      case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
+        assert(msg != NULL);
+        DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
+        switch(sub->cf->subscriber_concurrency) {
 
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
-            ret = sub->respond_message(sub, msg);
-            callback(ret, msg, privdata);
-          break;
+          case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
+            //kick everyone elese out, then subscribe
+            ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+            //FALL-THROUGH to BROADCAST
 
-        case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-          ERR("first-in concurrency setting not supported");
+          case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+              assert(msg);
+              ret = sub->respond_message(sub, msg);
+              callback(ret, msg, privdata);
+            break;
+
+          case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
+            ERR("first-in concurrency setting not supported");
+              ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+              callback(ret, msg, privdata);
+            break;
+
+          default:
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
             ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
             callback(ret, msg, privdata);
-          break;
-
-        default:
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
-          ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-          callback(ret, msg, privdata);
-      }
-      break;
-
-    case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
-      if(sub->cf->authorize_channel) {
-        sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
-        callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
+        }
         break;
-      }
-      //fall-through
-    case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
-      // ♫ It's gonna be the future soon ♫
-      if(!d->already_enqueued) {
-        DBG("memstore: Sub %p should already have been enqueued. ...", sub);
-        sub->enqueue(sub);
-      }
-      ret = chanhead->spooler.add(&chanhead->spooler, sub);
-      callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
-      break;
 
-    case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
-      //subscriber wants an expired message
-      //TODO: maybe respond with entity-identifiers for oldest available message?
-      sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
-      callback(NGX_HTTP_NO_CONTENT, NULL, privdata);
-      break;
-    default: //shouldn't be here!
-      sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
+        if(sub->cf->authorize_channel) {
+          sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
+          callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
+          break;
+        }
+        //fall-through
+      case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
+        // ♫ It's gonna be the future soon ♫
+        if(!d->already_enqueued) {
+          DBG("memstore: Sub %p should already have been enqueued. ...", sub);
+          sub->enqueue(sub);
+        }
+        ret = chanhead->spooler.add(&chanhead->spooler, sub);
+        callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
+        break;
+
+      case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
+        //subscriber wants an expired message
+        //TODO: maybe respond with entity-identifiers for oldest available message?
+        sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
+        callback(NGX_HTTP_NO_CONTENT, NULL, privdata);
+        break;
+      default: //shouldn't be here!
+        sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+        callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+    }
   }
-  
+  else {
+    ERR("subscriber %p disappeared while fetching message. This is quite alright.", d->sub);
+  }
   if(d->allocd) {
     ngx_free(d);
   }
