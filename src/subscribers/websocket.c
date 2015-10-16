@@ -17,6 +17,21 @@ ngx_int_t memstore_slot();
 static const subscriber_t new_websocket_sub;
 
 typedef struct {
+  u_char fin:1;
+  u_char rsv1:1;
+  u_char rsv2:1;
+  u_char rsv3:1;
+  u_char opcode:4;
+  u_char mask:1;
+  u_char mask_key[4];
+  uint64_t payload_len;
+  u_char  header[8];
+  u_char *payload;
+  u_char *last;
+  ngx_uint_t step;
+} ws_frame_t;
+
+typedef struct {
   subscriber_t            sub;
   ngx_http_request_t     *request;
   ngx_http_cleanup_t     *cln;
@@ -26,6 +41,7 @@ typedef struct {
   subscriber_callback_pt  timeout_handler;
   void                   *timeout_handler_data;
   ngx_int_t               owner;
+  ws_frame_t              frame;
   unsigned                shook_hands:1;
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
@@ -80,6 +96,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   fsub->cln->data = fsub;
   fsub->cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
+  
+  ngx_http_set_ctx(r, fsub, ngx_http_push_module); //gonna need this for recv
+  
   return &fsub->sub;
 }
 
@@ -154,14 +173,19 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_http_send_header(r);
 }
 
+
+static void websocket_reading(ngx_http_request_t *r);
+
 static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
   if(fsub->shook_hands == 0) {
-    fsub->request->read_event_handler = ngx_http_test_reading;
+    fsub->request->read_event_handler = websocket_reading;
     fsub->request->write_event_handler = ngx_http_request_empty_handler;
     fsub->request->main->count++; //this is the right way to hold and finalize the
     websocket_perform_handshake(fsub);
     fsub->shook_hands = 1;
+    return NGX_OK;
   }
+  return NGX_DECLINED;
 }
 
 
@@ -188,12 +212,14 @@ static ngx_int_t websocket_release(subscriber_t *self) {
 
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  ensure_handshake(fsub);
+  
   //TODO
   return NGX_OK;
 }
 
 static ngx_int_t websocket_dequeue(subscriber_t *self) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  full_subscriber_t  *fsub = (full_subscriber_t  *)fsub;
   //TODO
   return NGX_OK;
 }
@@ -233,3 +259,258 @@ static const subscriber_t new_websocket_sub = {
   1, //destroy after dequeue
   NULL
 };
+
+
+
+
+
+
+
+
+
+
+
+
+static ngx_int_t ws_recv(ngx_connection_t *c, ngx_event_t *rev, ngx_buf_t *buf, ssize_t len) {
+  ssize_t         n;
+  n = c->recv(c, buf->last, (ssize_t) len - (buf->last - buf->start));
+
+  if (n == NGX_AGAIN) {
+    return NGX_AGAIN;
+  }
+
+  if ((n == NGX_ERROR) || (n == 0)) {
+    return NGX_ERROR;
+  }
+
+  buf->last += n;
+
+  if ((buf->last - buf->start) < len) {
+    return NGX_AGAIN;
+  }
+
+  return NGX_OK;
+}
+
+static uint64_t ws_ntohll(uint64_t value) {
+  int num = 42;
+  if (*(char *)&num == 42) {
+    uint32_t high_part = ntohl((uint32_t)(value >> 32));
+    uint32_t low_part = ntohl((uint32_t)(value & 0xFFFFFFFFLL));
+    return (((uint64_t)low_part) << 32) | high_part;
+  } else {
+    return value;
+  }
+}
+
+#define WEBSOCKET_LAST_FRAME   0x8
+
+#define WEBSOCKET_OPCODE_TEXT  0x1
+#define WEBSOCKET_OPCODE_CLOSE 0x8
+#define WEBSOCKET_OPCODE_PING  0x9
+#define WEBSOCKET_OPCODE_PONG  0xA
+
+#define WEBSOCKET_READ_START_STEP           0
+#define WEBSOCKET_READ_GET_REAL_SIZE_STEP   1
+#define WEBSOCKET_READ_GET_MASK_KEY_STEP    2
+#define WEBSOCKET_READ_GET_PAYLOAD_STEP     3
+
+static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE[] = {WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4), 0x00};
+static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE[]  = {WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4), 0x00};
+static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE[]  = {WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4), 0x00};
+
+
+/* based on code from push stream module, written by
+ * Wandenberg Peixoto <wandenberg@gmail.com>, Rogério Carvalho Schneider <stockrt@gmail.com>
+ * thanks, guys!
+*/
+static void websocket_reading(ngx_http_request_t *r) {
+  full_subscriber_t          *fsub = ngx_http_get_module_ctx(r, ngx_http_push_module);
+  ws_frame_t                 *frame = &fsub->frame;
+  ngx_int_t                   rc = NGX_OK;
+  ngx_event_t                *rev;
+  ngx_connection_t           *c;
+  uint64_t                    i;
+  ngx_buf_t                   buf;
+  ngx_queue_t                *q;
+  
+  //ngx_http_push_stream_set_buffer(&buf, ctx->frame->header, ctx->frame->last, 8);
+
+  c = r->connection;
+  rev = c->read;
+
+  for (;;) {
+    if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof) {
+      goto finalize;
+    }
+
+    switch (frame->step) {
+      case WEBSOCKET_READ_START_STEP:
+        //reading frame header
+        if ((rc = ws_recv(c, rev, &buf, 2)) != NGX_OK) {
+          goto exit;
+        }
+        
+        frame->fin  = (frame->header[0] >> 7) & 1;
+        frame->rsv1 = (frame->header[0] >> 6) & 1;
+        frame->rsv2 = (frame->header[0] >> 5) & 1;
+        frame->rsv3 = (frame->header[0] >> 4) & 1;
+        frame->opcode = frame->header[0] & 0xf;
+        
+        frame->mask = (frame->header[1] >> 7) & 1;
+        frame->payload_len = frame->header[1] & 0x7f;
+        
+        frame->step = WEBSOCKET_READ_GET_REAL_SIZE_STEP;
+        break;
+      
+      case WEBSOCKET_READ_GET_REAL_SIZE_STEP:
+        if (frame->payload_len == 126) {
+          if ((rc = ws_recv(c, rev, &buf, 2)) != NGX_OK) {
+            goto exit;
+          }
+          uint16_t len;
+          ngx_memcpy(&len, frame->header, 2);
+          frame->payload_len = ntohs(len);
+        } 
+        else if (frame->payload_len == 127) {
+          if ((rc = ws_recv(c, rev, &buf, 8)) != NGX_OK) {
+            goto exit;
+          }
+          uint64_t len;
+          ngx_memcpy(&len, frame->header, 8);
+          frame->payload_len = ws_ntohll(len);
+        }
+        
+        frame->step = WEBSOCKET_READ_GET_MASK_KEY_STEP;
+        break;
+
+      case WEBSOCKET_READ_GET_MASK_KEY_STEP:
+        if (frame->mask) {
+          if ((rc = ws_recv(c, rev, &buf, 4)) != NGX_OK) {
+            goto exit;
+          }
+          ngx_memcpy(frame->mask_key, buf.start, 4);
+        }
+        
+        frame->step = WEBSOCKET_READ_GET_PAYLOAD_STEP;
+        break;
+
+      case WEBSOCKET_READ_GET_PAYLOAD_STEP:
+        if ((frame->opcode != WEBSOCKET_OPCODE_TEXT) && (frame->opcode != WEBSOCKET_OPCODE_CLOSE) && (frame->opcode != WEBSOCKET_OPCODE_PING) && (frame->opcode != WEBSOCKET_OPCODE_PONG)) {
+          //TODO
+          //rc = ngx_http_push_stream_send_response_text(r, NGX_HTTP_PUSH_STREAM_WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(NGX_HTTP_PUSH_STREAM_WEBSOCKET_CLOSE_LAST_FRAME_BYTE), 1);
+          goto finalize;
+        }
+
+        if (frame->payload_len > 0) {
+          /*
+          //create a temporary pool to allocate temporary elements
+          if (temp_pool == NULL) {
+            if ((temp_pool = ngx_create_pool(4096, r->connection->log)) == NULL) {
+              ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push stream module: unable to allocate memory for temporary pool");
+              goto finalize;
+            }
+            if ((frame->payload = ngx_pcalloc(temp_pool, frame->payload_len)) == NULL) {
+              ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push stream module: unable to allocate memory for payload");
+              goto finalize;
+            }
+            frame->last = frame->payload;
+          }
+          
+          //TODO
+          //ngx_http_push_stream_set_buffer(&buf, frame->payload, frame->last, frame->payload_len);
+          
+          if ((rc = ws_recv(c, rev, &buf, frame->payload_len)) != NGX_OK) {
+            goto exit;
+          }
+
+          if (frame->mask) {
+            for (i = 0; i < frame->payload_len; i++) {
+              frame->payload[i] = frame->payload[i] ^ frame->mask_key[i % 4];
+            }
+          }
+
+          if (!ngx_http_push_stream_is_utf8(frame->payload, frame->payload_len)) {
+            goto finalize;
+          }
+          */
+          /*
+          if (cf->websocket_allow_publish && (frame->opcode == WEBSOCKET_OPCODE_TEXT)) {
+            for (q = ngx_queue_head(&subscriber->subscriptions); q != ngx_queue_sentinel(&subscriber->subscriptions); q = ngx_queue_next(q)) {
+              ngx_http_push_stream_subscription_t *subscription = ngx_queue_data(q, ngx_http_push_stream_subscription_t, queue);
+              if (subscription->channel->for_events) {
+                // skip events channel on publish by websocket connections
+                continue;
+              }
+
+              if (ngx_http_push_stream_add_msg_to_channel(mcf, r->connection->log, subscription->channel, frame->payload, frame->payload_len, NULL, NULL, cf->store_messages, temp_pool) != NGX_OK) {
+                goto finalize;
+              }
+            }
+          }*/
+          /*
+          if (temp_pool != NULL) {
+            ngx_destroy_pool(temp_pool);
+            temp_pool = NULL;
+          }
+          */
+        }
+
+        frame->step = WEBSOCKET_READ_START_STEP;
+        frame->last = NULL;
+
+        if (frame->opcode == WEBSOCKET_OPCODE_PING) {
+          //TODO
+          //ngx_http_push_stream_send_response_text(r, WEBSOCKET_PONG_LAST_FRAME_BYTE, sizeof(WEBSOCKET_PONG_LAST_FRAME_BYTE), 1);
+        }
+
+        if (frame->opcode == WEBSOCKET_OPCODE_CLOSE) {
+          //TODO
+          //rc = ngx_http_push_stream_send_response_text(r, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(WEBSOCKET_CLOSE_LAST_FRAME_BYTE), 1);
+          goto finalize;
+        }
+        return;
+
+        break;
+
+      default:
+        ngx_log_debug(NGX_LOG_DEBUG, c->log, 0, "push stream module: unknown websocket step (%d)", frame->step);
+        goto finalize;
+        break;
+    }
+    
+    //TODO
+    //ngx_http_push_stream_set_buffer(&buf, frame->header, NULL, 8);
+  }
+
+exit:
+  if (rc == NGX_AGAIN) {
+    frame->last = buf.last;
+    if (!c->read->ready) {
+      if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+        ngx_log_error(NGX_LOG_INFO, c->log, ngx_socket_errno, "push stream module: failed to restore read events");
+        goto finalize;
+      }
+    }
+  }
+
+  if (rc == NGX_ERROR) {
+    rev->eof = 1;
+    c->error = 1;
+    ngx_log_error(NGX_LOG_INFO, c->log, ngx_socket_errno, "push stream module: client closed prematurely connection");
+    goto finalize;
+  }
+
+  return;
+
+finalize:
+
+  //TODO
+  //ngx_http_push_stream_run_cleanup_pool_handler(r->pool, (ngx_pool_cleanup_pt) ngx_http_push_stream_cleanup_request_context);
+  
+  ngx_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
+  
+}
+
+
+
