@@ -53,14 +53,24 @@ extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_METHODS;
 extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_HEADERS;
 extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN;
 
+extern const ngx_str_t NGX_HTTP_PUSH_HEADER_CONNECTION;
+extern const ngx_str_t NGX_HTTP_PUSH_HEADER_UPGRADE;
+extern const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_KEY;
+extern const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_ACCEPT;
+extern const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_VERSION;
+
 //header values
 extern const  ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE;
 
 //status strings
+extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_101;
 extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_409;
 extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_410;
 
 //other stuff
+
+extern const ngx_str_t NGX_HTTP_PUSH_UPGRADE;
+extern const ngx_str_t NGX_HTTP_PUSH_WEBSOCKET;
 extern const ngx_str_t NGX_HTTP_PUSH_ANYSTRING;
 extern const ngx_str_t NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS;
 extern const ngx_str_t NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS;

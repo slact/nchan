@@ -6,6 +6,7 @@
 #include <ngx_http_push_module.h>
 
 #include <subscribers/longpoll.h>
+#include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 #include <ngx_http_push_module_setup.c>
@@ -159,7 +160,7 @@ ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const
   return h;
 }
 
-static ngx_str_t * ngx_http_push_find_in_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
+ngx_str_t * ngx_http_push_get_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
   ngx_table_elt_t                 *header= part->elts;
@@ -181,13 +182,28 @@ static ngx_str_t * ngx_http_push_find_in_header_value(ngx_http_request_t * r, ng
   return NULL;
 }
 
+static ngx_int_t ngx_http_push_detect_websocket_handshake(ngx_http_request_t *r) {
+  ngx_str_t *tmp;
+  if((tmp = ngx_http_push_get_header_value(r, NGX_HTTP_PUSH_HEADER_CONNECTION))) {
+    if(ngx_strncasecmp(tmp->data, NGX_HTTP_PUSH_UPGRADE.data, NGX_HTTP_PUSH_UPGRADE.len) != 0) return 0;
+  }
+  else return 0;
+  
+  if((tmp = ngx_http_push_get_header_value(r, NGX_HTTP_PUSH_HEADER_UPGRADE))) {
+    if(ngx_strncasecmp(tmp->data, NGX_HTTP_PUSH_WEBSOCKET.data, NGX_HTTP_PUSH_WEBSOCKET.len) != 0) return 0;
+  }
+  else return 0;
+
+  return 1;
+}
+
 ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
   ngx_str_t *tmp_header;
   ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
   ngx_int_t i = 0;
   
   for(; i < 2; i++) {
-    tmp_header = ngx_http_push_find_in_header_value(r, header_checks[i]);
+    tmp_header = ngx_http_push_get_header_value(r, header_checks[i]);
     
     if (tmp_header != NULL) {
       return !!ngx_strncasecmp(tmp_header->data, NGX_HTTP_PUSH_CACHE_CONTROL_VALUE.data, tmp_header->len);
@@ -455,6 +471,9 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
 static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
   return NGX_OK;
 }
+static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
+  return NGX_OK;
+}
 
 static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, ngx_http_push_msg_t *msg, ngx_http_request_t *r) {
   //inefficient, but close enough for now
@@ -501,34 +520,51 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
   
-#if FAKESHARD  
-  #ifdef SUB_FAKE_WORKER
-  memstore_fakeprocess_push(SUB_FAKE_WORKER);
-  #else
-  memstore_fakeprocess_push_random();
-  #endif
-#endif
-  
   if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
   
   switch(r->method) {
     case NGX_HTTP_GET:
-      ngx_http_push_subscriber_get_msg_id(r, &msg_id);
-      switch(cf->subscriber_poll_mechanism) {
-        case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
-          ngx_http_push_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
-          break;
-          
-        case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
-          if((sub = longpoll_subscriber_create(r)) == NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          }
-          ngx_http_push_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
-          break;
+      
+#if FAKESHARD  
+  #ifdef SUB_FAKE_WORKER
+      memstore_fakeprocess_push(SUB_FAKE_WORKER);
+  #else
+      memstore_fakeprocess_push_random();
+  #endif
+#endif      
+
+      if(ngx_http_push_detect_websocket_handshake(r)) {
+        //do you want a websocket?
+        if((sub = websocket_subscriber_create(r)) == NULL) {
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
+          return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ngx_http_push_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
       }
+      else {
+        ngx_http_push_subscriber_get_msg_id(r, &msg_id);
+        
+        switch(cf->subscriber_poll_mechanism) {
+          case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
+            ngx_http_push_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
+            break;
+            
+          case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
+            if((sub = longpoll_subscriber_create(r)) == NULL) {
+              ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
+              return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+            ngx_http_push_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+            break;
+        }
+      }
+      
+#if FAKESHARD
+      memstore_fakeprocess_pop();
+#endif
+      
       return NGX_DONE;
     
     case NGX_HTTP_OPTIONS:
@@ -545,9 +581,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
       return NGX_HTTP_NOT_ALLOWED;
   }
-#if FAKESHARD
-  memstore_fakeprocess_pop();
-#endif
+
 }
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {

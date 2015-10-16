@@ -13,10 +13,24 @@ const  ngx_str_t NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_HEADERS = ngx_string(
 const  ngx_str_t NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
 const  ngx_str_t NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
 
+//websocket headers
+
+const ngx_str_t NGX_HTTP_PUSH_HEADER_CONNECTION = ngx_string("Connection");
+const ngx_str_t NGX_HTTP_PUSH_HEADER_UPGRADE = ngx_string("Upgrade");
+const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_KEY = ngx_string("Sec-WebSocket-Key");
+const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_ACCEPT = ngx_string("Sec-WebSocket-Accept");
+const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_VERSION = ngx_string("Sec-WebSocket-Version");
+
+//and some wobsockety values
+const ngx_str_t NGX_HTTP_PUSH_UPGRADE = ngx_string("Upgrade");
+const ngx_str_t NGX_HTTP_PUSH_WEBSOCKET = ngx_string("websocket");
+
+
 //header values
 const  ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 
 //status strings
+const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_101 = ngx_string("101 Switching Protocols");
 const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_409 = ngx_string("409 Conflict");
 const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_410 = ngx_string("410 Gone");
 

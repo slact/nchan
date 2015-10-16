@@ -30,6 +30,7 @@ ngx_int_t ngx_http_push_prepare_response_to_subscriber_request(ngx_http_request_
 ngx_int_t ngx_push_longpoll_subscriber_enqueue(subscriber_t *subscriber, ngx_int_t subscriber_timeout);
 ngx_int_t ngx_push_longpoll_subscriber_dequeue(void *subscriber);
 ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_t shared, ngx_http_push_msg_t *msg, ngx_chain_t **chain, ngx_str_t **content_type, ngx_str_t **etag, time_t *last_modified);
+ngx_str_t * ngx_http_push_get_header_value(ngx_http_request_t *r, ngx_str_t header_name);
 
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
