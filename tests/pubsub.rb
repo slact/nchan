@@ -2,7 +2,7 @@
 require 'typhoeus'
 require 'json'
 require 'pry'
-require 'celluloid'
+require 'celluloid/current'
 require 'date'
 Typhoeus::Config.memoize = false
 
