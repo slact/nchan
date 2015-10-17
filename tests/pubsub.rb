@@ -6,6 +6,9 @@ require 'celluloid/current'
 require 'date'
 Typhoeus::Config.memoize = false
 
+require "socket"
+require 'libwebsocket'
+
 class Message
   attr_accessor :content_type, :message, :times_seen, :etag, :last_modified
   def initialize(msg, last_modified=nil, etag=nil)
@@ -111,6 +114,75 @@ class MessageStore
 end
 
 class Subscriber
+  class WebSocketClient
+    include Celluloid
+    attr_accessor :last_modified, :etag, :hydra, :timeout
+    
+    def initialize(subscr, opt={})
+      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
+      @connect_timeout = opt[:connect_timeout]
+      @subscriber=subscr
+      @url=subscr.url
+      @concurrency=opt[:concurrency] || opt[:clients] || 1
+      @retry_delay=opt[:retry_delay]
+    end
+    
+    def ensure_handshake
+      return self if @handshaked
+      @hs ||= LibWebSocket::OpeningHandshake::Client.new(:url => @url, :version => 13)
+      @frame ||= LibWebSocket::Frame.new
+      @socket = TCPSocket.new(@hs.controller.host, @hs.controller.port || 80)
+      @socket.write(@hs.to_s)
+      @socket.flush
+      loop do
+        data = @socket.getc
+        next if data.nil?
+        result = @hs.parse(data.chr)
+        raise @hs.error unless result
+        if @hs.done?
+          @handshaked = true
+          break
+        end
+      end
+    end
+    
+    def send(data)
+      ensure_handshake
+      data = @frame.new(data).to_s
+      @socket.write data
+      @socket.flush
+    end
+    
+    def receive
+      ensure_handshake
+      data = @socket.gets(("\xff").force_encoding("ASCII-8BIT"))
+      @frame.append(data)
+      messages = []
+      while message = @frame.next
+        messages << message
+      end
+      messages
+    end
+    
+    def socket
+      @socket
+    end
+    
+    def close
+      @socket.close
+    end
+    
+    
+    def run(was_success = nil)
+      ensure_handshake
+      receive
+    end
+    
+    def poke
+    end
+  end
+  
+  
   class LongPollClient
     include Celluloid
     attr_accessor :last_modified, :etag, :hydra, :timeout
@@ -230,7 +302,7 @@ class Subscriber
     when :interval, :intervalpoll
       @client_class=IntervalPollClient
     when :ws, :websocket
-      raise "websocket client not yet implemented"
+      @client_class=WebSocketClient
     when :es, :eventsource
       raise "EventSource client not yet implemented"
     else

@@ -11,12 +11,14 @@ max_wait=60
 msg_count=0
 print_content_type = false
 show_id=false
+client=:longpoll
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
   opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
   opts.on("-t", "--timeout SEC (#{max_wait})", "Long-poll timeout"){|v| max_wait = v}
   opts.on("-q", "--quit STRING (#{quit_msg})", "Quit message"){|v| quit_msg = v}
+  opts.on("-l", "--client STRING (#{client})", "sub client"){|v| client = v.to_sym}
   opts.on("-c", "--content-type", "show received content-type"){|v| print_content_type = true}
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
@@ -31,7 +33,7 @@ puts "Subscribing #{par} client#{par!=1 ? "s":""} to #{url}."
 puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
 
 
-sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg
+sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg, client: client
 
 nomsgmessage="\r"*30 + "Received message %i, len:%i"
 
