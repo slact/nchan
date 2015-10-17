@@ -20,6 +20,42 @@
 #define WEBSOCKET_READ_GET_MASK_KEY_STEP    2
 #define WEBSOCKET_READ_GET_PAYLOAD_STEP     3
 
+/*
+ * connection close valid status codes
+ *
+    |Status Code | Meaning         
+    -+------------+-----------------|
+     | 1000       | Normal Closure  |
+    -+------------+-----------------|
+     | 1001       | Going Away      |
+    -+------------+-----------------|
+     | 1002       | Protocol error  |
+    -+------------+-----------------|
+     | 1003       | Unsupported Data|
+    -+------------+-----------------|
+     | 1004       | ---Reserved---- |
+    -+------------+-----------------|
+     | 1005       | ---Reserved---- |
+    -+------------+-----------------|
+     | 1006       | ---Reserved---- |
+    -+------------+-----------------|
+     | 1007       | Invalid frame   |
+     |            | payload data    | 
+    -+------------+-----------------|
+     | 1008       | Policy Violation|
+    -+------------+-----------------|
+     | 1009       | Message Too Big |
+    -+------------+-----------------|
+     | 1010       | Mandatory Ext.  |
+    -+------------+-----------------|
+     | 1011       | Internal Server |
+     |            | Error           |
+    -+------------+-----------------|
+     | 1015       | ---Reserved---- |
+    -+------------+-----------------|
+
+*/
+
 //debugstuff
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
