@@ -73,6 +73,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
 }
 
 
+
 static void empty_handler() { }
 
 static void websocket_init_frame(ws_frame_t *frame) {
@@ -288,7 +289,7 @@ static const subscriber_t new_websocket_sub = {
 
 static ngx_flag_t is_utf8(u_char *, size_t);
 static void flush_pending_output(ngx_http_request_t *);
-
+static ngx_int_t send_response_text(ngx_http_request_t *r, const u_char *text, uint len);
 
 
 
@@ -421,8 +422,7 @@ static void websocket_reading(ngx_http_request_t *r) {
       
       case WEBSOCKET_READ_GET_PAYLOAD_STEP:
         if ((frame->opcode != WEBSOCKET_OPCODE_TEXT) && (frame->opcode != WEBSOCKET_OPCODE_CLOSE) && (frame->opcode != WEBSOCKET_OPCODE_PING) && (frame->opcode != WEBSOCKET_OPCODE_PONG)) {
-          //TODO
-          //rc = ngx_http_push_stream_send_response_text(r, NGX_HTTP_PUSH_STREAM_WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(NGX_HTTP_PUSH_STREAM_WEBSOCKET_CLOSE_LAST_FRAME_BYTE), 1);
+          rc = send_response_text(r, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(WEBSOCKET_CLOSE_LAST_FRAME_BYTE));
           goto finalize;
         }
         
@@ -458,9 +458,11 @@ static void websocket_reading(ngx_http_request_t *r) {
           }
           
           if (frame->opcode == WEBSOCKET_OPCODE_TEXT) {
-            ERR("wtf is this shit");
             msg_in_str.data=frame->payload;
             msg_in_str.len=frame->payload_len;
+            
+            ERR("we got data %V", &msg_in_str);
+            
             /*
             for (q = ngx_queue_head(&subscriber->subscriptions); q != ngx_queue_sentinel(&subscriber->subscriptions); q = ngx_queue_next(q)) {
               ngx_http_push_stream_subscription_t *subscription = ngx_queue_data(q, ngx_http_push_stream_subscription_t, queue);
@@ -480,19 +482,19 @@ static void websocket_reading(ngx_http_request_t *r) {
             temp_pool = NULL;
           }
         }
-
         frame->step = WEBSOCKET_READ_START_STEP;
         frame->last = NULL;
-
-        if (frame->opcode == WEBSOCKET_OPCODE_PING) {
-          //TODO
-          //ngx_http_push_stream_send_response_text(r, WEBSOCKET_PONG_LAST_FRAME_BYTE, sizeof(WEBSOCKET_PONG_LAST_FRAME_BYTE), 1);
-        }
-
-        if (frame->opcode == WEBSOCKET_OPCODE_CLOSE) {
-          //TODO
-          //rc = ngx_http_push_stream_send_response_text(r, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(WEBSOCKET_CLOSE_LAST_FRAME_BYTE), 1);
-          goto finalize;
+        switch(frame->opcode) {
+          case WEBSOCKET_OPCODE_PING:
+            ERR("got pinged");
+            send_response_text(r, WEBSOCKET_PONG_LAST_FRAME_BYTE, sizeof(WEBSOCKET_PONG_LAST_FRAME_BYTE));
+            break;
+          
+          case WEBSOCKET_OPCODE_CLOSE:
+            ERR("wants to close");
+            send_response_text(r, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(WEBSOCKET_CLOSE_LAST_FRAME_BYTE));
+            goto finalize;
+            break; //good practice?
         }
         return;
 
@@ -660,3 +662,61 @@ static void flush_pending_output(ngx_http_request_t *r) {
   r->write_event_handler = ngx_http_request_empty_handler;
 }
 
+/*
+static ngx_str_t *
+ngx_http_push_stream_get_formatted_websocket_frame(const u_char *opcode, off_t opcode_len, const u_char *text, off_t len, ngx_pool_t *temp_pool)
+{
+  ngx_str_t            *frame;
+  u_char               *last;
+
+  frame = ngx_http_push_stream_create_str(temp_pool, WEBSOCKET_FRAME_HEADER_MAX_LENGTH + len);
+  if (frame != NULL) {
+    last = ngx_copy(frame->data, opcode, opcode_len);
+
+    if (len <= 125) {
+      last = ngx_copy(last, &len, 1);
+    } 
+    else if (len < (1 << 16)) {
+      last = ngx_copy(last, &NGX_HTTP_PUSH_STREAM_WEBSOCKET_PAYLOAD_LEN_16_BYTE, sizeof(NGX_HTTP_PUSH_STREAM_WEBSOCKET_PAYLOAD_LEN_16_BYTE));
+      uint16_t len_net = htons(len);
+      last = ngx_copy(last, &len_net, 2);
+    }
+    else {
+      last = ngx_copy(last, &NGX_HTTP_PUSH_STREAM_WEBSOCKET_PAYLOAD_LEN_64_BYTE, sizeof(NGX_HTTP_PUSH_STREAM_WEBSOCKET_PAYLOAD_LEN_64_BYTE));
+      uint64_t len_net = ngx_http_push_stream_htonll(len);
+      last = ngx_copy(last, &len_net, 8);
+    }
+    last = ngx_copy(last, text, len);
+    frame->len = last - frame->data;
+  }
+  return frame;
+}
+*/
+
+static ngx_int_t send_response_text(ngx_http_request_t *r, const u_char *text, uint len) {
+  ngx_buf_t     *b = ngx_pcalloc(r->pool, sizeof(*b));
+  ngx_chain_t   *out = ngx_pcalloc(r->pool, sizeof(*out));
+
+  assert(b);
+  assert(out);
+  
+  if ((text == NULL) || (r->connection->error) || out == NULL) {
+    return NGX_ERROR;
+  }
+
+  out->buf = b;
+
+  b->last_buf = 1;
+  b->last_in_chain = 1;
+  b->flush = 1;
+  b->memory = 1;
+  b->temporary = 0;
+  b->pos = (u_char *)text;
+  b->start = b->pos;
+  b->end = b->pos + len;
+  b->last = b->end;
+
+  out->next = NULL;
+
+  return output_filter(r, out);
+}
