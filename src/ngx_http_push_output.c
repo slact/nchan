@@ -8,7 +8,7 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "OUTPUT:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "OUTPUT:" fmt, ##arg)
 
-//general request-output functions and the iraq and the asian countries uh, and such
+//general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
 static void ngx_http_push_flush_pending_output(ngx_http_request_t *r) {
   int                        rc;
@@ -87,10 +87,6 @@ ngx_int_t ngx_http_push_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
 
   rc = ngx_http_output_filter(r, in);
 
-  //if ((rc == NGX_OK) && (ctx = ngx_http_get_module_ctx(r, ngx_http_push_stream_module)) != NULL) {
-  //    ngx_chain_update_chains(r->pool, &ctx->free, &ctx->busy, &in, (ngx_buf_tag_t) &ngx_http_push_stream_module);
-  //}
-
   if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
     ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
     clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
@@ -111,3 +107,19 @@ ngx_int_t ngx_http_push_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
   return rc;
 }
 
+ngx_int_t ngx_http_push_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize) {
+  ngx_int_t    rc = NGX_OK;
+  r->headers_out.status=status_code;
+  if(status_line!=NULL) {
+    r->headers_out.status_line.len =status_line->len;
+    r->headers_out.status_line.data=status_line->data;
+  }
+  r->headers_out.content_length_n = 0;
+  r->header_only = 1;
+    
+  rc= ngx_http_send_header(r);
+  if(finalize) {
+    ngx_http_finalize_request(r, rc);
+  }
+  return rc;
+}

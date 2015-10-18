@@ -294,7 +294,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
     return abort_response(self, "WTF just happened to request?");
   }
 
-  rc = ngx_http_output_filter(r, rchain);
+  rc = ngx_http_push_output_filter(r, rchain);
   finalize_maybe(self, rc);
   dequeue_maybe(self);
   return rc;
@@ -303,18 +303,12 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_request_t    *r = ((full_subscriber_t *)self)->data.request;
   DBG("%p respond req %p status %i", self, r, status_code);
-  r->headers_out.status=status_code;
-  if(status_line!=NULL) {
-    r->headers_out.status_line.len =status_line->len;
-    r->headers_out.status_line.data=status_line->data;
-  }
-  r->headers_out.content_length_n = 0;
-  r->header_only = 1;
   
   //disable abort handler
   ((full_subscriber_t *)self)->data.cln->handler = empty_handler;
   
-  ngx_http_send_header(r);
+  ngx_http_push_respond_status(r, status_code, status_line, 0);
+  
   finalize_maybe(self, NGX_OK);
   dequeue_maybe(self);
   return NGX_OK;

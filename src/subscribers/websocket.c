@@ -109,6 +109,7 @@ typedef struct {
   ngx_buf_t              *hdr_buf;
   ngx_buf_t              *msg_buf; //assumes single-buffer messages
   
+  unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
@@ -151,6 +152,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   fsub->request = r;
   fsub->cln = NULL;
   fsub->finalize_request = 0;
+  fsub->holding = 0;
   fsub->shook_hands = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
   
@@ -278,11 +280,19 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
 
 static void websocket_reading(ngx_http_request_t *r);
 
-static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
-  if(fsub->shook_hands == 0) {
+
+static void ensure_request_hold(full_subscriber_t *fsub) {
+  if(fsub->holding == 0) {
     fsub->request->read_event_handler = websocket_reading;
     fsub->request->write_event_handler = ngx_http_request_empty_handler;
     fsub->request->main->count++; //this is the right way to hold and finalize the
+    fsub->holding = 1;
+  }
+}
+
+static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
+  if(fsub->shook_hands == 0) {
+    ensure_request_hold(fsub);
     websocket_perform_handshake(fsub);
     fsub->shook_hands = 1;
     return NGX_OK;
@@ -293,7 +303,7 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
 static ngx_int_t websocket_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("%p reserve for req %p", self, fsub->request);
-  ensure_handshake(fsub);
+  ensure_request_hold(fsub);
   fsub->reserved++;
   return NGX_OK;
 }
@@ -781,7 +791,13 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
   //TODO: prepare msg file
   full_subscriber_t *fsub = (full_subscriber_t *)self;
-  return ngx_http_push_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
+  if(!fsub->shook_hands) {
+    //can't respond yet, still in HTTP land. this is a server error.
+    return ngx_http_push_respond_status(fsub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+  }
+  else { 
+    return ngx_http_push_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
+  }
 }
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
@@ -792,9 +808,14 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   u_char                    msgbuf[50];
   ngx_str_t                 custom_close_msg;
   ngx_str_t                *close_msg;
-  uint16_t                  close_code=999;
-  
+  uint16_t                  close_code=0;
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
+  
+  if(!fsub->shook_hands) {
+    //still in HTTP land
+    return ngx_http_push_respond_status(fsub->request, status_code, status_line, 0);
+  }
+  
   switch(status_code) {
     case 410:
       close_code = CLOSE_GOING_AWAY;
