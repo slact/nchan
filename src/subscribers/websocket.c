@@ -778,10 +778,8 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   
   //there's definitely enough space at the end for 2 more bytes
   code_net=htons(code);
-  ngx_copy(hdr_buf->last, &code_net, 2);
-
-  hdr_buf->last+=2;
-  hdr_buf->end+=2;
+  hdr_buf->last = ngx_copy(hdr_buf->last, &code_net, 2);
+  hdr_buf->end = hdr_buf->last;
   
   init_msg_buf(msg_buf);
   set_buf_to_str(msg_buf, err);
