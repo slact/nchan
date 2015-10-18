@@ -849,6 +849,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   ngx_buf_t     *hdr_buf = fsub->hdr_buf;
   ngx_buf_t     *msg_buf = fsub->msg_buf;
   ngx_str_t      alt_err;
+  uint16_t       code_net;
   
   alt_err.data=err->data;
   alt_err.len=err->len;
@@ -864,10 +865,9 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   }
   websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, err->len + 2);
   
-  //there's enough space at the end for 2 more bytes
-  //VERIFY: do we have an endianness problem here?
-  hdr_buf->last[1]= code >> 8;
-  hdr_buf->last[2]= code;
+  //there's definitely enough space at the end for 2 more bytes
+  code_net=htons(code);
+  ngx_copy(hdr_buf->last, &code_net, 2);
 
   hdr_buf->last+=2;
   hdr_buf->end+=2;
