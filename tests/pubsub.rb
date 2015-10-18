@@ -113,8 +113,31 @@ class MessageStore
   end
 end
 
+#a little sugar for handshake errors
+class WebSocket::EventMachine::Client
+  attr_accessor :handshake # we want this for erroring
+end
+class WebSocket::Handshake::Client
+  attr_accessor :data
+  def response_code(what=:code)
+    resp=@data.match(/^HTTP\/1.1 (?<code>\d+) (?<line>[^\\\r\\\n]+)/)
+    resp[what]
+  end
+  def response_line
+    response_code :line
+  end
+end
+
 class Subscriber
   class WebSocketClient
+    class WebSocketErrorResponse
+      attr_accessor :code, :msg, :connected
+      def initialize(code, msg, connected)
+        self.code = code
+        self.msg = msg
+        self.connected = connected
+      end
+    end
     include Celluloid
     attr_accessor :last_modified, :etag, :timeout
     
@@ -126,7 +149,16 @@ class Subscriber
       @concurrency=(opt[:concurrency] || opt[:clients] || 1).to_i
       @retry_delay=opt[:retry_delay]
       @ws = []
-      @connected = false
+      @connected={}
+      @connections = 0
+    end
+    
+    def try_halt
+      @disconnected ||= 0
+      @disconnected += 1
+      if @disconnected == @concurrency
+        halt
+      end
     end
     
     def halt
@@ -144,24 +176,32 @@ class Subscriber
       EventMachine.run do
         @concurrency.times do
           ws = WebSocket::EventMachine::Client.connect(:uri => "#{@url}")
+          
           ws.onopen do
-            @connected = true
-            puts "Connected"
+            @connected[ws] = true
+            @connections += 1
+            #puts "Connected"
           end
-
-          ws.onmessage do |msg, type|
-            puts "Received message: #{msg} type: #{type}"
-          end
-
-          ws.onclose do |code, reason|
-            puts "Disconnected with status code: #{code} (reason: #{reason})"
-            @disconnected ||= 0
-            @disconnected += 1
-            if @disconnected == @concurrency
-              halt
+          ws.onerror do |err, err2|
+            if !@connected[ws]
+              @subscriber.on_failure WebSocketErrorResponse.new(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
+              try_halt
             end
           end
-
+          ws.onmessage do |data, type|
+            #puts "Received message: #{data} type: #{type}"
+            msg=Message.new data
+            @subscriber.on_message(msg)
+          end
+          ws.onclose do |code, reason|
+            #puts "Disconnected with status code: #{code} (reason: #{reason})"
+            if code != 1000 #1000 is not an error
+              @subscriber.on_failure(WebSocketErrorResponse.new(code, reason, @connected[ws]))
+            else
+              #TODO: should grab last message's id send in the close reason body
+            end
+            try_halt
+          end
           @ws << ws
         end
       end
@@ -283,7 +323,6 @@ class Subscriber
     @quit_message=opt[:quit_message]
     @gzip=opt[:gzip]
     @retry_delay=opt[:retry_delay]
-    reset
     #puts "Starting subscriber on #{url}"
     case opt[:client]
     when :longpoll, :long, nil
@@ -291,12 +330,14 @@ class Subscriber
     when :interval, :intervalpoll
       @client_class=IntervalPollClient
     when :ws, :websocket
+      @care_about_message_ids = false
       @client_class=WebSocketClient
     when :es, :eventsource
       raise "EventSource client not yet implemented"
     else
       raise "unknown client type #{opt[:client]}"
     end
+    reset
     @concurrency=concurrency
     @client_class ||= opt[:client_class] || LongPollClient
     new_client @client_class
@@ -373,16 +414,25 @@ class Subscriber
     if block_given?
       @on_failure=block
     else
-      #puts "failed with #{response.to_s}. handler is #{@on_failure.to_s}"
-      if response.timed_out?
-        # aw hell no
-        @errors << "Client response timeout."
-      elsif response.code == 0
-        # Could not get an http response, something's wrong.
-        @errors << response.return_message
+      case client
+      when LongPollClient, IntervalPollClient
+        #puts "failed with #{response.to_s}. handler is #{@on_failure.to_s}"
+        if response.timed_out?
+          # aw hell no
+          @errors << "Client response timeout."
+        elsif response.code == 0
+          # Could not get an http response, something's wrong.
+          @errors << response.return_message
+        else
+          # Received a non-successful http response.
+          @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
+        end
+      when WebSocketClient
+        error = response.connected ? "Websocket connection failed: " : "Websocket handshake failed: "
+        error << "#{response.msg} (code #{response.code})"
+        @errors << error
       else
-        # Received a non-successful http response.
-        @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
+        binding.pry
       end
       @on_failure.call(response) if @on_failure.respond_to? :call
     end
