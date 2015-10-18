@@ -343,9 +343,7 @@ static ngx_int_t websocket_set_dequeue_callback(subscriber_t *self, subscriber_c
 static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len);
 static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str);
 static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len);
-static ngx_int_t output_filter(ngx_http_request_t *r, ngx_chain_t *in);
 static ngx_flag_t is_utf8(u_char *, size_t);
-static void flush_pending_output(ngx_http_request_t *);
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 
 static ngx_int_t ws_recv(ngx_connection_t *c, ngx_event_t *rev, ngx_buf_t *buf, ssize_t len) {
@@ -591,44 +589,6 @@ finalize:
 }
 
 
-
-static ngx_int_t output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
-  ngx_http_core_loc_conf_t               *clcf;
-  //ngx_http_push_stream_module_ctx_t      *ctx = NULL;
-  ngx_int_t                               rc;
-  ngx_event_t                            *wev;
-  ngx_connection_t                       *c;
-
-  c = r->connection;
-  wev = c->write;
-
-  rc = ngx_http_output_filter(r, in);
-
-  //if ((rc == NGX_OK) && (ctx = ngx_http_get_module_ctx(r, ngx_http_push_stream_module)) != NULL) {
-  //    ngx_chain_update_chains(r->pool, &ctx->free, &ctx->busy, &in, (ngx_buf_tag_t) &ngx_http_push_stream_module);
-  //}
-
-  if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
-    ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
-    clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
-    r->write_event_handler = flush_pending_output;
-    if (!wev->delayed) {
-      ngx_add_timer(wev, clcf->send_timeout);
-    }
-    if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-      return NGX_ERROR;
-    }
-    return NGX_OK;
-  } 
-  else {
-    if (wev->timer_set) {
-      ngx_del_timer(wev);
-    }
-  }
-  return rc;
-}
-
-
 static ngx_flag_t is_utf8(u_char *p, size_t n) {
   u_char  c, *last;
   size_t  len;
@@ -650,70 +610,6 @@ static ngx_flag_t is_utf8(u_char *p, size_t n) {
   }
   return 1;
 }
-
-
-static void flush_pending_output(ngx_http_request_t *r) {
-  int                        rc;
-  ngx_event_t               *wev;
-  ngx_connection_t          *c;
-  ngx_http_core_loc_conf_t  *clcf;
-  
-  c = r->connection;
-  wev = c->write;
-  
-  //ngx_log_debug2(NGX_LOG_DEBUG_HTTP, wev->log, 0, "http writer handler: \"%V?%V\"", &r->uri, &r->args);
-
-  clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
-
-  if (wev->timedout) {
-    if (!wev->delayed) {
-      ngx_log_error(NGX_LOG_INFO, c->log, NGX_ETIMEDOUT, "websocket client timed out");
-      c->timedout = 1;
-      ngx_http_finalize_request(r, NGX_HTTP_REQUEST_TIME_OUT);
-      return;
-    }
-    wev->timedout = 0;
-    wev->delayed = 0;
-
-    if (!wev->ready) {
-      ngx_add_timer(wev, clcf->send_timeout);
-      if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-        ngx_http_finalize_request(r, 0);
-      }
-      return;
-    }
-  }
-  
-  if (wev->delayed || r->aio) {
-    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, wev->log, 0, "websocket client http writer delayed");
-    if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-      ngx_http_finalize_request(r, 0);
-    }
-    return;
-  }
-  
-  rc = output_filter(r, NULL);
-
-  //ngx_log_debug3(NGX_LOG_DEBUG_HTTP, c->log, 0, "http writer output filter: %d, \"%V?%V\"", rc, &r->uri, &r->args);
-
-  if (rc == NGX_ERROR) {
-    ngx_http_finalize_request(r, rc);
-    return;
-  }
-
-  if (r->buffered || r->postponed || (r == r->main && c->buffered)) {
-    if (!wev->delayed) {
-      ngx_add_timer(wev, clcf->send_timeout);
-    }
-    if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-      ngx_http_finalize_request(r, 0);
-    }
-    return;
-  }
-  //ngx_log_debug2(NGX_LOG_DEBUG_HTTP, wev->log, 0, "http writer done: \"%V?%V\"", &r->uri, &r->args);
-  r->write_event_handler = ngx_http_request_empty_handler;
-}
-
 
 uint64_t htonll(uint64_t value) {
   int num = 42;
@@ -819,7 +715,7 @@ static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const 
 }
 
 static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len) {
-  return output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
+  return ngx_http_push_output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
 }
 
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_push_msg_t *msg) {
@@ -838,7 +734,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_
 
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  output_filter(fsub->request, websocket_close_frame_chain(fsub, code, err));
+  ngx_http_push_output_filter(fsub->request, websocket_close_frame_chain(fsub, code, err));
   return NGX_OK;
 }
 
@@ -885,7 +781,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
   //TODO: prepare msg file
   full_subscriber_t *fsub = (full_subscriber_t *)self;
-  return output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
+  return ngx_http_push_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
 }
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {

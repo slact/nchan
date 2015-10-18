@@ -41,6 +41,7 @@ CORE_INCS="$CORE_INCS \
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   $_NHPM_REDIS_SRCS \
   ${ngx_addon_dir}/src/ngx_http_push_defs.c \
+  ${ngx_addon_dir}/src/ngx_http_push_output.c \
   $_NHPM_SUBSCRIBERS_SRCS \
   $_NHPM_REDIS_STORE_SRCS \
   ${ngx_addon_dir}/src/store/spool.c \

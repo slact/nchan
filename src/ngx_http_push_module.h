@@ -1,6 +1,7 @@
 #include <ngx_http.h>
 #include <ngx_http_push_types.h>
 #include <ngx_http_push_defs.h>
+#include <ngx_http_push_output.h>
 #include <store/ngx_http_push_store.h>
 
 
