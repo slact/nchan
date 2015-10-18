@@ -2,8 +2,9 @@
 #include <ngx_crypt.h>
 #include <ngx_sha1.h>
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
+
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:WEBSOCKET:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:WEBSOCKET:" fmt, ##arg)
 #include <assert.h>
@@ -21,44 +22,40 @@
 #define WEBSOCKET_READ_GET_PAYLOAD_STEP     3
 
 
-#define WEBSOCKET_FRAME_HEADER_MAX_LENGTH   144
+#define WEBSOCKET_FRAME_HEADER_MAX_LENGTH   146 //144 + 2 for possible close status code
 
-/*
- * connection close valid status codes
- *
-    |Status Code | Meaning         
-    -+------------+-----------------|
-     | 1000       | Normal Closure  |
-    -+------------+-----------------|
-     | 1001       | Going Away      |
-    -+------------+-----------------|
-     | 1002       | Protocol error  |
-    -+------------+-----------------|
-     | 1003       | Unsupported Data|
-    -+------------+-----------------|
-     | 1004       | ---Reserved---- |
-    -+------------+-----------------|
-     | 1005       | ---Reserved---- |
-    -+------------+-----------------|
-     | 1006       | ---Reserved---- |
-    -+------------+-----------------|
-     | 1007       | Invalid frame   |
-     |            | payload data    | 
-    -+------------+-----------------|
-     | 1008       | Policy Violation|
-    -+------------+-----------------|
-     | 1009       | Message Too Big |
-    -+------------+-----------------|
-     | 1010       | Mandatory Ext.  |
-    -+------------+-----------------|
-     | 1011       | Internal Server |
-     |            | Error           |
-    -+------------+-----------------|
-     | 1015       | ---Reserved---- |
-    -+------------+-----------------|
+/**
+ * here's what a websocket frame looks like
+ * 
+    0                   1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+  +-+-+-+-+-------+-+-------------+-------------------------------+
+  |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+  |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+  |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+  | |1|2|3|       |K|             |                               |
+  +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+  |     Extended payload length continued, if payload len == 127  |
+  + - - - - - - - - - - - - - - - +-------------------------------+
+  |                               |Masking-key, if MASK set to 1  |
+  +-------------------------------+-------------------------------+
+  | Masking-key (continued)       |          Payload Data         |
+  +-------------------------------- - - - - - - - - - - - - - - - +
+  :                     Payload Data continued ...                :
+  + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+  |                     Payload Data continued ...                |
+  +---------------------------------------------------------------+
+ */
 
-*/
-
+#define CLOSE_NORMAL                 1000
+#define CLOSE_GOING_AWAY             1001
+#define CLOSE_PROTOCOL_ERROR         1002
+#define CLOSE_UNSUPPORTED_DATA       1003
+#define CLOSE_INVALID_PAYLOAD        1007
+#define CLOSE_POLICY_VIOLATION       1008
+#define CLOSE_MESSAGE_TOO_BIG        1009
+#define CLOSE_EXTENSION_MISSING      1010
+#define CLOSE_INTERNAL_SERVER_ERROR  1011
 
 #define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
 #define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
@@ -66,9 +63,9 @@
 static const u_char WEBSOCKET_PAYLOAD_LEN_16_BYTE = 126;
 static const u_char WEBSOCKET_PAYLOAD_LEN_64_BYTE = 127;
 static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT  | (WEBSOCKET_LAST_FRAME << 4);
-static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE[] = {WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4), 0x00};
-//static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE[]  = {WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4), 0x00};
-static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE[]  = {WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4), 0x00};
+static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
+//static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = {EBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
 
 
 //debugstuff
@@ -146,7 +143,6 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
-  //TODO: allocate from pool (but not the request's pool)
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
     return NULL;
@@ -318,13 +314,13 @@ static ngx_int_t websocket_release(subscriber_t *self) {
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_handshake(fsub);
-  
-  //TODO
   return NGX_OK;
 }
 
 static ngx_int_t websocket_dequeue(subscriber_t *self) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)fsub;
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  DBG("%p dequeue", self);
+  fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
   if(self->destroy_after_dequeue) {
     websocket_subscriber_destroy(self);
   }
@@ -333,28 +329,24 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
 
 static ngx_int_t websocket_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   //TODO
+  assert(0);
   return NGX_OK;
 }
 
 static ngx_int_t websocket_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
-  //TODO
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  fsub->dequeue_handler = cb;
+  fsub->dequeue_handler_data = privdata;
   return NGX_OK;
 }
 
-
-
-
-
-
-
-
-
-
+static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len);
+static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str);
+static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len);
+static ngx_int_t output_filter(ngx_http_request_t *r, ngx_chain_t *in);
 static ngx_flag_t is_utf8(u_char *, size_t);
 static void flush_pending_output(ngx_http_request_t *);
-static ngx_int_t send_response_text(ngx_http_request_t *r, const u_char *text, uint len);
-static ngx_str_t *get_formatted_websocket_frame(const u_char *opcode, off_t opcode_len, const u_char *text, off_t len, ngx_pool_t *temp_pool);
-
+static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 
 static ngx_int_t ws_recv(ngx_connection_t *c, ngx_event_t *rev, ngx_buf_t *buf, ssize_t len) {
   ssize_t         n;
@@ -387,9 +379,6 @@ static uint64_t ws_ntohll(uint64_t value) {
     return value;
   }
 }
-
-
-
 
 static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len) {
   ngx_memzero(buf, sizeof(*buf));
@@ -482,7 +471,7 @@ static void websocket_reading(ngx_http_request_t *r) {
       
       case WEBSOCKET_READ_GET_PAYLOAD_STEP:
         if ((frame->opcode != WEBSOCKET_OPCODE_TEXT) && (frame->opcode != WEBSOCKET_OPCODE_CLOSE) && (frame->opcode != WEBSOCKET_OPCODE_PING) && (frame->opcode != WEBSOCKET_OPCODE_PONG)) {
-          rc = send_response_text(r, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(WEBSOCKET_CLOSE_LAST_FRAME_BYTE));
+          rc= websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
           goto finalize;
         }
         
@@ -518,7 +507,6 @@ static void websocket_reading(ngx_http_request_t *r) {
           }
           
           if (frame->opcode == WEBSOCKET_OPCODE_TEXT) {
-            ngx_str_t    *resp;
             ngx_str_t     msg_in_str;
             msg_in_str.data=frame->payload;
             msg_in_str.len=frame->payload_len;
@@ -526,9 +514,8 @@ static void websocket_reading(ngx_http_request_t *r) {
             ERR("we got data %V", &msg_in_str);
             
             //echo that shit
-            
-            resp = get_formatted_websocket_frame(&WEBSOCKET_TEXT_LAST_FRAME_BYTE, sizeof(WEBSOCKET_TEXT_LAST_FRAME_BYTE), msg_in_str.data, msg_in_str.len, r->pool);
-            send_response_text(r, resp->data, resp->len);
+            set_buf_to_str(fsub->msg_buf, &msg_in_str);
+            websocket_send_frame(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, msg_in_str.len);
             
             /*
             for (q = ngx_queue_head(&subscriber->subscriptions); q != ngx_queue_sentinel(&subscriber->subscriptions); q = ngx_queue_next(q)) {
@@ -554,12 +541,12 @@ static void websocket_reading(ngx_http_request_t *r) {
         switch(frame->opcode) {
           case WEBSOCKET_OPCODE_PING:
             ERR("got pinged");
-            send_response_text(r, WEBSOCKET_PONG_LAST_FRAME_BYTE, sizeof(WEBSOCKET_PONG_LAST_FRAME_BYTE));
+            websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, 0);
             break;
           
           case WEBSOCKET_OPCODE_CLOSE:
             ERR("wants to close");
-            send_response_text(r, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, sizeof(WEBSOCKET_CLOSE_LAST_FRAME_BYTE));
+            websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
             goto finalize;
             break; //good practice?
         }
@@ -600,7 +587,6 @@ finalize:
 
   //TODO
   //ngx_http_push_stream_run_cleanup_pool_handler(r->pool, (ngx_pool_cleanup_pt) ngx_http_push_stream_cleanup_request_context);
-  
   ngx_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
   
 }
@@ -730,16 +716,6 @@ static void flush_pending_output(ngx_http_request_t *r) {
 }
 
 
-static ngx_str_t *create_str(ngx_pool_t *pool, uint len) {
-  ngx_str_t *aux = (ngx_str_t *) ngx_pcalloc(pool, sizeof(ngx_str_t) + len + 1);
-  if (aux != NULL) {
-    aux->data = (u_char *) (aux + 1);
-    aux->len = len;
-    ngx_memset(aux->data, '\0', len + 1);
-  }
-    return aux;
-}
-
 uint64_t htonll(uint64_t value) {
   int num = 42;
   if (*(char *)&num == 42) {
@@ -763,10 +739,31 @@ uint64_t ntohll(uint64_t value) {
   }
 }
 
-static ngx_int_t websocket_frame_header(const u_char *opcode, off_t opcode_len, ngx_buf_t *buf, off_t len) {
+static void init_header_buf(ngx_buf_t *buf) {
+  u_char        *pos;
+  buf->flush = 1;
+  buf->memory = 1;
+  buf->temporary = 0;
+  pos = buf->start;
+  buf->end=pos;
+  buf->pos=pos;
+  buf->last=pos; 
+}
+
+static void init_msg_buf(ngx_buf_t *buf) {
+  ngx_memzero(buf, sizeof(*buf));
+  buf->last_buf = 1;
+  buf->last_in_chain = 1;
+  buf->flush = 1;
+  buf->memory = 1;
+}
+
+static ngx_int_t websocket_frame_header(ngx_buf_t *buf, const u_char opcode, off_t len) {
   u_char               *last = buf->start;
   uint64_t              len_net;
-  last = ngx_copy(last, opcode, opcode_len);
+  init_header_buf(buf);
+  *last = opcode;
+  last++;
   
   if (len <= 125) {
     last = ngx_copy(last, &len, 1);
@@ -784,101 +781,101 @@ static ngx_int_t websocket_frame_header(const u_char *opcode, off_t opcode_len, 
   }
   buf->end=last;
   buf->last=last;
-  buf->last_buf=0;
+  buf->last_buf= len == 0;
   buf->pos=buf->start;
   return NGX_OK;
 }
 
-static ngx_int_t websocket_msg_frame_header(ngx_buf_t *buf, off_t len) {
-  return websocket_frame_header(&WEBSOCKET_TEXT_LAST_FRAME_BYTE, sizeof(WEBSOCKET_TEXT_LAST_FRAME_BYTE), buf, len);
+/*static ngx_int_t websocket_msg_frame_header(ngx_buf_t *buf, off_t len) {
+  return websocket_frame_header(buf, WEBSOCKET_TEXT_LAST_FRAME_BYTE, len);
+}
+*/
+
+static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str) {
+  buf->start=str->data;
+  buf->end=str->data + str->len;
+  buf->pos = buf->start;
+  buf->last = buf->end;
+}
+
+static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len) {
+  ngx_chain_t   *hdr_chain = fsub->hdr_chain;
+  
+  ngx_buf_t     *hdr_buf = fsub->hdr_buf;
+  //ngx_buf_t     *msg_buf = fsub->msg_buf;
+  
+  websocket_frame_header(hdr_buf, opcode, len);
+  
+  if(len == 0) {
+    hdr_buf->last_buf=1;
+    hdr_chain->next=NULL;
+  }
+  else {
+    hdr_buf->last_buf=0;
+    hdr_chain->next = fsub->msg_chain;
+  }
+  hdr_buf->pos=hdr_buf->start;
+
+  return hdr_chain;
+}
+
+static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len) {
+  return output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
 }
 
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_push_msg_t *msg) {
-  ngx_chain_t   *hdr_chain = fsub->hdr_chain;
-  u_char        *pos;
+  //ngx_chain_t   *hdr_chain = fsub->hdr_chain;
   //ngx_chain_t   *msg_chain = fsub->msg_chain;
   
-  ngx_buf_t     *hdr_buf = fsub->hdr_buf;
   ngx_buf_t     *msg_buf = fsub->msg_buf;
-  
-  //initialize header buffer
-  hdr_buf->flush = 1;
-  hdr_buf->memory = 1;
-  hdr_buf->temporary = 0;
-  pos = hdr_buf->start;
-  hdr_buf->end=pos;
-  hdr_buf->pos=pos;
-  hdr_buf->last=pos;
-  
-  
   //message first
   assert(msg->buf);
   ngx_memcpy(msg_buf, msg->buf, sizeof(*msg_buf));
   //TODO: open file if necessary
   
   //now the header
-  websocket_msg_frame_header(hdr_buf, ngx_buf_size(msg_buf));
+  return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(msg_buf));
+}
+
+/*
+static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
+  assert(0);
+  return NGX_OK;
+}
+*/
+
+static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
+  ngx_chain_t   *hdr_chain = fsub->hdr_chain;
+  ngx_buf_t     *hdr_buf = fsub->hdr_buf;
+  ngx_buf_t     *msg_buf = fsub->msg_buf;
+  ngx_str_t      alt_err;
   
+  alt_err.data=err->data;
+  alt_err.len=err->len;
+  err = &alt_err;
+  
+  if(code == 0) {
+    return websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
+  }
+  
+  if(code < 1000 || code > 1011) {
+    ERR("invalid websocket close status code %i", code);
+    code=CLOSE_NORMAL;
+  }
+  websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, err->len + 2);
+  
+  //there's enough space at the end for 2 more bytes
+  //VERIFY: do we have an endianness problem here?
+  hdr_buf->last[1]= code >> 8;
+  hdr_buf->last[2]= code;
+
+  hdr_buf->last+=2;
+  hdr_buf->end+=2;
+  
+  init_msg_buf(msg_buf);
+  set_buf_to_str(msg_buf, err);
   return hdr_chain;
 }
-
-static ngx_str_t *get_formatted_websocket_frame(const u_char *opcode, off_t opcode_len, const u_char *text, off_t len, ngx_pool_t *temp_pool) {
-  
-  ngx_str_t            *frame;
-  u_char               *last;
-
-  frame = create_str(temp_pool, WEBSOCKET_FRAME_HEADER_MAX_LENGTH + len);
-  if (frame != NULL) {
-    last = ngx_copy(frame->data, opcode, opcode_len);
-
-    if (len <= 125) {
-      last = ngx_copy(last, &len, 1);
-    } 
-    else if (len < (1 << 16)) {
-      last = ngx_copy(last, &WEBSOCKET_PAYLOAD_LEN_16_BYTE, sizeof(WEBSOCKET_PAYLOAD_LEN_16_BYTE));
-      uint16_t len_net = htons(len);
-      last = ngx_copy(last, &len_net, 2);
-    }
-    else {
-      last = ngx_copy(last, &WEBSOCKET_PAYLOAD_LEN_64_BYTE, sizeof(WEBSOCKET_PAYLOAD_LEN_64_BYTE));
-      uint64_t len_net = htonll(len);
-      last = ngx_copy(last, &len_net, 8);
-    }
-    last = ngx_copy(last, text, len);
-    frame->len = last - frame->data;
-  }
-  return frame;
-}
-
-
-static ngx_int_t send_response_text(ngx_http_request_t *r, const u_char *text, uint len) {
-  ngx_buf_t     *b = ngx_pcalloc(r->pool, sizeof(*b));
-  ngx_chain_t   *out = ngx_pcalloc(r->pool, sizeof(*out));
-
-  assert(b);
-  assert(out);
-  
-  if ((text == NULL) || (r->connection->error) || out == NULL) {
-    return NGX_ERROR;
-  }
-
-  out->buf = b;
-
-  b->last_buf = 1;
-  b->last_in_chain = 1;
-  b->flush = 1;
-  b->memory = 1;
-  b->temporary = 0;
-  b->pos = (u_char *)text;
-  b->start = b->pos;
-  b->end = b->pos + len;
-  b->last = b->end;
-
-  out->next = NULL;
-
-  return output_filter(r, out);
-}
-
 
 static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
   //TODO: prepare msg file
@@ -887,7 +884,17 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg
 }
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  //TODO
+  static const ngx_str_t    STATUS_410=ngx_string("410 Channel Deleted");
+  full_subscriber_t        *fsub = (full_subscriber_t *)self;
+  if(status_code == 410) {
+    //disconnect damn you
+    output_filter(fsub->request, websocket_close_frame_chain(fsub, CLOSE_GOING_AWAY, (ngx_str_t *)(status_line ? status_line : &STATUS_410)));
+  }
+  else {
+    ERR("unhandled code %i", status_code);
+    assert(0);
+  }
+  
   return NGX_OK;
 }
 
