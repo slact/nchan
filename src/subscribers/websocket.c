@@ -585,8 +585,7 @@ exit:
 
 finalize:
 
-  //TODO
-  //ngx_http_push_stream_run_cleanup_pool_handler(r->pool, (ngx_pool_cleanup_pt) ngx_http_push_stream_cleanup_request_context);
+  //TODO maybe?
   ngx_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
   
 }
@@ -837,12 +836,12 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_
   return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(msg_buf));
 }
 
-/*
+
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  assert(0);
+  output_filter(fsub->request, websocket_close_frame_chain(fsub, code, err));
   return NGX_OK;
 }
-*/
+
 
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
   ngx_chain_t   *hdr_chain = fsub->hdr_chain;
@@ -851,8 +850,14 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   ngx_str_t      alt_err;
   uint16_t       code_net;
   
-  alt_err.data=err->data;
-  alt_err.len=err->len;
+  if(err) {
+    alt_err.data=err->data;
+    alt_err.len=err->len;
+  }
+  else {
+    alt_err.data=NULL;
+    alt_err.len=0;
+  }
   err = &alt_err;
   
   if(code == 0) {
@@ -885,15 +890,41 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
   static const ngx_str_t    STATUS_410=ngx_string("410 Channel Deleted");
+  static const ngx_str_t    STATUS_403=ngx_string("403 Forbidden");
+  static const ngx_str_t    STATUS_500=ngx_string("500 Internal Server Error");
+  static const ngx_str_t    empty=ngx_string("");
+  u_char                    msgbuf[50];
+  ngx_str_t                 custom_close_msg;
+  ngx_str_t                *close_msg;
+  uint16_t                  close_code=999;
+  
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
-  if(status_code == 410) {
-    //disconnect damn you
-    output_filter(fsub->request, websocket_close_frame_chain(fsub, CLOSE_GOING_AWAY, (ngx_str_t *)(status_line ? status_line : &STATUS_410)));
+  switch(status_code) {
+    case 410:
+      close_code = CLOSE_GOING_AWAY;
+      close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_410);
+      break;
+    case 403:
+      close_code = CLOSE_POLICY_VIOLATION;
+      close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_403);
+      break;
+    case 500: 
+      close_code = CLOSE_INTERNAL_SERVER_ERROR;
+      close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_500);
+      break;
+    default:
+      if(status_code >= 400 && status_code <=599) {
+        custom_close_msg.data=msgbuf;
+        custom_close_msg.len = ngx_sprintf(msgbuf,"%i %v", status_code, (status_line ? status_line : &empty)) - msgbuf;
+        close_msg = &custom_close_msg;
+        close_code = CLOSE_NORMAL;
+      }
+      else {
+        ERR("unhandled code %i, %v", status_code, (status_line ? status_line : &empty));
+        assert(0);
+      }
   }
-  else {
-    ERR("unhandled code %i", status_code);
-    assert(0);
-  }
+  websocket_send_close_frame(fsub, close_code, close_msg);
   
   return NGX_OK;
 }
