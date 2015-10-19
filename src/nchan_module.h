@@ -26,4 +26,3 @@ ngx_str_t * nchan_get_header_value(ngx_http_request_t *r, ngx_str_t header_name)
 ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r);
 ngx_int_t nchan_publisher_handler(ngx_http_request_t *r);
 ngx_int_t nchan_subscriber_get_etag_int(ngx_http_request_t * r);
-void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);

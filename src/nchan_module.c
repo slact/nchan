@@ -146,7 +146,7 @@ ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_i
 }
 
 
-static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
+static void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
   static ngx_http_push_content_subtype_t subtypes[] = {
     { "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
     { "yaml"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML },
@@ -170,7 +170,7 @@ static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, si
 }
 
 //print information about a channel
-static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen) {
+static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen) {
   ngx_buf_t                      *b;
   ngx_uint_t                      len;
   ngx_str_t                       content_type = ngx_string("text/plain");
@@ -193,12 +193,12 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
           //content-type is already set by default
         }
       }
-      ngx_http_push_match_channel_info_subtype(sizeof("text/")-1, cur, rem, &priority, &format, &content_type);
+      nchan_match_channel_info_subtype(sizeof("text/")-1, cur, rem, &priority, &format, &content_type);
     }
     cur = accept;
     for(rem=len; (cur = ngx_strnstr(cur, "application/", rem))!=NULL; cur += sizeof("application/")-1) {
       rem=len - ((size_t)(cur-accept)+sizeof("application/")-1);
-      ngx_http_push_match_channel_info_subtype(sizeof("application/")-1, cur, rem, &priority, &format, &content_type);
+      nchan_match_channel_info_subtype(sizeof("application/")-1, cur, rem, &priority, &format, &content_type);
     }
   }
   
@@ -213,16 +213,7 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
 }
 
 
-
-#define NGX_HTTP_PUSH_MAKE_CONTENT_TYPE(content_type, content_type_len, msg, pool)  \
-    if(((content_type) = ngx_palloc(pool, sizeof(*content_type)+content_type_len))!=NULL) { \
-        (content_type)->len=content_type_len;                                        \
-        (content_type)->data=(u_char *)((content_type)+1);                           \
-        ngx_memcpy(content_type->data, (msg)->content_type.data, content_type_len);  \
-    }
-
 #define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
-
 
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
@@ -298,7 +289,7 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
     else if (status_code == NGX_HTTP_ACCEPTED) {
       ngx_memcpy(&r->headers_out.status_line, &ACCEPTED_LINE, sizeof(ngx_str_t));
     }
-    ngx_http_push_channel_info(r, messages, subscribers, last_seen);
+    nchan_channel_info(r, messages, subscribers, last_seen);
   }
   else {
     //404!
@@ -407,14 +398,7 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
       return NGX_DONE;
     
     case NGX_HTTP_OPTIONS:
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN,  &NGX_HTTP_PUSH_ANYSTRING);
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_HEADERS, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS);
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_METHODS, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS);
-      r->headers_out.content_length_n = 0;
-      r->header_only = 1;
-      r->headers_out.status=NGX_HTTP_OK;
-      ngx_http_send_header(r);
-      return NGX_OK;
+      return nchan_OPTIONS_respond(r, &NGX_HTTP_PUSH_ANYSTRING, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS);
       
     default:
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
@@ -528,20 +512,13 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       break;
       
     case NGX_HTTP_OPTIONS:
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, &NGX_HTTP_PUSH_ANYSTRING);
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_HEADERS,  &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS);
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ACCESS_CONTROL_ALLOW_METHODS, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
-      r->header_only = 1;
-      r->headers_out.content_length_n = 0;
-      r->headers_out.status=NGX_HTTP_OK;
-      ngx_http_send_header(r);
-      ngx_http_finalize_request(r, NGX_HTTP_OK);
+      nchan_OPTIONS_respond(r, &NGX_HTTP_PUSH_ANYSTRING, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
       break;
       
     default:
       //some other weird request method
       ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
-      ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
+      ngx_http_push_respond_status(r, NGX_HTTP_NOT_ALLOWED, NULL, 0);
       break;
   }
 #if FAKESHARD
@@ -568,28 +545,4 @@ ngx_int_t nchan_publisher_handler(ngx_http_request_t * r) {
     return rc;
   }
   return NGX_DONE;
-}
-
-void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
-  if (cbuf!=NULL) {
-    ngx_memcpy(cbuf, buf, sizeof(*buf)); //overkill?
-    if(buf->temporary || buf->memory) { //we don't want to copy mmpapped memory, so no ngx_buf_in_momory(buf)
-      cbuf->pos = (u_char *) (cbuf+1);
-      cbuf->last = cbuf->pos + ngx_buf_size(buf);
-      cbuf->start=cbuf->pos;
-      cbuf->end = cbuf->start + ngx_buf_size(buf);
-      ngx_memcpy(cbuf->pos, buf->pos, ngx_buf_size(buf));
-      cbuf->memory=ngx_buf_in_memory_only(buf) ? 1 : 0;
-    }
-    if (buf->file!=NULL) {
-      cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
-      cbuf->file->fd=buf->file->fd;
-      cbuf->file->log=ngx_cycle->log;
-      cbuf->file->offset=buf->file->offset;
-      cbuf->file->sys_offset=buf->file->sys_offset;
-      cbuf->file->name.len=buf->file->name.len;
-      cbuf->file->name.data=(u_char *) (cbuf->file+1);
-      ngx_memcpy(cbuf->file->name.data, buf->file->name.data, buf->file->name.len);
-    }
-  }
 }
