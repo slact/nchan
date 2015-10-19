@@ -8,6 +8,9 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "OUTPUT:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "OUTPUT:" fmt, ##arg)
 
+#define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
+#define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
+
 //general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
 static void ngx_http_push_flush_pending_output(ngx_http_request_t *r) {
@@ -123,3 +126,115 @@ ngx_int_t ngx_http_push_respond_status(ngx_http_request_t *r, ngx_int_t status_c
   }
   return rc;
 }
+
+ngx_int_t ngx_http_push_respond_membuf(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, ngx_buf_t *body, ngx_int_t finalize) {
+  ngx_str_t str;
+  str.len = ngx_buf_size(body);
+  str.data = body->start;
+  return ngx_http_push_respond_string(r, status_code, content_type, &str, finalize);
+}
+
+ngx_int_t ngx_http_push_respond_string(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, const ngx_str_t *body, ngx_int_t finalize) {
+  ngx_int_t    rc = NGX_OK;
+  ngx_buf_t   *b = REQUEST_PCALLOC(r, b);
+  ngx_chain_t *chain = REQUEST_PALLOC(r, chain);
+  
+  //assume both were alloc'd fine
+  
+  r->headers_out.status=status_code;
+  r->headers_out.content_length_n = body->len;
+  
+  if(content_type) {
+    r->headers_out.content_type.len = content_type->len;
+    r->headers_out.content_type.data = content_type->data;
+  }
+  
+  chain->buf=b;
+  chain->next=NULL;
+  
+  b->last_buf = 1;
+  b->last_in_chain = 1;
+  //b->flush = 1;
+  b->memory = 1;
+  b->start = body->data;
+  b->pos = body->data;
+  b->end = body->data + body->len;
+  b->last = b->end;
+  
+  ngx_http_send_header(r);
+  rc= ngx_http_push_output_filter(r, chain);
+  
+  if(finalize) {
+    ngx_http_finalize_request(r, rc);
+  }
+  return rc;
+}
+
+/*
+#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                         \
+(sizeof(*buf) +                                                              \
+(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +              \
+(((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
+
+//buffer is _copied_
+ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
+  ngx_chain_t                    *out;
+  ngx_file_t                     *file;
+  ngx_pool_cleanup_t             *cln = NULL;
+  ngx_pool_cleanup_file_t        *clnf = NULL;
+  if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
+    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, can't allocate chain  in pool");
+    return NULL;
+  }
+  ngx_buf_t                      *buf_copy;
+  
+  if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
+    //TODO: don't zero the whole thing!
+    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, can't allocate buffer copy in pool");
+    return NULL;
+  }
+  ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
+  
+  if (buf->file!=NULL) {
+    if(buf->mmap) { //just the mmap, please
+      buf->in_file=0;
+      buf->file=NULL;
+      buf->file_pos=0;
+      buf->file_last=0;
+    }
+    else {
+      file = buf_copy->file;
+      file->log=log;
+      if(file->fd==NGX_INVALID_FILE) {
+        //ngx_log_error(NGX_LOG_ERR, log, 0, "opening invalid file at %s", file->name.data);
+        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+      }
+      if(file->fd==NGX_INVALID_FILE) {
+        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, file in buffer is invalid");
+        return NULL;
+      }
+      else {
+        //close file on cleanup
+        if((cln = ngx_pool_cleanup_add(pool, sizeof(*clnf))) == NULL) {
+          ngx_close_file(file->fd);
+          file->fd=NGX_INVALID_FILE;
+          ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain file cleanup.");
+          return NULL;
+        }
+        cln->handler = ngx_pool_cleanup_file;
+        clnf = cln->data;
+        clnf->fd = file->fd;
+        clnf->name = file->name.data;
+        clnf->log = pool->log;
+      }
+    }
+  }
+  
+  
+  
+  buf_copy->last_buf = 1;
+  out->buf = buf_copy;
+  out->next = NULL;
+  return out;
+}
+*/

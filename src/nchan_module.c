@@ -13,6 +13,7 @@
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
 #include <store/memory/store-private.h>
+#include <nchan_output.h>
 
 ngx_int_t           nchan_worker_processes;
 ngx_pool_t         *nchan_pool;
@@ -22,102 +23,24 @@ ngx_module_t        nchan_module;
 nchan_store_t *nchan_store = &nchan_store_memory;
 
 
-#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
-(sizeof(*buf) +                                                           \
-(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +          \
-(((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
 
-//buffer is _copied_
-ngx_chain_t * ngx_http_push_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
-  ngx_chain_t                    *out;
-  ngx_file_t                     *file;
-  ngx_pool_cleanup_t             *cln = NULL;
-  ngx_pool_cleanup_file_t        *clnf = NULL;
-  if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, can't allocate chain  in pool");
-    return NULL;
-  }
-  ngx_buf_t                      *buf_copy;
-  
-  if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
-    //TODO: don't zero the whole thing!
-    ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, can't allocate buffer copy in pool");
-    return NULL;
-  }
-  ngx_http_push_copy_preallocated_buffer(buf, buf_copy);
-  
-  if (buf->file!=NULL) {
-    if(buf->mmap) { //just the mmap, please
-      buf->in_file=0;
-      buf->file=NULL;
-      buf->file_pos=0;
-      buf->file_last=0;
-    }
-    else {
-      file = buf_copy->file;
-      file->log=log;
-      if(file->fd==NGX_INVALID_FILE) {
-        //ngx_log_error(NGX_LOG_ERR, log, 0, "opening invalid file at %s", file->name.data);
-        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-      }
-      if(file->fd==NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain, file in buffer is invalid");
-        return NULL;
-      }
-      else {
-        //close file on cleanup
-        if((cln = ngx_pool_cleanup_add(pool, sizeof(*clnf))) == NULL) {
-          ngx_close_file(file->fd);
-          file->fd=NGX_INVALID_FILE;
-          ngx_log_error(NGX_LOG_ERR, log, 0, "push module: can't create output chain file cleanup.");
-          return NULL;
-        }
-        cln->handler = ngx_pool_cleanup_file;
-        clnf = cln->data;
-        clnf->fd = file->fd;
-        clnf->name = file->name.data;
-        clnf->log = pool->log;
-      }
-    }
-  }
-  
-  
-  
-  buf_copy->last_buf = 1;
-  out->buf = buf_copy;
-  out->next = NULL;
-  return out;
-}
 
-#define NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE "No channel id provided."
-static ngx_str_t * ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+static ngx_str_t *ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+  static const ngx_str_t          TEXT_PLAIN = ngx_string("text/plain");
+  static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
+  
   ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
   ngx_str_t                      *group = &cf->channel_group;
   size_t                          group_len = group->len;
   size_t                          var_len;
   size_t                          len;
   ngx_str_t                      *id;
-    if (vv == NULL || vv->not_found || vv->len == 0) {
-        ngx_buf_t *buf = ngx_create_temp_buf(r->pool, sizeof(NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE));
-    ngx_chain_t *chain;
-    if(buf==NULL) {
-      return NULL;
-    }
-    buf->pos=(u_char *)NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE;
-    buf->last=buf->pos + sizeof(NGX_HTTP_PUSH_NO_CHANNEL_ID_MESSAGE)-1;
-    chain = ngx_http_push_create_output_chain(buf, r->pool, r->connection->log);
-    buf->last_buf=1;
-    r->headers_out.content_length_n=ngx_buf_size(buf);
-    r->headers_out.status=NGX_HTTP_NOT_FOUND;
-    r->headers_out.content_type.len = sizeof("text/plain") - 1;
-    r->headers_out.content_type.data = (u_char *) "text/plain";
-    r->headers_out.content_type_len = r->headers_out.content_type.len;
-    ngx_http_send_header(r);
-    ngx_http_output_filter(r, chain);
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+  if (vv == NULL || vv->not_found || vv->len == 0) {
+    ngx_http_push_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, 
             "push module: the $push_channel_id variable is required but is not set");
     return NULL;
-    }
+  }
   //maximum length limiter for channel id
   var_len = vv->len <= cf->max_channel_id_length ? vv->len : cf->max_channel_id_length; 
   len = group_len + 1 + var_len;
@@ -234,51 +157,6 @@ ngx_int_t ngx_http_push_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_pu
 }
 
 
-
-//allocates message and responds to subscriber
-ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_t shared, ngx_http_push_msg_t *msg, ngx_chain_t **chain, ngx_str_t **content_type, ngx_str_t **etag, time_t *last_modified) {
-  if(etag != NULL && (*etag = nchan_store->message_etag(msg, pool))==NULL) {
-    //oh, nevermind...
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header");
-    return NGX_ERROR;
-  }
-  if(content_type != NULL && (*content_type= nchan_store->message_content_type(msg, pool))==NULL) {
-    //oh, nevermind...
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Content Type header");
-    if(etag) {
-      if(pool == NULL) {
-        ngx_free(*etag);
-      }
-      else {
-        ngx_pfree(pool, *etag);
-      }
-    }
-    return NGX_ERROR;
-  }
-  
-  //preallocate output chain. yes, same one for every waiting subscriber
-  if(chain != NULL && (*chain = ngx_http_push_create_output_chain(msg->buf, pool, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate buffer chain while responding to subscriber request");
-    if(pool == NULL) {
-      if (etag != NULL) ngx_free(*etag);
-      if (content_type != NULL) ngx_free(*content_type);
-    }
-    else {
-      if (etag != NULL) ngx_pfree(pool, *etag);
-      if (content_type != NULL) ngx_pfree(pool, *content_type);
-    }
-    return NGX_ERROR;
-  }
-  
-  if(last_modified != NULL) {
-    *last_modified = msg->message_time;
-  }
-  //nchan_store->unlock();
-  return NGX_OK;
-}
-
-
-
 static void ngx_http_push_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
   static ngx_http_push_content_subtype_t subtypes[] = {
     { "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
@@ -335,25 +213,14 @@ static ngx_int_t ngx_http_push_channel_info(ngx_http_request_t *r, ngx_uint_t me
     }
   }
   
-  r->headers_out.content_type.len = content_type.len;
-  r->headers_out.content_type.data = content_type.data;
-  r->headers_out.content_type_len = r->headers_out.content_type.len;
-  
   len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
-  
   if ((b = ngx_create_temp_buf(r->pool, len)) == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
   b->last = ngx_sprintf(b->last, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed ,subscribers);
+  b->end = b->last;
   
-  //lastly, set the content-length, because if the status code isn't 200, nginx may not do so automatically
-  r->headers_out.content_length_n = ngx_buf_size(b);
-  
-  if (ngx_http_send_header(r) > NGX_HTTP_SPECIAL_RESPONSE) {
-    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  
-  return ngx_http_output_filter(r, ngx_http_push_create_output_chain(b, r->pool, r->connection->log));
+  return ngx_http_push_respond_membuf(r, NGX_HTTP_OK, &content_type, b, 0);
 }
 
 
@@ -423,6 +290,9 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
 }
 
 static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
+  static const ngx_str_t CREATED_LINE = ngx_string("201 Created");
+  static const ngx_str_t ACCEPTED_LINE = ngx_string("201 Created");
+  
   time_t             last_seen = 0;
   ngx_uint_t         subscribers = 0;
   ngx_uint_t         messages = 0;
@@ -434,23 +304,16 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
     //nchan_store->unlock();
     r->headers_out.status = status_code == (ngx_int_t) NULL ? NGX_HTTP_OK : status_code;
     if (status_code == NGX_HTTP_CREATED) {
-      r->headers_out.status_line.len =sizeof("201 Created")- 1;
-      r->headers_out.status_line.data=(u_char *) "201 Created";
+      ngx_memcpy(&r->headers_out.status_line, &CREATED_LINE, sizeof(ngx_str_t));
     }
     else if (status_code == NGX_HTTP_ACCEPTED) {
-      r->headers_out.status_line.len =sizeof("202 Accepted")- 1;
-      r->headers_out.status_line.data=(u_char *) "202 Accepted";
+      ngx_memcpy(&r->headers_out.status_line, &ACCEPTED_LINE, sizeof(ngx_str_t));
     }
     ngx_http_push_channel_info(r, messages, subscribers, last_seen);
   }
   else {
     //404!
-    r->headers_out.status=NGX_HTTP_NOT_FOUND;
-    //just the headers, please. we don't care to describe the situation or
-    //respond with an html page
-    r->headers_out.content_length_n=0;
-    r->header_only = 1;
-    ngx_http_send_header(r);
+    ngx_http_push_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 0);
   }
   return NGX_OK;
 }
