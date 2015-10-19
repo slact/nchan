@@ -29,7 +29,7 @@ opt.parse!
 
 url = "http://#{server}#{ARGV.last}"
 
-puts "Subscribing #{par} client#{par!=1 ? "s":""} to #{url}."
+puts "Subscribing #{par} #{client} client#{par!=1 ? "s":""} to #{url}."
 puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
 
 
