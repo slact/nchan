@@ -527,12 +527,12 @@ static void websocket_reading(ngx_http_request_t *r) {
             
             /*
             for (q = ngx_queue_head(&subscriber->subscriptions); q != ngx_queue_sentinel(&subscriber->subscriptions); q = ngx_queue_next(q)) {
-              NCHAN_stream_subscription_t *subscription = ngx_queue_data(q, NCHAN_stream_subscription_t, queue);
+              nchan_stream_subscription_t *subscription = ngx_queue_data(q, nchan_stream_subscription_t, queue);
               if (subscription->channel->for_events) {
                 // skip events channel on publish by websocket connections
                 continue;
               }
-              if (NCHAN_stream_add_msg_to_channel(mcf, r->connection->log, subscription->channel, frame->payload, frame->payload_len, NULL, NULL, cf->store_messages, temp_pool) != NGX_OK) {
+              if (nchan_stream_add_msg_to_channel(mcf, r->connection->log, subscription->channel, frame->payload, frame->payload_len, NULL, NULL, cf->store_messages, temp_pool) != NGX_OK) {
                 goto finalize;
               }
             }

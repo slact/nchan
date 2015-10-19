@@ -51,18 +51,18 @@ typedef struct {
   
 } shm_data_t;
 
-nhpm_channel_head_t *NCHAN_memstore_find_chanhead(ngx_str_t *channel_id);
-nhpm_channel_head_t *NCHAN_memstore_get_chanhead(ngx_str_t *channel_id);
+nhpm_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);
+nhpm_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id);
 nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, nchan_msg_id_t *msgid, ngx_int_t *status);
-shmem_t *NCHAN_memstore_get_shm(void);
-ipc_t *NCHAN_memstore_get_ipc(void);
-ngx_int_t NCHAN_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t findmsg_status, void *d);
+shmem_t *nchan_memstore_get_shm(void);
+ipc_t *nchan_memstore_get_ipc(void);
+ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t findmsg_status, void *d);
 ngx_int_t memstore_channel_owner(ngx_str_t *id);
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msg,  ngx_int_t min_msg, callback_pt callback, void *privdata);
-ngx_int_t NCHAN_memstore_publish_generic(nhpm_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
+ngx_int_t nchan_memstore_publish_generic(nhpm_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub);
-ngx_int_t NCHAN_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
+ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t nhpm_memstore_subscriber_create(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 
 #if FAKESHARD

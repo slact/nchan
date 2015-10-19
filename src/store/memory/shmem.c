@@ -25,7 +25,7 @@ shmem_t *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t 
         shm_size = 8 * ngx_pagesize;
     }
   /*
-  if(NCHAN_shm_zone && NCHAN_shm_zone->shm.size != shm_size) {
+  if(nchan_shm_zone && nchan_shm_zone->shm.size != shm_size) {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
   }
   */
@@ -46,7 +46,7 @@ shmem_t *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t 
 ngx_int_t shm_init(shmem_t *shm) {
   #if (DEBUG_SHM_ALLOC == 1)
   ngx_slab_pool_t    *shpool = SHPOOL(shm);
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "NCHAN_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
   #endif
   
   return NGX_OK;

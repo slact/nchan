@@ -1,6 +1,6 @@
 ngx_module_t  nchan_module;
 
-static ngx_int_t NCHAN_init_module(ngx_cycle_t *cycle) {
+static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
   //initialize subscriber queues
@@ -13,7 +13,7 @@ static ngx_int_t NCHAN_init_module(ngx_cycle_t *cycle) {
   return nchan_store->init_module(cycle);
 }
 
-static ngx_int_t NCHAN_init_worker(ngx_cycle_t *cycle) {
+static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
   if (ngx_process != NGX_PROCESS_WORKER) {
     //not a worker, stop initializing stuff.
     return NGX_OK;
@@ -25,12 +25,12 @@ static ngx_int_t NCHAN_init_worker(ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
-static ngx_int_t NCHAN_postconfig(ngx_conf_t *cf) {
+static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
   return nchan_store->init_postconfig(cf);
 }
 
 //main config
-static void * NCHAN_create_main_conf(ngx_conf_t *cf) {
+static void * nchan_create_main_conf(ngx_conf_t *cf) {
   nchan_main_conf_t      *mcf = ngx_pcalloc(cf->pool, sizeof(*mcf));
   if(mcf == NULL) {
     return NGX_CONF_ERROR;
@@ -42,7 +42,7 @@ static void * NCHAN_create_main_conf(ngx_conf_t *cf) {
 }
 
 //location config stuff
-static void *NCHAN_create_loc_conf(ngx_conf_t *cf) {
+static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   nchan_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(*lcf));
   if(lcf == NULL) {
     return NGX_CONF_ERROR;
@@ -64,7 +64,7 @@ static void *NCHAN_create_loc_conf(ngx_conf_t *cf) {
   return lcf;
 }
 
-static char *  NCHAN_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
+static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_loc_conf_t       *prev = parent, *conf = child;
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
@@ -91,14 +91,14 @@ static char *  NCHAN_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   return NGX_CONF_OK;
 }
 
-static ngx_str_t  NCHAN_channel_id = ngx_string("push_channel_id"); //channel id variable
+static ngx_str_t  nchan_channel_id = ngx_string("push_channel_id"); //channel id variable
 //publisher and subscriber handlers now.
-static char *NCHAN_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
+static char *nchan_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
   ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
   nchan_loc_conf_t       *plcf = conf;
   clcf->handler = handler;
   clcf->if_modified_since = NGX_HTTP_IMS_OFF;
-  plcf->index = ngx_http_get_variable_index(cf, &NCHAN_channel_id);
+  plcf->index = ngx_http_get_variable_index(cf, &nchan_channel_id);
   if (plcf->index == NGX_ERROR) {
     return NGX_CONF_ERROR;
   }
@@ -108,9 +108,9 @@ static char *NCHAN_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handle
 typedef struct {
   char                           *str;
   ngx_int_t                       val;
-} NCHAN_strval_t;
+} nchan_strval_t;
 
-static ngx_int_t NCHAN_strval(ngx_str_t string, NCHAN_strval_t strval[], ngx_int_t *val) {
+static ngx_int_t nchan_strval(ngx_str_t string, nchan_strval_t strval[], ngx_int_t *val) {
   ngx_int_t                      i;
   for(i=0; &strval[i] != NULL; i++) {
     if(ngx_strncasecmp(string.data, (u_char *)strval[i].str, string.len)==0) {
@@ -121,8 +121,8 @@ static ngx_int_t NCHAN_strval(ngx_str_t string, NCHAN_strval_t strval[], ngx_int
   return NGX_DONE; //nothing matched
 }
 
-static char *NCHAN_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  static NCHAN_strval_t  concurrency[] = {
+static char *nchan_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  static nchan_strval_t  concurrency[] = {
     { "first"    , NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
     { "last"     , NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN    },
     { "broadcast", NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST },
@@ -135,7 +135,7 @@ static char *NCHAN_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd
   }
   
   ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-  if(NCHAN_strval(value, concurrency,field)!=NGX_OK) {
+  if(nchan_strval(value, concurrency,field)!=NGX_OK) {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
     return NGX_CONF_ERROR;
   }
@@ -143,8 +143,8 @@ static char *NCHAN_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd
   return NGX_CONF_OK;
 }
 
-static char *NCHAN_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  static NCHAN_strval_t  concurrency[] = {
+static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  static nchan_strval_t  concurrency[] = {
     { "first"    , NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
     { "last"     , NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN    },
     { "broadcast", NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST },
@@ -157,7 +157,7 @@ static char *NCHAN_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
   }
   
   ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-  if(NCHAN_strval(value, concurrency, field)!=NGX_OK) {
+  if(nchan_strval(value, concurrency, field)!=NGX_OK) {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
     return NGX_CONF_ERROR;
   }
@@ -166,12 +166,12 @@ static char *NCHAN_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 }
 
 
-static char *NCHAN_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return NCHAN_setup_handler(cf, conf, &nchan_publisher_handler);
+static char *nchan_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_setup_handler(cf, conf, &nchan_publisher_handler);
 }
 
-static char *NCHAN_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  static NCHAN_strval_t  mech[] = {
+static char *nchan_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  static nchan_strval_t  mech[] = {
     { "interval-poll", NCHAN_MECHANISM_INTERVALPOLL },
     { "long-poll"    , NCHAN_MECHANISM_LONGPOLL     },
     {NULL}
@@ -186,26 +186,26 @@ static char *NCHAN_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   }
   else {
     ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-    if(NCHAN_strval(value, mech, field)!=NGX_OK) {
+    if(nchan_strval(value, mech, field)!=NGX_OK) {
       ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber value: %V", &value);
       return NGX_CONF_ERROR;
     }
   }
   
-  return NCHAN_setup_handler(cf, conf, &nchan_subscriber_handler);
+  return nchan_setup_handler(cf, conf, &nchan_subscriber_handler);
 }
 
-static void NCHAN_exit_worker(ngx_cycle_t *cycle) {
+static void nchan_exit_worker(ngx_cycle_t *cycle) {
   nchan_store->exit_worker(cycle);
   ngx_destroy_pool(nchan_pool); // just for this worker
 }
 
-static void NCHAN_exit_master(ngx_cycle_t *cycle) {
+static void nchan_exit_master(ngx_cycle_t *cycle) {
   nchan_store->exit_master(cycle);
   ngx_destroy_pool(nchan_pool);
 }
 
-static char *NCHAN_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   char                           *p = conf;
   ngx_int_t                      *min, *max;
   ngx_str_t                      *value;
@@ -240,7 +240,7 @@ static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, 
   return NGX_CONF_OK;
 }
 
-static ngx_command_t  NCHAN_commands[] = {
+static ngx_command_t  nchan_commands[] = {
 
     { ngx_string("push_message_timeout"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
@@ -272,7 +272,7 @@ static ngx_command_t  NCHAN_commands[] = {
     
   { ngx_string("push_message_buffer_length"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      NCHAN_set_message_buffer_length,
+      nchan_set_message_buffer_length,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
@@ -286,21 +286,21 @@ static ngx_command_t  NCHAN_commands[] = {
 
   { ngx_string("push_publisher"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
-      NCHAN_publisher,
+      nchan_publisher,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
   
   { ngx_string("push_subscriber"),
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1,
-      NCHAN_subscriber,
+      nchan_subscriber,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(nchan_loc_conf_t, subscriber_poll_mechanism),
       NULL },
   
     { ngx_string("push_subscriber_concurrency"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      NCHAN_set_subscriber_concurrency,
+      nchan_set_subscriber_concurrency,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(nchan_loc_conf_t, subscriber_concurrency),
       NULL },
@@ -362,7 +362,7 @@ static ngx_command_t  NCHAN_commands[] = {
       
     { ngx_string("push_storage_engine"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      NCHAN_set_storage_engine,
+      nchan_set_storage_engine,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(nchan_loc_conf_t, storage_engine),
       NULL },
@@ -372,26 +372,26 @@ static ngx_command_t  NCHAN_commands[] = {
 
 static ngx_http_module_t  nchan_module_ctx = {
     NULL,                                  /* preconfiguration */
-    NCHAN_postconfig,              /* postconfiguration */
-    NCHAN_create_main_conf,        /* create main configuration */
+    nchan_postconfig,              /* postconfiguration */
+    nchan_create_main_conf,        /* create main configuration */
     NULL,                                  /* init main configuration */
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
-    NCHAN_create_loc_conf,         /* create location configuration */
-    NCHAN_merge_loc_conf,          /* merge location configuration */
+    nchan_create_loc_conf,         /* create location configuration */
+    nchan_merge_loc_conf,          /* merge location configuration */
 };
 
 ngx_module_t  nchan_module = {
     NGX_MODULE_V1,
     &nchan_module_ctx,                     /* module context */
-    NCHAN_commands,                /* module directives */
+    nchan_commands,                /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
-    NCHAN_init_module,             /* init module */
-    NCHAN_init_worker,             /* init process */
+    nchan_init_module,             /* init module */
+    nchan_init_worker,             /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
-    NCHAN_exit_worker,             /* exit process */
-    NCHAN_exit_master,             /* exit master */
+    nchan_exit_worker,             /* exit process */
+    nchan_exit_master,             /* exit master */
     NGX_MODULE_V1_PADDING
 };

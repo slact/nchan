@@ -95,7 +95,7 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
 }
 
 /*
-ngx_int_t NCHAN_allow_caching(ngx_http_request_t * r) {
+ngx_int_t nchan_allow_caching(ngx_http_request_t * r) {
   ngx_str_t *tmp_header;
   ngx_str_t header_checks[2] = { NCHAN_HEADER_CACHE_CONTROL, NCHAN_HEADER_PRAGMA };
   ngx_int_t i = 0;

@@ -1178,7 +1178,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
-  //NCHAN_walk_rbtree(NCHAN_movezig_channel_locked, NCHAN_shm_zone);
+  //nchan_walk_rbtree(nchan_movezig_channel_locked, nchan_shm_zone);
   //deinitialize IPC
   
 }
