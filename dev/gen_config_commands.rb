@@ -1,5 +1,6 @@
 #!/usr/bin/ruby
-SRC_DIR="../src"
+ROOT_DIR=".."
+SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
 if ARGV[0]
   CONFIG_OUT=ARGV[0]
@@ -92,12 +93,16 @@ class CfCmd #let's make a DSL!
     END
   end
 end
-
-cf=eval File.read("#{SRC_DIR}/#{CONFIG_IN}")
+begin
+  cf=eval File.read("#{ROOT_DIR}/#{SRC_DIR}/#{CONFIG_IN}")
+rescue Exception => e
+  STDERR.puts e.message.gsub(/^\(eval\)/, "#{SRC_DIR}/#{CONFIG_IN}")
+  exit 1
+end
 
 if CONFIG_OUT
-  File.write "#{SRC_DIR}/#{CONFIG_OUT}", cf.to_s
-  puts "wrote config commands to #{CONFIG_OUT}"
+  File.write "#{ROOT_DIR}/#{SRC_DIR}/#{CONFIG_OUT}", cf.to_s
+  puts "wrote config commands to #{SRC_DIR}/#{CONFIG_OUT}"
 else
   puts cf.to_s
 end

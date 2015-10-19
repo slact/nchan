@@ -54,8 +54,17 @@ for opt in $*; do
 done
 
 if [[ -z $NO_MAKE ]]; then
-  ../src/store/redis/genlua.rb file
+  
   ./gen_config_commands.rb nchan_config_commands.c
+  if ! [ $? -eq 0 ]; then; 
+    echo "failed generating nginx directives"; 
+    exit 1
+  fi
+  ../src/store/redis/genlua.rb file
+  if ! [ $? -eq 0 ]; then; 
+    echo "failed generating redis lua scripts"; 
+    exit 1
+  fi
   pushd ./nginx-nchan >/dev/null
   
   if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
