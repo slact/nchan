@@ -24,6 +24,7 @@ opt=OptionParser.new do |opts|
   opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
   opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
   opts.on("-d", "--delete", "delete channel via a DELETE request"){method = :DELETE}
+  opts.on("-p", "--put", "create channel without submitting message"){method = :PUT}
   opts.on("-r",  "--response", 'Show response code and body') do
     on_response = Proc.new do |pub|
       puts pub.response_code
