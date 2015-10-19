@@ -544,7 +544,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         if(force_delete) {
           ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
           //ch->spooler.prepare_to_stop(&ch->spooler);
-          ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+          ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
         }
         else {
           //DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
@@ -639,7 +639,7 @@ ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, cal
     chaninfo_copy.subscribers = ch->shared->sub_count;
     chaninfo_copy.last_seen = ch->shared->last_seen;
     
-    ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+    ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     callback(NGX_OK, &chaninfo_copy, privdata);
     //delete all messages
     while((msg = ch->msg_first) != NULL) {
@@ -1116,7 +1116,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
 
           case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
             //kick everyone elese out, then subscribe
-            ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+            ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
             //FALL-THROUGH to BROADCAST
 
           case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:

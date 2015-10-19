@@ -458,7 +458,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
             if(CHECK_MSGPACK_STRVAL(alerttype, "delete channel") && asize > 2) {
               if(msgpack_to_str(&obj.via.array.ptr[2], &chid) == NGX_OK) {
-                nchan_store_publish_generic(&chid, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+                nchan_store_publish_generic(&chid, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
               }
               else {
                 ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unexpected \"delete channel\" msgpack message from redis");
@@ -473,7 +473,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all") && asize > 1) {
               msgpack_to_str(&obj.via.array.ptr[1], &chid);
-              nchan_store_publish_generic(&chid, NULL, NGX_HTTP_CONFLICT, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+              nchan_store_publish_generic(&chid, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
             }
 
             else if(CHECK_MSGPACK_STRVAL(alerttype, "unsub all except")) {
@@ -1294,7 +1294,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
 
         case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
           if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 6) && CHECK_REPLY_INT(reply->element[5]) && reply->element[5]->integer > 0 ) {
-            ret = sub->respond_status(sub, NGX_HTTP_NOT_FOUND, &NGX_HTTP_PUSH_HTTP_STATUS_409);
+            ret = sub->respond_status(sub, NGX_HTTP_NOT_FOUND, &NCHAN_HTTP_STATUS_409);
             d->callback(ret, msg, d->privdata);
           }
           break;

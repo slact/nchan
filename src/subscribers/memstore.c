@@ -66,10 +66,10 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
   const ngx_str_t *status_line = NULL;
   switch(status) {
     case NGX_HTTP_GONE: //delete
-      status_line = &NGX_HTTP_PUSH_HTTP_STATUS_410;
+      status_line = &NCHAN_HTTP_STATUS_410;
       break;
     case NGX_HTTP_CONFLICT:
-      status_line = &NGX_HTTP_PUSH_HTTP_STATUS_409;
+      status_line = &NCHAN_HTTP_STATUS_409;
       break;
     case NGX_HTTP_NO_CONTENT: //message expired
       break;

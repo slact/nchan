@@ -277,11 +277,11 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
   }
   etag->data = (u_char *)(etag+1);
   etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
-  if ((nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
+  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
     return abort_response(self, "can't add etag header to response");
   }
   //Vary header needed for proper HTTP caching.
-  nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
+  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
   
   r->headers_out.status=NGX_HTTP_OK;
 

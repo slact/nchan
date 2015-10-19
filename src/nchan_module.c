@@ -81,13 +81,13 @@ ngx_str_t * nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name
 
 static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
   ngx_str_t *tmp;
-  if((tmp = nchan_get_header_value(r, NGX_HTTP_PUSH_HEADER_CONNECTION))) {
-    if(ngx_strncasecmp(tmp->data, NGX_HTTP_PUSH_UPGRADE.data, NGX_HTTP_PUSH_UPGRADE.len) != 0) return 0;
+  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_CONNECTION))) {
+    if(ngx_strncasecmp(tmp->data, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len) != 0) return 0;
   }
   else return 0;
   
-  if((tmp = nchan_get_header_value(r, NGX_HTTP_PUSH_HEADER_UPGRADE))) {
-    if(ngx_strncasecmp(tmp->data, NGX_HTTP_PUSH_WEBSOCKET.data, NGX_HTTP_PUSH_WEBSOCKET.len) != 0) return 0;
+  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_UPGRADE))) {
+    if(ngx_strncasecmp(tmp->data, NCHAN_WEBSOCKET.data, NCHAN_WEBSOCKET.len) != 0) return 0;
   }
   else return 0;
 
@@ -97,14 +97,14 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
 /*
 ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
   ngx_str_t *tmp_header;
-  ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
+  ngx_str_t header_checks[2] = { NCHAN_HEADER_CACHE_CONTROL, NCHAN_HEADER_PRAGMA };
   ngx_int_t i = 0;
   
   for(; i < 2; i++) {
     tmp_header = nchan_get_header_value(r, header_checks[i]);
     
     if (tmp_header != NULL) {
-      return !!ngx_strncasecmp(tmp_header->data, NGX_HTTP_PUSH_CACHE_CONTROL_VALUE.data, tmp_header->len);
+      return !!ngx_strncasecmp(tmp_header->data, NCHAN_CACHE_CONTROL_VALUE.data, tmp_header->len);
     }
   }
   
@@ -126,8 +126,8 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
       header = part->elts;
       i = 0;
     }
-    if (header[i].key.len == NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH.len
-      && ngx_strncasecmp(header[i].key.data, NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH.data, header[i].key.len) == 0) {
+    if (header[i].key.len == NCHAN_HEADER_IF_NONE_MATCH.len
+      && ngx_strncasecmp(header[i].key.data, NCHAN_HEADER_IF_NONE_MATCH.data, header[i].key.len) == 0) {
       return &header[i].value;
       }
   }
@@ -313,7 +313,7 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
         r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
       }
       if ((etag=nchan_subscriber_get_etag(r)) != NULL) {
-        nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
+        nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
       }
       ngx_http_finalize_request(r, NGX_HTTP_NOT_MODIFIED);
       return NGX_OK;
@@ -398,7 +398,7 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
       return nchan_OPTIONS_respond(r, &NGX_HTTP_PUSH_ANYSTRING, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS);
       
     default:
-      nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
+      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
       return NGX_HTTP_NOT_ALLOWED;
   }
 
@@ -514,7 +514,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       
     default:
       //some other weird request method
-      nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
       nchan_respond_status(r, NGX_HTTP_NOT_ALLOWED, NULL, 0);
       break;
   }

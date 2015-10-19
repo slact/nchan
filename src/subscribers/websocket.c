@@ -237,7 +237,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   r->headers_out.content_length_n = 0;
   r->header_only = 1;  
   
-  if((tmp = nchan_get_header_value(r, NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_VERSION)) == NULL) {
+  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_VERSION)) == NULL) {
     r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
   }
@@ -247,7 +247,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     fsub->sub.dequeue_after_response=1;
   }
   
-  if((ws_key = nchan_get_header_value(r, NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
+  if((ws_key = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
     r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
   }
@@ -266,10 +266,10 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     ngx_encode_base64(&ws_accept_key, &sha1_str);
     
     
-    nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
-    nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_UPGRADE, &NGX_HTTP_PUSH_WEBSOCKET);
-    nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_CONNECTION, &NGX_HTTP_PUSH_UPGRADE);
-    r->headers_out.status_line = NGX_HTTP_PUSH_HTTP_STATUS_101;
+    nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
+    nchan_add_response_header(r, &NCHAN_HEADER_UPGRADE, &NCHAN_WEBSOCKET);
+    nchan_add_response_header(r, &NCHAN_HEADER_CONNECTION, &NCHAN_UPGRADE);
+    r->headers_out.status_line = NCHAN_HTTP_STATUS_101;
     r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
 
     r->keepalive=0; //apparently, websocket must not use keepalive.

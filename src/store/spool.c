@@ -256,7 +256,7 @@ ngx_int_t  safely_destroy_spool(subscriber_pool_t *spool) {
     destroy_that_spool_right_NOW(spool);
   }
   else{
-    spool->respond_status(spool, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
+    spool->respond_status(spool, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     switch(spool->type) {
       case SHORTLIVED:
         assert(spool->sub_count == 0);

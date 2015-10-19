@@ -43,31 +43,31 @@
 #define NGX_HTTP_PUSH_MESSAGE_EXPECTED  1001
 #define NGX_HTTP_PUSH_MESSAGE_EXPIRED   1002
 
-extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ETAG;
-extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_IF_NONE_MATCH;
-extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_VARY;
-extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_ALLOW;
-extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_CACHE_CONTROL;
-extern const  ngx_str_t NGX_HTTP_PUSH_HEADER_PRAGMA;
+extern const  ngx_str_t NCHAN_HEADER_ETAG;
+extern const  ngx_str_t NCHAN_HEADER_IF_NONE_MATCH;
+extern const  ngx_str_t NCHAN_HEADER_VARY;
+extern const  ngx_str_t NCHAN_HEADER_ALLOW;
+extern const  ngx_str_t NCHAN_HEADER_CACHE_CONTROL;
+extern const  ngx_str_t NCHAN_HEADER_PRAGMA;
 
-extern const ngx_str_t NGX_HTTP_PUSH_HEADER_CONNECTION;
-extern const ngx_str_t NGX_HTTP_PUSH_HEADER_UPGRADE;
-extern const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_KEY;
-extern const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_ACCEPT;
-extern const ngx_str_t NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_VERSION;
+extern const ngx_str_t NCHAN_HEADER_CONNECTION;
+extern const ngx_str_t NCHAN_HEADER_UPGRADE;
+extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_KEY;
+extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT;
+extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_VERSION;
 
 //header values
-extern const  ngx_str_t NGX_HTTP_PUSH_CACHE_CONTROL_VALUE;
+extern const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE;
 
 //status strings
-extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_101;
-extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_409;
-extern const  ngx_str_t NGX_HTTP_PUSH_HTTP_STATUS_410;
+extern const  ngx_str_t NCHAN_HTTP_STATUS_101;
+extern const  ngx_str_t NCHAN_HTTP_STATUS_409;
+extern const  ngx_str_t NCHAN_HTTP_STATUS_410;
 
 //other stuff
 
-extern const ngx_str_t NGX_HTTP_PUSH_UPGRADE;
-extern const ngx_str_t NGX_HTTP_PUSH_WEBSOCKET;
+extern const ngx_str_t NCHAN_UPGRADE;
+extern const ngx_str_t NCHAN_WEBSOCKET;
 extern const ngx_str_t NGX_HTTP_PUSH_ANYSTRING;
 extern const ngx_str_t NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS;
 extern const ngx_str_t NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS;
