@@ -1,4 +1,4 @@
-->![NCHAN](//raw.githubusercontent.com/slact/nchan/master/nchan_logo.png)<-
+->![NCHAN](https://raw.githubusercontent.com/slact/nchan/master/nchan_logo.png)<-
 
 Nchan - Turn NGiNX into an adept HTTP pub/sub server.
 It supports Websockets, long-polling, and interval-polling.
