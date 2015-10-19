@@ -24,19 +24,19 @@ cout= <<EOF
 
 typedef struct {
 %s
-} nhpm_redis_lua_scripts_t;
+} store_redis_lua_scripts_t;
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
+static store_redis_lua_scripts_t store_rds_lua_hashes = {
 %s
 };
 
 #define REDIS_LUA_HASH_LENGTH %i
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
+static store_redis_lua_scripts_t store_rds_lua_script_names = {
 %s
 };
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
+static store_redis_lua_scripts_t store_rds_lua_scripts = {
 %s
 };
 

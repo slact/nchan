@@ -88,11 +88,11 @@ typedef struct {
   const ngx_str_t *format;
 } nchan_content_subtype_t;
 
-typedef struct nhpm_llist_timed_s {
-  struct nhpm_llist_timed_s     *prev;
+typedef struct nchan_llist_timed_s {
+  struct nchan_llist_timed_s     *prev;
   void                          *data;
   time_t                         time;
-  struct nhpm_llist_timed_s     *next;
+  struct nchan_llist_timed_s     *next;
 } nchan_llist_timed_t;
 
 typedef struct subscriber_s subscriber_t;

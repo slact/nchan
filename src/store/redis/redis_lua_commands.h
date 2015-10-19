@@ -39,9 +39,9 @@ typedef struct {
   //output: subscriber_id, num_current_subscribers
   char *subscriber_unregister;
 
-} nhpm_redis_lua_scripts_t;
+} store_redis_lua_scripts_t;
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
+static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
   "288679b1de58e6754a2daccd3bba46244de6a629",
@@ -53,7 +53,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_hashes = {
 
 #define REDIS_LUA_HASH_LENGTH 40
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
+static store_redis_lua_scripts_t store_rds_lua_script_names = {
   "delete",
   "find_channel",
   "get_message",
@@ -63,7 +63,7 @@ static nhpm_redis_lua_scripts_t nhpm_rds_lua_script_names = {
   "subscriber_unregister",
 };
 
-static nhpm_redis_lua_scripts_t nhpm_rds_lua_scripts = {
+static store_redis_lua_scripts_t store_rds_lua_scripts = {
   //delete
   "--input: keys: [],  values: [ channel_id ]\n"
   "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"

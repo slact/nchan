@@ -61,7 +61,7 @@ static void str_shm_verify(ngx_str_t *str) {
 ////////// SUBSCRIBE ////////////////
 typedef struct {
   ngx_str_t               *shm_chid;
-  nhpm_channel_head_shm_t *shared_channel_data;
+  store_channel_head_shm_t *shared_channel_data;
   nchan_store_channel_head_t     *origin_chanhead;
   subscriber_t            *subscriber;
 } subscribe_data_t;
@@ -326,7 +326,7 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
 }
 static void receive_get_message(ngx_int_t sender, void *data) {
   nchan_store_channel_head_t *head;
-  nhpm_message_t *msg = NULL;
+  store_message_t *msg = NULL;
   ngx_int_t       status = NGX_ERROR;
   getmessage_data_t *d = (getmessage_data_t *)data;
   str_shm_verify(d->shm_chid);
@@ -433,7 +433,7 @@ static void receive_delete_reply(ngx_int_t sender, void *data) {
 ////////// GET CHANNEL INFO ////////////////
 typedef struct {
   ngx_str_t               *shm_chid;
-  nhpm_channel_head_shm_t *channel_info;
+  store_channel_head_shm_t *channel_info;
   callback_pt              callback;
   void                    *privdata;
 } channel_info_data_t;
@@ -462,7 +462,7 @@ static void receive_get_channel_info(ngx_int_t sender, void *data) {
 static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
   channel_info_data_t      *d = (channel_info_data_t *)data;
   nchan_channel_t  chan;
-  nhpm_channel_head_shm_t  *chinfo = d->channel_info;
+  store_channel_head_shm_t  *chinfo = d->channel_info;
   if(chinfo) {
     //construct channel
     chan.subscribers = chinfo->sub_count;
