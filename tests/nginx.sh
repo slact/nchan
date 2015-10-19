@@ -217,6 +217,7 @@ elif [[ $valgrind == 1 ]]; then
     wait $debugger_pids
     kill $master_pid
   else
+    echo valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
     valgrind $VALGRIND_OPT ../nginx $NGINX_OPT
   fi
   popd >/dev/null
