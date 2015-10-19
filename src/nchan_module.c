@@ -487,7 +487,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
         buf = nchan_request_body_to_single_buffer(r);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: unexpected publisher message request body buffer location. please report this to the push module developers.");
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: unexpected publisher message request body buffer location. please report this to the nchan developers.");
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }

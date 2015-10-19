@@ -29,7 +29,7 @@ shmem_t *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t 
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
   }
   */
-  ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for push module", shm_size >> 10);
+  ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Using %udKiB of shared memory for nchan", shm_size >> 10);
 
   shm = ngx_alloc(sizeof(*shm), ngx_cycle->log);
   zone = ngx_shared_memory_add(cf, name, shm_size, &nchan_module);

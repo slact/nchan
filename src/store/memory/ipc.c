@@ -70,38 +70,38 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
     if(socks[0] == NGX_INVALID_FILE || socks[1] == NGX_INVALID_FILE) {
       //copypasta from os/unix/ngx_process.c (ngx_spawn_process)
       if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing nchan");
         return NGX_ERROR;
       }
       if (ngx_nonblocking(socks[0]) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
       if (ngx_nonblocking(socks[1]) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
       if (ioctl(socks[0], FIOASYNC, &on) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "ioctl(FIOASYNC) failed on socketpair while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "ioctl(FIOASYNC) failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
       
       if (fcntl(socks[0], F_SETOWN, ngx_pid) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(F_SETOWN) failed on socketpair while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(F_SETOWN) failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
       if (fcntl(socks[0], F_SETFD, FD_CLOEXEC) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(FD_CLOEXEC) failed on socketpair while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(FD_CLOEXEC) failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
       
       if (fcntl(socks[1], F_SETFD, FD_CLOEXEC) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(FD_CLOEXEC) failed while initializing push module");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(FD_CLOEXEC) failed while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
@@ -123,7 +123,7 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
 
 ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
   if (ngx_add_channel_event(cycle, ipc->socketpairs[ngx_process_slot][1], NGX_READ_EVENT, ipc_channel_handler) == NGX_ERROR) {
-    ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing push module worker");
+    ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing nchan worker");
     return NGX_ERROR;
   }
   return NGX_OK;

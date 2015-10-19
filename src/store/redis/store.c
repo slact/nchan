@@ -159,7 +159,7 @@ static void redis_load_script_callback(redisAsyncContext *c, void *r, void *priv
       break;
     case REDIS_REPLY_STRING:
       if(ngx_strncmp(reply->str, hash, REDIS_LUA_HASH_LENGTH)!=0) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module Redis lua script %s has unexpected hash %s (expected %s)", (*names)[i], reply->str, hash);
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan Redis lua script %s has unexpected hash %s (expected %s)", (*names)[i], reply->str, hash);
       }
       break;
   }
@@ -1186,7 +1186,6 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
 static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
   /*
   nhpm_subscriber_t           *sub = cln->sub;
-  nhpm_channel_head_cleanup_t *shared = cln->shared;
   nchan_store_channel_head_t         *head = shared->head;
   
   DBG("subscriber_cleanup_callback for %p on %V", sub, &head->id);
@@ -1194,7 +1193,6 @@ static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
   ngx_int_t done;
   done = sub->prev==NULL && sub->next==NULL;
   
-  nhpm_subscriber_unregister(&shared->id, sub);
   nhpm_subscriber_remove(sub);
   sub->subscriber->dequeue(sub->subscriber);
 
