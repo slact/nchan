@@ -277,11 +277,11 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
   }
   etag->data = (u_char *)(etag+1);
   etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
-  if ((ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
+  if ((nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag))==NULL) {
     return abort_response(self, "can't add etag header to response");
   }
   //Vary header needed for proper HTTP caching.
-  ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
+  nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
   
   r->headers_out.status=NGX_HTTP_OK;
 
@@ -294,7 +294,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
     return abort_response(self, "WTF just happened to request?");
   }
 
-  rc = ngx_http_push_output_filter(r, rchain);
+  rc = nchan_output_filter(r, rchain);
   finalize_maybe(self, rc);
   dequeue_maybe(self);
   return rc;
@@ -307,7 +307,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   //disable abort handler
   ((full_subscriber_t *)self)->data.cln->handler = empty_handler;
   
-  ngx_http_push_respond_status(r, status_code, status_line, 0);
+  nchan_respond_status(r, status_code, status_line, 0);
   
   finalize_maybe(self, NGX_OK);
   dequeue_maybe(self);

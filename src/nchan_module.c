@@ -209,15 +209,12 @@ static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, 
   b->last = ngx_sprintf(b->last, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed ,subscribers);
   b->end = b->last;
   
-  return ngx_http_push_respond_membuf(r, NGX_HTTP_OK, &content_type, b, 0);
+  return nchan_respond_membuf(r, NGX_HTTP_OK, &content_type, b, 0);
 }
 
 
-#define NGX_HTTP_PUSH_OPTIONS_OK_MESSAGE "Go ahead"
-
-
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
-static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_t *r) {
+static ngx_buf_t * nchan_request_body_to_single_buffer(ngx_http_request_t *r) {
   ngx_buf_t *buf = NULL;
   ngx_chain_t *chain;
   ssize_t n;
@@ -269,7 +266,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
   return buf;
 }
 
-static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
+static ngx_int_t nchan_response_channel_ptr_info(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
   static const ngx_str_t CREATED_LINE = ngx_string("201 Created");
   static const ngx_str_t ACCEPTED_LINE = ngx_string("201 Created");
   
@@ -293,7 +290,7 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
   }
   else {
     //404!
-    ngx_http_push_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 0);
+    nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 0);
   }
   return NGX_OK;
 }
@@ -316,7 +313,7 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
         r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
       }
       if ((etag=nchan_subscriber_get_etag(r)) != NULL) {
-        ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
+        nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
       }
       ngx_http_finalize_request(r, NGX_HTTP_NOT_MODIFIED);
       return NGX_OK;
@@ -401,7 +398,7 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
       return nchan_OPTIONS_respond(r, &NGX_HTTP_PUSH_ANYSTRING, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS);
       
     default:
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
+      nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
       return NGX_HTTP_NOT_ALLOWED;
   }
 
@@ -409,7 +406,7 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   
-  ngx_http_finalize_request(r, ngx_http_push_response_channel_ptr_info( (ngx_http_push_channel_t *)rptr, r, 0));
+  ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (ngx_http_push_channel_t *)rptr, r, 0));
   return NGX_OK;
 }
 
@@ -418,12 +415,12 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
   switch(status) {
     case NGX_HTTP_PUSH_MESSAGE_QUEUED:
       //message was queued successfully, but there were no subscribers to receive it.
-      ngx_http_finalize_request(r, ngx_http_push_response_channel_ptr_info(ch, r, NGX_HTTP_ACCEPTED));
+      ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_ACCEPTED));
       return NGX_OK;
       
     case NGX_HTTP_PUSH_MESSAGE_RECEIVED:
       //message was queued successfully, and it was already sent to at least one subscriber
-      ngx_http_finalize_request(r, ngx_http_push_response_channel_ptr_info(ch, r, NGX_HTTP_CREATED));
+      ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_CREATED));
       return NGX_OK;
       
     case NGX_ERROR:
@@ -448,7 +445,7 @@ if (val == fail) {                                                        \
   return;                                                          \
   }
 
-static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
+static void nchan_publisher_body_handler(ngx_http_request_t * r) {
   ngx_str_t                      *channel_id;
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_uint_t                      method = r->method;
@@ -487,7 +484,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         buf = ngx_create_temp_buf(r->pool, 0);
       }
       else if(r->request_body->bufs!=NULL) {
-        buf = ngx_http_push_request_body_to_single_buffer(r);
+        buf = nchan_request_body_to_single_buffer(r);
       }
       else {
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: unexpected publisher message request body buffer location. please report this to the push module developers.");
@@ -517,8 +514,8 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       
     default:
       //some other weird request method
-      ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
-      ngx_http_push_respond_status(r, NGX_HTTP_NOT_ALLOWED, NULL, 0);
+      nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+      nchan_respond_status(r, NGX_HTTP_NOT_ALLOWED, NULL, 0);
       break;
   }
 #if FAKESHARD
@@ -540,7 +537,7 @@ ngx_int_t nchan_publisher_handler(ngx_http_request_t * r) {
   //don't buffer the request body --send it right on through
   //r->request_body_no_buffering = 1;
 
-  rc = ngx_http_read_client_request_body(r, ngx_http_push_publisher_body_handler);
+  rc = ngx_http_read_client_request_body(r, nchan_publisher_body_handler);
   if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
     return rc;
   }

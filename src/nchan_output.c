@@ -13,7 +13,7 @@
 
 //general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
-static void ngx_http_push_flush_pending_output(ngx_http_request_t *r) {
+static void nchan_flush_pending_output(ngx_http_request_t *r) {
   int                        rc;
   ngx_event_t               *wev;
   ngx_connection_t          *c;
@@ -53,7 +53,7 @@ static void ngx_http_push_flush_pending_output(ngx_http_request_t *r) {
     return;
   }
   
-  rc = ngx_http_push_output_filter(r, NULL);
+  rc = nchan_output_filter(r, NULL);
 
   //ngx_log_debug3(NGX_LOG_DEBUG_HTTP, c->log, 0, "http writer output filter: %d, \"%V?%V\"", rc, &r->uri, &r->args);
 
@@ -75,7 +75,7 @@ static void ngx_http_push_flush_pending_output(ngx_http_request_t *r) {
   r->write_event_handler = ngx_http_request_empty_handler;
 }
 
-ngx_int_t ngx_http_push_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
+ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
 /* from push stream module, written by
  * Wandenberg Peixoto <wandenberg@gmail.com>, Rogério Carvalho Schneider <stockrt@gmail.com>
  * thanks, guys!
@@ -93,7 +93,7 @@ ngx_int_t ngx_http_push_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
   if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
     ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
     clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
-    r->write_event_handler = ngx_http_push_flush_pending_output;
+    r->write_event_handler = nchan_flush_pending_output;
     if (!wev->delayed) {
       ngx_add_timer(wev, clcf->send_timeout);
     }
@@ -110,7 +110,7 @@ ngx_int_t ngx_http_push_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
   return rc;
 }
 
-ngx_int_t ngx_http_push_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize) {
+ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize) {
   ngx_int_t    rc = NGX_OK;
   r->headers_out.status=status_code;
   if(status_line!=NULL) {
@@ -127,7 +127,7 @@ ngx_int_t ngx_http_push_respond_status(ngx_http_request_t *r, ngx_int_t status_c
   return rc;
 }
 
-ngx_int_t ngx_http_push_respond_membuf(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, ngx_buf_t *body, ngx_int_t finalize) {
+ngx_int_t nchan_respond_membuf(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, ngx_buf_t *body, ngx_int_t finalize) {
   ngx_str_t str;
   str.len = ngx_buf_size(body);
   str.data = body->start;
@@ -162,7 +162,7 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
   b->last = b->end;
   
   ngx_http_send_header(r);
-  rc= ngx_http_push_output_filter(r, chain);
+  rc= nchan_output_filter(r, chain);
   
   if(finalize) {
     ngx_http_finalize_request(r, rc);
@@ -170,7 +170,7 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
   return rc;
 }
 
-ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value) {
+ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value) {
   ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
   if (h == NULL) {
     return NULL;
@@ -188,10 +188,10 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_or
   static const  ngx_str_t ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
   static const  ngx_str_t ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
   
-  ngx_http_push_add_response_header(r, &ALLOW_ORIGIN,  allow_origin);
-  ngx_http_push_add_response_header(r, &ALLOW_HEADERS, allowed_headers);
-  ngx_http_push_add_response_header(r, &ALLOW_METHODS, allowed_methods);
-  return ngx_http_push_respond_status(r, NGX_HTTP_OK, NULL, 0);
+  nchan_add_response_header(r, &ALLOW_ORIGIN,  allow_origin);
+  nchan_add_response_header(r, &ALLOW_HEADERS, allowed_headers);
+  nchan_add_response_header(r, &ALLOW_METHODS, allowed_methods);
+  return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
 }
 
 /*

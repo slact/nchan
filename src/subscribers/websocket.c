@@ -266,9 +266,9 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     ngx_encode_base64(&ws_accept_key, &sha1_str);
     
     
-    ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
-    ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_UPGRADE, &NGX_HTTP_PUSH_WEBSOCKET);
-    ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_CONNECTION, &NGX_HTTP_PUSH_UPGRADE);
+    nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
+    nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_UPGRADE, &NGX_HTTP_PUSH_WEBSOCKET);
+    nchan_add_response_header(r, &NGX_HTTP_PUSH_HEADER_CONNECTION, &NGX_HTTP_PUSH_UPGRADE);
     r->headers_out.status_line = NGX_HTTP_PUSH_HTTP_STATUS_101;
     r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
 
@@ -725,7 +725,7 @@ static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const 
 }
 
 static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len) {
-  return ngx_http_push_output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
+  return nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
 }
 
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_push_msg_t *msg) {
@@ -744,7 +744,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_
 
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  ngx_http_push_output_filter(fsub->request, websocket_close_frame_chain(fsub, code, err));
+  nchan_output_filter(fsub->request, websocket_close_frame_chain(fsub, code, err));
   return NGX_OK;
 }
 
@@ -791,10 +791,10 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   if(!fsub->shook_hands) {
     //can't respond yet, still in HTTP land. this is a server error.
-    return ngx_http_push_respond_status(fsub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+    return nchan_respond_status(fsub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
   }
   else { 
-    return ngx_http_push_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
+    return nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
   }
 }
 
@@ -811,7 +811,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   
   if(!fsub->shook_hands) {
     //still in HTTP land
-    return ngx_http_push_respond_status(fsub->request, status_code, status_line, 0);
+    return nchan_respond_status(fsub->request, status_code, status_line, 0);
   }
   
   switch(status_code) {
