@@ -131,10 +131,10 @@ ngx_int_t ngx_http_push_respond_membuf(ngx_http_request_t *r, ngx_int_t status_c
   ngx_str_t str;
   str.len = ngx_buf_size(body);
   str.data = body->start;
-  return ngx_http_push_respond_string(r, status_code, content_type, &str, finalize);
+  return nchan_respond_string(r, status_code, content_type, &str, finalize);
 }
 
-ngx_int_t ngx_http_push_respond_string(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, const ngx_str_t *body, ngx_int_t finalize) {
+ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, const ngx_str_t *body, ngx_int_t finalize) {
   ngx_int_t    rc = NGX_OK;
   ngx_buf_t   *b = REQUEST_PCALLOC(r, b);
   ngx_chain_t *chain = REQUEST_PALLOC(r, chain);
@@ -168,6 +168,19 @@ ngx_int_t ngx_http_push_respond_string(ngx_http_request_t *r, ngx_int_t status_c
     ngx_http_finalize_request(r, rc);
   }
   return rc;
+}
+
+ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value) {
+  ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
+  if (h == NULL) {
+    return NULL;
+  }
+  h->hash = 1;
+  h->key.len = header_name->len;
+  h->key.data = header_name->data;
+  h->value.len = header_value->len;
+  h->value.data = header_value->data;
+  return h;
 }
 
 /*

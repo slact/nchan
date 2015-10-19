@@ -36,7 +36,7 @@ static ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, nchan_loc_conf_t *
   size_t                          len;
   ngx_str_t                      *id;
   if (vv == NULL || vv->not_found || vv->len == 0) {
-    ngx_http_push_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
+    nchan_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
     ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, 
             "nchan: the $push_channel_id variable is required but is not set");
     return NULL;
@@ -57,20 +57,7 @@ static ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, nchan_loc_conf_t *
   return id;
 }
 
-ngx_table_elt_t * ngx_http_push_add_response_header(ngx_http_request_t *r, const ngx_str_t *header_name, const ngx_str_t *header_value) {
-  ngx_table_elt_t                *h = ngx_list_push(&r->headers_out.headers);
-  if (h == NULL) {
-    return NULL;
-  }
-  h->hash = 1;
-  h->key.len = header_name->len;
-  h->key.data = header_name->data;
-  h->value.len = header_value->len;
-  h->value.data = header_value->data;
-  return h;
-}
-
-ngx_str_t * ngx_http_push_get_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
+ngx_str_t * nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name) {
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
   ngx_table_elt_t                 *header= part->elts;
@@ -92,14 +79,14 @@ ngx_str_t * ngx_http_push_get_header_value(ngx_http_request_t * r, ngx_str_t hea
   return NULL;
 }
 
-static ngx_int_t ngx_http_push_detect_websocket_handshake(ngx_http_request_t *r) {
+static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
   ngx_str_t *tmp;
-  if((tmp = ngx_http_push_get_header_value(r, NGX_HTTP_PUSH_HEADER_CONNECTION))) {
+  if((tmp = nchan_get_header_value(r, NGX_HTTP_PUSH_HEADER_CONNECTION))) {
     if(ngx_strncasecmp(tmp->data, NGX_HTTP_PUSH_UPGRADE.data, NGX_HTTP_PUSH_UPGRADE.len) != 0) return 0;
   }
   else return 0;
   
-  if((tmp = ngx_http_push_get_header_value(r, NGX_HTTP_PUSH_HEADER_UPGRADE))) {
+  if((tmp = nchan_get_header_value(r, NGX_HTTP_PUSH_HEADER_UPGRADE))) {
     if(ngx_strncasecmp(tmp->data, NGX_HTTP_PUSH_WEBSOCKET.data, NGX_HTTP_PUSH_WEBSOCKET.len) != 0) return 0;
   }
   else return 0;
@@ -107,13 +94,14 @@ static ngx_int_t ngx_http_push_detect_websocket_handshake(ngx_http_request_t *r)
   return 1;
 }
 
+/*
 ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
   ngx_str_t *tmp_header;
   ngx_str_t header_checks[2] = { NGX_HTTP_PUSH_HEADER_CACHE_CONTROL, NGX_HTTP_PUSH_HEADER_PRAGMA };
   ngx_int_t i = 0;
   
   for(; i < 2; i++) {
-    tmp_header = ngx_http_push_get_header_value(r, header_checks[i]);
+    tmp_header = nchan_get_header_value(r, header_checks[i]);
     
     if (tmp_header != NULL) {
       return !!ngx_strncasecmp(tmp_header->data, NGX_HTTP_PUSH_CACHE_CONTROL_VALUE.data, tmp_header->len);
@@ -122,8 +110,9 @@ ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
   
   return 1;
 }
+*/
 
-ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
+ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
   ngx_table_elt_t                 *header= part->elts;
@@ -145,8 +134,8 @@ ngx_str_t * ngx_http_push_subscriber_get_etag(ngx_http_request_t * r) {
   return NULL;
 }
 
-ngx_int_t ngx_http_push_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_id_t *id) {
-  ngx_str_t                      *if_none_match = ngx_http_push_subscriber_get_etag(r);
+ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_id_t *id) {
+  ngx_str_t                      *if_none_match = nchan_subscriber_get_etag(r);
   ngx_int_t                       tag=0;
   id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
   if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
@@ -335,7 +324,7 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
       if (r->headers_in.if_modified_since != NULL) {
         r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
       }
-      if ((etag=ngx_http_push_subscriber_get_etag(r)) != NULL) {
+      if ((etag=nchan_subscriber_get_etag(r)) != NULL) {
         ngx_http_push_add_response_header(r, &NGX_HTTP_PUSH_HEADER_ETAG, etag);
       }
       ngx_http_finalize_request(r, NGX_HTTP_NOT_MODIFIED);
@@ -364,7 +353,7 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
   }
 }
 
-ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
+ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
@@ -385,7 +374,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
   #endif
 #endif      
 
-      if(ngx_http_push_detect_websocket_handshake(r)) {
+      if(nchan_detect_websocket_handshake(r)) {
         //do you want a websocket?
         if((sub = websocket_subscriber_create(r)) == NULL) {
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
@@ -394,7 +383,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
         nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
       }
       else {
-        ngx_http_push_subscriber_get_msg_id(r, &msg_id);
+        nchan_subscriber_get_msg_id(r, &msg_id);
         
         switch(cf->subscriber_poll_mechanism) {
           case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
@@ -561,7 +550,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
 }
 
 
-ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t * r) {
+ngx_int_t nchan_publisher_handler(ngx_http_request_t * r) {
   ngx_int_t                       rc;
   
   /* Instruct ngx_http_read_subscriber_request_body to store the request

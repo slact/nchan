@@ -167,7 +167,7 @@ static char *ngx_http_push_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd
 
 
 static char *ngx_http_push_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_publisher_handler);
+  return ngx_http_push_setup_handler(cf, conf, &nchan_publisher_handler);
 }
 
 static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -192,7 +192,7 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
     }
   }
   
-  return ngx_http_push_setup_handler(cf, conf, &ngx_http_push_subscriber_handler);
+  return ngx_http_push_setup_handler(cf, conf, &nchan_subscriber_handler);
 }
 
 static void ngx_http_push_exit_worker(ngx_cycle_t *cycle) {
