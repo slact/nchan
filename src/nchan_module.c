@@ -134,7 +134,7 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   return NULL;
 }
 
-ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, NCHAN_msg_id_t *id) {
+ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
   ngx_str_t                      *if_none_match = nchan_subscriber_get_etag(r);
   ngx_int_t                       tag=0;
   id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
@@ -147,7 +147,7 @@ ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, NCHAN_msg_id_t *id)
 
 
 static void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
-  static NCHAN_content_subtype_t subtypes[] = {
+  static nchan_content_subtype_t subtypes[] = {
     { "json"  , 4, &NCHAN_CHANNEL_INFO_JSON },
     { "yaml"  , 4, &NCHAN_CHANNEL_INFO_YAML },
     { "xml"   , 3, &NCHAN_CHANNEL_INFO_XML  },
@@ -157,7 +157,7 @@ static void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem
   u_char                         *start = cur + off;
   ngx_uint_t                      i;
   
-  for(i=0; i<(sizeof(subtypes)/sizeof(NCHAN_content_subtype_t)); i++) {
+  for(i=0; i<(sizeof(subtypes)/sizeof(nchan_content_subtype_t)); i++) {
     if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
       if(*priority>start) {
         *format = subtypes[i].format;
@@ -266,7 +266,7 @@ static ngx_buf_t * nchan_request_body_to_single_buffer(ngx_http_request_t *r) {
   return buf;
 }
 
-static ngx_int_t nchan_response_channel_ptr_info(NCHAN_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
+static ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
   static const ngx_str_t CREATED_LINE = ngx_string("201 Created");
   static const ngx_str_t ACCEPTED_LINE = ngx_string("201 Created");
   
@@ -302,7 +302,7 @@ static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_htt
   return NGX_OK;
 }
 
-static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, NCHAN_msg_t *msg, ngx_http_request_t *r) {
+static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, nchan_msg_t *msg, ngx_http_request_t *r) {
   //inefficient, but close enough for now
   subscriber_t            *sub;
   ngx_str_t               *etag;
@@ -345,7 +345,7 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
-  NCHAN_msg_id_t          msg_id;
+  nchan_msg_id_t          msg_id;
   
   if((channel_id=nchan_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -406,12 +406,12 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   
-  ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (NCHAN_channel_t *)rptr, r, 0));
+  ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
   return NGX_OK;
 }
 
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
-  NCHAN_channel_t *ch = rptr;
+  nchan_channel_t *ch = rptr;
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:
       //message was queued successfully, but there were no subscribers to receive it.
@@ -451,7 +451,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
   ngx_uint_t                      method = r->method;
   ngx_buf_t                      *buf;
   size_t                          content_type_len;
-  NCHAN_msg_t            *msg;
+  nchan_msg_t            *msg;
   struct timeval                  tv;
   if((channel_id = nchan_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);

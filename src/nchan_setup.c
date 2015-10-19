@@ -31,7 +31,7 @@ static ngx_int_t NCHAN_postconfig(ngx_conf_t *cf) {
 
 //main config
 static void * NCHAN_create_main_conf(ngx_conf_t *cf) {
-  NCHAN_main_conf_t      *mcf = ngx_pcalloc(cf->pool, sizeof(*mcf));
+  nchan_main_conf_t      *mcf = ngx_pcalloc(cf->pool, sizeof(*mcf));
   if(mcf == NULL) {
     return NGX_CONF_ERROR;
   }
@@ -253,7 +253,7 @@ static ngx_command_t  NCHAN_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(NCHAN_main_conf_t, shm_size),
+      offsetof(nchan_main_conf_t, shm_size),
       NULL },
     
   { ngx_string("push_min_message_buffer_length"),

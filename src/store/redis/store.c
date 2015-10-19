@@ -21,9 +21,9 @@ struct nhpm_channel_head_s {
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
   ngx_uint_t                   internal_sub_count;
-  NCHAN_msg_id_t       last_msgid;
+  nchan_msg_id_t       last_msgid;
   void                        *redis_subscriber_privdata;
-  nhpm_llist_timed_t           cleanlink;
+  nchan_llist_timed_t           cleanlink;
   UT_hash_handle               hh;
 };
 
@@ -59,16 +59,16 @@ static nhpm_channel_head_t *subhash = NULL;
 
 //garbage collection for channel heads
 static ngx_event_t         chanhead_cleanup_timer = {0};
-static nhpm_llist_timed_t *chanhead_cleanup_head = NULL;
-static nhpm_llist_timed_t *chanhead_cleanup_tail = NULL;
+static nchan_llist_timed_t *chanhead_cleanup_head = NULL;
+static nchan_llist_timed_t *chanhead_cleanup_tail = NULL;
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head);
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead);
 
 static void nchan_store_chanhead_cleanup_timer_handler(ngx_event_t *);
-static ngx_int_t nchan_store_publish_generic(ngx_str_t *, NCHAN_msg_t *, ngx_int_t, const ngx_str_t *);
-static ngx_str_t * nchan_store_content_type_from_message(NCHAN_msg_t *, ngx_pool_t *);
-static ngx_str_t * nchan_store_etag_from_message(NCHAN_msg_t *, ngx_pool_t *);
+static ngx_int_t nchan_store_publish_generic(ngx_str_t *, nchan_msg_t *, ngx_int_t, const ngx_str_t *);
+static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *, ngx_pool_t *);
+static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 
 static nhpm_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id);
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
@@ -108,7 +108,7 @@ static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdat
 static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
   ngx_int_t   i;
-  //NCHAN_channel_t * channel = (NCHAN_channel_t *)privdata;
+  //nchan_channel_t * channel = (nchan_channel_t *)privdata;
   if (reply == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY is NULL");
     return;
@@ -204,7 +204,7 @@ static ngx_int_t msgpack_obj_to_int(msgpack_object *o) {
 static void * ngx_nhpm_alloc(size_t size) {
   return ngx_alloc(size, ngx_cycle->log);
 }
-static NCHAN_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size));
+static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size));
 
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
 #define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
@@ -242,13 +242,13 @@ typedef struct {
   ngx_msec_t                    t;
   char                         *name;
   ngx_str_t                     channel_id;
-  NCHAN_msg_id_t       *msg_id;
+  nchan_msg_id_t       *msg_id;
 } redis_get_message_from_key_data_t;
 
 static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r, void *privdata) {
   redis_get_message_from_key_data_t *d = (redis_get_message_from_key_data_t *)privdata;
   redisReply           *reply = r;
-  NCHAN_msg_t  *msg;
+  nchan_msg_t  *msg;
   ngx_str_t            *chid = &d->channel_id;
   DBG("Message HMGET callback");
   nhpm_log_redis_reply(d->name, d->t);
@@ -322,7 +322,7 @@ static ngx_int_t msgpack_to_str(msgpack_object *obj, ngx_str_t *ret) {
     return NGX_ERROR;
   }
 }
-static ngx_int_t msgpack_array_to_msg(msgpack_object *arr, ngx_uint_t offset, NCHAN_msg_t *msg, ngx_buf_t *buf) {
+static ngx_int_t msgpack_array_to_msg(msgpack_object *arr, ngx_uint_t offset, nchan_msg_t *msg, ngx_buf_t *buf) {
   msgpack_to_time(&arr->via.array.ptr[offset], &(msg->message_time));
   msgpack_to_int(&arr->via.array.ptr[offset+1], &(msg->message_tag));
   
@@ -343,7 +343,7 @@ static ngx_int_t msgpack_array_to_msg(msgpack_object *arr, ngx_uint_t offset, NC
 }
 
 
-static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, NCHAN_msg_id_t *msgid, ngx_str_t *msg_redis_hash_key) {
+static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, nchan_msg_id_t *msgid, ngx_str_t *msg_redis_hash_key) {
   nhpm_channel_head_t               *head;
   redis_get_message_from_key_data_t *d;
   DBG("Get message from msgkey %V", msg_redis_hash_key);
@@ -376,7 +376,7 @@ static ngx_int_t nhpm_subscriber_register(nhpm_channel_head_t *chanhead, subscri
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply             *reply = r;
   redisReply             *el = NULL;
-  NCHAN_msg_t     msg;
+  nchan_msg_t     msg;
   ngx_buf_t               buf = {0};
 
   ngx_str_t               chid = {0};
@@ -431,7 +431,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "msgkey")) {
             if(chanhead != NULL) {
-              NCHAN_msg_id_t        msgid;
+              nchan_msg_id_t        msgid;
               
               msgpack_to_time(&obj.via.array.ptr[1], &msgid.time);
               msgpack_to_int(&obj.via.array.ptr[2], &msgid.tag);
@@ -444,7 +444,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msgkey")) {
-            NCHAN_msg_id_t        msgid;
+            nchan_msg_id_t        msgid;
             
             msgpack_to_str( &obj.via.array.ptr[1], &chid);
             msgpack_to_time(&obj.via.array.ptr[2], &msgid.time);
@@ -736,7 +736,7 @@ static ngx_int_t nhpm_subscriber_remove(subscriber_t *sub) {
 }
 
 static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
-  nhpm_llist_timed_t         *chanhead_cleanlink;
+  nchan_llist_timed_t         *chanhead_cleanlink;
   
   if(head->status != INACTIVE) {
     chanhead_cleanlink = &head->cleanlink;
@@ -770,7 +770,7 @@ static ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head) {
 
 static ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead) {
   //remove from cleanup list if we're there
-  nhpm_llist_timed_t    *cl;
+  nchan_llist_timed_t    *cl;
   DBG("gc_withdraw chanhead %V", &chanhead->id);
   if(chanhead->status == INACTIVE) {
     cl=&chanhead->cleanlink;
@@ -809,7 +809,7 @@ static void *put_current_subscribers_in_limbo(nhpm_channel_head_t *head) {
 
 static void empty_callback(){}
 
-static ngx_int_t publish_to_subscribers_in_limbo(NCHAN_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t publish_to_subscribers_in_limbo(nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   /*
   if(msg) {
     head->last_msgid.time = msg->message_time;
@@ -847,7 +847,7 @@ static ngx_int_t publish_to_subscribers_in_limbo(NCHAN_msg_t *msg, ngx_int_t sta
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, NCHAN_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
+static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nhpm_channel_head_t        *head;
   ngx_int_t                   ret;
   //nhpm_channel_head_cleanup_t *hcln;
@@ -872,7 +872,7 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, NCHAN_msg_t 
 }
 
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
-  nhpm_llist_timed_t    *cur, *next;
+  nchan_llist_timed_t    *cur, *next;
   nhpm_channel_head_t   *ch = NULL;
   
   DBG("handle_chanhead_gc_queue");
@@ -918,7 +918,7 @@ static void nchan_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
   }
 }
 
-static ngx_int_t redis_array_to_channel(redisReply *r, NCHAN_channel_t *ch) {
+static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
   if ( CHECK_REPLY_ARRAY_MIN_SIZE(r, 4)
     && CHECK_REPLY_INT(r->element[0])
     && CHECK_REPLY_INT(r->element[1])
@@ -958,7 +958,7 @@ typedef struct {
 static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply=r;
   redis_channel_callback_data_t *d=(redis_channel_callback_data_t *)privdata;
-  NCHAN_channel_t channel = {{0}};
+  nchan_channel_t channel = {{0}};
   
   nhpm_log_redis_reply(d->name, d->t);
   
@@ -1017,8 +1017,8 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
 
 
 
-static NCHAN_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size)) {
-  NCHAN_msg_t *msg=NULL;
+static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size)) {
+  nchan_msg_t *msg=NULL;
   ngx_buf_t           *buf=NULL;
   redisReply         **els = r->element;
   size_t len = 0, content_type_len = 0;
@@ -1065,7 +1065,7 @@ typedef struct {
   ngx_msec_t              t;
   char                   *name;
   ngx_str_t              *channel_id;
-  NCHAN_msg_id_t *msg_id;
+  nchan_msg_id_t *msg_id;
   callback_pt             callback;
   void                  *privdata;
 } redis_get_message_data_t;
@@ -1073,7 +1073,7 @@ typedef struct {
 static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply                *reply= r;
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
-  NCHAN_msg_t       *msg=NULL;
+  nchan_msg_t       *msg=NULL;
   
   if(d == NULL) {
     ERR("redis_get_mesage_callback has NULL userdata");
@@ -1112,7 +1112,7 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   ngx_free(d);
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, NCHAN_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
   redis_get_message_data_t           *d=NULL;
   if(callback==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
@@ -1149,7 +1149,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   return NGX_OK;
 }
 
-static void nchan_store_create_main_conf(ngx_conf_t *cf, NCHAN_main_conf_t *mcf) {
+static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
@@ -1230,7 +1230,7 @@ typedef struct {
   ngx_msec_t              t;
   char                   *name;
   ngx_str_t              *channel_id;
-  NCHAN_msg_id_t *msg_id;
+  nchan_msg_id_t *msg_id;
   callback_pt             callback;
   subscriber_t           *sub;
   nhpm_channel_head_t    *chanhead;
@@ -1243,7 +1243,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   subscriber_t              *sub = d->sub;
   nchan_loc_conf_t  *cf = sub->cf;
   ngx_int_t                  status=0;
-  NCHAN_msg_t       *msg=NULL;
+  nchan_msg_t       *msg=NULL;
   
   sub->release(sub); //let the sub be destroyed if needed.
   
@@ -1335,7 +1335,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_free(d);
 }
 
-static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, NCHAN_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
   ngx_int_t                     create_channel_ttl;
   nchan_loc_conf_t     *cf = sub->cf;
@@ -1368,7 +1368,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, NCHAN_msg_id_t *ms
   return NGX_OK; 
 }
 
-static ngx_str_t * nchan_store_etag_from_message(NCHAN_msg_t *msg, ngx_pool_t *pool){
+static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *etag;
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header in pool");
@@ -1383,7 +1383,7 @@ static ngx_str_t * nchan_store_etag_from_message(NCHAN_msg_t *msg, ngx_pool_t *p
   return etag;
 }
 
-static ngx_str_t * nchan_store_content_type_from_message(NCHAN_msg_t *msg, ngx_pool_t *pool){
+static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *content_type;
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header in pool");
@@ -1404,7 +1404,7 @@ typedef struct {
   char                 *name;
   ngx_str_t            *channel_id;
   time_t                msg_time;
-  NCHAN_msg_t  *msg;
+  nchan_msg_t  *msg;
   ngx_int_t             msglen;
   callback_pt           callback;
   void                 *privdata;
@@ -1412,7 +1412,7 @@ typedef struct {
 
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
 
-static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, NCHAN_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_publish_callback_data_t  *d=NULL;
   u_char                         *msgstart;
   size_t                          msglen;
@@ -1473,8 +1473,8 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
   redisReply *reply=r;
   redisReply *cur;
-  //NCHAN_msg_id_t msg_id;
-  NCHAN_channel_t ch={{0}};
+  //nchan_msg_id_t msg_id;
+  nchan_channel_t ch={{0}};
 
   if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)) {
     //msg_id.time=d->msg_time;

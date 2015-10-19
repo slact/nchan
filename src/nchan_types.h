@@ -3,7 +3,7 @@ typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
-} NCHAN_main_conf_t;
+} nchan_main_conf_t;
 
 typedef struct {
   ngx_atomic_int_t  lock;
@@ -15,7 +15,7 @@ typedef struct {
 typedef struct {
   time_t                          time; //tag message by time
   ngx_int_t                       tag;  //used in conjunction with message_time if more than one message have the same time.
-} NCHAN_msg_id_t;
+} nchan_msg_id_t;
 
 //message queue
 typedef struct {
@@ -29,39 +29,39 @@ typedef struct {
   ngx_int_t                       message_tag;  //used in conjunction with message_time if more than one message have the same time.
   unsigned                        shared:1; //for debugging
   ngx_atomic_t                    refcount;
-} NCHAN_msg_t;
+} nchan_msg_t;
 
 
 typedef struct {
   ngx_rbtree_node_t               node; //this MUST be first.
   ngx_str_t                       id;
-  NCHAN_msg_t            *message_queue;
+  nchan_msg_t            *message_queue;
   ngx_atomic_t                    messages;
   ngx_atomic_t                    subscribers;
   time_t                          last_seen;
   time_t                          expires;
-} NCHAN_channel_t;
+} nchan_channel_t;
 
 
 //garbage collecting goodness
 typedef struct {
   ngx_queue_t                     queue;
-  NCHAN_channel_t        *channel;
-} NCHAN_channel_queue_t;
+  nchan_channel_t        *channel;
+} nchan_channel_queue_t;
 
 
 typedef struct {
   ngx_queue_t                    queue;
   ngx_rwlock_t                   lock;
-} NCHAN_worker_msg_sentinel_t;
+} nchan_worker_msg_sentinel_t;
 
 //shared memory
 typedef struct {
   ngx_rbtree_t                          tree;
   ngx_uint_t                            channels; //# of channels being used
   ngx_uint_t                            messages; //# of channels being used
-  NCHAN_worker_msg_sentinel_t  *ipc; //interprocess stuff
-} NCHAN_shm_data_t;
+  nchan_worker_msg_sentinel_t  *ipc; //interprocess stuff
+} nchan_shm_data_t;
 
 typedef struct {
   ngx_int_t                       index;
@@ -86,14 +86,14 @@ typedef struct {
   char *subtype;
   size_t len;
   const ngx_str_t *format;
-} NCHAN_content_subtype_t;
+} nchan_content_subtype_t;
 
 typedef struct nhpm_llist_timed_s {
   struct nhpm_llist_timed_s     *prev;
   void                          *data;
   time_t                         time;
   struct nhpm_llist_timed_s     *next;
-} nhpm_llist_timed_t;
+} nchan_llist_timed_t;
 
 typedef struct subscriber_s subscriber_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
@@ -101,7 +101,7 @@ typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 struct subscriber_s {
   ngx_int_t            (*enqueue)(struct subscriber_s *);
   ngx_int_t            (*dequeue)(struct subscriber_s *);
-  ngx_int_t            (*respond_message)(struct subscriber_s *, NCHAN_msg_t *);
+  ngx_int_t            (*respond_message)(struct subscriber_s *, nchan_msg_t *);
   ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
   ngx_int_t            (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t            (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);

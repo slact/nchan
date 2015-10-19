@@ -196,7 +196,7 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   return NGX_ERROR;
 }
 
-static ngx_int_t longpoll_respond_message(subscriber_t *self, NCHAN_msg_t *msg) {
+static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_http_request_t        *r = fsub->data.request;
   ngx_chain_t               *rchain;

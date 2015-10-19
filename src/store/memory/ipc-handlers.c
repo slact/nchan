@@ -207,7 +207,7 @@ static void receive_publish_status(ngx_int_t sender, void *data) {
 ////////// PUBLISH  ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
-  NCHAN_msg_t       *shm_msg;
+  nchan_msg_t       *shm_msg;
   ngx_int_t                  msg_timeout;
   ngx_int_t                  max_msgs;
   ngx_int_t                  min_msgs;
@@ -215,7 +215,7 @@ typedef struct {
   void                      *callback_privdata;
 } publish_data_t;
 
-ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, NCHAN_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
   ngx_int_t ret;
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
@@ -274,7 +274,7 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   DBG("IPC: publish message generic callback");
   publish_callback_data   *cd = (publish_callback_data *)privdata;
   publish_response_data    rd;
-  NCHAN_channel_t *ch = (NCHAN_channel_t *)rptr;
+  nchan_channel_t *ch = (nchan_channel_t *)rptr;
   rd.status = status;
   rd.callback = cd->d->callback;
   rd.callback_privdata = cd->d->callback_privdata;
@@ -288,7 +288,7 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   return NGX_OK;
 }
 static void receive_publish_message_reply(ngx_int_t sender, void *data) {
-  NCHAN_channel_t   ch;
+  nchan_channel_t   ch;
   publish_response_data    *d = (publish_response_data *)data;
   DBG("IPC: received publish reply");
   
@@ -302,18 +302,18 @@ static void receive_publish_message_reply(ngx_int_t sender, void *data) {
 ////////// GET MESSAGE ////////////////
 typedef struct {
   ngx_str_t              *shm_chid;
-  NCHAN_msg_id_t  msgid;
+  nchan_msg_id_t  msgid;
   void                   *privdata;
 } getmessage_data_t;
 
 typedef struct {
   ngx_str_t           *shm_chid;
-  NCHAN_msg_t *shm_msg;
+  nchan_msg_t *shm_msg;
   ngx_int_t            getmsg_code;
   void                *privdata;
 } getmessage_reply_data_t;
 
-ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, NCHAN_msg_id_t *msgid, void *privdata) {
+ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
   getmessage_data_t      data;
   
   data.shm_chid= str_shm_copy(chid);
@@ -369,7 +369,7 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
 typedef struct {
   ngx_str_t           *shm_chid;
   ngx_int_t            sender;
-  NCHAN_channel_t *shm_channel_info;
+  nchan_channel_t *shm_channel_info;
   ngx_int_t            code;
   callback_pt          callback;
   void                *privdata;
@@ -390,8 +390,8 @@ static void receive_delete(ngx_int_t sender, void *data) {
 }
 
 static ngx_int_t delete_callback_handler(ngx_int_t code, void *ch, void* privdata) {
-  NCHAN_channel_t *chan = (NCHAN_channel_t *)ch;
-  NCHAN_channel_t *chan_info;
+  nchan_channel_t *chan = (nchan_channel_t *)ch;
+  nchan_channel_t *chan_info;
   delete_data_t *d = (delete_data_t *)privdata;
   d->code = code;
   if (ch) {
@@ -461,7 +461,7 @@ static void receive_get_channel_info(ngx_int_t sender, void *data) {
 
 static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
   channel_info_data_t      *d = (channel_info_data_t *)data;
-  NCHAN_channel_t  chan;
+  nchan_channel_t  chan;
   nhpm_channel_head_shm_t  *chinfo = d->channel_info;
   if(chinfo) {
     //construct channel

@@ -728,7 +728,7 @@ static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opco
   return nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
 }
 
-static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, NCHAN_msg_t *msg) {
+static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
   //ngx_chain_t   *hdr_chain = fsub->hdr_chain;
   //ngx_chain_t   *msg_chain = fsub->msg_chain;
   
@@ -786,7 +786,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   return hdr_chain;
 }
 
-static ngx_int_t websocket_respond_message(subscriber_t *self, NCHAN_msg_t *msg) {
+static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   //TODO: prepare msg file
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   if(!fsub->shook_hands) {

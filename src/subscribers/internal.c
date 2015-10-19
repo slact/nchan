@@ -169,7 +169,7 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
   return NGX_OK;
 }
 
-static ngx_int_t internal_respond_message(subscriber_t *self, NCHAN_msg_t *msg) {
+static ngx_int_t internal_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
   DBG("%p (%s) respond msg %p", self, f->sub.name, msg);
   f->respond_message(NGX_OK, msg, f->privdata);

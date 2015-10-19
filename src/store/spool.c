@@ -132,7 +132,7 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   return NGX_OK;
 }
 
-static ngx_int_t spool_respond_general(subscriber_pool_t *self, NCHAN_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   self->generation++;
@@ -157,7 +157,7 @@ static ngx_int_t spool_respond_status(subscriber_pool_t *self, ngx_int_t status_
   return spool_respond_general(self, NULL, status_code, status_line);
 }
 
-static ngx_int_t spool_respond_message(subscriber_pool_t *self, NCHAN_msg_t *msg) {
+static ngx_int_t spool_respond_message(subscriber_pool_t *self, nchan_msg_t *msg) {
   return spool_respond_general(self, msg, 0, NULL);
 }
 
@@ -321,7 +321,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 }
 
 
-static ngx_int_t spooler_respond_generic(channel_spooler_t *self, NCHAN_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
+static ngx_int_t spooler_respond_generic(channel_spooler_t *self, nchan_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
   subscriber_pool_t       *old = self->shortlived;
   
   /*
@@ -348,7 +348,7 @@ static ngx_int_t spooler_respond_generic(channel_spooler_t *self, NCHAN_msg_t *m
   return NGX_OK;
 }
 
-static ngx_int_t spooler_respond_message(channel_spooler_t *self, NCHAN_msg_t *msg) {
+static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
   return spooler_respond_generic(self, msg, 0, NULL);
 }
 
