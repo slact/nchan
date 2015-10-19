@@ -3,7 +3,7 @@
 #include <assert.h>
 
 
-#define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (2 * 1024)
+#define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (2 * 1024)
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -132,7 +132,7 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   return NGX_OK;
 }
 
-static ngx_int_t spool_respond_general(subscriber_pool_t *self, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t spool_respond_general(subscriber_pool_t *self, NCHAN_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   self->generation++;
@@ -157,7 +157,7 @@ static ngx_int_t spool_respond_status(subscriber_pool_t *self, ngx_int_t status_
   return spool_respond_general(self, NULL, status_code, status_line);
 }
 
-static ngx_int_t spool_respond_message(subscriber_pool_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t spool_respond_message(subscriber_pool_t *self, NCHAN_msg_t *msg) {
   return spool_respond_general(self, msg, 0, NULL);
 }
 
@@ -184,7 +184,7 @@ static ngx_int_t spool_set_bulk_dequeue_handler(subscriber_pool_t *self, void (*
 static subscriber_pool_t *create_spool(spool_type_t type) {
   subscriber_pool_t *spool = NULL;
   if(type == SHORTLIVED) {
-    ngx_pool_t      *pool = ngx_create_pool(NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
+    ngx_pool_t      *pool = ngx_create_pool(NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
     if(pool == NULL) {
       ERR("couldn't create pool for ONESHOT spool");
       return NULL;
@@ -321,7 +321,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 }
 
 
-static ngx_int_t spooler_respond_generic(channel_spooler_t *self, ngx_http_push_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
+static ngx_int_t spooler_respond_generic(channel_spooler_t *self, NCHAN_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
   subscriber_pool_t       *old = self->shortlived;
   
   /*
@@ -348,7 +348,7 @@ static ngx_int_t spooler_respond_generic(channel_spooler_t *self, ngx_http_push_
   return NGX_OK;
 }
 
-static ngx_int_t spooler_respond_message(channel_spooler_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t spooler_respond_message(channel_spooler_t *self, NCHAN_msg_t *msg) {
   return spooler_respond_generic(self, msg, 0, NULL);
 }
 

@@ -57,7 +57,7 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
   DBG("%p memstore subscriber respond with message", d->sub);
-  ngx_http_push_msg_t     *msg = (ngx_http_push_msg_t *) ptr;
+  NCHAN_msg_t     *msg = (NCHAN_msg_t *) ptr;
   return memstore_ipc_send_publish_message(d->originator, d->chid, msg, 50, 0, 0, empty_callback, NULL);
 }
 

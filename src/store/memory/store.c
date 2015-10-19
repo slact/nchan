@@ -67,11 +67,11 @@ static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
 static ipc_t           *ipc;
 
-shmem_t *ngx_http_push_memstore_get_shm(void){
+shmem_t *NCHAN_memstore_get_shm(void){
   return shm;
 }
 
-ipc_t *ngx_http_push_memstore_get_ipc(void){
+ipc_t *NCHAN_memstore_get_ipc(void){
   return ipc;
 }
 
@@ -87,10 +87,10 @@ ipc_t *ngx_http_push_memstore_get_ipc(void){
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
 
-#define NGX_HTTP_PUSH_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
-#define NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
-#define NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC 1
-#define NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC 10
+#define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
+#define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
+#define NCHAN_CHANHEAD_EXPIRE_SEC 1
+#define NCHAN_NOBUFFER_MSG_EXPIRE_SEC 10
 
 
 
@@ -377,7 +377,7 @@ static nhpm_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
   return head;
 }
 
-nhpm_channel_head_t * ngx_http_push_memstore_find_chanhead(ngx_str_t *channel_id) {
+nhpm_channel_head_t * NCHAN_memstore_find_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t     *head;
   if((head = chanhead_memstore_find(channel_id)) != NULL) {
     ensure_chanhead_is_ready(head);
@@ -385,7 +385,7 @@ nhpm_channel_head_t * ngx_http_push_memstore_find_chanhead(ngx_str_t *channel_id
   return head;
 }
 
-nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id) {
+nhpm_channel_head_t * NCHAN_memstore_get_chanhead(ngx_str_t *channel_id) {
   nhpm_channel_head_t          *head;
   head = chanhead_memstore_find(channel_id);
   if(head==NULL) {
@@ -428,7 +428,7 @@ ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
   //initialize gc timer
   if(! mpt->gc_timer.timer_set) {
     mpt->gc_timer.data=mpt->gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
-    ngx_add_timer(&mpt->gc_timer, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+    ngx_add_timer(&mpt->gc_timer, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
 
   return NGX_OK;
@@ -462,7 +462,7 @@ ngx_int_t chanhead_gc_withdraw(nhpm_channel_head_t *chanhead, const char *reason
 }
 
 /*
-static ngx_str_t *msg_to_str(ngx_http_push_msg_t *msg) {
+static ngx_str_t *msg_to_str(NCHAN_msg_t *msg) {
   static ngx_str_t str;
   ngx_buf_t *buf = msg->buf;
   if(ngx_buf_in_memory(buf)) {
@@ -489,15 +489,15 @@ static ngx_str_t *chanhead_msg_to_str(nhpm_message_t *msg) {
 }
 */
 
-ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+ngx_int_t NCHAN_memstore_publish_generic(nhpm_channel_head_t *head, NCHAN_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_int_t          shared_sub_count = head->shared->sub_count;
 
   if(head==NULL) {
-    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+    return NCHAN_MESSAGE_QUEUED;
   }
 
   if (head->sub_count == 0) {
-    return NGX_HTTP_PUSH_MESSAGE_QUEUED;
+    return NCHAN_MESSAGE_QUEUED;
   }
 
   if(msg) {
@@ -518,7 +518,7 @@ ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_
     head->channel.subscribers = head->shared->sub_count;
   }
   
-  return (shared_sub_count > 0) ? NGX_HTTP_PUSH_MESSAGE_RECEIVED : NGX_HTTP_PUSH_MESSAGE_QUEUED;
+  return (shared_sub_count > 0) ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED;
 }
 
 static ngx_int_t chanhead_messages_delete(nhpm_channel_head_t *ch);
@@ -538,7 +538,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   for(cur=mpt->gc_head ; cur != NULL; cur=next) {
     ch = (nhpm_channel_head_t *)cur->data;
     next=cur->next;
-    if(force_delete || ngx_time() - cur->time > NGX_HTTP_PUSH_CHANHEAD_EXPIRE_SEC) {
+    if(force_delete || ngx_time() - cur->time > NCHAN_CHANHEAD_EXPIRE_SEC) {
       if (ch->sub_count > 0 ) { //there are subscribers
         DBG("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
         if(force_delete) {
@@ -600,7 +600,7 @@ static void nchan_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
   handle_unbuffered_messages_gc(0);
   if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL || mpt->unbuffered_dummy_chanhead.msg_first == NULL)) {
     DBG("re-adding chanhead gc event timer");
-    ngx_add_timer(ev, NGX_HTTP_PUSH_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+    ngx_add_timer(ev, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   else if(head == NULL) {
     DBG("chanhead gc queue looks empty, stop gc_queue handler");
@@ -619,14 +619,14 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt c
     memstore_ipc_send_delete(owner, channel_id, callback, privdata);
   }
   else {
-    ngx_http_push_memstore_force_delete_channel(channel_id, callback, privdata);
+    NCHAN_memstore_force_delete_channel(channel_id, callback, privdata);
   }
   return NGX_OK;
 }
 
-ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+ngx_int_t NCHAN_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   nhpm_channel_head_t      *ch;
-  ngx_http_push_channel_t   chaninfo_copy;
+  NCHAN_channel_t   chaninfo_copy;
   nhpm_message_t           *msg = NULL;
   
   assert(memstore_channel_owner(channel_id) == memstore_slot());
@@ -634,12 +634,12 @@ ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, cal
   if(callback == NULL) {
     callback = empty_callback;
   }
-  if((ch = ngx_http_push_memstore_find_chanhead(channel_id))) {
+  if((ch = NCHAN_memstore_find_chanhead(channel_id))) {
     chaninfo_copy.messages = ch->shared->stored_message_count;
     chaninfo_copy.subscribers = ch->shared->sub_count;
     chaninfo_copy.last_seen = ch->shared->last_seen;
     
-    ngx_http_push_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+    NCHAN_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     callback(NGX_OK, &chaninfo_copy, privdata);
     //delete all messages
     while((msg = ch->msg_first) != NULL) {
@@ -656,7 +656,7 @@ ngx_int_t ngx_http_push_memstore_force_delete_channel(ngx_str_t *channel_id, cal
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   ngx_int_t owner = memstore_channel_owner(channel_id);
   if(memstore_slot() == owner) {
-    nhpm_channel_head_t      *ch = ngx_http_push_memstore_find_chanhead(channel_id);
+    nhpm_channel_head_t      *ch = NCHAN_memstore_find_chanhead(channel_id);
     callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
   }
   else {
@@ -665,7 +665,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, NCHAN_msg_id_t *msg_id, callback_pt callback, void *privdata) {
   
   if(callback==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
@@ -711,16 +711,16 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
-  ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, nchan_module);
+  NCHAN_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, nchan_module);
   ngx_str_t                  name = ngx_string("memstore");
   if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
-    conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
+    conf->shm_size=NCHAN_DEFAULT_SHM_SIZE;
   }
   shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &nchan_module);
   return NGX_OK;
 }
 
-static void nchan_store_create_main_conf(ngx_conf_t *cf, ngx_http_push_main_conf_t *mcf) {
+static void nchan_store_create_main_conf(ngx_conf_t *cf, NCHAN_main_conf_t *mcf) {
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
@@ -931,7 +931,7 @@ static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
   return NGX_OK;
 }
 
-nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_push_msg_id_t *msgid, ngx_int_t *status) {
+nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, NCHAN_msg_id_t *msgid, ngx_int_t *status) {
   DBG("find next message %i:%i", msgid->time, msgid->tag);
   chanhead_messages_gc(ch);
   nhpm_message_t *cur, *first;
@@ -939,13 +939,13 @@ nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_pus
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    *status = msgid == NULL ? NGX_HTTP_PUSH_MESSAGE_EXPECTED : NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
+    *status = msgid == NULL ? NCHAN_MESSAGE_EXPECTED : NCHAN_MESSAGE_NOTFOUND;
     return NULL;
   }
 
   if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
     DBG("found message %i:%i", first->msg->message_time, first->msg->message_tag);
-    *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+    *status = NCHAN_MESSAGE_FOUND;
     return first;
   }
 
@@ -954,19 +954,19 @@ nhpm_message_t *chanhead_find_next_message(nhpm_channel_head_t *ch, ngx_http_pus
     
     if(msgid->time > cur->msg->message_time || (msgid->time == cur->msg->message_time && msgid->tag >= cur->msg->message_tag)){
       if(cur->next != NULL) {
-        *status = NGX_HTTP_PUSH_MESSAGE_FOUND;
+        *status = NCHAN_MESSAGE_FOUND;
         DBG("found message %i:%i", cur->next->msg->message_time, cur->next->msg->message_tag);
         return cur->next;
       }
       else {
-        *status = NGX_HTTP_PUSH_MESSAGE_EXPECTED;
+        *status = NCHAN_MESSAGE_EXPECTED;
         return NULL;
       }
     }
     cur=cur->prev;
   }
   //DBG("looked everywhere, not found");
-  *status = NGX_HTTP_PUSH_MESSAGE_NOTFOUND;
+  *status = NCHAN_MESSAGE_NOTFOUND;
   return NULL;
 }
 
@@ -975,7 +975,7 @@ typedef struct {
   ngx_int_t                 channel_owner;
   nhpm_channel_head_t      *chanhead;
   ngx_str_t                *channel_id;
-  ngx_http_push_msg_id_t    msg_id;
+  NCHAN_msg_id_t    msg_id;
   callback_pt               cb;
   void                     *cb_privdata;
   unsigned                  sub_reserved:1;
@@ -990,7 +990,7 @@ typedef struct {
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
-static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, NCHAN_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t             data;
   subscribe_data_t            *d;
@@ -1051,13 +1051,13 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     ngx_int_t                findmsg_status;
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
-      chanhead = ngx_http_push_memstore_get_chanhead(d->channel_id);
+      chanhead = NCHAN_memstore_get_chanhead(d->channel_id);
       break;
     case SUB_CHANNEL_UNAUTHORIZED:
       chanhead = NULL;
       break;
     case SUB_CHANNEL_NOTSURE:
-      chanhead = ngx_http_push_memstore_find_chanhead(d->channel_id);
+      chanhead = NCHAN_memstore_find_chanhead(d->channel_id);
       break;
   }
   
@@ -1078,7 +1078,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     //TODO: use knowledge about the last message id to determine if the owner needs to be queried
     /*if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
       //we're here for the latest message, no need to check.
-      return ngx_http_push_memstore_handle_get_message_reply(NULL, NGX_HTTP_PUSH_MESSAGE_EXPECTED, d);
+      return NCHAN_memstore_handle_get_message_reply(NULL, NCHAN_MESSAGE_EXPECTED, d);
     }
     else {
       
@@ -1092,11 +1092,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   else {
     chmsg = chanhead_find_next_message(chanhead, &d->msg_id, &findmsg_status);
-    return ngx_http_push_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+    return NCHAN_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
 }
 
-ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, void *data) {
+ngx_int_t NCHAN_memstore_handle_get_message_reply(NCHAN_msg_t *msg, ngx_int_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
   ngx_int_t                   ret;
   subscriber_t               *sub = d->sub;
@@ -1109,23 +1109,23 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
 
   if (still_alive) {
     switch(findmsg_status) {
-      case NGX_HTTP_PUSH_MESSAGE_FOUND: //ok
+      case NCHAN_MESSAGE_FOUND: //ok
         assert(msg != NULL);
         DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
         switch(sub->cf->subscriber_concurrency) {
 
-          case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_LASTIN:
+          case NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN:
             //kick everyone elese out, then subscribe
-            ngx_http_push_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
+            NCHAN_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
             //FALL-THROUGH to BROADCAST
 
-          case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_BROADCAST:
+          case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
               assert(msg);
               ret = sub->respond_message(sub, msg);
               callback(ret, msg, privdata);
             break;
 
-          case NGX_HTTP_PUSH_SUBSCRIBER_CONCURRENCY_FIRSTIN:
+          case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
             ERR("first-in concurrency setting not supported");
               ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
               callback(ret, msg, privdata);
@@ -1138,14 +1138,14 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
         }
         break;
 
-      case NGX_HTTP_PUSH_MESSAGE_NOTFOUND: //not found
+      case NCHAN_MESSAGE_NOTFOUND: //not found
         if(sub->cf->authorize_channel) {
           sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
           callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
           break;
         }
         //fall-through
-      case NGX_HTTP_PUSH_MESSAGE_EXPECTED: //not yet available
+      case NCHAN_MESSAGE_EXPECTED: //not yet available
         // ♫ It's gonna be the future soon ♫
         if(!d->already_enqueued) {
           DBG("memstore: Sub %p should already have been enqueued. ...", sub);
@@ -1155,7 +1155,7 @@ ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *m
         callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
         break;
 
-      case NGX_HTTP_PUSH_MESSAGE_EXPIRED: //gone
+      case NCHAN_MESSAGE_EXPIRED: //gone
         //subscriber wants an expired message
         //TODO: maybe respond with entity-identifiers for oldest available message?
         sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
@@ -1208,14 +1208,14 @@ static ngx_int_t chanhead_push_message(nhpm_channel_head_t *ch, nhpm_message_t *
 }
 
 typedef struct {
-  ngx_http_push_msg_t     msg;
+  NCHAN_msg_t     msg;
   ngx_buf_t               buf;
   ngx_file_t              file;
 } shmsg_memspace_t;
 
-static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
+static NCHAN_msg_t *create_shm_msg(NCHAN_msg_t *m) {
   shmsg_memspace_t        *stuff;
-  ngx_http_push_msg_t     *msg;
+  NCHAN_msg_t     *msg;
   ngx_buf_t               *mbuf = NULL, *buf=NULL;
   mbuf = m->buf;
   
@@ -1303,9 +1303,9 @@ static ngx_http_push_msg_t *create_shm_msg(ngx_http_push_msg_t *m) {
 
 
 
-static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t msg_already_in_shm) {
+static nhpm_message_t *create_shared_message(NCHAN_msg_t *m, ngx_int_t msg_already_in_shm) {
   nhpm_message_t          *chmsg;
-  ngx_http_push_msg_t     *msg;
+  NCHAN_msg_t     *msg;
   
   if(msg_already_in_shm) {
     msg = m;
@@ -1323,17 +1323,17 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t m
   return chmsg;
 }
 
-static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, NCHAN_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   return nchan_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
 }
   
-ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, NCHAN_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
   nhpm_channel_head_t     *chead;
-  ngx_http_push_channel_t  channel_copy_data;
-  ngx_http_push_channel_t *channel_copy = &channel_copy_data;
+  NCHAN_channel_t  channel_copy_data;
+  NCHAN_channel_t *channel_copy = &channel_copy_data;
   nhpm_message_t          *shmsg_link;
   ngx_int_t                sub_count;
-  ngx_http_push_msg_t     *publish_msg;
+  NCHAN_msg_t     *publish_msg;
   ngx_int_t                owner = memstore_channel_owner(channel_id);
   ngx_int_t                rc;
   if(callback == NULL) {
@@ -1346,7 +1346,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_pu
   }
   msg->expires = ngx_time() + msg_timeout;
   
-  if((chead = ngx_http_push_memstore_get_chanhead(channel_id)) == NULL) {
+  if((chead = NCHAN_memstore_get_chanhead(channel_id)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
     callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
     return NGX_ERROR;
@@ -1371,7 +1371,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_pu
   if(max_msgs == 0) {
     channel_copy=&chead->channel;
     publish_msg = create_shm_msg(msg);
-    publish_msg->expires = ngx_time() + NGX_HTTP_PUSH_NOBUFFER_MSG_EXPIRE_SEC;
+    publish_msg->expires = ngx_time() + NCHAN_NOBUFFER_MSG_EXPIRE_SEC;
     DBG("publish unbuffer msg %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
     
     if((shmsg_link = create_shared_message(msg, 0)) == NULL) {
@@ -1416,7 +1416,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_pu
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }
-  rc = ngx_http_push_memstore_publish_generic(chead, publish_msg, 0, NULL);
+  rc = NCHAN_memstore_publish_generic(chead, publish_msg, 0, NULL);
   callback(rc, channel_copy, privdata);
 
   return rc;

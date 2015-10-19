@@ -63,7 +63,7 @@ local tohash=function(arr)
 end
 
 local key={
-  time_offset=  'pushmodule:message_time_offset',
+  time_offset=  'nchan:message_time_offset',
   last_message= nil,
   message=      'channel:msg:%s:'..id, --not finished yet
   channel=      'channel:'..id,

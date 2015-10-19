@@ -95,7 +95,7 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
 }
 
 /*
-ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t * r) {
+ngx_int_t NCHAN_allow_caching(ngx_http_request_t * r) {
   ngx_str_t *tmp_header;
   ngx_str_t header_checks[2] = { NCHAN_HEADER_CACHE_CONTROL, NCHAN_HEADER_PRAGMA };
   ngx_int_t i = 0;
@@ -134,7 +134,7 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   return NULL;
 }
 
-ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_id_t *id) {
+ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, NCHAN_msg_id_t *id) {
   ngx_str_t                      *if_none_match = nchan_subscriber_get_etag(r);
   ngx_int_t                       tag=0;
   id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
@@ -147,17 +147,17 @@ ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_i
 
 
 static void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
-  static ngx_http_push_content_subtype_t subtypes[] = {
-    { "json"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
-    { "yaml"  , 4, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML },
-    { "xml"   , 3, &NGX_HTTP_PUSH_CHANNEL_INFO_XML  },
-    { "x-json", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_JSON },
-    { "x-yaml", 6, &NGX_HTTP_PUSH_CHANNEL_INFO_YAML }
+  static NCHAN_content_subtype_t subtypes[] = {
+    { "json"  , 4, &NCHAN_CHANNEL_INFO_JSON },
+    { "yaml"  , 4, &NCHAN_CHANNEL_INFO_YAML },
+    { "xml"   , 3, &NCHAN_CHANNEL_INFO_XML  },
+    { "x-json", 6, &NCHAN_CHANNEL_INFO_JSON },
+    { "x-yaml", 6, &NCHAN_CHANNEL_INFO_YAML }
   };
   u_char                         *start = cur + off;
   ngx_uint_t                      i;
   
-  for(i=0; i<(sizeof(subtypes)/sizeof(ngx_http_push_content_subtype_t)); i++) {
+  for(i=0; i<(sizeof(subtypes)/sizeof(NCHAN_content_subtype_t)); i++) {
     if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
       if(*priority>start) {
         *format = subtypes[i].format;
@@ -174,7 +174,7 @@ static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, 
   ngx_buf_t                      *b;
   ngx_uint_t                      len;
   ngx_str_t                       content_type = ngx_string("text/plain");
-  const ngx_str_t                *format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
+  const ngx_str_t                *format = &NCHAN_CHANNEL_INFO_PLAIN;
   time_t                          time_elapsed = ngx_time() - last_seen;
   
   if(r->headers_in.accept) {
@@ -188,7 +188,7 @@ static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, 
       rem=len - ((size_t)(cur-accept)+sizeof("text/")-1);
       if(ngx_strncmp(cur+sizeof("text/")-1, "plain", rem<5 ? rem : 5)==0) {
         if(priority) {
-          format = &NGX_HTTP_PUSH_CHANNEL_INFO_PLAIN;
+          format = &NCHAN_CHANNEL_INFO_PLAIN;
           priority = cur+sizeof("text/")-1;
           //content-type is already set by default
         }
@@ -266,7 +266,7 @@ static ngx_buf_t * nchan_request_body_to_single_buffer(ngx_http_request_t *r) {
   return buf;
 }
 
-static ngx_int_t nchan_response_channel_ptr_info(ngx_http_push_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
+static ngx_int_t nchan_response_channel_ptr_info(NCHAN_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
   static const ngx_str_t CREATED_LINE = ngx_string("201 Created");
   static const ngx_str_t ACCEPTED_LINE = ngx_string("201 Created");
   
@@ -302,12 +302,12 @@ static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_htt
   return NGX_OK;
 }
 
-static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, ngx_http_push_msg_t *msg, ngx_http_request_t *r) {
+static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, NCHAN_msg_t *msg, ngx_http_request_t *r) {
   //inefficient, but close enough for now
   subscriber_t            *sub;
   ngx_str_t               *etag;
   switch(msg_search_outcome) {
-    case NGX_HTTP_PUSH_MESSAGE_EXPECTED:
+    case NCHAN_MESSAGE_EXPECTED:
       //interval-polling subscriber requests get a 304 with their entity tags preserved.
       if (r->headers_in.if_modified_since != NULL) {
         r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
@@ -318,14 +318,14 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
       ngx_http_finalize_request(r, NGX_HTTP_NOT_MODIFIED);
       return NGX_OK;
       
-    case NGX_HTTP_PUSH_MESSAGE_FOUND:
+    case NCHAN_MESSAGE_FOUND:
       sub = longpoll_subscriber_create(r);
       sub->respond_message(sub, msg);
       longpoll_subscriber_destroy(sub);
       return NGX_OK;
 
-    case NGX_HTTP_PUSH_MESSAGE_NOTFOUND:
-    case NGX_HTTP_PUSH_MESSAGE_EXPIRED:
+    case NCHAN_MESSAGE_NOTFOUND:
+    case NCHAN_MESSAGE_EXPIRED:
       r->headers_out.status=NGX_HTTP_NOT_FOUND;
       //just the headers, please. we don't care to describe the situation or
       //respond with an html page
@@ -345,7 +345,7 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
-  ngx_http_push_msg_id_t          msg_id;
+  NCHAN_msg_id_t          msg_id;
   
   if((channel_id=nchan_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -374,11 +374,11 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
         nchan_subscriber_get_msg_id(r, &msg_id);
         
         switch(cf->subscriber_poll_mechanism) {
-          case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
+          case NCHAN_MECHANISM_INTERVALPOLL:
             nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
             break;
             
-          case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
+          case NCHAN_MECHANISM_LONGPOLL:
             if((sub = longpoll_subscriber_create(r)) == NULL) {
               ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
               return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -395,10 +395,10 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
       return NGX_DONE;
     
     case NGX_HTTP_OPTIONS:
-      return nchan_OPTIONS_respond(r, &NGX_HTTP_PUSH_ANYSTRING, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS);
+      return nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
       
     default:
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_OPTIONS); //valid HTTP for the win
+      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NCHAN_ALLOW_GET_OPTIONS); //valid HTTP for the win
       return NGX_HTTP_NOT_ALLOWED;
   }
 
@@ -406,19 +406,19 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   
-  ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (ngx_http_push_channel_t *)rptr, r, 0));
+  ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (NCHAN_channel_t *)rptr, r, 0));
   return NGX_OK;
 }
 
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
-  ngx_http_push_channel_t *ch = rptr;
+  NCHAN_channel_t *ch = rptr;
   switch(status) {
-    case NGX_HTTP_PUSH_MESSAGE_QUEUED:
+    case NCHAN_MESSAGE_QUEUED:
       //message was queued successfully, but there were no subscribers to receive it.
       ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_ACCEPTED));
       return NGX_OK;
       
-    case NGX_HTTP_PUSH_MESSAGE_RECEIVED:
+    case NCHAN_MESSAGE_RECEIVED:
       //message was queued successfully, and it was already sent to at least one subscriber
       ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_CREATED));
       return NGX_OK;
@@ -451,7 +451,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
   ngx_uint_t                      method = r->method;
   ngx_buf_t                      *buf;
   size_t                          content_type_len;
-  ngx_http_push_msg_t            *msg;
+  NCHAN_msg_t            *msg;
   struct timeval                  tv;
   if((channel_id = nchan_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -509,12 +509,12 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       break;
       
     case NGX_HTTP_OPTIONS:
-      nchan_OPTIONS_respond(r, &NGX_HTTP_PUSH_ANYSTRING, &NGX_HTTP_PUSH_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+      nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
       break;
       
     default:
       //some other weird request method
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NGX_HTTP_PUSH_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
       nchan_respond_status(r, NGX_HTTP_NOT_ALLOWED, NULL, 0);
       break;
   }

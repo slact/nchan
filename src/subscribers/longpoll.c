@@ -196,7 +196,7 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   return NGX_ERROR;
 }
 
-static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t longpoll_respond_message(subscriber_t *self, NCHAN_msg_t *msg) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_http_request_t        *r = fsub->data.request;
   ngx_chain_t               *rchain;
@@ -281,7 +281,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
     return abort_response(self, "can't add etag header to response");
   }
   //Vary header needed for proper HTTP caching.
-  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NGX_HTTP_PUSH_VARY_HEADER_VALUE);
+  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NCHAN_VARY_HEADER_VALUE);
   
   r->headers_out.status=NGX_HTTP_OK;
 

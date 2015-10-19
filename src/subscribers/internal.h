@@ -1,6 +1,6 @@
 extern subscriber_t nhpm_internal_subscriber;
 
-#define NGX_HTTP_PUSH_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE 1024
+#define NCHAN_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE 1024
 
 typedef struct {
   subscriber_t            sub;

@@ -527,12 +527,12 @@ static void websocket_reading(ngx_http_request_t *r) {
             
             /*
             for (q = ngx_queue_head(&subscriber->subscriptions); q != ngx_queue_sentinel(&subscriber->subscriptions); q = ngx_queue_next(q)) {
-              ngx_http_push_stream_subscription_t *subscription = ngx_queue_data(q, ngx_http_push_stream_subscription_t, queue);
+              NCHAN_stream_subscription_t *subscription = ngx_queue_data(q, NCHAN_stream_subscription_t, queue);
               if (subscription->channel->for_events) {
                 // skip events channel on publish by websocket connections
                 continue;
               }
-              if (ngx_http_push_stream_add_msg_to_channel(mcf, r->connection->log, subscription->channel, frame->payload, frame->payload_len, NULL, NULL, cf->store_messages, temp_pool) != NGX_OK) {
+              if (NCHAN_stream_add_msg_to_channel(mcf, r->connection->log, subscription->channel, frame->payload, frame->payload_len, NULL, NULL, cf->store_messages, temp_pool) != NGX_OK) {
                 goto finalize;
               }
             }
@@ -728,7 +728,7 @@ static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opco
   return nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
 }
 
-static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, ngx_http_push_msg_t *msg) {
+static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, NCHAN_msg_t *msg) {
   //ngx_chain_t   *hdr_chain = fsub->hdr_chain;
   //ngx_chain_t   *msg_chain = fsub->msg_chain;
   
@@ -786,7 +786,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   return hdr_chain;
 }
 
-static ngx_int_t websocket_respond_message(subscriber_t *self, ngx_http_push_msg_t *msg) {
+static ngx_int_t websocket_respond_message(subscriber_t *self, NCHAN_msg_t *msg) {
   //TODO: prepare msg file
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   if(!fsub->shook_hands) {
