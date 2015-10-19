@@ -2,14 +2,12 @@
 ROOT_DIR=".."
 SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
-if ARGV[0]
-  CONFIG_OUT=ARGV[0]
-end
+CONFIG_OUT=ARGV[0]
   
 class CfCmd #let's make a DSL!
   class Cmd
     attr_accessor :name, :type, :set, :conf, :offset_name
-    attr_accessor :contexts, :args, :legacy, :alt
+    attr_accessor :contexts, :args, :legacy, :alt, :disabled
     def type_line
       lut={ main: :NGX_HTTP_MAIN_CONF, srv: :NGX_HTTP_SRV_CONF, loc: :NGX_HTTP_LOC_CONF}
       args_lut= {0 => :NGX_CONF_NOARGS, false => :NGX_CONF_NOARGS}
@@ -57,6 +55,10 @@ class CfCmd #let's make a DSL!
       str << to_c_def
       str << to_c_def(legacy, "legacy for #{name}") if legacy
       (alt || []).each {|v| str << to_c_def(v, "alt for #{name}")}
+      if disabled
+        str.unshift "/* DISABLED\r\n"
+        str.push "  */\r\n"
+      end
       str << "\r\n"
       str.join
     end
@@ -80,6 +82,7 @@ class CfCmd #let's make a DSL!
     end
     cmd.legacy=opt[:legacy]
     cmd.alt=opt[:alt]
+    cmd.disabled=opt[:disabled]
     @cmds << cmd
   end
   
