@@ -550,7 +550,7 @@ static redisAsyncContext * rds_sub_ctx(void){
   static redisAsyncContext *c = NULL;
   if(subscriber_id[0] == 0) {
     ngx_snprintf(subscriber_id, 255, "worker:%i:time:%i", ngx_pid, ngx_time());
-    ngx_snprintf(subscriber_channel, 255, "nginx_push_module:%s", subscriber_id);
+    ngx_snprintf(subscriber_channel, 255, "nchan:%s", subscriber_id);
   }
   if(c==NULL) {
     //init redis
