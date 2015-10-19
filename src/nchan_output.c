@@ -154,7 +154,7 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
   
   b->last_buf = 1;
   b->last_in_chain = 1;
-  //b->flush = 1;
+  b->flush = 1; //flush just to be sure, although I should perhaps rethink this
   b->memory = 1;
   b->start = body->data;
   b->pos = body->data;
