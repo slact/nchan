@@ -18,7 +18,8 @@ opt=OptionParser.new do |opts|
   opts.on("-l", "--loop [SECONDS]", "re-send message every N seconds (#{repeat_sec})") do |v| 
     loop=true
     repeat_sec=Float(v) unless v.nil?
-  end 
+  end
+  opts.on("-M", "--method [#{method}]", "method for request to server"){|v| method= v.upcase.to_sym}
   opts.on("-m", "--message MSG", "publish this message instead of prompting"){|v| msg=v}
   opts.on("-1", "--once", "run once then exit"){runonce=true}
   opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
