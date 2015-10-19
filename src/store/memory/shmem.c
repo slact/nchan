@@ -11,6 +11,8 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SHMEM(%i):" fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SHMEM(%i):" fmt, memstore_slot(), ##args)
 
+//#include <valgrind/memcheck.h>
+
 //shared memory
 shmem_t *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t (*init)(ngx_shm_zone_t *, void *), void *privdata) {
 
@@ -46,11 +48,14 @@ ngx_int_t shm_init(shmem_t *shm) {
   ngx_slab_pool_t    *shpool = SHPOOL(shm);
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "ngx_http_push_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
   #endif
+  
   return NGX_OK;
 }
 
 ngx_int_t shm_destroy(shmem_t *shm) {
+  //VALGRIND_DESTROY_MEMPOOL(SHPOOL(shm));
   ngx_free(shm);
+  
   return NGX_OK;
 }
 void *shm_alloc(shmem_t *shm, size_t size, const char *label) {
