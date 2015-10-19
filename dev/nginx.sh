@@ -1,7 +1,7 @@
 #!/bin/zsh
-TESTDIR=`pwd`
-SRCDIR=$(readlink -m $TESTDIR/../src)
-echo $TESTDIR $SRCDIR
+DEVDIR=`pwd`
+SRCDIR=$(readlink -m $DEVDIR/../src)
+echo $DEVDIR $SRCDIR
 NGINX_CONFIG=`pwd`/nginx.conf
 NGINX_TEMP_CONFIG=`pwd`/.nginx.thisrun.conf
 NGINX_OPT=( -p `pwd`/ 
@@ -10,7 +10,7 @@ NGINX_OPT=( -p `pwd`/
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
 VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--expensive-definedness-checks=yes" "--read-var-info=yes")
 
-VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${TESTDIR}/vg.supp" )
+VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${DEVDIR}/vg.supp" )
 
 #generate suppresions
 #VG_MEMCHECK_OPT+=("--gen-suppressions=all")
@@ -34,7 +34,7 @@ DEBUGGER_CMD="kdbg -p %s $SRCDIR/nginx"
 #DEBUGGER_CMD="nemiver --attach=%s $SRCDIR/nginx"
 
 
-REDIS_CONF="$TESTDIR/redis.conf"
+REDIS_CONF="$DEVDIR/redis.conf"
 REDIS_PORT=8537
 
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
@@ -144,8 +144,8 @@ else
 fi
 
 
-ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
-ln -sf $TESTDIR/nginx-nchan/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
+ln -sf $DEVDIR/nginx $SRCDIR/nginx >/dev/null
+ln -sf $DEVDIR/nginx-nchan/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
 
 
 debugger_pids=()
