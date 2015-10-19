@@ -69,7 +69,7 @@ struct channel_spooler_s {
   ngx_int_t              (*set_bulk_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void*), void*);
   void                   (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
   void                  *bulk_dequeue_handler_privdata;
-}; //nhpm_channel_head_spooler_t
+};
 
 
 channel_spooler_t *start_spooler(channel_spooler_t *spl);

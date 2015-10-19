@@ -21,9 +21,9 @@ struct nhpm_channel_head_s {
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
   ngx_uint_t                   internal_sub_count;
-  nchan_msg_id_t       last_msgid;
+  nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
-  nchan_llist_timed_t           cleanlink;
+  nchan_llist_timed_t          cleanlink;
   UT_hash_handle               hh;
 };
 
@@ -242,13 +242,13 @@ typedef struct {
   ngx_msec_t                    t;
   char                         *name;
   ngx_str_t                     channel_id;
-  nchan_msg_id_t       *msg_id;
+  nchan_msg_id_t               *msg_id;
 } redis_get_message_from_key_data_t;
 
 static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r, void *privdata) {
   redis_get_message_from_key_data_t *d = (redis_get_message_from_key_data_t *)privdata;
   redisReply           *reply = r;
-  nchan_msg_t  *msg;
+  nchan_msg_t          *msg;
   ngx_str_t            *chid = &d->channel_id;
   DBG("Message HMGET callback");
   nhpm_log_redis_reply(d->name, d->t);
@@ -286,8 +286,8 @@ static ngx_int_t msgpack_to_uint(msgpack_object *obj, ngx_uint_t *ret) {
 }
 
 static ngx_int_t msgpack_to_int(msgpack_object *obj, ngx_int_t *ret) {
-  ngx_uint_t preret = NGX_ERROR;
-  ngx_int_t retcode = NGX_ERROR;
+  ngx_uint_t    preret = NGX_ERROR;
+  ngx_int_t     retcode = NGX_ERROR;
   retcode = msgpack_to_uint(obj, &preret);
   *ret = (ngx_int_t) preret;
   return retcode;

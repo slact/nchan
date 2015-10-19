@@ -1,5 +1,3 @@
-extern subscriber_t nhpm_internal_subscriber;
-
 #define NCHAN_DEFAULT_INTERNAL_SUBSCRIBER_POOL_SIZE 1024
 
 typedef struct {
