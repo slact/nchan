@@ -397,7 +397,7 @@ nhpm_channel_head_t * ngx_http_push_memstore_get_chanhead(ngx_str_t *channel_id)
 
 ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
   nhpm_llist_timed_t         *chanhead_cleanlink;
-  
+  ngx_int_t                   slot = memstore_slot();
   DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
   chanhead_cleanlink = &head->cleanlink;
   if(!head->shutting_down) {
@@ -406,7 +406,7 @@ ngx_int_t chanhead_gc_add(nhpm_channel_head_t *head, const char *reason) {
   if(head->slot != head->owner) {
     head->shared = NULL;
   }
-  assert(head->slot == memstore_slot());
+  assert(head->slot == slot);
   if(head->status != INACTIVE) {
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
@@ -1395,11 +1395,14 @@ ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx
       return NGX_ERROR;
     }
     
+    //shmsg_link->msg->refcount++;
     if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't enqueue shared message for channel %V", channel_id);
       return NGX_ERROR;
     }
+    //shmsg_link->msg->refcount--;
+    
     ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
     channel_copy->subscribers = sub_count;
     assert(shmsg_link != NULL);
