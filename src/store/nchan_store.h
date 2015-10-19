@@ -25,4 +25,4 @@ typedef struct {
   ngx_str_t * (*message_etag)(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
   ngx_str_t * (*message_content_type)(ngx_http_push_msg_t *msg, ngx_pool_t *pool);
 
-} ngx_http_push_store_t;
+} nchan_store_t;

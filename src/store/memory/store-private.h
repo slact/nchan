@@ -58,7 +58,7 @@ shmem_t *ngx_http_push_memstore_get_shm(void);
 ipc_t *ngx_http_push_memstore_get_ipc(void);
 ngx_int_t ngx_http_push_memstore_handle_get_message_reply(ngx_http_push_msg_t *msg, ngx_int_t findmsg_status, void *d);
 ngx_int_t memstore_channel_owner(ngx_str_t *id);
-ngx_int_t ngx_http_push_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msg,  ngx_int_t min_msg, callback_pt callback, void *privdata);
+ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msg,  ngx_int_t min_msg, callback_pt callback, void *privdata);
 ngx_int_t ngx_http_push_memstore_publish_generic(nhpm_channel_head_t *head, ngx_http_push_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 ngx_int_t nhpm_memstore_subscriber_register(nhpm_channel_head_t *chanhead, subscriber_t *sub);
 ngx_int_t nhpm_memstore_subscriber_unregister(nhpm_channel_head_t *chanhead, subscriber_t *sub);

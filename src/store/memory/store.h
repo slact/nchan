@@ -1,5 +1,5 @@
 #include "uthash.h"
 
-extern ngx_http_push_store_t  ngx_http_push_store_memory;
+extern nchan_store_t  nchan_store_memory;
 
 

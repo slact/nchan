@@ -14,25 +14,12 @@
 #include <store/memory/shmem.h>
 #include <store/memory/store-private.h>
 
-ngx_int_t           ngx_http_push_worker_processes;
-ngx_pool_t         *ngx_http_push_pool;
+ngx_int_t           nchan_worker_processes;
+ngx_pool_t         *nchan_pool;
 ngx_module_t        nchan_module;
 
-//ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_redis;
-ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_memory;
-
-
-ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline) {
-  r->headers_out.status=status_code;
-  if(statusline!=NULL) {
-    r->headers_out.status_line.len =statusline->len;
-    r->headers_out.status_line.data=statusline->data;
-  }
-  r->headers_out.content_length_n = 0;
-  r->header_only = 1;
-  return ngx_http_send_header(r);
-}
-
+//nchan_store_t *nchan_store = &nchan_store_redis;
+nchan_store_t *nchan_store = &nchan_store_memory;
 
 
 #define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                          \
@@ -250,12 +237,12 @@ ngx_int_t ngx_http_push_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_pu
 
 //allocates message and responds to subscriber
 ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_t shared, ngx_http_push_msg_t *msg, ngx_chain_t **chain, ngx_str_t **content_type, ngx_str_t **etag, time_t *last_modified) {
-  if(etag != NULL && (*etag = ngx_http_push_store->message_etag(msg, pool))==NULL) {
+  if(etag != NULL && (*etag = nchan_store->message_etag(msg, pool))==NULL) {
     //oh, nevermind...
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header");
     return NGX_ERROR;
   }
-  if(content_type != NULL && (*content_type= ngx_http_push_store->message_content_type(msg, pool))==NULL) {
+  if(content_type != NULL && (*content_type= nchan_store->message_content_type(msg, pool))==NULL) {
     //oh, nevermind...
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Content Type header");
     if(etag) {
@@ -286,7 +273,7 @@ ngx_int_t ngx_http_push_alloc_for_subscriber_response(ngx_pool_t *pool, ngx_int_
   if(last_modified != NULL) {
     *last_modified = msg->message_time;
   }
-  //ngx_http_push_store->unlock();
+  //nchan_store->unlock();
   return NGX_OK;
 }
 
@@ -440,11 +427,11 @@ static ngx_int_t ngx_http_push_response_channel_ptr_info(ngx_http_push_channel_t
   ngx_uint_t         subscribers = 0;
   ngx_uint_t         messages = 0;
   if(channel!=NULL) {
-    //ngx_http_push_store->lock();
+    //nchan_store->lock();
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
-    //ngx_http_push_store->unlock();
+    //nchan_store->unlock();
     r->headers_out.status = status_code == (ngx_int_t) NULL ? NGX_HTTP_OK : status_code;
     if (status_code == NGX_HTTP_CREATED) {
       r->headers_out.status_line.len =sizeof("201 Created")- 1;
@@ -541,14 +528,14 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
           ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-        ngx_http_push_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
+        nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
       }
       else {
         ngx_http_push_subscriber_get_msg_id(r, &msg_id);
         
         switch(cf->subscriber_poll_mechanism) {
           case NGX_HTTP_PUSH_MECHANISM_INTERVALPOLL:
-            ngx_http_push_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
+            nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
             break;
             
           case NGX_HTTP_PUSH_MECHANISM_LONGPOLL:
@@ -556,7 +543,7 @@ ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
               ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
               return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
-            ngx_http_push_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+            nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
             break;
         }
       }
@@ -677,15 +664,15 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
       
       msg->buf = buf;
 
-      ngx_http_push_store->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
+      nchan_store->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
       break;
       
     case NGX_HTTP_DELETE:
-      ngx_http_push_store->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      nchan_store->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
       break;
       
     case NGX_HTTP_GET:
-      ngx_http_push_store->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      nchan_store->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
       break;
       
     case NGX_HTTP_OPTIONS:

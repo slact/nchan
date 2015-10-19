@@ -15,12 +15,11 @@
 #endif
 
 
-extern ngx_pool_t *ngx_http_push_pool;
-extern ngx_int_t ngx_http_push_worker_processes;
+extern ngx_pool_t *nchan_pool;
+extern ngx_int_t nchan_worker_processes;
 extern ngx_module_t nchan_module;
-extern ngx_http_push_store_t *ngx_http_push_store;
+extern nchan_store_t *nchan_store;
 
-ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline);
 void ngx_http_push_clean_timeouted_subscriber(ngx_event_t *ev);
 ngx_int_t ngx_http_push_allow_caching(ngx_http_request_t *r);
 ngx_int_t ngx_http_push_subscriber_get_msg_id(ngx_http_request_t *r, ngx_http_push_msg_id_t *id);
@@ -36,6 +35,5 @@ ngx_str_t * ngx_http_push_get_header_value(ngx_http_request_t *r, ngx_str_t head
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r);
 ngx_int_t ngx_http_push_publisher_handler(ngx_http_request_t *r);
-ngx_int_t ngx_http_push_respond_status_only(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *statusline);
 ngx_int_t ngx_http_push_subscriber_get_etag_int(ngx_http_request_t * r);
 void ngx_http_push_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf);

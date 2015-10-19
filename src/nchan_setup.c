@@ -2,15 +2,15 @@ ngx_module_t  nchan_module;
 
 static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  ngx_http_push_worker_processes = ccf->worker_processes;
+  nchan_worker_processes = ccf->worker_processes;
   //initialize subscriber queues
   //pool, please
-  if((ngx_http_push_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) { //I trust the cycle pool size to be a well-tuned one.
+  if((nchan_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) { //I trust the cycle pool size to be a well-tuned one.
     return NGX_ERROR; 
   }
   
   //initialize storage engines
-  return ngx_http_push_store->init_module(cycle);
+  return nchan_store->init_module(cycle);
 }
 
 static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
@@ -19,14 +19,14 @@ static ngx_int_t ngx_http_push_init_worker(ngx_cycle_t *cycle) {
     return NGX_OK;
   }
   
-  if(ngx_http_push_store->init_worker(cycle)!=NGX_OK) {
+  if(nchan_store->init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
   return NGX_OK;
 }
 
 static ngx_int_t ngx_http_push_postconfig(ngx_conf_t *cf) {
-  return ngx_http_push_store->init_postconfig(cf);
+  return nchan_store->init_postconfig(cf);
 }
 
 //main config
@@ -36,7 +36,7 @@ static void * ngx_http_push_create_main_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   
-  ngx_http_push_store->create_main_conf(cf, mcf);
+  nchan_store->create_main_conf(cf, mcf);
   
   return mcf;
 }
@@ -196,13 +196,13 @@ static char *ngx_http_push_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *
 }
 
 static void ngx_http_push_exit_worker(ngx_cycle_t *cycle) {
-  ngx_http_push_store->exit_worker(cycle);
-  ngx_destroy_pool(ngx_http_push_pool); // just for this worker
+  nchan_store->exit_worker(cycle);
+  ngx_destroy_pool(nchan_pool); // just for this worker
 }
 
 static void ngx_http_push_exit_master(ngx_cycle_t *cycle) {
-  ngx_http_push_store->exit_master(cycle);
-  ngx_destroy_pool(ngx_http_push_pool);
+  nchan_store->exit_master(cycle);
+  ngx_destroy_pool(nchan_pool);
 }
 
 static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -225,7 +225,7 @@ static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command
   return NGX_CONF_OK;
 }
 
-static char *ngx_http_push_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   char    *p = conf;
   ngx_str_t *val = cf->args->elts;
 
@@ -321,7 +321,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
     
   { ngx_string("push_store_messages"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_http_push_store_messages_directive,
+      nchan_store_messages_directive,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
