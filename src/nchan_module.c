@@ -268,7 +268,7 @@ static ngx_buf_t * nchan_request_body_to_single_buffer(ngx_http_request_t *r) {
 
 static ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
   static const ngx_str_t CREATED_LINE = ngx_string("201 Created");
-  static const ngx_str_t ACCEPTED_LINE = ngx_string("201 Created");
+  static const ngx_str_t ACCEPTED_LINE = ngx_string("202 Accepted");
   
   time_t             last_seen = 0;
   ngx_uint_t         subscribers = 0;
