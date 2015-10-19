@@ -1,5 +1,12 @@
 src/uthash.h
 src/hiredis
 src/nginx-source
-tests/nginx-pushmodule
-tests/src
+dev/nginx-nchan/*.patch
+dev/nginx-nchan/pkg
+dev/nginx-nchan/src
+dev/nginx-nchan/*.txt
+dev/nginx-nchan/nginx.conf
+dev/nginx-nchan/nginx.logrotate
+dev/nginx-nchan/*.tar
+dev/nginx-nchan/*.gz
+dev/src
