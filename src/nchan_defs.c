@@ -1,5 +1,5 @@
 #include <ngx_http.h>
-#include "ngx_http_push_defs.h"
+#include "nchan_defs.h"
 
 //string constants
 //headers

@@ -1,5 +1,5 @@
 #include <ngx_http.h>
-#include "ngx_http_push_output.h"
+#include "nchan_output.h"
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN

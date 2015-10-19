@@ -1,4 +1,4 @@
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 #include "ngx_rwlock.h"
 
 #define NGX_RWLOCK_SPIN         2048

@@ -3,20 +3,20 @@
  */
 
 #include <assert.h>
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 
 #include <subscribers/longpoll.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
-#include <ngx_http_push_module_setup.c>
+#include <nchan_setup.c>
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
 #include <store/memory/store-private.h>
 
 ngx_int_t           ngx_http_push_worker_processes;
 ngx_pool_t         *ngx_http_push_pool;
-ngx_module_t        ngx_http_push_module;
+ngx_module_t        nchan_module;
 
 //ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_redis;
 ngx_http_push_store_t *ngx_http_push_store = &ngx_http_push_store_memory;
@@ -515,7 +515,7 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
 }
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
@@ -627,7 +627,7 @@ if (val == fail) {                                                        \
 
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   ngx_str_t                      *channel_id;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_uint_t                      method = r->method;
   ngx_buf_t                      *buf;
   size_t                          content_type_len;

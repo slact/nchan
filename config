@@ -1,5 +1,5 @@
-ngx_feature="http_push_module"
-ngx_addon_name=ngx_http_push_module
+ngx_feature="nchan"
+ngx_addon_name=nchan
 ngx_feature_name=
 ngx_feature_run=no
 ngx_feature_incs=
@@ -32,7 +32,7 @@ _NHPM_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/store.c \
 "
 
-HTTP_MODULES="$HTTP_MODULES ngx_http_push_module"
+HTTP_MODULES="$HTTP_MODULES nchan_module"
 
 CORE_INCS="$CORE_INCS \
   $ngx_addon_dir/src
@@ -40,14 +40,14 @@ CORE_INCS="$CORE_INCS \
 
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   $_NHPM_REDIS_SRCS \
-  ${ngx_addon_dir}/src/ngx_http_push_defs.c \
-  ${ngx_addon_dir}/src/ngx_http_push_output.c \
+  ${ngx_addon_dir}/src/nchan_defs.c \
+  ${ngx_addon_dir}/src/nchan_output.c \
   $_NHPM_SUBSCRIBERS_SRCS \
   $_NHPM_REDIS_STORE_SRCS \
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
   $_NHPM_MEMORY_STORE_SRCS \
-  ${ngx_addon_dir}/src/ngx_http_push_module.c \
+  ${ngx_addon_dir}/src/nchan_module.c \
 "
 
 have=NGX_HTTP_HEADERS . auto/have

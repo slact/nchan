@@ -34,18 +34,18 @@ _pid_path="/run"
 _lock_path="/var/lock"
 _access_log="/dev/stdout"
 _error_log="errors.log"
-_pushmodule_dir="${startdir}/pushmodule"
+_nchan_dir="${startdir}/nchan"
 
 _pkgver() {
-  pushd "$startdir/pushmodule" >/dev/null
+  pushd "$startdir/nchan" >/dev/null
   printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD | sed -r 's/-/_/g')" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
   popd >/dev/null
 }
 
-pkgname=nginx-pushmodule-dev
+pkgname=nginx-nchan-dev
 pkgver=$(_pkgver)
 pkgrel=1
-pkgdesc="Nginx Push Module dev version"
+pkgdesc="Nginx + Nchan dev version"
 arch=('i686' 'x86_64')
 install=install
 
@@ -117,7 +117,7 @@ build() {
     --user=${_user}
     --group=${_group}
     --with-debug
-    --add-module=${_pushmodule_dir})
+    --add-module=${_nchan_dir})
 
   if [[ -z $NGINX_VERYOLDVERSION ]]; then
     CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}scgi_temp" )

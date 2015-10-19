@@ -1,4 +1,4 @@
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 #include "../store/memory/shmem.h"
 #include "../store/memory/ipc.h"
 #include "../store/memory/store-private.h"

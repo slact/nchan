@@ -1,4 +1,4 @@
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 
 #define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
 #define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)

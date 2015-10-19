@@ -1,4 +1,4 @@
-ngx_module_t  ngx_http_push_module;
+ngx_module_t  nchan_module;
 
 static ngx_int_t ngx_http_push_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -370,7 +370,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
     ngx_null_command
 };
 
-static ngx_http_module_t  ngx_http_push_module_ctx = {
+static ngx_http_module_t  nchan_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_push_postconfig,              /* postconfiguration */
     ngx_http_push_create_main_conf,        /* create main configuration */
@@ -381,9 +381,9 @@ static ngx_http_module_t  ngx_http_push_module_ctx = {
     ngx_http_push_merge_loc_conf,          /* merge location configuration */
 };
 
-ngx_module_t  ngx_http_push_module = {
+ngx_module_t  nchan_module = {
     NGX_MODULE_V1,
-    &ngx_http_push_module_ctx,             /* module context */
+    &nchan_module_ctx,                     /* module context */
     ngx_http_push_commands,                /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */

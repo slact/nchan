@@ -1,5 +1,5 @@
 //worker processes of the world, unite.
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 #include <ngx_channel.h>
 #include <assert.h>
 #include "ipc.h"

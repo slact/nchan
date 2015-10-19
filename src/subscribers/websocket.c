@@ -1,4 +1,4 @@
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 #include <ngx_crypt.h>
 #include <ngx_sha1.h>
 
@@ -154,7 +154,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   fsub->finalize_request = 0;
   fsub->holding = 0;
   fsub->shook_hands = 0;
-  fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
   fsub->timeout_handler = empty_handler;
@@ -202,7 +202,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   fsub->cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
   
-  ngx_http_set_ctx(r, fsub, ngx_http_push_module); //gonna need this for recv
+  ngx_http_set_ctx(r, fsub, nchan_module); //gonna need this for recv
   
   return &fsub->sub;
 }
@@ -403,7 +403,7 @@ static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len)
  * thanks, guys!
 */
 static void websocket_reading(ngx_http_request_t *r) {
-  full_subscriber_t          *fsub = ngx_http_get_module_ctx(r, ngx_http_push_module);
+  full_subscriber_t          *fsub = ngx_http_get_module_ctx(r, nchan_module);
   ws_frame_t                 *frame = &fsub->frame;
   ngx_int_t                   rc = NGX_OK;
   ngx_event_t                *rev;

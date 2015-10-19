@@ -1,4 +1,4 @@
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 
 #include <assert.h>
 #include "store.h"
@@ -711,12 +711,12 @@ static ngx_int_t ngx_http_push_store_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t ngx_http_push_store_init_postconfig(ngx_conf_t *cf) {
-  ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, ngx_http_push_module);
+  ngx_http_push_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, nchan_module);
   ngx_str_t                  name = ngx_string("memstore");
   if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
     conf->shm_size=NGX_HTTP_PUSH_DEFAULT_SHM_SIZE;
   }
-  shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_http_push_module);
+  shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &nchan_module);
   return NGX_OK;
 }
 

@@ -1,5 +1,5 @@
 #!/bin/zsh
-#assumes PKGBUILDy nginx located at ./nginx-pushmodule
+#assumes PKGBUILDy nginx located at ./nginx-nchan
 MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 
@@ -55,7 +55,7 @@ done
 
 if [[ -z $NO_MAKE ]]; then
   ../src/store/redis/genlua.rb file
-  pushd ./nginx-pushmodule >/dev/null
+  pushd ./nginx-nchan >/dev/null
   
   if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
     makepkg -f -e

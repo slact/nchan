@@ -145,7 +145,7 @@ fi
 
 
 ln -sf $TESTDIR/nginx $SRCDIR/nginx >/dev/null
-ln -sf $TESTDIR/nginx-pushmodule/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
+ln -sf $TESTDIR/nginx-nchan/src/nginx/src/ $SRCDIR/nginx-source >/dev/null
 
 
 debugger_pids=()
@@ -161,7 +161,7 @@ TRAPINT() {
 }
 
 attach_debugger() {
-  master_pid=`cat /tmp/pushmodule-test-nginx.pid`
+  master_pid=`cat /tmp/nchan-test-nginx.pid`
   while [[ -z $child_pids ]]; do
     child_pids=`pgrep -P $master_pid`
     sleep 0.1

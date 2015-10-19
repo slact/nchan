@@ -1,4 +1,4 @@
-#include <ngx_http_push_module.h>
+#include <nchan_module.h>
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
@@ -61,7 +61,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 0;
   fsub->data.holding = 0;
-  fsub->sub.cf = ngx_http_get_module_loc_conf(r, ngx_http_push_module);
+  fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
   fsub->data.timeout_handler = empty_handler;
   fsub->data.timeout_handler_data = NULL;
