@@ -1,4 +1,5 @@
-
+ name change: we're nchan now. code renamed, and cleaned up. config options are backwards-compatible.
+ feature: websocket subscriber support
  huge refactor: completely new in-memory storage engine. No more global lock.
     Actually, no more locks at all!
  feature: redis-backed storage engine. 
