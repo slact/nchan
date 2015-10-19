@@ -39,7 +39,7 @@ ngx_int_t internal_subscriber_set_respond_status_handler(subscriber_t *sub, call
 
 subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   internal_subscriber_t               *fsub;
-  static ngx_http_push_loc_conf_t  dummy_config = {0};
+  static nchan_loc_conf_t  dummy_config = {0};
   dummy_config.buffer_timeout = 0;
   dummy_config.max_messages = -1;
   

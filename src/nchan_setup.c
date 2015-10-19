@@ -43,7 +43,7 @@ static void * ngx_http_push_create_main_conf(ngx_conf_t *cf) {
 
 //location config stuff
 static void *ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
-  ngx_http_push_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(*lcf));
+  nchan_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(*lcf));
   if(lcf == NULL) {
     return NGX_CONF_ERROR;
   }
@@ -65,7 +65,7 @@ static void *ngx_http_push_create_loc_conf(ngx_conf_t *cf) {
 }
 
 static char *  ngx_http_push_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
-  ngx_http_push_loc_conf_t       *prev = parent, *conf = child;
+  nchan_loc_conf_t       *prev = parent, *conf = child;
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NGX_HTTP_PUSH_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NGX_HTTP_PUSH_DEFAULT_MAX_MESSAGES);
   ngx_conf_merge_value(conf->min_messages, prev->min_messages, NGX_HTTP_PUSH_DEFAULT_MIN_MESSAGES);
@@ -95,7 +95,7 @@ static ngx_str_t  ngx_http_push_channel_id = ngx_string("push_channel_id"); //ch
 //publisher and subscriber handlers now.
 static char *ngx_http_push_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
   ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-  ngx_http_push_loc_conf_t       *plcf = conf;
+  nchan_loc_conf_t       *plcf = conf;
   clcf->handler = handler;
   clcf->if_modified_since = NGX_HTTP_IMS_OFF;
   plcf->index = ngx_http_get_variable_index(cf, &ngx_http_push_channel_id);
@@ -210,8 +210,8 @@ static char *ngx_http_push_set_message_buffer_length(ngx_conf_t *cf, ngx_command
   ngx_int_t                      *min, *max;
   ngx_str_t                      *value;
   ngx_int_t                       intval;
-  min = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, min_messages));
-  max = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, max_messages));
+  min = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, min_messages));
+  max = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, max_messages));
   if(*min != NGX_CONF_UNSET || *max != NGX_CONF_UNSET) {
     return "is duplicate";
   }
@@ -232,8 +232,8 @@ static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, 
   
   if (ngx_strcasecmp(val[1].data, (u_char *) "off") == 0) {
     ngx_int_t *min, *max;
-    min = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, min_messages));
-    max = (ngx_int_t *) (p + offsetof(ngx_http_push_loc_conf_t, max_messages));
+    min = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, min_messages));
+    max = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, max_messages));
     *min=0;
     *max=0;
   }
@@ -246,7 +246,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_sec_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, buffer_timeout),
+      offsetof(nchan_loc_conf_t, buffer_timeout),
       NULL },
 
     { ngx_string("push_max_reserved_memory"),
@@ -260,14 +260,14 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, min_messages),
+      offsetof(nchan_loc_conf_t, min_messages),
       NULL },
   
   { ngx_string("push_max_message_buffer_length"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, max_messages),
+      offsetof(nchan_loc_conf_t, max_messages),
       NULL },
     
   { ngx_string("push_message_buffer_length"),
@@ -281,7 +281,7 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, delete_oldest_received_message),
+      offsetof(nchan_loc_conf_t, delete_oldest_received_message),
       NULL },
 
   { ngx_string("push_publisher"),
@@ -295,28 +295,28 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1,
       ngx_http_push_subscriber,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, subscriber_poll_mechanism),
+      offsetof(nchan_loc_conf_t, subscriber_poll_mechanism),
       NULL },
   
     { ngx_string("push_subscriber_concurrency"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_push_set_subscriber_concurrency,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, subscriber_concurrency),
+      offsetof(nchan_loc_conf_t, subscriber_concurrency),
       NULL },
   
     { ngx_string("push_subscriber_timeout"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_sec_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, subscriber_timeout),
+      offsetof(nchan_loc_conf_t, subscriber_timeout),
       NULL },
     
   { ngx_string("push_authorized_channels_only"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, authorize_channel),
+      offsetof(nchan_loc_conf_t, authorize_channel),
       NULL },
     
   { ngx_string("push_store_messages"),
@@ -330,41 +330,41 @@ static ngx_command_t  ngx_http_push_commands[] = {
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, channel_group),
+      offsetof(nchan_loc_conf_t, channel_group),
       NULL },
     
   { ngx_string("push_max_channel_id_length"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, max_channel_id_length),
+      offsetof(nchan_loc_conf_t, max_channel_id_length),
       NULL },
     
   { ngx_string("push_max_channel_subscribers"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, max_channel_subscribers),
+      offsetof(nchan_loc_conf_t, max_channel_subscribers),
       NULL },
     { ngx_string("push_ignore_queue_on_no_cache"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, ignore_queue_on_no_cache),
+      offsetof(nchan_loc_conf_t, ignore_queue_on_no_cache),
       NULL },
 
     { ngx_string("push_channel_timeout"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_sec_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, channel_timeout),
+      offsetof(nchan_loc_conf_t, channel_timeout),
       NULL },
       
     { ngx_string("push_storage_engine"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_push_set_storage_engine,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_push_loc_conf_t, storage_engine),
+      offsetof(nchan_loc_conf_t, storage_engine),
       NULL },
 
     ngx_null_command

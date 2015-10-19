@@ -80,7 +80,7 @@ typedef struct {
   time_t                          channel_timeout;
   ngx_str_t                       storage_engine;
   ngx_str_t                       storage_engine_name;
-} ngx_http_push_loc_conf_t;
+} nchan_loc_conf_t;
 
 typedef struct {
   char *subtype;
@@ -111,6 +111,6 @@ struct subscriber_s {
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;
   unsigned             destroy_after_dequeue:1;
-  ngx_http_push_loc_conf_t *cf;
+  nchan_loc_conf_t *cf;
   void                *data;
 }; //subscriber_t

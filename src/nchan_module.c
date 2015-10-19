@@ -25,7 +25,7 @@ nchan_store_t *nchan_store = &nchan_store_memory;
 
 
 
-static ngx_str_t *ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_push_loc_conf_t *cf) {
+static ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, nchan_loc_conf_t *cf) {
   static const ngx_str_t          TEXT_PLAIN = ngx_string("text/plain");
   static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
   
@@ -38,7 +38,7 @@ static ngx_str_t *ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_p
   if (vv == NULL || vv->not_found || vv->len == 0) {
     ngx_http_push_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
     ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, 
-            "push module: the $push_channel_id variable is required but is not set");
+            "nchan: the $push_channel_id variable is required but is not set");
     return NULL;
   }
   //maximum length limiter for channel id
@@ -46,7 +46,7 @@ static ngx_str_t *ngx_http_push_get_channel_id(ngx_http_request_t *r, ngx_http_p
   len = group_len + 1 + var_len;
   if((id = ngx_palloc(r->pool, sizeof(*id) + len))==NULL) {
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "push module: unable to allocate memory for $push_channel_id string");
+            "nchan: unable to allocate memory for $push_channel_id string");
     return NULL;
   }
   id->len=len;
@@ -247,13 +247,13 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
   if (chain->next == NULL) {
     return chain->buf;
   }
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: multiple buffers in request, need memcpy :(");
+  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
     if (ngx_buf_in_memory(chain->buf)) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: can't handle a buffer in a temp file and in memory ");
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't handle a buffer in a temp file and in memory ");
     }
     if (chain->next != NULL) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error reading request body with multiple ");
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: error reading request body with multiple ");
     }
     return chain->buf;
   }
@@ -271,7 +271,7 @@ static ngx_buf_t * ngx_http_push_request_body_to_single_buffer(ngx_http_request_
       if (chain->buf->in_file) {
         n = ngx_read_file(chain->buf->file, buf->start, len, 0);
         if (n == NGX_FILE_ERROR) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: cannot read file with request body");
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: cannot read file with request body");
           return NULL;
         }
         buf->last = buf->last + len;
@@ -365,12 +365,12 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
 }
 
 ngx_int_t ngx_http_push_subscriber_handler(ngx_http_request_t *r) {
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
   ngx_http_push_msg_id_t          msg_id;
   
-  if((channel_id=ngx_http_push_get_channel_id(r, cf)) == NULL) {
+  if((channel_id=nchan_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
   
@@ -456,13 +456,13 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: error publishing message");
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: error publishing message");
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
       
     default:
       //for debugging, mostly. I don't expect this branch to behit during regular operation
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "push module: TOTALLY UNEXPECTED error publishing message, status code %i", status);
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: TOTALLY UNEXPECTED error publishing message, status code %i", status);
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
   }
@@ -477,13 +477,13 @@ if (val == fail) {                                                        \
 
 static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
   ngx_str_t                      *channel_id;
-  ngx_http_push_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_uint_t                      method = r->method;
   ngx_buf_t                      *buf;
   size_t                          content_type_len;
   ngx_http_push_msg_t            *msg;
   struct timeval                  tv;
-  if((channel_id = ngx_http_push_get_channel_id(r, cf))==NULL) {
+  if((channel_id = nchan_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
@@ -499,9 +499,9 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
     case NGX_HTTP_PUT:
       msg = ngx_pcalloc(r->pool, sizeof(*msg));
       msg->shared = 0;
-      NGX_REQUEST_VAL_CHECK(msg, NULL, r, "push module: can't allocate msg in request pool");
+      NGX_REQUEST_VAL_CHECK(msg, NULL, r, "nchan: can't allocate msg in request pool");
       //buf = ngx_create_temp_buf(r->pool, 0);
-      //NGX_REQUEST_VAL_CHECK(buf, NULL, r, "push module: can't allocate buf in request pool");
+      //NGX_REQUEST_VAL_CHECK(buf, NULL, r, "nchan: can't allocate buf in request pool");
       
       //content type
       content_type_len = (r->headers_in.content_type!=NULL ? r->headers_in.content_type->value.len : 0);
@@ -517,7 +517,7 @@ static void ngx_http_push_publisher_body_handler(ngx_http_request_t * r) {
         buf = ngx_http_push_request_body_to_single_buffer(r);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "push module: unexpected publisher message request body buffer location. please report this to the push module developers.");
+        ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: unexpected publisher message request body buffer location. please report this to the push module developers.");
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }

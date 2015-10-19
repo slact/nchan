@@ -250,7 +250,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, ngx_http_push_msg_
     if(cln == NULL) {
       ngx_close_file(rfile->fd);
       rfile->fd=NGX_INVALID_FILE;
-      return abort_response(self, "push module: can't create output chain file cleanup.");
+      return abort_response(self, "nchan: can't create output chain file cleanup.");
     }
     cln->handler = ngx_pool_cleanup_file;
     clnf = cln->data;

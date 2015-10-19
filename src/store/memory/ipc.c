@@ -221,7 +221,7 @@ static void ipc_channel_handler(ngx_event_t *ev) {
     if (n == NGX_AGAIN) {
       return;
     }
-    //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "push module: channel command: %d", ch.command);
+    //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "nchan: channel command: %d", ch.command);
 
     if(ngx_process_slot != alert.dst_slot) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_process_slot, alert.dst_slot);

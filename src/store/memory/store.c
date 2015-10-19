@@ -1323,7 +1323,7 @@ static nhpm_message_t *create_shared_message(ngx_http_push_msg_t *m, ngx_int_t m
   return chmsg;
 }
 
-static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   return nchan_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
 }
   

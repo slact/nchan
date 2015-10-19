@@ -155,7 +155,7 @@ static void redis_load_script_callback(redisAsyncContext *c, void *r, void *priv
   if (reply == NULL) return;
   switch(reply->type) {
     case REDIS_REPLY_ERROR:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: Failed loading redis lua scripts %s :%s", (*names)[i], reply->str);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: Failed loading redis lua scripts %s :%s", (*names)[i], reply->str);
       break;
     case REDIS_REPLY_STRING:
       if(ngx_strncmp(reply->str, hash, REDIS_LUA_HASH_LENGTH)!=0) {
@@ -355,7 +355,7 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, ngx_http_push_msg_id
   }
   
   if((d=ngx_alloc(sizeof(*d) + (u_char)channel_id->len, ngx_cycle->log)) == 0) {
-    ERR("push module: unable to allocate memory for callback data for message hmget");
+    ERR("nchan: unable to allocate memory for callback data for message hmget");
     return NGX_ERROR;
   }
   d->channel_id.len = channel_id->len;
@@ -421,7 +421,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
             }
             else {
-              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msg");
+              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msg");
             }
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msg")) {
@@ -440,7 +440,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               get_msg_from_msgkey(&chanhead->id, &msgid, &msg_redis_hash_key);
             }
             else {
-              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: thought there'd be a channel id around for msgkey");
+              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msgkey");
             }
           }
           else if(CHECK_MSGPACK_STRVAL(msgtype, "ch+msgkey")) {
@@ -461,7 +461,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 nchan_store_publish_generic(&chid, NULL, NGX_HTTP_GONE, &NGX_HTTP_PUSH_HTTP_STATUS_410);
               }
               else {
-                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unexpected \"delete channel\" msgpack message from redis");
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unexpected \"delete channel\" msgpack message from redis");
               }
             }
 
@@ -483,20 +483,20 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
 
             else {
-              ERR("push module: unexpected msgpack alert from redis: %s", (char *)el->str);
+              ERR("nchan: unexpected msgpack alert from redis: %s", (char *)el->str);
             }
           }
           else {
-            ERR("push module: unexpected msgpack message from redis: %s", (char *)el->str);
+            ERR("nchan: unexpected msgpack message from redis: %s", (char *)el->str);
           }
 
         }
         else {
-          ERR("push module: unexpected msgpack object from redis: %s", (char *)el->str);
+          ERR("nchan: unexpected msgpack object from redis: %s", (char *)el->str);
         }
       }
       else {
-        ERR("push module: invalid msgpack message from redis: %s", (char *)el->str);
+        ERR("nchan: invalid msgpack message from redis: %s", (char *)el->str);
       }
       msgpack_unpacked_destroy(&msgunpack);
     }
@@ -667,7 +667,7 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
 
 
 static ngx_int_t nhpm_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub) {
-  ngx_http_push_loc_conf_t  *cf = sub->cf;
+  nchan_loc_conf_t  *cf = sub->cf;
   //input: keys: [], values: [channel_id, subscriber_id, empty_ttl]
   // 'subscriber_id' is an existing id
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
@@ -1031,7 +1031,7 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
     len=els[offset+2]->len;
     content_type_len=els[offset+3]->len;
     if((msg=allocator(sizeof(*msg) + sizeof(ngx_buf_t) + len + content_type_len))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: can't allocate memory for message from redis reply");
+      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: can't allocate memory for message from redis reply");
       return NULL;
     }
     ngx_memzero(msg, sizeof(*msg)+sizeof(ngx_buf_t));
@@ -1056,7 +1056,7 @@ static ngx_http_push_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx
     return msg;
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "push module: invalid message redis reply");
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: invalid message redis reply");
     return NULL;
   }
 }
@@ -1241,7 +1241,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   redis_subscribe_data_t    *d = (redis_subscribe_data_t *) privdata;
   redisReply                *reply = (redisReply *)vr;
   subscriber_t              *sub = d->sub;
-  ngx_http_push_loc_conf_t  *cf = sub->cf;
+  nchan_loc_conf_t  *cf = sub->cf;
   ngx_int_t                  status=0;
   ngx_http_push_msg_t       *msg=NULL;
   
@@ -1338,7 +1338,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
   ngx_int_t                     create_channel_ttl;
-  ngx_http_push_loc_conf_t     *cf = sub->cf;
+  nchan_loc_conf_t     *cf = sub->cf;
   assert(callback != NULL);
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
@@ -1371,11 +1371,11 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, ngx_http_push_msg_
 static ngx_str_t * nchan_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *etag;
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header in pool");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header in pool");
     return NULL;
   }
   else if(pool==NULL && (etag = ngx_alloc(sizeof(*etag) + NGX_INT_T_LEN, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Etag header");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header");
     return NULL;
   }
   etag->data = (u_char *)(etag+1);
@@ -1386,11 +1386,11 @@ static ngx_str_t * nchan_store_etag_from_message(ngx_http_push_msg_t *msg, ngx_p
 static ngx_str_t * nchan_store_content_type_from_message(ngx_http_push_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t *content_type;
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Content Type header in pool");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header in pool");
     return NULL;
   }
   else if(pool == NULL && (content_type = ngx_alloc(sizeof(*content_type) + msg->content_type.len, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "push module: unable to allocate memory for Content Type header");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header");
     return NULL;
   }
   content_type->data = (u_char *)(content_type+1);
@@ -1412,7 +1412,7 @@ typedef struct {
 
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
 
-static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, ngx_http_push_loc_conf_t *cf, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, ngx_http_push_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_publish_callback_data_t  *d=NULL;
   u_char                         *msgstart;
   size_t                          msglen;
