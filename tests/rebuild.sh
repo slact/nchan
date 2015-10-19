@@ -55,6 +55,7 @@ done
 
 if [[ -z $NO_MAKE ]]; then
   ../src/store/redis/genlua.rb file
+  ./gen_config_commands.rb nchan_config_commands.c
   pushd ./nginx-nchan >/dev/null
   
   if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
