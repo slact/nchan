@@ -304,8 +304,9 @@ static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_htt
 
 static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, nchan_msg_t *msg, ngx_http_request_t *r) {
   //inefficient, but close enough for now
-  subscriber_t            *sub;
+  static const ngx_str_t   TEXT_PLAIN = ngx_string("text/plain");
   ngx_str_t               *etag;
+  char                    *err;
   switch(msg_search_outcome) {
     case NCHAN_MESSAGE_EXPECTED:
       //interval-polling subscriber requests get a 304 with their entity tags preserved.
@@ -315,37 +316,32 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
       if ((etag=nchan_subscriber_get_etag(r)) != NULL) {
         nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
       }
-      ngx_http_finalize_request(r, NGX_HTTP_NOT_MODIFIED);
-      return NGX_OK;
+      nchan_respond_status(r, NGX_HTTP_NOT_MODIFIED, NULL, 1);
+      break;
       
     case NCHAN_MESSAGE_FOUND:
-      sub = longpoll_subscriber_create(r);
-      sub->respond_message(sub, msg);
-      longpoll_subscriber_destroy(sub);
-      return NGX_OK;
-
+      if(nchan_respond_msg(r, msg, 1, &err) != NGX_OK) {
+        nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &TEXT_PLAIN, err, 1);
+      }
+      break;
+      
     case NCHAN_MESSAGE_NOTFOUND:
     case NCHAN_MESSAGE_EXPIRED:
-      r->headers_out.status=NGX_HTTP_NOT_FOUND;
-      //just the headers, please. we don't care to describe the situation or
-      //respond with an html page
-      r->headers_out.content_length_n=0;
-      r->header_only = 1;
-      //ngx_http_send_header(r);
-      ngx_http_finalize_request(r, NGX_HTTP_NOT_FOUND);
-      return NGX_OK;
-
+      nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 1);
+      break;
+      
     default:
-      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
       return NGX_ERROR;
   }
+  return NGX_DONE;
 }
 
 ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   subscriber_t                   *sub;
   ngx_str_t                      *channel_id;
-  nchan_msg_id_t          msg_id;
+  nchan_msg_id_t                  msg_id;
   
   if((channel_id=nchan_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -388,7 +384,10 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
           nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
         }
         else if(cf->sub.poll) {
+          r->main->count++;
+          
           nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
+          return NGX_DONE;
         }
         else {
           ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "No Homers allowed! Also no subscribers.");

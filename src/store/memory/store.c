@@ -365,7 +365,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
 }
 
 nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
-  nchan_store_channel_head_t     *head;
+  nchan_store_channel_head_t     *head = NULL;
   if((head = chanhead_memstore_find(channel_id)) != NULL) {
     ensure_chanhead_is_ready(head);
   }
@@ -652,18 +652,6 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
-  
-  if(callback==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
-    return NGX_ERROR;
-  }
-  
-  // TODO: do this?
-  
-  return NGX_OK; //async only now!
-}
-
 //initialization
 static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
@@ -920,6 +908,10 @@ static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
 
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, ngx_int_t *status) {
   DBG("find next message %i:%i", msgid->time, msgid->tag);
+  if(ch == NULL) {
+    *status = NCHAN_MESSAGE_NOTFOUND;
+    return NULL;
+  }
   chanhead_messages_gc(ch);
   store_message_t *cur, *first;
   first = ch->msg_first;
@@ -970,28 +962,42 @@ typedef struct {
   unsigned                  allocd:1;
 } subscribe_data_t;
 
-#define SUB_CHANNEL_UNAUTHORIZED 0
-#define SUB_CHANNEL_AUTHORIZED 1
-#define SUB_CHANNEL_NOTSURE 2
+static subscribe_data_t             static_subscribe_data;
 
-static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
-static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
-
-static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
-  ngx_int_t                    owner = memstore_channel_owner(channel_id);
-  subscribe_data_t             data;
+static subscribe_data_t *subscribe_data_alloc(ngx_int_t owner) {
   subscribe_data_t            *d;
-  assert(callback != NULL);
   if(memstore_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
     d->already_enqueued = 1;
   }
   else {
-    d = &data;
+    d = &static_subscribe_data;
     d->allocd = 0;
     d->already_enqueued = 0;
   }
+  return d;
+}
+
+static void subscribe_data_free(subscribe_data_t *d) {
+  if(d->allocd) {
+    ngx_free(d);
+  }
+}
+
+#define SUB_CHANNEL_UNAUTHORIZED 0
+#define SUB_CHANNEL_AUTHORIZED 1
+#define SUB_CHANNEL_NOTSURE 2
+
+static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+
+static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
+  ngx_int_t                    owner = memstore_channel_owner(channel_id);
+  subscribe_data_t            *d = subscribe_data_alloc(owner);
+  
+  assert(d != NULL);
+  assert(callback != NULL);
   
   ngx_memcpy(&d->msg_id, msg_id, sizeof(*msg_id));
   
@@ -1025,17 +1031,15 @@ static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_stat
     return nchan_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
-    if(d->allocd) {
-      ngx_free(d);
-    }
+    subscribe_data_free(d);
     return NGX_OK;
   }
 }
 
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
-  nchan_store_channel_head_t       *chanhead = NULL;
-  store_message_t            *chmsg;
-    ngx_int_t                findmsg_status;
+  nchan_store_channel_head_t  *chanhead = NULL;
+  store_message_t             *chmsg;
+  ngx_int_t                    findmsg_status;
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
       chanhead = nchan_memstore_get_chanhead(d->channel_id);
@@ -1051,9 +1055,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   if (chanhead == NULL) {
     d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
-    if(d->allocd) {
-      ngx_free(d);
-    }
+    subscribe_data_free(d);
     return NGX_OK;
   }
   
@@ -1083,16 +1085,47 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
 }
 
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+  store_message_t             *chmsg;
+  ngx_int_t                    owner = memstore_channel_owner(channel_id);
+  subscribe_data_t            *d = subscribe_data_alloc(owner);
+  ngx_int_t                    findmsg_status;
+  
+  if(callback==NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
+    return NGX_ERROR;
+  }
+  
+  d->channel_owner = owner;
+  d->channel_id = channel_id;
+  d->cb = callback;
+  d->cb_privdata = privdata;
+  d->sub = NULL;
+  ngx_memcpy(&d->msg_id, msg_id, sizeof(*msg_id));
+  d->chanhead = nchan_memstore_find_chanhead(d->channel_id);
+  
+  if(memstore_slot() != owner) {
+    //check if we need to ask for a message
+    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
+  }
+  else {
+    chmsg = chanhead_find_next_message(d->chanhead, &d->msg_id, &findmsg_status);
+    return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+  }
+  
+  return NGX_OK; //async only now!
+}
+
+
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
-  ngx_int_t                   ret;
   subscriber_t               *sub = d->sub;
-  nchan_store_channel_head_t        *chanhead = d->chanhead;
-  callback_pt                 callback = d->cb;
-  void                       *privdata = d->cb_privdata;  
-  ngx_int_t                   still_alive;
+  ngx_int_t                   still_alive = 0;
+  nchan_store_channel_head_t *chanhead = d->chanhead;
   
-  still_alive = d->sub_reserved ? (sub->release(sub) == NGX_OK) : 1;
+  if(d->sub) {
+    still_alive = d->sub_reserved ? (sub->release(sub) == NGX_OK) : 1;
+  } 
 
   if (still_alive) {
     switch(findmsg_status) {
@@ -1100,35 +1133,31 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
         assert(msg != NULL);
         DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
         switch(sub->cf->subscriber_concurrency) {
-
+          
           case NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN:
             //kick everyone elese out, then subscribe
             nchan_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
             //FALL-THROUGH to BROADCAST
-
+            
           case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
               assert(msg);
-              ret = sub->respond_message(sub, msg);
-              callback(ret, msg, privdata);
+              sub->respond_message(sub, msg);
             break;
-
+            
           case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
             ERR("first-in concurrency setting not supported");
-              ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-              callback(ret, msg, privdata);
+              sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
             break;
-
+            
           default:
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
-            ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-            callback(ret, msg, privdata);
+            sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
         }
         break;
-
+        
       case NCHAN_MESSAGE_NOTFOUND: //not found
         if(sub->cf->authorize_channel) {
           sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
-          callback(NGX_HTTP_NOT_FOUND, NULL, privdata);
           break;
         }
         //fall-through
@@ -1138,27 +1167,24 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
           DBG("memstore: Sub %p should already have been enqueued. ...", sub);
           sub->enqueue(sub);
         }
-        ret = chanhead->spooler.add(&chanhead->spooler, sub);
-        callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, privdata);
+        chanhead->spooler.add(&chanhead->spooler, sub);
         break;
-
+        
       case NCHAN_MESSAGE_EXPIRED: //gone
         //subscriber wants an expired message
         //TODO: maybe respond with entity-identifiers for oldest available message?
         sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
-        callback(NGX_HTTP_NO_CONTENT, NULL, privdata);
         break;
+        
       default: //shouldn't be here!
         sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-        callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
     }
   }
-  else {
+  else if(d->sub) {
     ERR("subscriber %p disappeared while fetching message. This is quite alright.", d->sub);
   }
-  if(d->allocd) {
-    ngx_free(d);
-  }
+  d->cb(findmsg_status, msg, d->cb_privdata);
+  subscribe_data_free(d);
   return NGX_OK;
 }
 
@@ -1202,7 +1228,7 @@ typedef struct {
 
 static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   shmsg_memspace_t        *stuff;
-  nchan_msg_t     *msg;
+  nchan_msg_t             *msg;
   ngx_buf_t               *mbuf = NULL, *buf=NULL;
   mbuf = m->buf;
   
