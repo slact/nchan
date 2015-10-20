@@ -193,7 +193,7 @@ class PubSubTest <  Minitest::Test
 
   def test_authorized_channels
     #must be published to before subscribing
-    pub, sub = pubsub 5, timeout: 20, sub: "sub/authorized/"
+    pub, sub = pubsub 5, timeout: 5, sub: "sub/authorized/"
     sub.on_failure { false }
     sub.run
     sub.wait
