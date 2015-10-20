@@ -47,11 +47,20 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   if(lcf == NULL) {
     return NGX_CONF_ERROR;
   }
+  
+  lcf->pub.http=0;
+  lcf->pub.websocket=0;
+  
+  lcf->sub.poll=0;
+  lcf->sub.longpoll=0;
+  lcf->sub.eventsource=0;
+  lcf->sub.websocket=0;
+  
   lcf->buffer_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
   lcf->min_messages=NGX_CONF_UNSET;
   lcf->subscriber_concurrency=NGX_CONF_UNSET;
-  lcf->subscriber_poll_mechanism=NGX_CONF_UNSET;
+  
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->authorize_channel=NGX_CONF_UNSET;
   lcf->delete_oldest_received_message=NGX_CONF_UNSET;
@@ -64,13 +73,39 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   return lcf;
 }
 
+static ngx_int_t nchan_strmatch(ngx_str_t *val, ngx_int_t n, ...) {
+  u_char   *match;
+  va_list   args;
+  ngx_int_t i;
+  va_start(args, n);  
+  for(i=0; i<n; i++) {
+    match = va_arg(args, u_char *);
+    if(ngx_strncasecmp(val->data, match, val->len)==0) {
+      return 1;
+    }
+  }
+  va_end(args);
+  return 0;
+}
+
 static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_loc_conf_t       *prev = parent, *conf = child;
+  
+  //publisher types
+  ngx_conf_merge_bitmask_value(conf->pub.http, prev->pub.http, 0);
+  ngx_conf_merge_bitmask_value(conf->pub.websocket, prev->pub.websocket, 0);
+  
+  //subscriber types
+  ngx_conf_merge_bitmask_value(conf->sub.poll, prev->sub.poll, 0);
+  ngx_conf_merge_bitmask_value(conf->sub.longpoll, prev->sub.longpoll, 0);
+  ngx_conf_merge_bitmask_value(conf->sub.eventsource, prev->sub.eventsource, 0);
+  ngx_conf_merge_bitmask_value(conf->sub.websocket, prev->sub.websocket, 0);
+  
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
   ngx_conf_merge_value(conf->min_messages, prev->min_messages, NCHAN_DEFAULT_MIN_MESSAGES);
   ngx_conf_merge_value(conf->subscriber_concurrency, prev->subscriber_concurrency, NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST);
-  ngx_conf_merge_value(conf->subscriber_poll_mechanism, prev->subscriber_poll_mechanism, NCHAN_MECHANISM_LONGPOLL);
+  
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
   ngx_conf_merge_value(conf->delete_oldest_received_message, prev->delete_oldest_received_message, 0);
@@ -170,28 +205,48 @@ static char *nchan_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   return nchan_setup_handler(cf, conf, &nchan_publisher_handler);
 }
 
+
+
 static char *nchan_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  static nchan_strval_t  mech[] = {
-    { "interval-poll", NCHAN_MECHANISM_INTERVALPOLL },
-    { "long-poll"    , NCHAN_MECHANISM_LONGPOLL     },
-    {NULL}
-  };
-  ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
-  if (*field != NGX_CONF_UNSET) {
-    return "is duplicate";
-  }
+  nchan_loc_conf_t     *lcf = conf;
+  ngx_str_t            *val;
+  ngx_int_t             i;
   
-  if(cf->args->nelts==1) { //no argument given
-    *field = NCHAN_MECHANISM_LONGPOLL; //default
+  nchan_conf_subscriber_types_t *subt = &lcf->sub;
+  
+  if(cf->args->nelts == 1){ //no arguments
+    subt->poll=0;
+    subt->longpoll=1;
+    subt->websocket=1;
+    subt->eventsource=1;
   }
   else {
-    ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-    if(nchan_strval(value, mech, field)!=NGX_OK) {
-      ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber value: %V", &value);
-      return NGX_CONF_ERROR;
+    for(i=1; i < cf->args->nelts; i++) {
+      val = &((ngx_str_t *) cf->args->elts)[i];
+      if(nchan_strmatch(val, 2, "longpoll", "long-poll")) {
+        subt->longpoll=1;
+      }
+      else if(nchan_strmatch(val, 4, "poll", "interval-poll", "intervalpoll", "http")) {
+        subt->poll=1;
+      }
+      else if(nchan_strmatch(val, 3, "websocket", "websockets", "ws")) {
+        subt->websocket=1;
+      }
+      else if(nchan_strmatch(val, 4, "eventsource", "event-source", "es", "sse")) {
+        subt->eventsource=1;
+      }
+      else if(nchan_strmatch(val, 2, "none", "off")) {
+        subt->poll=0;
+        subt->longpoll=0;
+        subt->websocket=0;
+        subt->eventsource=0;
+      }
+      else {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
+        return NGX_CONF_ERROR;
+      }
     }
   }
-  
   return nchan_setup_handler(cf, conf, &nchan_subscriber_handler);
 }
 

@@ -64,13 +64,29 @@ typedef struct {
 } nchan_shm_data_t;
 
 typedef struct {
+  unsigned                        http:1;
+  unsigned                        websocket:1;
+} nchan_conf_publisher_types_t;
+
+typedef struct {
+  unsigned                        poll:1; //bleugh
+  unsigned                        longpoll:1;
+  unsigned                        eventsource:1;
+  unsigned                        websocket:1;
+} nchan_conf_subscriber_types_t;
+
+typedef struct {
   ngx_int_t                       index;
   time_t                          buffer_timeout;
   ngx_int_t                       min_messages;
   ngx_int_t                       max_messages;
+  
+  nchan_conf_publisher_types_t    pub;
+  nchan_conf_subscriber_types_t   sub; 
+  
   ngx_int_t                       subscriber_concurrency;
-  ngx_int_t                       subscriber_poll_mechanism;
   time_t                          subscriber_timeout;
+  
   ngx_int_t                       authorize_channel;
   ngx_int_t                       delete_oldest_received_message;
   ngx_str_t                       channel_group;

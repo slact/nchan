@@ -1,13 +1,23 @@
 CfCmd.new do
+  nchan_pubsub [:srv, :loc],
+      :nchan_pubsub_directive,
+      :loc_conf,
+      args: 0,
+      disabled: true,
+      
+      group: "pubsub",
+      default: "(none)",
+      info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTS publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
+    
   nchan_subscriber [:srv, :loc],
       :nchan_subscriber,
-      [:loc_conf, :subscriber_poll_mechanism],
-      args: 0..1,
+      :loc_conf,
+      args: 0..4,
       legacy: "push_subscriber",
       
       group: "pubsub",
-      value: ["long-poll", "interval-poll"],
-      default: "long-poll",
+      value: ["any", "websocket", "eventsource", "longpoll", "intervalpoll"],
+      default: "any (websocket|eventsource|longpoll)",
       info: "Defines a server or location as a subscriber. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically via caching information request headers (If-Modified-Since and If-None-Match), beginning with the oldest available message. Requests for upcoming messages are handled in accordance with the setting provided. See the protocol documentation for a detailed description."
     
   nchan_subscriber_concurrency [:main, :srv, :loc],

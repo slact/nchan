@@ -361,37 +361,46 @@ ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
       memstore_fakeprocess_push_random();
   #endif
 #endif      
-
+      
+      nchan_subscriber_get_msg_id(r, &msg_id);
+      
       if(nchan_detect_websocket_handshake(r)) {
         //do you want a websocket?
-        if((sub = websocket_subscriber_create(r)) == NULL) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
-          return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        if(cf->sub.websocket) {
+          if((sub = websocket_subscriber_create(r)) == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
         }
-        nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
+        else {
+          //too bad, you can't have it.
+          nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+          return NGX_DONE;
+        }
       }
       else {
-        nchan_subscriber_get_msg_id(r, &msg_id);
-        
-        switch(cf->subscriber_poll_mechanism) {
-          case NCHAN_MECHANISM_INTERVALPOLL:
-            nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
-            break;
-            
-          case NCHAN_MECHANISM_LONGPOLL:
-            if((sub = longpoll_subscriber_create(r)) == NULL) {
-              ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
-              return NGX_HTTP_INTERNAL_SERVER_ERROR;
-            }
-            nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
-            break;
+        if(cf->sub.longpoll) {
+          if((sub = longpoll_subscriber_create(r)) == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+        }
+        else if(cf->sub.poll) {
+          nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
+        }
+        else {
+          ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "No Homers allowed! Also no subscribers.");
+          nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+          return NGX_DONE;
         }
       }
       
 #if FAKESHARD
       memstore_fakeprocess_pop();
 #endif
-      
+
       return NGX_DONE;
     
     case NGX_HTTP_OPTIONS:
