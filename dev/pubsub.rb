@@ -448,7 +448,7 @@ class Subscriber
 end
 
 class Publisher
-  include Celluloid
+  #include Celluloid
   attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept
   def initialize(url)
     @url= url
@@ -486,7 +486,10 @@ class Publisher
       elsif response.timed_out?
         # aw hell no
         #puts "publisher err: timeout"
-        raise "Response timed out."
+
+        url=URI.parse(response.request.url)
+        url = "#{url.path}#{url.query ? "?#{url.query}" : nil}"
+        raise "Publisher #{response.request.options[:method]} to #{url} timed out."
       elsif response.code == 0
         # Could not get an http response, something's wrong.
         #puts "publisher err: #{response.return_message}"
@@ -505,7 +508,22 @@ class Publisher
       block.call(self) if block
     end
     #puts "publishing to #{@url}"
-    post.run
+    begin
+      post.run
+    rescue Exception => e
+      last=nil, i=0
+      e.backtrace.select! do |bt|
+        if bt.match(/(gems\/(typhoeus|ethon)|pubsub\.rb)/)
+          last=i
+          false
+        else
+          i+=1
+          true
+        end 
+      end
+      e.backtrace.insert last, "..."
+      raise e
+    end
   end
   
   def get(accept_header=nil)
