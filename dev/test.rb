@@ -38,15 +38,52 @@ class PubSubTest <  Minitest::Test
   end
   
   def test_interval_poll
-    pub, sub=pubsub 1, client: :intervalpoll, quit_message: 'FIN', retry_delay:0.1
+    pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.2
+    #ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
+    
+    sub.on_failure do |resp|
+      assert_equal resp.code, 404
+      false
+    end
+    
+    #ws_sub.run
     sub.run
+    sub.wait
+
+    sub.abort
+    sub.reset
+
     sleep 0.4
+    #assert ws_sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
+    #ws_sub.terminate
+    
     pub.post ["hello this", "is a thing"]
     sleep 0.3
     pub.post ["oh now what", "is this even a thing?"]
-    sleep 0.6
-    pub.post "FIN"
+    sleep 0.1
+    
+    sub.on_failure do |resp|
+      assert_equal resp.code, 304
+      assert_equal resp.headers["Last-Modified"], sub.client.last_modified, "304 not ready should have the same last-modified header as last msg"
+      assert_equal resp.headers["Etag"], sub.client.etag, "304 not ready should have the same Etag header as last msg"
+      false
+    end
+    
+    sub.run
     sub.wait
+    
+    #should get a 304 at this point
+    
+    sub.abort
+    sub.reset
+    
+    pub.post "FIN"
+    
+    sleep 2
+    
+    sub.run
+    sub.wait
+
     verify pub, sub
     sub.terminate
   end
