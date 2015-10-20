@@ -1,3 +1,6 @@
+#ifndef NCHAN_TYPES_H
+#define NCHAN_TYPES_H
+
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
 //on with the declarations
@@ -16,6 +19,11 @@ typedef struct {
   time_t                          time; //tag message by time
   ngx_int_t                       tag;  //used in conjunction with message_time if more than one message have the same time.
 } nchan_msg_id_t;
+
+typedef struct {
+  ngx_chain_t     chain;
+  ngx_buf_t       buf;
+} nchan_buf_and_chain_t;
 
 //message queue
 typedef struct {
@@ -130,3 +138,5 @@ struct subscriber_s {
   nchan_loc_conf_t *cf;
   void                *data;
 }; //subscriber_t
+
+#endif  /* NCHAN_TYPES_H */

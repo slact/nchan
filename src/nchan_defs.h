@@ -1,3 +1,5 @@
+#ifndef NCHAN_DEFS_H
+#define NCHAN_DEFS_H
 
 #define NCHAN_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NCHAN_DEFAULT_BUFFER_TIMEOUT 3600
@@ -78,3 +80,5 @@ extern const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_JSON;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_XML;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_YAML;
+
+#endif /* NCHAN_DEFS_H */
