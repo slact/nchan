@@ -113,23 +113,24 @@ class MessageStore
   end
 end
 
-#a little sugar for handshake errors
-class WebSocket::EventMachine::Client
-  attr_accessor :handshake # we want this for erroring
-end
-class WebSocket::Handshake::Client
-  attr_accessor :data
-  def response_code(what=:code)
-    resp=@data.match(/^HTTP\/1.1 (?<code>\d+) (?<line>[^\\\r\\\n]+)/)
-    resp[what]
-  end
-  def response_line
-    response_code :line
-  end
-end
-
 class Subscriber
   class WebSocketClient
+    #a little sugar for handshake errors
+    class WebSocket::EventMachine::Client
+      attr_accessor :handshake # we want this for erroring
+    end
+    
+    class WebSocket::Handshake::Client
+      attr_accessor :data
+      def response_code(what=:code)
+        resp=@data.match(/^HTTP\/1.1 (?<code>\d+) (?<line>[^\\\r\\\n]+)/)
+        resp[what]
+      end
+      def response_line
+        response_code :line
+      end
+    end
+    
     class WebSocketErrorResponse
       attr_accessor :code, :msg, :connected
       def initialize(code, msg, connected)
@@ -138,6 +139,7 @@ class Subscriber
         self.connected = connected
       end
     end
+    
     include Celluloid
     attr_accessor :last_modified, :etag, :timeout
     
@@ -210,7 +212,6 @@ class Subscriber
     def poke
     end
   end
-  
   
   class LongPollClient
     include Celluloid
@@ -298,13 +299,17 @@ class Subscriber
       super response, req
     end
     def response_failure(response, req)
-      if response.code == 304 || @subscriber.on_failure(response) != false
+      if @subscriber.on_failure(response) != false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
         @hydra.queue req
       else
         @subscriber.finished+=1
       end
+    end
+    
+    def run
+      super
     end
     
     def poke
@@ -337,9 +342,9 @@ class Subscriber
     else
       raise "unknown client type #{opt[:client]}"
     end
-    reset
     @concurrency=concurrency
     @client_class ||= opt[:client_class] || LongPollClient
+    reset
     new_client @client_class
   end
   def new_client(client_class=LongPollClient)
@@ -351,7 +356,7 @@ class Subscriber
     @messages.name="sub"
     @waiting=0
     @finished=0
-    new_client if terminated?
+    new_client(@client_class) if terminated?
     self
   end
   def abort
@@ -392,9 +397,9 @@ class Subscriber
     begin
       client.current_actor unless client == nil
     rescue Celluloid::DeadActorError
-      return false
+      return true
     end
-    true
+    false
   end
   def wait
     @client.poke
@@ -406,10 +411,13 @@ class Subscriber
       @on_message=block
     else
       @messages << msg
-      return false if @quit_message == msg.to_s
+      if @quit_message == msg.to_s
+        return false 
+      end
       @on_message.call(msg) if @on_message.respond_to? :call
     end
   end
+  
   def on_failure(response=nil, &block)
     if block_given?
       @on_failure=block
@@ -463,6 +471,8 @@ class Publisher
       headers: {:'Content-Type' => content_type, :'Accept' => accept},
       method: method,
       body: body,
+      timeout: 1,
+      connecttimeout: 1
     )
     msg=Message.new body
     msg.content_type=content_type
