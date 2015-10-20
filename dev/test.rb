@@ -39,7 +39,7 @@ class PubSubTest <  Minitest::Test
   
   def test_interval_poll
     pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.2
-    #ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
+    ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
     
     sub.on_failure do |resp|
       assert_equal resp.code, 404
@@ -54,8 +54,8 @@ class PubSubTest <  Minitest::Test
     sub.reset
 
     sleep 0.4
-    #assert ws_sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
-    #ws_sub.terminate
+    assert ws_sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
+    ws_sub.terminate
     
     pub.post ["hello this", "is a thing"]
     sleep 0.3
