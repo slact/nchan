@@ -127,11 +127,114 @@ ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, con
   return rc;
 }
 
+ngx_int_t nchan_respond_cstring(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, char *body, ngx_int_t finalize) {
+  ngx_str_t str;
+  str.data = (u_char *)body;
+  str.len=strlen(body);
+  return nchan_respond_string(r, status_code, content_type, &str, finalize);
+}
+
 ngx_int_t nchan_respond_membuf(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, ngx_buf_t *body, ngx_int_t finalize) {
   ngx_str_t str;
   str.len = ngx_buf_size(body);
   str.data = body->start;
   return nchan_respond_string(r, status_code, content_type, &str, finalize);
+}
+
+ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t finalize, char **err) {
+  ngx_buf_t                 *buffer = msg->buf;
+  nchan_buf_and_chain_t     *cb;
+  ngx_str_t                 *etag;
+  ngx_int_t                  rc;
+  ngx_chain_t               *rchain;
+  ngx_buf_t                 *rbuffer;
+  ngx_file_t                *rfile;
+  
+  cb = ngx_palloc(r->pool, sizeof(*cb));
+  rchain = &cb->chain;
+  rbuffer = &cb->buf;
+  
+  rchain->next = NULL;
+  rchain->buf = rbuffer;
+  
+  ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
+  
+  rfile = rbuffer->file;
+  if(rfile != NULL) {
+    if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
+      if(err) *err = "couldn't allocate memory for file struct";
+      return NGX_ERROR;
+    }
+    ngx_memcpy(rfile, buffer->file, sizeof(*rbuffer));
+    rbuffer->file = rfile;
+  }
+  
+  if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
+    ngx_pool_cleanup_t        *cln = NULL;
+    ngx_pool_cleanup_file_t   *clnf = NULL;
+    if(rfile->name.len == 0) {
+      if(err) *err = "longpoll subscriber given an invalid fd with no filename";
+      return NGX_ERROR;
+    }
+    rfile->fd = ngx_open_file(rfile->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+    if(rfile->fd == NGX_INVALID_FILE) {
+      if(err) *err = "can't create output chain, file in buffer won't open";
+      return NGX_ERROR;
+    }
+    //and that it's closed when we're finished with it
+    cln = ngx_pool_cleanup_add(r->pool, sizeof(*clnf));
+    if(cln == NULL) {
+      ngx_close_file(rfile->fd);
+      rfile->fd=NGX_INVALID_FILE;
+      if(err) *err = "nchan: can't create output chain file cleanup.";
+      return NGX_ERROR;
+    }
+    cln->handler = ngx_pool_cleanup_file;
+    clnf = cln->data;
+    clnf->fd = rfile->fd;
+    clnf->name = rfile->name.data;
+    clnf->log = r->connection->log;
+  }
+  
+  if (msg->content_type.data!=NULL) {
+    r->headers_out.content_type.len=msg->content_type.len;
+    r->headers_out.content_type.data = msg->content_type.data;
+  }
+  
+  //last-modified
+  r->headers_out.last_modified_time = msg->message_time;
+
+  //etag
+  if((etag = ngx_palloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
+    if(err) *err = "unable to allocate memory for Etag header in subscriber's request pool";
+    return NGX_ERROR;
+  }
+  etag->data = (u_char *)(etag+1);
+  etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
+  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
+    if(err) *err="can't add etag header to response";
+    return NGX_ERROR;
+  }
+  //Vary header needed for proper HTTP caching.
+  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NCHAN_VARY_HEADER_VALUE);
+  
+  r->headers_out.status=NGX_HTTP_OK;
+  
+  //now send that message
+
+  //we know the entity length, and we're using just one buffer. so no chunking please.
+  r->headers_out.content_length_n=ngx_buf_size(rbuffer);
+  if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
+    ERR("request %p, send_header response %i", r, rc);
+    if(err) *err="WTF just happened to request?";
+    return NGX_ERROR;
+  }
+
+  rc= nchan_output_filter(r, rchain);
+  if(finalize) {
+    ngx_http_finalize_request(r, rc);
+  }
+  return rc;
 }
 
 ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, const ngx_str_t *body, ngx_int_t finalize) {

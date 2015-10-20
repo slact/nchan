@@ -198,106 +198,25 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
 
 static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  ngx_http_request_t        *r = fsub->data.request;
-  ngx_chain_t               *rchain;
-  ngx_buf_t                 *buffer = msg->buf;
-  ngx_buf_t                 *rbuffer;
-  ngx_str_t                 *etag;
-  ngx_file_t                *rfile;
-  ngx_pool_cleanup_t        *cln = NULL;
-  ngx_pool_cleanup_file_t   *clnf = NULL;
   ngx_int_t                  rc;
+  char                      *err = NULL;
   DBG("%p respond req %p msg %p", self, fsub->data.request, msg);
+  
   assert(fsub->data.already_responded != 1);
+  
   fsub->data.already_responded = 1;
-  if(buffer == NULL) {
-    return abort_response(self, "attemtping to respond to subscriber with message with NULL buffer");
-  }
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
   
-  //message body
-  rchain = ngx_pcalloc(r->pool, sizeof(*rchain));
-  rbuffer = ngx_pcalloc(r->pool, sizeof(*rbuffer));
-  rchain->next = NULL;
-  rchain->buf = rbuffer;
-  //rbuffer->recycled = 1; //do we need this? it's a fresh buffer with recycled data, so I'm guessing no.
-  
-  ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
-  //copied buffer will point to the original buffer's data
-  
-  rfile = rbuffer->file;
-  if(rfile != NULL) {
-    if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
-      return abort_response(self, "couldn't allocate memory for file struct");
-    }
-    ngx_memcpy(rfile, buffer->file, sizeof(*rbuffer));
-    rbuffer->file = rfile;
+  if((rc = nchan_respond_msg(fsub->data.request, msg, 0, &err)) == NGX_OK) {
+    finalize_maybe(self, rc);
+    dequeue_maybe(self);
+    return rc;
   }
-  
-  //ensure the file, if present, is open
-  if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
-    if(rfile->name.len == 0) {
-      return abort_response(self, "longpoll subscriber given an invalid fd with no filename");
-    }
-    rfile->fd = ngx_open_file(rfile->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-    if(rfile->fd == NGX_INVALID_FILE) {
-      return abort_response(self, "can't create output chain, file in buffer won't open");
-    }
-    //and that it's closed when we're finished with it
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(*clnf));
-    if(cln == NULL) {
-      ngx_close_file(rfile->fd);
-      rfile->fd=NGX_INVALID_FILE;
-      return abort_response(self, "nchan: can't create output chain file cleanup.");
-    }
-    cln->handler = ngx_pool_cleanup_file;
-    clnf = cln->data;
-    clnf->fd = rfile->fd;
-    clnf->name = rfile->name.data;
-    clnf->log = r->connection->log;
+  else {
+    return abort_response(self, err);
   }
-  
-  //now headers and stuff
-  if (msg->content_type.data!=NULL) {
-    r->headers_out.content_type.len=msg->content_type.len;
-    r->headers_out.content_type.data = msg->content_type.data;
-    r->headers_out.content_type_len = r->headers_out.content_type.len;
-  }
-
-  //message id: 2 parts, last-modified and etag headers.
-
-  //last-modified
-  r->headers_out.last_modified_time = msg->message_time;
-
-  //etag
-  if((etag = ngx_palloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
-    return abort_response(self, "unable to allocate memory for Etag header in subscriber's request pool");
-  }
-  etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
-  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
-    return abort_response(self, "can't add etag header to response");
-  }
-  //Vary header needed for proper HTTP caching.
-  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NCHAN_VARY_HEADER_VALUE);
-  
-  r->headers_out.status=NGX_HTTP_OK;
-
-  //now send that message
-
-  //we know the entity length, and we're using just one buffer. so no chunking please.
-  r->headers_out.content_length_n=ngx_buf_size(rbuffer);
-  if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
-    ERR("request %p, send_header response %i", r, rc);
-    return abort_response(self, "WTF just happened to request?");
-  }
-
-  rc = nchan_output_filter(r, rchain);
-  finalize_maybe(self, rc);
-  dequeue_maybe(self);
-  return rc;
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
