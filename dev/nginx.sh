@@ -2,12 +2,7 @@
 DEVDIR=`pwd`
 SRCDIR=$(readlink -m $DEVDIR/../src)
 echo $DEVDIR $SRCDIR
-NGINX_CONFIG=`pwd`/nginx.conf
-NGINX_TEMP_CONFIG=`pwd`/.nginx.thisrun.conf
-NGINX_OPT=( -p `pwd`/ 
-    -c $NGINX_TEMP_CONFIG
-)
-cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
+
 VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--expensive-definedness-checks=yes" "--read-var-info=yes")
 
 VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${DEVDIR}/vg.supp" )
@@ -39,6 +34,8 @@ REDIS_PORT=8537
 
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
 echo $cacheconf
+
+NGINX_CONF_FILE="nginx.conf"
 
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
@@ -75,10 +72,13 @@ for opt in $*; do
     worker|one|single) 
       WORKERS=1
       ;;
-    debugmaster)
+    debugmaster|debug-master)
       WORKERS=1
       debug_master=1
       NGINX_DAEMON="off"
+      ;;
+    devconf)
+      NGINX_CONF_FILE="dev.conf"
       ;;
     debug)
       WORKERS=1
@@ -100,6 +100,13 @@ for opt in $*; do
       MEM="1M";;
   esac
 done
+
+NGINX_CONFIG=`pwd`/$NGINX_CONF_FILE
+NGINX_TEMP_CONFIG=`pwd`/.nginx.thisrun.conf
+NGINX_OPT=( -p `pwd`/ 
+    -c $NGINX_TEMP_CONFIG
+)
+cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
 
 conf_replace(){
     echo "$1 $2"
