@@ -349,6 +349,9 @@ static void receive_get_message(ngx_int_t sender, void *data) {
     rd->shm_msg = msg == NULL ? NULL : msg->msg;
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
+  if(rd->shm_msg) {
+    rd->shm_msg->refcount++; //don't delete this mesage in transit!
+  }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, rd, sizeof(*rd));
 }
 
@@ -358,6 +361,9 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
+  if(d->shm_msg) {
+    d->shm_msg->refcount--;
+  }
   nchan_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   str_shm_free(d->shm_chid);
 }
