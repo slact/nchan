@@ -27,7 +27,6 @@ typedef struct {
 
 //message queue
 typedef struct {
-//  ngx_queue_t                     queue; //this MUST be first.
   ngx_str_t                       content_type;
   //  ngx_str_t                   charset;
   ngx_buf_t                      *buf;
@@ -53,7 +52,7 @@ typedef struct {
 //garbage collecting goodness
 typedef struct {
   ngx_queue_t                     queue;
-  nchan_channel_t        *channel;
+  nchan_channel_t                *channel;
 } nchan_channel_queue_t;
 
 
@@ -64,9 +63,9 @@ typedef struct {
 
 //shared memory
 typedef struct {
-  ngx_rbtree_t                          tree;
-  ngx_uint_t                            channels; //# of channels being used
-  ngx_uint_t                            messages; //# of channels being used
+  ngx_rbtree_t                  tree;
+  ngx_uint_t                    channels; //# of channels being used
+  ngx_uint_t                    messages; //# of channels being used
   nchan_worker_msg_sentinel_t  *ipc; //interprocess stuff
 } nchan_shm_data_t;
 
