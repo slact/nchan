@@ -9,6 +9,8 @@ Typhoeus::Config.memoize = false
 require "websocket-eventmachine-client"
 require 'eventmachine'
 
+PUBLISH_TIMEOUT=3 #seconds
+
 class Message
   attr_accessor :content_type, :message, :times_seen, :etag, :last_modified
   def initialize(msg, last_modified=nil, etag=nil)
@@ -471,8 +473,8 @@ class Publisher
       headers: {:'Content-Type' => content_type, :'Accept' => accept},
       method: method,
       body: body,
-      timeout: 1,
-      connecttimeout: 1
+      timeout: PUBLISH_TIMEOUT,
+      connecttimeout: PUBLISH_TIMEOUT
     )
     msg=Message.new body
     msg.content_type=content_type
