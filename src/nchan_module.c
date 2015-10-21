@@ -1,5 +1,5 @@
 /*
- *  Copyright 2009 Leo Ponomarev.
+ *  Written by Leo Ponomarev 2009-2015
  */
 
 #include <assert.h>
