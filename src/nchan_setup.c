@@ -201,7 +201,24 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 }
 
 
-static char *nchan_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+
+#define WEBSOCKET_STRINGS "websocket", "ws", "websockets"
+#define WEBSOCKET_STRINGS_N 3
+
+#define EVENTSOURCE_STRINGS "eventsource", "event-source", "es", "sse"
+#define EVENTSOURCE_STRINGS_N 4
+
+#define LONGPOLL_STRINGS "longpoll", "long-poll"
+#define LONGPOLL_STRINGS_N 2
+
+#define INTERVALPOLL_STRINGS "poll", "interval-poll", "intervalpoll", "http"
+#define INTERVALPOLL_STRINGS_N 4
+
+#define DISABLED_STRINGS "none", "off", "disabled"
+#define DISABLED_STRINGS_N 3
+
+
+static char *nchan_publisher_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_int_t fail) {
   nchan_loc_conf_t     *lcf = conf;
   ngx_str_t            *val;
   ngx_int_t             i;
@@ -218,8 +235,14 @@ static char *nchan_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
       if(nchan_strmatch(val, 1, "http")) {
         pubt->http=1;
       }
-      else if(nchan_strmatch(val, 3, "websocket", "ws", "websockets")) {
+      else if(nchan_strmatch(val, WEBSOCKET_STRINGS_N, WEBSOCKET_STRINGS)) {
         pubt->websocket=1;
+      }
+      else{
+         if(fail) {
+          ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
+         }
+        return NGX_CONF_ERROR;
       }
     }
   }
@@ -227,9 +250,11 @@ static char *nchan_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }
 
+static char *nchan_publisher_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_publisher_directive_parse(cf, cmd, conf, 1);
+}
 
-
-static char *nchan_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_int_t fail) {
   nchan_loc_conf_t     *lcf = conf;
   ngx_str_t            *val;
   ngx_int_t             i;
@@ -245,29 +270,47 @@ static char *nchan_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   else {
     for(i=1; i < cf->args->nelts; i++) {
       val = &((ngx_str_t *) cf->args->elts)[i];
-      if(nchan_strmatch(val, 2, "longpoll", "long-poll")) {
+      if(nchan_strmatch(val, LONGPOLL_STRINGS_N, LONGPOLL_STRINGS)) {
         subt->longpoll=1;
       }
-      else if(nchan_strmatch(val, 4, "poll", "interval-poll", "intervalpoll", "http")) {
+      else if(nchan_strmatch(val, INTERVALPOLL_STRINGS_N, INTERVALPOLL_STRINGS)) {
         subt->poll=1;
       }
-      else if(nchan_strmatch(val, 3, "websocket", "websockets", "ws")) {
+      else if(nchan_strmatch(val, WEBSOCKET_STRINGS_N, WEBSOCKET_STRINGS)) {
         subt->websocket=1;
       }
-      else if(nchan_strmatch(val, 4, "eventsource", "event-source", "es", "sse")) {
+      else if(nchan_strmatch(val, EVENTSOURCE_STRINGS_N, EVENTSOURCE_STRINGS)) {
         subt->eventsource=1;
       }
-      else if(nchan_strmatch(val, 2, "none", "off")) {
+      else if(nchan_strmatch(val, DISABLED_STRINGS_N, DISABLED_STRINGS)) {
         subt->poll=0;
         subt->longpoll=0;
         subt->websocket=0;
         subt->eventsource=0;
       }
       else {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
+        if(fail) {
+          ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
+        }
         return NGX_CONF_ERROR;
       }
     }
+  }
+  return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+}
+
+static char *nchan_subscriber_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_subscriber_directive_parse(cf, cmd, conf, 1);
+}
+
+static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t            *val;
+  ngx_int_t             i;
+  nchan_publisher_directive_parse(cf, cmd, conf, 0);
+  nchan_subscriber_directive_parse(cf, cmd, conf, 0);
+  for(i=1; i < cf->args->nelts; i++) {
+    val = &((ngx_str_t *) cf->args->elts)[i];
+    if(! nchan_strmatch(val, WEBSOCKET_STRINGS_N + EVENTSOURCE_STRINGS_N + LONGPOLL_STRINGS_N + INTERVALPOLL_STRINGS_N + DISABLED_STRINGS_N, WEBSOCKET_STRINGS, EVENTSOURCE_STRINGS, LONGPOLL_STRINGS, INTERVALPOLL_STRINGS, DISABLED_STRINGS));
   }
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }

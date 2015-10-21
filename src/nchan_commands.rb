@@ -2,15 +2,14 @@ CfCmd.new do
   nchan_pubsub [:srv, :loc],
       :nchan_pubsub_directive,
       :loc_conf,
-      args: 0,
-      disabled: true,
+      args: 0..5,
       
       group: "pubsub",
       default: "(none)",
       info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTS publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
     
   nchan_subscriber [:srv, :loc],
-      :nchan_subscriber,
+      :nchan_subscriber_directive,
       :loc_conf,
       args: 0..4,
       legacy: "push_subscriber",
@@ -33,7 +32,7 @@ CfCmd.new do
       - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
    
   nchan_publisher [:srv, :loc],
-      :nchan_publisher,
+      :nchan_publisher_directive,
       :loc_conf,
       args: 0,
       legacy: "push_publisher",
