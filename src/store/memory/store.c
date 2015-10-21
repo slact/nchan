@@ -221,10 +221,10 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
-    head->shared->internal_sub_count++;
+    ngx_atomic_fetch_add(&head->shared->internal_sub_count, 1);
   }
   else {
-    head->shared->sub_count++;
+    ngx_atomic_fetch_add(&head->shared->sub_count, 1);
   }
   head->last_subscribed = ngx_time();
   head->shared->last_seen = ngx_time();
@@ -792,8 +792,10 @@ static ngx_int_t chanhead_withdraw_message(nchan_store_channel_head_t *ch, store
     msg->prev->next = msg->next;
   }
   
-  ch->channel.messages--; //supposed to be atomic
-  ch->shared->stored_message_count--;
+  ch->channel.messages--;
+  
+  ngx_atomic_fetch_add(&ch->shared->stored_message_count, -1);
+  
   if(ch->channel.messages == 0) {
     assert(ch->msg_first == NULL);
     assert(ch->msg_last == NULL);
@@ -817,7 +819,7 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
   }
   //DBG("free msg %p", msg);
   
-  ngx_memzero(msg->msg, sizeof(*msg->msg)); //debug stuff
+  ngx_memset(msg->msg, 0xFA, sizeof(*msg->msg)); //debug stuff
   shm_free(shm, msg->msg);
   
   ngx_memzero(msg, sizeof(*msg)); //debug stuff
@@ -1210,8 +1212,8 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
     ch->msg_first = msg;
   }
   ch->channel.messages++;
-  ch->shared->stored_message_count++;
-  ch->shared->total_message_count++;
+  ngx_atomic_fetch_add(&ch->shared->stored_message_count, 1);
+  ngx_atomic_fetch_add(&ch->shared->total_message_count, 1);
 
   ch->msg_last = msg;
   

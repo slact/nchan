@@ -41,11 +41,10 @@ typedef struct {
 
 
 typedef struct {
-  ngx_rbtree_node_t               node; //this MUST be first.
   ngx_str_t                       id;
-  nchan_msg_t            *message_queue;
-  ngx_atomic_t                    messages;
-  ngx_atomic_t                    subscribers;
+  nchan_msg_t                    *message_queue;
+  ngx_int_t                       messages;
+  ngx_int_t                       subscribers;
   time_t                          last_seen;
   time_t                          expires;
 } nchan_channel_t;

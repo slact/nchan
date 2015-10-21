@@ -113,8 +113,8 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   DBG("recv subscr proceed to do ipc_sub stuff");
   head->shared = d->shared_channel_data;
   
-  head->shared->sub_count += head->sub_count;
-  head->shared->internal_sub_count += head->internal_sub_count;
+  ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count);
+  ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
   
   assert(head->shared != NULL);
   if(head->ipc_sub) {
@@ -350,7 +350,8 @@ static void receive_get_message(ngx_int_t sender, void *data) {
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   if(rd->shm_msg) {
-    rd->shm_msg->refcount++; //don't delete this mesage in transit!
+    //ERR("MSG %p refcount %i++", rd->shm_msg, rd->shm_msg->refcount);
+    ngx_atomic_fetch_add(&rd->shm_msg->refcount, 1);
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, rd, sizeof(*rd));
 }
@@ -362,7 +363,9 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
   if(d->shm_msg) {
-    d->shm_msg->refcount--;
+    //ERR("MSG %p refcount %i--", d->shm_msg, d->shm_msg->refcount);
+    assert(d->shm_msg->refcount > 0);
+    ngx_atomic_fetch_add(&d->shm_msg->refcount, -1);
   }
   nchan_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   str_shm_free(d->shm_chid);
