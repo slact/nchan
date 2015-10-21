@@ -207,7 +207,7 @@ static void receive_publish_status(ngx_int_t sender, void *data) {
 ////////// PUBLISH  ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
-  nchan_msg_t       *shm_msg;
+  nchan_msg_t               *shm_msg;
   ngx_int_t                  msg_timeout;
   ngx_int_t                  max_msgs;
   ngx_int_t                  min_msgs;
@@ -224,6 +224,8 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   assert(data.shm_chid->data != NULL);
 
   str_shm_verify(data.shm_chid);
+  
+  ngx_atomic_fetch_add(&shm_msg->refcount, 1);
   
   ret= ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
   return ret;
@@ -256,7 +258,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
     nchan_memstore_publish_generic(head, d->shm_msg, 0, NULL);
     //don't deallocate shm_msg
   }
-  
+  ngx_atomic_fetch_add(&d->shm_msg->refcount, -1);
   str_shm_free(d->shm_chid);
   d->shm_chid=NULL;
 }
