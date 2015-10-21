@@ -12,7 +12,7 @@
 #include <nchan_setup.c>
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
-#include <store/memory/store-private.h>
+#include <store/memory/store-private.h> //for debugging
 #include <nchan_output.h>
 
 ngx_int_t           nchan_worker_processes;
@@ -22,8 +22,15 @@ ngx_module_t        nchan_module;
 //nchan_store_t *nchan_store = &nchan_store_redis;
 nchan_store_t *nchan_store = &nchan_store_memory;
 
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN(%i):" fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN(%i):" fmt, memstore_slot(), ##args)
 
 
+static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r);
+static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r);
 
 static ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, nchan_loc_conf_t *cf) {
   static const ngx_str_t          TEXT_PLAIN = ngx_string("text/plain");
@@ -80,7 +87,12 @@ ngx_str_t * nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name
 }
 
 static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
-  ngx_str_t *tmp;
+  ngx_str_t       *tmp;
+  
+  if(r->method != NGX_HTTP_GET) {
+    return 0;
+  }
+  
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_CONNECTION))) {
     if(ngx_strncasecmp(tmp->data, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len) != 0) return 0;
   }
@@ -93,24 +105,6 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
 
   return 1;
 }
-
-/*
-ngx_int_t nchan_allow_caching(ngx_http_request_t * r) {
-  ngx_str_t *tmp_header;
-  ngx_str_t header_checks[2] = { NCHAN_HEADER_CACHE_CONTROL, NCHAN_HEADER_PRAGMA };
-  ngx_int_t i = 0;
-  
-  for(; i < 2; i++) {
-    tmp_header = nchan_get_header_value(r, header_checks[i]);
-    
-    if (tmp_header != NULL) {
-      return !!ngx_strncasecmp(tmp_header->data, NCHAN_CACHE_CONTROL_VALUE.data, tmp_header->len);
-    }
-  }
-  
-  return 1;
-}
-*/
 
 ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   ngx_uint_t                       i;
@@ -337,89 +331,142 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
   return NGX_DONE;
 }
 
-ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r) {
+static void memstore_sub_debug_start() {
+#if FAKESHARD  
+  #ifdef SUB_FAKE_WORKER
+  memstore_fakeprocess_push(SUB_FAKE_WORKER);
+  #else
+  memstore_fakeprocess_push_random();
+  #endif
+#endif   
+}
+static void memstore_sub_debug_end() {
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+#endif
+}
+
+static void memstore_pub_debug_start() {
+#if FAKESHARD
+  #ifdef PUB_FAKE_WORKER
+  memstore_fakeprocess_push(PUB_FAKE_WORKER);
+  #else
+  memstore_fakeprocess_push_random();
+  #endif
+#endif
+}
+static void memstore_pub_debug_end() {
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+#endif
+}
+
+ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  subscriber_t                   *sub;
-  ngx_str_t                      *channel_id;
-  nchan_msg_id_t                  msg_id;
+  ngx_str_t              *channel_id;
+  subscriber_t           *sub;
+  nchan_msg_id_t          msg_id;
+  ngx_int_t               rc = NGX_DONE;
   
   if((channel_id=nchan_get_channel_id(r, cf)) == NULL) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
-  
-  switch(r->method) {
-    case NGX_HTTP_GET:
-      
-#if FAKESHARD  
-  #ifdef SUB_FAKE_WORKER
-      memstore_fakeprocess_push(SUB_FAKE_WORKER);
-  #else
-      memstore_fakeprocess_push_random();
-  #endif
-#endif      
-      
+
+  if(nchan_detect_websocket_handshake(r)) {
+    //want websocket?
+    if(cf->sub.websocket) {
+      //we prefer to subscribe
+      memstore_sub_debug_start();
       nchan_subscriber_get_msg_id(r, &msg_id);
-      
-      if(nchan_detect_websocket_handshake(r)) {
-        //do you want a websocket?
-        if(cf->sub.websocket) {
-          if((sub = websocket_subscriber_create(r)) == NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          }
-          nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
-        }
-        else {
-          //too bad, you can't have it.
-          nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
-          return NGX_DONE;
-        }
+      if((sub = websocket_subscriber_create(r)) == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-      else {
-        if(cf->sub.longpoll) {
+      nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
+      
+      memstore_sub_debug_end();
+    }
+    else if(cf->pub.websocket) {
+      //no need to subscribe, but keep a connection open for publishing
+      //not yet implemented
+      assert(0);
+    }
+    else goto forbidden;
+    return NGX_DONE;
+  }
+  else {
+    switch(r->method) {
+      case NGX_HTTP_GET:
+        
+        if(cf->sub.poll) {
+          memstore_sub_debug_start();
+          
+          nchan_subscriber_get_msg_id(r, &msg_id);
+          r->main->count++;
+          nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
+          memstore_sub_debug_end();
+        }
+        else if(cf->sub.longpoll) {
+          memstore_sub_debug_start();
+          
+          nchan_subscriber_get_msg_id(r, &msg_id);
           if((sub = longpoll_subscriber_create(r)) == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
           nchan_store->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
-        }
-        else if(cf->sub.poll) {
-          r->main->count++;
           
-          nchan_store->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
-          return NGX_DONE;
+          memstore_sub_debug_end();
         }
-        else {
-          ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "No Homers allowed! Also no subscribers.");
-          nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
-          return NGX_DONE;
+        else if(cf->pub.http) {
+          nchan_http_publisher_handler(r);
         }
-      }
+        else goto forbidden;
+        break;
       
-#if FAKESHARD
-      memstore_fakeprocess_pop();
-#endif
-
-      return NGX_DONE;
-    
-    case NGX_HTTP_OPTIONS:
-      return nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
+      case NGX_HTTP_POST:
+      case NGX_HTTP_PUT:
+        if(cf->pub.http) {
+          nchan_http_publisher_handler(r);
+        }
+        else goto forbidden;
+        break;
       
-    default:
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NCHAN_ALLOW_GET_OPTIONS); //valid HTTP for the win
-      return NGX_HTTP_NOT_ALLOWED;
+      case NGX_HTTP_DELETE:
+        if(cf->pub.http) {
+          nchan_http_publisher_handler(r);
+        }
+        else goto forbidden;
+        break;
+      
+      case NGX_HTTP_OPTIONS:
+        if(cf->pub.http) {
+          nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+        }
+        else if(cf->sub.poll || cf->sub.longpoll) {
+          nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
+        }
+        else goto forbidden;
+        break;
+    }
   }
-
+  
+  return rc;
+  
+forbidden:
+  nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+  return NGX_OK;
 }
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
-  
   ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
   return NGX_OK;
 }
 
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
-  nchan_channel_t *ch = rptr;
+  nchan_channel_t       *ch = rptr;
+    
+  //DBG("publish_callback %V owner %i status %i", ch_id, memstore_channel_owner(ch_id), status);
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:
       //message was queued successfully, but there were no subscribers to receive it.
@@ -446,35 +493,35 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
   }
 }
 
-#define NGX_REQUEST_VAL_CHECK(val, fail, r, errormessage)             \
+#define NGX_REQUEST_VAL_CHECK(val, fail, r, errormessage)                 \
 if (val == fail) {                                                        \
-  ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);    \
-  ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);         \
-  return;                                                          \
+  ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, errormessage);      \
+  ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);           \
+  return;                                                                 \
   }
 
 static void nchan_publisher_body_handler(ngx_http_request_t * r) {
   ngx_str_t                      *channel_id;
-  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  ngx_uint_t                      method = r->method;
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_buf_t                      *buf;
   size_t                          content_type_len;
-  nchan_msg_t            *msg;
+  nchan_msg_t                    *msg;
   struct timeval                  tv;
+  
   if((channel_id = nchan_get_channel_id(r, cf))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
-#if FAKESHARD
-  #ifdef PUB_FAKE_WORKER
-  memstore_fakeprocess_push(PUB_FAKE_WORKER);
-  #else
-  memstore_fakeprocess_push_random();
-  #endif
-#endif
-  switch(method) {
-    case NGX_HTTP_POST:
+  
+  switch(r->method) {
+    case NGX_HTTP_GET:
+      nchan_store->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      break;
+    
     case NGX_HTTP_PUT:
+    case NGX_HTTP_POST:
+      memstore_pub_debug_start();
+      
       msg = ngx_pcalloc(r->pool, sizeof(*msg));
       msg->shared = 0;
       NGX_REQUEST_VAL_CHECK(msg, NULL, r, "nchan: can't allocate msg in request pool");
@@ -487,7 +534,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
         msg->content_type.len = content_type_len;
         msg->content_type.data = r->headers_in.content_type->value.data;
       }
-
+      
       if(r->headers_in.content_length_n == -1 || r->headers_in.content_length_n == 0) {
         buf = ngx_create_temp_buf(r->pool, 0);
       }
@@ -499,40 +546,28 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
       }
-
+      
       ngx_gettimeofday(&tv);
       msg->message_time = tv.tv_sec;
       
       msg->buf = buf;
-
+      
       nchan_store->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
+      
+      memstore_pub_debug_end();
       break;
       
     case NGX_HTTP_DELETE:
       nchan_store->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
       break;
       
-    case NGX_HTTP_GET:
-      nchan_store->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
-      break;
-      
-    case NGX_HTTP_OPTIONS:
-      nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
-      break;
-      
-    default:
-      //some other weird request method
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
-      nchan_respond_status(r, NGX_HTTP_NOT_ALLOWED, NULL, 0);
-      break;
+    default: 
+      nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
   }
-#if FAKESHARD
-  memstore_fakeprocess_pop();
-#endif
 }
 
 
-ngx_int_t nchan_publisher_handler(ngx_http_request_t * r) {
+static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   ngx_int_t                       rc;
   
   /* Instruct ngx_http_read_subscriber_request_body to store the request

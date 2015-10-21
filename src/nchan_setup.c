@@ -130,7 +130,7 @@ static ngx_str_t  nchan_channel_id = ngx_string("push_channel_id"); //channel id
 //publisher and subscriber handlers now.
 static char *nchan_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
   ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-  nchan_loc_conf_t       *plcf = conf;
+  nchan_loc_conf_t               *plcf = conf;
   clcf->handler = handler;
   clcf->if_modified_since = NGX_HTTP_IMS_OFF;
   plcf->index = ngx_http_get_variable_index(cf, &nchan_channel_id);
@@ -202,7 +202,29 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 
 
 static char *nchan_publisher(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return nchan_setup_handler(cf, conf, &nchan_publisher_handler);
+  nchan_loc_conf_t     *lcf = conf;
+  ngx_str_t            *val;
+  ngx_int_t             i;
+  
+  nchan_conf_publisher_types_t *pubt = &lcf->pub;
+  
+  if(cf->args->nelts == 1){ //no arguments
+    pubt->http=1;
+    pubt->websocket=1;
+  }
+  else {
+    for(i=1; i < cf->args->nelts; i++) {
+      val = &((ngx_str_t *) cf->args->elts)[i];
+      if(nchan_strmatch(val, 1, "http")) {
+        pubt->http=1;
+      }
+      else if(nchan_strmatch(val, 3, "websocket", "ws", "websockets")) {
+        pubt->websocket=1;
+      }
+    }
+  }
+  
+  return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }
 
 
@@ -247,7 +269,7 @@ static char *nchan_subscriber(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
       }
     }
   }
-  return nchan_setup_handler(cf, conf, &nchan_subscriber_handler);
+  return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {

@@ -20,9 +20,7 @@ extern ngx_int_t nchan_worker_processes;
 extern ngx_module_t nchan_module;
 extern nchan_store_t *nchan_store;
 
+ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
+
 ngx_str_t * nchan_get_header_value(ngx_http_request_t *r, ngx_str_t header_name);
-
-
-ngx_int_t nchan_subscriber_handler(ngx_http_request_t *r);
-ngx_int_t nchan_publisher_handler(ngx_http_request_t *r);
 ngx_int_t nchan_subscriber_get_etag_int(ngx_http_request_t * r);
