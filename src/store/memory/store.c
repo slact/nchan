@@ -221,10 +221,16 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
-    ngx_atomic_fetch_add(&head->shared->internal_sub_count, 1);
+    if(head->status == READY) {
+      assert(head->shared != NULL);
+      ngx_atomic_fetch_add(&head->shared->internal_sub_count, 1);
+    }
   }
   else {
-    ngx_atomic_fetch_add(&head->shared->sub_count, 1);
+    if(head->status == READY) {
+      assert(head->shared != NULL);
+      ngx_atomic_fetch_add(&head->shared->sub_count, 1);
+    }
   }
   head->last_subscribed = ngx_time();
   head->shared->last_seen = ngx_time();
