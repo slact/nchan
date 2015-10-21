@@ -857,7 +857,7 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   while(cur != NULL && ch->channel.messages > max_messages) {
     next = cur->next;
     if(cur->msg->refcount > 0) {
-      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
+      DBG("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount); //not a big deal
     }
     else {
       DBG("delete queue-too-big msg %i:%i", cur->msg->message_time, cur->msg->message_tag);
