@@ -1225,6 +1225,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   
   //DBG("create %i:%i %V", msg->msg->message_time, msg->msg->message_tag, chanhead_msg_to_str(msg));
   chanhead_messages_gc(ch);
+  assert(ch->msg_last == msg); //why does this happen?
   return ch->msg_last == msg ? NGX_OK : NGX_ERROR;
 }
 
