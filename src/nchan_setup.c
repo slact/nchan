@@ -1,4 +1,12 @@
+#include <nchan_websocket_publisher.h>
+#include <nchan_types.h>
+#include <store/memory/store.h>
+#include <store/redis/store.h>
+
 ngx_module_t  nchan_module;
+
+
+nchan_store_t  *default_storage_engine =  &nchan_store_memory;
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -10,7 +18,7 @@ static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   }
   
   //initialize storage engines
-  return nchan_store->init_module(cycle);
+  return default_storage_engine->init_module(cycle);
 }
 
 static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
@@ -19,14 +27,17 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
     return NGX_OK;
   }
   
-  if(nchan_store->init_worker(cycle)!=NGX_OK) {
+  if(default_storage_engine->init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
+  
+  nchan_websocket_publisher_llist_init();
+  
   return NGX_OK;
 }
 
 static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
-  return nchan_store->init_postconfig(cf);
+  return default_storage_engine->init_postconfig(cf);
 }
 
 //main config
@@ -36,7 +47,7 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   
-  nchan_store->create_main_conf(cf, mcf);
+  default_storage_engine->create_main_conf(cf, mcf);
   
   return mcf;
 }
@@ -69,7 +80,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->channel_group.data=NULL;
-  lcf->storage_engine.data=NULL;
+  lcf->storage_engine=NULL;
   return lcf;
 }
 
@@ -114,7 +125,10 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
-  ngx_conf_merge_str_value(conf->storage_engine, prev->storage_engine, "");
+  
+  if(conf->storage_engine == NULL) {
+    conf->storage_engine = prev->storage_engine ? prev->storage_engine : &nchan_store_memory;
+  }
   
   //sanity checks
   if(conf->max_messages < conf->min_messages) {
@@ -310,18 +324,21 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   nchan_subscriber_directive_parse(cf, cmd, conf, 0);
   for(i=1; i < cf->args->nelts; i++) {
     val = &((ngx_str_t *) cf->args->elts)[i];
-    if(! nchan_strmatch(val, WEBSOCKET_STRINGS_N + EVENTSOURCE_STRINGS_N + LONGPOLL_STRINGS_N + INTERVALPOLL_STRINGS_N + DISABLED_STRINGS_N, WEBSOCKET_STRINGS, EVENTSOURCE_STRINGS, LONGPOLL_STRINGS, INTERVALPOLL_STRINGS, DISABLED_STRINGS));
+    if(! nchan_strmatch(val, WEBSOCKET_STRINGS_N + EVENTSOURCE_STRINGS_N + LONGPOLL_STRINGS_N + INTERVALPOLL_STRINGS_N + DISABLED_STRINGS_N, WEBSOCKET_STRINGS, EVENTSOURCE_STRINGS, LONGPOLL_STRINGS, INTERVALPOLL_STRINGS, DISABLED_STRINGS)) {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
+      return NGX_CONF_ERROR;
+    }
   }
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
-  nchan_store->exit_worker(cycle);
+  default_storage_engine->exit_worker(cycle);
   ngx_destroy_pool(nchan_pool); // just for this worker
 }
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {
-  nchan_store->exit_master(cycle);
+  default_storage_engine->exit_master(cycle);
   ngx_destroy_pool(nchan_pool);
 }
 

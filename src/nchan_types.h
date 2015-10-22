@@ -81,7 +81,39 @@ typedef struct {
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;
 
-typedef struct {
+typedef struct subscriber_s subscriber_t;
+typedef struct nchan_loc_conf_s nchan_loc_conf_t;
+
+typedef struct{
+  //init
+  ngx_int_t (*init_module)(ngx_cycle_t *cycle);
+  ngx_int_t (*init_worker)(ngx_cycle_t *cycle);
+  ngx_int_t (*init_postconfig)(ngx_conf_t *cf);
+  void      (*create_main_conf)(ngx_conf_t *cf, nchan_main_conf_t *mcf);
+  
+  //quit
+  void      (*exit_worker)(ngx_cycle_t *cycle);
+  void      (*exit_master)(ngx_cycle_t *cycle);
+  
+  //async-friendly functions with callbacks
+  ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
+  ngx_int_t (*subscribe)   (ngx_str_t *, nchan_msg_id_t *, struct subscriber_s *, callback_pt, void *);
+  ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, struct nchan_loc_conf_s *, callback_pt, void *);
+  
+  ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
+  
+  //channel actions
+  ngx_int_t (*find_channel)(ngx_str_t *, callback_pt, void*);
+  
+  
+  
+  //message actions and properties
+  ngx_str_t * (*message_etag)(nchan_msg_t *msg, ngx_pool_t *pool);
+  ngx_str_t * (*message_content_type)(nchan_msg_t *msg, ngx_pool_t *pool);
+
+} nchan_store_t;
+
+struct nchan_loc_conf_s {
   ngx_int_t                       index;
   time_t                          buffer_timeout;
   ngx_int_t                       min_messages;
@@ -100,9 +132,8 @@ typedef struct {
   ngx_int_t                       max_channel_subscribers;
   ngx_int_t                       ignore_queue_on_no_cache;
   time_t                          channel_timeout;
-  ngx_str_t                       storage_engine;
-  ngx_str_t                       storage_engine_name;
-} nchan_loc_conf_t;
+  nchan_store_t                  *storage_engine;
+};// nchan_loc_conf_t;
 
 typedef struct {
   char *subtype;
@@ -117,7 +148,6 @@ typedef struct nchan_llist_timed_s {
   struct nchan_llist_timed_s     *next;
 } nchan_llist_timed_t;
 
-typedef struct subscriber_s subscriber_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 struct subscriber_s {
@@ -133,7 +163,7 @@ struct subscriber_s {
   subscriber_type_t    type;
   unsigned             dequeue_after_response:1;
   unsigned             destroy_after_dequeue:1;
-  nchan_loc_conf_t *cf;
+  nchan_loc_conf_t    *cf;
   void                *data;
 }; //subscriber_t
 
