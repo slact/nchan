@@ -69,8 +69,13 @@ while repeat do
     if loop
       puts "Can't repeat with custom message. use -m option"
     end
-    puts "Enter one-line message, press enter."
-    message=STDIN.gets #doesn't work when there are parameters. wtf?
+    puts "Enter message, press enter twice."
+    message = ""
+    while((line = STDIN.gets) != "\n") do #doesn't work when there are parameters. wtf?
+      message << line
+    end
+    message=message[0..-2] #remove trailing newline
+    
     pub.submit message, method, content_type, &on_response
     puts ""
   end
