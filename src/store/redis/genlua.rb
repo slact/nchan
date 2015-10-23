@@ -1,6 +1,5 @@
 #!/usr/bin/ruby
 require 'digest/sha1'
-require "pry"
 
 scripts={}
 
