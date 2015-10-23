@@ -28,6 +28,8 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static ngx_buf_t        data_prefix_buf;
   static ngx_str_t        terminal_newlines=ngx_string("\n\n");
   
+  DBG("%p output msg to subscriber", sub);
+  
   ngx_init_set_membuf(&data_prefix_buf, data_prefix.data, data_prefix.data + data_prefix.len);
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
@@ -35,7 +37,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_buf_t              *databuf;
   ngx_pool_t             *pool;
   nchan_buf_and_chain_t  *bc;
-  u_char                 *cur;
+  u_char                 *cur, *last;
   size_t                  len;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_int_t               rc;
@@ -45,6 +47,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   
   if(!buf->in_file) {
     cur = buf->start;
+    last = buf->end;
     do {
       bc = ngx_palloc(pool, sizeof(*bc)*2);
       assert(bc);
@@ -59,28 +62,40 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
       databuf->start = cur;
       databuf->pos = cur;
       
-      cur = ngx_strlchr(cur, databuf->last, '\n');
+      if(first_link == NULL) {
+        first_link = &bc[0].chain;
+      }
+      if(last_link != NULL) {
+        last_link->next = &bc[0].chain;
+      }
+      last_link = &bc[1].chain;
+      
+      cur = ngx_strlchr(cur, last, '\n');
       if(cur == NULL) {
         //sweet, no newlines!
         //let's get out of this hellish loop
-        break; 
+        databuf->end = last;
+        databuf->last = last;
+        cur = last + 1;
       }
       else {
         cur++; //include the newline
         databuf->end = cur;
         databuf->last = cur;
       }
-      
-      if(first_link == NULL) {
-        first_link = &bc[0].chain;
+      //no empty buffers please
+      if(ngx_buf_size(databuf) == 0) {
+        last_link = &bc[0].chain;
       }
-      last_link = &bc[1].chain;
-    } while(cur < buf->last);
+      
+    } while(cur <= last);
   } 
   else {
     //don't know how to do files yet
     assert(0);
   }
+  
+  
   
   //now 2 newlines at the end
   bc = ngx_palloc(pool, sizeof(*bc));
@@ -115,6 +130,9 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   u_char                    resp_buf[256];
   nchan_buf_and_chain_t     bc;
+  
+  DBG("%p output status to subscriber", sub);
+  
   bc.chain.buf = &bc.buf;
   bc.chain.next = NULL;
   ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V", status_code, status_line));
@@ -170,6 +188,8 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r) {
   sub->respond_status = es_respond_status;
   
   sub->dequeue_after_response = 0;
+  
+  DBG("%p create subscriber", sub);
   
   return sub;
 }
