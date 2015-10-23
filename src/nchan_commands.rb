@@ -1,5 +1,5 @@
 CfCmd.new do
-  nchan_pubsub [:srv, :loc],
+  nchan_pubsub [:srv, :loc, :if],
       :nchan_pubsub_directive,
       :loc_conf,
       args: 0..5,
@@ -8,7 +8,7 @@ CfCmd.new do
       default: "(none)",
       info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTS publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
     
-  nchan_subscriber [:srv, :loc],
+  nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
       :loc_conf,
       args: 0..4,
@@ -19,7 +19,7 @@ CfCmd.new do
       default: "any (websocket|eventsource|longpoll)",
       info: "Defines a server or location as a subscriber. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically via caching information request headers (If-Modified-Since and If-None-Match), beginning with the oldest available message. Requests for upcoming messages are handled in accordance with the setting provided. See the protocol documentation for a detailed description."
     
-  nchan_subscriber_concurrency [:main, :srv, :loc],
+  nchan_subscriber_concurrency [:main, :srv, :loc, :if],
       :nchan_set_subscriber_concurrency,
       [:loc_conf, :subscriber_concurrency],
       legacy: "push_subscriber_concurrency",
@@ -31,7 +31,7 @@ CfCmd.new do
       - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.
       - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
    
-  nchan_publisher [:srv, :loc],
+  nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
       :loc_conf,
       args: 0,
@@ -40,7 +40,7 @@ CfCmd.new do
       group: "pubsub",
       info: "Defines a server or location as a message publisher. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description."
     
-  nchan_subscriber_timeout [:main, :srv, :loc],
+  nchan_subscriber_timeout [:main, :srv, :loc, :if],
       :ngx_conf_set_sec_slot,
       [:loc_conf, :subscriber_timeout],
       legacy: "push_subscriber_timeout",
@@ -50,7 +50,7 @@ CfCmd.new do
       default: "0 (none)",
       info: "The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a push_subscriber is present in this or a child context."
     
-  nchan_store_messages [:main, :srv, :loc],
+  nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,
       :loc_conf,
       legacy: "push_store_messages",
