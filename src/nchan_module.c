@@ -6,6 +6,7 @@
 #include <nchan_module.h>
 
 #include <subscribers/longpoll.h>
+#include <subscribers/eventsource.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
@@ -138,6 +139,20 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
   return 1;
 }
 
+static ngx_int_t nchan_detect_eventsource_request(ngx_http_request_t *r) {
+  ngx_str_t       *accept_header;
+  if(r->headers_in.accept == NULL) {
+    return 0;
+  }
+  accept_header = &r->headers_in.accept->value;
+
+  if(ngx_strnstr(accept_header->data, "text/event-stream", accept_header->len)) {
+    return 1;
+  }
+  
+  return 0;
+}
+
 ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
@@ -161,8 +176,29 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
 }
 
 ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
-  ngx_str_t                      *if_none_match = nchan_subscriber_get_etag(r);
+  static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
+  ngx_str_t                      *last_event_id;
+  ngx_str_t                      *if_none_match;
   ngx_int_t                       tag=0;
+  
+  if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
+    u_char       *split, *last;
+    ngx_int_t     time;
+    //"<msg_time>:<msg_tag>"
+    last = last_event_id->data + last_event_id->len;
+    if((split = ngx_strlchr(last_event_id->data, last, ':')) != NULL) {
+      time = ngx_atoi(last_event_id->data, split - last_event_id->data);
+      split++;
+      tag = ngx_atoi(split, last - split);
+      if(time != NGX_ERROR && tag != NGX_ERROR) {
+        id->time = time;
+        id->tag = tag;
+        return NGX_OK;
+      }
+    }
+  }
+  
+  if_none_match = nchan_subscriber_get_etag(r);
   id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
   if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
     tag=0;
@@ -362,6 +398,9 @@ static ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_h
 static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
   return NGX_OK;
 }
+static ngx_int_t subscribe_eventsource_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
+  return NGX_OK;
+}
 static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
   return NGX_OK;
 }
@@ -467,7 +506,18 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   else {
     switch(r->method) {
       case NGX_HTTP_GET:
-        
+        if(cf->sub.eventsource && nchan_detect_eventsource_request(r)) {
+          memstore_sub_debug_start();
+          
+          nchan_subscriber_get_msg_id(r, &msg_id);
+          if((sub = eventsource_subscriber_create(r)) == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          cf->storage_engine->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_eventsource_callback, (void *)r);
+          
+          memstore_sub_debug_end();
+        }
         if(cf->sub.poll) {
           memstore_sub_debug_start();
           

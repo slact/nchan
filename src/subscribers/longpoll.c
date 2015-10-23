@@ -4,6 +4,7 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #include <assert.h>
+#include "longpoll-private.h"
 
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
@@ -11,28 +12,6 @@ void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
 
 static const subscriber_t new_longpoll_sub;
-
-typedef struct {
-  ngx_http_request_t      *request;
-  ngx_http_cleanup_t      *cln;
-  subscriber_callback_pt  dequeue_handler;
-  void                   *dequeue_handler_data;
-  ngx_event_t             timeout_ev;
-  subscriber_callback_pt  timeout_handler;
-  void                   *timeout_handler_data;
-  ngx_int_t               owner;
-  unsigned                holding:1;
-  unsigned                finalize_request:1;
-  unsigned                already_enqueued:1;
-  unsigned                already_responded:1;
-  unsigned                awaiting_destruction:1;
-  unsigned                reserved;
-} subscriber_data_t;
-
-typedef struct {
-  subscriber_t       sub;
-  subscriber_data_t  data;
-} full_subscriber_t;
 
 static void empty_handler() { }
 
