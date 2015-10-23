@@ -132,18 +132,26 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
 
 
 static ngx_int_t es_enqueue(subscriber_t *sub) {
-  static const ngx_str_t   content_type = ngx_string("text/event-stream");
-  ngx_int_t                rc = longpoll_enqueue(sub);
-  full_subscriber_t       *fsub = (full_subscriber_t *)sub;
-  ngx_http_request_t      *r = fsub->data.request;
+  static const ngx_str_t   content_type = ngx_string("text/event-stream; charset=utf8");
+  static const ngx_str_t   everything_ok = ngx_string("200 OK");
+  DBG("%p output status to subscriber", sub);
+  ngx_int_t                       rc = longpoll_enqueue(sub);
+  full_subscriber_t              *fsub = (full_subscriber_t *)sub;
+  ngx_http_request_t             *r = fsub->data.request;
+  ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);;
   if(rc != NGX_OK) {
     return rc;
   }
   
-  r->headers_out.status=NGX_HTTP_OK;
+  clcf->chunked_transfer_encoding = 0;
+  
+  r->headers_out.status=102; //fake it to fool the chunking module (mostly);
+  r->headers_out.status_line = everything_ok;
   
   r->headers_out.content_type.len = content_type.len;
   r->headers_out.content_type.data = content_type.data;
+  r->headers_out.content_length_n = -1;
+  r->header_only = 1;
   //send headers
   
   return ngx_http_send_header(r);

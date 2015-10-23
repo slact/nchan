@@ -518,7 +518,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           
           memstore_sub_debug_end();
         }
-        if(cf->sub.poll) {
+        else if(cf->sub.poll) {
           memstore_sub_debug_start();
           
           nchan_subscriber_get_msg_id(r, &msg_id);
