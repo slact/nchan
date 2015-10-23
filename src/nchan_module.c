@@ -32,37 +32,67 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r);
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r);
 static const ngx_str_t   TEXT_PLAIN = ngx_string("text/plain");
 
-ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, ngx_int_t fail_hard) {
+static ngx_str_t  nchan_legacy_channel_id_var_name = ngx_string("push_channel_id");
+
+ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
   static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
   
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  ngx_http_variable_value_t      *vv = ngx_http_get_indexed_variable(r, cf->index);
+  ngx_http_variable_value_t      *vv = NULL;
   ngx_str_t                      *group = &cf->channel_group;
-  size_t                          group_len = group->len;
-  size_t                          var_len;
   size_t                          len;
+  
   ngx_str_t                      *id;
-  if (vv == NULL || vv->not_found || vv->len == 0) {
+  ngx_str_t                       tmp_channel_id;
+  ngx_http_complex_value_t       *complex_channel_id;
+  
+  complex_channel_id = what == PUB ? cf->pub_channel_id : cf->sub_channel_id;
+  if(complex_channel_id == NULL) {
+    complex_channel_id = cf->pubsub_channel_id;
+  }
+  
+  if(complex_channel_id == NULL) {
+    //fallback to legacy $push_channel_id
+    ngx_uint_t        key = ngx_hash_key(nchan_legacy_channel_id_var_name.data, nchan_legacy_channel_id_var_name.len);
+    vv = ngx_http_get_variable(r, &nchan_legacy_channel_id_var_name, key);
+    if (vv == NULL || vv->not_found || vv->len == 0) {
+      if(fail_hard) {
+        nchan_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: the legacy $push_channel_id variable is not set");
+      }
+      return NULL;
+    }
+    else {
+      tmp_channel_id.len = vv->len;
+      tmp_channel_id.data = vv->data;
+    }
+  }
+  else {
+    ngx_http_complex_value(r, complex_channel_id, &tmp_channel_id);
+  }
+  
+  //maximum length limiter for channel id
+  if(tmp_channel_id.len > cf->max_channel_id_length) {
     if(fail_hard) {
-      nchan_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
-      ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, 
-            "nchan: the $push_channel_id variable is required but is not set");
+      nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+      ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, tmp_channel_id.len);
     }
     return NULL;
   }
-  //maximum length limiter for channel id
-  var_len = vv->len <= cf->max_channel_id_length ? vv->len : cf->max_channel_id_length; 
-  len = group_len + 1 + var_len;
+  
+  len = group->len + 1 + tmp_channel_id.len;
+  
   if((id = ngx_palloc(r->pool, sizeof(*id) + len))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "nchan: unable to allocate memory for $push_channel_id string");
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: unable to allocate memory for $push_channel_id string");
     return NULL;
   }
-  id->len=len;
-  id->data=(u_char *)(id+1);
-  ngx_memcpy(id->data, group->data, group_len);
-  id->data[group_len]='/';
-  ngx_memcpy(id->data + group_len + 1, vv->data, var_len);
+  
+  id->len = len;
+  id->data = (u_char *)(id+1);
+  ngx_memcpy(id->data, group->data, group->len);
+  id->data[group->len] = '/';
+  ngx_memcpy(id->data + group->len + 1, tmp_channel_id.data, tmp_channel_id.len);
+  ERR("%s channel id %V", what == PUB ? "pub" : "sub", id);
   return id;
 }
 
@@ -407,7 +437,8 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_msg_id_t          msg_id;
   ngx_int_t               rc = NGX_DONE;
   
-  if((channel_id=nchan_get_channel_id(r, 1)) == NULL) {
+  if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
+    //just get the subscriber_channel_id for now. the publisher one is handled elsewhere
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
@@ -547,7 +578,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
   nchan_msg_t                    *msg;
   struct timeval                  tv;
   
-  if((channel_id = nchan_get_channel_id(r, 1))==NULL) {
+  if((channel_id = nchan_get_channel_id(r, PUB, 1))==NULL) {
     ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }

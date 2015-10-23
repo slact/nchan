@@ -1,4 +1,6 @@
  fix: channel ids were not set within if statements in the nginx config
+ feature: pubsub locations, optional separate publisher and subscriber channel ids per location
+ feature: websocket publisher support
  name change: we're nchan now. code renamed, and cleaned up. config options are backwards-compatible.
  feature: websocket subscriber support
  huge refactor: completely new in-memory storage engine. No more global lock.

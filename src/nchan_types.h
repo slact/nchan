@@ -69,18 +69,6 @@ typedef struct {
   nchan_worker_msg_sentinel_t  *ipc; //interprocess stuff
 } nchan_shm_data_t;
 
-typedef struct {
-  unsigned                        http:1;
-  unsigned                        websocket:1;
-} nchan_conf_publisher_types_t;
-
-typedef struct {
-  unsigned                        poll:1; //bleugh
-  unsigned                        longpoll:1;
-  unsigned                        eventsource:1;
-  unsigned                        websocket:1;
-} nchan_conf_subscriber_types_t;
-
 typedef struct subscriber_s subscriber_t;
 typedef struct nchan_loc_conf_s nchan_loc_conf_t;
 
@@ -113,14 +101,31 @@ typedef struct{
 
 } nchan_store_t;
 
+typedef struct {
+  unsigned                        http:1;
+  unsigned                        websocket:1;
+} nchan_conf_publisher_types_t;
+
+typedef struct {
+  unsigned                        poll:1; //bleugh
+  unsigned                        longpoll:1;
+  unsigned                        eventsource:1;
+  unsigned                        websocket:1;
+} nchan_conf_subscriber_types_t;
+
+
 struct nchan_loc_conf_s {
-  ngx_int_t                       index;
   time_t                          buffer_timeout;
   ngx_int_t                       min_messages;
   ngx_int_t                       max_messages;
   
+  ngx_http_complex_value_t       *pub_channel_id;
   nchan_conf_publisher_types_t    pub;
+  
+  ngx_http_complex_value_t       *sub_channel_id;
   nchan_conf_subscriber_types_t   sub; 
+  
+  ngx_http_complex_value_t       *pubsub_channel_id;
   
   ngx_int_t                       subscriber_concurrency;
   time_t                          subscriber_timeout;
@@ -148,6 +153,7 @@ typedef struct nchan_llist_timed_s {
   struct nchan_llist_timed_s     *next;
 } nchan_llist_timed_t;
 
+typedef enum {PUB, SUB} pub_or_sub_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 struct subscriber_s {

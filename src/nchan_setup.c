@@ -81,6 +81,10 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->channel_group.data=NULL;
   lcf->storage_engine=NULL;
+  
+  lcf->sub_channel_id = NULL;
+  lcf->pub_channel_id = NULL;
+  lcf->pubsub_channel_id = NULL;
   return lcf;
 }
 
@@ -137,20 +141,28 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     return NGX_CONF_ERROR;
   }
   
+  if(conf->pub_channel_id == NULL) {
+    conf->pub_channel_id = prev->pub_channel_id;
+  }
+  if(conf->sub_channel_id == NULL) {
+    conf->sub_channel_id = prev->sub_channel_id;
+  }
+  if(conf->pubsub_channel_id == NULL) {
+    conf->pubsub_channel_id = prev->pubsub_channel_id;
+  }
+  
+  
   return NGX_CONF_OK;
 }
 
-static ngx_str_t  nchan_channel_id = ngx_string("push_channel_id"); //channel id variable
+ //channel id variable
 //publisher and subscriber handlers now.
 static char *nchan_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
   ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-  nchan_loc_conf_t               *plcf = conf;
+  //nchan_loc_conf_t               *plcf = conf;
   clcf->handler = handler;
   clcf->if_modified_since = NGX_HTTP_IMS_OFF;
-  plcf->index = ngx_http_get_variable_index(cf, &nchan_channel_id);
-  if (plcf->index == NGX_ERROR) {
-    return NGX_CONF_ERROR;
-  }
+  
   return NGX_CONF_OK;
 }
 

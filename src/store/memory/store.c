@@ -1394,7 +1394,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     channel_copy=&chead->channel;
     publish_msg = create_shm_msg(msg);
     publish_msg->expires = ngx_time() + NCHAN_NOBUFFER_MSG_EXPIRE_SEC;
-    DBG("publish unbuffer msg %i:%i expire %i ", msg->message_time, msg->message_tag, msg_timeout);
+    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->message_time, publish_msg->message_tag, msg_timeout);
     
     if((shmsg_link = create_shared_message(msg, 0)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);

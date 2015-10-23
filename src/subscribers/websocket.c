@@ -270,7 +270,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   b->temporary = 0;
 
   if(cf->pub.websocket) {
-    fsub->publish_channel_id = nchan_get_channel_id(r, 0);
+    fsub->publish_channel_id = nchan_get_channel_id(r, PUB, 0);
   }
   
   websocket_init_frame(&fsub->frame);
