@@ -104,6 +104,7 @@ typedef struct {
   void                   *timeout_handler_data;
   ngx_int_t               owner;
   ws_frame_t              frame;
+  
   ngx_str_t              *publish_channel_id;
   
   //reusable output chains and bufs
@@ -851,13 +852,8 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   //TODO: prepare msg file
   full_subscriber_t *fsub = (full_subscriber_t *)self;
-  if(!fsub->shook_hands) {
-    //can't respond yet, still in HTTP land. this is a server error.
-    return nchan_respond_status(fsub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
-  }
-  else { 
-    return nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
-  }
+  ensure_handshake(fsub);
+  return nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));  
 }
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {

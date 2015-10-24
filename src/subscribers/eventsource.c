@@ -14,6 +14,30 @@ void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
 
+static void es_ensure_headers_sent(full_subscriber_t *fsub) {
+  static const ngx_str_t   content_type = ngx_string("text/event-stream; charset=utf8");
+  static const ngx_str_t   everything_ok = ngx_string("200 OK");
+  ngx_http_request_t             *r = fsub->data.request;
+  ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+  if(!fsub->data.shook_hands) {
+  
+    clcf->chunked_transfer_encoding = 0;
+    
+    r->headers_out.status=102; //fake it to fool the chunking module (mostly);
+    r->headers_out.status_line = everything_ok;
+    
+    r->headers_out.content_type.len = content_type.len;
+    r->headers_out.content_type.data = content_type.data;
+    r->headers_out.content_length_n = -1;
+    r->header_only = 1;
+    //send headers
+    
+    ngx_http_send_header(r);
+      
+    fsub->data.shook_hands = 1; 
+  }
+}
+
 static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
   ngx_memzero(buf, sizeof(*buf));
   buf->start = start;
@@ -27,12 +51,8 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static ngx_str_t        data_prefix=ngx_string("data: ");
   static ngx_buf_t        data_prefix_buf;
   static ngx_str_t        terminal_newlines=ngx_string("\n\n");
-  
-  DBG("%p output msg to subscriber", sub);
-  
-  ngx_init_set_membuf(&data_prefix_buf, data_prefix.data, data_prefix.data + data_prefix.len);
-  
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
+  
   ngx_buf_t              *buf = msg->buf;
   ngx_buf_t              *databuf;
   ngx_pool_t             *pool;
@@ -41,6 +61,12 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   size_t                  len;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_int_t               rc;
+
+  es_ensure_headers_sent(fsub);
+  
+  ngx_init_set_membuf(&data_prefix_buf, data_prefix.data, data_prefix.data + data_prefix.len);
+  
+  DBG("%p output msg to subscriber", sub);
   
   pool = ngx_create_pool(NGX_DEFAULT_LINEBREAK_POOL_SIZE, ngx_cycle->log);
   assert(pool);
@@ -131,11 +157,13 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   u_char                    resp_buf[256];
   nchan_buf_and_chain_t     bc;
   
+  es_ensure_headers_sent(fsub);
+  
   DBG("%p output status to subscriber", sub);
   
   bc.chain.buf = &bc.buf;
   bc.chain.next = NULL;
-  ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V", status_code, status_line));
+  ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V\n", status_code, status_line));
   bc.buf.last_buf = 1;
   
   nchan_output_filter(fsub->data.request, &bc.chain);
@@ -150,35 +178,22 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
 
 
 static ngx_int_t es_enqueue(subscriber_t *sub) {
-  static const ngx_str_t   content_type = ngx_string("text/event-stream; charset=utf8");
-  static const ngx_str_t   everything_ok = ngx_string("200 OK");
+  ngx_int_t           rc;
+  full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
-  ngx_int_t                       rc = longpoll_enqueue(sub);
-  full_subscriber_t              *fsub = (full_subscriber_t *)sub;
-  ngx_http_request_t             *r = fsub->data.request;
-  ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);;
-  if(rc != NGX_OK) {
-    return rc;
-  }
-  
-  clcf->chunked_transfer_encoding = 0;
-  
-  r->headers_out.status=102; //fake it to fool the chunking module (mostly);
-  r->headers_out.status_line = everything_ok;
-  
-  r->headers_out.content_type.len = content_type.len;
-  r->headers_out.content_type.data = content_type.data;
-  r->headers_out.content_length_n = -1;
-  r->header_only = 1;
-  //send headers
-  
-  return ngx_http_send_header(r);
+  rc = longpoll_enqueue(sub);
+  fsub->data.finalize_request = 0;
+  es_ensure_headers_sent(fsub);
+  return rc;
 }
 
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r) {
   subscriber_t *sub;
+  full_subscriber_t *fsub;
   
   sub = longpoll_subscriber_create(r);
+  fsub = (full_subscriber_t *)sub;
+  
   
   sub->name = "eventsource";
   sub->type =  EVENTSOURCE;
@@ -188,6 +203,8 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r) {
   sub->respond_status = es_respond_status;
   
   sub->dequeue_after_response = 0;
+  
+  fsub->data.shook_hands = 0;
   
   DBG("%p create subscriber", sub);
   
