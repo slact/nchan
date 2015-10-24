@@ -966,7 +966,6 @@ typedef struct {
   callback_pt               cb;
   void                     *cb_privdata;
   unsigned                  sub_reserved:1;
-  unsigned                  already_enqueued:1;
   unsigned                  allocd:1;
 } subscribe_data_t;
 
@@ -977,12 +976,10 @@ static subscribe_data_t *subscribe_data_alloc(ngx_int_t owner) {
   if(memstore_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
-    d->already_enqueued = 1;
   }
   else {
     d = &static_subscribe_data;
     d->allocd = 0;
-    d->already_enqueued = 0;
   }
   return d;
 }
@@ -1069,21 +1066,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   d->chanhead = chanhead;
   
+  d->sub->reserve(d->sub);
+  d->sub_reserved = 1;
+  
   if(memstore_slot() != d->channel_owner) {
-    //check if we need to ask for a message
-    d->sub->enqueue(d->sub);
-    //TODO: use knowledge about the last message id to determine if the owner needs to be queried
-    /*if(msg_id->time != 0 && msg_id->time == chanhead->last_msgid.time && msg_id->tag == chanhead->last_msgid.tag) {
-      //we're here for the latest message, no need to check.
-      return nchan_memstore_handle_get_message_reply(NULL, NCHAN_MESSAGE_EXPECTED, d);
-    }
-    else {
-      
-    }*/
-    
-    d->sub->reserve(d->sub); //just in case the sub's connection gets dropped while we're waiting for ipc response
-    d->sub_reserved = 1;
-    
     memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
     return NGX_OK;
   }
@@ -1130,6 +1116,7 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
   subscriber_t               *sub = d->sub;
   ngx_int_t                   still_alive = 0;
   nchan_store_channel_head_t *chanhead = d->chanhead;
+  nchan_msg_id_t              msg_id;
   
   if(d->sub) {
     still_alive = d->sub_reserved ? (sub->release(sub) == NGX_OK) : 1;
@@ -1150,11 +1137,21 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
           case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
               assert(msg);
               sub->respond_message(sub, msg);
+              
+              if(!sub->dequeue_after_response) {
+                //get next message. walk the queue!
+                msg_id.time = msg->message_time;
+                msg_id.tag = msg->message_tag;
+                
+                ngx_memcpy(&d->msg_id, &msg_id, sizeof(msg_id));
+                return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+              }
+              
             break;
             
           case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
             ERR("first-in concurrency setting not supported");
-              sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+            sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
             break;
             
           default:
@@ -1171,10 +1168,7 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
         //fall-through
       case NCHAN_MESSAGE_EXPECTED: //not yet available
         // ♫ It's gonna be the future soon ♫
-        if(!d->already_enqueued) {
-          DBG("memstore: Sub %p should already have been enqueued. ...", sub);
-          sub->enqueue(sub);
-        }
+        sub->enqueue(sub);
         chanhead->spooler.add(&chanhead->spooler, sub);
         break;
         
@@ -1191,7 +1185,9 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
   else if(d->sub) {
     ERR("subscriber %p disappeared while fetching message. This is quite alright.", d->sub);
   }
+  
   d->cb(findmsg_status, msg, d->cb_privdata);
+  
   subscribe_data_free(d);
   return NGX_OK;
 }
