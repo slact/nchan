@@ -239,7 +239,7 @@ class Subscriber
       unless @subscriber.on_message(msg) == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue req
+        @hydra.queue  new_request(old_request: req)
       else
         @subscriber.finished+=1
       end
@@ -250,14 +250,20 @@ class Subscriber
       unless @subscriber.on_failure(response) == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue req
+        @hydra.queue  new_request(old_request: req)
       else
         @subscriber.finished+=1
       end
     end
     
-    def new_request
-      req=Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil) )
+    def new_request(opt = {})
+      headers = {}
+      headers["User-Agent"] = opt[:useragent] if opt[:useragent]
+      if opt[:old_request]
+        req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
+      else
+        req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
+      end
       req.on_complete do |response|
         @subscriber.waiting-=1
         if response.success?
@@ -271,9 +277,9 @@ class Subscriber
 
     def run(was_success=nil)
       #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
-      (@concurrency - @hydra.queued_requests.count).times do
+      (@concurrency - @hydra.queued_requests.count).times do |n|
         @subscriber.waiting+=1
-        @hydra.queue new_request
+        @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
       end
       @hydra.run
     end
