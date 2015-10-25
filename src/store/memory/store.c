@@ -233,7 +233,9 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
     }
   }
   head->last_subscribed = ngx_time();
-  head->shared->last_seen = ngx_time();
+  if(head->status == READY) {
+    head->shared->last_seen = ngx_time();
+  }
   assert(head->sub_count >= head->internal_sub_count);
 }
 

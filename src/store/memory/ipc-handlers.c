@@ -364,12 +364,12 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
+  nchan_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   if(d->shm_msg) {
     //ERR("MSG %p refcount %i--", d->shm_msg, d->shm_msg->refcount);
     assert(d->shm_msg->refcount > 0);
     ngx_atomic_fetch_add(&d->shm_msg->refcount, -1);
   }
-  nchan_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   str_shm_free(d->shm_chid);
 }
 
