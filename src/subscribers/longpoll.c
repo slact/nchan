@@ -170,7 +170,7 @@ static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
   return NGX_OK;
 }
 static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
-  ERR("abort! %s", errmsg);
+  ERR("abort! %s", errmsg ? errmsg : "unknown error");
   finalize_maybe(sub, NGX_ERROR);
   dequeue_maybe(sub);
   return NGX_ERROR;
