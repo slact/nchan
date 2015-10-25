@@ -93,7 +93,7 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
   ngx_memcpy(id->data, group->data, group->len);
   id->data[group->len] = '/';
   ngx_memcpy(id->data + group->len + 1, tmp_channel_id.data, tmp_channel_id.len);
-  ERR("%s channel id %V", what == PUB ? "pub" : "sub", id);
+  DBG("%s channel id %V", what == PUB ? "pub" : "sub", id);
   return id;
 }
 

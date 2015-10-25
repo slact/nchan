@@ -13,14 +13,14 @@
 static ngx_int_t max_worker_processes = 0;
 
 typedef struct {
-  ngx_event_t             gc_timer;
-  nchan_llist_timed_t     *gc_head;
-  nchan_llist_timed_t     *gc_tail;
-  nchan_store_channel_head_t     unbuffered_dummy_chanhead;
-  store_channel_head_shm_t dummy_shared_chaninfo;
-  nchan_store_channel_head_t    *hash;
+  ngx_event_t                     gc_timer;
+  nchan_llist_timed_t            *gc_head;
+  nchan_llist_timed_t            *gc_tail;
+  nchan_store_channel_head_t      unbuffered_dummy_chanhead;
+  store_channel_head_shm_t        dummy_shared_chaninfo;
+  nchan_store_channel_head_t     *hash;
 #if FAKESHARD
-  ngx_int_t               fake_slot;
+  ngx_int_t                       fake_slot;
 #endif
 } memstore_data_t;
 
@@ -1289,9 +1289,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf->file = &stuff->file;
     ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
     
-    /*
-    buf->file->fd = ngx_open_file(mbuf->file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
-    */
     buf->file->fd =NGX_INVALID_FILE;
     buf->file->log = ngx_cycle->log;
 

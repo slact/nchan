@@ -34,7 +34,6 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
         //just some random aborted subscriber
         spool->bulk_dequeue_handler(spool, sub->type, 1, pd);
       }
-
       else {
         //first response. pretend to dequeue everything right away
         if(spool->responded_subs == 1) {
