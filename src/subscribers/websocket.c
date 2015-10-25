@@ -108,10 +108,11 @@ typedef struct {
   ngx_str_t              *publish_channel_id;
   
   //reusable output chains and bufs
-  ngx_chain_t            *hdr_chain;
-  ngx_chain_t            *msg_chain;
-  ngx_buf_t              *hdr_buf;
-  ngx_buf_t              *msg_buf; //assumes single-buffer messages
+  ngx_chain_t             hdr_chain;
+  ngx_chain_t             msg_chain;
+  ngx_buf_t               hdr_buf;
+  ngx_buf_t               msg_buf; //assumes single-buffer messages
+  ngx_file_t              msg_file;
   
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
@@ -170,10 +171,10 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
         accept_header = &r->headers_in.accept->value;
       }
       tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, NULL);
-      ngx_memcpy(fsub->msg_buf, tmp_buf, sizeof(*tmp_buf));
-      fsub->msg_buf->last_buf=1;
+      ngx_memcpy(&fsub->msg_buf, tmp_buf, sizeof(*tmp_buf));
+      fsub->msg_buf.last_buf=1;
       
-      nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(fsub->msg_buf)));
+      nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&fsub->msg_buf))));
       break;
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
@@ -249,21 +250,19 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   fsub->reserved = 0;
   
   //initialize reusable chains and bufs
-  REQUEST_PALLOC(r, fsub->hdr_chain);
-  REQUEST_PALLOC(r, fsub->msg_chain);
-  REQUEST_PCALLOC(r, fsub->hdr_buf);
-  REQUEST_PCALLOC(r, fsub->msg_buf);
+  ngx_memzero(&fsub->hdr_buf, sizeof(fsub->hdr_buf));
+  ngx_memzero(&fsub->msg_buf, sizeof(fsub->msg_buf));
   //space for frame header
-  fsub->hdr_buf->start = ngx_pcalloc(r->pool, WEBSOCKET_FRAME_HEADER_MAX_LENGTH);
+  fsub->hdr_buf.start = ngx_pcalloc(r->pool, WEBSOCKET_FRAME_HEADER_MAX_LENGTH);
   
-  fsub->hdr_chain->buf = fsub->hdr_buf;
-  fsub->hdr_chain->next = fsub->msg_chain;
+  fsub->hdr_chain.buf = &fsub->hdr_buf;
+  fsub->hdr_chain.next = &fsub->msg_chain;
   
-  fsub->msg_chain->buf = fsub->msg_buf;
-  fsub->msg_chain->next = NULL;
+  fsub->msg_chain.buf = &fsub->msg_buf;
+  fsub->msg_chain.next = NULL;
   
   //what should the buffers look like?
-  b = fsub->msg_buf;
+  b = &fsub->msg_buf;
   b->last_buf = 1;
   b->last_in_chain = 1;
   b->flush = 1;
@@ -768,10 +767,10 @@ static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str) {
 }
 
 static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len) {
-  ngx_chain_t   *hdr_chain = fsub->hdr_chain;
+  ngx_chain_t   *hdr_chain = &fsub->hdr_chain;
   
-  ngx_buf_t     *hdr_buf = fsub->hdr_buf;
-  //ngx_buf_t     *msg_buf = fsub->msg_buf;
+  ngx_buf_t     *hdr_buf = &fsub->hdr_buf;
+  //ngx_buf_t     *msg_buf = &fsub->msg_buf;
   
   websocket_frame_header(hdr_buf, opcode, len);
   
@@ -781,7 +780,7 @@ static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const 
   }
   else {
     hdr_buf->last_buf=0;
-    hdr_chain->next = fsub->msg_chain;
+    hdr_chain->next = &fsub->msg_chain;
   }
   hdr_buf->pos=hdr_buf->start;
 
@@ -796,11 +795,19 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   //ngx_chain_t   *hdr_chain = fsub->hdr_chain;
   //ngx_chain_t   *msg_chain = fsub->msg_chain;
   
-  ngx_buf_t     *msg_buf = fsub->msg_buf;
+  ngx_buf_t     *msg_buf = &fsub->msg_buf;
   //message first
   assert(msg->buf);
   ngx_memcpy(msg_buf, msg->buf, sizeof(*msg_buf));
-  //TODO: open file if necessary
+  
+  if(msg_buf->in_file) {
+    //open file fd if necessary
+    ngx_memcpy(&fsub->msg_file, msg_buf->file, sizeof(fsub->msg_file));
+    if(fsub->msg_file.fd == NGX_INVALID_FILE) {
+      fsub->msg_file.fd = nchan_fdcache_get(&fsub->msg_file.name);
+    }
+    msg_buf->file = &fsub->msg_file;
+  }
   
   //now the header
   return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(msg_buf));
@@ -813,9 +820,9 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
 }
 
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  ngx_chain_t   *hdr_chain = fsub->hdr_chain;
-  ngx_buf_t     *hdr_buf = fsub->hdr_buf;
-  ngx_buf_t     *msg_buf = fsub->msg_buf;
+  ngx_chain_t   *hdr_chain = &fsub->hdr_chain;
+  ngx_buf_t     *hdr_buf = &fsub->hdr_buf;
+  ngx_buf_t     *msg_buf = &fsub->msg_buf;
   ngx_str_t      alt_err;
   uint16_t       code_net;
   
@@ -853,6 +860,7 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   //TODO: prepare msg file
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
+  
   return nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));  
 }
 

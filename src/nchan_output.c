@@ -1,6 +1,7 @@
 #include <ngx_http.h>
 #include "nchan_output.h"
 #include <assert.h>
+#include <nchan_thingcache.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -10,6 +11,59 @@
 
 #define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
 #define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
+
+
+
+
+//file descriptor cache
+static void *fd_cache = NULL;
+
+static void *fd_open(ngx_str_t *filename) {
+  static u_char   fn_buf[512];
+  u_char         *fname;
+  ngx_fd_t        fd;
+  if((filename->data + filename->len) == '\0') {
+    fname = filename->data;
+  }
+  else if(filename->len < 512) {
+    DBG("non-null-terminated filename. gotta copy.");
+    ngx_memcpy(&fn_buf, filename->data, filename->len);
+    fn_buf[filename->len]='\0';
+    fname = fn_buf;
+  }
+  else{
+    DBG("filaname too long: %V", filename);
+    return (void *)NGX_INVALID_FILE;
+  }
+  
+  fd = ngx_open_file(fname, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+  return (void *)(uintptr_t)fd;
+}
+
+static ngx_int_t fd_close(ngx_str_t *id, void *fdv) {
+  ngx_fd_t     fd = (ngx_fd_t )(uintptr_t )fdv;
+  
+  DBG("fdcache close fd %i", fd);
+  
+  ngx_close_file(fd);
+  return 1;
+}
+
+ngx_fd_t nchan_fdcache_get(ngx_str_t *filename) {
+  ngx_fd_t    fd;
+  fd = (ngx_fd_t)(uintptr_t )nchan_thingcache_get(fd_cache, filename);
+  DBG("fdcache fd %i", fd);
+  return fd;
+}
+
+void nchan_output_init(void) {
+  fd_cache = nchan_thingcache_init("fd_cache", fd_open, fd_close, 5);
+}
+
+void nchan_output_shutdown(void) {
+  nchan_thingcache_shutdown(fd_cache);
+}
+
 
 //general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
@@ -170,30 +224,15 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
   }
   
   if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
-    ngx_pool_cleanup_t        *cln = NULL;
-    ngx_pool_cleanup_file_t   *clnf = NULL;
     if(rfile->name.len == 0) {
       if(err) *err = "longpoll subscriber given an invalid fd with no filename";
       return NGX_ERROR;
     }
-    rfile->fd = ngx_open_file(rfile->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
+    rfile->fd = nchan_fdcache_get(&rfile->name);
     if(rfile->fd == NGX_INVALID_FILE) {
       if(err) *err = "can't create output chain, file in buffer won't open";
       return NGX_ERROR;
     }
-    //and that it's closed when we're finished with it
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(*clnf));
-    if(cln == NULL) {
-      ngx_close_file(rfile->fd);
-      rfile->fd=NGX_INVALID_FILE;
-      if(err) *err = "nchan: can't create output chain file cleanup.";
-      return NGX_ERROR;
-    }
-    cln->handler = ngx_pool_cleanup_file;
-    clnf = cln->data;
-    clnf->fd = rfile->fd;
-    clnf->name = rfile->name.data;
-    clnf->log = r->connection->log;
   }
   
   if (msg->content_type.data!=NULL) {

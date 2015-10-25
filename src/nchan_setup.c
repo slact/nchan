@@ -1,5 +1,6 @@
 #include <nchan_websocket_publisher.h>
 #include <nchan_types.h>
+#include <nchan_output.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 
@@ -32,6 +33,7 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
   }
   
   nchan_websocket_publisher_llist_init();
+  nchan_output_init();
   
   return NGX_OK;
 }
@@ -346,6 +348,7 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
   default_storage_engine->exit_worker(cycle);
+  nchan_output_shutdown();
   ngx_destroy_pool(nchan_pool); // just for this worker
 }
 
