@@ -830,7 +830,7 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
   ngx_memset(msg->msg, 0xFA, sizeof(*msg->msg)); //debug stuff
   shm_free(shm, msg->msg);
   
-  ngx_memzero(msg, sizeof(*msg)); //debug stuff
+  ngx_memset(msg, 0xBC, sizeof(*msg)); //debug stuff
   ngx_free(msg);
   return NGX_OK;
 }
@@ -853,10 +853,16 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   store_message_t *cur = ch->msg_first;
   store_message_t *next = NULL;
   time_t          now = ngx_time();
-  //DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
+  ngx_int_t       started_count, tried_count, deleted_count;
+  DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
+  
+  started_count = ch->channel.messages;
+  tried_count = 0;
+  deleted_count = 0;
   
   //is the message queue too big?
   while(cur != NULL && ch->channel.messages > max_messages) {
+    tried_count++;
     next = cur->next;
     if(cur->msg->refcount > 0) {
       DBG("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount); //not a big deal
@@ -864,21 +870,25 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     else {
       DBG("delete queue-too-big msg %i:%i", cur->msg->message_time, cur->msg->message_tag);
       chanhead_delete_message(ch, cur);
+      deleted_count++;
     }
     cur = next;
   }
   
   while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg->expires) {
+    tried_count++;
     next = cur->next;
     if(cur->msg->refcount > 0) {
-      ERR("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
+      DBG("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
     }
     else {
+      DBG("delete msg %p");
       chanhead_delete_message(ch, cur);
+      deleted_count++;
     }
     cur = next;
   }
-  //DBG("Tried deleting %i mesages", count);
+  DBG("message GC results: started with %i, walked %i, deleted %i msgs", started_count, tried_count, deleted_count);
   validate_chanhead_messages(ch);
   return NGX_OK;
 }
