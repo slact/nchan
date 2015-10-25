@@ -70,6 +70,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   u_char                 *cur, *last;
   size_t                  len;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
+  ngx_file_t             *msg_file;
   ngx_int_t               rc;
 
   es_ensure_headers_sent(fsub);
@@ -127,6 +128,11 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     } while(cur <= last);
   } 
   else {
+    msg_file = ngx_palloc(pool, sizeof(msg_file));
+    ngx_memcpy(msg_file, buf->file, sizeof(*msg_file));
+    if(msg_file->fd == NGX_INVALID_FILE) {
+      msg_file->fd = nchan_fdcache_get(&msg_file->name);
+    }
     //don't know how to do files yet
     assert(0);
   }
