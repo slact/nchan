@@ -563,7 +563,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         if(cf->pub.http) {
           nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
         }
-        else if(cf->sub.poll || cf->sub.longpoll) {
+        else if(cf->sub.poll || cf->sub.longpoll || cf->sub.eventsource || cf->sub.websocket) {
           nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
         }
         else goto forbidden;
