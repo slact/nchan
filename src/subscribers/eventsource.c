@@ -14,17 +14,29 @@ void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
 
+static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
+  ngx_memzero(buf, sizeof(*buf));
+  buf->start = start;
+  buf->pos = start;
+  buf->end = end;
+  buf->last = end;
+  buf->memory = 1;
+}
+
 static void es_ensure_headers_sent(full_subscriber_t *fsub) {
   static const ngx_str_t   content_type = ngx_string("text/event-stream; charset=utf8");
   static const ngx_str_t   everything_ok = ngx_string("200 OK");
+  static const ngx_str_t   hello = ngx_string(": hi\n");
+  
   ngx_http_request_t             *r = fsub->data.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+  nchan_buf_and_chain_t           bc;
   if(!fsub->data.shook_hands) {
   
     clcf->chunked_transfer_encoding = 0;
     
     r->headers_out.status=102; //fake it to fool the chunking module (mostly);
-    r->headers_out.status_line = everything_ok;
+    r->headers_out.status_line = everything_ok; //but in reality, we're returning a 200
     
     r->headers_out.content_type.len = content_type.len;
     r->headers_out.content_type.data = content_type.data;
@@ -33,18 +45,16 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
     //send headers
     
     ngx_http_send_header(r);
-      
+    
+    //send a ":hi" comment
+    ngx_init_set_membuf(&bc.buf, hello.data, hello.data + hello.len);
+    bc.chain.buf = &bc.buf;
+    bc.buf.last_buf=1;
+    bc.chain.next = NULL;
+    nchan_output_filter(fsub->data.request, &bc.chain);
+    
     fsub->data.shook_hands = 1; 
   }
-}
-
-static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->start = start;
-  buf->pos = start;
-  buf->end = end;
-  buf->last = end;
-  buf->memory = 1;
 }
 
 static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
