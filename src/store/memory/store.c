@@ -1016,8 +1016,8 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
   if(sub->cf->authorize_channel) {
+    sub->reserve(sub);
     if(memstore_slot() != owner) {
-      sub->reserve(sub);
       memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )nchan_store_subscribe_sub_reserved_check, d);
     }
     else {
