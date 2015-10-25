@@ -52,7 +52,7 @@ static void enqueue_llist_thing(nchan_thing_cache_t *tc, nchan_llist_timed_t *cu
   }
 }
 
-static void gc_timer_handler(ngx_event_t *ev) {
+static void nchan_thingcache_gc_timer_handler(ngx_event_t *ev) {
   nchan_llist_timed_t    *cur, *next;
   nchan_thing_cache_t    *tc = (nchan_thing_cache_t *)ev->data;
   time_t                 time = ngx_time();
@@ -61,14 +61,14 @@ static void gc_timer_handler(ngx_event_t *ev) {
   while(cur != NULL) {
     next = cur->next;
     if(cur->time <= time) {
+      if(cur->prev) {
+        cur->prev->next = next;
+      }
+      if(next) {
+        next->prev = cur->prev;
+      }
       if(!tc->destroy(&((thing_t *)cur->data)->id, ((thing_t *)cur->data)->data)) {
         //time extended!
-        if(cur->prev) {
-          cur->prev->next = next;
-        }
-        if(next) {
-          next->prev = cur->prev;
-        }
         enqueue_llist_thing(tc, cur);
       }
       else {
@@ -108,7 +108,7 @@ void *nchan_thingcache_init(char *name, void *(*create)(ngx_str_t *), ngx_int_t(
   tc->thing_tail = NULL;
   tc->things = NULL;
   ngx_memzero(&tc->gc_timer, sizeof(tc->gc_timer));
-  tc->gc_timer.handler = gc_timer_handler;
+  tc->gc_timer.handler = nchan_thingcache_gc_timer_handler;
   tc->gc_timer.data = tc;
   tc->gc_timer.log=ngx_cycle->log;
   return (void *)tc;
