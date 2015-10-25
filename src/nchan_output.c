@@ -20,9 +20,11 @@ static void *fd_cache = NULL;
 
 static void *fd_open(ngx_str_t *filename) {
   static u_char   fn_buf[512];
-  u_char         *fname;
+  u_char         *fname, *last;
   ngx_fd_t        fd;
-  if((filename->data + filename->len) == '\0') {
+  off_t           len = filename->len;
+  last = filename->data + len;
+  if(last == '\0' || (filename->len > 0 && last - 1 == '\0')) {
     fname = filename->data;
   }
   else if(filename->len < 512) {
