@@ -288,6 +288,26 @@ class Subscriber
     end
   end
   
+  class EventSourceClient < LongPollClient
+    def new_request
+      req = super
+      
+      req.options[:headers]["Accept"] = "text/event-stream"
+      
+      req.on_headers do |headers|
+        puts "yes hello"
+        binding.pry
+      end
+      
+      req.on_body do |body|
+        puts "body here"
+        binding.pry
+      end
+      req
+    end
+    
+  end
+  
   class IntervalPollClient < LongPollClient
     def initialize(subscr, opt={})
       @last_modified=nil
@@ -345,8 +365,8 @@ class Subscriber
     when :ws, :websocket
       @care_about_message_ids = false
       @client_class=WebSocketClient
-    when :es, :eventsource
-      raise "EventSource client not yet implemented"
+    when :es, :eventsource, :sse
+      @client_class=EventSourceClient
     else
       raise "unknown client type #{opt[:client]}"
     end
