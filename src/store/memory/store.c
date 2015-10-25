@@ -1117,6 +1117,7 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
   ngx_int_t                   still_alive = 0;
   nchan_store_channel_head_t *chanhead = d->chanhead;
   nchan_msg_id_t              msg_id;
+  ngx_int_t                   dequeue_after_response;
   
   if(d->sub) {
     still_alive = d->sub_reserved ? (sub->release(sub) == NGX_OK) : 1;
@@ -1136,9 +1137,10 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
             
           case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
               assert(msg);
+              dequeue_after_response = sub->dequeue_after_response;
               sub->respond_message(sub, msg);
               
-              if(!sub->dequeue_after_response) {
+              if(!dequeue_after_response) {
                 //get next message. walk the queue!
                 msg_id.time = msg->message_time;
                 msg_id.tag = msg->message_tag;
