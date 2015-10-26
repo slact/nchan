@@ -57,17 +57,56 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
   }
 }
 
-static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
+static ngx_int_t create_dataline_bufchain(ngx_pool_t *pool, ngx_chain_t **first_chain, ngx_chain_t **last_chain, ngx_buf_t *databuf) {
   static ngx_str_t        data_prefix=ngx_string("data: ");
-  static ngx_buf_t        data_prefix_buf;
+  static ngx_buf_t        data_prefix_real_buf;
+  static ngx_buf_t       *data_prefix_buf = NULL;
+  nchan_buf_and_chain_t  *bc;
+
+  if(data_prefix_buf == NULL) {
+    data_prefix_buf = &data_prefix_real_buf;
+    ngx_init_set_membuf(data_prefix_buf, data_prefix.data, data_prefix.data + data_prefix.len);
+  }
+  
+  if((bc = ngx_palloc(pool, sizeof(*bc)*2)) == NULL) {
+    return NGX_ERROR;
+  }
+  if(*last_chain) {
+    (*last_chain)->next = &bc[0].chain;
+  }
+  
+  bc[0].chain.next = &bc[1].chain;
+  bc[0].chain.buf = &bc[0].buf;
+  ngx_memcpy(&bc[0].buf, data_prefix_buf, sizeof(*data_prefix_buf));
+  
+  bc[1].chain.buf=&bc[1].buf;
+  bc[1].chain.next = NULL;
+  
+  ngx_memcpy(&bc[1].buf, databuf, sizeof(*databuf));
+  
+  if(*first_chain == NULL) {
+    *first_chain = &bc[0].chain;
+  }
+  
+  if(ngx_buf_size(databuf) == 0) {
+    //no empty buffers please
+    *last_chain = &bc[0].chain;
+  }
+  else {
+    *last_chain = &bc[1].chain;
+  }
+  
+  return NGX_OK;
+}
+
+static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static ngx_str_t        terminal_newlines=ngx_string("\n\n");
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
-  
-  ngx_buf_t              *buf = msg->buf;
-  ngx_buf_t              *databuf;
+  u_char                 *cur = NULL, *last = NULL;
+  ngx_buf_t              *msg_buf = msg->buf;
+  ngx_buf_t               databuf;
   ngx_pool_t             *pool;
   nchan_buf_and_chain_t  *bc;
-  u_char                 *cur, *last;
   size_t                  len;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_file_t             *msg_file;
@@ -75,68 +114,89 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
 
   es_ensure_headers_sent(fsub);
   
-  ngx_init_set_membuf(&data_prefix_buf, data_prefix.data, data_prefix.data + data_prefix.len);
-  
   DBG("%p output msg to subscriber", sub);
   
   pool = ngx_create_pool(NGX_DEFAULT_LINEBREAK_POOL_SIZE, ngx_cycle->log);
   assert(pool);
   
-  if(!buf->in_file) {
-    cur = buf->start;
-    last = buf->end;
+  ngx_memcpy(&databuf, msg_buf, sizeof(*msg_buf));
+  databuf.last_buf = 0;
+  
+  if(!databuf.in_file) {
+    cur = msg_buf->start;
+    last = msg_buf->end;
     do {
-      bc = ngx_palloc(pool, sizeof(*bc)*2);
-      assert(bc);
-      bc[0].chain.next = &bc[1].chain;
-      bc[0].chain.buf = &bc[0].buf;
-      ngx_memcpy(&bc[0].buf, &data_prefix_buf, sizeof(data_prefix_buf));
-      
-      databuf = &bc[1].buf;
-      bc[1].chain.buf=databuf;
-      ngx_memcpy(databuf, last_link ? last_link->buf : buf, sizeof(*databuf));
-      databuf->last_buf = 0;
-      databuf->start = cur;
-      databuf->pos = cur;
-      
-      if(first_link == NULL) {
-        first_link = &bc[0].chain;
-      }
-      if(last_link != NULL) {
-        last_link->next = &bc[0].chain;
-      }
-      last_link = &bc[1].chain;
+      databuf.start = cur;
+      databuf.pos = cur;
+      databuf.end = last;
+      databuf.last = last;
       
       cur = ngx_strlchr(cur, last, '\n');
       if(cur == NULL) {
         //sweet, no newlines!
         //let's get out of this hellish loop
-        databuf->end = last;
-        databuf->last = last;
+        databuf.end = last;
+        databuf.last = last;
         cur = last + 1;
       }
       else {
         cur++; //include the newline
-        databuf->end = cur;
-        databuf->last = cur;
+        databuf.end = cur;
+        databuf.last = cur;
       }
-      //no empty buffers please
-      if(ngx_buf_size(databuf) == 0) {
-        last_link = &bc[0].chain;
-      }
+      
+      create_dataline_bufchain(pool, &first_link, &last_link, &databuf);
       
     } while(cur <= last);
   } 
   else {
-    msg_file = ngx_palloc(pool, sizeof(msg_file));
-    ngx_memcpy(msg_file, buf->file, sizeof(*msg_file));
+    //great, we've gotta scan this whole damn file for line breaks.
+    //EventStream really isn't designed for large chunks of data
+    off_t       fcur, flast;
+    ngx_fd_t    fd;
+    int         chr_int;
+    FILE       *stream;
+    
+    msg_file = ngx_palloc(pool, sizeof(*msg_file));
+    databuf.file = msg_file;
+    ngx_memcpy(msg_file, msg_buf->file, sizeof(*msg_file));
+    
     if(msg_file->fd == NGX_INVALID_FILE) {
       msg_file->fd = nchan_fdcache_get(&msg_file->name);
     }
-    //don't know how to do files yet
-    assert(0);
+    fd = msg_file->fd;
+    
+    stream = fdopen(dup(fd), "r");
+    
+    fcur = databuf.file_pos;
+    flast = databuf.file_last;
+    
+    fseek(stream, fcur, SEEK_SET);
+    
+    do {
+      databuf.file_pos = fcur;
+      databuf.file_last = flast;
+      
+      //getc that shit
+      for(;;) {
+        chr_int = getc(stream);
+        if(chr_int == EOF) {
+          break;
+        }
+        else if(chr_int == (int )'\n') {
+          fcur++;
+          break;
+        }
+        fcur++;
+      }
+      
+      databuf.file_last = fcur;
+      create_dataline_bufchain(pool, &first_link, &last_link, &databuf);
+      
+    } while(fcur < flast);
+    
+    fclose(stream);
   }
-  
   
   
   //now 2 newlines at the end
