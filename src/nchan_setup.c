@@ -7,19 +7,20 @@
 ngx_module_t  nchan_module;
 
 
-nchan_store_t  *default_storage_engine =  &nchan_store_memory;
-
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
   //initialize subscriber queues
   //pool, please
-  if((nchan_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) { //I trust the cycle pool size to be a well-tuned one.
+  if((nchan_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) {
+  //I trust the cycle pool size to be a well-tuned one.
     return NGX_ERROR; 
   }
   
   //initialize storage engines
-  return default_storage_engine->init_module(cycle);
+  nchan_store_memory.init_module(cycle);
+  nchan_store_redis.init_module(cycle);
+  return NGX_OK;
 }
 
 static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
@@ -28,7 +29,11 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
     return NGX_OK;
   }
   
-  if(default_storage_engine->init_worker(cycle)!=NGX_OK) {
+  if(nchan_store_memory.init_worker(cycle)!=NGX_OK) {
+    return NGX_ERROR;
+  }
+  
+  if(nchan_store_redis.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
   
@@ -39,7 +44,13 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
-  return default_storage_engine->init_postconfig(cf);
+  if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
+    return NGX_ERROR;
+  }
+  if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
+    return NGX_ERROR;
+  }
+  return NGX_OK;
 }
 
 //main config
@@ -49,7 +60,8 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   
-  default_storage_engine->create_main_conf(cf, mcf);
+  nchan_store_memory.create_main_conf(cf, mcf);
+  nchan_store_redis.create_main_conf(cf, mcf);
   
   return mcf;
 }
@@ -347,13 +359,15 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 }
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
-  default_storage_engine->exit_worker(cycle);
+  nchan_store_memory.exit_worker(cycle);
+  nchan_store_redis.exit_worker(cycle);
   nchan_output_shutdown();
   ngx_destroy_pool(nchan_pool); // just for this worker
 }
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {
-  default_storage_engine->exit_master(cycle);
+  nchan_store_memory.exit_master(cycle);
+  nchan_store_redis.exit_master(cycle);
   ngx_destroy_pool(nchan_pool);
 }
 
