@@ -10,7 +10,7 @@
 static nchan_llist_timed_t  ws_pub_head;
 
 void nchan_websocket_publisher_llist_init() {
-  ERR("init WS publisher llist");
+  DBG("init WS publisher llist");
   ws_pub_head.prev = &ws_pub_head;
   ws_pub_head.next = &ws_pub_head;
   ws_pub_head.data = NULL;
