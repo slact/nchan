@@ -198,18 +198,18 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     fclose(stream);
   }
   
-  
   //now 2 newlines at the end
-  bc = ngx_palloc(pool, sizeof(*bc));
-  last_link->next=&bc->chain;
-  ngx_init_set_membuf(&bc->buf, terminal_newlines.data, terminal_newlines.data + terminal_newlines.len);
-  bc->buf.last_buf = 1;
-  
-  bc->chain.next = NULL;
-  bc->chain.buf = &bc->buf;
-  
-  last_link = &bc->chain;
-  
+  if(last_link) {
+    bc = ngx_palloc(pool, sizeof(*bc));
+    last_link->next=&bc->chain;
+    ngx_init_set_membuf(&bc->buf, terminal_newlines.data, terminal_newlines.data + terminal_newlines.len);
+    bc->buf.last_buf = 1;
+    
+    bc->chain.next = NULL;
+    bc->chain.buf = &bc->buf;
+    
+    last_link = &bc->chain;
+  }
   //okay, this crazy data chain is finished. now how about the mesage tag?
   len = 10 + 2*NGX_INT_T_LEN;
   bc = ngx_palloc(pool, sizeof(*bc) + len);

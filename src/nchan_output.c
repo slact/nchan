@@ -37,6 +37,12 @@ static void *fd_open(ngx_str_t *filename) {
     DBG("filaname too long: %V", filename);
     return (void *)NGX_INVALID_FILE;
   }
+  if(fname == NULL) {
+    //static analyzer pointed this out. This is a damn unlikely condition, but
+    //ALL HAIL CLANG'S STATIC ANALYZER
+    return (void *)NGX_INVALID_FILE;
+  }
+  
   
   fd = ngx_open_file(fname, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
   return (void *)(uintptr_t)fd;

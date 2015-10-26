@@ -325,10 +325,12 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
   }
-  ws_version=ngx_atoi(tmp->data, tmp->len);
-  if(ws_version != 13) {
-    r->headers_out.status = NGX_HTTP_BAD_REQUEST;
-    fsub->sub.dequeue_after_response=1;
+  else {
+    ws_version=ngx_atoi(tmp->data, tmp->len);
+    if(ws_version != 13) {
+      r->headers_out.status = NGX_HTTP_BAD_REQUEST;
+      fsub->sub.dequeue_after_response=1;
+    }
   }
   
   if((ws_key = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
