@@ -5,12 +5,25 @@ CONFIG_IN="nchan_commands.rb"
 CONFIG_OUT=ARGV[0]
   
 class CfCmd #let's make a DSL!
+  class OneOf
+    def initialize(arg) 
+      @arg=arg
+    end
+    def []=(k,v)
+      @arg[k]=v
+    end
+    def [](val)
+      ret=@arg[val]
+      raise "Unknown value lookup #{val}" if ret.nil?
+      ret
+    end
+  end
   class Cmd
     attr_accessor :name, :type, :set, :conf, :offset_name
     attr_accessor :contexts, :args, :legacy, :alt, :disabled
     def type_line
-      lut={ main: :NGX_HTTP_MAIN_CONF, srv: :NGX_HTTP_SRV_CONF, loc: :NGX_HTTP_LOC_CONF, 'if': :NGX_HTTP_LIF_CONF}
-      args_lut= {0 => :NGX_CONF_NOARGS, false => :NGX_CONF_NOARGS}
+      lut=OneOf.new(main: :NGX_HTTP_MAIN_CONF, srv: :NGX_HTTP_SRV_CONF, loc: :NGX_HTTP_LOC_CONF, 'if': :NGX_HTTP_LIF_CONF)
+      args_lut= OneOf.new(0 => :NGX_CONF_NOARGS, false => :NGX_CONF_NOARGS)
       
       (1..7).each{|n| args_lut[n]="NGX_CONF_TAKE#{n}"}
       
@@ -22,10 +35,10 @@ class CfCmd #let's make a DSL!
     end
     
     def conf_line
-      ({ loc_conf: :NGX_HTTP_LOC_CONF_OFFSET, main_conf: :NGX_HTTP_MAIN_CONF_OFFSET})[conf]
+      OneOf.new(loc_conf: :NGX_HTTP_LOC_CONF_OFFSET, main_conf: :NGX_HTTP_MAIN_CONF_OFFSET)[conf]
     end
     def offset_line
-      tpdf={main_conf: :nchan_main_conf_t, loc_conf: :nchan_loc_conf_t}
+      tpdf=OneOf.new(main_conf: :nchan_main_conf_t, loc_conf: :nchan_loc_conf_t)
       if offset_name
         "offsetof(#{tpdf[conf]}, #{offset_name})"
       else
