@@ -22,6 +22,7 @@ _NHPM_REDIS_SRCS="\
   ${ngx_addon_dir}/src/hiredis/net.c \
 "
 _NHPM_REDIS_STORE_SRCS="\
+  ${ngx_addon_dir}/src/store/redis/cmp.c \
   ${ngx_addon_dir}/src/store/redis/store.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
 "

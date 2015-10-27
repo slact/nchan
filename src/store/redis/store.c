@@ -37,7 +37,8 @@ struct nchan_store_channel_head_s {
 #define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
 #define uthash_free(ptr,sz) ngx_free(ptr)
 
-
+#include <stdbool.h>
+#include "cmp.h"
 #include <msgpack.h>
 
 #define REDIS_HOSTNAME "127.0.0.1"
