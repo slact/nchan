@@ -148,8 +148,8 @@ typedef struct {
 
 typedef struct nchan_llist_timed_s {
   struct nchan_llist_timed_s     *prev;
-  void                          *data;
-  time_t                         time;
+  void                           *data;
+  time_t                          time;
   struct nchan_llist_timed_s     *next;
 } nchan_llist_timed_t;
 

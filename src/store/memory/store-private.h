@@ -27,7 +27,7 @@ struct nchan_store_channel_head_s {
   ngx_str_t                       id; //channel id
   ngx_uint_t                      owner;  //for debugging
   ngx_uint_t                      slot;  //also mostly for debugging
-  nchan_channel_t         channel;
+  nchan_channel_t                 channel;
   channel_spooler_t               spooler;
   unsigned                        shutting_down:1;
   chanhead_pubsub_status_t        status;
@@ -40,9 +40,9 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                      max_messages;
   store_message_t                 *msg_first;
   store_message_t                 *msg_last;
-  nchan_msg_id_t          last_msgid;
+  nchan_msg_id_t                  last_msgid;
   subscriber_t                   *ipc_sub; //points to NULL or inaacceessible memory.
-  nchan_llist_timed_t              cleanlink;
+  nchan_llist_timed_t             cleanlink;
   UT_hash_handle                  hh;
 };
 

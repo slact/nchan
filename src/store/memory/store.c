@@ -520,8 +520,8 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nchan_llist_timed_t          *cur, *next;
-  nchan_store_channel_head_t         *ch = NULL;
-  ngx_int_t                    owner;
+  nchan_store_channel_head_t   *ch = NULL;
+  ngx_int_t                     owner;
   DBG("handling chanhead GC queue");
 #if FAKESHARD
   ngx_int_t        i;
@@ -620,9 +620,9 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt c
 }
 
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nchan_store_channel_head_t      *ch;
-  nchan_channel_t   chaninfo_copy;
-  store_message_t           *msg = NULL;
+  nchan_store_channel_head_t    *ch;
+  nchan_channel_t                chaninfo_copy;
+  store_message_t               *msg = NULL;
   
   assert(memstore_channel_owner(channel_id) == memstore_slot());
   
@@ -649,9 +649,11 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
 }
 
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  ngx_int_t owner = memstore_channel_owner(channel_id);
+  ngx_int_t                    owner = memstore_channel_owner(channel_id);
+  nchan_store_channel_head_t  *ch;
+  
   if(memstore_slot() == owner) {
-    nchan_store_channel_head_t      *ch = nchan_memstore_find_chanhead(channel_id);
+    ch = nchan_memstore_find_chanhead(channel_id);
     callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
   }
   else {
@@ -667,8 +669,8 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
   max_worker_processes = MAX_FAKE_WORKERS;
   
-  ngx_int_t        i;
-  memstore_data_t *cur;
+  ngx_int_t          i;
+  memstore_data_t   *cur;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
     cur = &mdata[i];
     cur->fake_slot = i;
@@ -678,7 +680,7 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
 #else
 
-  ngx_core_conf_t   *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   max_worker_processes = ccf->worker_processes;
 
 #endif
@@ -694,8 +696,8 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
-  nchan_main_conf_t *conf = ngx_http_conf_get_module_main_conf(cf, nchan_module);
-  ngx_str_t                  name = ngx_string("memstore");
+  nchan_main_conf_t     *conf = ngx_http_conf_get_module_main_conf(cf, nchan_module);
+  ngx_str_t              name = ngx_string("memstore");
   if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
     conf->shm_size=NCHAN_DEFAULT_SHM_SIZE;
   }
@@ -708,8 +710,8 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 }
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
-  DBG("exit worker %i", ngx_pid);
   nchan_store_channel_head_t         *cur, *tmp;
+  DBG("exit worker %i", ngx_pid);
   
 #if FAKESHARD
   ngx_int_t        i;
@@ -850,10 +852,10 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
 
 static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
   validate_chanhead_messages(ch);
-  store_message_t *cur = ch->msg_first;
-  store_message_t *next = NULL;
-  time_t          now = ngx_time();
-  ngx_int_t       started_count, tried_count, deleted_count;
+  store_message_t   *cur = ch->msg_first;
+  store_message_t   *next = NULL;
+  time_t             now = ngx_time();
+  ngx_int_t          started_count, tried_count, deleted_count;
   DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
   
   started_count = ch->channel.messages;
@@ -927,13 +929,14 @@ static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
 }
 
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, ngx_int_t *status) {
+  store_message_t      *cur, *first;
   DBG("find next message %i:%i", msgid->time, msgid->tag);
   if(ch == NULL) {
     *status = NCHAN_MESSAGE_NOTFOUND;
     return NULL;
   }
   chanhead_messages_gc(ch);
-  store_message_t *cur, *first;
+  
   first = ch->msg_first;
   cur = ch->msg_last;
   
@@ -970,18 +973,18 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
 }
 
 typedef struct {
-  subscriber_t             *sub;
-  ngx_int_t                 channel_owner;
-  nchan_store_channel_head_t      *chanhead;
-  ngx_str_t                *channel_id;
-  nchan_msg_id_t    msg_id;
-  callback_pt               cb;
-  void                     *cb_privdata;
-  unsigned                  sub_reserved:1;
-  unsigned                  allocd:1;
+  subscriber_t                *sub;
+  ngx_int_t                    channel_owner;
+  nchan_store_channel_head_t  *chanhead;
+  ngx_str_t                   *channel_id;
+  nchan_msg_id_t               msg_id;
+  callback_pt                  cb;
+  void                        *cb_privdata;
+  unsigned                     sub_reserved:1;
+  unsigned                     allocd:1;
 } subscribe_data_t;
 
-static subscribe_data_t             static_subscribe_data;
+static subscribe_data_t        static_subscribe_data;
 
 static subscribe_data_t *subscribe_data_alloc(ngx_int_t owner) {
   subscribe_data_t            *d;
@@ -1240,7 +1243,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
 }
 
 typedef struct {
-  nchan_msg_t     msg;
+  nchan_msg_t             msg;
   ngx_buf_t               buf;
   ngx_file_t              file;
 } shmsg_memspace_t;
@@ -1250,7 +1253,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   nchan_msg_t             *msg;
   ngx_buf_t               *mbuf = NULL, *buf=NULL;
   mbuf = m->buf;
-  
   
   size_t                   buf_body_size = 0, content_type_size = 0, buf_filename_size = 0;
   
@@ -1264,23 +1266,23 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
       buf_filename_size ++; //for null-termination
     }
   }
-
+  
   if((stuff = shm_calloc(shm, sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size), "message")) == NULL) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
   // shmsg memory chunk: |chmsg|buf|fd|filename|content_type_data|msg_body|
-
+  
   msg = &stuff->msg;
   buf = &stuff->buf;
-
+  
   ngx_memcpy(msg, m, sizeof(*msg));
   ngx_memcpy(buf, mbuf, sizeof(*buf));
   
   msg->buf = buf;
-
+  
   msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
-
+  
   msg->content_type.len = content_type_size;
   if(content_type_size > 0) {
     ngx_memcpy(msg->content_type.data, m->content_type.data, content_type_size);
@@ -1288,7 +1290,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   else {
     msg->content_type.data = NULL; //mostly for debugging, this isn't really necessary for correct operation.
   }
-
+  
   if(buf_body_size > 0) {
     buf->pos = (u_char *)&stuff[1] + buf_filename_size + content_type_size;
     buf->last = buf->pos + buf_body_size;
@@ -1303,9 +1305,9 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     
     buf->file->fd =NGX_INVALID_FILE;
     buf->file->log = ngx_cycle->log;
-
+    
     buf->file->name.data = (u_char *)&stuff[1];
-
+    
     ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
     
     //don't mmap it
@@ -1329,12 +1331,9 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   return msg;
 }
 
-
-
-
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {
   store_message_t          *chmsg;
-  nchan_msg_t     *msg;
+  nchan_msg_t              *msg;
   
   if(msg_already_in_shm) {
     msg = m;
@@ -1357,14 +1356,14 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 }
   
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
-  nchan_store_channel_head_t     *chead;
-  nchan_channel_t  channel_copy_data;
-  nchan_channel_t *channel_copy = &channel_copy_data;
-  store_message_t          *shmsg_link;
-  ngx_int_t                sub_count;
-  nchan_msg_t     *publish_msg;
-  ngx_int_t                owner = memstore_channel_owner(channel_id);
-  ngx_int_t                rc;
+  nchan_store_channel_head_t  *chead;
+  nchan_channel_t              channel_copy_data;
+  nchan_channel_t             *channel_copy = &channel_copy_data;
+  store_message_t             *shmsg_link;
+  ngx_int_t                    sub_count;
+  nchan_msg_t                 *publish_msg;
+  ngx_int_t                    owner = memstore_channel_owner(channel_id);
+  ngx_int_t                    rc;
   if(callback == NULL) {
     callback = empty_callback;
   }

@@ -60,21 +60,21 @@ static void str_shm_verify(ngx_str_t *str) {
 
 ////////// SUBSCRIBE ////////////////
 typedef struct {
-  ngx_str_t               *shm_chid;
-  store_channel_head_shm_t *shared_channel_data;
-  nchan_store_channel_head_t     *origin_chanhead;
-  subscriber_t            *subscriber;
+  ngx_str_t                   *shm_chid;
+  store_channel_head_shm_t    *shared_channel_data;
+  nchan_store_channel_head_t  *origin_chanhead;
+  subscriber_t                *subscriber;
 } subscribe_data_t;
 
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead) {
   DBG("send subscribe to %i, %V", dst, chid);
-  subscribe_data_t        data = {str_shm_copy(chid), NULL, origin_chanhead, NULL};
+  subscribe_data_t   data = {str_shm_copy(chid), NULL, origin_chanhead, NULL};
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
 }
 static void receive_subscribe(ngx_int_t sender, void *data) {
-  nchan_store_channel_head_t     *head;
-  subscribe_data_t        *d = (subscribe_data_t *)data;
-  subscriber_t            *ipc_sub;
+  nchan_store_channel_head_t *head;
+  subscribe_data_t           *d = (subscribe_data_t *)data;
+  subscriber_t               *ipc_sub;
   
   str_shm_verify(d->shm_chid);
   DBG("received subscribe request for channel %V", d->shm_chid);
@@ -96,13 +96,14 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
-  subscribe_data_t *d = (subscribe_data_t *)data;
+  subscribe_data_t             *d = (subscribe_data_t *)data;
+  nchan_store_channel_head_t   *head;
   DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
   
   str_shm_verify(d->shm_chid);
   
-  nchan_store_channel_head_t   *head = nchan_memstore_get_chanhead(d->shm_chid);
+  head = nchan_memstore_get_chanhead(d->shm_chid);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
     assert(0);
@@ -134,6 +135,7 @@ typedef struct {
   ngx_str_t    *shm_chid;
   void         *privdata;
 } unsubscribed_data_t;
+
 ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
   DBG("send unsubscribed to %i %V", dst, chid);
   unsubscribed_data_t        data = {str_shm_copy(chid), privdata};
@@ -186,7 +188,7 @@ ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_i
 static void receive_publish_status(ngx_int_t sender, void *data) {
   
   publish_status_data_t         *d = (publish_status_data_t *)data;
-  nchan_store_channel_head_t           *chead;
+  nchan_store_channel_head_t    *chead;
   
   str_shm_verify(d->shm_chid);
   
@@ -239,9 +241,9 @@ typedef struct {
 static ngx_int_t publish_message_generic_callback(ngx_int_t, void *, void *);
 
 static void receive_publish_message(ngx_int_t sender, void *data) {
-  publish_data_t         *d = (publish_data_t *)data;
-  publish_callback_data   cd;
-  nchan_store_channel_head_t    *head;
+  publish_data_t               *d = (publish_data_t *)data;
+  publish_callback_data         cd;
+  nchan_store_channel_head_t   *head;
   cd.d = d;
   cd.sender = sender;
   
@@ -290,8 +292,8 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   return NGX_OK;
 }
 static void receive_publish_message_reply(ngx_int_t sender, void *data) {
-  nchan_channel_t   ch;
-  publish_response_data    *d = (publish_response_data *)data;
+  nchan_channel_t         ch;
+  publish_response_data  *d = (publish_response_data *)data;
   DBG("IPC: received publish reply");
   
   ch.last_seen = d->last_seen;
@@ -304,13 +306,13 @@ static void receive_publish_message_reply(ngx_int_t sender, void *data) {
 ////////// GET MESSAGE ////////////////
 typedef struct {
   ngx_str_t              *shm_chid;
-  nchan_msg_id_t  msgid;
+  nchan_msg_id_t          msgid;
   void                   *privdata;
 } getmessage_data_t;
 
 typedef struct {
   ngx_str_t           *shm_chid;
-  nchan_msg_t *shm_msg;
+  nchan_msg_t         *shm_msg;
   ngx_int_t            getmsg_code;
   void                *privdata;
 } getmessage_reply_data_t;
@@ -327,10 +329,11 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
 }
 static void receive_get_message(ngx_int_t sender, void *data) {
-  nchan_store_channel_head_t *head;
-  store_message_t *msg = NULL;
-  ngx_int_t       status = NGX_ERROR;
-  getmessage_data_t *d = (getmessage_data_t *)data;
+  nchan_store_channel_head_t  *head;
+  store_message_t             *msg = NULL;
+  ngx_int_t                    status = NGX_ERROR;
+  getmessage_data_t           *d = (getmessage_data_t *)data;
+  
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
@@ -360,6 +363,7 @@ static void receive_get_message(ngx_int_t sender, void *data) {
 
 static void receive_get_message_reply(ngx_int_t sender, void *data) {
   getmessage_reply_data_t *d = (getmessage_reply_data_t *)data;
+  
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
@@ -380,11 +384,12 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
 typedef struct {
   ngx_str_t           *shm_chid;
   ngx_int_t            sender;
-  nchan_channel_t *shm_channel_info;
+  nchan_channel_t     *shm_channel_info;
   ngx_int_t            code;
   callback_pt          callback;
   void                *privdata;
 } delete_data_t;
+
 ngx_int_t memstore_ipc_send_delete(ngx_int_t dst, ngx_str_t *chid, callback_pt callback,void *privdata) {
   delete_data_t  data = {str_shm_copy(chid), 0, NULL, 0, callback, privdata};
   DBG("IPC: send delete to %i ch %V", dst, chid);
@@ -401,9 +406,10 @@ static void receive_delete(ngx_int_t sender, void *data) {
 }
 
 static ngx_int_t delete_callback_handler(ngx_int_t code, void *ch, void* privdata) {
-  nchan_channel_t *chan = (nchan_channel_t *)ch;
-  nchan_channel_t *chan_info;
-  delete_data_t *d = (delete_data_t *)privdata;
+  nchan_channel_t      *chan = (nchan_channel_t *)ch;
+  nchan_channel_t      *chan_info;
+  delete_data_t        *d = (delete_data_t *)privdata;
+  
   d->code = code;
   if (ch) {
     if((chan_info = shm_alloc(nchan_memstore_get_shm(), sizeof(*chan_info), "channel info for delete IPC response")) == NULL) {
@@ -425,7 +431,7 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, void *ch, void* privdat
   return NGX_OK;
 }
 static void receive_delete_reply(ngx_int_t sender, void *data) {
-  delete_data_t *d = (delete_data_t *)data;
+  delete_data_t       *d = (delete_data_t *)data;
 
   str_shm_verify(d->shm_chid);
   
@@ -443,19 +449,21 @@ static void receive_delete_reply(ngx_int_t sender, void *data) {
 
 ////////// GET CHANNEL INFO ////////////////
 typedef struct {
-  ngx_str_t               *shm_chid;
-  store_channel_head_shm_t *channel_info;
-  callback_pt              callback;
-  void                    *privdata;
+  ngx_str_t                 *shm_chid;
+  store_channel_head_shm_t  *channel_info;
+  callback_pt                callback;
+  void                      *privdata;
 } channel_info_data_t;
+
 ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
   DBG("send get_channel_info to %i %V", dst, chid);
   channel_info_data_t        data = {str_shm_copy(chid), NULL, callback, privdata};
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_CHANNEL_INFO, &data, sizeof(data));
 }
 static void receive_get_channel_info(ngx_int_t sender, void *data) {
-  channel_info_data_t    *d = (channel_info_data_t *)data;
+  channel_info_data_t           *d = (channel_info_data_t *)data;
   nchan_store_channel_head_t    *head;
+  
   DBG("received get_channel_info request for channel %V pridata", d->shm_chid, d->privdata);
   head = nchan_memstore_find_chanhead(d->shm_chid);
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
@@ -471,9 +479,10 @@ static void receive_get_channel_info(ngx_int_t sender, void *data) {
 }
 
 static void receive_get_channel_info_reply(ngx_int_t sender, void *data) {
-  channel_info_data_t      *d = (channel_info_data_t *)data;
-  nchan_channel_t  chan;
+  channel_info_data_t       *d = (channel_info_data_t *)data;
+  nchan_channel_t            chan;
   store_channel_head_shm_t  *chinfo = d->channel_info;
+  
   if(chinfo) {
     //construct channel
     chan.subscribers = chinfo->sub_count;
@@ -497,14 +506,18 @@ typedef struct {
   callback_pt              callback;
   void                    *privdata;
 } channel_existence_data_t;
+
 ngx_int_t memstore_ipc_send_does_channel_exist(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
   DBG("send does_channel_exist to %i %V", dst, chid);
   channel_existence_data_t        data = {str_shm_copy(chid), 0, callback, privdata};
+  
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_DOES_CHANNEL_EXIST, &data, sizeof(data));
 }
+
 static void receive_does_channel_exist(ngx_int_t sender, void *data) {
-  channel_existence_data_t    *d = (channel_existence_data_t *)data;
+  channel_existence_data_t      *d = (channel_existence_data_t *)data;
   nchan_store_channel_head_t    *head;
+  
   DBG("received does_channel_exist request for channel %V pridata", d->shm_chid, d->privdata);
   
   head = nchan_memstore_find_chanhead(d->shm_chid);
@@ -517,18 +530,19 @@ static void receive_does_channel_exist(ngx_int_t sender, void *data) {
 
 static void receive_does_channel_exist_reply(ngx_int_t sender, void *data) {
   channel_existence_data_t      *d = (channel_existence_data_t *)data;
+  
   d->callback(d->channel_exists, NULL, d->privdata);
   str_shm_free(d->shm_chid);
 }
 
 /////////// SUBSCRIBER KEEPALIVE ///////////
 typedef struct {
-  ngx_str_t             *shm_chid;
-  subscriber_t          *ipc_sub;
-  nchan_store_channel_head_t   *originator;
-  ngx_uint_t             renew;
-  callback_pt            callback;
-  void                  *privdata;
+  ngx_str_t                   *shm_chid;
+  subscriber_t                *ipc_sub;
+  nchan_store_channel_head_t  *originator;
+  ngx_uint_t                   renew;
+  callback_pt                  callback;
+  void                        *privdata;
 } sub_keepalive_data_t;
 
 ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, nchan_store_channel_head_t *ch, callback_pt callback, void *privdata) {
@@ -538,7 +552,7 @@ ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str
   return NGX_OK;
 }
 static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
-  sub_keepalive_data_t   *d = (sub_keepalive_data_t *)data;
+  sub_keepalive_data_t          *d = (sub_keepalive_data_t *)data;
   nchan_store_channel_head_t    *head;
   DBG("received subscriber keepalive for channel %V", d->shm_chid);
   head = nchan_memstore_find_chanhead(d->shm_chid);
@@ -568,7 +582,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
 }
 
 static void receive_subscriber_keepalive_reply(ngx_int_t sender, void *data) {
-  sub_keepalive_data_t *d = (sub_keepalive_data_t *)data;
+  sub_keepalive_data_t        *d = (sub_keepalive_data_t *)data;
   d->callback(d->renew, NULL, d->privdata);
   str_shm_free(d->shm_chid);
 }

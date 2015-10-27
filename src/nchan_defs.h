@@ -38,19 +38,19 @@
 #endif
 
 
-#define NCHAN_MESSAGE_RECEIVED 9000
-#define NCHAN_MESSAGE_QUEUED   9001
+#define NCHAN_MESSAGE_RECEIVED  9000
+#define NCHAN_MESSAGE_QUEUED    9001
 #define NCHAN_MESSAGE_NOTFOUND  1404
 #define NCHAN_MESSAGE_FOUND     1000
 #define NCHAN_MESSAGE_EXPECTED  1001
 #define NCHAN_MESSAGE_EXPIRED   1002
 
-extern const  ngx_str_t NCHAN_HEADER_ETAG;
-extern const  ngx_str_t NCHAN_HEADER_IF_NONE_MATCH;
-extern const  ngx_str_t NCHAN_HEADER_VARY;
-extern const  ngx_str_t NCHAN_HEADER_ALLOW;
-extern const  ngx_str_t NCHAN_HEADER_CACHE_CONTROL;
-extern const  ngx_str_t NCHAN_HEADER_PRAGMA;
+extern const ngx_str_t NCHAN_HEADER_ETAG;
+extern const ngx_str_t NCHAN_HEADER_IF_NONE_MATCH;
+extern const ngx_str_t NCHAN_HEADER_VARY;
+extern const ngx_str_t NCHAN_HEADER_ALLOW;
+extern const ngx_str_t NCHAN_HEADER_CACHE_CONTROL;
+extern const ngx_str_t NCHAN_HEADER_PRAGMA;
 
 extern const ngx_str_t NCHAN_HEADER_CONNECTION;
 extern const ngx_str_t NCHAN_HEADER_UPGRADE;

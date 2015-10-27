@@ -26,7 +26,7 @@ struct subscriber_pool_s{
   spooled_subscriber_t *first;
   ngx_pool_t           *pool;
   ngx_uint_t            sub_count;
-  nchan_llist_timed_t    cleanlink; //unused for now
+  nchan_llist_timed_t   cleanlink; //unused for now
   ngx_uint_t            generation;
   ngx_int_t             responded_subs;
   ngx_int_t             (*add)(subscriber_pool_t *self, subscriber_t *sub);
