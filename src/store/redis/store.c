@@ -822,6 +822,7 @@ static nchan_store_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_
   return head;
 }
 
+/*
 static ngx_int_t redis_subscriber_remove(subscriber_t *sub) {
   //remove subscriber from list
  //TODO: maybe?..
@@ -865,6 +866,7 @@ static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *r
   return NGX_OK;
 }
 
+
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead) {
   //remove from cleanup list if we're there
   nchan_llist_timed_t    *cl;
@@ -888,6 +890,7 @@ static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead) {
   return NGX_OK;
 }
 
+/*
 static void *put_current_subscribers_in_limbo(nchan_store_channel_head_t *head) {
   if(head==NULL) {
     ERR(" No head given. not putting anyone in limbo");
@@ -903,11 +906,15 @@ static void *put_current_subscribers_in_limbo(nchan_store_channel_head_t *head) 
   
   return NULL;
 }
+*/
 
+/*
 static void empty_callback(){}
+*/
 
+/*
 static ngx_int_t publish_to_subscribers_in_limbo(nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  /*
+  
   if(msg) {
     head->last_msgid.time = msg->message_time;
     head->last_msgid.tag = msg->message_tag;
@@ -939,10 +946,11 @@ static ngx_int_t publish_to_subscribers_in_limbo(nchan_msg_t *msg, ngx_int_t sta
       rsub->respond_status(rsub, status_code, status_line);
     }
   }
-  */
+
   //head->generation++;
   return NGX_OK;
 }
+*/
 
 static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nchan_store_channel_head_t        *head;
@@ -1287,8 +1295,9 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   //nchan_walk_rbtree(nchan_movezig_channel_locked, nchan_shm_zone);
 }
 
-static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
   /*
+static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
+
   redis_subscriber_t           *sub = cln->sub;
   nchan_store_channel_head_t         *head = shared->head;
   
@@ -1307,14 +1316,18 @@ static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
     head->sub=NULL;
     chanhead_gc_add(head);
   }
-  */
+  
 }
+*/
 
+  /*
 static void redis_subscriber_timeout_handler(subscriber_t *rsub, void *foo) {
   //redis_subscriber_t         *sub = cln->sub;
   //ngx_pfree(cln->shared->pool, sub); //do we even want this?
 }
+*/
 
+/*
 static ngx_int_t redis_subscriber_create(nchan_store_channel_head_t *chanhead, subscriber_t *sub) {
   //this is the new shit
   void *foo = NULL;
@@ -1327,6 +1340,7 @@ static ngx_int_t redis_subscriber_create(nchan_store_channel_head_t *chanhead, s
   
   return NGX_OK;
 }
+*/
 
 typedef struct {
   ngx_msec_t                   t;
@@ -1372,6 +1386,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   
   switch(status) {
     ngx_int_t                    ret;
+    ngx_int_t                    code;
     nchan_store_channel_head_t  *chanhead=NULL;
     
     case 200: //ok
@@ -1387,20 +1402,20 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
           //TODO: profiling
           redisAsyncCommand(rds_ctx(), &redisEchoCallback, NULL, "EVALSHA %s 0 %b %i", store_rds_lua_hashes.publish_status, STR(d->channel_id), 409);
           //FALL-THROUGH to BROADCAST
-
+          
         case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
           DBG("message found; respond to subscriber");
           ret = sub->respond_message(sub, msg);
           d->callback(ret, msg, d->privdata);
           break;
-
+          
         case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
           if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 6) && CHECK_REPLY_INT(reply->element[5]) && reply->element[5]->integer > 0 ) {
             ret = sub->respond_status(sub, NGX_HTTP_NOT_FOUND, &NCHAN_HTTP_STATUS_409);
             d->callback(ret, msg, d->privdata);
           }
           break;
-
+          
         default:
           ERR("unexpected subscriber_concurrency config value");
       }
@@ -1629,3 +1644,4 @@ nchan_store_t  nchan_store_redis = {
     &nchan_store_content_type_from_message,
     
 };
+
