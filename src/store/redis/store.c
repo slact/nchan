@@ -6,6 +6,7 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
+ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
 
 typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
 
@@ -52,10 +53,20 @@ struct nchan_store_channel_head_s {
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
 static nchan_store_channel_head_t *subhash = NULL;
+
+typedef struct {
+  u_char       *password;
+  u_char       *host;
+  ngx_int_t     port;
+  ngx_int_t     db;
+} redis_connect_params_t;
+
+static redis_connect_params_t   *redis_connect_params = NULL;
+static ngx_str_t                *redis_connect_url = NULL;
 
 //garbage collection for channel heads
 static ngx_event_t         chanhead_cleanup_timer = {0};
@@ -71,7 +82,85 @@ static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *, ngx_pool
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 
 static nchan_store_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id);
+
+static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
+
+  redis_connect_params_t  *params;
+  u_char                  *cur_out, *cur, *last, *ret;
+  
+  cur = url->data;
+  last = url->data + url->len;
+  
+  if((params = ngx_calloc(sizeof(*params) + url->len + 4, ngx_cycle->log)) == NULL) {
+    return NULL;
+  }
+  
+  cur_out = (u_char *)&params[1];
+  
+  //ignore redis://
+  if(ngx_strnstr(cur, "redis://", 8) != NULL) {
+    cur += 8;
+  }
+  
+  if(cur[0] == ':') {
+    cur++;
+    if((ret = ngx_strlchr(cur, last, '@')) == NULL) {
+      params->password = NULL;
+    }
+    else {
+      params->password = cur_out;
+      ngx_memcpy(cur_out, cur, ret - cur);
+      cur_out += (ret - cur) + 1;
+      cur = ret + 1;
+    }
+  }
+  else {
+    params->password = NULL;
+  }
+  
+  ///port:host
+  if((ret = ngx_strlchr(cur, last, ':')) == NULL) {
+    //just host
+    params->port = REDIS_PORT;
+    if((ret = ngx_strlchr(cur, last, '/')) == NULL) {
+      ret = last;
+    }
+    params->host = cur_out;
+    ngx_memcpy(cur_out, cur, ret-cur);
+    cur_out += (ret - cur) + 1;
+    cur = ret;
+  }
+  else {
+    params->host = cur_out;
+    ngx_memcpy(cur_out, cur, ret-cur);
+    cur_out += (ret - cur) + 1;
+    cur = ret + 1;
+    
+    //port
+    if((ret = ngx_strlchr(cur, last, '/')) == NULL) {
+      ret = last;
+    }
+    
+    params->port = ngx_atoi(cur, ret-cur);
+    if(params->port == NGX_ERROR) {
+      params->port = REDIS_PORT;
+    }
+  }
+  
+  if(cur[0] == '/') {
+    cur++;
+    params->db = ngx_atoi(cur, last-cur);
+    if(params->db == NGX_ERROR) {
+      params->db = 0;
+    }
+  }
+  
+  return params;
+}
+
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
+  redis_connect_params = parse_redis_url(redis_connect_url);
+  
   redis_nginx_init();
   
   chanhead_cleanup_timer.data=NULL;
@@ -1137,12 +1226,18 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
-  //initialize our little IPC
   return NGX_OK;
 }
 
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
-  //nothing to do but be OK.
+  nchan_main_conf_t     *conf = ngx_http_conf_get_module_main_conf(cf, nchan_module);
+  
+  if(conf->redis_url.len == 0) {
+    ngx_memcpy(&conf->redis_url, &REDIS_DEFAULT_URL, sizeof(REDIS_DEFAULT_URL));
+  }
+  
+  redis_connect_url = &conf->redis_url;
+  
   return NGX_OK;
 }
 
@@ -1171,13 +1266,14 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   if(chanhead_cleanup_timer.timer_set) {
     ngx_del_timer(&chanhead_cleanup_timer);
   }
+  
+  ngx_free(redis_connect_params);
+
 }
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
   //nchan_walk_rbtree(nchan_movezig_channel_locked, nchan_shm_zone);
-  //deinitialize IPC
-  
 }
 
 static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {

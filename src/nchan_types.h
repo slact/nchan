@@ -6,6 +6,7 @@ typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
+  ngx_str_t                       redis_url;
 } nchan_main_conf_t;
 
 typedef struct {
