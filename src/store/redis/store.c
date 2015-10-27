@@ -1395,7 +1395,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
       }
       break;
     case 418: //not yet available
-    case 403: //channel not found (not authorized)
+
       // ♫ It's gonna be the future soon ♫
       
       if((chanhead = nchan_store_get_chanhead(d->channel_id))== NULL) {
@@ -1405,11 +1405,13 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         ret = chanhead->spooler.add(&chanhead->spooler, sub);
         d->callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, d->privdata);
       }
-      break;
-    
+      break; 
+      
+    case 403: //channel not found (not authorized)
     case 404: //not found
-      sub->respond_status(sub, NGX_HTTP_NOT_FOUND, NULL);
-      d->callback(NGX_HTTP_NOT_FOUND, NULL, d->privdata);
+      code = cf->authorize_channel ? NGX_HTTP_FORBIDDEN : NGX_HTTP_NOT_FOUND;
+      sub->respond_status(sub, code, NULL);
+      d->callback(code, NULL, d->privdata);
       break;
     case 410: //gone
       //subscriber wants an expired message
