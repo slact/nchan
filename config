@@ -4,7 +4,7 @@ ngx_feature_name=
 ngx_feature_run=no
 ngx_feature_incs=
 ngx_feature_path=
-ngx_feature_libs=-lmsgpack
+ngx_feature_libs=
 ngx_feature_test=
 
 _NHPM_SUBSCRIBERS_SRCS="\
