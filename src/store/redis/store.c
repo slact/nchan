@@ -170,6 +170,9 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   chanhead_cleanup_timer.handler=&nchan_store_chanhead_cleanup_timer_handler;
   chanhead_cleanup_timer.log=ngx_cycle->log;
   
+  rds_ctx();
+  rds_sub_ctx();
+  
   return NGX_OK;
 }
 
