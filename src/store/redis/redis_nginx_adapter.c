@@ -5,6 +5,7 @@
 #include <signal.h>
 #include "redis_nginx_adapter.h"
 
+#define AUTH_COMMAND "AUTH %s"
 #define SELECT_DATABASE_COMMAND "SELECT %d"
 #define PING_DATABASE_COMMAND "PING"
 
@@ -34,14 +35,28 @@ redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdata)
     }
 }
 
+void 
+redis_nginx_auth_callback(redisAsyncContext *ac, void *rep, void *privdata)
+{
+    redisAsyncContext **context = privdata;
+    redisReply *reply = rep;
+    if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
+        if (context != NULL) {
+            *context = NULL;
+        }
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: AUTH command failed, probably because the password is incorrect");
+        redisAsyncFree(ac);
+    }
+}
+
 
 redisAsyncContext *
-redis_nginx_open_context(const char *host, int port, int database, redisAsyncContext **context)
+redis_nginx_open_context(u_char *host, int port, int database, u_char *password, redisAsyncContext **context)
 {
     redisAsyncContext *ac = NULL;
 
     if ((context == NULL) || (*context == NULL) || (*context)->err) {
-        ac = redisAsyncConnect(host, port);
+        ac = redisAsyncConnect((const char *)host, port);
         if (ac == NULL) {
             ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %s:%d", host, port);
             return NULL;
@@ -58,7 +73,9 @@ redis_nginx_open_context(const char *host, int port, int database, redisAsyncCon
         if (context != NULL) {
             *context = ac;
         }
-
+        if(password) {
+          redisAsyncCommand(ac, redis_nginx_auth_callback, context, AUTH_COMMAND, password);
+        }
         redisAsyncCommand(ac, redis_nginx_select_callback, context, SELECT_DATABASE_COMMAND, database);
     } else {
         ac = *context;

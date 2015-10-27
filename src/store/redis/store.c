@@ -68,6 +68,9 @@ typedef struct {
 static redis_connect_params_t   *redis_connect_params = NULL;
 static ngx_str_t                *redis_connect_url = NULL;
 
+static redisAsyncContext * rds_sub_ctx(void);
+static redisAsyncContext * rds_ctx(void);
+
 //garbage collection for channel heads
 static ngx_event_t         chanhead_cleanup_timer = {0};
 static nchan_llist_timed_t *chanhead_cleanup_head = NULL;
@@ -262,13 +265,11 @@ static void redisInitScripts(redisAsyncContext *c){
   }
 }
 
-static redisAsyncContext * rds_sub_ctx(void);
-
 static redisAsyncContext * rds_ctx(void){
   static redisAsyncContext *c = NULL;
   if(c==NULL) {
     //init redis
-    redis_nginx_open_context((const char *)REDIS_HOSTNAME, REDIS_PORT, 1, &c);
+    redis_nginx_open_context(redis_connect_params->host, redis_connect_params->port, redis_connect_params->db, redis_connect_params->password, &c);
     redisInitScripts(c);
   }
   rds_sub_ctx();
@@ -640,7 +641,7 @@ static redisAsyncContext * rds_sub_ctx(void){
   }
   if(c==NULL) {
     //init redis
-    redis_nginx_open_context((const char *)"localhost", 8537, 1, &c);
+    redis_nginx_open_context(redis_connect_params->host, redis_connect_params->port, redis_connect_params->db, redis_connect_params->password, &c);
     redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", subscriber_channel);
   }
   return c;
