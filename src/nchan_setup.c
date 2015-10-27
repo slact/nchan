@@ -47,7 +47,7 @@ static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
   if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
-  if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
+  if(nchan_store_redis.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
   return NGX_OK;
@@ -145,7 +145,7 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   
   if(conf->storage_engine == NULL) {
-    conf->storage_engine = prev->storage_engine ? prev->storage_engine : &nchan_store_memory;
+    conf->storage_engine = prev->storage_engine ? prev->storage_engine : &nchan_store_redis;
   }
   
   //sanity checks
