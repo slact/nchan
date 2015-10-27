@@ -100,6 +100,7 @@ static ngx_int_t longpoll_release(subscriber_t *self) {
   assert(fsub->data.reserved > 0);
   fsub->data.reserved--;
   if(fsub->data.awaiting_destruction == 1 && fsub->data.reserved == 0) {
+    ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
     ngx_free(fsub);
     return NGX_ABORT;
   }
