@@ -4,8 +4,9 @@
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 
-ngx_module_t  nchan_module;
+ngx_module_t     nchan_module;
 
+nchan_store_t   *default_storage_engine = &nchan_store_redis;
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -145,7 +146,7 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   
   if(conf->storage_engine == NULL) {
-    conf->storage_engine = prev->storage_engine ? prev->storage_engine : &nchan_store_redis;
+    conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;
   }
   
   //sanity checks
@@ -409,26 +410,26 @@ static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, 
 #include "nchan_config_commands.c" //hideous but hey, it works
 
 static ngx_http_module_t  nchan_module_ctx = {
-    NULL,                                  /* preconfiguration */
+    NULL,                          /* preconfiguration */
     nchan_postconfig,              /* postconfiguration */
     nchan_create_main_conf,        /* create main configuration */
-    NULL,                                  /* init main configuration */
-    NULL,                                  /* create server configuration */
-    NULL,                                  /* merge server configuration */
+    NULL,                          /* init main configuration */
+    NULL,                          /* create server configuration */
+    NULL,                          /* merge server configuration */
     nchan_create_loc_conf,         /* create location configuration */
     nchan_merge_loc_conf,          /* merge location configuration */
 };
 
 ngx_module_t  nchan_module = {
     NGX_MODULE_V1,
-    &nchan_module_ctx,                     /* module context */
+    &nchan_module_ctx,             /* module context */
     nchan_commands,                /* module directives */
-    NGX_HTTP_MODULE,                       /* module type */
-    NULL,                                  /* init master */
+    NGX_HTTP_MODULE,               /* module type */
+    NULL,                          /* init master */
     nchan_init_module,             /* init module */
     nchan_init_worker,             /* init process */
-    NULL,                                  /* init thread */
-    NULL,                                  /* exit thread */
+    NULL,                          /* init thread */
+    NULL,                          /* exit thread */
     nchan_exit_worker,             /* exit process */
     nchan_exit_master,             /* exit master */
     NGX_MODULE_V1_PADDING
