@@ -993,6 +993,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
         redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
         DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+        stop_spooler(&ch->spooler);
         CHANNEL_HASH_DEL(ch);
         ngx_free(ch);
       }
