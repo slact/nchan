@@ -270,11 +270,6 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   return NGX_OK;
 }
 
-static ngx_int_t stop_chanhead_spooler(nchan_store_channel_head_t *head) {
-  stop_spooler(&head->spooler);
-  return NGX_OK;
-}
-
 static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   ngx_int_t                      owner = memstore_channel_owner(&head->id);
   if(head == NULL) {
@@ -546,7 +541,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
           //break;
         }
       }
-      stop_chanhead_spooler(ch);
+      stop_spooler(&ch->spooler);
       assert(ch->sub_count == 0);
       force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
 
