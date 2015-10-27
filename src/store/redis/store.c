@@ -73,7 +73,7 @@ static ngx_event_t         chanhead_cleanup_timer = {0};
 static nchan_llist_timed_t *chanhead_cleanup_head = NULL;
 static nchan_llist_timed_t *chanhead_cleanup_tail = NULL;
 
-static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head);
+static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason);
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead);
 
 static void nchan_store_chanhead_cleanup_timer_handler(ngx_event_t *);
@@ -667,8 +667,15 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
   if(sub->type == INTERNAL) {
     head->internal_sub_count--;
   }
+
+  redis_subscriber_unregister(&head->id, sub);
   
-  redis_subscriber_unregister(head, sub);
+  assert(head->sub_count >= 0);
+  
+  if(head->sub_count == 0) {
+    chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
+  }
+  
 }
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
@@ -820,9 +827,13 @@ static ngx_int_t redis_subscriber_remove(subscriber_t *sub) {
  //TODO: maybe?..
   return NGX_OK;
 }
+*/
 
-static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head) {
+
+static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason) {
   nchan_llist_timed_t         *chanhead_cleanlink;
+  
+  DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
   
   if(head->status != INACTIVE) {
     chanhead_cleanlink = &head->cleanlink;
