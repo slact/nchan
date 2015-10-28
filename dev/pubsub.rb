@@ -169,14 +169,8 @@ class Subscriber
     end
     
     def halt
+      @halting = true
       EventMachine.stop_event_loop
-    end
-    
-    def response_success(response, type)
-      msg=Message.new response.body
-      if @subscriber.on_message(msg) == false
-        halt
-      end
     end
     
     def run(was_success = nil)
@@ -198,11 +192,13 @@ class Subscriber
           ws.onmessage do |data, type|
             #puts "Received message: #{data} type: #{type}"
             msg=Message.new data
-            @subscriber.on_message(msg)
+            if @subscriber.on_message(msg) == false
+              halt
+            end
           end
           ws.onclose do |code, reason|
             #puts "Disconnected with status code: #{code} (reason: #{reason})"
-            if code != 1000 #1000 is not an error
+            if ! @halting && code != 1000 #1000 is not an error
               @subscriber.on_failure(WebSocketErrorResponse.new(code, reason, @connected[ws]))
             else
               #TODO: should grab last message's id send in the close reason body
@@ -227,11 +223,11 @@ class Subscriber
       @subscriber=subscr
       @url=subscr.url
       @concurrency=opt[:concurrency] || opt[:clients] || 1
-      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency)
+      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency, pipelining: opt[:pipelining])
       @gzip=opt[:gzip]
       @retry_delay=opt[:retry_delay]
     end
-
+    
     def response_success(response, req)
       #puts "received OK response at #{req.url}"
       #parse it
@@ -304,7 +300,22 @@ class Subscriber
   class EventSourceClient < LongPollClient
     def initialize(subscr, opt={})
       @ready = Celluloid::Future.new
+      @buf={}
+      opt.merge(pipelining: 0)
       super
+    end
+    
+    def buf(req)
+      @buf[req]
+    end
+    
+    def reset_bufs(req)
+      @buf[req]||={}
+      @buf[req][:data] = []
+      @buf[req][:event_id] = []
+      @buf[req][:comments] = []
+      @buf[req][:retry_timeout] = nil
+      @buf[req][:event] = nil
     end
     
     def wait_until_ready
@@ -326,39 +337,20 @@ class Subscriber
       end
       
       req.on_body do |body|
-        parse_event body
+        parse_body body, req
       end
+      
+      reset_bufs req
+      
       req
     end
     
-    def parse_event(body)
-      lines = body.lines
-      raise "invalid EventSource event missing last line" if lines.pop != "\n"
+    def parse_event(req)
+      bufs = buf req
       
-      event_id= nil
-      data = []
-      comments = []
-      retry_timeout = nil
-      event = nil
-      
-      lines.each do |line|
-        case line
-        when /^: ?(.*)/
-          comments << $1
-        when /^data(: (.*))?/
-          data << $2 or ""
-        when /^id(: (.*))?/
-          event_id = $2 or ""
-        when /^event(: (.*))?/
-          event = $2 or ""
-        when /^retry: (.*)/
-          retry_timeout = $1
-        end
-      end
-      
-      if data.length > 0
-        msg=Message.new data.join("\n")
-        msg.id= event_id if event_id
+      if bufs[:data].length > 0
+        msg=Message.new bufs[:data].join("\n")
+        msg.id= bufs[:id] if bufs[:id]
         
         if @subscriber.on_message(msg) == false
           @subscriber.finished+=1
@@ -366,9 +358,34 @@ class Subscriber
         end
       end
       
+      reset_bufs req
     end
     
-    
+    def parse_body(body, req)
+      #puts body
+      lines = body.lines
+      
+      ret = nil
+      
+      lines.each do |line|
+        case line
+        when /^: ?(.*)/
+          buf(req)[:comments] << $1
+        when /^data(: (.*))?/
+          buf(req)[:data] << $2 or ""
+        when /^id(: (.*))?/
+          buf(req)[:id] = $2 or ""
+        when /^event(: (.*))?/
+          buf(req)[:event] = $2 or ""
+        when /^retry: (.*)/
+          buf(req)[:retry_timeout] = $1
+        when /^$/
+          ret = parse_event req
+        end
+      end
+      
+      ret
+    end
   end
   
   class IntervalPollClient < LongPollClient
