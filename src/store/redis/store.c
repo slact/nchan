@@ -1283,6 +1283,8 @@ typedef struct {
   void                        *privdata;
 } redis_subscribe_data_t;
 
+static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d);
+
 static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscribe_data_t    *d = (redis_subscribe_data_t *) privdata;
   redisReply                *reply = (redisReply *)vr;
@@ -1318,6 +1320,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
     ngx_int_t                    ret;
     ngx_int_t                    code;
     nchan_store_channel_head_t  *chanhead=NULL;
+    ngx_int_t                   dequeue_after_response;
     
     case 200: //ok
       msg = msg_from_redis_get_message_reply(reply, 1, &ngx_store_alloc);
@@ -1335,8 +1338,18 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
           
         case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
           DBG("message found; respond to subscriber");
+          dequeue_after_response = sub->dequeue_after_response;
           ret = sub->respond_message(sub, msg);
-          d->callback(ret, msg, d->privdata);
+          if(!dequeue_after_response) {
+            //get next message. walk the queue!
+            d->msg_id->time = msg->message_time;
+            d->msg_id->tag = msg->message_tag;
+            
+            nchan_store_subscribe_continued(d);
+          }
+          else {
+            d->callback(ret, msg, d->privdata);
+          }
           break;
           
         case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
@@ -1385,10 +1398,9 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_free(d);
 }
 
+
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
-  ngx_int_t                     create_channel_ttl;
-  nchan_loc_conf_t             *cf = sub->cf;
   assert(callback != NULL);
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
@@ -1411,11 +1423,17 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   d->sub = sub;
   sub->reserve(sub);
   
+  return nchan_store_subscribe_continued(d);
+}
+
+static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
+  ngx_int_t                     create_channel_ttl;
+  nchan_loc_conf_t             *cf = d->sub->cf;
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   
-  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
-  redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", create_channel_ttl);
-  return NGX_OK; 
+  
+  redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag, "FILO", create_channel_ttl);
+  return NGX_OK;
 }
 
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
