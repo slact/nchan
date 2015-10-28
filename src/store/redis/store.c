@@ -25,6 +25,7 @@ struct nchan_store_channel_head_s {
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
   nchan_llist_timed_t          cleanlink;
+  unsigned                     shutting_down:1;
   UT_hash_handle               hh;
 };
 
@@ -169,13 +170,13 @@ static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
     }
     params->host = cur_out;
     ngx_memcpy(cur_out, cur, ret-cur);
-    cur_out += (ret - cur) + 1;
+    //cur_out += (ret - cur) + 1;
     cur = ret;
   }
   else {
     params->host = cur_out;
     ngx_memcpy(cur_out, cur, ret-cur);
-    cur_out += (ret - cur) + 1;
+    //cur_out += (ret - cur) + 1;
     cur = ret + 1;
     
     //port
@@ -399,26 +400,26 @@ static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r
   ngx_free(d);
 }
 
-static ngx_int_t cmp_err(cmp_ctx_t *cmp) {
+static bool cmp_err(cmp_ctx_t *cmp) {
   ERR("msgpack parsing error: %s", cmp_strerror(cmp));
-  return NGX_ERROR;
+  return false;
 }
 
-static ngx_int_t cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
+static bool cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
   ngx_buf_t      *mpbuf =(ngx_buf_t *)cmp->buf;
   uint32_t        sz;
   
   if(cmp_read_str_size(cmp, &sz)) {
     fwd_buf_to_str(mpbuf, sz, str);
-    return NGX_OK;
+    return true;
   }
   else {
     cmp_err(cmp);
-    return NGX_ERROR;
+    return false;
   }
 }
 
-static ngx_int_t cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
+static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   ngx_buf_t  *mpb = (ngx_buf_t *)cmp->buf;
   uint32_t    sz;
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->message_time)) {
@@ -445,7 +446,7 @@ static ngx_int_t cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   }
   fwd_buf_to_str(mpb, sz, &msg->content_type);
   
-  return NGX_OK;
+  return true;
 }
 
 /*
@@ -544,7 +545,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf) == NGX_OK) {
+            if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %i:%i", msg.message_time, msg.message_tag);
               nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
             }
@@ -606,7 +607,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           else if(ngx_strmatch(&msg_type, "alert") && array_sz > 1) {
             ngx_str_t    alerttype;
             
-            if(! cmp_to_str(&cmp, &alerttype)) {
+            if(!cmp_to_str(&cmp, &alerttype)) {
               return;
             }
             
@@ -858,6 +859,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->generation = 0;
   head->last_msgid.time=0;
   head->last_msgid.tag=0;
+  head->shutting_down = 0;
   
   head->spooler.running=0;
   start_chanhead_spooler(head);
@@ -1351,9 +1353,10 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   HASH_ITER(hh, subhash, cur, tmp) {
     //any subscribers?
     //TODO: respond to all subscribers
-    HASH_DEL(subhash, cur);
-    ngx_free(cur);
+    cur->shutting_down = 1;
+    chanhead_gc_add(cur, "exit worker");
   }
+  handle_chanhead_gc_queue(1);
 
   if(chanhead_cleanup_timer.timer_set) {
     ngx_del_timer(&chanhead_cleanup_timer);
@@ -1650,6 +1653,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
     }
   }
   d->msglen = msglen;
+  assert(d->msglen > 0); //got the debuglies
   
   d->t = ngx_current_msec;
   d->name = "publish";

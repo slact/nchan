@@ -559,7 +559,7 @@ static void websocket_reading(ngx_http_request_t *r) {
       
       case WEBSOCKET_READ_GET_PAYLOAD_STEP:
         if ((frame->opcode != WEBSOCKET_OPCODE_TEXT) && (frame->opcode != WEBSOCKET_OPCODE_CLOSE) && (frame->opcode != WEBSOCKET_OPCODE_PING) && (frame->opcode != WEBSOCKET_OPCODE_PONG)) {
-          rc= websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
+          websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
           goto finalize;
         }
         
