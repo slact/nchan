@@ -44,7 +44,7 @@ typedef struct {
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
-  "c6ace178a472a70a6bb98e81b0762d26432dd2dc",
+  "a1b481b0d7398fc9aff0d14ca4f88a851d396b55",
   "0190b99d2ef34b804980b3bd476941bd25d0e755",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
@@ -303,7 +303,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    if redis.call('EXISTS', key.next_message)~=0 then\n"
   "      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type'))\n"
   "      dbg((\"found msg2 %i:%i  after %i:%i\"):format(ntime, ntag, time, tag))\n"
-  "      return {200, tonumber(ntime) or \"\", tonumber(ntag) or \"\", ndata or \"\", ncontenttype or \"\", subs_count}\n"
+  "      return {200, tonumber(ntime) or \"\", tonumber(ntag) or \"\", tonumber(prev_time) or \"\", tonumber(prev_tag) or \"\", ndata or \"\", ncontenttype or \"\", subs_count}\n"
   "    else\n"
   "      dbg(\"NEXT MESSAGE NOT FOUND\")\n"
   "      return {404, nil}\n"

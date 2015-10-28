@@ -348,6 +348,13 @@ static ngx_int_t spooler_respond_generic(channel_spooler_t *self, nchan_msg_t *m
 }
 
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
+  if(self->prev_msg_id.time != 0 && self->prev_msg_id.tag != 0 ) {
+    assert(msg->prev_id.time == self->prev_msg_id.time && msg->prev_id.tag == self->prev_msg_id.tag);
+  }
+  
+  self->prev_msg_id.time = msg->id.time;
+  self->prev_msg_id.tag = msg->id.tag;
+  
   return spooler_respond_generic(self, msg, 0, NULL);
 }
 
@@ -427,6 +434,9 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl) {
     spl->dequeue_handler_privdata = NULL;
     spl->bulk_dequeue_handler = NULL;
     spl->bulk_dequeue_handler_privdata = NULL;
+    
+    spl->prev_msg_id.time=0;
+    spl->prev_msg_id.tag=0;
     
     DBG("start SPOOLER %p", *spl);
     

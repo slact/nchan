@@ -146,7 +146,7 @@ else
     if redis.call('EXISTS', key.next_message)~=0 then
       local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type'))
       dbg(("found msg2 %i:%i  after %i:%i"):format(ntime, ntag, time, tag))
-      return {200, tonumber(ntime) or "", tonumber(ntag) or "", ndata or "", ncontenttype or "", subs_count}
+      return {200, tonumber(ntime) or "", tonumber(ntag) or "", tonumber(prev_time) or "", tonumber(prev_tag) or "", ndata or "", ncontenttype or "", subs_count}
     else
       dbg("NEXT MESSAGE NOT FOUND")
       return {404, nil}

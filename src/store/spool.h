@@ -49,6 +49,7 @@ struct channel_spooler_s {
   subscriber_pool_t     *persistent;
   ngx_uint_t             responded_count;
   ngx_atomic_t          *shared_sub_count;
+  nchan_msg_id_t         prev_msg_id;
   unsigned               running:1;
   unsigned               want_to_stop:1;
   ngx_int_t              (*add)(channel_spooler_t *self, subscriber_t *sub);
