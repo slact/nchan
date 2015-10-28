@@ -1358,6 +1358,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         d->callback(NGX_ERROR, NULL, d->privdata);
       }
       else {
+        sub->enqueue(sub);
         ret = chanhead->spooler.add(&chanhead->spooler, sub);
         d->callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, d->privdata);
       }
