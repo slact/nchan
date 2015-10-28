@@ -1209,8 +1209,14 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   msg->prev = ch->msg_last;
   if(msg->prev != NULL) {
     msg->prev->next = msg;
+    msg->msg->prev_id.time = msg->prev->msg->id.time;
+    msg->msg->prev_id.tag = msg->prev->msg->id.tag;
   }
-
+  else {
+    msg->msg->prev_id.time = 0;
+    msg->msg->prev_id.tag = 0;
+  }
+  
   //set time and tag
   if(msg->msg->id.time == 0) {
     msg->msg->id.time = ngx_time();

@@ -29,6 +29,7 @@ typedef struct {
 //message queue
 typedef struct {
   nchan_msg_id_t                  id;
+  nchan_msg_id_t                  prev_id;
   ngx_str_t                       content_type;
   //  ngx_str_t                   charset;
   ngx_buf_t                      *buf;

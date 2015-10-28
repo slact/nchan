@@ -12,7 +12,7 @@ typedef struct {
   char *find_channel;
 
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
-  //output: result_code, msg_time, msg_tag, message, content_type, channel_subscriber_count
+  //output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, channel_subscriber_count
   // no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
   // create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
   // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
@@ -44,8 +44,8 @@ typedef struct {
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
-  "288679b1de58e6754a2daccd3bba46244de6a629",
-  "0facbb71d6594c6812533af0940c7d0d5c7ff007",
+  "c6ace178a472a70a6bb98e81b0762d26432dd2dc",
+  "0190b99d2ef34b804980b3bd476941bd25d0e755",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -156,7 +156,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
 
   //get_message
   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
-  "--output: result_code, msg_time, msg_tag, message, content_type, channel_subscriber_count\n"
+  "--output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, channel_subscriber_count\n"
   "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
   "-- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.\n"
   "-- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available\n"
@@ -275,7 +275,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "        return {404, \"\", \"\", \"\", \"\", subs_count}\n"
   "      else\n"
   "        dbg((\"found msg %s:%s  after %s:%s\"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))\n"
-  "        return {200, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", msg.data or \"\", msg.content_type or \"\", subs_count}\n"
+  "        return {200, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", tonumber(msg.prev_time) or \"\", tonumber(msg.prev_tag) or \"\", msg.data or \"\", msg.content_type or \"\", subs_count}\n"
   "      end\n"
   "    end\n"
   "  end\n"
@@ -301,7 +301,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    dbg(\"NEXT MESSAGE KEY PRESENT: \" .. msg.next)\n"
   "    key.next_message=key.next_message:format(msg.next)\n"
   "    if redis.call('EXISTS', key.next_message)~=0 then\n"
-  "      local ntime, ntag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'data', 'content_type'))\n"
+  "      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type'))\n"
   "      dbg((\"found msg2 %i:%i  after %i:%i\"):format(ntime, ntag, time, tag))\n"
   "      return {200, tonumber(ntime) or \"\", tonumber(ntag) or \"\", ndata or \"\", ncontenttype or \"\", subs_count}\n"
   "    else\n"
@@ -419,6 +419,11 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  if lasttime==msg.time then\n"
   "    msg.tag=lasttag+1\n"
   "  end\n"
+  "  msg.prev_time = lasttime\n"
+  "  msg.prev_tag = lasttag\n"
+  "else\n"
+  "  msg.prev_time = 0\n"
+  "  msg.prev_tag = 0\n"
   "end\n"
   "msg.id=('%i:%i'):format(msg.time, msg.tag)\n"
   "\n"
@@ -511,6 +516,8 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    \"msg\",\n"
   "    msg.time,\n"
   "    tonumber(msg.tag),\n"
+  "    msg.prev_time,\n"
+  "    msg.prev_tag,\n"
   "    msg.data,\n"
   "    msg.content_type\n"
   "  }\n"

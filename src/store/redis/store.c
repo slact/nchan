@@ -422,10 +422,19 @@ static bool cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
 static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   ngx_buf_t  *mpb = (ngx_buf_t *)cmp->buf;
   uint32_t    sz;
+  //msg id
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->id.time)) {
     return cmp_err(cmp);
   }
   if(!cmp_read_integer(cmp, &msg->id.tag)) {
+    return cmp_err(cmp);
+  }
+  
+  //msg prev_id
+  if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->prev_id.time)) {
+    return cmp_err(cmp);
+  }
+  if(!cmp_read_integer(cmp, &msg->prev_id.tag)) {
     return cmp_err(cmp);
   }
   
@@ -581,7 +590,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               get_msg_from_msgkey(&chid, &msgid, &msg_redis_hash_key);
             }
           }
-          
           else if(ngx_strmatch(&msg_type, "alert") && array_sz > 1) {
             ngx_str_t    alerttype;
             
@@ -1104,13 +1112,15 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
   redisReply         **els = r->element;
   size_t len = 0, content_type_len = 0;
   
-  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 4)
+  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 6)
    && CHECK_REPLY_INT_OR_STR(els[offset])     //id - time
    && CHECK_REPLY_INT_OR_STR(els[offset+1])   //id - tag
-   && CHECK_REPLY_STR(els[offset+2])   //message
-   && CHECK_REPLY_STR(els[offset+3])){ //content-type
-    len=els[offset+2]->len;
-    content_type_len=els[offset+3]->len;
+   && CHECK_REPLY_INT_OR_STR(els[offset+2])   //prev_id - time
+   && CHECK_REPLY_INT_OR_STR(els[offset+3])   //prev_id - tag
+   && CHECK_REPLY_STR(els[offset+4])   //message
+   && CHECK_REPLY_STR(els[offset+5])){ //content-type
+    len=els[offset+4]->len;
+    content_type_len=els[offset+5]->len;
     if((msg=allocator(sizeof(*msg) + sizeof(ngx_buf_t) + len + content_type_len))==NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: can't allocate memory for message from redis reply");
       return NULL;
@@ -1121,7 +1131,7 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
     buf = msg->buf;
     buf->start = buf->pos = (void *)(&buf[1]);
     buf->end = buf->last = &buf->start[len];
-    ngx_memcpy(buf->start, els[offset+2]->str, len);
+    ngx_memcpy(buf->start, els[offset+4]->str, len);
     buf->memory = 1;
     buf->last_buf = 1;
     buf->last_in_chain = 1;
@@ -1129,11 +1139,15 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
     if(content_type_len>0) {
       msg->content_type.len=content_type_len;
       msg->content_type.data=buf->end;
-      ngx_memcpy(msg->content_type.data, els[offset+3]->str, content_type_len);
+      ngx_memcpy(msg->content_type.data, els[offset+5]->str, content_type_len);
     }
     
     redisReply_to_int(els[offset+0], &msg->id.time);
     redisReply_to_int(els[offset+1], &msg->id.tag);
+    
+    redisReply_to_int(els[offset+2], &msg->prev_id.time);
+    redisReply_to_int(els[offset+3], &msg->prev_id.tag);
+    
     return msg;
   }
   else {

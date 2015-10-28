@@ -105,6 +105,11 @@ if key.last_message then
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
+  msg.prev_time = lasttime
+  msg.prev_tag = lasttag
+else
+  msg.prev_time = 0
+  msg.prev_tag = 0
 end
 msg.id=('%i:%i'):format(msg.time, msg.tag)
 
@@ -197,6 +202,8 @@ if #msg.data < 5*1024 then
     "msg",
     msg.time,
     tonumber(msg.tag),
+    msg.prev_time,
+    msg.prev_tag,
     msg.data,
     msg.content_type
   }
