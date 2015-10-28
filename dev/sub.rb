@@ -48,7 +48,7 @@ sub.on_message do |msg|
       out = msg.to_s
     end
     if show_id
-      out = "<#{msg.serverside_id}> #{out}"
+      out = "<#{msg.id}> #{out}"
     end
     puts out
   end

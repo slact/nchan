@@ -24,6 +24,9 @@ class Message
     end
     "#{timestamp}:#{etag}"
   end
+  def id=(val)
+    @id=val
+  end
   def id
     @id||=serverside_id
   end
@@ -104,7 +107,7 @@ class MessageStore
       @msgs << msg
     else
       if (cur_msg=@msgs[msg.id])
-        puts "Different messages with same id: #{msg.serverside_id}, \"#{msg.to_s}\" then \"#{cur_msg.to_s}\"" unless cur_msg.message == msg.message
+        puts "Different messages with same id: #{msg.id}, \"#{msg.to_s}\" then \"#{cur_msg.to_s}\"" unless cur_msg.message == msg.message
         cur_msg.times_seen+=1
         cur_msg.times_seen
       else
@@ -245,6 +248,16 @@ class Subscriber
       end
     end
     
+    def queue_and_run(req)
+      queue_size = @hydra.queued_requests.count
+      @hydra.queue new_request(old_request: req)
+      if queue_size == 0
+        #puts "rerun"
+        #binding.pry
+        @hydra.run
+      end
+    end
+    
     def response_failure(response, req)
       #puts "received bad or no response at #{req.url}"
       unless @subscriber.on_failure(response) == false
@@ -289,22 +302,72 @@ class Subscriber
   end
   
   class EventSourceClient < LongPollClient
-    def new_request
+    def initialize(subscr, opt={})
+      @ready = Celluloid::Future.new
+      super
+    end
+    
+    def wait_until_ready
+      while !@ready do
+        sleep 0.3
+      end
+      self
+    end
+    
+    def new_request(opt = {})
       req = super
       
       req.options[:headers]["Accept"] = "text/event-stream"
       
       req.on_headers do |headers|
-        puts "yes hello"
-        binding.pry
+        if @subscriber.waiting == @concurrency
+          @ready = true
+        end
       end
       
       req.on_body do |body|
-        puts "body here"
-        binding.pry
+        parse_event body
       end
       req
     end
+    
+    def parse_event(body)
+      lines = body.lines
+      raise "invalid EventSource event missing last line" if lines.pop != "\n"
+      
+      event_id= nil
+      data = []
+      comments = []
+      retry_timeout = nil
+      event = nil
+      
+      lines.each do |line|
+        case line
+        when /^: ?(.*)/
+          comments << $1
+        when /^data(: (.*))?/
+          data << $2 or ""
+        when /^id(: (.*))?/
+          event_id = $2 or ""
+        when /^event(: (.*))?/
+          event = $2 or ""
+        when /^retry: (.*)/
+          retry_timeout = $1
+        end
+      end
+      
+      if data.length > 0
+        msg=Message.new data.join("\n")
+        msg.id= event_id if event_id
+        
+        if @subscriber.on_message(msg) == false
+          @subscriber.finished+=1
+          return :abort
+        end
+      end
+      
+    end
+    
     
   end
   
@@ -461,7 +524,9 @@ class Subscriber
           @errors << response.return_message
         else
           # Received a non-successful http response.
-          @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
+          if response.code != 200 #eventsource can be triggered to quite with a 200, which is not an error
+            @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
+          end
         end
       when WebSocketClient
         error = response.connected ? "Websocket connection failed: " : "Websocket handshake failed: "
