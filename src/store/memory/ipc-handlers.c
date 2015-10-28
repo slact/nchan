@@ -5,7 +5,7 @@
 #include "ipc-handlers.h"
 #include "store-private.h"
 #include <assert.h>
-#include "../../subscribers/memstore.h"
+#include "../../subscribers/memstore_ipc.h"
 
 #define IPC_SUBSCRIBE               1
 #define IPC_SUBSCRIBE_REPLY         2
@@ -86,7 +86,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     d->subscriber = NULL;
   }
   else {
-    ipc_sub = memstore_subscriber_create(sender, &head->id, d->origin_chanhead);
+    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->origin_chanhead);
     ipc_sub->enqueue(ipc_sub);
     head->spooler.add(&head->spooler, ipc_sub);
     d->subscriber = ipc_sub;

@@ -4,7 +4,7 @@
 #include "../store/memory/store-private.h"
 #include "../store/memory/ipc-handlers.h"
 #include "internal.h"
-#include "memstore.h"
+#include "memstore_ipc.h"
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -119,7 +119,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #endif
 }
 
-subscriber_t *memstore_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) {
+subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) {
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
