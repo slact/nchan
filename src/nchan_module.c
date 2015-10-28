@@ -668,7 +668,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       }
       
       ngx_gettimeofday(&tv);
-      msg->message_time = tv.tv_sec;
+      msg->id.time = tv.tv_sec;
       
       msg->buf = buf;
       

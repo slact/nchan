@@ -249,7 +249,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
   }
   
   //last-modified
-  r->headers_out.last_modified_time = msg->message_time;
+  r->headers_out.last_modified_time = msg->id.time;
 
   //etag
   if((etag = ngx_palloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
@@ -257,7 +257,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
     return NGX_ERROR;
   }
   etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
+  etag->len = ngx_sprintf(etag->data,"%ui", msg->id.tag)- etag->data;
   if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
     if(err) *err="can't add etag header to response";
     return NGX_ERROR;

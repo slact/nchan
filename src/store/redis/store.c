@@ -422,10 +422,10 @@ static bool cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
 static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   ngx_buf_t  *mpb = (ngx_buf_t *)cmp->buf;
   uint32_t    sz;
-  if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->message_time)) {
+  if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->id.time)) {
     return cmp_err(cmp);
   }
-  if(!cmp_read_integer(cmp, &msg->message_tag)) {
+  if(!cmp_read_integer(cmp, &msg->id.tag)) {
     return cmp_err(cmp);
   }
   
@@ -942,8 +942,8 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
   
   if(head->sub_count > 0) {
     if(msg) {
-      head->last_msgid.time = msg->message_time;
-      head->last_msgid.tag = msg->message_tag;
+      head->last_msgid.time = msg->id.time;
+      head->last_msgid.tag = msg->id.tag;
       head->spooler.respond_message(&head->spooler, msg);
     }
     else {
@@ -1132,8 +1132,8 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
       ngx_memcpy(msg->content_type.data, els[offset+3]->str, content_type_len);
     }
     
-    redisReply_to_int(els[offset+0], &msg->message_time);
-    redisReply_to_int(els[offset+1], &msg->message_tag);
+    redisReply_to_int(els[offset+0], &msg->id.time);
+    redisReply_to_int(els[offset+1], &msg->id.tag);
     return msg;
   }
   else {
@@ -1348,8 +1348,8 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
             }
             d->msgid_allocd = 1;
             d->msg_id = ngx_alloc(sizeof(*msg), ngx_cycle->log);
-            d->msg_id->time = msg->message_time;
-            d->msg_id->tag = msg->message_tag;
+            d->msg_id->time = msg->id.time;
+            d->msg_id->tag = msg->id.tag;
             
             sub->reserve(sub);
             nchan_store_subscribe_continued(d);
@@ -1460,7 +1460,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
     return NULL;
   }
   etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%ui", msg->message_tag)- etag->data;
+  etag->len = ngx_sprintf(etag->data,"%ui", msg->id.tag)- etag->data;
   return etag;
 }
 
@@ -1507,14 +1507,14 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
     return callback(NGX_ERROR, NULL, privdata);
   }
 
-  if(msg->message_time==0) {
-    msg->message_time = ngx_time();
+  if(msg->id.time==0) {
+    msg->id.time = ngx_time();
   }
   
   d->channel_id=channel_id;
   d->callback=callback;
   d->privdata=privdata;
-  d->msg_time=msg->message_time;
+  d->msg_time=msg->id.time;
   
 
   //nchan_store_publish_generic(channel_id, msg, 0, NULL);
@@ -1543,7 +1543,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->t = ngx_current_msec;
   d->name = "publish";
   
-  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i %i", store_rds_lua_hashes.publish, STR(channel_id), msg->message_time, msgstart, msglen, STR(&(msg->content_type)), cf->buffer_timeout, cf->max_messages);
+  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i %i", store_rds_lua_hashes.publish, STR(channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), cf->buffer_timeout, cf->max_messages);
   if(mmapped && munmap(msgstart, msglen) == -1) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "munmap was a problem");
   }

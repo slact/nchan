@@ -491,8 +491,8 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   }
 
   if(msg) {
-    head->last_msgid.time = msg->message_time;
-    head->last_msgid.tag = msg->message_tag;
+    head->last_msgid.time = msg->id.time;
+    head->last_msgid.tag = msg->id.tag;
     head->spooler.respond_message(&head->spooler, msg);
   }
   else {
@@ -835,11 +835,11 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
 static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
   validate_chanhead_messages(ch);
   if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
-    DBG("delete msg %i:%i", msg->msg->message_time, msg->msg->message_tag);
+    DBG("delete msg %i:%i", msg->msg->id.time, msg->msg->id.tag);
     delete_withdrawn_message(msg);
   }
   else {
-    ERR("failed to withdraw and delete message %i:%i", msg->msg->message_time, msg->msg->message_tag);
+    ERR("failed to withdraw and delete message %i:%i", msg->msg->id.time, msg->msg->id.tag);
   }
   validate_chanhead_messages(ch);
   return NGX_OK;
@@ -865,7 +865,7 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
       DBG("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount); //not a big deal
     }
     else {
-      DBG("delete queue-too-big msg %i:%i", cur->msg->message_time, cur->msg->message_tag);
+      DBG("delete queue-too-big msg %i:%i", cur->msg->id.time, cur->msg->id.tag);
       chanhead_delete_message(ch, cur);
       deleted_count++;
     }
@@ -941,18 +941,18 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   }
 
   if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
-    DBG("found message %i:%i", first->msg->message_time, first->msg->message_tag);
+    DBG("found message %i:%i", first->msg->id.time, first->msg->id.tag);
     *status = NCHAN_MESSAGE_FOUND;
     return first;
   }
 
   while(cur != NULL) {
-    //DBG("cur: %i:%i %V", cur->msg->message_time, cur->msg->message_tag, chanhead_msg_to_str(cur));
+    //DBG("cur: %i:%i %V", cur->msg->id.time, cur->msg->id.tag, chanhead_msg_to_str(cur));
     
-    if(msgid->time > cur->msg->message_time || (msgid->time == cur->msg->message_time && msgid->tag >= cur->msg->message_tag)){
+    if(msgid->time > cur->msg->id.time || (msgid->time == cur->msg->id.time && msgid->tag >= cur->msg->id.tag)){
       if(cur->next != NULL) {
         *status = NCHAN_MESSAGE_FOUND;
-        DBG("found message %i:%i", cur->next->msg->message_time, cur->next->msg->message_tag);
+        DBG("found message %i:%i", cur->next->msg->id.time, cur->next->msg->id.tag);
         return cur->next;
       }
       else {
@@ -1137,7 +1137,7 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
     switch(findmsg_status) {
       case NCHAN_MESSAGE_FOUND: //ok
         assert(msg != NULL);
-        DBG("subscribe found message %i:%i", msg->message_time, msg->message_tag);
+        DBG("subscribe found message %i:%i", msg->id.time, msg->id.tag);
         switch(sub->cf->subscriber_concurrency) {
           
           case NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN:
@@ -1152,8 +1152,8 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
               
               if(!dequeue_after_response) {
                 //get next message. walk the queue!
-                msg_id.time = msg->message_time;
-                msg_id.tag = msg->message_tag;
+                msg_id.time = msg->id.time;
+                msg_id.tag = msg->id.tag;
                 
                 ngx_memcpy(&d->msg_id, &msg_id, sizeof(msg_id));
                 return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
@@ -1212,14 +1212,14 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   }
 
   //set time and tag
-  if(msg->msg->message_time == 0) {
-    msg->msg->message_time = ngx_time();
+  if(msg->msg->id.time == 0) {
+    msg->msg->id.time = ngx_time();
   }
-  if(ch->msg_last && ch->msg_last->msg->message_time == msg->msg->message_time) {
-    msg->msg->message_tag = ch->msg_last->msg->message_tag + 1;
+  if(ch->msg_last && ch->msg_last->msg->id.time == msg->msg->id.time) {
+    msg->msg->id.tag = ch->msg_last->msg->id.tag + 1;
   }
   else {
-    msg->msg->message_tag = 0;
+    msg->msg->id.tag = 0;
   }
 
   if(ch->msg_first == NULL) {
@@ -1364,8 +1364,8 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   }
 
   //this coould be dangerous!!
-  if(msg->message_time==0) {
-    msg->message_time = ngx_time();
+  if(msg->id.time==0) {
+    msg->id.time = ngx_time();
   }
   msg->expires = ngx_time() + msg_timeout;
   
@@ -1395,7 +1395,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     channel_copy=&chead->channel;
     publish_msg = create_shm_msg(msg);
     publish_msg->expires = ngx_time() + NCHAN_NOBUFFER_MSG_EXPIRE_SEC;
-    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->message_time, publish_msg->message_tag, msg_timeout);
+    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->id.time, publish_msg->id.tag, msg_timeout);
     
     if((shmsg_link = create_shared_message(msg, 0)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
@@ -1435,7 +1435,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   
   //do the actual publishing
   
-  DBG("publish %i:%i expire %i", publish_msg->message_time, publish_msg->message_tag, msg_timeout);
+  DBG("publish %i:%i expire %i", publish_msg->id.time, publish_msg->id.tag, msg_timeout);
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }
