@@ -1539,7 +1539,6 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
     }
   }
   d->msglen = msglen;
-  assert(d->msglen > 0); //got the debuglies
   
   d->t = ngx_current_msec;
   d->name = "publish";

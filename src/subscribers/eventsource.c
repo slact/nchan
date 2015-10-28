@@ -221,6 +221,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc->chain.next = first_link;
   first_link=&bc->chain;
   
+  
   rc = nchan_output_filter(fsub->data.request, first_link);
   
   ngx_destroy_pool(pool);

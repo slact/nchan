@@ -388,16 +388,16 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
 
 static ngx_int_t websocket_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  DBG("%p reserve for req %p", self, fsub->request);
   ensure_request_hold(fsub);
   fsub->reserved++;
+  DBG("%p reserve for req %p. reservations: %i", self, fsub->request, fsub->reserved);
   return NGX_OK;
 }
 static ngx_int_t websocket_release(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  DBG("%p release for req %p", self, fsub->request);
   assert(fsub->reserved > 0);
   fsub->reserved--;
+  DBG("%p release for req %p, reservations: %i", self, fsub->request, fsub->reserved);
   if(fsub->awaiting_destruction == 1 && fsub->reserved == 0) {
     ngx_free(fsub);
     return NGX_ABORT;

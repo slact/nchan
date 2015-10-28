@@ -89,16 +89,16 @@ static void ensure_request_hold(full_subscriber_t *fsub) {
 
 static ngx_int_t longpoll_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  DBG("%p reserve for req %p", self, fsub->data.request);
   ensure_request_hold(fsub);
   fsub->data.reserved++;
+  DBG("%p reserve for req %p, reservations: %i", self, fsub->data.request, fsub->data.reserved);
   return NGX_OK;
 }
 static ngx_int_t longpoll_release(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  DBG("%p release for req %p", self, fsub->data.request);
   assert(fsub->data.reserved > 0);
   fsub->data.reserved--;
+  DBG("%p release for req %p. reservations: %i", self, fsub->data.request, fsub->data.reserved);
   if(fsub->data.awaiting_destruction == 1 && fsub->data.reserved == 0) {
     ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
     ngx_free(fsub);
