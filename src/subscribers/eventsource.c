@@ -232,6 +232,8 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
 static void empty_handler(void) {}
 
 static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
+  
+  static ngx_str_t          empty_line = ngx_string("");
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   u_char                    resp_buf[256];
   nchan_buf_and_chain_t     bc;
@@ -242,7 +244,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   
   bc.chain.buf = &bc.buf;
   bc.chain.next = NULL;
-  ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V\n", status_code, status_line));
+  ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V\n", status_code, status_line ? status_line : &empty_line));
   bc.buf.last_buf = 1;
   
   nchan_output_filter(fsub->data.request, &bc.chain);
