@@ -449,28 +449,6 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   return true;
 }
 
-/*
-static ngx_int_t msgpack_array_to_msg(msgpack_object *arr, ngx_uint_t offset, nchan_msg_t *msg, ngx_buf_t *buf) {
-  msgpack_to_time(&arr->via.array.ptr[offset], &(msg->message_time));
-  msgpack_to_int(&arr->via.array.ptr[offset+1], &(msg->message_tag));
-  
-  if(arr->via.array.ptr[offset+2].type == MSGPACK_OBJECT_RAW) {
-    msg->buf = buf;
-    buf->start = buf->pos = (u_char *)arr->via.array.ptr[offset+2].via.raw.ptr;
-    buf->end = buf->last = (u_char *)(buf->start + arr->via.array.ptr[offset+2].via.raw.size);
-    buf->memory = 1;
-    buf->last_buf = 1;
-    buf->last_in_chain = 1;
-  }
-  
-  if(arr->via.array.ptr[offset+3].type == MSGPACK_OBJECT_RAW) {
-    msg->content_type.len=arr->via.array.ptr[offset+3].via.raw.size;
-    msg->content_type.data=(u_char *)arr->via.array.ptr[offset+3].via.raw.ptr;
-  }
-  return NGX_OK;
-}
-*/
-
 static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, nchan_msg_id_t *msgid, ngx_str_t *msg_redis_hash_key) {
   nchan_store_channel_head_t          *head;
   redis_get_message_from_key_data_t   *d;
@@ -896,15 +874,6 @@ static nchan_store_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_
   return head;
 }
 
-/*
-static ngx_int_t redis_subscriber_remove(subscriber_t *sub) {
-  //remove subscriber from list
- //TODO: maybe?..
-  return NGX_OK;
-}
-*/
-
-
 static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason) {
   nchan_llist_timed_t         *chanhead_cleanlink;
   
@@ -963,68 +932,6 @@ static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead) {
   }
   return NGX_OK;
 }
-
-/*
-static void *put_current_subscribers_in_limbo(nchan_store_channel_head_t *head) {
-  if(head==NULL) {
-    ERR(" No head given. not putting anyone in limbo");
-    return NULL;
-  }
-  
-  if (head->sub_count == 0) { //no one is listening, no need to publish
-    ERR(" No subscribers. not putting anyone in limbo");
-    return NULL;
-  }
-  
-  //TODO: set up detached (?) spooler?
-  
-  return NULL;
-}
-*/
-
-/*
-static void empty_callback(){}
-*/
-
-/*
-static ngx_int_t publish_to_subscribers_in_limbo(nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  
-  if(msg) {
-    head->last_msgid.time = msg->message_time;
-    head->last_msgid.tag = msg->message_tag;
-  }
-  
-  if(hcln->first_sub == NULL || hcln->sub_count == 0) {
-    ERR("No one to publish to (in limbo)...");
-    return NGX_OK; //nothing to do
-  }
-  
-  chanhead_gc_add(head);
-  for(sub = hcln->first_sub ; sub!=NULL; sub=next) {
-    subscriber_t         *rsub = sub->subscriber;
-
-    rsub->set_dequeue_callback(rsub, (subscriber_callback_pt )subscriber_publishing_cleanup_callback, 
-    &sub->clndata);
-    rsub->set_timeout_callback(rsub, (subscriber_callback_pt )empty_callback, NULL);
-    
-    next = sub->next; //becase the cleanup callback will dequeue this subscriber
-    
-    if(sub->clndata.shared != hcln) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "wrong shared cleanup for subscriber %p: should be %p, is %p", sub, hcln, sub->clndata.shared);
-    }
-    
-    if(msg!=NULL) {
-      rsub->respond_message(rsub, msg);
-    }
-    else {
-      rsub->respond_status(rsub, status_code, status_line);
-    }
-  }
-
-  //head->generation++;
-  return NGX_OK;
-}
-*/
 
 static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
   nchan_store_channel_head_t        *head;
@@ -1174,8 +1081,6 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt c
   return NGX_OK;
 }
 
-
-
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   redis_channel_callback_data_t *d;
   if((d=ngx_alloc(sizeof(*d), ngx_cycle->log))==NULL) {
@@ -1192,10 +1097,6 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
   
   return NGX_OK;
 }
-
-
-
-
 
 static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size)) {
   nchan_msg_t *msg=NULL;
@@ -1370,53 +1271,6 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   //destroy channel tree in shared memory
   //nchan_walk_rbtree(nchan_movezig_channel_locked, nchan_shm_zone);
 }
-
-  /*
-static void subscriber_cleanup_callback(subscriber_t *rsub, void *foo) {
-
-  redis_subscriber_t           *sub = cln->sub;
-  nchan_store_channel_head_t         *head = shared->head;
-  
-  DBG("subscriber_cleanup_callback for %p on %V", sub, &head->id);
-  
-  ngx_int_t done;
-  done = sub->prev==NULL && sub->next==NULL;
-  
-  redis_subscriber_remove(sub);
-  sub->subscriber->dequeue(sub->subscriber);
-
-  head->sub_count--;
-  
-  if(done) {
-    //add chanhead to gc list
-    head->sub=NULL;
-    chanhead_gc_add(head);
-  }
-  
-}
-*/
-
-  /*
-static void redis_subscriber_timeout_handler(subscriber_t *rsub, void *foo) {
-  //redis_subscriber_t         *sub = cln->sub;
-  //ngx_pfree(cln->shared->pool, sub); //do we even want this?
-}
-*/
-
-/*
-static ngx_int_t redis_subscriber_create(nchan_store_channel_head_t *chanhead, subscriber_t *sub) {
-  //this is the new shit
-  void *foo = NULL;
-  
-  //TODO
-  
-  sub->set_dequeue_callback(sub, (subscriber_callback_pt )subscriber_cleanup_callback, &foo);
-  
-  sub->set_timeout_callback(sub, (subscriber_callback_pt )redis_subscriber_timeout_handler, &foo);
-  
-  return NGX_OK;
-}
-*/
 
 typedef struct {
   ngx_msec_t                   t;
