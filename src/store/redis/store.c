@@ -1277,6 +1277,7 @@ typedef struct {
   char                        *name;
   ngx_str_t                   *channel_id;
   nchan_msg_id_t              *msg_id;
+  unsigned                     msgid_allocd;
   callback_pt                  callback;
   subscriber_t                *sub;
   nchan_store_channel_head_t  *chanhead;
@@ -1342,10 +1343,18 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
           ret = sub->respond_message(sub, msg);
           if(!dequeue_after_response) {
             //get next message. walk the queue!
+            if(d->msgid_allocd) {
+              ngx_free(d->msg_id);
+            }
+            d->msgid_allocd = 1;
+            d->msg_id = ngx_alloc(sizeof(*msg), ngx_cycle->log);
             d->msg_id->time = msg->message_time;
             d->msg_id->tag = msg->message_tag;
             
+            sub->reserve(sub);
             nchan_store_subscribe_continued(d);
+            ngx_free(msg);
+            return;
           }
           else {
             d->callback(ret, msg, d->privdata);
@@ -1392,6 +1401,9 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
       sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
       d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
+  if(d->msgid_allocd) {
+    ngx_free(d->msg_id);
+  }
   if(msg != NULL) {
     ngx_free(msg);
   }
@@ -1414,6 +1426,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
   
   d->msg_id=msg_id;
+  d->msgid_allocd = 0;
   d->callback=callback;
   d->privdata=privdata;
 
