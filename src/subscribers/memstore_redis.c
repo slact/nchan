@@ -20,12 +20,10 @@
 typedef struct sub_data_s sub_data_t;
 
 struct sub_data_s {
-  subscriber_t   *sub;
-  ngx_str_t      *chid;
-  ngx_int_t       originator;
-  ngx_int_t       owner;
-  void           *foreign_chanhead;
-  ngx_event_t     timeout_ev;
+  subscriber_t                 *sub;
+  nchan_store_channel_head_t   *chanhead;
+  ngx_str_t                    *chid;
+  ngx_event_t                   timeout_ev;
 }; //sub_data_t
 
 /*
@@ -98,13 +96,14 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
   
   return NGX_OK;
 }
+/*
 static void reset_timer(sub_data_t *data) {
   if(data->timeout_ev.timer_set) {
     ngx_del_timer(&data->timeout_ev);
   }
   ngx_add_timer(&data->timeout_ev, MEMSTORE_REDIS_SUBSCRIBER_TIMEOUT * 1000);
 }
-
+*/
 /*
 static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
   sub_data_t *d = (sub_data_t *)pd;
@@ -120,8 +119,8 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 }
 */
 
+/*
 static void timeout_ev_handler(ngx_event_t *ev) {
-  /*
   sub_data_t *d = (sub_data_t *)ev->data;
   
 #if FAKESHARD
@@ -133,35 +132,36 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
-  */
 }
+*/
 
-subscriber_t *memstore_redis_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) {
+subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
+  
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
-    ERR("couldn't allocate memstore subscriber data");
+    ERR("couldn't allocate memstore-redis subscriber data");
     return NULL;
   }
   
-  assert(originator_slot != memstore_slot());
   subscriber_t *sub = internal_subscriber_create("memstore-redis", d);
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
+  
   sub->destroy_after_dequeue = 1;
+  
   d->sub = sub;
-  d->chid = chid;
-  d->originator = originator_slot;
-  assert(foreign_chanhead != NULL);
-  d->foreign_chanhead = foreign_chanhead;
-  d->owner = memstore_slot();
+  d->chanhead = chanhead;
+  d->chid = &chanhead->id;
+  /*
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
   d->timeout_ev.handler = timeout_ev_handler;
   d->timeout_ev.data = d;
   d->timeout_ev.log = ngx_cycle->log;
   reset_timer(d);
-  DBG("%p created memstore subscriber created with privdata %p", d->sub, d);
+  */
+  DBG("%p created memstore-redis subscriber created with privdata %p", d->sub, d);
   return sub;
 }
