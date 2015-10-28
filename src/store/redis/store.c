@@ -2,7 +2,7 @@
 
 #include <assert.h>
 #include "store.h"
-#include <store/ngx_rwlock.h>
+
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
