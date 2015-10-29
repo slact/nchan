@@ -125,25 +125,24 @@ ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   return NGX_OK;
 }
 
-static void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, ngx_int_t (*callback)(rbtree_seed_t *, ngx_rbtree_node_t *)) {
+static void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, ngx_int_t (*callback)(rbtree_seed_t *, ngx_rbtree_node_t *, void *), void *data) {
   ngx_rbtree_node_t  *left, *right;
   if(node == sentinel || node == NULL) {
     return;
   }
   left = node->left;
   right = node->right;
-  rbtree_walk_real(seed, left, sentinel, callback);
-  rbtree_walk_real(seed, right, sentinel, callback);
-  callback(seed, node);
+  rbtree_walk_real(seed, left, sentinel, callback, data);
+  rbtree_walk_real(seed, right, sentinel, callback, data);
+  callback(seed, node, data);
 }
 
-ngx_int_t rbtree_walk(rbtree_seed_t *seed, ngx_int_t (*callback)(rbtree_seed_t *seed, ngx_rbtree_node_t *)) {
-  ngx_rbtree_node_t         *sentinel = seed->tree.sentinel;
-  rbtree_walk_real(seed, seed->tree.root, sentinel, callback);
+ngx_int_t rbtree_walk(rbtree_seed_t *seed, ngx_int_t (*callback)(rbtree_seed_t *seed, ngx_rbtree_node_t *, void *data), void *data) {
+  rbtree_walk_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
   return NGX_OK;
 }
 
-ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name,   ngx_str_t *(*id)(void *), uint32_t (*hash)(ngx_str_t *), ngx_int_t (*compare)(ngx_str_t *, ngx_str_t *)) {
+ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, ngx_str_t *(*id)(void *), uint32_t (*hash)(ngx_str_t *), ngx_int_t (*compare)(ngx_str_t *, ngx_str_t *)) {
   seed->name=name;
   assert(id != NULL);
   if(hash==NULL) {
