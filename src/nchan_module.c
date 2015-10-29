@@ -487,7 +487,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
       //we prefer to subscribe
       memstore_sub_debug_start();
       nchan_subscriber_get_msg_id(r, &msg_id);
-      if((sub = websocket_subscriber_create(r)) == NULL) {
+      if((sub = websocket_subscriber_create(r, &msg_id)) == NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
@@ -510,7 +510,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           memstore_sub_debug_start();
           
           nchan_subscriber_get_msg_id(r, &msg_id);
-          if((sub = eventsource_subscriber_create(r)) == NULL) {
+          if((sub = eventsource_subscriber_create(r, &msg_id)) == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
@@ -530,7 +530,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           memstore_sub_debug_start();
           
           nchan_subscriber_get_msg_id(r, &msg_id);
-          if((sub = longpoll_subscriber_create(r)) == NULL) {
+          if((sub = longpoll_subscriber_create(r, &msg_id)) == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
@@ -705,4 +705,24 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
     return rc;
   }
   return NGX_DONE;
+}
+
+
+ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  if(id1->time > 0 && id2->time > 0) {
+    assert(id1->time == id2->time);
+    assert(id1->tag == id2->tag);
+  }
+  return NGX_OK;
+}
+
+ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
+  if(msg) {
+    verify_msg_id(&sub->last_msg_id, &msg->prev_id);
+  }
+  
+  sub->last_msg_id.time = msg->id.time;
+  sub->last_msg_id.tag = msg->id.tag;
+  
+  return NGX_OK;
 }

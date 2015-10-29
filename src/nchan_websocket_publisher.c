@@ -58,7 +58,7 @@ ngx_int_t nchan_create_websocket_publisher(ngx_http_request_t  *r) {
   subscriber_t         *sub;
   nchan_llist_timed_t  *sub_link;
   
-  if((sub = websocket_subscriber_create(r)) == NULL) {
+  if((sub = websocket_subscriber_create(r, NULL)) == NULL) {
     ERR("couldn't create websocket publisher.");
     return NGX_ERROR;
   }

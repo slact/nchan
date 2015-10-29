@@ -171,6 +171,9 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t internal_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
+  
+  verify_subscriber_last_msg_id(self, msg);
+  
   DBG("%p (%s) respond msg %p", self, f->sub.name, msg);
   f->respond_message(NGX_OK, msg, f->privdata);
   reset_timer(f);
@@ -231,6 +234,7 @@ static const subscriber_t new_internal_sub = {
   &internal_release,
   "internal",
   INTERNAL,
+  {0.0},
   0, //stick around after response
   1, //destroy after dequeue
   NULL

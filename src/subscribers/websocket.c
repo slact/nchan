@@ -223,7 +223,7 @@ static void websocket_init_frame(ws_frame_t *frame) {
   frame->payload = NULL;
 }
 
-subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
+subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   ngx_buf_t            *b;
   nchan_loc_conf_t     *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   DBG("create for req %p", r);
@@ -239,6 +239,11 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r) {
   fsub->holding = 0;
   fsub->shook_hands = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  
+  if(msg_id) {
+    fsub->sub.last_msg_id.time = msg_id->time;
+    fsub->sub.last_msg_id.tag = msg_id->tag;
+  }
   
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
   fsub->timeout_handler = empty_handler;
@@ -863,6 +868,8 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
   
+  verify_subscriber_last_msg_id(self, msg);
+  
   return nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));  
 }
 
@@ -924,6 +931,7 @@ static const subscriber_t new_websocket_sub = {
   &websocket_release,
   "websocket",
   WEBSOCKET,
+  {0,0}, //last_msg_id (for debugging)
   0, //deque after response
   1, //destroy after dequeue
   NULL

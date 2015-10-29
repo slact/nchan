@@ -297,9 +297,20 @@ channel_spooler_t *create_spooler() {
 }
 
 static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *sub) {
+  spooled_subscriber_t    *cur;
+  
   if(self->want_to_stop) {
     ERR("Not accepting new subscribers right now. want to stop.");
     return NGX_ERROR;
+  }
+  
+  //ensure we're all listening for the same channel.
+  //some majorly inefficient debug shit right here
+  for(cur = self->shortlived->first; cur != NULL; cur = cur->next) {
+    verify_msg_id(&sub->last_msg_id, &cur->sub->last_msg_id);
+  }
+  for(cur = self->persistent->first; cur != NULL; cur = cur->next) {
+    verify_msg_id(&sub->last_msg_id, &cur->sub->last_msg_id);
   }
   
   if(COMMAND_SPOOL(self->shortlived, add, sub) != NGX_OK) {
@@ -348,10 +359,6 @@ static ngx_int_t spooler_respond_generic(channel_spooler_t *self, nchan_msg_t *m
 }
 
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
-  if(self->prev_msg_id.time != 0 && self->prev_msg_id.tag != 0 ) {
-    assert(msg->prev_id.time == self->prev_msg_id.time && msg->prev_id.tag == self->prev_msg_id.tag);
-  }
-  
   self->prev_msg_id.time = msg->id.time;
   self->prev_msg_id.tag = msg->id.tag;
   

@@ -26,7 +26,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
 #endif
 }
 
-subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
+subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
   //TODO: allocate from pool (but not the request's pool)
@@ -50,6 +50,15 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r) {
   fsub->data.already_responded = 0;
   fsub->data.awaiting_destruction = 0;
   fsub->data.reserved = 0;
+  
+  if(msg_id) {
+    fsub->sub.last_msg_id.time = msg_id->time;
+    fsub->sub.last_msg_id.tag = msg_id->tag;
+  }
+  else {
+    fsub->sub.last_msg_id.time = 0;
+    fsub->sub.last_msg_id.tag = 0;
+  }
   
   fsub->data.owner = memstore_slot();
   
@@ -187,6 +196,8 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   
   fsub->data.already_responded = 1;
   
+  verify_subscriber_last_msg_id(self, msg);
+  
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
   
@@ -249,6 +260,7 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_release,
   "longpoll",
   LONGPOLL,
+  {0,0},
   1, //deque after response
   1, //destroy after dequeue
   NULL

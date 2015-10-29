@@ -112,6 +112,8 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_file_t             *msg_file;
   ngx_int_t               rc;
 
+  verify_subscriber_last_msg_id(sub, msg);
+  
   es_ensure_headers_sent(fsub);
   
   DBG("%p output msg to subscriber", sub);
@@ -270,11 +272,11 @@ static ngx_int_t es_enqueue(subscriber_t *sub) {
   return rc;
 }
 
-subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r) {
+subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t *sub;
   full_subscriber_t *fsub;
   
-  sub = longpoll_subscriber_create(r);
+  sub = longpoll_subscriber_create(r, msg_id);
   fsub = (full_subscriber_t *)sub;
   
   

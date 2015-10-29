@@ -484,28 +484,47 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
 
   if(head==NULL) {
     return NCHAN_MESSAGE_QUEUED;
-  }
-
-  if (head->sub_count == 0) {
-    return NCHAN_MESSAGE_QUEUED;
+    if(msg) {
+      DBG("tried publishing %i:%i with a NULL chanhead", msg->id.time, msg->id.tag);
+    }
+    else {
+      DBG("tried publishing status %i msg with a NULL chanhead", status_code);
+    }
   }
 
   if(msg) {
     head->last_msgid.time = msg->id.time;
     head->last_msgid.tag = msg->id.tag;
-    head->spooler.respond_message(&head->spooler, msg);
+  }
+
+  if (head->sub_count > 0) {
+    if(msg) {
+      DBG("tried publishing %i:%i to chanhead %p (subs: %i)", msg->id.time, msg->id.tag, head, head->sub_count);
+      head->spooler.respond_message(&head->spooler, msg);
+    }
+    else {
+      DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
+      head->spooler.respond_status(&head->spooler, status_code, status_line);
+    }
+    
+    //TODO: be smarter about garbage-collecting chanheads
+    if(memstore_channel_owner(&head->id) == memstore_slot()) {
+      //the owner is responsible for the chanhead and its interprocess siblings
+      //when removed, said siblings will be notified via IPC
+      chanhead_gc_add(head, "add owner chanhead after publish");
+    }
+    
+    if(head->shared) {
+      head->channel.subscribers = head->shared->sub_count;
+    }
   }
   else {
-    head->spooler.respond_status(&head->spooler, status_code, status_line);
-  }
-
-  //TODO: be smarter about garbage-collecting chanheads
-  if(memstore_channel_owner(&head->id) == memstore_slot()) {
-    chanhead_gc_add(head, "add owner chanhead after publish");
-  }
-
-  if(head->shared) {
-    head->channel.subscribers = head->shared->sub_count;
+    if(msg) {
+      DBG("tried publishing %i:%i to EMPTY chanhead %p", msg->id.time, msg->id.tag, head);
+    }
+    else {
+      DBG("tried publishing status %i to EMPTY chanhead %p", status_code, head);
+    }
   }
   
   return (shared_sub_count > 0) ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED;
