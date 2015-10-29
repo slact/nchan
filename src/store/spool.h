@@ -77,6 +77,12 @@ struct channel_spooler_s {
   void                  *bulk_dequeue_handler_privdata;
 };
 
+typedef struct {
+  ngx_str_t              pseudoid;
+  nchan_msg_id_t         id;
+  subscriber_pool_t     *shortlived;
+  subscriber_pool_t     *persistent;
+} spooler_msg_leaf_t;
 
 channel_spooler_t *start_spooler(channel_spooler_t *spl);
 ngx_int_t stop_spooler(channel_spooler_t *spl);
