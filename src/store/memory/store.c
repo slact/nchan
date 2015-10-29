@@ -2,8 +2,6 @@
 
 #include <assert.h>
 #include "store.h"
-#include <store/ngx_rwlock.h>
-#include "rbtree_util.h"
 #include "shmem.h"
 #include "ipc.h"
 #include "ipc-handlers.h"

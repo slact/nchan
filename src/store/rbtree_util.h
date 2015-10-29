@@ -1,3 +1,6 @@
+#ifndef NCHAN_RBTREE_UTIL_HEADER
+#define NCHAN_RBTREE_UTIL_HEADER
+
 typedef struct {
   char              *name;
   ngx_rbtree_t       tree;
@@ -21,3 +24,4 @@ ngx_int_t            rbtree_walk(rbtree_seed_t *, ngx_int_t (*callback)(rbtree_s
 
 ngx_rbtree_node_t   *rbtree_node_from_data(void *);
 
+#endif /*NCHAN_RBTREE_UTIL_HEADER*/

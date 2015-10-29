@@ -1,6 +1,8 @@
 #ifndef SPOOL_HEADER
 #define SPOOL_HEADER
 
+#include "rbtree_util.h"
+
 typedef enum {SHORTLIVED, PERSISTENT} spool_type_t;
 
 typedef struct spooled_subscriber_s spooled_subscriber_t;
@@ -47,6 +49,9 @@ typedef struct channel_spooler_s channel_spooler_t; //holds many different spool
 struct channel_spooler_s {
   subscriber_pool_t     *shortlived;
   subscriber_pool_t     *persistent;
+  
+  rbtree_seed_t          spoolseed;
+  
   ngx_uint_t             responded_count;
   ngx_atomic_t          *shared_sub_count;
   nchan_msg_id_t         prev_msg_id;
@@ -77,4 +82,4 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl);
 ngx_int_t stop_spooler(channel_spooler_t *spl);
 
 
-#endif
+#endif  /*SPOOL_HEADER*/

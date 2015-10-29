@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include "rbtree_util.h"
 #include "spool.h"
 #include <assert.h>
 
