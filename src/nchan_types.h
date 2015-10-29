@@ -168,6 +168,7 @@ struct subscriber_s {
   ngx_int_t            (*release)(struct subscriber_s *);
   const char          *name;
   subscriber_type_t    type;
+  nchan_msg_id_t       last_msg_id;
   unsigned             dequeue_after_response:1;
   unsigned             destroy_after_dequeue:1;
   nchan_loc_conf_t    *cf;
