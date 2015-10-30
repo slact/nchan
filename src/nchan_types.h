@@ -155,7 +155,7 @@ typedef struct nchan_llist_timed_s {
 } nchan_llist_timed_t;
 
 typedef enum {PUB, SUB} pub_or_sub_t;
-typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL} subscriber_type_t;
+typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 struct subscriber_s {
   ngx_int_t            (*enqueue)(struct subscriber_s *);
