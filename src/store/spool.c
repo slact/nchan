@@ -479,8 +479,17 @@ static ngx_int_t spooler_msgleaf_destroyer(rbtree_seed_t *seed, spooler_msg_leaf
 }
 
 ngx_int_t stop_spooler(channel_spooler_t *spl) {
+  ngx_rbtree_node_t    *cur, *sentinel;
+  rbtree_seed_t        *seed = &spl->spoolseed;
+  ngx_rbtree_t         *tree = &seed->tree;
+  sentinel = tree->sentinel;
   if(spl->running) {
-    rbtree_walk(&spl->spoolseed, (rbtree_walk_callback_pt )spooler_msgleaf_destroyer, (void *)spl);
+    //rbtree_walk(&spl->spoolseed, (rbtree_walk_callback_pt )spooler_msgleaf_destroyer, (void *)spl);
+    
+    for(cur = tree->root; cur != NULL && cur != tree->sentinel; cur = tree->root) {
+      rbtree_remove_node(seed, cur);
+      rbtree_destroy_node(seed, cur);
+    }
     
     DBG("stopped SPOOLER %p", *spl);
   }
