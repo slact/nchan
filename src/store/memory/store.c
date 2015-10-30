@@ -263,8 +263,8 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   start_spooler(&head->spooler);
-  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
+  head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
+  head->spooler.fn->set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
   return NGX_OK;
 }
 
@@ -498,11 +498,11 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   if (head->sub_count > 0) {
     if(msg) {
       DBG("tried publishing %i:%i to chanhead %p (subs: %i)", msg->id.time, msg->id.tag, head, head->sub_count);
-      head->spooler.respond_message(&head->spooler, msg);
+      head->spooler.fn->respond_message(&head->spooler, msg);
     }
     else {
       DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
-      head->spooler.respond_status(&head->spooler, status_code, status_line);
+      head->spooler.fn->respond_status(&head->spooler, status_code, status_line);
     }
     
     //TODO: be smarter about garbage-collecting chanheads
@@ -551,7 +551,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         if(force_delete) {
           ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
           //ch->spooler.prepare_to_stop(&ch->spooler);
-          ch->spooler.respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+          ch->spooler.fn->respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
         }
         else {
           //DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
@@ -1198,7 +1198,7 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
       case NCHAN_MESSAGE_EXPECTED: //not yet available
         // ♫ It's gonna be the future soon ♫
         sub->enqueue(sub);
-        chanhead->spooler.add(&chanhead->spooler, sub);
+        chanhead->spooler.fn->add(&chanhead->spooler, sub);
         break;
         
       case NCHAN_MESSAGE_EXPIRED: //gone

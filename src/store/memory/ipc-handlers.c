@@ -88,7 +88,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   else {
     ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->origin_chanhead);
     ipc_sub->enqueue(ipc_sub);
-    head->spooler.add(&head->spooler, ipc_sub);
+    head->spooler.fn->add(&head->spooler, ipc_sub);
     d->subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
   }

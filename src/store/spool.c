@@ -17,6 +17,9 @@
 
 static ngx_int_t spool_remove(subscriber_pool_t *, spooled_subscriber_t *);
 static ngx_int_t safely_destroy_spool(subscriber_pool_t *spool);
+static ngx_int_t init_spool(channel_spooler_t *spl, subscriber_pool_t *spool);
+static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, channel_spooler_t *spl);
+static void spool_bubbleup_bulk_dequeue_handler(subscriber_pool_t *spool, subscriber_type_t type, ngx_int_t count, channel_spooler_t *spl);
 
 static void msgid_to_str(nchan_msg_id_t *id, ngx_str_t *str) {
   str->len=sizeof(*id);
@@ -31,7 +34,7 @@ static spooler_msg_leaf_t *find_msgleaf(channel_spooler_t *spl, nchan_msg_id_t *
   msgid_to_str(id, &pseudoid);
   
   if((node = rbtree_find_node(seed, &pseudoid)) != NULL) {
-    return (spooler_msg_leaf_t *)&node->data;
+    return (spooler_msg_leaf_t *)rbtree_data_from_node(node);
   }
   else {
     return NULL;
@@ -51,14 +54,18 @@ static spooler_msg_leaf_t *get_msgleaf(channel_spooler_t *spl, nchan_msg_id_t *i
       ERR("can't create rbtree spooler_msgleaf");
       return NULL;
     }
-    leaf = (spooler_msg_leaf_t *)&node->data;
+    leaf = (spooler_msg_leaf_t *)rbtree_data_from_node(node);
     leaf->id = *id;
-    leaf->pseudoid = pseudoid;
-    leaf->shortlived = NULL;
-    leaf->persistent = NULL;
+    msgid_to_str(&leaf->id, &leaf->pseudoid);
+    init_spool(spl, &leaf->spool);
+    if(rbtree_insert_node(seed, node) != NGX_OK) {
+      ERR("couldn't insert msgleaf node");
+      rbtree_destroy_node(seed, node);
+      return NULL;
+    }
   }
   else {
-    leaf = (spooler_msg_leaf_t *)&node->data;
+    leaf = (spooler_msg_leaf_t *)rbtree_data_from_node(node);
   }
   return leaf;
 }
@@ -69,10 +76,9 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
   
   assert(sub == d->ssub->sub);
   spool_remove(spool, d->ssub);
-  if(spool->dequeue_handler) {
-    spool->dequeue_handler(spool, sub, spool->dequeue_handler_privdata);
-  }
-
+  spool_bubbleup_dequeue_handler(spool, sub, spool->spooler);
+  
+/*
   if(spool->bulk_dequeue_handler) {
     void         *pd = spool->bulk_dequeue_handler_privdata;
     if(spool->type == SHORTLIVED) {
@@ -82,9 +88,9 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
       }
       else {
         //first response. pretend to dequeue everything right away
-        if(spool->responded_subs == 1) {
+        if(spool->responded_shortlived_subs == 1) {
           //assumes all SHORTLIVED subs are the same type. This is okay for now, but may lead to bugs.
-          spool->bulk_dequeue_handler(spool, sub->type, spool->sub_count + 1, pd);
+          spool->bulk_dequeue_handler(spool, sub->type, spool->shortlived_sub_count + 1, pd);
         }
       }
     }
@@ -92,32 +98,16 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
       spool->bulk_dequeue_handler(spool, sub->type, 1, pd);
     }
   }
-}
+*/
 
-static void spool_sub_empty_callback() {}
+}
 
 static ngx_int_t spool_add(subscriber_pool_t *self, subscriber_t *sub) {
   spooled_subscriber_t       *ssub;
-  if(self->type == SHORTLIVED) {
-    assert(self->pool);
-    if(!sub->dequeue_after_response) {
-      return NGX_ERROR;
-    }
-    ssub = ngx_palloc(self->pool, sizeof(*ssub));
-    DBG("add sub %p to shortlived spool %p", sub, self);
-  }
-  else if(self->type == PERSISTENT) {
-    assert(self->pool == NULL);
-    if(sub->dequeue_after_response) {
-      return NGX_ERROR;
-    }
-    ssub = ngx_alloc(sizeof(*ssub), ngx_cycle->log);
-    DBG("add sub %p to persistent spool %p", sub, self);
-  }
-  else {
-    ERR("Weird spool type. it sounds benign, but it's actually CATASTROPHIC.");
-    assert(0); //we're not supposed to be here.
-  }
+  
+  ssub = ngx_alloc(sizeof(*ssub), ngx_cycle->log);
+  DBG("add sub %p to spool %p", sub, self);
+  
   if(ssub == NULL) {
     ERR("failed to allocate new sub for spool");
     return NGX_ERROR;
@@ -154,23 +144,9 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
   if(self->first == ssub) {
     self->first = next;
   }
-  if(self->pool) {
-    assert(self->type == SHORTLIVED);
-    //ngx_pfree(self->pool, ssub);
-    DBG("remove spooled_sub %p from shortlived spool %p", ssub, self);
-    ssub->sub->set_dequeue_callback(ssub->sub, spool_sub_empty_callback, NULL);
-  }
-  else {
-    int                      i=0;
-    spooled_subscriber_t    *scur;
-    assert(self->type == PERSISTENT);
-    DBG("remove spooled_sub %p from persistent spool %p. first sub is now %p", ssub, self, self->first);
-    ngx_free(ssub);
-    for(scur = self->first; scur != NULL; scur = scur->next) {
-      i++;
-      DBG("sub #%i is %p", i, scur);
-    }
-  }
+  
+  ngx_free(ssub);
+  
   self->sub_count--;
   assert(self->sub_count >= 0);
 
@@ -178,16 +154,20 @@ static ngx_int_t spool_remove(subscriber_pool_t *self, spooled_subscriber_t *ssu
 }
 
 static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+  ngx_uint_t                  numsubs[SUBSCRIBER_TYPES];
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
+  
+  ngx_memzero(numsubs, sizeof(numsubs));
   self->generation++;
   
   DBG("spool %p respond with msg %p or code %i", self, msg, status_code);
   
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
-    self->responded_subs++;
+    self->responded_count++;
     nnext = nsub->next;
+    
     if(msg) {
       sub->respond_message(sub, msg);
     }
@@ -198,98 +178,20 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   return NGX_OK;
 }
 
-static ngx_int_t spool_respond_status(subscriber_pool_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  return spool_respond_general(self, NULL, status_code, status_line);
-}
-
-static ngx_int_t spool_respond_message(subscriber_pool_t *self, nchan_msg_t *msg) {
-  return spool_respond_general(self, msg, 0, NULL);
-}
-
-static ngx_int_t spool_set_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, subscriber_t *, void*), void *privdata) {
-  if(handler != NULL) {
-    self->dequeue_handler = handler;
-  }
-  if(privdata != NULL) {
-    self->dequeue_handler_privdata = privdata;
-  }
+static ngx_int_t init_spool(channel_spooler_t *spl, subscriber_pool_t *spool) {
+  ngx_memzero(spool, sizeof(*spool));
+  
+  spool->spooler = spl;
   return NGX_OK;
-}
-
-static ngx_int_t spool_set_bulk_dequeue_handler(subscriber_pool_t *self, void (*handler)(subscriber_pool_t *, subscriber_type_t, ngx_int_t, void*), void *privdata) {
-  if(handler != NULL) {
-    self->bulk_dequeue_handler = handler;
-  }
-  if(privdata != NULL) {
-    self->bulk_dequeue_handler_privdata = privdata;
-  }
-  return NGX_OK;
-}
-
-static subscriber_pool_t *create_spool(spool_type_t type) {
-  subscriber_pool_t *spool = NULL;
-  if(type == SHORTLIVED) {
-    ngx_pool_t      *pool = ngx_create_pool(NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE, ngx_cycle->log);
-    if(pool == NULL) {
-      ERR("couldn't create pool for ONESHOT spool");
-      return NULL;
-    }
-    if((spool = ngx_palloc(pool, sizeof(*spool))) == NULL) {
-      ERR("couldn't allocate spool for ONESHOT spool");
-      return NULL;
-    }
-    spool->pool = pool;
-    spool->type = SHORTLIVED;
-  }
-  else if(type == PERSISTENT) {
-    if((spool = ngx_alloc(sizeof(*spool), ngx_cycle->log)) == NULL) {
-      ERR("couldn't allocate PERSIST spool");
-      return NULL;
-    }
-    spool->pool = NULL;
-    spool->type = PERSISTENT;
-  }
-  else {
-    ERR("Unable to allocate unknown spool type");
-    return NULL;
-  }
-  spool->first = NULL;
-  spool->sub_count = 0;
-  spool->generation = 0;
-  spool->responded_subs = 0;
-  spool->add = spool_add;
-  spool->respond_message = spool_respond_message;
-  spool->respond_status = spool_respond_status;
-  spool->dequeue_handler = NULL;
-  spool->dequeue_handler_privdata = NULL;
-  spool->bulk_dequeue_handler = NULL;
-  spool->bulk_dequeue_handler_privdata = NULL;
-  spool->set_dequeue_handler = spool_set_dequeue_handler;
-  spool->set_bulk_dequeue_handler = spool_set_bulk_dequeue_handler;
-  return spool;
-}
-
-static subscriber_pool_t *recreate_spool(subscriber_pool_t *old_spool) {
-  subscriber_pool_t *nuspool;
-  if((nuspool = create_spool(old_spool->type)) == NULL) {
-    ERR("unable to recreate spool %p", old_spool);
-    return NULL;
-  }
-  COMMAND_SPOOL(nuspool, set_dequeue_handler, old_spool->dequeue_handler, old_spool->dequeue_handler_privdata);
-  COMMAND_SPOOL(nuspool, set_bulk_dequeue_handler, old_spool->bulk_dequeue_handler, old_spool->bulk_dequeue_handler_privdata);
-  return nuspool;
 }
 
 static ngx_int_t destroy_that_spool_right_NOW(subscriber_pool_t *spool) {
   if(spool->pool) {
-    assert(spool->type == SHORTLIVED);
-    //ngx_pfree(spool->pool, spool); //don't need to.
     ngx_destroy_pool(spool->pool);
   }
-  else {
-    assert(spool->type == PERSISTENT);
-    ngx_free(spool);
-  }
+  
+  ngx_memset(spool, 0xFC, sizeof(*spool)); //debug
+
   return NGX_OK;
 }
 
@@ -301,34 +203,22 @@ ngx_int_t  safely_destroy_spool(subscriber_pool_t *spool) {
     destroy_that_spool_right_NOW(spool);
   }
   else{
-    spool->respond_status(spool, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-    switch(spool->type) {
-      case SHORTLIVED:
-        assert(spool->sub_count == 0);
-        assert(spool->first == NULL);
-        assert(spool->pool != NULL);
-        //will be deleted when subsribers are done responding
-        break;
-      
-      case PERSISTENT:  
-        for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
-          sub = ssub->sub;
-          DBG("dequeue sub %p in PERSISTENT spool %p", sub, spool);
-          sub->dequeue(sub);
-        }
-        assert(spool->sub_count == 0);
-        assert(spool->first == NULL);
-        DBG("destroy PERSISTENT spool %p right now", spool);
-        destroy_that_spool_right_NOW(spool);
-        break;
-      
-      default:
-        ERR("unknown spool type");
-        return NGX_ERROR;
-        break;
+    spool_respond_general(spool, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+    for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
+      sub = ssub->sub;
+      DBG("dequeue sub %p in PERSISTENT spool %p", sub, spool);
+      sub->dequeue(sub);
     }
+    assert(spool->sub_count == 0);
+    assert(spool->first == NULL);
+    
+    destroy_that_spool_right_NOW(spool);
   }
   return NGX_OK;
+}
+
+static subscriber_pool_t *get_msgleaf_spool(channel_spooler_t *self, spooler_msg_leaf_t *leaf) {
+  return &leaf->spool;
 }
 
 /////////// SPOOLER - container of several spools //////////
@@ -342,6 +232,26 @@ channel_spooler_t *create_spooler() {
   return spooler;
 }
 
+static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, channel_spooler_t *spl) {
+  //bubble on up, yeah
+  if(spl->dequeue_handler) {
+    spl->dequeue_handler(spl, sub, spl->dequeue_handler_privdata);
+  }
+  else if (spl->bulk_dequeue_handler){
+    spl->bulk_dequeue_handler(spl, sub->type, 1, spl->bulk_dequeue_handler_privdata);
+  }
+  else {
+    ERR("Neither dequeue_handler not bulk_dequeue_handler present in spooler for spool sub dequeue");
+  }
+}
+
+static void spool_bubbleup_bulk_dequeue_handler(subscriber_pool_t *spool, subscriber_type_t type, ngx_int_t count, channel_spooler_t *spl) {
+  //bubble on up, yeah
+  if(spl->bulk_dequeue_handler) {
+    spl->bulk_dequeue_handler(spl, type, count, spl->bulk_dequeue_handler_privdata);
+  }
+}
+
 static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *sub) {
   nchan_msg_id_t          *msgid = &sub->last_msg_id;
   spooler_msg_leaf_t      *leaf;
@@ -353,26 +263,14 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   }
   
   leaf = get_msgleaf(self, msgid);
-  if(sub->dequeue_after_response) {
-    if(leaf->shortlived == NULL) {
-      if((leaf->shortlived = create_spool(SHORTLIVED)) == NULL) {
-        ERR("unable to create shortlived spool");
-        return NGX_ERROR;
-      }
-    }
-    spool = leaf->shortlived;
+  spool = get_msgleaf_spool(self, leaf);
+  
+  if(spool == NULL) {
+    return NGX_ERROR;
   }
-  else {
-    if(leaf->persistent == NULL) {
-      if((leaf->persistent = create_spool(PERSISTENT)) == NULL) {
-        ERR("unable to create persistent spool");
-        return NGX_ERROR;
-      }
-    }
-    spool = leaf->persistent;
-  }
-  if(COMMAND_SPOOL(spool, add, sub) != NGX_OK) {
-    ERR("couldn't add subscriber to %s spool %p", spool->type == SHORTLIVED ? "shortlived" : "persistent",  spool);
+
+  if(spool_add(spool, sub) != NGX_OK) {
+    ERR("couldn't add subscriber to spool %p", spool);
     return NGX_ERROR;
   }
 
@@ -388,46 +286,78 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 
 
 static ngx_int_t spooler_msgleaf_respond_generic(channel_spooler_t *self, spooler_msg_leaf_t *leaf, nchan_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
-  if(leaf == NULL) {
-    return NGX_OK;
-  }
-  
-  subscriber_pool_t       *old = self->shortlived;
-  
-  /*
-  if(msg) {
-    DBG("SPOOLER %p respond msg %p", self, msg);
-  }
-  else {
-    DBG("SPOOLER %p respond code %i", self, code);
-  }
-  */
-  
-  //replacement spool
-  if(old) self->shortlived = recreate_spool(old);
-  
-  if(msg) {
-    if(old) COMMAND_SPOOL(old, respond_message, msg);
-    if(self->persistent) COMMAND_SPOOL(self->persistent, respond_message, msg);
-  }
-  else {
-    if(old) COMMAND_SPOOL(old, respond_status, code, line);
-    if(self->persistent)  COMMAND_SPOOL(self->persistent, respond_status, code, line);
-  }
-  if(old) safely_destroy_spool(old);
+  return spool_respond_general(&leaf->spool, msg, code, line);
   self->responded_count++;
   return NGX_OK;
 }
 
+static ngx_int_t spooler_msgleaf_transfer_subscribers(channel_spooler_t *self, spooler_msg_leaf_t *leaf, spooler_msg_leaf_t *newleaf) {
+  ngx_int_t               count = 0;
+  subscriber_t           *sub;
+  spooled_subscriber_t   *cur;
+  subscriber_pool_t      *spool, *nuspool;
+  
+  spool   = get_msgleaf_spool(self, leaf);
+  nuspool = get_msgleaf_spool(self, newleaf);
+  if(spool == NULL || nuspool == NULL) {
+    ERR("failed to transfer spool subscribers");
+    return 0;
+  }
+  for(cur = spool->first; cur != NULL; cur = spool->first) {
+    sub = cur->sub;
+    spool_remove(spool, cur);
+    spool_add(nuspool, sub);
+    count++;
+  }
+  
+  return count;
+}
+
+static ngx_int_t spooler_msgleaf_destroyer(rbtree_seed_t *seed, spooler_msg_leaf_t *leaf, channel_spooler_t *spl);
+
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
-  spooler_msg_leaf_t  *leaf;
+  static nchan_msg_id_t      any_msg = {0,0};
+  spooler_msg_leaf_t        *leaf, *newleaf;
+  ngx_rbtree_node_t         *node;
+  
+  newleaf = find_msgleaf(self, &msg->id);
   
   leaf = find_msgleaf(self, &msg->prev_id);
+  if(leaf) {
+    spooler_msgleaf_respond_generic(self, leaf, msg, 0, NULL);
+    if(newleaf) {
+      spooler_msgleaf_transfer_subscribers(self, leaf, newleaf);
+      spooler_msgleaf_destroyer(&self->spoolseed, leaf, self);
+    }
+    else {
+      node = rbtree_node_from_data(leaf);
+      rbtree_remove_node(&self->spoolseed, node);
+      leaf->id = msg->id;
+      rbtree_insert_node(&self->spoolseed, node);
+      newleaf = leaf;
+    }
+  }
+  
+  leaf = find_msgleaf(self, &any_msg);
+  if(leaf) {
+    spooler_msgleaf_respond_generic(self, leaf, msg, 0, NULL);
+    if(newleaf) {
+      spooler_msgleaf_transfer_subscribers(self, leaf, newleaf);
+      spooler_msgleaf_destroyer(&self->spoolseed, leaf, self);
+    }
+    else {
+      node = rbtree_node_from_data(leaf);
+      rbtree_remove_node(&self->spoolseed, node);
+      leaf->id = msg->id;
+      rbtree_insert_node(&self->spoolseed, node);
+      newleaf = leaf;
+    }
+  }
   
   self->prev_msg_id.time = msg->id.time;
   self->prev_msg_id.tag = msg->id.tag;
   
-  return spooler_msgleaf_respond_generic(self, leaf, msg, 0, NULL);
+  return NGX_OK;
 }
 
 typedef struct {
@@ -437,15 +367,15 @@ typedef struct {
   const ngx_str_t   *line;
 } spooler_respond_generic_data_t;
 
-static ngx_int_t spooler_respond_rbtree_node_msgleaf(rbtree_seed_t *seed, ngx_rbtree_node_t *node, void *data) {
+static ngx_int_t spooler_respond_rbtree_node_msgleaf(rbtree_seed_t *seed, spooler_msg_leaf_t *leaf, void *data) {
   spooler_respond_generic_data_t  *d = data;
   
-  return spooler_msgleaf_respond_generic(d->spl, (spooler_msg_leaf_t *)&node->data, d->msg, d->code, d->line);
+  return spooler_msgleaf_respond_generic(d->spl, leaf, d->msg, d->code, d->line);
 }
 
 static ngx_int_t spooler_all_msgleaves_respond_generic(channel_spooler_t *self, nchan_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
   spooler_respond_generic_data_t  data = {self, msg, code, line};
-  rbtree_walk(&self->spoolseed, spooler_respond_rbtree_node_msgleaf, &data);
+  rbtree_walk(&self->spoolseed, (rbtree_walk_callback_pt )spooler_respond_rbtree_node_msgleaf, &data);
   return NGX_OK;
 }
 
@@ -482,27 +412,18 @@ static ngx_int_t spooler_set_add_handler(channel_spooler_t *self, void (*handler
   return NGX_OK;
 }
 
-static void bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, void *privdata) {
-  channel_spooler_t *spl = (channel_spooler_t *)privdata;
-  //bubble on up, yeah
-  if(spl->dequeue_handler) {
-    spl->dequeue_handler(spl, sub, spl->dequeue_handler_privdata);
+static ngx_int_t spooler_msgleaf_dequeue_all(rbtree_seed_t *seed, spooler_msg_leaf_t *leaf, void *data) {
+  spooled_subscriber_t *cur;
+  
+  for(cur = leaf->spool.first; cur != NULL; cur = cur->next) {
+    cur->sub->dequeue_after_response = 1;  
   }
-}
-
-static void bubbleup_bulk_dequeue_handler(subscriber_pool_t *spool, subscriber_type_t type, ngx_int_t count, void *privdata) {
-  channel_spooler_t *spl = (channel_spooler_t *)privdata;
-  //bubble on up, yeah
-  if(spl->bulk_dequeue_handler) {
-    spl->bulk_dequeue_handler(spl, type, count, spl->bulk_dequeue_handler_privdata);
-  }
+  
+  return NGX_OK;
 }
 
 static ngx_int_t spooler_prepare_to_stop(channel_spooler_t *spl) {
-  spooled_subscriber_t  *ssub;
-  for(ssub = spl->persistent->first; ssub != NULL; ssub = ssub->next) {
-    ssub->sub->dequeue_after_response = 1;
-  }
+  rbtree_walk(&spl->spoolseed, (rbtree_walk_callback_pt )spooler_msgleaf_dequeue_all, (void *)spl);
   spl->want_to_stop = 1;
   return NGX_OK;
 }
@@ -513,38 +434,30 @@ static ngx_str_t *spooler_msgleaf_id(void *data) {
   return &((spooler_msg_leaf_t *)data)->pseudoid;
 }
 
+
+static channel_spooler_fn_t  spooler_fn = {
+  spooler_add_subscriber,
+  spooler_respond_message,
+  spooler_respond_status,
+  spooler_prepare_to_stop,
+  spooler_set_add_handler,
+  spooler_set_dequeue_handler,
+  spooler_set_bulk_dequeue_handler
+};
+
 channel_spooler_t *start_spooler(channel_spooler_t *spl) {
   if(!spl->running) {
-    spl->shortlived = create_spool(SHORTLIVED);
-    spl->persistent = create_spool(PERSISTENT);
-    
+    ngx_memzero(spl, sizeof(*spl));
     rbtree_init(&spl->spoolseed, "spooler msg_id tree", spooler_msgleaf_id, NULL, NULL);
     
-    spl->add = spooler_add_subscriber;
-    spl->respond_message = spooler_respond_message;
-    spl->respond_status = spooler_respond_status;
-    spl->set_dequeue_handler = spooler_set_dequeue_handler;
-    spl->set_bulk_dequeue_handler = spooler_set_bulk_dequeue_handler;
-    spl->set_add_handler = spooler_set_add_handler;
-    spl->prepare_to_stop = spooler_prepare_to_stop;
-    spl->add_handler = NULL;
-    spl->add_handler_privdata = NULL;
-    spl->dequeue_handler = NULL;
-    spl->dequeue_handler_privdata = NULL;
-    spl->bulk_dequeue_handler = NULL;
-    spl->bulk_dequeue_handler_privdata = NULL;
-    
-    spl->prev_msg_id.time=0;
-    spl->prev_msg_id.tag=0;
+    spl->fn=&spooler_fn;
+    //spl->prev_msg_id.time=0;
+    //spl->prev_msg_id.tag=0;
     
     DBG("start SPOOLER %p", *spl);
     
-    COMMAND_SPOOL(spl->shortlived, set_dequeue_handler, bubbleup_dequeue_handler, spl);
-    COMMAND_SPOOL(spl->persistent, set_dequeue_handler, bubbleup_dequeue_handler, spl);
-    COMMAND_SPOOL(spl->shortlived, set_bulk_dequeue_handler, bubbleup_bulk_dequeue_handler, spl);
-    COMMAND_SPOOL(spl->persistent, set_bulk_dequeue_handler, bubbleup_bulk_dequeue_handler, spl);
     spl->running = 1;
-    spl->want_to_stop = 0;
+    //spl->want_to_stop = 0;
     return spl;
   }
   else {
@@ -553,10 +466,22 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl) {
   }
 }
 
+static ngx_int_t spooler_msgleaf_destroyer(rbtree_seed_t *seed, spooler_msg_leaf_t *leaf, channel_spooler_t *spl) {
+  if(spl->running) {
+    safely_destroy_spool(&leaf->spool);
+  }
+  rbtree_remove_node(seed, rbtree_node_from_data(leaf));
+  
+  ngx_memset(leaf, 0x42, sizeof(*leaf)); //debug
+  
+  rbtree_destroy_node(seed, rbtree_node_from_data(leaf));
+  return NGX_OK;
+}
+
 ngx_int_t stop_spooler(channel_spooler_t *spl) {
   if(spl->running) {
-    safely_destroy_spool(spl->shortlived);
-    safely_destroy_spool(spl->persistent);
+    rbtree_walk(&spl->spoolseed, (rbtree_walk_callback_pt )spooler_msgleaf_destroyer, (void *)spl);
+    
     DBG("stopped SPOOLER %p", *spl);
   }
   spl->running = 0;

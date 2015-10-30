@@ -739,8 +739,8 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   start_spooler(&head->spooler);
-  head->spooler.set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+  head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
+  head->spooler.fn->set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
   return NGX_OK;
 }
 
@@ -952,10 +952,10 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
     if(msg) {
       head->last_msgid.time = msg->id.time;
       head->last_msgid.tag = msg->id.tag;
-      head->spooler.respond_message(&head->spooler, msg);
+      head->spooler.fn->respond_message(&head->spooler, msg);
     }
     else {
-      head->spooler.respond_status(&head->spooler, status_code, status_line);
+      head->spooler.fn->respond_status(&head->spooler, status_code, status_line);
     }
     ret= NGX_OK;
   }
@@ -1395,7 +1395,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
       }
       else {
         sub->enqueue(sub);
-        ret = chanhead->spooler.add(&chanhead->spooler, sub);
+        ret = chanhead->spooler.fn->add(&chanhead->spooler, sub);
         d->callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, d->privdata);
       }
       break; 

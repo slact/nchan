@@ -3,8 +3,6 @@
 
 #include "rbtree_util.h"
 
-typedef enum {SHORTLIVED, PERSISTENT} spool_type_t;
-
 typedef struct spooled_subscriber_s spooled_subscriber_t;
 typedef struct subscriber_pool_s subscriber_pool_t;
 
@@ -23,65 +21,49 @@ struct spooled_subscriber_s {
 
 
 struct subscriber_pool_s{
-  spool_type_t          type;
-  ngx_uint_t            responded_count;
-  spooled_subscriber_t *first;
-  ngx_pool_t           *pool;
-  ngx_uint_t            sub_count;
-  nchan_llist_timed_t   cleanlink; //unused for now
-  ngx_uint_t            generation;
-  ngx_int_t             responded_subs;
-  ngx_int_t             (*add)(subscriber_pool_t *self, subscriber_t *sub);
-  ngx_int_t             (*respond_message)(subscriber_pool_t *self, nchan_msg_t *msg);
-  ngx_int_t             (*respond_status)(subscriber_pool_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
-  
-  ngx_int_t             (*set_dequeue_handler)(subscriber_pool_t *, void (*cb)(subscriber_pool_t *, subscriber_t *, void*), void*);
-  void                  (*dequeue_handler)(subscriber_pool_t *, subscriber_t *, void *); //called after dequeueing 1 or many subs
-  void                 *dequeue_handler_privdata;
-
-  ngx_int_t             (*set_bulk_dequeue_handler)(subscriber_pool_t *, void (*cb)(subscriber_pool_t *, subscriber_type_t, ngx_int_t, void*), void*);
-  void                  (*bulk_dequeue_handler)(subscriber_pool_t *, subscriber_type_t,  ngx_int_t, void *); //called after dequeueing each subscriber  
-  void                 *bulk_dequeue_handler_privdata;
+  spooled_subscriber_t       *first;
+  ngx_pool_t                 *pool;
+  ngx_uint_t                  sub_count;
+  ngx_uint_t                  generation;
+  ngx_uint_t                  responded_count;
+  struct channel_spooler_s    *spooler;
 }; // subscriber_pool_t
 
 typedef struct channel_spooler_s channel_spooler_t; //holds many different spools
 
+typedef struct {
+  ngx_int_t            (*add)(channel_spooler_t *self, subscriber_t *sub);
+  ngx_int_t            (*respond_message)(channel_spooler_t *self, nchan_msg_t *msg);
+  ngx_int_t            (*respond_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
+  ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
+  ngx_int_t            (*set_add_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void *), void*);
+  ngx_int_t            (*set_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void*), void*);
+  ngx_int_t            (*set_bulk_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void*), void*);
+} channel_spooler_fn_t;
+
 struct channel_spooler_s {
-  subscriber_pool_t     *shortlived;
-  subscriber_pool_t     *persistent;
-  
   rbtree_seed_t          spoolseed;
-  
-  ngx_uint_t             responded_count;
-  ngx_atomic_t          *shared_sub_count;
   nchan_msg_id_t         prev_msg_id;
-  unsigned               running:1;
-  unsigned               want_to_stop:1;
-  ngx_int_t              (*add)(channel_spooler_t *self, subscriber_t *sub);
-  ngx_int_t              (*respond_message)(channel_spooler_t *self, nchan_msg_t *msg);
-  ngx_int_t              (*respond_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
-
-  ngx_int_t              (*prepare_to_stop)(channel_spooler_t *self);
-
-  ngx_int_t              (*set_add_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void *), void*);
-  void                   (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
+  ngx_uint_t             responded_count;
+  channel_spooler_fn_t  *fn;  
+  
+  void                 (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
   void                  *add_handler_privdata;
   
-  
-  ngx_int_t              (*set_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void*), void*);
-  void                   (*dequeue_handler)(channel_spooler_t *, subscriber_t *, void *);
+  void                 (*dequeue_handler)(channel_spooler_t *, subscriber_t *, void *);
   void                  *dequeue_handler_privdata;
   
-  ngx_int_t              (*set_bulk_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void*), void*);
-  void                   (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
+  void                 (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
   void                  *bulk_dequeue_handler_privdata;
+  
+  unsigned               running:1;
+  unsigned               want_to_stop:1;
 };
 
 typedef struct {
-  ngx_str_t              pseudoid;
   nchan_msg_id_t         id;
-  subscriber_pool_t     *shortlived;
-  subscriber_pool_t     *persistent;
+  ngx_str_t              pseudoid;
+  subscriber_pool_t      spool;
 } spooler_msg_leaf_t;
 
 channel_spooler_t *start_spooler(channel_spooler_t *spl);
