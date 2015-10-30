@@ -493,6 +493,10 @@ ngx_int_t stop_spooler(channel_spooler_t *spl) {
     
     DBG("stopped SPOOLER %p", *spl);
   }
+#if NCHAN_RBTREE_DBG
+  assert(spl->spoolseed.active_nodes == 0);
+  assert(spl->spoolseed.allocd_nodes == 0);
+#endif
   spl->running = 0;
   return NGX_OK;
 }

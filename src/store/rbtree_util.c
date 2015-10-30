@@ -100,23 +100,35 @@ ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
     node->right = NULL;
     node->parent = NULL;
   }
+#if NCHAN_RBTREE_DBG
+  seed->allocd_nodes++;
+#endif
   return node;
 }
 
 ngx_int_t rbtree_destroy_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   DBG("Destroy node %p", node);
   ngx_free(node);
+#if NCHAN_RBTREE_DBG
+  seed->allocd_nodes--;
+#endif
   return NGX_OK;
 }
 
 ngx_int_t rbtree_insert_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   node->key = seed->hash(seed->id(rbtree_data_from_node(node)));
   ngx_rbtree_insert(&seed->tree, node);
+#if NCHAN_RBTREE_DBG
+  seed->active_nodes++;
+#endif
   return NGX_OK;
 }
 
 ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   ngx_rbtree_delete(&seed->tree, node);
+#if NCHAN_RBTREE_DBG
+  seed->active_nodes--;
+#endif
   return NGX_OK;
 }
 
@@ -149,6 +161,10 @@ ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, ngx_str_t *(*id)(void *),
   seed->id = id;
   seed->hash = hash;
   seed->compare = compare;
+#if NCHAN_RBTREE_DBG
+  seed->allocd_nodes = 0;
+  seed->active_nodes = 0;
+#endif
   ngx_rbtree_init(&seed->tree, &seed->sentinel, &rbtree_insert_generic);
   return NGX_OK;
 }
