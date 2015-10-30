@@ -294,6 +294,9 @@ class Subscriber
     end
     
     def poke
+      while @subscriber.finished < @concurrency
+        sleep 0.05
+      end
     end
   end
   
