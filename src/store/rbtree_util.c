@@ -108,10 +108,12 @@ ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
 
 ngx_int_t rbtree_destroy_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   DBG("Destroy node %p", node);
-  ngx_free(node);
 #if NCHAN_RBTREE_DBG
+  ngx_memset(node, 0x67, sizeof(*node));
   seed->allocd_nodes--;
 #endif
+  ngx_free(node);
+
   return NGX_OK;
 }
 

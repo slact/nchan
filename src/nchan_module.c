@@ -405,12 +405,12 @@ static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_htt
   return NGX_OK;
 }
 
-static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, nchan_msg_t *msg, ngx_http_request_t *r) {
+static ngx_int_t subscribe_intervalpoll_callback(nchan_msg_status_t msg_search_outcome, nchan_msg_t *msg, ngx_http_request_t *r) {
   //inefficient, but close enough for now
   ngx_str_t               *etag;
   char                    *err;
   switch(msg_search_outcome) {
-    case NCHAN_MESSAGE_EXPECTED:
+    case MSG_EXPECTED:
       //interval-polling subscriber requests get a 304 with their entity tags preserved.
       if (r->headers_in.if_modified_since != NULL) {
         r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
@@ -421,14 +421,14 @@ static ngx_int_t subscribe_intervalpoll_callback(ngx_int_t msg_search_outcome, n
       nchan_respond_status(r, NGX_HTTP_NOT_MODIFIED, NULL, 1);
       break;
       
-    case NCHAN_MESSAGE_FOUND:
+    case MSG_FOUND:
       if(nchan_respond_msg(r, msg, 1, &err) != NGX_OK) {
         nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &TEXT_PLAIN, err, 1);
       }
       break;
       
-    case NCHAN_MESSAGE_NOTFOUND:
-    case NCHAN_MESSAGE_EXPIRED:
+    case MSG_NOTFOUND:
+    case MSG_EXPIRED:
       nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 1);
       break;
       

@@ -738,7 +738,7 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
 }
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler);
+  start_spooler(&head->spooler, &head->id, &nchan_store_redis);
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
   return NGX_OK;
@@ -1189,18 +1189,18 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   switch(reply->element[0]->integer) {
     case 200: //ok
       if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_store_alloc))) {
-        d->callback(NCHAN_MESSAGE_FOUND, msg, d->privdata);
+        d->callback(MSG_FOUND, msg, d->privdata);
       }
       break;
     case 403: //channel not found
     case 404: //not found
-      d->callback(NCHAN_MESSAGE_NOTFOUND, NULL, d->privdata);
+      d->callback(MSG_NOTFOUND, NULL, d->privdata);
       break;
     case 410: //gone
-      d->callback(NCHAN_MESSAGE_EXPIRED, NULL, d->privdata);
+      d->callback(MSG_EXPIRED, NULL, d->privdata);
       break;
     case 418: //not yet available
-      d->callback(NCHAN_MESSAGE_EXPECTED, NULL, d->privdata);
+      d->callback(MSG_EXPECTED, NULL, d->privdata);
       break;
   }
   

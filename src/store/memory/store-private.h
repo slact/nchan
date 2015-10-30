@@ -54,10 +54,10 @@ typedef struct {
 
 nchan_store_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);
 nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id);
-store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, ngx_int_t *status);
+store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status);
 shmem_t *nchan_memstore_get_shm(void);
 ipc_t *nchan_memstore_get_ipc(void);
-ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t findmsg_status, void *d);
+ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *d);
 ngx_int_t memstore_channel_owner(ngx_str_t *id);
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msg,  ngx_int_t min_msg, callback_pt callback, void *privdata);
 ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);

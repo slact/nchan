@@ -26,7 +26,7 @@ struct subscriber_pool_s{
   ngx_uint_t                  sub_count;
   ngx_uint_t                  generation;
   ngx_uint_t                  responded_count;
-  struct channel_spooler_s    *spooler;
+  struct channel_spooler_s   *spooler;
 }; // subscriber_pool_t
 
 typedef struct channel_spooler_s channel_spooler_t; //holds many different spools
@@ -45,6 +45,8 @@ struct channel_spooler_s {
   rbtree_seed_t          spoolseed;
   nchan_msg_id_t         prev_msg_id;
   ngx_uint_t             responded_count;
+  ngx_str_t             *chid;
+  nchan_store_t         *store;
   channel_spooler_fn_t  *fn;  
   
   void                 (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
@@ -64,9 +66,12 @@ typedef struct {
   nchan_msg_id_t         id;
   ngx_str_t              pseudoid;
   subscriber_pool_t      spool;
+  channel_spooler_t     *spl;
+  nchan_msg_t           *msg;
+  nchan_msg_status_t     msg_status;
 } spooler_msg_leaf_t;
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl);
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, nchan_store_t *store);
 ngx_int_t stop_spooler(channel_spooler_t *spl);
 
 

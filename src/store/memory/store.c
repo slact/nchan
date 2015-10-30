@@ -262,7 +262,7 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
 }
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler);
+  start_spooler(&head->spooler, &head->id, &nchan_store_memory);
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
   return NGX_OK;
@@ -937,11 +937,11 @@ static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
   return NGX_OK;
 }
 
-store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, ngx_int_t *status) {
+store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status) {
   store_message_t      *cur, *first;
   DBG("find next message %i:%i", msgid->time, msgid->tag);
   if(ch == NULL) {
-    *status = NCHAN_MESSAGE_NOTFOUND;
+    *status = MSG_NOTFOUND;
     return NULL;
   }
   chanhead_messages_gc(ch);
@@ -950,13 +950,13 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    *status = msgid == NULL ? NCHAN_MESSAGE_EXPECTED : NCHAN_MESSAGE_NOTFOUND;
+    *status = msgid == NULL ? MSG_EXPECTED : MSG_NOTFOUND;
     return NULL;
   }
 
   if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
     DBG("found message %i:%i", first->msg->id.time, first->msg->id.tag);
-    *status = NCHAN_MESSAGE_FOUND;
+    *status = MSG_FOUND;
     return first;
   }
 
@@ -965,19 +965,19 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     
     if(msgid->time > cur->msg->id.time || (msgid->time == cur->msg->id.time && msgid->tag >= cur->msg->id.tag)){
       if(cur->next != NULL) {
-        *status = NCHAN_MESSAGE_FOUND;
+        *status = MSG_FOUND;
         DBG("found message %i:%i", cur->next->msg->id.time, cur->next->msg->id.tag);
         return cur->next;
       }
       else {
-        *status = NCHAN_MESSAGE_EXPECTED;
+        *status = MSG_EXPECTED;
         return NULL;
       }
     }
     cur=cur->prev;
   }
   //DBG("looked everywhere, not found");
-  *status = NCHAN_MESSAGE_NOTFOUND;
+  *status = MSG_NOTFOUND;
   return NULL;
 }
 
@@ -989,7 +989,8 @@ typedef struct {
   nchan_msg_id_t               msg_id;
   callback_pt                  cb;
   void                        *cb_privdata;
-  unsigned                     sub_reserved:1;
+  unsigned                     reserved:1;
+  unsigned                     subbed:1;
   unsigned                     allocd:1;
 } subscribe_data_t;
 
@@ -1028,20 +1029,21 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   assert(d != NULL);
   assert(callback != NULL);
   
-  ngx_memcpy(&d->msg_id, msg_id, sizeof(*msg_id));
+  d->msg_id = *msg_id;
   
   d->channel_owner = owner;
   d->channel_id = channel_id;
   d->cb = callback;
   d->cb_privdata = privdata;
   d->sub = sub;
-  d->sub_reserved = 0;
+  d->subbed = 0;
+  d->reserved = 0;
   
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
   if(sub->cf->authorize_channel) {
     sub->reserve(sub);
-    d->sub_reserved = 1;
+    d->reserved = 1;
     if(memstore_slot() != owner) {
       memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )nchan_store_subscribe_sub_reserved_check, d);
     }
@@ -1069,7 +1071,7 @@ static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_stat
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   nchan_store_channel_head_t  *chanhead = NULL;
   store_message_t             *chmsg;
-  ngx_int_t                    findmsg_status;
+  nchan_msg_status_t           findmsg_status;
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
       chanhead = nchan_memstore_get_chanhead(d->channel_id);
@@ -1085,8 +1087,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   if (chanhead == NULL) {
     d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     d->sub->dequeue(d->sub);
-    if(d->sub_reserved) {
+    
+    if(d->reserved) {
       d->sub->release(d->sub);
+      d->reserved = 0;
     }
     d->sub = NULL; //debug
     d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
@@ -1096,10 +1100,12 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   d->chanhead = chanhead;
   
+  /*
   if(!d->sub_reserved) {
     d->sub->reserve(d->sub);
     d->sub_reserved = 1;
   }
+  */
   
   if(memstore_slot() != d->channel_owner) {
     memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
@@ -1115,7 +1121,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   store_message_t             *chmsg;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t            *d = subscribe_data_alloc(owner);
-  ngx_int_t                    findmsg_status;
+  nchan_msg_status_t           findmsg_status;
   
   if(callback==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
@@ -1143,7 +1149,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 }
 
 
-ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t findmsg_status, void *data) {
+ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
   subscriber_t               *sub = d->sub;
   ngx_int_t                   still_alive = 0;
@@ -1152,12 +1158,13 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
   ngx_int_t                   dequeue_after_response;
   
   if(d->sub) {
-    still_alive = d->sub_reserved ? (sub->release(sub) == NGX_OK) : 1;
-  } 
+    still_alive = d->reserved ? (sub->release(sub) == NGX_OK) : 1;
+    d->reserved = 0;
+  }
 
   if (still_alive) {
     switch(findmsg_status) {
-      case NCHAN_MESSAGE_FOUND: //ok
+      case MSG_FOUND: //ok
         assert(msg != NULL);
         DBG("subscribe found message %i:%i", msg->id.time, msg->id.tag);
         switch(sub->cf->subscriber_concurrency) {
@@ -1168,19 +1175,19 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
             //FALL-THROUGH to BROADCAST
             
           case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
-              assert(msg);
-              dequeue_after_response = sub->dequeue_after_response;
-              sub->respond_message(sub, msg);
+            assert(msg);
+            dequeue_after_response = sub->dequeue_after_response;
+            
+            chanhead->spooler.fn->respond_message(&chanhead->spooler, msg);
+            
+            if(!dequeue_after_response) {
+              //get next message. walk the queue!
+              msg_id = msg->id;
               
-              if(!dequeue_after_response) {
-                //get next message. walk the queue!
-                msg_id.time = msg->id.time;
-                msg_id.tag = msg->id.tag;
-                
-                ngx_memcpy(&d->msg_id, &msg_id, sizeof(msg_id));
-                return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
-              }
-              
+              ngx_memcpy(&d->msg_id, &msg_id, sizeof(msg_id));
+              return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+            }
+            
             break;
             
           case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
@@ -1194,19 +1201,19 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, ngx_int_t fi
         }
         break;
         
-      case NCHAN_MESSAGE_NOTFOUND: //not found
+      case MSG_NOTFOUND: //not found
         if(sub->cf->authorize_channel) {
           sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
           break;
         }
         //fall-through
-      case NCHAN_MESSAGE_EXPECTED: //not yet available
+      case MSG_EXPECTED: //not yet available
         // ♫ It's gonna be the future soon ♫
-        sub->enqueue(sub);
-        chanhead->spooler.fn->add(&chanhead->spooler, sub);
+        //sub->enqueue(sub);
+        //chanhead->spooler.fn->add(&chanhead->spooler, sub);
         break;
         
-      case NCHAN_MESSAGE_EXPIRED: //gone
+      case MSG_EXPIRED: //gone
         //subscriber wants an expired message
         //TODO: maybe respond with entity-identifiers for oldest available message?
         sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);

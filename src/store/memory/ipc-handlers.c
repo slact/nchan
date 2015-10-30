@@ -313,7 +313,7 @@ typedef struct {
 typedef struct {
   ngx_str_t           *shm_chid;
   nchan_msg_t         *shm_msg;
-  ngx_int_t            getmsg_code;
+  nchan_msg_status_t   getmsg_code;
   void                *privdata;
 } getmessage_reply_data_t;
 
@@ -331,7 +331,7 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
 static void receive_get_message(ngx_int_t sender, void *data) {
   nchan_store_channel_head_t  *head;
   store_message_t             *msg = NULL;
-  ngx_int_t                    status = NGX_ERROR;
+  nchan_msg_status_t           status;
   getmessage_data_t           *d = (getmessage_data_t *)data;
   
   str_shm_verify(d->shm_chid);
@@ -345,7 +345,7 @@ static void receive_get_message(ngx_int_t sender, void *data) {
   head = nchan_memstore_find_chanhead(d->shm_chid);
   if(head == NULL) {
     //no such thing here. reply.
-    rd->getmsg_code = NCHAN_MESSAGE_NOTFOUND;
+    rd->getmsg_code = MSG_NOTFOUND;
     rd->shm_msg = NULL;
   }
   else {
