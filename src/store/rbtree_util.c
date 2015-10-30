@@ -35,7 +35,7 @@ static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, ngx_str
     }
     /* find_hash == node->key */
     do {
-      rc = seed->compare(id, seed->id(node));
+      rc = seed->compare(id, seed->id(rbtree_data_from_node(node)));
       if (rc == 0) {
         return node;
       }
@@ -51,18 +51,13 @@ ngx_rbtree_node_t *rbtree_find_node(rbtree_seed_t *seed, ngx_str_t *id) {
   return rbtree_find_node_generic(seed, id, seed->hash(id), NULL);
 }
 
-ngx_rbtree_node_t   *rbtree_node_from_data(void *data)  {
-  ngx_int_t         offset = offsetof(ngx_rbtree_node_t, data);
-  return (ngx_rbtree_node_t *)((char *)data - offset); //return 
-}
-
 static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) {
   ngx_int_t         offset = offsetof(rbtree_seed_t, sentinel);
   rbtree_seed_t    *seed = (rbtree_seed_t *)((char *)sentinel - offset); //is this right?
 
   ngx_rbtree_node_t         *p = NULL;
   ngx_rbtree_node_t         *f;
-  ngx_str_t                 *id = seed->id(node);
+  ngx_str_t                 *id = seed->id(rbtree_data_from_node(node));
   f = rbtree_find_node_generic(seed, id, seed->hash(id), &p);
   if(f) {
     //node already exists
@@ -80,7 +75,7 @@ static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *no
       p->right = node;
     }
     else if(p->key == node->key) {
-      ngx_int_t rc = seed->compare(seed->id(p), seed->id(node));
+      ngx_int_t rc = seed->compare(seed->id(rbtree_data_from_node(node)), seed->id(rbtree_data_from_node(node)));
       if(rc > 0){
         p->left = node;
       }
@@ -99,7 +94,7 @@ static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *no
 }
 
 ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
-  ngx_rbtree_node_t *node = ngx_alloc(sizeof(ngx_rbtree_node_t) + data - sizeof(u_char), ngx_cycle->log);
+  ngx_rbtree_node_t *node = ngx_alloc(sizeof(ngx_rbtree_node_t) + data, ngx_cycle->log);
   if(node) {
     node->left = NULL;
     node->right = NULL;
@@ -109,13 +104,13 @@ ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
 }
 
 ngx_int_t rbtree_destroy_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
-  DBG("Destroy node %V", seed->id(node));
+  DBG("Destroy node %p", node);
   ngx_free(node);
   return NGX_OK;
 }
 
 ngx_int_t rbtree_insert_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
-  node->key = seed->hash(seed->id(node));
+  node->key = seed->hash(seed->id(rbtree_data_from_node(node)));
   ngx_rbtree_insert(&seed->tree, node);
   return NGX_OK;
 }
@@ -125,7 +120,7 @@ ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   return NGX_OK;
 }
 
-static void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, ngx_int_t (*callback)(rbtree_seed_t *, ngx_rbtree_node_t *, void *), void *data) {
+static void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_callback_pt callback, void *data) {
   ngx_rbtree_node_t  *left, *right;
   if(node == sentinel || node == NULL) {
     return;
@@ -134,10 +129,10 @@ static void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_r
   right = node->right;
   rbtree_walk_real(seed, left, sentinel, callback, data);
   rbtree_walk_real(seed, right, sentinel, callback, data);
-  callback(seed, node, data);
+  callback(seed, rbtree_data_from_node(node), data);
 }
 
-ngx_int_t rbtree_walk(rbtree_seed_t *seed, ngx_int_t (*callback)(rbtree_seed_t *seed, ngx_rbtree_node_t *, void *data), void *data) {
+ngx_int_t rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data) {
   rbtree_walk_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
   return NGX_OK;
 }
