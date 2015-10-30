@@ -1041,6 +1041,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   
   if(sub->cf->authorize_channel) {
     sub->reserve(sub);
+    d->sub_reserved = 1;
     if(memstore_slot() != owner) {
       memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )nchan_store_subscribe_sub_reserved_check, d);
     }
@@ -1083,6 +1084,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   if (chanhead == NULL) {
     d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    d->sub->dequeue(d->sub);
+    if(d->sub_reserved) {
+      d->sub->release(d->sub);
+    }
+    d->sub = NULL; //debug
     d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
     subscribe_data_free(d);
     return NGX_OK;
@@ -1090,8 +1096,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   d->chanhead = chanhead;
   
-  d->sub->reserve(d->sub);
-  d->sub_reserved = 1;
+  if(!d->sub_reserved) {
+    d->sub->reserve(d->sub);
+    d->sub_reserved = 1;
+  }
   
   if(memstore_slot() != d->channel_owner) {
     memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
