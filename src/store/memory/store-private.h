@@ -40,7 +40,8 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                      max_messages;
   store_message_t                 *msg_first;
   store_message_t                 *msg_last;
-  nchan_msg_id_t                  last_msgid;
+  nchan_msg_id_t                  latest_msgid;
+  nchan_msg_id_t                  oldest_msgid;
   subscriber_t                   *ipc_sub; //points to NULL or inaacceessible memory.
   subscriber_t                   *redis_sub;
   nchan_llist_timed_t             cleanlink;
