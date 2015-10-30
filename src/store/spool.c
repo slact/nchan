@@ -206,7 +206,7 @@ ngx_int_t  safely_destroy_spool(subscriber_pool_t *spool) {
     spool_respond_general(spool, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
       sub = ssub->sub;
-      DBG("dequeue sub %p in PERSISTENT spool %p", sub, spool);
+      DBG("dequeue sub %p in spool %p", sub, spool);
       sub->dequeue(sub);
     }
     assert(spool->sub_count == 0);
