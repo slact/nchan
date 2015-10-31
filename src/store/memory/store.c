@@ -483,43 +483,33 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   ngx_int_t          shared_sub_count = head->shared->sub_count;
 
   if(head==NULL) {
-    return NCHAN_MESSAGE_QUEUED;
     if(msg) {
-      DBG("tried publishing %i:%i with a NULL chanhead", msg->id.time, msg->id.tag);
+      ERR("tried publishing %i:%i with a NULL chanhead", msg->id.time, msg->id.tag);
     }
     else {
-      DBG("tried publishing status %i msg with a NULL chanhead", status_code);
+      ERR("tried publishing status %i msg with a NULL chanhead", status_code);
     }
+    return NCHAN_MESSAGE_QUEUED;
   }
 
-  if (head->sub_count > 0) {
-    if(msg) {
-      DBG("tried publishing %i:%i to chanhead %p (subs: %i)", msg->id.time, msg->id.tag, head, head->sub_count);
-      head->spooler.fn->respond_message(&head->spooler, msg);
-    }
-    else {
-      DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
-      head->spooler.fn->respond_status(&head->spooler, status_code, status_line);
-    }
-    
-    //TODO: be smarter about garbage-collecting chanheads
-    if(memstore_channel_owner(&head->id) == memstore_slot()) {
-      //the owner is responsible for the chanhead and its interprocess siblings
-      //when removed, said siblings will be notified via IPC
-      chanhead_gc_add(head, "add owner chanhead after publish");
-    }
-    
-    if(head->shared) {
-      head->channel.subscribers = head->shared->sub_count;
-    }
+  if(msg) {
+    DBG("tried publishing %i:%i to chanhead %p (subs: %i)", msg->id.time, msg->id.tag, head, head->sub_count);
+    head->spooler.fn->respond_message(&head->spooler, msg);
   }
   else {
-    if(msg) {
-      DBG("tried publishing %i:%i to EMPTY chanhead %p", msg->id.time, msg->id.tag, head);
-    }
-    else {
-      DBG("tried publishing status %i to EMPTY chanhead %p", status_code, head);
-    }
+    DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
+    head->spooler.fn->respond_status(&head->spooler, status_code, status_line);
+  }
+    
+  //TODO: be smarter about garbage-collecting chanheads
+  if(memstore_channel_owner(&head->id) == memstore_slot()) {
+    //the owner is responsible for the chanhead and its interprocess siblings
+    //when removed, said siblings will be notified via IPC
+    chanhead_gc_add(head, "add owner chanhead after publish");
+  }
+  
+  if(head->shared) {
+    head->channel.subscribers = head->shared->sub_count;
   }
   
   return (shared_sub_count > 0) ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED;
@@ -565,7 +555,6 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         break;
       }
       //unsubscribe now
-      //do we need a read lock here? I don't think so...
       owner = memstore_channel_owner(&ch->id);
       if(owner == memstore_slot()) {
         shm_free(shm, ch->shared);
@@ -950,7 +939,12 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    *status = msgid == NULL ? MSG_EXPECTED : MSG_NOTFOUND;
+    if(msgid->time == 0 && msgid->tag == 0) {
+      *status = MSG_EXPECTED;
+    }
+    else {
+      *status = MSG_NOTFOUND;
+    }
     return NULL;
   }
 
@@ -1070,8 +1064,8 @@ static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_stat
 
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   nchan_store_channel_head_t  *chanhead = NULL;
-  store_message_t             *chmsg;
-  nchan_msg_status_t           findmsg_status;
+  //store_message_t             *chmsg;
+  //nchan_msg_status_t           findmsg_status;
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
       chanhead = nchan_memstore_get_chanhead(d->channel_id);
@@ -1100,13 +1094,16 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   d->chanhead = chanhead;
   
+  chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+  
   /*
-  if(!d->sub_reserved) {
+  if(!d->reserved) {
     d->sub->reserve(d->sub);
     d->sub_reserved = 1;
   }
   */
   
+  /*
   if(memstore_slot() != d->channel_owner) {
     memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
     return NGX_OK;
@@ -1115,6 +1112,8 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     chmsg = chanhead_find_next_message(chanhead, &d->msg_id, &findmsg_status);
     return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
+  */
+  return NGX_OK;
 }
 
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
@@ -1148,84 +1147,9 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   return NGX_OK; //async only now!
 }
 
-
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
-  subscriber_t               *sub = d->sub;
-  ngx_int_t                   still_alive = 0;
   nchan_store_channel_head_t *chanhead = d->chanhead;
-  nchan_msg_id_t              msg_id;
-  ngx_int_t                   dequeue_after_response;
-  
-  if(d->sub) {
-    still_alive = d->reserved ? (sub->release(sub) == NGX_OK) : 1;
-    d->reserved = 0;
-  }
-
-  if (still_alive) {
-    switch(findmsg_status) {
-      case MSG_FOUND: //ok
-        assert(msg != NULL);
-        DBG("subscribe found message %i:%i", msg->id.time, msg->id.tag);
-        switch(sub->cf->subscriber_concurrency) {
-          
-          case NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN:
-            //kick everyone elese out, then subscribe
-            nchan_memstore_publish_generic(chanhead, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
-            //FALL-THROUGH to BROADCAST
-            
-          case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
-            assert(msg);
-            dequeue_after_response = sub->dequeue_after_response;
-            
-            chanhead->spooler.fn->respond_message(&chanhead->spooler, msg);
-            
-            if(!dequeue_after_response) {
-              //get next message. walk the queue!
-              msg_id = msg->id;
-              
-              ngx_memcpy(&d->msg_id, &msg_id, sizeof(msg_id));
-              return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
-            }
-            
-            break;
-            
-          case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-            ERR("first-in concurrency setting not supported");
-            sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-            break;
-            
-          default:
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unexpected subscriber_concurrency config value");
-            sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-        }
-        break;
-        
-      case MSG_NOTFOUND: //not found
-        if(sub->cf->authorize_channel) {
-          sub->respond_status(sub, NGX_HTTP_FORBIDDEN, NULL);
-          break;
-        }
-        //fall-through
-      case MSG_EXPECTED: //not yet available
-        // ♫ It's gonna be the future soon ♫
-        //sub->enqueue(sub);
-        //chanhead->spooler.fn->add(&chanhead->spooler, sub);
-        break;
-        
-      case MSG_EXPIRED: //gone
-        //subscriber wants an expired message
-        //TODO: maybe respond with entity-identifiers for oldest available message?
-        sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
-        break;
-        
-      default: //shouldn't be here!
-        sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-    }
-  }
-  else if(d->sub) {
-    ERR("subscriber %p disappeared while fetching message. This is quite alright.", d->sub);
-  }
   
   d->cb(findmsg_status, msg, d->cb_privdata);
   
@@ -1301,7 +1225,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
-  // shmsg memory chunk: |chmsg|buf|fd|filename|content_type_data|msg_body|
   
   msg = &stuff->msg;
   buf = &stuff->buf;
@@ -1339,23 +1262,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf->file->name.data = (u_char *)&stuff[1];
     
     ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
-    
-    //don't mmap it
-    /*
-    if((buf->start = mmap(NULL, buf->file_last, PROT_READ, MAP_SHARED, buf->file->fd, 0))==NULL){
-      ERR("mmap failed");
-    }
-    buf->last=buf->start + buf->file_last;
-    buf->pos=buf->start + buf->file_pos;
-    buf->end = buf->start + buf->file_last;
-    //buf->file_pos=0;
-    //buf->file_last=0;
-    
-    buf->last=buf->end;
-    //buf->in_file=0;
-    buf->mmap=1;
-    //buf->file=NULL;
-    */
   }
   msg->shared=1;
   return msg;
