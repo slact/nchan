@@ -57,6 +57,7 @@ static ngx_int_t msgleaf_fetch_msg_callback(nchan_msg_status_t findmsg_status, n
       spool_respond_general(&leaf->spool, leaf->msg, 0, NULL);
       
       newleaf = find_msgleaf(spl, &msg->id);
+      assert(leaf != newleaf);
       if(newleaf) {
         spooler_msgleaf_transfer_subscribers(spl, leaf, newleaf);
         destroy_msgleaf(leaf);
@@ -119,7 +120,7 @@ static spooler_msg_leaf_t *get_msgleaf(channel_spooler_t *spl, nchan_msg_id_t *i
       ERR("can't create rbtree spooler_msgleaf");
       return NULL;
     }
-    ERR("created node %p for msgid %i:%i", node, id->time, id->tag);
+    DBG("created node %p for msgid %i:%i", node, id->time, id->tag);
     leaf = (spooler_msg_leaf_t *)rbtree_data_from_node(node);
     leaf->id = *id;
     leaf->spl = spl;
@@ -134,10 +135,11 @@ static spooler_msg_leaf_t *get_msgleaf(channel_spooler_t *spl, nchan_msg_id_t *i
       rbtree_destroy_node(seed, node);
       return NULL;
     }
-    msgleaf_fetch_msg(leaf);
   }
   else {
     leaf = (spooler_msg_leaf_t *)rbtree_data_from_node(node);
+    DBG("found node %p with msgid %i:%i", node, id->time, id->tag);
+    assert(leaf->id.time == id->time);
   }
   return leaf;
 }
@@ -341,6 +343,9 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   }
   
   leaf = get_msgleaf(self, msgid);
+  
+  assert(leaf->id.time == msgid->time);
+  
   spool = get_msgleaf_spool(self, leaf);
   
   if(spool == NULL) {
