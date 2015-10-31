@@ -72,17 +72,20 @@ static ngx_int_t msgleaf_fetch_msg_callback(nchan_msg_status_t findmsg_status, n
         newleaf = leaf;
       }
       
-      if(newleaf->spool.sub_count > 0 && leaf->msg_status == MSG_INVALID) {
+      if(newleaf->spool.sub_count > 0 && newleaf->msg_status == MSG_INVALID) {
         msgleaf_fetch_msg(leaf);
       }
       
       break;
       
-    case MSG_NOTFOUND:
     case MSG_EXPECTED:
       // ♫ It's gonna be the future soon ♫
       assert(msg == NULL);
       leaf->msg = NULL;
+      break;
+      
+    case MSG_NOTFOUND:
+      //is this right?
       spooler_msgleaf_respond_generic(leaf->spl, leaf, NULL, NGX_HTTP_FORBIDDEN, NULL);
       break;
       
@@ -419,31 +422,35 @@ static ngx_int_t spooler_msgleaf_transfer_subscribers(channel_spooler_t *self, s
   return count;
 }
 
-static ngx_int_t spooler_msgleaf_destroyer(rbtree_seed_t *seed, spooler_msg_leaf_t *leaf, channel_spooler_t *spl);
-
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
-  //static nchan_msg_id_t      any_msg = {0,0};
+  static nchan_msg_id_t      any_msg = {0,0};
+  static nchan_msg_id_t     *findall[] = {NULL, &any_msg};
+  int                        i;
   spooler_msg_leaf_t        *leaf, *newleaf;
   ngx_rbtree_node_t         *node;
   
-  newleaf = find_msgleaf(self, &msg->id);
+  findall[0]=&msg->prev_id;
   
-  leaf = find_msgleaf(self, &msg->prev_id);
-  if(leaf) {
-    spooler_msgleaf_respond_generic(self, leaf, msg, 0, NULL);
-    if(newleaf) {
-      spooler_msgleaf_transfer_subscribers(self, leaf, newleaf);
-      destroy_msgleaf(leaf);
-    }
-    else {
-      node = rbtree_node_from_data(leaf);
-      rbtree_remove_node(&self->spoolseed, node);
-      leaf->id = msg->id;
-      rbtree_insert_node(&self->spoolseed, node);
-      newleaf = leaf;
+  for(i=0; i < 2; i++) { 
+    //respond to prev_id spool and the {0,0} spool, as it's meant to accept any message;
+    newleaf = find_msgleaf(self, &msg->id);
+    
+    leaf = find_msgleaf(self, findall[i]);
+    if(leaf) {
+      spooler_msgleaf_respond_generic(self, leaf, msg, 0, NULL);
+      if(newleaf) {
+        spooler_msgleaf_transfer_subscribers(self, leaf, newleaf);
+        destroy_msgleaf(leaf);
+      }
+      else {
+        node = rbtree_node_from_data(leaf);
+        rbtree_remove_node(&self->spoolseed, node);
+        leaf->id = msg->id;
+        rbtree_insert_node(&self->spoolseed, node);
+        newleaf = leaf;
+      }
     }
   }
-  
 
   self->prev_msg_id.time = msg->id.time;
   self->prev_msg_id.tag = msg->id.tag;
