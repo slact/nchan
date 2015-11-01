@@ -36,24 +36,30 @@ static ngx_int_t rbtree_validate_node(rbtree_seed_t *seed, ngx_rbtree_node_t *no
 }
 */
 
-static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, void *id, uint32_t hash, ngx_rbtree_node_t **last_parent) {
+/*
+static ngx_int_t rbtree_validate_nodes_reachable(rbtree_seed_t *seed) {
+  ngx_int_t    i, max;
+  ngx_rbtree_node_t *cur, *match;
+  max = sizeof(seed->actives)/sizeof(cur);
+  
+  for(i=0; i<max; i++){
+    cur = seed->actives[i];
+    if(cur != NULL) {
+      match = rbtree_find_node(seed, seed->id(rbtree_data_from_node(cur)));
+      assert(match == cur);
+    }
+  }
+  return 1;
+}
+*/
+
+static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, void *id, uint32_t hash, ngx_rbtree_node_t **last_parent, ngx_int_t *last_compare) {
   ngx_rbtree_node_t              *root = seed->tree.root;
   ngx_rbtree_node_t              *node = root;
   ngx_rbtree_node_t              *sentinel = seed->tree.sentinel;
   ngx_int_t                       rc;
-  if(last_parent) {
-    *last_parent = node;
-  }
+
   while (node != sentinel) {
-    if(last_parent && node->parent != NULL && node != root){
-      *last_parent = node->parent;
-    }
-    
-    /*
-    //super-heavy debugging
-    if(last_parent != NULL) assert(rbtree_validate_node(seed, *last_parent));
-    */
-    
     if (hash < node->key) {
       node = node->left;
       continue;
@@ -62,23 +68,22 @@ static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, void *i
       node = node->right;
       continue;
     }
-    /* find_hash == node->key */
-    do {
-      rc = seed->compare(id, seed->id(rbtree_data_from_node(node)));
-      if (rc == 0) {
-        return node;
-      }
-      node = (rc < 0) ? node->left : node->right;
-    } while (node != sentinel && hash == node->key);
-    break;
+
+    /* hash == node->key */
+    rc = seed->compare(id, seed->id(rbtree_data_from_node(node)));
+    if (rc == 0) {
+      return node;
+    }
+    node = (rc < 0) ? node->left : node->right;
   }
-  //not found
+  /* not found */
+
   return NULL;
 }
 
 ngx_rbtree_node_t *rbtree_find_node(rbtree_seed_t *seed, void *id) {
   ngx_rbtree_node_t *found;
-  found = rbtree_find_node_generic(seed, id, seed->hash(id), NULL);
+  found = rbtree_find_node_generic(seed, id, seed->hash(id), NULL, NULL);
   if(found) {
     DBG("found node %p", found);
   }
@@ -88,55 +93,36 @@ ngx_rbtree_node_t *rbtree_find_node(rbtree_seed_t *seed, void *id) {
   return found;
 }
 
-static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) {
+static void rbtree_insert_generic(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) {
   ngx_int_t         offset = offsetof(rbtree_seed_t, sentinel);
-  rbtree_seed_t    *seed = (rbtree_seed_t *)((char *)sentinel - offset); //is this right?
+  rbtree_seed_t    *seed = (rbtree_seed_t *)((char *)sentinel - offset);
+  ngx_int_t         rc;
+  void             *id = seed->id(rbtree_data_from_node(node));
   
-  ngx_rbtree_node_t         *p = NULL;
-  ngx_rbtree_node_t         *f;
-  void                      *id = seed->id(rbtree_data_from_node(node));
-  
-  DBG("insert node %p", node);
-  
-  f = rbtree_find_node_generic(seed, id, seed->hash(id), &p);
-  
-  /*
-  //super-heavy debugging
-  assert(rbtree_validate_node(seed, p));
-  */
-  
-  if(f) {
-    //node already exists
-    return;
-  }
-  if(p) {
-    //insert left or right of here
-    //node's hash should be computed.
-    node->right = sentinel;
-    node->left = sentinel;
-    if(p->key > node->key) {
-      p->left = node;
+  ngx_rbtree_node_t  **p;
+ 
+  for ( ;; ) {
+    
+    if (node->key != temp->key) {
+      p = (node->key < temp->key) ? &temp->left : &temp->right;
     }
-    else if(p->key < node->key) {
-      p->right = node;
+    else {
+      rc = seed->compare(id, seed->id(rbtree_data_from_node(temp)));
+      p = (rc < 0) ? &temp->left : &temp->right;
     }
-    else if(p->key == node->key) {
-      ngx_int_t rc = seed->compare(seed->id(rbtree_data_from_node(p)), seed->id(rbtree_data_from_node(node)));
-      if(rc > 0){
-        p->left = node;
-      }
-      else {
-        p->right = node;
-      }
+    
+    if (*p == sentinel) {
+      break;
     }
-    node->parent = p;
-    ngx_rbt_red(node);
+    
+    temp = *p;
   }
-  else {
-    //no parent?...
-    return;
-  }
-  return;
+
+  *p = node;
+  node->parent = temp;
+  node->left = sentinel;
+  node->right = sentinel;
+  ngx_rbt_red(node);
 }
 
 ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
@@ -166,17 +152,16 @@ ngx_int_t rbtree_destroy_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
 
 ngx_int_t rbtree_insert_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   void  *id = seed->id(rbtree_data_from_node(node));
-#if NCHAN_RBTREE_DBG
-  assert(rbtree_find_node(seed, id) == NULL);
-#endif
   node->key = seed->hash(id);
   ngx_rbtree_insert(&seed->tree, node);
 #if NCHAN_RBTREE_DBG
   seed->active_nodes++;
   
-  /*
+  //assert(rbtree_find_node(seed, seed->id(rbtree_data_from_node(node))) == node);
+  
   //super-heavy debugging
-  ngx_int_t    i, max, inserted;
+  /*
+  ngx_int_t    i, max, inserted = 0;
   ngx_rbtree_node_t *cur;
   max = sizeof(seed->actives)/sizeof(cur);
   
@@ -198,16 +183,18 @@ ngx_int_t rbtree_insert_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
 }
 
 ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
+  
   ngx_rbtree_delete(&seed->tree, node);
   DBG("Removed node %p", node);
 #if NCHAN_RBTREE_DBG
-  assert(rbtree_find_node(seed, seed->id(rbtree_data_from_node(node))) == NULL);
+  //assert(rbtree_find_node(seed, seed->id(rbtree_data_from_node(node))) == NULL);
   ngx_memset(node, 0x65, sizeof(*node));
   seed->active_nodes--;
   
-  /*
+  
   //super-heavy debugging
-  ngx_int_t    i, max, removed;
+  /*
+  ngx_int_t    i, max, removed = 0;
   ngx_rbtree_node_t *cur;
   max = sizeof(seed->actives)/sizeof(cur);
   
@@ -221,6 +208,7 @@ ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
     }
   }
   assert(removed);
+  
   */
   
 #endif
@@ -261,7 +249,7 @@ ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, void *(*id)(void *), uint
   seed->active_nodes = 0;
   
   /*
-  //super-heavy debugging
+  //super-heavy debugging setup
   ngx_int_t max = sizeof(seed->actives);
   ngx_memzero(seed->actives, sizeof(seed->actives));
   */
