@@ -480,7 +480,13 @@ static ngx_str_t *chanhead_msg_to_str(store_message_t *msg) {
 */
 
 ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_int_t          shared_sub_count = head->shared->sub_count;
+  
+  ngx_int_t          shared_sub_count = 0;
+  
+  if(head->shared) {
+    assert(head->status == READY);
+    shared_sub_count = head->shared->sub_count;
+  }
 
   if(head==NULL) {
     if(msg) {
