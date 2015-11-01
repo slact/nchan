@@ -21,6 +21,9 @@ struct spooled_subscriber_s {
 
 
 struct subscriber_pool_s{
+  nchan_msg_id_t              id;
+  nchan_msg_t                *msg;
+  nchan_msg_status_t          msg_status;
   spooled_subscriber_t       *first;
   ngx_pool_t                 *pool;
   ngx_uint_t                  sub_count;
@@ -61,15 +64,6 @@ struct channel_spooler_s {
   unsigned               running:1;
   unsigned               want_to_stop:1;
 };
-
-typedef struct {
-  nchan_msg_id_t         id;
-  ngx_str_t              pseudoid;
-  subscriber_pool_t      spool;
-  channel_spooler_t     *spl;
-  nchan_msg_t           *msg;
-  nchan_msg_status_t     msg_status;
-} spooler_msg_leaf_t;
 
 channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, nchan_store_t *store);
 ngx_int_t stop_spooler(channel_spooler_t *spl);
