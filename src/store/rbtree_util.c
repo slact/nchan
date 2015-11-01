@@ -37,14 +37,15 @@ static ngx_int_t rbtree_validate_node(rbtree_seed_t *seed, ngx_rbtree_node_t *no
 */
 
 static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, void *id, uint32_t hash, ngx_rbtree_node_t **last_parent) {
-  ngx_rbtree_node_t              *node = seed->tree.root;
+  ngx_rbtree_node_t              *root = seed->tree.root;
+  ngx_rbtree_node_t              *node = root;
   ngx_rbtree_node_t              *sentinel = seed->tree.sentinel;
   ngx_int_t                       rc;
   if(last_parent) {
     *last_parent = node;
   }
   while (node != sentinel) {
-    if(last_parent && node->parent != NULL){
+    if(last_parent && node->parent != NULL && node != root){
       *last_parent = node->parent;
     }
     
