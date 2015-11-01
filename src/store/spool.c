@@ -565,6 +565,7 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, nchan_
   }
   else {
     ERR("looks like spooler is already running. make sure spooler->running=0 befire starting.");
+    assert(0);
     return NULL;
   }
   
@@ -636,6 +637,9 @@ ngx_int_t stop_spooler(channel_spooler_t *spl) {
   ngx_rbtree_t         *tree = &seed->tree;
   ngx_int_t             n=0;
   sentinel = tree->sentinel;
+#if NCHAN_RBTREE_DBG
+  ngx_int_t active_before = seed->active_nodes, allocd_before = seed->active_nodes;
+#endif
   if(spl->running) {
     
     for(cur = tree->root; cur != NULL && cur != sentinel; cur = tree->root) {
@@ -650,8 +654,10 @@ ngx_int_t stop_spooler(channel_spooler_t *spl) {
     DBG("SPOOLER %p not running", *spl);
   }
 #if NCHAN_RBTREE_DBG
-  assert(spl->spoolseed.active_nodes == 0);
-  assert(spl->spoolseed.allocd_nodes == 0);
+  assert(active_before - n == 0);
+  assert(allocd_before - n == 0);
+  assert(seed->active_nodes == 0);
+  assert(seed->allocd_nodes == 0);
 #endif
   spl->running = 0;
   return NGX_OK;
