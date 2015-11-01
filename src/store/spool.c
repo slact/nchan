@@ -634,15 +634,17 @@ ngx_int_t stop_spooler(channel_spooler_t *spl) {
   ngx_rbtree_node_t    *cur, *sentinel;
   rbtree_seed_t        *seed = &spl->spoolseed;
   ngx_rbtree_t         *tree = &seed->tree;
+  ngx_int_t             n=0;
   sentinel = tree->sentinel;
   if(spl->running) {
     
     for(cur = tree->root; cur != NULL && cur != sentinel; cur = tree->root) {
       rbtree_remove_node(seed, cur);
       rbtree_destroy_node(seed, cur);
+      n++;
     }
     
-    DBG("stopped SPOOLER %p", *spl);
+    DBG("stopped %i spools in SPOOLER %p", n, *spl);
   }
   else {
     DBG("SPOOLER %p not running", *spl);
