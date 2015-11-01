@@ -13,6 +13,7 @@ typedef struct {
 #if NCHAN_RBTREE_DBG   
   ngx_uint_t         allocd_nodes;
   ngx_uint_t         active_nodes;
+  //ngx_rbtree_node_t *actives[2048]; //super-heavy debugging
 #endif
 } rbtree_seed_t;
 
