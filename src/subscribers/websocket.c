@@ -134,7 +134,7 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
 static void sudden_abort_handler(subscriber_t *sub) {
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
-  memstore_fakeprocess_push(fsub->data.owner);
+  memstore_fakeprocess_push(fsub->owner);
 #endif
   sub->dequeue(sub);
 #if FAKESHARD
@@ -241,8 +241,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   
   if(msg_id) {
-    fsub->sub.last_msg_id.time = msg_id->time;
-    fsub->sub.last_msg_id.tag = msg_id->tag;
+    fsub->sub.last_msg_id = *msg_id;
   }
   
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
@@ -864,13 +863,17 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 }
 
 static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
-  //TODO: prepare msg file
+  ngx_int_t        rc;
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
   
   verify_subscriber_last_msg_id(self, msg);
   
-  return nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));  
+  rc = nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
+  
+  fsub->sub.last_msg_id = msg->id;
+  
+  return rc;
 }
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
