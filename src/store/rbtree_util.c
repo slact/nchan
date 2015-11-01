@@ -7,14 +7,14 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "RBTREE:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "RBTREE:" fmt, ##arg)
 
-static uint32_t rbtree_hash_crc32(ngx_str_t *str) {
-  return ngx_crc32_short(str->data, str->len);
+static uint32_t rbtree_hash_crc32(void *str) {
+  return ngx_crc32_short(((ngx_str_t *)str)->data, ((ngx_str_t *)str)->len);
 }
-static ngx_int_t rbtree_compare_str(ngx_str_t *id1, ngx_str_t *id2) {
-  return ngx_memn2cmp(id1->data, id2->data, id1->len, id2->len);
+static ngx_int_t rbtree_compare_str(void *id1, void *id2) {
+  return ngx_memn2cmp(((ngx_str_t *)id1)->data, ((ngx_str_t *)id2)->data, ((ngx_str_t *)id1)->len, ((ngx_str_t *)id2)->len);
 }
 
-static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, ngx_str_t *id, uint32_t hash, ngx_rbtree_node_t **last_parent) {
+static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, void *id, uint32_t hash, ngx_rbtree_node_t **last_parent) {
   ngx_rbtree_node_t              *node = seed->tree.root;
   ngx_rbtree_node_t              *sentinel = seed->tree.sentinel;
   ngx_int_t                       rc;
@@ -47,17 +47,28 @@ static ngx_rbtree_node_t * rbtree_find_node_generic(rbtree_seed_t *seed, ngx_str
   return NULL;
 }
 
-ngx_rbtree_node_t *rbtree_find_node(rbtree_seed_t *seed, ngx_str_t *id) {
-  return rbtree_find_node_generic(seed, id, seed->hash(id), NULL);
+ngx_rbtree_node_t *rbtree_find_node(rbtree_seed_t *seed, void *id) {
+  ngx_rbtree_node_t *found;
+  found = rbtree_find_node_generic(seed, id, seed->hash(id), NULL);
+  if(found) {
+    DBG("found node %p", found);
+  }
+  else {
+    DBG("node not found");
+  }
+  return found;
 }
 
 static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel) {
   ngx_int_t         offset = offsetof(rbtree_seed_t, sentinel);
   rbtree_seed_t    *seed = (rbtree_seed_t *)((char *)sentinel - offset); //is this right?
-
+  
   ngx_rbtree_node_t         *p = NULL;
   ngx_rbtree_node_t         *f;
-  ngx_str_t                 *id = seed->id(rbtree_data_from_node(node));
+  void                      *id = seed->id(rbtree_data_from_node(node));
+  
+  DBG("insert node %p", node);
+  
   f = rbtree_find_node_generic(seed, id, seed->hash(id), &p);
   if(f) {
     //node already exists
@@ -75,7 +86,7 @@ static void rbtree_insert_generic(ngx_rbtree_node_t *root, ngx_rbtree_node_t *no
       p->right = node;
     }
     else if(p->key == node->key) {
-      ngx_int_t rc = seed->compare(seed->id(rbtree_data_from_node(node)), seed->id(rbtree_data_from_node(node)));
+      ngx_int_t rc = seed->compare(seed->id(rbtree_data_from_node(p)), seed->id(rbtree_data_from_node(node)));
       if(rc > 0){
         p->left = node;
       }
@@ -103,32 +114,41 @@ ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
 #if NCHAN_RBTREE_DBG
   seed->allocd_nodes++;
 #endif
+  DBG("created node %p", node);
   return node;
 }
 
 ngx_int_t rbtree_destroy_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
-  DBG("Destroy node %p", node);
 #if NCHAN_RBTREE_DBG
   ngx_memset(node, 0x67, sizeof(*node));
   seed->allocd_nodes--;
 #endif
   ngx_free(node);
-
+  DBG("Destroyed node %p", node);
+  
   return NGX_OK;
 }
 
 ngx_int_t rbtree_insert_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
-  node->key = seed->hash(seed->id(rbtree_data_from_node(node)));
+  void  *id = seed->id(rbtree_data_from_node(node));
+#if NCHAN_RBTREE_DBG
+  assert(rbtree_find_node(seed, id) == NULL);
+#endif
+  node->key = seed->hash(id);
   ngx_rbtree_insert(&seed->tree, node);
 #if NCHAN_RBTREE_DBG
   seed->active_nodes++;
 #endif
+  DBG("inserted node %p", node);
   return NGX_OK;
 }
 
 ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   ngx_rbtree_delete(&seed->tree, node);
+  DBG("Removed node %p", node);
 #if NCHAN_RBTREE_DBG
+  assert(rbtree_find_node(seed, seed->id(rbtree_data_from_node(node))) == NULL);
+  ngx_memset(node, 0x65, sizeof(*node));
   seed->active_nodes--;
 #endif
   return NGX_OK;
@@ -151,7 +171,7 @@ ngx_int_t rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, voi
   return NGX_OK;
 }
 
-ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, ngx_str_t *(*id)(void *), uint32_t (*hash)(ngx_str_t *), ngx_int_t (*compare)(ngx_str_t *, ngx_str_t *)) {
+ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, void *(*id)(void *), uint32_t (*hash)(void *), ngx_int_t (*compare)(void *, void *)) {
   seed->name=name;
   assert(id != NULL);
   if(hash==NULL) {
