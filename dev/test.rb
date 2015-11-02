@@ -16,13 +16,14 @@ def url(part="")
 end
 puts "Server at #{url}"
 def pubsub(concurrent_clients=1, opt={})
+  test_name = caller_locations(1,1)[0].label
   urlpart=opt[:urlpart] || 'broadcast'
   timeout = opt[:timeout]
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT
-  pub = Publisher.new url("#{pub_url}#{chan_id}")
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT
+  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}")
   return pub, sub
 end
 def verify(pub, sub, check_errors=true)
