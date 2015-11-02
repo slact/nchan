@@ -62,7 +62,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   
   DBG("%p memstore subscriber (lastid %i:%i) respond with message %i:%i (lastid %i:%i)", d->sub, d->sub->last_msg_id.time, d->sub->last_msg_id.tag, msg->id.time, msg->id.tag, msg->prev_id.time, msg->prev_id.tag);
   
-  verify_subscriber_last_msg_id(d->sub, msg);
+  //verify_subscriber_last_msg_id(d->sub, msg);
   
   rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, 50, 0, 0, empty_callback, NULL);
   
