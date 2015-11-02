@@ -539,35 +539,42 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     ch = (nchan_store_channel_head_t *)cur->data;
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NCHAN_CHANHEAD_EXPIRE_SEC) {
-      if (ch->sub_count > 0 ) { //there are subscribers
-        DBG("chanhead %p (%V) is still in use by %i subscribers.", ch, &ch->id, ch->sub_count);
+      
+      
+      if (ch->sub_count > 0) { //there are subscribers
         if(force_delete) {
-          ERR("chanhead %p (%V) is still in use by %i subscribers. Delete it anyway.", ch, &ch->id, ch->sub_count);
+          DBG("chanhead %p (%V) is still in use by %i subscribers. Try to delete it anyway.", ch, &ch->id, ch->sub_count);
           //ch->spooler.prepare_to_stop(&ch->spooler);
           ch->spooler.fn->respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-        }
-        else {
-          //DBG("chanhead %p (%V) is still in use by %i subscribers. Abort GC scan.", ch, &ch->id, ch->sub_count);
-          //break;
+          assert(ch->sub_count == 0);
         }
       }
-      stop_spooler(&ch->spooler);
-      assert(ch->sub_count == 0);
+      
       force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
-
+      
       if(ch->msg_first != NULL) {
         assert(ch->channel.messages != 0);
         DBG("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
         break;
       }
-      //unsubscribe now
-      owner = memstore_channel_owner(&ch->id);
-      if(owner == memstore_slot()) {
-        shm_free(shm, ch->shared);
+      
+      if (ch->sub_count == 0 && ch->channel.messages == 0) {
+        //end this crazy channel
+        assert(ch->msg_first == NULL);
+        
+        stop_spooler(&ch->spooler);
+        owner = memstore_channel_owner(&ch->id);
+        if(owner == memstore_slot()) {
+          shm_free(shm, ch->shared);
+        }
+        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
+        CHANNEL_HASH_DEL(ch);
+        ngx_free(ch);
       }
-      DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
-      CHANNEL_HASH_DEL(ch);
-      ngx_free(ch);
+      else if(force_delete) {
+        //counldn't force-delete channel, even though we tried
+        assert(0);
+      }
     }
     else {
       break; //dijkstra probably hates this
