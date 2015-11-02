@@ -234,8 +234,8 @@ static const subscriber_t new_internal_sub = {
   &internal_release,
   "internal",
   INTERNAL,
-  {0.0},
+  {0, 0},
+  NULL,
   0, //stick around after response
   1, //destroy after dequeue
-  NULL
 };

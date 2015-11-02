@@ -935,7 +935,7 @@ static const subscriber_t new_websocket_sub = {
   "websocket",
   WEBSOCKET,
   {0,0}, //last_msg_id (for debugging)
+  NULL,
   0, //deque after response
   1, //destroy after dequeue
-  NULL
 };

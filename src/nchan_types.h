@@ -171,10 +171,9 @@ struct subscriber_s {
   const char          *name;
   subscriber_type_t    type;
   nchan_msg_id_t       last_msg_id;
+  nchan_loc_conf_t    *cf;
   unsigned             dequeue_after_response:1;
   unsigned             destroy_after_dequeue:1;
-  nchan_loc_conf_t    *cf;
-  void                *data;
 }; //subscriber_t
 
 #endif  /* NCHAN_TYPES_H */

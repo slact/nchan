@@ -35,7 +35,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
     return NULL;
   }
   ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
-  fsub->sub.data = &fsub->data;
   fsub->data.request = r;
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 1;
@@ -173,7 +172,7 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  if(((subscriber_data_t *)self->data)->finalize_request) {
+  if(fsub->data.finalize_request) {
     DBG("finalize request %p", fsub->data.request);
     ngx_http_finalize_request(fsub->data.request, rc);
   }
@@ -261,7 +260,7 @@ static const subscriber_t new_longpoll_sub = {
   "longpoll",
   LONGPOLL,
   {0,0},
+  NULL,
   1, //deque after response
   1, //destroy after dequeue
-  NULL
 };
