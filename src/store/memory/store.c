@@ -1067,6 +1067,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
 
 static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   if(d->sub->release(d->sub) == NGX_OK) {
+    d->reserved = 0;
     return nchan_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
@@ -1093,12 +1094,14 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   if (chanhead == NULL) {
     d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
-    d->sub->dequeue(d->sub);
     
     if(d->reserved) {
       d->sub->release(d->sub);
       d->reserved = 0;
     }
+    
+    //sub should be destroyed by now.
+    
     d->sub = NULL; //debug
     d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
     subscribe_data_free(d);
