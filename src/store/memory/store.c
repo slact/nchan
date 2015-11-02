@@ -1112,23 +1112,8 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
   
-  /*
-  if(!d->reserved) {
-    d->sub->reserve(d->sub);
-    d->sub_reserved = 1;
-  }
-  */
-  
-  /*
-  if(memstore_slot() != d->channel_owner) {
-    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
-    return NGX_OK;
-  }
-  else {
-    chmsg = chanhead_find_next_message(chanhead, &d->msg_id, &findmsg_status);
-    return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
-  }
-  */
+  subscribe_data_free(d);
+
   return NGX_OK;
 }
 
