@@ -364,6 +364,9 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_redis.exit_worker(cycle);
   nchan_output_shutdown();
   ngx_destroy_pool(nchan_pool); // just for this worker
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  subscriber_debug_assert_isempty();
+#endif
 }
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {

@@ -69,6 +69,11 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.cln->data = fsub;
   fsub->data.cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
+  
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  subscriber_debug_add(&fsub->sub);
+#endif
+  
   return &fsub->sub;
 }
 
@@ -80,6 +85,9 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->data.request);
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+    subscriber_debug_remove(sub);
+#endif
     ngx_free(fsub);
   }
   return NGX_OK;

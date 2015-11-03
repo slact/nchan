@@ -144,9 +144,9 @@ struct nchan_loc_conf_s {
 };// nchan_loc_conf_t;
 
 typedef struct {
-  char *subtype;
-  size_t len;
-  const ngx_str_t *format;
+  char              *subtype;
+  size_t             len;
+  const ngx_str_t   *format;
 } nchan_content_subtype_t;
 
 typedef struct nchan_llist_timed_s {
@@ -179,6 +179,11 @@ struct subscriber_s {
   nchan_loc_conf_t       *cf;
   unsigned                dequeue_after_response:1;
   unsigned                destroy_after_dequeue:1;
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  struct subscriber_s    *dbg_prev;
+  struct subscriber_s    *dbg_next;
+  ngx_str_t              *url;
+#endif
 }; //subscriber_t
 
 #endif  /* NCHAN_TYPES_H */

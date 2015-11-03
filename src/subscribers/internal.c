@@ -67,6 +67,11 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   fsub->dequeue_handler_data = NULL;
   
   fsub->owner = memstore_slot();
+  
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  subscriber_debug_add(&fsub->sub);
+#endif
+  
   return &fsub->sub;
 }
 
@@ -78,6 +83,9 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p (%s) destroy", sub, fsub->sub.name);
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+    subscriber_debug_remove(&fsub->sub);
+#endif
     ngx_free(fsub);
   }
   return NGX_OK;

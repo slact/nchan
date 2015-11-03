@@ -276,8 +276,8 @@ static       subscriber_fn_t  eventsource_fn_data;
 static       subscriber_fn_t *eventsource_fn = NULL;
 
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
-  subscriber_t *sub;
-  full_subscriber_t *fsub;
+  subscriber_t         *sub;
+  full_subscriber_t    *fsub;
   
   sub = longpoll_subscriber_create(r, msg_id);
   

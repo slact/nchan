@@ -292,6 +292,10 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
   ngx_http_set_ctx(r, fsub, nchan_module); //gonna need this for recv
   
+  #if NCHAN_SUBSCRIBER_LEAK_DEBUG
+    subscriber_debug_add(&fsub->sub);
+  #endif
+  
   return &fsub->sub;
 }
 
@@ -303,6 +307,9 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->request);
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+    subscriber_debug_remove(&fsub->sub);
+#endif
     ngx_free(fsub);
   }
   return NGX_OK;

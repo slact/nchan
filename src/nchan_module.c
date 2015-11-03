@@ -726,3 +726,36 @@ ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   
   return NGX_OK;
 }
+
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+
+subscriber_t  subscriber_debug_head_data;
+subscriber_t *subscriber_debug_head = NULL;
+
+void subscriber_debug_add(subscriber_t *sub) {
+  if(subscriber_debug_head == NULL) {
+    subscriber_debug_head = &subscriber_debug_head_data;
+    ngx_memzero(subscriber_debug_head, sizeof(*subscriber_debug_head));
+  }
+  sub->dbg_next = NULL;
+  sub->dbg_prev = subscriber_debug_head->dbg_next;
+}
+void subscriber_debug_remove(subscriber_t *sub) {
+  subscriber_t *prev, *next;
+  
+  prev = sub->dbg_prev;
+  next = sub->dbg_next;
+  if(prev) {
+    prev->dbg_next = sub->dbg_next;
+  }
+  if(next) {
+    next->dbg_prev = sub->dbg_prev;
+  }
+  
+  sub->dbg_next = NULL;
+  sub->dbg_prev = NULL;
+}
+void subscriber_debug_assert_isempty(void) {
+  assert(subscriber_debug_head->dbg_next == NULL);
+}
+#endif
