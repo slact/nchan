@@ -402,12 +402,12 @@ static ngx_int_t websocket_reserve(subscriber_t *self) {
   DBG("%p reserve for req %p. reservations: %i", self, fsub->request, self->reserved);
   return NGX_OK;
 }
-static ngx_int_t websocket_release(subscriber_t *self) {
+static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;
   DBG("%p release for req %p, reservations: %i", self, fsub->request, self->reserved);
-  if(fsub->awaiting_destruction == 1 && self->reserved == 0) {
+  if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
     ngx_free(fsub);
     return NGX_ABORT;
   }

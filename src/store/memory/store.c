@@ -1068,11 +1068,12 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
 }
 
 static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
-  if(d->sub->fn->release(d->sub) == NGX_OK) {
+  if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     d->reserved = 0;
     return nchan_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
+    assert(d->sub->reserved == 0);
     subscribe_data_free(d);
     return NGX_OK;
   }
@@ -1098,7 +1099,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     
     if(d->reserved) {
-      d->sub->fn->release(d->sub);
+      d->sub->fn->release(d->sub, 0);
       d->reserved = 0;
     }
     
@@ -1111,12 +1112,14 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   
   d->chanhead = chanhead;
-  
-  chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+
   if(d->reserved) {
-    d->sub->fn->release(d->sub);
+    d->sub->fn->release(d->sub, 1);
     d->reserved = 0;
   }
+  
+  chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+
   subscribe_data_free(d);
 
   return NGX_OK;

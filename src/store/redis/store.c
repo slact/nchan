@@ -1308,7 +1308,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_int_t                  status=0;
   nchan_msg_t               *msg=NULL;
   
-  sub->fn->release(sub); //let the sub be destroyed if needed.
+  sub->fn->release(sub, 0); //let the sub be destroyed if needed.
   
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available

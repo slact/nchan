@@ -99,11 +99,11 @@ static ngx_int_t internal_reserve(subscriber_t *self) {
   self->reserved++;
   return NGX_OK;
 }
-static ngx_int_t internal_release(subscriber_t *self) {
+static ngx_int_t internal_release(subscriber_t *self, uint8_t nodestroy) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
   DBG("%p (%s) release", self, fsub->sub.name);
   self->reserved--;
-  if(fsub->awaiting_destruction == 1 && self->reserved == 0) {
+  if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
     DBG("%p (%s) free", self, fsub->sub.name);
     ngx_free(fsub);
     return NGX_ABORT;

@@ -43,8 +43,8 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   }
   ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
   
-  if(fsub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i)", fsub, fsub->reserved);
+  if(fsub->sub.reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i)", fsub, fsub->sub.reserved);
     fsub->awaiting_destruction = 1;
   }
   else {
@@ -106,7 +106,7 @@ static void reset_timer(sub_data_t *data) {
 
 static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
   sub_data_t *d = (sub_data_t *)pd;
-  if(d->sub->fn->release(d->sub) == NGX_OK) {
+  if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     if(renew) {
       reset_timer(d);
     }

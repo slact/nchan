@@ -115,12 +115,12 @@ static ngx_int_t longpoll_reserve(subscriber_t *self) {
   DBG("%p reserve for req %p, reservations: %i", self, fsub->data.request, self->reserved);
   return NGX_OK;
 }
-static ngx_int_t longpoll_release(subscriber_t *self) {
+static ngx_int_t longpoll_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;
   DBG("%p release for req %p. reservations: %i", self, fsub->data.request, self->reserved);
-  if(fsub->data.awaiting_destruction == 1 && self->reserved == 0) {
+  if(nodestroy == 0 && fsub->data.awaiting_destruction == 1 && self->reserved == 0) {
     longpoll_subscriber_destroy(self);
     return NGX_ABORT;
   }
