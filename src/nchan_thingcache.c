@@ -122,6 +122,7 @@ ngx_int_t nchan_thingcache_shutdown(void *tcv) {
   
   while(cur != NULL) {
     next = cur->next;
+    tc->destroy(&((thing_t *)cur->data)->id, ((thing_t *)cur->data)->data);
     THING_HASH_DEL(tc, (thing_t *)cur->data);
     ngx_free(cur);
     cur = next;
