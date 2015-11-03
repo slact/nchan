@@ -1049,7 +1049,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
   
   if(sub->cf->authorize_channel) {
-    sub->reserve(sub);
+    sub->fn->reserve(sub);
     d->reserved = 1;
     if(memstore_slot() != owner) {
       memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )nchan_store_subscribe_sub_reserved_check, d);
@@ -1066,7 +1066,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
 }
 
 static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
-  if(d->sub->release(d->sub) == NGX_OK) {
+  if(d->sub->fn->release(d->sub) == NGX_OK) {
     d->reserved = 0;
     return nchan_store_subscribe_continued(channel_status, _, d);
   }
@@ -1093,10 +1093,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   
   if (chanhead == NULL) {
-    d->sub->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     
     if(d->reserved) {
-      d->sub->release(d->sub);
+      d->sub->fn->release(d->sub);
       d->reserved = 0;
     }
     
@@ -1150,7 +1150,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
-  nchan_store_channel_head_t *chanhead = d->chanhead;
+  //nchan_store_channel_head_t *chanhead = d->chanhead;
   
   d->cb(findmsg_status, msg, d->cb_privdata);
   

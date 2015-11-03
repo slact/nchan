@@ -20,7 +20,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->data.owner);
 #endif
-  sub->dequeue(sub);
+  sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -124,7 +124,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #endif
   fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
-  fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -165,7 +165,7 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
 
 static ngx_int_t dequeue_maybe(subscriber_t *self) {
   if(self->dequeue_after_response) {
-    self->dequeue(self);
+    self->fn->dequeue(self);
   }
   return NGX_OK;
 }
@@ -248,7 +248,7 @@ static ngx_int_t longpoll_set_dequeue_callback(subscriber_t *self, subscriber_ca
   return NGX_OK;
 }
 
-static const subscriber_t new_longpoll_sub = {
+static const subscriber_fn_t longpoll_fn = {
   &longpoll_enqueue,
   &longpoll_dequeue,
   &longpoll_respond_message,
@@ -256,9 +256,13 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_set_timeout_callback,
   &longpoll_set_dequeue_callback,
   &longpoll_reserve,
-  &longpoll_release,
+  &longpoll_release
+};
+
+static const subscriber_t new_longpoll_sub = {
   "longpoll",
   LONGPOLL,
+  &longpoll_fn,
   {0,0},
   NULL,
   1, //deque after response

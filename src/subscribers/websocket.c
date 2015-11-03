@@ -136,7 +136,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->owner);
 #endif
-  sub->dequeue(sub);
+  sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -922,8 +922,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   return NGX_OK;
 }
 
-
-static const subscriber_t new_websocket_sub = {
+static const subscriber_fn_t websocket_fn = {
   &websocket_enqueue,
   &websocket_dequeue,
   &websocket_respond_message,
@@ -931,9 +930,13 @@ static const subscriber_t new_websocket_sub = {
   &websocket_set_timeout_callback,
   &websocket_set_dequeue_callback,
   &websocket_reserve,
-  &websocket_release,
+  &websocket_release
+};
+
+static const subscriber_t new_websocket_sub = {
   "websocket",
   WEBSOCKET,
+  &websocket_fn,
   {0,0}, //last_msg_id (for debugging)
   NULL,
   0, //deque after response

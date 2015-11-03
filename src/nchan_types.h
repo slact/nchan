@@ -159,21 +159,26 @@ typedef struct nchan_llist_timed_s {
 typedef enum {PUB, SUB} pub_or_sub_t;
 typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
+
+typedef struct {
+  ngx_int_t              (*enqueue)(struct subscriber_s *);
+  ngx_int_t              (*dequeue)(struct subscriber_s *);
+  ngx_int_t              (*respond_message)(struct subscriber_s *, nchan_msg_t *);
+  ngx_int_t              (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
+  ngx_int_t              (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
+  ngx_int_t              (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
+  ngx_int_t              (*reserve)(struct subscriber_s *);
+  ngx_int_t              (*release)(struct subscriber_s *);
+} subscriber_fn_t;
+
 struct subscriber_s {
-  ngx_int_t            (*enqueue)(struct subscriber_s *);
-  ngx_int_t            (*dequeue)(struct subscriber_s *);
-  ngx_int_t            (*respond_message)(struct subscriber_s *, nchan_msg_t *);
-  ngx_int_t            (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
-  ngx_int_t            (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
-  ngx_int_t            (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
-  ngx_int_t            (*reserve)(struct subscriber_s *);
-  ngx_int_t            (*release)(struct subscriber_s *);
-  const char          *name;
-  subscriber_type_t    type;
-  nchan_msg_id_t       last_msg_id;
-  nchan_loc_conf_t    *cf;
-  unsigned             dequeue_after_response:1;
-  unsigned             destroy_after_dequeue:1;
+  const char             *name;
+  subscriber_type_t       type;
+  const subscriber_fn_t  *fn;
+  nchan_msg_id_t          last_msg_id;
+  nchan_loc_conf_t       *cf;
+  unsigned                dequeue_after_response:1;
+  unsigned                destroy_after_dequeue:1;
 }; //subscriber_t
 
 #endif  /* NCHAN_TYPES_H */

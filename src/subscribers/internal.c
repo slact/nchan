@@ -125,7 +125,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   DBG("%p (%s) timeout", fsub, fsub->sub.name);
   fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
-  fsub->sub.respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -164,7 +164,7 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
 
 static ngx_int_t dequeue_maybe(subscriber_t *self) {
   if(self->dequeue_after_response) {
-    self->dequeue(self);
+    self->fn->dequeue(self);
   }
   return NGX_OK;
 }
@@ -223,7 +223,7 @@ ngx_int_t internal_subscriber_set_name(subscriber_t *self, const char *name) {
   return NGX_OK;
 }
 
-static const subscriber_t new_internal_sub = {
+static const subscriber_fn_t internal_sub_fn = {
   &internal_enqueue,
   &internal_dequeue,
   &internal_respond_message,
@@ -231,9 +231,13 @@ static const subscriber_t new_internal_sub = {
   &internal_set_timeout_callback,
   &internal_set_dequeue_callback,
   &internal_reserve,
-  &internal_release,
+  &internal_release
+};
+
+static const subscriber_t new_internal_sub = {
   "internal",
   INTERNAL,
+  &internal_sub_fn,
   {0, 0},
   NULL,
   0, //stick around after response

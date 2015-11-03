@@ -231,10 +231,10 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
   ssub->dequeue_callback_data.spool = self;
   
   if(enqueue) {
-    sub->enqueue(sub);
+    sub->fn->enqueue(sub);
   }
   
-  sub->set_dequeue_callback(sub, spool_sub_dequeue_callback, &ssub->dequeue_callback_data);
+  sub->fn->set_dequeue_callback(sub, spool_sub_dequeue_callback, &ssub->dequeue_callback_data);
   ssub->sub = sub;
   
   return NGX_OK;
@@ -280,10 +280,10 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     nnext = nsub->next;
     
     if(msg) {
-      sub->respond_message(sub, msg);
+      sub->fn->respond_message(sub, msg);
     }
     else {
-      sub->respond_status(sub, status_code, status_line);
+      sub->fn->respond_status(sub, status_code, status_line);
     }
   }
   self->responded_count++;
@@ -620,7 +620,7 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
     sub = ssub->sub;
     //DBG("dequeue sub %p in spool %p", sub, spool);
-    sub->dequeue(sub);
+    sub->fn->dequeue(sub);
   }
   assert(spool->sub_count == 0);
   assert(spool->first == NULL);

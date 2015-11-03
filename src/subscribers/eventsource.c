@@ -255,7 +255,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->data.request->keepalive=0;
     ngx_http_finalize_request(fsub->data.request, NGX_OK);
-    sub->dequeue(sub);
+    sub->fn->dequeue(sub);
   }
 
   return NGX_OK;
@@ -272,20 +272,28 @@ static ngx_int_t es_enqueue(subscriber_t *sub) {
   return rc;
 }
 
+static       subscriber_fn_t  eventsource_fn_data;
+static       subscriber_fn_t *eventsource_fn = NULL;
+
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t *sub;
   full_subscriber_t *fsub;
   
   sub = longpoll_subscriber_create(r, msg_id);
+  
+  if(eventsource_fn == NULL) {
+    eventsource_fn = &eventsource_fn_data;
+    *eventsource_fn = *sub->fn;
+    eventsource_fn->enqueue = es_enqueue;
+    eventsource_fn->respond_message= es_respond_message;
+    eventsource_fn->respond_status = es_respond_status;
+  }
+  
   fsub = (full_subscriber_t *)sub;
   
-  
+  sub->fn = eventsource_fn;
   sub->name = "eventsource";
   sub->type =  EVENTSOURCE;
-  
-  sub->enqueue = es_enqueue;
-  sub->respond_message= es_respond_message;
-  sub->respond_status = es_respond_status;
   
   sub->dequeue_after_response = 0;
   

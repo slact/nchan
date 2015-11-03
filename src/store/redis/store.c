@@ -1308,7 +1308,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_int_t                  status=0;
   nchan_msg_t               *msg=NULL;
   
-  sub->release(sub); //let the sub be destroyed if needed.
+  sub->fn->release(sub); //let the sub be destroyed if needed.
   
   //output: result_code, msg_time, msg_tag, message, content_type, channel-subscriber-count
   // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
@@ -1341,7 +1341,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
       msg = msg_from_redis_get_message_reply(reply, 1, &ngx_store_alloc);
       if(msg == NULL) {
         ERR("expected message, got NULL");
-        ret = sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+        ret = sub->fn->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
         d->callback(ret, msg, privdata);
       }
       switch(cf->subscriber_concurrency) {
@@ -1354,7 +1354,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
           DBG("message found; respond to subscriber");
           dequeue_after_response = sub->dequeue_after_response;
-          ret = sub->respond_message(sub, msg);
+          ret = sub->fn->respond_message(sub, msg);
           if(!dequeue_after_response) {
             //get next message. walk the queue!
             if(d->msgid_allocd) {
@@ -1365,7 +1365,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
             d->msg_id->time = msg->id.time;
             d->msg_id->tag = msg->id.tag;
             
-            sub->reserve(sub);
+            sub->fn->reserve(sub);
             nchan_store_subscribe_continued(d);
             ngx_free(msg);
             return;
@@ -1377,7 +1377,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
           
         case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
           if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 6) && CHECK_REPLY_INT(reply->element[5]) && reply->element[5]->integer > 0 ) {
-            ret = sub->respond_status(sub, NGX_HTTP_NOT_FOUND, &NCHAN_HTTP_STATUS_409);
+            ret = sub->fn->respond_status(sub, NGX_HTTP_NOT_FOUND, &NCHAN_HTTP_STATUS_409);
             d->callback(ret, msg, d->privdata);
           }
           break;
@@ -1394,7 +1394,7 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
         d->callback(NGX_ERROR, NULL, d->privdata);
       }
       else {
-        sub->enqueue(sub);
+        sub->fn->enqueue(sub);
         ret = chanhead->spooler.fn->add(&chanhead->spooler, sub);
         d->callback(ret == NGX_OK ? NGX_DONE : NGX_ERROR, NULL, d->privdata);
       }
@@ -1403,16 +1403,16 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
     case 403: //channel not found (not authorized)
     case 404: //not found
       code = cf->authorize_channel ? NGX_HTTP_FORBIDDEN : NGX_HTTP_NOT_FOUND;
-      sub->respond_status(sub, code, NULL);
+      sub->fn->respond_status(sub, code, NULL);
       d->callback(code, NULL, d->privdata);
       break;
     case 410: //gone
       //subscriber wants an expired message
-      sub->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
+      sub->fn->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
       d->callback(NGX_HTTP_NO_CONTENT, NULL, d->privdata);
       break;
     default: //shouldn't be here!
-      sub->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+      sub->fn->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
       d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
   if(d->msgid_allocd) {
@@ -1448,7 +1448,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   d->name = "get_message (subscribe)";
   
   d->sub = sub;
-  sub->reserve(sub);
+  sub->fn->reserve(sub);
   
   return nchan_store_subscribe_continued(d);
 }

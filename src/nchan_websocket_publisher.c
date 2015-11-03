@@ -69,7 +69,7 @@ ngx_int_t nchan_create_websocket_publisher(ngx_http_request_t  *r) {
     return NGX_ERROR;
   }
   
-  sub->set_dequeue_callback(sub, ws_publisher_dequeue_callback, sub_link);
-  sub->enqueue(sub);
+  sub->fn->set_dequeue_callback(sub, ws_publisher_dequeue_callback, sub_link);
+  sub->fn->enqueue(sub);
   return NGX_OK;
 }
