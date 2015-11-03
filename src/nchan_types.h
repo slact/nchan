@@ -50,10 +50,10 @@ struct nchan_msg_s {
   ngx_buf_t                      *buf;
   time_t                          expires;
   ngx_uint_t                      delete_oldest_received_min_messages; //NGX_MAX_UINT32_VALUE for 'never'
-  unsigned                        shared:1; //for debugging
   ngx_atomic_t                    refcount;
+  unsigned                        shared:1; //for debugging
 #if NCHAN_MSG_LEAK_DEBUG
-  u_char                         *lbl;
+  ngx_str_t                       lbl;
   struct msg_rsv_dbg_s           *rsv;
   struct nchan_msg_s             *dbg_prev;
   struct nchan_msg_s             *dbg_next;
