@@ -1113,7 +1113,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   d->chanhead = chanhead;
   
   chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
-  
+  if(d->reserved) {
+    d->sub->fn->release(d->sub);
+    d->reserved = 0;
+  }
   subscribe_data_free(d);
 
   return NGX_OK;
