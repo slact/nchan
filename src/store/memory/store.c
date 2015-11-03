@@ -1406,15 +1406,14 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   if(max_msgs == 0) {
     ///no buffer
     channel_copy=&chead->channel;
-    publish_msg = create_shm_msg(msg);
-    publish_msg->expires = ngx_time() + NCHAN_NOBUFFER_MSG_EXPIRE_SEC;
-    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->id.time, publish_msg->id.tag, msg_timeout);
     
-    if((shmsg_link = create_shared_message(publish_msg, 1)) == NULL) {
+    if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't create unbuffered message for channel %V", channel_id);
       return NGX_ERROR;
     }
+    publish_msg= shmsg_link->msg;
+    publish_msg->expires = ngx_time() + NCHAN_NOBUFFER_MSG_EXPIRE_SEC;
     
     if(chanhead_push_message(&mpt->unbuffered_dummy_chanhead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
@@ -1423,6 +1422,8 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     }
     
     publish_msg->prev_id = chead->latest_msgid;
+    
+    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->id.time, publish_msg->id.tag, msg_timeout);
   }
   else {
     
