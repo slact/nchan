@@ -31,7 +31,6 @@ ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg);
 ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2);
 
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
-extern nchan_llist_timed_t subscriber_debug_head;
 void subscriber_debug_add(subscriber_t *);
 void subscriber_debug_remove(subscriber_t *);
 void subscriber_debug_assert_isempty(void);

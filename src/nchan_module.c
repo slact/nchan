@@ -737,8 +737,9 @@ void subscriber_debug_add(subscriber_t *sub) {
     subscriber_debug_head = &subscriber_debug_head_data;
     ngx_memzero(subscriber_debug_head, sizeof(*subscriber_debug_head));
   }
-  sub->dbg_next = NULL;
-  sub->dbg_prev = subscriber_debug_head->dbg_next;
+  sub->dbg_next = subscriber_debug_head->dbg_next;
+  sub->dbg_prev = subscriber_debug_head;
+  subscriber_debug_head->dbg_next = sub;
 }
 void subscriber_debug_remove(subscriber_t *sub) {
   subscriber_t *prev, *next;
