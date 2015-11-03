@@ -182,7 +182,7 @@ struct subscriber_s {
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   struct subscriber_s    *dbg_prev;
   struct subscriber_s    *dbg_next;
-  ngx_str_t              *url;
+  u_char                 *lbl;
 #endif
 }; //subscriber_t
 

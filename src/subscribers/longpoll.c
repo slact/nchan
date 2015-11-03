@@ -50,6 +50,13 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.awaiting_destruction = 0;
   fsub->data.reserved = 0;
   
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  subscriber_debug_add(&fsub->sub);
+  //set debug label
+  fsub->sub.lbl = ngx_calloc(r->uri.len+1, ngx_cycle->log);
+  ngx_memcpy(fsub->sub.lbl, r->uri.data, r->uri.len);
+#endif
+  
   if(msg_id) {
     fsub->sub.last_msg_id.time = msg_id->time;
     fsub->sub.last_msg_id.tag = msg_id->tag;
@@ -70,10 +77,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
   
-#if NCHAN_SUBSCRIBER_LEAK_DEBUG
-  subscriber_debug_add(&fsub->sub);
-#endif
-  
   return &fsub->sub;
 }
 
@@ -87,6 +90,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
     DBG("%p destroy for req %p", sub, fsub->data.request);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
+    ngx_free(sub->lbl);
     ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
 #endif
     ngx_free(fsub);
