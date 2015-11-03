@@ -183,12 +183,13 @@ struct subscriber_s {
   const subscriber_fn_t  *fn;
   nchan_msg_id_t          last_msg_id;
   nchan_loc_conf_t       *cf;
+  ngx_uint_t              reserved;
   unsigned                dequeue_after_response:1;
   unsigned                destroy_after_dequeue:1;
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  u_char                 *lbl;
   struct subscriber_s    *dbg_prev;
   struct subscriber_s    *dbg_next;
-  u_char                 *lbl;
 #endif
 }; //subscriber_t
 

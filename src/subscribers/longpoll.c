@@ -48,7 +48,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.already_enqueued = 0;
   fsub->data.already_responded = 0;
   fsub->data.awaiting_destruction = 0;
-  fsub->data.reserved = 0;
+  fsub->sub.reserved = 0;
   
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_add(&fsub->sub);
@@ -82,8 +82,8 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
 
 ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
-  if(fsub->data.reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, fsub->data.reserved, fsub->data.request);
+  if(sub->reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->data.request);
     fsub->data.awaiting_destruction = 1;
   }
   else {
@@ -111,16 +111,16 @@ static void ensure_request_hold(full_subscriber_t *fsub) {
 static ngx_int_t longpoll_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
-  fsub->data.reserved++;
-  DBG("%p reserve for req %p, reservations: %i", self, fsub->data.request, fsub->data.reserved);
+  self->reserved++;
+  DBG("%p reserve for req %p, reservations: %i", self, fsub->data.request, self->reserved);
   return NGX_OK;
 }
 static ngx_int_t longpoll_release(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  assert(fsub->data.reserved > 0);
-  fsub->data.reserved--;
-  DBG("%p release for req %p. reservations: %i", self, fsub->data.request, fsub->data.reserved);
-  if(fsub->data.awaiting_destruction == 1 && fsub->data.reserved == 0) {
+  assert(self->reserved > 0);
+  self->reserved--;
+  DBG("%p release for req %p. reservations: %i", self, fsub->data.request, self->reserved);
+  if(fsub->data.awaiting_destruction == 1 && self->reserved == 0) {
     longpoll_subscriber_destroy(self);
     return NGX_ABORT;
   }
@@ -277,6 +277,11 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_fn,
   {0,0},
   NULL,
+  0, //reservations
   1, //deque after response
   1, //destroy after dequeue
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  NULL,
+  NULL
+#endif
 };

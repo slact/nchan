@@ -53,6 +53,8 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   fsub->respond_message = empty_callback;
   fsub->respond_status = empty_callback;
   ngx_memcpy(&fsub->sub, &new_internal_sub, sizeof(new_internal_sub));
+  fsub->sub.reserved = 0;
+  
   fsub->sub.name= (name == NULL ? "internal" : name);
   DBG("%p create %s with privdata %p", fsub, fsub->sub.name, privdata);
   fsub->privdata = privdata;
@@ -60,7 +62,7 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   fsub->sub.cf = &dummy_config;
   fsub->already_dequeued = 0;
   fsub->awaiting_destruction = 0;
-  fsub->reserved = 0;
+  
   
   fsub->timeout_handler = sub_empty_callback;
   fsub->dequeue_handler = sub_empty_callback;
@@ -77,8 +79,8 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
 
 ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)sub;
-  if(fsub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i)", sub, fsub->reserved);
+  if(sub->reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i)", sub, sub->reserved);
     fsub->awaiting_destruction = 1;
   }
   else {
@@ -94,14 +96,14 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 static ngx_int_t internal_reserve(subscriber_t *self) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
   DBG("%p )%s) reserve", self, fsub->sub.name);
-  fsub->reserved++;
+  self->reserved++;
   return NGX_OK;
 }
 static ngx_int_t internal_release(subscriber_t *self) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
   DBG("%p (%s) release", self, fsub->sub.name);
-  fsub->reserved--;
-  if(fsub->awaiting_destruction == 1 && fsub->reserved == 0) {
+  self->reserved--;
+  if(fsub->awaiting_destruction == 1 && self->reserved == 0) {
     DBG("%p (%s) free", self, fsub->sub.name);
     ngx_free(fsub);
     return NGX_ABORT;
@@ -248,6 +250,11 @@ static const subscriber_t new_internal_sub = {
   &internal_sub_fn,
   {0, 0},
   NULL,
+  0, //reserved
   0, //stick around after response
   1, //destroy after dequeue
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  NULL,
+  NULL
+#endif
 };

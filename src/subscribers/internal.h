@@ -15,7 +15,6 @@ typedef struct {
   ngx_int_t               owner;
   unsigned                already_dequeued:1;
   unsigned                awaiting_destruction:1;
-  unsigned                reserved;
 } internal_subscriber_t;
 
 extern subscriber_t *internal_subscriber_create(const char*, void *privdata);

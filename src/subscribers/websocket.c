@@ -119,7 +119,6 @@ typedef struct {
   unsigned                finalize_request:1;
   unsigned                already_enqueued:1;
   unsigned                awaiting_destruction:1;
-  unsigned                reserved;
 } full_subscriber_t;
 
 
@@ -251,7 +250,6 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->dequeue_handler_data = NULL;
   fsub->already_enqueued = 0;
   fsub->awaiting_destruction = 0;
-  fsub->reserved = 0;
   
   //initialize reusable chains and bufs
   ngx_memzero(&fsub->hdr_buf, sizeof(fsub->hdr_buf));
@@ -301,8 +299,8 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
-  if(fsub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, fsub->reserved, fsub->request);
+  if(sub->reserved > 0) {
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->request);
     fsub->awaiting_destruction = 1;
   }
   else {
@@ -400,16 +398,16 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
 static ngx_int_t websocket_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
-  fsub->reserved++;
-  DBG("%p reserve for req %p. reservations: %i", self, fsub->request, fsub->reserved);
+  self->reserved++;
+  DBG("%p reserve for req %p. reservations: %i", self, fsub->request, self->reserved);
   return NGX_OK;
 }
 static ngx_int_t websocket_release(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  assert(fsub->reserved > 0);
-  fsub->reserved--;
-  DBG("%p release for req %p, reservations: %i", self, fsub->request, fsub->reserved);
-  if(fsub->awaiting_destruction == 1 && fsub->reserved == 0) {
+  assert(self->reserved > 0);
+  self->reserved--;
+  DBG("%p release for req %p, reservations: %i", self, fsub->request, self->reserved);
+  if(fsub->awaiting_destruction == 1 && self->reserved == 0) {
     ngx_free(fsub);
     return NGX_ABORT;
   }
@@ -946,6 +944,11 @@ static const subscriber_t new_websocket_sub = {
   &websocket_fn,
   {0,0}, //last_msg_id (for debugging)
   NULL,
+  0, //reserved
   0, //deque after response
   1, //destroy after dequeue
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  NULL,
+  NULL
+#endif
 };
