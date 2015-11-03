@@ -671,7 +671,9 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       msg->id.time = tv.tv_sec;
       
       msg->buf = buf;
-      
+#if NCHAN_MSG_LEAK_DEBUG
+      msg->lbl = r->uri;
+#endif      
       cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
       
       memstore_pub_debug_end();

@@ -1217,7 +1217,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   ngx_buf_t               *mbuf = NULL, *buf=NULL;
   mbuf = m->buf;
   
-  size_t                   buf_body_size = 0, content_type_size = 0, buf_filename_size = 0;
+  size_t                  total_sz, buf_body_size = 0, content_type_size = 0, buf_filename_size = 0;
   
   content_type_size += m->content_type.len;
   if(ngx_buf_in_memory_only(mbuf)) {
@@ -1230,7 +1230,13 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     }
   }
   
-  if((stuff = shm_calloc(shm, sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size), "message")) == NULL) {
+  total_sz = sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size);
+#if NCHAN_MSG_LEAK_DEBUG
+  size_t    debug_sz = m->lbl.len;
+  total_sz += debug_sz;
+#endif
+  
+  if((stuff = shm_calloc(shm, total_sz, "message")) == NULL) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
@@ -1276,7 +1282,9 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   
 #if NCHAN_MSG_LEAK_DEBUG  
   msg->rsv = NULL;
-  msg->lbl = NULL;
+  msg->lbl.len = m->lbl.len;
+  msg->lbl.data = (u_char *)stuff + (total_sz - debug_sz);
+  ngx_memcpy(msg->lbl.data, m->lbl.data, msg->lbl.len);
   
   msg_debug_add(msg);
 #endif
