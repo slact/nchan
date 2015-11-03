@@ -84,7 +84,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   else {
     DBG("%p (%s) destroy", sub, fsub->sub.name);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
-    subscriber_debug_remove(&fsub->sub);
+    subscriber_debug_remove(sub);
 #endif
     ngx_free(fsub);
   }

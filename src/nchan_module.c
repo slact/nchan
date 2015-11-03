@@ -729,34 +729,49 @@ ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
 
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
 
-subscriber_t  subscriber_debug_head_data;
-subscriber_t *subscriber_debug_head = NULL;
+subscriber_t *subdebug_head = NULL;
 
 void subscriber_debug_add(subscriber_t *sub) {
-  if(subscriber_debug_head == NULL) {
-    subscriber_debug_head = &subscriber_debug_head_data;
-    ngx_memzero(subscriber_debug_head, sizeof(*subscriber_debug_head));
+  DBG("sub dbg add %p", sub);
+  if(subdebug_head == NULL) {
+    sub->dbg_next = NULL;
+    sub->dbg_prev = NULL;
   }
-  sub->dbg_next = subscriber_debug_head->dbg_next;
-  sub->dbg_prev = subscriber_debug_head;
-  subscriber_debug_head->dbg_next = sub;
+  else {
+    sub->dbg_next = subdebug_head;
+    sub->dbg_prev = NULL;
+    assert(subdebug_head->dbg_prev == NULL);
+    subdebug_head->dbg_prev = sub;
+  }
+  subdebug_head = sub;
 }
 void subscriber_debug_remove(subscriber_t *sub) {
-  subscriber_t *prev, *next;
   
+  DBG("sub dbg remove %p", sub);
+  
+  subscriber_t *prev, *next;
   prev = sub->dbg_prev;
   next = sub->dbg_next;
-  if(prev) {
-    prev->dbg_next = sub->dbg_next;
+  if(subdebug_head == sub) {
+    assert(sub->dbg_prev == NULL);
+    if(next) {
+      next->dbg_prev = NULL;
+    }
+    subdebug_head = next;
   }
-  if(next) {
-    next->dbg_prev = sub->dbg_prev;
+  else {
+    if(prev) {
+      prev->dbg_next = next;
+    }
+    if(next) {
+      next->dbg_prev = prev;
+    }
   }
   
   sub->dbg_next = NULL;
   sub->dbg_prev = NULL;
 }
 void subscriber_debug_assert_isempty(void) {
-  assert(subscriber_debug_head->dbg_next == NULL);
+  assert(subdebug_head == NULL);
 }
 #endif
