@@ -227,7 +227,7 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
 
   str_shm_verify(data.shm_chid);
   
-  ngx_atomic_fetch_add(&shm_msg->refcount, 1);
+  msg_reserve(shm_msg, "publish_message");
   
   ret= ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
   return ret;
@@ -260,7 +260,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
     nchan_memstore_publish_generic(head, d->shm_msg, 0, NULL);
     //don't deallocate shm_msg
   }
-  ngx_atomic_fetch_add(&d->shm_msg->refcount, -1);
+  msg_release(d->shm_msg, "publish_message");
   str_shm_free(d->shm_chid);
   d->shm_chid=NULL;
 }
@@ -355,8 +355,7 @@ static void receive_get_message(ngx_int_t sender, void *data) {
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   if(rd->shm_msg) {
-    //ERR("MSG %p refcount %i++", rd->shm_msg, rd->shm_msg->refcount);
-    ngx_atomic_fetch_add(&rd->shm_msg->refcount, 1);
+    msg_reserve(rd->shm_msg, "get_message_reply");
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, rd, sizeof(*rd));
 }
@@ -370,9 +369,8 @@ static void receive_get_message_reply(ngx_int_t sender, void *data) {
   DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
   nchan_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
   if(d->shm_msg) {
-    //ERR("MSG %p refcount %i--", d->shm_msg, d->shm_msg->refcount);
     assert(d->shm_msg->refcount > 0);
-    ngx_atomic_fetch_add(&d->shm_msg->refcount, -1);
+    msg_release(d->shm_msg, "get_message_reply");
   }
   str_shm_free(d->shm_chid);
 }

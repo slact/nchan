@@ -28,7 +28,19 @@ typedef struct {
   ngx_buf_t       buf;
 } nchan_buf_and_chain_t;
 
+
+
 //message queue
+
+#if NCHAN_MSG_LEAK_DEBUG
+typedef struct msg_rsv_dbg_s msg_rsv_dbg_t;
+struct msg_rsv_dbg_s {
+  char                  *lbl;
+  struct msg_rsv_dbg_s  *prev;
+  struct msg_rsv_dbg_s  *next;
+}; //msg_rsv_dbg_s
+#endif
+
 typedef struct nchan_msg_s nchan_msg_t;
 struct nchan_msg_s {
   nchan_msg_id_t                  id;
@@ -41,9 +53,10 @@ struct nchan_msg_s {
   unsigned                        shared:1; //for debugging
   ngx_atomic_t                    refcount;
 #if NCHAN_MSG_LEAK_DEBUG
+  u_char                         *lbl;
+  struct msg_rsv_dbg_s           *rsv;
   struct nchan_msg_s             *dbg_prev;
   struct nchan_msg_s             *dbg_next;
-  u_char                         *lbl;
 #endif
 }; // nchan_msg_t
 

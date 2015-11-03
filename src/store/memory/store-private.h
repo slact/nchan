@@ -69,6 +69,9 @@ void memstore_fakeprocess_push_random(void);
 ngx_int_t memstore_fakeprocess_pop(void);
 #endif
 
+void msg_reserve(nchan_msg_t *msg, char *lbl);
+void msg_release(nchan_msg_t *msg, char *lbl);
+
 ngx_int_t memstore_slot(void);
 nchan_store_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id);
 ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *);

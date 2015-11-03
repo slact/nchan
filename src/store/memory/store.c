@@ -1274,11 +1274,60 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   }
   msg->shared=1;
   
-#if NCHAN_MSG_LEAK_DEBUG
+#if NCHAN_MSG_LEAK_DEBUG  
+  msg->rsv = NULL;
+  msg->lbl = NULL;
+  
   msg_debug_add(msg);
 #endif
   
   return msg;
+}
+
+void msg_reserve(nchan_msg_t *msg, char *lbl) {
+  ngx_atomic_fetch_add(&msg->refcount, 1);
+#if NCHAN_MSG_LEAK_DEBUG  
+  msg_rsv_dbg_t     *rsv;
+  rsv=shm_alloc(shm, sizeof(*rsv) + ngx_strlen(lbl), "msgdebug");
+  rsv->lbl = (char *)(&rsv[1]);
+  ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
+  if(msg->rsv == NULL) {
+    msg->rsv = rsv;
+    rsv->prev = NULL;
+    rsv->next = NULL;
+  }
+  else {
+    msg->rsv->prev = rsv;
+    rsv->next = msg->rsv;
+    rsv->prev = NULL;
+    msg->rsv = rsv;
+  }
+#endif
+}
+void msg_release(nchan_msg_t *msg, char *lbl) {
+  ngx_atomic_fetch_add(&msg->refcount, -1);
+  assert(msg->refcount >= 0);
+#if NCHAN_MSG_LEAK_DEBUG
+  msg_rsv_dbg_t     *cur, *prev, *next;
+  size_t             sz = ngx_strlen(lbl);
+  for(cur = msg->rsv; cur != NULL; cur = cur->next) {
+    if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
+      prev = cur->prev;
+      next = cur->next;
+      if(prev) {
+        prev->next = next;
+      }
+      if(next) {
+        next->prev = prev;
+      }
+      if(cur == msg->rsv) {
+        msg->rsv = next;
+      }
+      shm_free(shm, cur);
+      break;
+    }
+  }
+#endif
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {
@@ -1375,13 +1424,11 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
       return NGX_ERROR;
     }
     
-    //shmsg_link->msg->refcount++;
     if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
       ERR("can't enqueue shared message for channel %V", channel_id);
       return NGX_ERROR;
     }
-    //shmsg_link->msg->refcount--;
     
     ngx_memcpy(channel_copy, &chead->channel, sizeof(*channel_copy));
     channel_copy->subscribers = sub_count;
