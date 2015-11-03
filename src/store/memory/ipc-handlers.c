@@ -435,7 +435,7 @@ static void receive_delete_reply(ngx_int_t sender, void *data) {
 
   str_shm_verify(d->shm_chid);
   
-  DBG("IPC received delete reply for channel %V  msg %p pridata %p", d->shm_chid, d->privdata);
+  DBG("IPC received delete reply for channel %V privdata %p", d->shm_chid, d->privdata);
   d->callback(d->code, d->shm_channel_info, d->privdata);
   
   if(d->shm_channel_info != NULL) {
