@@ -141,6 +141,15 @@ typedef struct {
   thing_t              t;
 } whole_thing_t;
 
+
+void *nchan_thingcache_find(void *tcv, ngx_str_t *id) {
+  nchan_thing_cache_t   *tc = (nchan_thing_cache_t *)tcv;
+  thing_t               *thing;
+  
+  THING_HASH_FIND(tc, id, thing);
+  return thing ? thing->data : NULL;
+}
+
 void *nchan_thingcache_get(void *tcv, ngx_str_t *id) {
   nchan_thing_cache_t   *tc = (nchan_thing_cache_t *)tcv;
   nchan_llist_timed_t   *cur;
