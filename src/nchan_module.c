@@ -775,3 +775,53 @@ void subscriber_debug_assert_isempty(void) {
   assert(subdebug_head == NULL);
 }
 #endif
+
+
+#if NCHAN_MSG_LEAK_DEBUG
+
+nchan_msg_t *msgdebug_head = NULL;
+
+void msg_debug_add(nchan_msg_t *msg) {
+  DBG("msg dbg add %p", msg);
+  if(msgdebug_head == NULL) {
+    msg->dbg_next = NULL;
+    msg->dbg_prev = NULL;
+  }
+  else {
+    msg->dbg_next = msgdebug_head;
+    msg->dbg_prev = NULL;
+    assert(msgdebug_head->dbg_prev == NULL);
+    msgdebug_head->dbg_prev = msg;
+  }
+  msgdebug_head = msg;
+}
+void msg_debug_remove(nchan_msg_t *msg) {
+  
+  DBG("msg dbg remove %p", msg);
+  
+  nchan_msg_t *prev, *next;
+  prev = msg->dbg_prev;
+  next = msg->dbg_next;
+  if(msgdebug_head == msg) {
+    assert(msg->dbg_prev == NULL);
+    if(next) {
+      next->dbg_prev = NULL;
+    }
+    msgdebug_head = next;
+  }
+  else {
+    if(prev) {
+      prev->dbg_next = next;
+    }
+    if(next) {
+      next->dbg_prev = prev;
+    }
+  }
+  
+  msg->dbg_next = NULL;
+  msg->dbg_prev = NULL;
+}
+void msg_debug_assert_isempty(void) {
+  assert(msgdebug_head == NULL);
+}
+#endif

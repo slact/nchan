@@ -1,4 +1,5 @@
 #define NCHAN_SUBSCRIBER_LEAK_DEBUG 1
+#define NCHAN_MSG_LEAK_DEBUG 1
 
 #include <ngx_http.h>
 #include <nchan_types.h>
@@ -34,4 +35,10 @@ ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2);
 void subscriber_debug_add(subscriber_t *);
 void subscriber_debug_remove(subscriber_t *);
 void subscriber_debug_assert_isempty(void);
+#endif
+
+#if NCHAN_MSG_LEAK_DEBUG
+void msg_debug_add(nchan_msg_t *);
+void msg_debug_remove(nchan_msg_t *);
+void msg_debug_assert_isempty(void);
 #endif

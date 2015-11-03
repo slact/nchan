@@ -29,7 +29,8 @@ typedef struct {
 } nchan_buf_and_chain_t;
 
 //message queue
-typedef struct {
+typedef struct nchan_msg_s nchan_msg_t;
+struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
   ngx_str_t                       content_type;
@@ -39,7 +40,12 @@ typedef struct {
   ngx_uint_t                      delete_oldest_received_min_messages; //NGX_MAX_UINT32_VALUE for 'never'
   unsigned                        shared:1; //for debugging
   ngx_atomic_t                    refcount;
-} nchan_msg_t;
+#if NCHAN_MSG_LEAK_DEBUG
+  struct nchan_msg_s             *dbg_prev;
+  struct nchan_msg_s             *dbg_next;
+  u_char                         *lbl;
+#endif
+}; // nchan_msg_t
 
 
 typedef struct {

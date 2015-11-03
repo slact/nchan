@@ -839,7 +839,9 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
   //DBG("free msg %p", msg);
-  
+#if NCHAN_MSG_LEAK_DEBUG  
+  msg_debug_remove(msg->msg);
+#endif
   ngx_memset(msg->msg, 0xFA, sizeof(*msg->msg)); //debug stuff
   shm_free(shm, msg->msg);
   
@@ -1265,6 +1267,11 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
   }
   msg->shared=1;
+  
+#if NCHAN_MSG_LEAK_DEBUG
+  msg_debug_add(msg);
+#endif
+  
   return msg;
 }
 
