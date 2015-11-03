@@ -87,6 +87,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
     DBG("%p destroy for req %p", sub, fsub->data.request);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
+    ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
 #endif
     ngx_free(fsub);
   }
@@ -116,8 +117,7 @@ static ngx_int_t longpoll_release(subscriber_t *self) {
   fsub->data.reserved--;
   DBG("%p release for req %p. reservations: %i", self, fsub->data.request, fsub->data.reserved);
   if(fsub->data.awaiting_destruction == 1 && fsub->data.reserved == 0) {
-    ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
-    ngx_free(fsub);
+    longpoll_subscriber_destroy(self);
     return NGX_ABORT;
   }
   else {
