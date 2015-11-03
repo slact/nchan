@@ -256,7 +256,7 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
   assert(head->sub_count >= head->internal_sub_count);
-  if(head->sub_count == 0 && head->ipc_sub == NULL) {
+  if(head->sub_count == 0 && head->foreign_owner_ipc_sub == NULL) {
     chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
   }
 }
@@ -273,7 +273,7 @@ static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(head == NULL) {
     return NGX_OK;
   }
-  DBG("(ensure_chanhead is_ready) setting chanhead %p, status %i, ipc_sub:%p", head, head->status, head->ipc_sub);
+  DBG("(ensure_chanhead is_ready) setting chanhead %p, status %i, ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
@@ -283,11 +283,11 @@ static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   }
   
   if(owner != memstore_slot()) {
-    if(head->ipc_sub == NULL && head->status != WAITING) {
+    if(head->foreign_owner_ipc_sub == NULL && head->status != WAITING) {
       head->status = WAITING;
       memstore_ipc_send_subscribe(owner, &head->id, head);
     }
-    else if(head->ipc_sub != NULL && head->status == WAITING) {
+    else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
       head->status = READY;
     }
   }
@@ -343,7 +343,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->waiting_for_publish_response = NULL;
   head->msg_last = NULL;
   head->msg_first = NULL;
-  head->ipc_sub = NULL;
+  head->foreign_owner_ipc_sub = NULL;
   head->last_subscribed = 0;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
@@ -391,7 +391,7 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason) 
   DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
   chanhead_cleanlink = &head->cleanlink;
   if(!head->shutting_down) {
-    assert(head->ipc_sub == NULL); //we don't accept still-subscribed chanheads
+    assert(head->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
   }
   if(head->slot != head->owner) {
     head->shared = NULL;

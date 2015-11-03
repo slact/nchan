@@ -87,7 +87,6 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   }
   else {
     ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->origin_chanhead);
-    ipc_sub->fn->enqueue(ipc_sub);
     head->spooler.fn->add(&head->spooler, ipc_sub);
     d->subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
@@ -118,11 +117,11 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
   
   assert(head->shared != NULL);
-  if(head->ipc_sub) {
-    assert(head->ipc_sub == d->subscriber);
+  if(head->foreign_owner_ipc_sub) {
+    assert(head->foreign_owner_ipc_sub == d->subscriber);
   }
   else {
-    head->ipc_sub = d->subscriber;
+    head->foreign_owner_ipc_sub = d->subscriber;
   }
   head->status = READY;
   str_shm_free(d->shm_chid);
@@ -156,8 +155,8 @@ static void receive_unsubscribed(ngx_int_t sender, void *data) {
     //gc if no subscribers
     if(head->sub_count == 0) {
       DBG("add %p to GC", head);
-      head->ipc_sub = NULL;
-      chanhead_gc_add(head, "received UNSUBPSCRIVED over ipc, sub_count == 0");
+      head->foreign_owner_ipc_sub = NULL;
+      chanhead_gc_add(head, "received UNSUBSCRIVED over ipc, sub_count == 0");
     }
     else {
       //subscribe again?...
@@ -561,7 +560,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
   else {
     assert(head == d->originator);
     assert(head->status == READY);
-    assert(head->ipc_sub == d->ipc_sub);
+    assert(head->foreign_owner_ipc_sub == d->ipc_sub);
     if(head->sub_count == 0) {
       if(ngx_time() - head->last_subscribed > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
         d->renew = 0;
