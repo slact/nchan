@@ -734,7 +734,6 @@ ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
 subscriber_t *subdebug_head = NULL;
 
 void subscriber_debug_add(subscriber_t *sub) {
-  DBG("sub dbg add %p", sub);
   if(subdebug_head == NULL) {
     sub->dbg_next = NULL;
     sub->dbg_prev = NULL;
@@ -748,9 +747,6 @@ void subscriber_debug_add(subscriber_t *sub) {
   subdebug_head = sub;
 }
 void subscriber_debug_remove(subscriber_t *sub) {
-  
-  DBG("sub dbg remove %p", sub);
-  
   subscriber_t *prev, *next;
   prev = sub->dbg_prev;
   next = sub->dbg_next;
@@ -784,7 +780,12 @@ void subscriber_debug_assert_isempty(void) {
 nchan_msg_t *msgdebug_head = NULL;
 
 void msg_debug_add(nchan_msg_t *msg) {
-  DBG("msg dbg add %p", msg);
+  //ensure this message is present only once
+  nchan_msg_t      *cur;
+  for(cur = msgdebug_head; cur != NULL; cur = cur->dbg_next) {
+    assert(cur != msg);
+  }
+  
   if(msgdebug_head == NULL) {
     msg->dbg_next = NULL;
     msg->dbg_prev = NULL;
@@ -798,9 +799,6 @@ void msg_debug_add(nchan_msg_t *msg) {
   msgdebug_head = msg;
 }
 void msg_debug_remove(nchan_msg_t *msg) {
-  
-  DBG("msg dbg remove %p", msg);
-  
   nchan_msg_t *prev, *next;
   prev = msg->dbg_prev;
   next = msg->dbg_next;
