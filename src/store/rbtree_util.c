@@ -144,8 +144,8 @@ ngx_int_t rbtree_destroy_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   ngx_memset(node, 0x67, sizeof(*node));
   seed->allocd_nodes--;
 #endif
-  ngx_free(node);
   DBG("Destroyed node %p", node);
+  ngx_free(node);
   
   return NGX_OK;
 }

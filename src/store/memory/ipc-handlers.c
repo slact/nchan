@@ -74,7 +74,7 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_stor
 static void receive_subscribe(ngx_int_t sender, void *data) {
   nchan_store_channel_head_t *head;
   subscribe_data_t           *d = (subscribe_data_t *)data;
-  subscriber_t               *ipc_sub;
+  subscriber_t               *ipc_sub = NULL;
   
   str_shm_verify(d->shm_chid);
   DBG("received subscribe request for channel %V", d->shm_chid);

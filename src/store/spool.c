@@ -601,6 +601,8 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     spl->chid = chid;
     spl->store = store;
     
+    spl->channel_status = channel_status;
+    
     spl->running = 1;
     //spl->want_to_stop = 0;
     return spl;
