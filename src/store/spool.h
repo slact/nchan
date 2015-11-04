@@ -20,7 +20,7 @@ struct spooled_subscriber_s {
 }; //spooled_subscriber_t
 
 
-struct subscriber_pool_s{
+struct subscriber_pool_s {
   nchan_msg_id_t              id;
   nchan_msg_t                *msg;
   nchan_msg_status_t          msg_status;
@@ -36,6 +36,7 @@ typedef struct channel_spooler_s channel_spooler_t; //holds many different spool
 
 typedef struct {
   ngx_int_t            (*add)(channel_spooler_t *self, subscriber_t *sub);
+  ngx_int_t            (*handle_channel_status_change)(channel_spooler_t *self);
   ngx_int_t            (*respond_message)(channel_spooler_t *self, nchan_msg_t *msg);
   ngx_int_t            (*respond_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
   ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
@@ -45,27 +46,28 @@ typedef struct {
 } channel_spooler_fn_t;
 
 struct channel_spooler_s {
-  rbtree_seed_t          spoolseed;
-  nchan_msg_id_t         prev_msg_id;
-  ngx_uint_t             responded_count;
-  ngx_str_t             *chid;
-  nchan_store_t         *store;
-  channel_spooler_fn_t  *fn;  
+  rbtree_seed_t               spoolseed;
+  nchan_msg_id_t              prev_msg_id;
+  ngx_uint_t                  responded_count;
+  ngx_str_t                  *chid;
+  chanhead_pubsub_status_t   *channel_status;
+  nchan_store_t              *store;
+  channel_spooler_fn_t       *fn;  
   
-  void                 (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
-  void                  *add_handler_privdata;
+  void                        (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
+  void                       *add_handler_privdata;
   
-  void                 (*dequeue_handler)(channel_spooler_t *, subscriber_t *, void *);
-  void                  *dequeue_handler_privdata;
+  void                        (*dequeue_handler)(channel_spooler_t *, subscriber_t *, void *);
+  void                       *dequeue_handler_privdata;
   
-  void                 (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
-  void                  *bulk_dequeue_handler_privdata;
+  void                        (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
+  void                       *bulk_dequeue_handler_privdata;
   
-  unsigned               running:1;
-  unsigned               want_to_stop:1;
+  unsigned                    running:1;
+  unsigned                    want_to_stop:1;
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, nchan_store_t *store);
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store);
 ngx_int_t stop_spooler(channel_spooler_t *spl);
 
 

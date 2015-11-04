@@ -5,8 +5,6 @@
 typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
 typedef struct store_message_s store_message_t;
 
-typedef enum {INACTIVE, NOTREADY, WAITING, READY} chanhead_pubsub_status_t;
-
 struct store_message_s {
   nchan_msg_t      *msg;
   store_message_t           *prev;
@@ -31,15 +29,15 @@ struct nchan_store_channel_head_s {
   channel_spooler_t               spooler;
   unsigned                        shutting_down:1;
   chanhead_pubsub_status_t        status;
-  nchan_llist_timed_t             *waiting_for_publish_response;
+  nchan_llist_timed_t            *waiting_for_publish_response;
   ngx_atomic_t                    sub_count;
   time_t                          last_subscribed;
-  store_channel_head_shm_t        *shared;
+  store_channel_head_shm_t       *shared;
   ngx_int_t                       internal_sub_count;
   ngx_uint_t                      min_messages;
   ngx_uint_t                      max_messages;
-  store_message_t                 *msg_first;
-  store_message_t                 *msg_last;
+  store_message_t                *msg_first;
+  store_message_t                *msg_last;
   nchan_msg_id_t                  latest_msgid;
   nchan_msg_id_t                  oldest_msgid;
   subscriber_t                   *foreign_owner_ipc_sub; //points to NULL or inaacceessible memory.

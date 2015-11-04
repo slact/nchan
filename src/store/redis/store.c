@@ -13,8 +13,6 @@ typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
 
 #include "../spool.h"
 
-typedef enum {INACTIVE, NOTREADY, READY} chanhead_pubsub_status_t;
-
 struct nchan_store_channel_head_s {
   ngx_str_t                    id; //channel id
   channel_spooler_t            spooler;
@@ -670,6 +668,9 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
         case INACTIVE:
           ERR("REDIS: PUB/SUB already unsubscribed from %s, chanhead %p (id %V) INACTIVE.", reply->element[1]->str, chanhead, &chanhead->id);
           break;
+        default:
+          assert(0);
+          //not sposed to happen
       }
     }
     
@@ -738,7 +739,7 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
 }
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler, &head->id, &nchan_store_redis);
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis);
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
   return NGX_OK;

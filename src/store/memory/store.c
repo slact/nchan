@@ -248,7 +248,7 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
     head->shared->sub_count -= count;
   }
   else if(head->shared == NULL) {
-    assert(head->shutting_down = 1);
+    assert(head->shutting_down == 1);
   }
   head->sub_count -= count;
   head->channel.subscribers = head->sub_count - head->internal_sub_count;
@@ -262,7 +262,7 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
 }
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler, &head->id, &nchan_store_memory);
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory);
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
   return NGX_OK;
@@ -273,26 +273,30 @@ static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(head == NULL) {
     return NGX_OK;
   }
-  DBG("(ensure_chanhead is_ready) setting chanhead %p, status %i, ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
+  DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
   if(!head->spooler.running) {
-    DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
+    DBG("ensure chanhead ready: Spooler for channel %p %V wasn't running. start it.", head, &head->id);
     start_chanhead_spooler(head);
   }
   
   if(owner != memstore_slot()) {
     if(head->foreign_owner_ipc_sub == NULL && head->status != WAITING) {
+      DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
       head->status = WAITING;
       memstore_ipc_send_subscribe(owner, &head->id, head);
     }
     else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
+      DBG("ensure chanhead ready: subscribe request for %V from %i to %i", &head->id, memstore_slot(), owner);
       head->status = READY;
+      head->spooler.fn->handle_channel_status_change(&head->spooler);
     }
   }
   else {
     head->status = READY;
+    head->spooler.fn->handle_channel_status_change(&head->spooler);
   }
   return NGX_OK;
 }

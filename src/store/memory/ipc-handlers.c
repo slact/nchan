@@ -87,12 +87,16 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   }
   else {
     ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->origin_chanhead);
-    head->spooler.fn->add(&head->spooler, ipc_sub);
     d->subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
   }
+  
   DBG("send subscribe reply for channel %V", d->shm_chid);
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
+  
+  if(ipc_sub) {
+    head->spooler.fn->add(&head->spooler, ipc_sub);
+  }
 }
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t             *d = (subscribe_data_t *)data;
@@ -110,7 +114,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   if(head->shared) {
     assert(head->shared == d->shared_channel_data);
   }
-  DBG("recv subscr proceed to do ipc_sub stuff");
+  DBG("receive subscribe proceed to do ipc_sub stuff");
   head->shared = d->shared_channel_data;
   
   ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count);
@@ -124,6 +128,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
     head->foreign_owner_ipc_sub = d->subscriber;
   }
   head->status = READY;
+  head->spooler.fn->handle_channel_status_change(&head->spooler);
   str_shm_free(d->shm_chid);
 }
 

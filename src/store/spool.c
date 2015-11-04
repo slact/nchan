@@ -160,8 +160,15 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
 }
 
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
-  fetchmsg_data_t        *data = ngx_alloc(sizeof(*data), ngx_cycle->log); //correctness over efficiency (at first).
-  //TODO: optimize thid alloc away
+  fetchmsg_data_t        *data;
+  if(*spool->spooler->channel_status != READY) {
+    DBG("%p wanted to fetch msg %i:%i, but channel %V not ready", spool, spool->id.time, spool->id.tag, spool->spooler->chid);
+    spool->msg_status = MSG_CHANNEL_NOTREADY;
+    return NGX_DECLINED;
+  }
+  DBG("%p fetch msg %i:%i for channel %V", spool, spool->id.time, spool->id.tag, spool->spooler->chid);
+  data = ngx_alloc(sizeof(*data), ngx_cycle->log); //correctness over efficiency (at first).
+  //TODO: optimize this alloc away
   
   assert(data);
   
@@ -363,7 +370,8 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
       assert(spool->msg == NULL);
       spool_fetch_msg(spool);
       break;
-      
+    
+    case MSG_CHANNEL_NOTREADY:
     case MSG_PENDING:
     case MSG_EXPECTED:
       //nothing to do but wait
@@ -535,8 +543,42 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
   }
 }
 
+static ngx_int_t its_time_for_a_spooling(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
+  ngx_int_t       rc;
+  
+  if(spool->msg_status == MSG_CHANNEL_NOTREADY) {
+    spool->msg_status = MSG_INVALID;
+    rc = spool_fetch_msg(spool);
+  }
+  else {
+    rc = NGX_OK;
+  }
+  
+  assert(rc == NGX_OK);
+  return rc;
+}
+
+static ngx_int_t spooler_channel_status_changed(channel_spooler_t *self) {
+  rbtree_walk_callback_pt callback = NULL;
+  switch(*self->channel_status) {
+    case READY:
+      callback = (rbtree_walk_callback_pt )its_time_for_a_spooling;
+      break;
+      
+    default:
+      //do nothing
+      break;
+  };
+  
+  if(callback) {
+    rbtree_walk(&self->spoolseed, callback, NULL); 
+  }
+  return NGX_OK;
+}
+
 static channel_spooler_fn_t  spooler_fn = {
   spooler_add_subscriber,
+  spooler_channel_status_changed,
   spooler_respond_message,
   spooler_respond_status,
   spooler_prepare_to_stop,
@@ -545,7 +587,7 @@ static channel_spooler_fn_t  spooler_fn = {
   spooler_set_bulk_dequeue_handler
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, nchan_store_t *store) {
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store) {
   if(!spl->running) {
     ngx_memzero(spl, sizeof(*spl));
     rbtree_init(&spl->spoolseed, "spooler msg_id tree", spool_rbtree_node_id, spool_rbtree_bucketer, spool_rbtree_compare);

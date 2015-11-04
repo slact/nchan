@@ -95,7 +95,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 
 static ngx_int_t internal_reserve(subscriber_t *self) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
-  DBG("%p )%s) reserve", self, fsub->sub.name);
+  DBG("%p ) (%s) reserve", self, fsub->sub.name);
   self->reserved++;
   return NGX_OK;
 }
