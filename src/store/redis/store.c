@@ -6,10 +6,10 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 
-ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
+
+static ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
 
 typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
-
 
 #include "../spool.h"
 
@@ -27,9 +27,36 @@ struct nchan_store_channel_head_s {
   UT_hash_handle               hh;
 };
 
-#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, subhash, (id_buf)->data, (id_buf)->len, p)
-#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
-#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( subhash, chanhead)
+typedef struct {
+  u_char       *password;
+  u_char       *host;
+  ngx_int_t     port;
+  ngx_int_t     db;
+} redis_connect_params_t;
+
+typedef struct {
+  nchan_store_channel_head_t      *subhash;
+  redis_connect_params_t          *connect_params;
+  ngx_str_t                       *connect_url;
+  
+  u_char                           subscriber_id[255];
+  u_char                           subscriber_channel[255];
+  
+  redisAsyncContext               *ctx;
+  redisAsyncContext               *sub_ctx;
+  
+  ngx_event_t                      cleanup_timer;
+  //garbage collection for channel heads
+  nchan_llist_timed_t             *chanhead_cleanup_head;
+  nchan_llist_timed_t             *chanhead_cleanup_tail;
+  
+} rdstore_data_t;
+
+static rdstore_data_t        rdt;
+
+#define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, rdt.subhash, (id_buf)->data, (id_buf)->len, p)
+#define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, rdt.subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
+#define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( rdt.subhash, chanhead)
 
 #undef uthash_malloc
 #undef uthash_free
@@ -55,25 +82,9 @@ struct nchan_store_channel_head_s {
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
-static nchan_store_channel_head_t *subhash = NULL;
-
-typedef struct {
-  u_char       *password;
-  u_char       *host;
-  ngx_int_t     port;
-  ngx_int_t     db;
-} redis_connect_params_t;
-
-static redis_connect_params_t   *redis_connect_params = NULL;
-static ngx_str_t                *redis_connect_url = NULL;
 
 static redisAsyncContext * rds_sub_ctx(void);
 static redisAsyncContext * rds_ctx(void);
-
-//garbage collection for channel heads
-static ngx_event_t         chanhead_cleanup_timer = {0};
-static nchan_llist_timed_t *chanhead_cleanup_head = NULL;
-static nchan_llist_timed_t *chanhead_cleanup_tail = NULL;
 
 static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason);
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead);
@@ -200,13 +211,21 @@ static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
 }
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
-  redis_connect_params = parse_redis_url(redis_connect_url);
+  
+  rdt.subhash = NULL;
+  rdt.connect_params = parse_redis_url(rdt.connect_url);
+  
+  ngx_memzero(&rdt.subscriber_id, sizeof(rdt.subscriber_id));
+  ngx_memzero(&rdt.subscriber_channel, sizeof(rdt.subscriber_channel));
   
   redis_nginx_init();
+  rdt.chanhead_cleanup_head = NULL;
+  rdt.chanhead_cleanup_tail = NULL;
   
-  chanhead_cleanup_timer.data=NULL;
-  chanhead_cleanup_timer.handler=&nchan_store_chanhead_cleanup_timer_handler;
-  chanhead_cleanup_timer.log=ngx_cycle->log;
+  ngx_memzero(&rdt.cleanup_timer, sizeof(rdt.cleanup_timer));
+  rdt.cleanup_timer.data=NULL;
+  rdt.cleanup_timer.handler=&nchan_store_chanhead_cleanup_timer_handler;
+  rdt.cleanup_timer.log=ngx_cycle->log;
   
   rds_ctx();
   rds_sub_ctx();
@@ -307,10 +326,10 @@ static void redisInitScripts(redisAsyncContext *c){
 }
 
 static redisAsyncContext * rds_ctx(void){
-  static redisAsyncContext *c = NULL;
+  redisAsyncContext *c = rdt.ctx;
   if(c==NULL) {
     //init redis
-    redis_nginx_open_context(redis_connect_params->host, redis_connect_params->port, redis_connect_params->db, redis_connect_params->password, &c);
+    redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisInitScripts(c);
   }
   rds_sub_ctx();
@@ -674,18 +693,16 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   }
 }
 
-static u_char subscriber_id[255] = "";
-static u_char subscriber_channel[255] = "";
 static redisAsyncContext * rds_sub_ctx(void){
-  static redisAsyncContext *c = NULL;
-  if(subscriber_id[0] == 0) {
-    ngx_snprintf(subscriber_id, 255, "worker:%i:time:%i", ngx_pid, ngx_time());
-    ngx_snprintf(subscriber_channel, 255, "nchan:%s", subscriber_id);
+  redisAsyncContext *c = rdt.sub_ctx;
+  if(rdt.subscriber_id[0] == 0) {
+    ngx_snprintf(rdt.subscriber_id, 255, "worker:%i:time:%i", ngx_pid, ngx_time());
+    ngx_snprintf(rdt.subscriber_channel, 255, "nchan:%s", rdt.subscriber_id);
   }
   if(c==NULL) {
     //init redis
-    redis_nginx_open_context(redis_connect_params->host, redis_connect_params->port, redis_connect_params->db, redis_connect_params->password, &c);
-    redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", subscriber_channel);
+    redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
+    redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", rdt.subscriber_channel);
   }
   return c;
 }
@@ -877,14 +894,14 @@ static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *r
     
     chanhead_cleanlink->data=(void *)head;
     chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=chanhead_cleanup_tail;
-    if(chanhead_cleanup_tail != NULL) {
-      chanhead_cleanup_tail->next=chanhead_cleanlink;
+    chanhead_cleanlink->prev=rdt.chanhead_cleanup_tail;
+    if(rdt.chanhead_cleanup_tail != NULL) {
+      rdt.chanhead_cleanup_tail->next=chanhead_cleanlink;
     }
     chanhead_cleanlink->next=NULL;
-    chanhead_cleanup_tail=chanhead_cleanlink;
-    if(chanhead_cleanup_head==NULL) {
-      chanhead_cleanup_head = chanhead_cleanlink;
+    rdt.chanhead_cleanup_tail=chanhead_cleanlink;
+    if(rdt.chanhead_cleanup_head==NULL) {
+      rdt.chanhead_cleanup_head = chanhead_cleanlink;
     }
     
     head->status = INACTIVE;
@@ -896,8 +913,8 @@ static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *r
   }
 
   //initialize cleanup timer
-  if(!chanhead_cleanup_timer.timer_set) {
-    ngx_add_timer(&chanhead_cleanup_timer, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+  if(!rdt.cleanup_timer.timer_set) {
+    ngx_add_timer(&rdt.cleanup_timer, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
   return NGX_OK;
 }
@@ -913,10 +930,10 @@ static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead) {
       cl->prev->next=cl->next;
     if(cl->next!=NULL)
       cl->next->prev=cl->prev;
-    if(chanhead_cleanup_head==cl)
-      chanhead_cleanup_head=cl->next;
-    if(chanhead_cleanup_tail==cl)
-      chanhead_cleanup_tail=cl->prev;
+    if(rdt.chanhead_cleanup_head==cl)
+      rdt.chanhead_cleanup_head=cl->next;
+    if(rdt.chanhead_cleanup_tail==cl)
+      rdt.chanhead_cleanup_tail=cl->prev;
 
     cl->prev = cl->next = NULL;
   }
@@ -956,7 +973,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   
   DBG("handle_chanhead_gc_queue");
   
-  for(cur=chanhead_cleanup_head; cur != NULL; cur=next) {
+  for(cur=rdt.chanhead_cleanup_head; cur != NULL; cur=next) {
     next=cur->next;
     if(force_delete || ngx_time() - cur->time > NCHAN_CHANHEAD_EXPIRE_SEC) {
       ch = (nchan_store_channel_head_t *)cur->data;
@@ -979,9 +996,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
       break;
     }
   }
-  chanhead_cleanup_head=cur;
+  rdt.chanhead_cleanup_head=cur;
   if (cur==NULL) { //we went all the way to the end
-    chanhead_cleanup_tail=NULL;
+    rdt.chanhead_cleanup_tail=NULL;
   }
   else {
     cur->prev=NULL;
@@ -990,10 +1007,10 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 
 static void nchan_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
   handle_chanhead_gc_queue(0);
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || chanhead_cleanup_head==NULL)) {
+  if (!(ngx_quit || ngx_terminate || ngx_exiting || rdt.chanhead_cleanup_head==NULL)) {
     ngx_add_timer(ev, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
   }
-  else if(chanhead_cleanup_head==NULL) {
+  else if(rdt.chanhead_cleanup_head==NULL) {
     DBG("chanhead gc queue looks empty, stop gc_queue handler");
   }
 }
@@ -1230,7 +1247,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     ngx_memcpy(&conf->redis_url, &REDIS_DEFAULT_URL, sizeof(REDIS_DEFAULT_URL));
   }
   
-  redis_connect_url = &conf->redis_url;
+  rdt.connect_url = &conf->redis_url;
   
   return NGX_OK;
 }
@@ -1250,7 +1267,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   if((ctx=rds_sub_ctx())!=NULL)
     redis_nginx_force_close_context(&ctx);
   
-  HASH_ITER(hh, subhash, cur, tmp) {
+  HASH_ITER(hh, rdt.subhash, cur, tmp) {
     //any subscribers?
     //TODO: respond to all subscribers
     cur->shutting_down = 1;
@@ -1258,12 +1275,11 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   }
   handle_chanhead_gc_queue(1);
 
-  if(chanhead_cleanup_timer.timer_set) {
-    ngx_del_timer(&chanhead_cleanup_timer);
+  if(rdt.cleanup_timer.timer_set) {
+    ngx_del_timer(&rdt.cleanup_timer);
   }
   
-  ngx_free(redis_connect_params);
-
+  ngx_free(rdt.connect_params);
 }
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
