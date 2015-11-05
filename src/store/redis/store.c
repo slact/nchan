@@ -378,7 +378,7 @@ static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r
     return;
   }
   
-  //TODO: Complete this.
+  nchan_store_publish_generic(chid, msg, 0, NULL);
   ngx_free(msg);
   ngx_free(d);
 }
@@ -465,7 +465,7 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, nchan_msg_id_t *msgi
   //d->hcln = put_current_subscribers_in_limbo(head);
   //assert(d->hcln != 0);
   
-  redisAsyncCommand(rds_ctx(), &redis_subscriber_messageHMGET_callback, d, "HMGET %b time tag data content_type", STR(msg_redis_hash_key));
+  redisAsyncCommand(rds_ctx(), &redis_subscriber_messageHMGET_callback, d, "HMGET %b time tag prev_time prev_tag data content_type", STR(msg_redis_hash_key));
   return NGX_OK;
 }
 
