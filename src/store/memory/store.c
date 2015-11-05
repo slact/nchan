@@ -310,7 +310,7 @@ nchan_store_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
 }
 
 
-static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id) {
+static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   nchan_store_channel_head_t         *head;
   head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   ngx_int_t                owner = memstore_channel_owner(channel_id);
@@ -321,7 +321,9 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->slot = memstore_slot();
   head->owner = owner;
   head->shutting_down = 0;
-
+  
+  head->use_redis = cf->use_redis;
+  
   if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
       ERR("can't allocate shared memory for (new) chanhead");
@@ -379,11 +381,11 @@ nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id)
   return head;
 }
 
-nchan_store_channel_head_t * nchan_memstore_get_chanhead(ngx_str_t *channel_id) {
+nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   nchan_store_channel_head_t          *head;
   head = chanhead_memstore_find(channel_id);
   if(head==NULL) {
-    head = chanhead_memstore_create(channel_id);
+    head = chanhead_memstore_create(channel_id, cf);
   }
   ensure_chanhead_is_ready(head);
   return head;
@@ -1089,7 +1091,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   //nchan_msg_status_t           findmsg_status;
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
-      chanhead = nchan_memstore_get_chanhead(d->channel_id);
+      chanhead = nchan_memstore_get_chanhead(d->channel_id, d->sub->cf);
       break;
     case SUB_CHANNEL_UNAUTHORIZED:
       chanhead = NULL;
@@ -1363,10 +1365,10 @@ static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_alre
 }
 
 static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  return nchan_store_publish_message_generic(channel_id, msg, 0, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata);
+  return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
 }
   
-ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msgs,  ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nchan_store_channel_head_t  *chead;
   nchan_channel_t              channel_copy_data;
   nchan_channel_t             *channel_copy = &channel_copy_data;
@@ -1375,6 +1377,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   nchan_msg_t                 *publish_msg;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   ngx_int_t                    rc;
+  
   if(callback == NULL) {
     callback = empty_callback;
   }
@@ -1383,9 +1386,9 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   if(msg->id.time==0) {
     msg->id.time = ngx_time();
   }
-  msg->expires = ngx_time() + msg_timeout;
+  msg->expires = ngx_time() + cf->buffer_timeout;
   
-  if((chead = nchan_memstore_get_chanhead(channel_id)) == NULL) {
+  if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
     ERR("can't get chanhead for id %V", channel_id);
     callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
     return NGX_ERROR;
@@ -1393,21 +1396,21 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
-    memstore_ipc_send_publish_message(owner, channel_id, publish_msg, msg_timeout, max_msgs, min_msgs, callback, privdata);
+    memstore_ipc_send_publish_message(owner, channel_id, publish_msg, cf, callback, privdata);
     return NGX_OK;
   }
   
-  chead->channel.expires = ngx_time() + msg_timeout;
+  chead->channel.expires = ngx_time() + cf->buffer_timeout;
   sub_count = chead->shared->sub_count;
   
   //TODO: address this weirdness
   //chead->min_messages = cf->min_messages;
   chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
   
-  chead->max_messages = max_msgs;
+  chead->max_messages = cf->max_messages;
   
   chanhead_messages_gc(chead);
-  if(max_msgs == 0) {
+  if(cf->max_messages == 0) {
     ///no buffer
     channel_copy=&chead->channel;
     
@@ -1427,7 +1430,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     
     publish_msg->prev_id = chead->latest_msgid;
     
-    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->id.time, publish_msg->id.tag, msg_timeout);
+    DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->id.time, publish_msg->id.tag, cf->buffer_timeout);
   }
   else {
     
@@ -1454,7 +1457,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   
   //do the actual publishing
   
-  DBG("publish %i:%i expire %i", publish_msg->id.time, publish_msg->id.tag, msg_timeout);
+  DBG("publish %i:%i expire %i", publish_msg->id.time, publish_msg->id.tag, cf->buffer_timeout);
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }

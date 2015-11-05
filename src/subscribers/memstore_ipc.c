@@ -60,12 +60,17 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   ngx_int_t               rc;
   nchan_msg_t            *msg = (nchan_msg_t *) ptr;
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
+  nchan_loc_conf_t              cf;
+    
+  cf.buffer_timeout =50;
+  cf.min_messages = 0;
+  cf.max_messages = 0;
   
   DBG("%p (%V) memstore subscriber (lastid %i:%i) respond with message %i:%i (lastid %i:%i)", d->sub, d->chid, d->sub->last_msg_id.time, d->sub->last_msg_id.tag, msg->id.time, msg->id.tag, msg->prev_id.time, msg->prev_id.tag);
   
   //verify_subscriber_last_msg_id(d->sub, msg);
   
-  rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, 50, 0, 0, empty_callback, NULL);
+  rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, &cf, empty_callback, NULL);
   
   fsub->sub.last_msg_id = msg->id;
   

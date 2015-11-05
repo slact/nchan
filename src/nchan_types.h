@@ -154,6 +154,7 @@ struct nchan_loc_conf_s {
   time_t                          subscriber_timeout;
   
   ngx_int_t                       authorize_channel;
+  ngx_int_t                       use_redis;
   ngx_int_t                       delete_oldest_received_message;
   ngx_str_t                       channel_group;
   ngx_int_t                       max_channel_id_length;

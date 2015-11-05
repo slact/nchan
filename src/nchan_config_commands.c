@@ -131,6 +131,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_main_conf_t, redis_url),
     NULL } ,
 
+  { ngx_string("nchan_use_redis"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, use_redis),
+    NULL } ,
+
   { ngx_string("nchan_message_buffer_length"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     nchan_set_message_buffer_length,

@@ -92,6 +92,15 @@ CfCmd.new do
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
   
+  nchan_use_redis [:main, :srv, :loc],
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :use_redis],
+      
+      group: "storage",
+      value: [ :on, :off ],
+      default: :off,
+      info: "Use redis for message storage at this location."
+  
   nchan_message_buffer_length [:main, :srv, :loc],
       :nchan_set_message_buffer_length,
       :loc_conf,

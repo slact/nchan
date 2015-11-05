@@ -27,7 +27,6 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                      slot;  //also mostly for debugging
   nchan_channel_t                 channel;
   channel_spooler_t               spooler;
-  unsigned                        shutting_down:1;
   chanhead_pubsub_status_t        status;
   nchan_llist_timed_t            *waiting_for_publish_response;
   ngx_atomic_t                    sub_count;
@@ -41,6 +40,8 @@ struct nchan_store_channel_head_s {
   nchan_msg_id_t                  latest_msgid;
   nchan_msg_id_t                  oldest_msgid;
   subscriber_t                   *foreign_owner_ipc_sub; //points to NULL or inaacceessible memory.
+  unsigned                        shutting_down:1;
+  unsigned                        use_redis:1;
   subscriber_t                   *redis_sub;
   nchan_llist_timed_t             cleanlink;
   UT_hash_handle                  hh;
@@ -51,13 +52,13 @@ typedef struct {
 } shm_data_t;
 
 nchan_store_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);
-nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id);
+nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf);
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status);
 shmem_t *nchan_memstore_get_shm(void);
 ipc_t *nchan_memstore_get_ipc(void);
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *d);
 ngx_int_t memstore_channel_owner(ngx_str_t *id);
-ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, ngx_int_t msg_timeout, ngx_int_t max_msg,  ngx_int_t min_msg, callback_pt callback, void *privdata);
+ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 

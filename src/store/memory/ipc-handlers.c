@@ -64,11 +64,20 @@ typedef struct {
   store_channel_head_shm_t    *shared_channel_data;
   nchan_store_channel_head_t  *origin_chanhead;
   subscriber_t                *subscriber;
+  unsigned                     use_redis:1;
 } subscribe_data_t;
 
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead) {
   DBG("send subscribe to %i, %V", dst, chid);
-  subscribe_data_t   data = {str_shm_copy(chid), NULL, origin_chanhead, NULL};
+  //origin_chanhead->use_redis
+  subscribe_data_t   data;
+  ngx_memzero(&data, sizeof(data));
+  data.shm_chid = str_shm_copy(chid);
+  data.shared_channel_data = NULL;
+  data.origin_chanhead = origin_chanhead;
+  data.subscriber = NULL;
+  data.use_redis = 0;
+  
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
 }
 static void receive_subscribe(ngx_int_t sender, void *data) {
@@ -76,9 +85,13 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
   subscriber_t               *ipc_sub = NULL;
   
+  nchan_loc_conf_t            fake_conf;
+  //ngx_memzero(&fake_conf, sizeof(fake_conf));
+  fake_conf.use_redis = d->use_redis;
+  
   str_shm_verify(d->shm_chid);
   DBG("received subscribe request for channel %V", d->shm_chid);
-  head = nchan_memstore_get_chanhead(d->shm_chid);
+  head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
   
   if(head == NULL) {
     ERR("couldn't get chanhead while receiving subscribe ipc msg");
@@ -101,12 +114,16 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
 static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t             *d = (subscribe_data_t *)data;
   nchan_store_channel_head_t   *head;
+  nchan_loc_conf_t              fake_conf;
   DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
   
+  //ngx_memzero(&fake_conf, sizeof(fake_conf));
+  fake_conf.use_redis = d->use_redis;
+  
   str_shm_verify(d->shm_chid);
   
-  head = nchan_memstore_get_chanhead(d->shm_chid);
+  head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
     assert(0);
@@ -196,8 +213,8 @@ static void receive_publish_status(ngx_int_t sender, void *data) {
   
   str_shm_verify(d->shm_chid);
   
-  if((chead = nchan_memstore_get_chanhead(d->shm_chid)) == NULL) {
-    ERR("can't get chanhead for id %V", d->shm_chid);
+  if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
+    ERR("can't find chanhead for id %V", d->shm_chid);
     assert(0);
     return;
   }
@@ -221,12 +238,12 @@ typedef struct {
   void                      *callback_privdata;
 } publish_data_t;
 
-ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, ngx_int_t msg_timeout, ngx_int_t max_msgs, ngx_int_t min_msgs, callback_pt callback, void *privdata) {
+ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t ret;
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
   assert(chid->data != NULL);
-  publish_data_t  data = {str_shm_copy(chid), shm_msg, msg_timeout, max_msgs, min_msgs, callback, privdata};
+  publish_data_t  data = {str_shm_copy(chid), shm_msg, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata};
   assert(data.shm_chid->data != NULL);
 
   str_shm_verify(data.shm_chid);
@@ -246,24 +263,31 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t, void *, void *);
 
 static void receive_publish_message(ngx_int_t sender, void *data) {
   publish_data_t               *d = (publish_data_t *)data;
+  nchan_loc_conf_t              cf;
   publish_callback_data         cd;
   nchan_store_channel_head_t   *head;
   cd.d = d;
   cd.sender = sender;
   
+  cf.buffer_timeout = d->msg_timeout;
+  cf.min_messages = d->min_msgs;
+  cf.max_messages = d->max_msgs;
+  
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->data != NULL);
   
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
+  
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
-    nchan_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, d->msg_timeout, d->max_msgs, d->min_msgs, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
+    nchan_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, &cf, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
     //string will be freed on publish response
   }
   else {
-    head = nchan_memstore_get_chanhead(d->shm_chid);
+    head = nchan_memstore_get_chanhead(d->shm_chid, &cf);
     nchan_memstore_publish_generic(head, d->shm_msg, 0, NULL);
     //don't deallocate shm_msg
   }
+  
   msg_release(d->shm_msg, "publish_message");
   str_shm_free(d->shm_chid);
   d->shm_chid=NULL;

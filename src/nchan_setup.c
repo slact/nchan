@@ -6,7 +6,7 @@
 
 ngx_module_t     nchan_module;
 
-nchan_store_t   *default_storage_engine = &nchan_store_redis;
+nchan_store_t   *default_storage_engine = &nchan_store_memory;
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -89,6 +89,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->authorize_channel=NGX_CONF_UNSET;
+  lcf->use_redis=NGX_CONF_UNSET;
   lcf->delete_oldest_received_message=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
@@ -138,6 +139,7 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
+  ngx_conf_merge_value(conf->use_redis, prev->use_redis, 0);
   ngx_conf_merge_value(conf->delete_oldest_received_message, prev->delete_oldest_received_message, 0);
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
