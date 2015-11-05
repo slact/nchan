@@ -8,6 +8,8 @@
 #include "store-private.h"
 #include "../spool.h"
 
+#include "../redis/store.h"
+
 static ngx_int_t max_worker_processes = 0;
 
 typedef struct {
@@ -270,9 +272,11 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
 
 static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   ngx_int_t                      owner = memstore_channel_owner(&head->id);
+  nchan_loc_conf_t               cf;
   if(head == NULL) {
     return NGX_OK;
   }
+
   DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
   if(head->status == INACTIVE) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
@@ -284,9 +288,12 @@ static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   
   if(owner != memstore_slot()) {
     if(head->foreign_owner_ipc_sub == NULL && head->status != WAITING) {
+      cf.min_messages = head->min_messages;
+      cf.max_messages = head->max_messages;
+      cf.use_redis = head->use_redis;
       DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
       head->status = WAITING;
-      memstore_ipc_send_subscribe(owner, &head->id, head);
+      memstore_ipc_send_subscribe(owner, &head->id, head, &cf);
     }
     else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
       DBG("ensure chanhead ready: subscribe request for %V from %i to %i", &head->id, memstore_slot(), owner);
@@ -1085,10 +1092,27 @@ static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_stat
   }
 }
 
+static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, void *ch, void *d) {
+  nchan_channel_t    *channel = (nchan_channel_t *)ch;
+  subscribe_data_t   *data = (subscribe_data_t *)d;
+  ngx_int_t           channel_status;
+  if(status == NGX_OK) {
+    channel_status = channel == NULL ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+    nchan_store_subscribe_continued(channel_status, NULL, data);
+  }
+  else {
+    //error!!
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   nchan_store_channel_head_t  *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
+  
+  ngx_int_t                      use_redis = 0;
+  
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
       chanhead = nchan_memstore_get_chanhead(d->channel_id, d->sub->cf);
@@ -1098,6 +1122,20 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
     case SUB_CHANNEL_NOTSURE:
       chanhead = nchan_memstore_find_chanhead(d->channel_id);
+      if(chanhead == NULL) {
+        subscribe_data_t            *dt;
+        
+        if(use_redis) {
+          
+          if(!d->allocd) {
+            dt = subscribe_data_alloc(-1); //definitely allocate some data
+            ngx_memcpy(dt, d, sizeof(*dt)); //and copy what we already have
+            dt->allocd = 1; //except make sure to mark it as alloc'd
+          }
+          
+          nchan_store_redis.find_channel(dt->channel_id, redis_subscribe_channel_authcheck_callback, dt);
+        }
+      }
       break;
   }
   
@@ -1137,6 +1175,8 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   subscribe_data_t            *d = subscribe_data_alloc(owner);
   nchan_msg_status_t           findmsg_status;
   
+  ngx_int_t                    use_redis = 0;
+  
   if(callback==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
     return NGX_ERROR;
@@ -1156,7 +1196,14 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   }
   else {
     chmsg = chanhead_find_next_message(d->chanhead, &d->msg_id, &findmsg_status);
-    return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+    
+    if(chmsg == NULL && use_redis) {
+      subscribe_data_free(d);
+      nchan_store_redis.get_message(channel_id, msg_id, callback, privdata);
+    }
+    else {
+      return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
+    }
   }
   
   return NGX_OK; //async only now!
