@@ -317,21 +317,6 @@ static redisAsyncContext * rds_ctx(void){
   return c;
 }
 
-/*
-static ngx_int_t msgpack_obj_to_int(msgpack_object *o) {
-  switch(o->type) {
-    case MSGPACK_OBJECT_POSITIVE_INTEGER:
-      return (ngx_int_t) o->via.u64;
-    case MSGPACK_OBJECT_NEGATIVE_INTEGER:
-      return (ngx_int_t) o->via.i64;
-    case MSGPACK_OBJECT_RAW:
-      return ngx_atoi((u_char *)o->via.raw.ptr, o->via.raw.size);
-    default:
-      return 0;
-  }
-}
-*/
-
 static void * ngx_store_alloc(size_t size) {
   return ngx_alloc(size, ngx_cycle->log);
 }
@@ -346,7 +331,7 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
 #define CHECK_REPLY_NIL(reply) ((reply)->type == REDIS_REPLY_NIL)
 #define CHECK_REPLY_INT_OR_STR(reply) ((reply)->type == REDIS_REPLY_INTEGER || (reply)->type == REDIS_REPLY_STRING)
 
-#define SLOW_REDIS_REPLY 100
+#define SLOW_REDIS_REPLY 100 //ms
 
 static ngx_int_t log_redis_reply(char *name, ngx_msec_t t) {
   ngx_msec_t   dt = ngx_current_msec - t;
@@ -657,8 +642,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       switch(chanhead->status) {
         case NOTREADY:
           chanhead->status = READY;
-          
-          //TODO: register all subscribers
+          chanhead->spooler.fn->handle_channel_status_change(&chanhead->spooler);
           
           //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
           break;
@@ -1161,9 +1145,9 @@ typedef struct {
   ngx_msec_t              t;
   char                   *name;
   ngx_str_t              *channel_id;
-  nchan_msg_id_t *msg_id;
+  nchan_msg_id_t         *msg_id;
   callback_pt             callback;
-  void                  *privdata;
+  void                   *privdata;
 } redis_get_message_data_t;
 
 static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
@@ -1425,6 +1409,20 @@ static void redis_getmessage_callback(redisAsyncContext *c, void *vr, void *priv
   ngx_free(d);
 }
 
+static ngx_int_t subscribe_authorize_callback(ngx_int_t status, void *ch, void *d) {
+  nchan_channel_t              *channel = (nchan_channel_t *)ch;
+  redis_subscribe_data_t       *data = (redis_subscribe_data_t *)d;
+  
+  if(channel == NULL) {
+    data->sub->fn->respond_status(data->sub, NGX_HTTP_FORBIDDEN, NULL);
+    data->sub->fn->release(data->sub, 0);
+  }
+  else {
+    nchan_store_subscribe_continued(d);
+  }
+  
+  return NGX_OK;
+}
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
@@ -1451,16 +1449,28 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   d->sub = sub;
   sub->fn->reserve(sub);
   
-  return nchan_store_subscribe_continued(d);
+  if(sub->cf->authorize_channel) {
+    nchan_store_find_channel(channel_id, subscribe_authorize_callback, d);
+  }
+  else {
+    nchan_store_subscribe_continued(d);
+  }
+  return NGX_OK;
 }
 
 static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   ngx_int_t                     create_channel_ttl;
   nchan_loc_conf_t             *cf = d->sub->cf;
+  nchan_store_channel_head_t   *ch;
   create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
   
+  ch = nchan_store_get_chanhead(d->channel_id);
   
-  redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag, "FILO", create_channel_ttl);
+  assert(ch != NULL);
+  
+  ch->spooler.fn->add(&ch->spooler, d->sub);
+  
+  //redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag, "FILO", create_channel_ttl);
   return NGX_OK;
 }
 
