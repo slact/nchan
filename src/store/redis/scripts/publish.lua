@@ -201,22 +201,22 @@ if #msg.data < 5*1024 then
   unpacked= {
     "msg",
     msg.time,
-    tonumber(msg.tag),
-    msg.prev_time,
-    msg.prev_tag,
-    msg.data,
-    msg.content_type
+    tonumber(msg.tag) or 0,
+    msg.prev_time or 0,
+    msg.prev_tag or 0,
+    msg.data or "",
+    msg.content_type or ""
   }
 else
   unpacked= {
     "msgkey",
     msg.time,
-    tonumber(msg.tag),
+    tonumber(msg.tag) or 0,
     key.message
   }
 end
 
-local msgpacked = cmsgpack.pack(unpacked)
+local msgpacked
 
 dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 

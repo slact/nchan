@@ -45,7 +45,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
   "a1b481b0d7398fc9aff0d14ca4f88a851d396b55",
-  "c6ded36ae6d1f1ae4fe0d107961ea4f0db0d96f6",
+  "c5c7089ec72dbefe220e17b45a5df367b366bafd",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -515,22 +515,22 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  unpacked= {\n"
   "    \"msg\",\n"
   "    msg.time,\n"
-  "    tonumber(msg.tag),\n"
-  "    msg.prev_time,\n"
-  "    msg.prev_tag,\n"
-  "    msg.data,\n"
-  "    msg.content_type\n"
+  "    tonumber(msg.tag) or 0,\n"
+  "    msg.prev_time or 0,\n"
+  "    msg.prev_tag or 0,\n"
+  "    msg.data or \"\",\n"
+  "    msg.content_type or \"\"\n"
   "  }\n"
   "else\n"
   "  unpacked= {\n"
   "    \"msgkey\",\n"
   "    msg.time,\n"
-  "    tonumber(msg.tag),\n"
+  "    tonumber(msg.tag) or 0,\n"
   "    key.message\n"
   "  }\n"
   "end\n"
   "\n"
-  "local msgpacked = cmsgpack.pack(unpacked)\n"
+  "local msgpacked\n"
   "\n"
   "dbg((\"Stored message with id %i:%i => %s\"):format(msg.time, msg.tag, msg.data))\n"
   "\n"
