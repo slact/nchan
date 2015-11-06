@@ -51,15 +51,27 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
   nchan_msg_t       *msg = (nchan_msg_t *) ptr;
   nchan_loc_conf_t   cf;
+  nchan_msg_id_t    *lastid;    
   DBG("%p memstore-redis subscriber respond with message", d->sub);
   
   cf.min_messages = d->chanhead->min_messages;
   cf.max_messages = d->chanhead->max_messages;
-  cf.use_redis = d->chanhead->use_redis;
+  cf.use_redis = 0;
   
-  verify_subscriber_last_msg_id(d->sub, msg);
+  //verify_subscriber_last_msg_id(d->sub, msg);
   
-  nchan_store_chanhead_publish_message_generic(d->chanhead, msg, 0, &cf, NULL, NULL);
+  lastid = &d->chanhead->latest_msgid;
+  
+  if(lastid->time < msg->id.time || 
+    (lastid->time == msg->id.time && lastid->tag < msg->id.tag)) {
+    memstore_ensure_chanhead_is_ready(d->chanhead);
+    nchan_store_chanhead_publish_message_generic(d->chanhead, msg, 0, &cf, NULL, NULL);
+  }
+  else {
+    //meh, this message has already been delivered probably hopefully
+  }
+  
+  //d->sub->last_msg_id = msg->id;
   
   return NGX_OK;
 }

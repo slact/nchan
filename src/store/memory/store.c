@@ -271,7 +271,7 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   return NGX_OK;
 }
 
-static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
+ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   ngx_int_t                      owner = memstore_channel_owner(&head->id);
   nchan_loc_conf_t               cf;
   if(head == NULL) {
@@ -393,7 +393,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
 nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
   nchan_store_channel_head_t     *head = NULL;
   if((head = chanhead_memstore_find(channel_id)) != NULL) {
-    ensure_chanhead_is_ready(head);
+    memstore_ensure_chanhead_is_ready(head);
   }
   return head;
 }
@@ -404,7 +404,7 @@ nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, n
   if(head==NULL) {
     head = chanhead_memstore_create(channel_id, cf);
   }
-  ensure_chanhead_is_ready(head);
+  memstore_ensure_chanhead_is_ready(head);
   return head;
 }
 
@@ -1527,8 +1527,15 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }
+ 
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
-  callback(rc, channel_copy, privdata);
+ 
+  if(cf->use_redis) {
+    rc = nchan_store_redis.publish(&chead->id, publish_msg, cf, callback, privdata);
+  }
+  else {
+    callback(rc, channel_copy, privdata);
+  }
 
   return rc;
 }
