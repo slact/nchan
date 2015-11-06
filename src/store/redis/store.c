@@ -335,6 +335,7 @@ static redisAsyncContext * rds_ctx(void){
     //init redis
     redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisInitScripts(c);
+    rdt.ctx = c;
   }
   rds_sub_ctx();
   return c;
@@ -707,6 +708,7 @@ static redisAsyncContext * rds_sub_ctx(void){
     //init redis
     redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", rdt.subscriber_channel);
+    rdt.sub_ctx = c;
   }
   return c;
 }
@@ -1325,7 +1327,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   redis_subscribe_data_t       *d = NULL;
   
   if(callback == NULL) {
-    callback = empty_callback();
+    callback = empty_callback;
   }
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {

@@ -45,7 +45,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
   "a1b481b0d7398fc9aff0d14ca4f88a851d396b55",
-  "0190b99d2ef34b804980b3bd476941bd25d0e755",
+  "c6ded36ae6d1f1ae4fe0d107961ea4f0db0d96f6",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -535,7 +535,8 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "dbg((\"Stored message with id %i:%i => %s\"):format(msg.time, msg.tag, msg.data))\n"
   "\n"
   "--now publish to the efficient channel\n"
-  "if redis.call('PUBSUB','NUMSUB', channel_pubsub)[2] > 0 then\n"
+  "local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]\n"
+  "if numsub > 0 then\n"
   "  msgpacked = cmsgpack.pack(unpacked)\n"
   "  redis.call('PUBLISH', channel_pubsub, msgpacked)\n"
   "end\n"
