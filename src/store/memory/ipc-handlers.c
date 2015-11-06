@@ -67,7 +67,7 @@ typedef struct {
   unsigned                     use_redis:1;
 } subscribe_data_t;
 
-ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead) {
+ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
   DBG("send subscribe to %i, %V", dst, chid);
   //origin_chanhead->use_redis
   subscribe_data_t   data;
@@ -76,7 +76,7 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_stor
   data.shared_channel_data = NULL;
   data.origin_chanhead = origin_chanhead;
   data.subscriber = NULL;
-  data.use_redis = 0;
+  data.use_redis = cf->use_redis;
   
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
 }

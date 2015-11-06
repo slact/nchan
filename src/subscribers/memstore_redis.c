@@ -4,6 +4,7 @@
 #include "../store/memory/store-private.h"
 #include "../store/memory/ipc-handlers.h"
 
+#include "../store/memory/store.h"
 #include "../store/redis/store.h"
 
 #include "internal.h"
@@ -33,70 +34,48 @@ static ngx_int_t empty_callback(){
 */
 
 static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
-  DBG("%p memstore subsriber enqueued ok", d->sub);
+  DBG("%p memstore-redis subsriber enqueued ok", d->sub);
+  
+  d->chanhead->status = READY;
+  d->chanhead->spooler.fn->handle_channel_status_change(&d->chanhead->spooler);
+  
   return NGX_OK;
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   
   ngx_int_t           ret = NGX_OK;
-  /*
-  internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
-  DBG("%p memstore subscriber dequeue: notify owner", d->sub);
-  if(d->timeout_ev.timer_set) {
-    ngx_del_timer(&d->timeout_ev);
-  }
-  ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
-  
-  if(fsub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i)", fsub, fsub->reserved);
-    fsub->awaiting_destruction = 1;
-  }
-  else {
-    DBG("%p (%s) destroy", fsub, fsub->sub.name);
-    ngx_free(d);
-  }
-  */
   return ret;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
+  nchan_msg_t       *msg = (nchan_msg_t *) ptr;
+  nchan_loc_conf_t   cf;
+  DBG("%p memstore-redis subscriber respond with message", d->sub);
   
-  DBG("%p memstore subscriber respond with message", d->sub);
-  nchan_msg_t     *msg = (nchan_msg_t *) ptr;
+  cf.min_messages = d->chanhead->min_messages;
+  cf.max_messages = d->chanhead->max_messages;
+  cf.use_redis = d->chanhead->use_redis;
   
   verify_subscriber_last_msg_id(d->sub, msg);
   
-  /*
-  return memstore_ipc_send_publish_message(d->originator, d->chid, msg, 50, 0, 0, empty_callback, NULL);
-  */
+  nchan_store_chanhead_publish_message_generic(d->chanhead, msg, 0, &cf, NULL, NULL);
+  
   return NGX_OK;
 }
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
-  DBG("%p memstore subscriber respond with status", d->sub);
-  const ngx_str_t *status_line = NULL;
+  DBG("%p memstore-redis subscriber respond with status", d->sub);
   switch(status) {
     case NGX_HTTP_GONE: //delete
-      status_line = &NCHAN_HTTP_STATUS_410;
-      break;
-    case NGX_HTTP_CONFLICT:
-      status_line = &NCHAN_HTTP_STATUS_409;
-      break;
-    case NGX_HTTP_NO_CONTENT: //message expired
-      break;
     case NGX_HTTP_CLOSE: //delete
+      nchan_store_memory.delete_channel(d->chid, NULL, NULL);
       break;
-    case NGX_HTTP_NOT_MODIFIED: //timeout?
-      break;
-    case NGX_HTTP_FORBIDDEN:
-      break;
+    
     default:
-      ERR("unknown status %i", status);
+      //meh, no big deal.
+      break;
   }
-  /*
-  memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
-  */
   
   return NGX_OK;
 }

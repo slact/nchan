@@ -8,7 +8,8 @@
 #include "store-private.h"
 #include "../spool.h"
 
-#include "../redis/store.h"
+#include <store/redis/store.h>
+#include <subscribers/memstore_redis.h>
 
 static ngx_int_t max_worker_processes = 0;
 
@@ -302,8 +303,16 @@ static ngx_int_t ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
     }
   }
   else {
-    head->status = READY;
-    head->spooler.fn->handle_channel_status_change(&head->spooler);
+    if(head->use_redis)  {
+      nchan_msg_id_t        msgid = {ngx_time(), 0}; //close enough to now
+      head->redis_sub = memstore_redis_subscriber_create(head);
+      nchan_store_redis.subscribe(&head->id, &msgid, head->redis_sub, NULL, NULL);
+      head->status = WAITING;
+    }
+    else {
+      head->status = READY;
+      head->spooler.fn->handle_channel_status_change(&head->spooler);
+    }
   }
   return NGX_OK;
 }
@@ -330,6 +339,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->shutting_down = 0;
   
   head->use_redis = cf->use_redis;
+  head->redis_sub = NULL;
   
   if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
@@ -1117,9 +1127,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     case SUB_CHANNEL_AUTHORIZED:
       chanhead = nchan_memstore_get_chanhead(d->channel_id, d->sub->cf);
       break;
+    
     case SUB_CHANNEL_UNAUTHORIZED:
       chanhead = NULL;
       break;
+    
     case SUB_CHANNEL_NOTSURE:
       chanhead = nchan_memstore_find_chanhead(d->channel_id);
       if(chanhead == NULL) {
@@ -1131,6 +1143,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
             dt = subscribe_data_alloc(-1); //definitely allocate some data
             ngx_memcpy(dt, d, sizeof(*dt)); //and copy what we already have
             dt->allocd = 1; //except make sure to mark it as alloc'd
+          }
+          else {
+            dt = d;
           }
           
           nchan_store_redis.find_channel(dt->channel_id, redis_subscribe_channel_authcheck_callback, dt);
@@ -1414,15 +1429,25 @@ static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_alre
 static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
 }
-  
+
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nchan_store_channel_head_t  *chead;
+  
+  if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
+    ERR("can't get chanhead for id %V", channel_id);
+    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+    return NGX_ERROR;
+  }
+  return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
+}
+
+ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nchan_channel_t              channel_copy_data;
   nchan_channel_t             *channel_copy = &channel_copy_data;
   store_message_t             *shmsg_link;
   ngx_int_t                    sub_count;
   nchan_msg_t                 *publish_msg;
-  ngx_int_t                    owner = memstore_channel_owner(channel_id);
+  ngx_int_t                    owner = chead->owner;
   ngx_int_t                    rc;
   
   if(callback == NULL) {
@@ -1430,20 +1455,14 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   }
 
   //this coould be dangerous!!
-  if(msg->id.time==0) {
+  if(msg->id.time == 0) {
     msg->id.time = ngx_time();
   }
   msg->expires = ngx_time() + cf->buffer_timeout;
   
-  if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
-    ERR("can't get chanhead for id %V", channel_id);
-    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-    return NGX_ERROR;
-  }
-  
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
-    memstore_ipc_send_publish_message(owner, channel_id, publish_msg, cf, callback, privdata);
+    memstore_ipc_send_publish_message(owner, &chead->id, publish_msg, cf, callback, privdata);
     return NGX_OK;
   }
   
@@ -1463,7 +1482,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     
     if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-      ERR("can't create unbuffered message for channel %V", channel_id);
+      ERR("can't create unbuffered message for channel %V", &chead->id);
       return NGX_ERROR;
     }
     publish_msg= shmsg_link->msg;
@@ -1471,7 +1490,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     
     if(chanhead_push_message(&mpt->unbuffered_dummy_chanhead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-      ERR("can't enqueue unbuffered message for channel %V", channel_id);
+      ERR("can't enqueue unbuffered message for channel %V", &chead->id);
       return NGX_ERROR;
     }
     
@@ -1483,13 +1502,13 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     
     if((shmsg_link = create_shared_message(msg, msg_in_shm)) == NULL) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-      ERR("can't create shared message for channel %V", channel_id);
+      ERR("can't create shared message for channel %V", &chead->id);
       return NGX_ERROR;
     }
     
     if(chanhead_push_message(chead, shmsg_link) != NGX_OK) {
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-      ERR("can't enqueue shared message for channel %V", channel_id);
+      ERR("can't enqueue shared message for channel %V", &chead->id);
       return NGX_ERROR;
     }
     

@@ -97,6 +97,10 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 static nchan_store_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id);
 
 
+static ngx_int_t empty_callback(){
+  return NGX_OK;
+}
+
 static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
   ngx_memzero(buf, sizeof(*buf));
   buf->start = start;
@@ -1319,7 +1323,10 @@ static ngx_int_t subscribe_authorize_callback(ngx_int_t status, void *ch, void *
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
-  assert(callback != NULL);
+  
+  if(callback == NULL) {
+    callback = empty_callback();
+  }
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
