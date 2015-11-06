@@ -648,7 +648,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
         }
       }
       else {
-        ERR("nchan: invalid msgpack message from redis");
+        ERR("nchan: invalid msgpack message from redis: %s", cmp_strerror(&cmp));
         assert(0);
       }
     }

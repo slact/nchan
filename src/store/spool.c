@@ -362,7 +362,6 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   switch(spool->msg_status) {
     case MSG_FOUND:
       assert(spool->msg);
-      assert(spool->sub_count == 1);
       spool_respond_general(spool, spool->msg, 0, NULL);
       break;
     
