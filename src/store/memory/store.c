@@ -319,7 +319,13 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
         head->status = WAITING;
       }
       else {
-        head->status = head->redis_sub->enqueued ? READY : WAITING;
+        if(head->redis_sub->enqueued) {
+          head->status = READY;
+          head->spooler.fn->handle_channel_status_change(&head->spooler);
+        }
+        else {
+          head->status = WAITING;
+        }
       }
     }
     else {
@@ -520,7 +526,9 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   ngx_int_t          shared_sub_count = 0;
   
   if(head->shared) {
-    assert(head->status == READY);
+    if(!head->use_redis) {
+      assert(head->status == READY);
+    }
     shared_sub_count = head->shared->sub_count;
   }
 
@@ -1069,7 +1077,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
-  subscribe_data_t            *d = subscribe_data_alloc(owner);
+  subscribe_data_t            *d = subscribe_data_alloc(sub->cf->use_redis ? -1 : owner);
   
   assert(d != NULL);
   assert(callback != NULL);
@@ -1125,6 +1133,7 @@ static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, vo
   }
   else {
     //error!!
+    subscribe_data_free(data);
   }
   return NGX_OK;
 }
@@ -1134,7 +1143,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
   
-  ngx_int_t                      use_redis = 0;
+  ngx_int_t                      use_redis = d->sub->cf->use_redis;
   
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
@@ -1148,20 +1157,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     case SUB_CHANNEL_NOTSURE:
       chanhead = nchan_memstore_find_chanhead(d->channel_id);
       if(chanhead == NULL) {
-        subscribe_data_t            *dt;
-        
         if(use_redis) {
-          
-          if(!d->allocd) {
-            dt = subscribe_data_alloc(-1); //definitely allocate some data
-            ngx_memcpy(dt, d, sizeof(*dt)); //and copy what we already have
-            dt->allocd = 1; //except make sure to mark it as alloc'd
-          }
-          else {
-            dt = d;
-          }
-          
-          nchan_store_redis.find_channel(dt->channel_id, redis_subscribe_channel_authcheck_callback, dt);
+          nchan_store_redis.find_channel(d->channel_id, redis_subscribe_channel_authcheck_callback, d);
+          return NGX_OK;
         }
       }
       break;
