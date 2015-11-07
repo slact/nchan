@@ -44,6 +44,7 @@ typedef struct {
   
   redisAsyncContext               *ctx;
   redisAsyncContext               *sub_ctx;
+  unsigned                         connected:1;
   
   ngx_event_t                      cleanup_timer;
   //garbage collection for channel heads
@@ -65,9 +66,6 @@ static rdstore_data_t        rdt;
 
 #include <stdbool.h>
 #include "cmp.h"
-
-#define REDIS_HOSTNAME "127.0.0.1"
-#define REDIS_PORT 8537
 
 #define STR(buf) (buf)->data, (buf)->len
 #define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
@@ -177,7 +175,7 @@ static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
   ///port:host
   if((ret = ngx_strlchr(cur, last, ':')) == NULL) {
     //just host
-    params->port = REDIS_PORT;
+    params->port = 6379;
     if((ret = ngx_strlchr(cur, last, '/')) == NULL) {
       ret = last;
     }
@@ -199,7 +197,7 @@ static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
     
     params->port = ngx_atoi(cur, ret-cur);
     if(params->port == NGX_ERROR) {
-      params->port = REDIS_PORT;
+      params->port = 6379;
     }
   }
   
@@ -218,6 +216,8 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   rdt.subhash = NULL;
   rdt.connect_params = parse_redis_url(rdt.connect_url);
+  rdt.connected = 1;
+  
   
   ngx_memzero(&rdt.subscriber_id, sizeof(rdt.subscriber_id));
   ngx_memzero(&rdt.subscriber_channel, sizeof(rdt.subscriber_channel));
@@ -321,6 +321,16 @@ static void redis_load_script_callback(redisAsyncContext *c, void *r, void *priv
   }
 }
 
+void rds_ctx_teardown(redisAsyncContext *ac) {
+  if(rdt.ctx == ac) {
+    rdt.ctx = NULL;
+  }
+  else if(rdt.sub_ctx == ac) {
+    rdt.sub_ctx = NULL;
+  }
+  rdt.connected = 0;
+}
+
 static void redisInitScripts(redisAsyncContext *c){
   uintptr_t i;
   char* (*scripts)[]=(char* (*)[])&store_rds_lua_scripts;
@@ -336,10 +346,15 @@ static redisAsyncContext * rds_ctx(void){
     redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisInitScripts(c);
     rdt.ctx = c;
+    if(rdt.ctx && rdt.sub_ctx) {
+      rdt.connected = 1;
+    }
   }
   rds_sub_ctx();
   return c;
 }
+
+
 
 static void * ngx_store_alloc(size_t size) {
   return ngx_alloc(size, ngx_cycle->log);
@@ -698,7 +713,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   }
 }
 
-static redisAsyncContext * rds_sub_ctx(void){
+static redisAsyncContext * rds_sub_ctx(void) {
   redisAsyncContext *c = rdt.sub_ctx;
   if(rdt.subscriber_id[0] == 0) {
     ngx_snprintf(rdt.subscriber_id, 255, "worker:%i:time:%i", ngx_pid, ngx_time());
@@ -709,10 +724,12 @@ static redisAsyncContext * rds_sub_ctx(void){
     redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", rdt.subscriber_channel);
     rdt.sub_ctx = c;
+    if(rdt.ctx && rdt.sub_ctx) {
+      rdt.connected = 1;
+    }
   }
   return c;
 }
-
 
 static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead, subscriber_t *sub);
 static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub);
@@ -734,8 +751,10 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
   if(sub->type == INTERNAL) {
     head->internal_sub_count--;
   }
-
-  redis_subscriber_unregister(&head->id, sub);
+  
+  if(rdt.connected) {
+    redis_subscriber_unregister(&head->id, sub);
+  }
   
   assert(head->sub_count >= 0);
   
@@ -1509,25 +1528,24 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
 }
 
 ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
-  char                         *ctx_type = NULL;
+  char                         *ctx_type = "Some";
   nchan_store_channel_head_t   *cur, *tmp;
   if(rdt.ctx == ac) {
-    ctx_type = "command";
-    rdt.ctx = NULL;
+    ctx_type = "Command";
   }
   else if(rdt.sub_ctx == ac) {
-    ctx_type= "pubsub";
-    rdt.sub_ctx = NULL;
-    
-    HASH_ITER(hh, rdt.subhash, cur, tmp) {
-      cur->spooler.fn->respond_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-      chanhead_gc_add(cur, "redis connection gone");
-    }
-    handle_chanhead_gc_queue(1);
-  
+    ctx_type = "Pubsub";
   }
+
+  rds_ctx_teardown(ac);
   
-  ERR("Connection to redis for %s closed: %s", ctx_type, ac->errstr);
+  HASH_ITER(hh, rdt.subhash, cur, tmp) {
+    cur->spooler.fn->respond_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+    chanhead_gc_add(cur, "redis connection gone");
+  }
+  handle_chanhead_gc_queue(1);
+  
+  ERR("%s connection to redis for closed: %s", ctx_type, ac->errstr);
   
   return NGX_OK;
 }

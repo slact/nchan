@@ -30,9 +30,9 @@ redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdata)
     redisAsyncContext **context = privdata;
     redisReply *reply = rep;
     if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
-        if (context != NULL) {
+        /*if (context != NULL) {
             *context = NULL;
-        }
+        }*/
         ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not select redis database");
         redisAsyncFree(ac);
     }
