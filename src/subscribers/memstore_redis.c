@@ -146,6 +146,7 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
   
   sub->destroy_after_dequeue = 1;
+  sub->dequeue_after_response = 0;
   
   d->sub = sub;
   d->chanhead = chanhead;

@@ -117,7 +117,7 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
     if(renew) {
       reset_timer(d);
     }
-    else{
+    else {
       d->sub->fn->dequeue(d->sub);
     }
   }

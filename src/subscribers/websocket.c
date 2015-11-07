@@ -117,7 +117,6 @@ typedef struct {
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                finalize_request:1;
-  unsigned                already_enqueued:1;
   unsigned                awaiting_destruction:1;
 } full_subscriber_t;
 
@@ -238,6 +237,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->holding = 0;
   fsub->shook_hands = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  fsub->sub.enqueued = 0;
   
   if(msg_id) {
     fsub->sub.last_msg_id = *msg_id;
@@ -248,7 +248,6 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->timeout_handler_data = NULL;
   fsub->dequeue_handler = empty_handler;
   fsub->dequeue_handler_data = NULL;
-  fsub->already_enqueued = 0;
   fsub->awaiting_destruction = 0;
   
   //initialize reusable chains and bufs
@@ -419,6 +418,7 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_handshake(fsub);
+  self->enqueued = 1;
   return NGX_OK;
 }
 
@@ -426,6 +426,7 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
+  self->enqueued = 0;
   if(self->destroy_after_dequeue) {
     websocket_subscriber_destroy(self);
   }

@@ -304,10 +304,15 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   }
   else {
     if(head->status != READY && head->use_redis) {
-      nchan_msg_id_t        msgid = {ngx_time(), 0}; //close enough to now
-      head->status = WAITING;
-      head->redis_sub = memstore_redis_subscriber_create(head);
-      nchan_store_redis.subscribe(&head->id, &msgid, head->redis_sub, NULL, NULL);
+      if(head->redis_sub == NULL) {
+        nchan_msg_id_t        msgid = {ngx_time(), 0}; //close enough to now
+        head->redis_sub = memstore_redis_subscriber_create(head);
+        nchan_store_redis.subscribe(&head->id, &msgid, head->redis_sub, NULL, NULL);
+        head->status = WAITING;
+      }
+      else {
+        head->status = head->redis_sub->enqueued ? READY : WAITING;
+      }
     }
     else {
       head->status = READY;

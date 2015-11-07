@@ -45,10 +45,10 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.timeout_handler_data = NULL;
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
-  fsub->data.already_enqueued = 0;
   fsub->data.already_responded = 0;
   fsub->data.awaiting_destruction = 0;
   fsub->sub.reserved = 0;
+  fsub->sub.enqueued = 0;
   
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_add(&fsub->sub);
@@ -144,12 +144,12 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  assert(fsub->data.already_enqueued == 0);
+  assert(fsub->sub.enqueued == 0);
   DBG("%p enqueue", self);
   
   fsub->data.finalize_request = 1;
   
-  fsub->data.already_enqueued = 1;
+  fsub->sub.enqueued = 1;
   ensure_request_hold(fsub);
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
@@ -168,7 +168,8 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
   DBG("%p dequeue", self);
-  fsub->data.dequeue_handler(&fsub->sub, fsub->data.dequeue_handler_data);
+  fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
+  self->enqueued = 0;
   if(self->destroy_after_dequeue) {
     longpoll_subscriber_destroy(self);
   }
