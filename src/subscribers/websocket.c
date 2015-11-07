@@ -949,6 +949,7 @@ static const subscriber_t new_websocket_sub = {
   0, //reserved
   0, //deque after response
   1, //destroy after dequeue
+  0, //enqueued
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   NULL,
   NULL

@@ -281,6 +281,7 @@ static const subscriber_t new_longpoll_sub = {
   0, //reservations
   1, //deque after response
   1, //destroy after dequeue
+  0, //enqueued
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   NULL,
   NULL
