@@ -269,6 +269,7 @@ static ngx_int_t es_enqueue(subscriber_t *sub) {
   rc = longpoll_enqueue(sub);
   fsub->data.finalize_request = 0;
   es_ensure_headers_sent(fsub);
+  sub->enqueued = 1;
   return rc;
 }
 

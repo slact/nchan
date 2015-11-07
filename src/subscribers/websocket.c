@@ -936,7 +936,8 @@ static const subscriber_fn_t websocket_fn = {
   &websocket_set_timeout_callback,
   &websocket_set_dequeue_callback,
   &websocket_reserve,
-  &websocket_release
+  &websocket_release,
+  NULL
 };
 
 static const subscriber_t new_websocket_sub = {

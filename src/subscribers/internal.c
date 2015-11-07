@@ -28,6 +28,10 @@ ngx_int_t internal_subscriber_set_dequeue_handler(subscriber_t *sub, callback_pt
   ((internal_subscriber_t *)sub)->dequeue = handler;
   return NGX_OK;
 }
+ngx_int_t internal_subscriber_set_notify_handler(subscriber_t *sub, callback_pt handler) {
+  ((internal_subscriber_t *)sub)->notify = handler;
+  return NGX_OK;
+}
 ngx_int_t internal_subscriber_set_respond_message_handler(subscriber_t *sub, callback_pt handler) {
   ((internal_subscriber_t *)sub)->respond_message = handler;
   return NGX_OK;
@@ -52,6 +56,7 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   fsub->dequeue = empty_callback;
   fsub->respond_message = empty_callback;
   fsub->respond_status = empty_callback;
+  fsub->notify = empty_callback;
   ngx_memcpy(&fsub->sub, &new_internal_sub, sizeof(new_internal_sub));
   fsub->sub.reserved = 0;
   
@@ -153,6 +158,7 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
     reset_timer(fsub);
   }
   fsub->enqueue(fsub->sub.cf->buffer_timeout, NULL, fsub->privdata);
+  self->enqueued = 1;
   return NGX_OK;
 }
 
@@ -166,6 +172,7 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
   if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
     ngx_del_timer(&f->timeout_ev);
   }
+  self->enqueued = 0;
   if(self->destroy_after_dequeue) {
     internal_subscriber_destroy(self);
   }
@@ -233,6 +240,11 @@ ngx_int_t internal_subscriber_set_name(subscriber_t *self, const char *name) {
   return NGX_OK;
 }
 
+static ngx_int_t internal_notify(subscriber_t *self, ngx_int_t code, void *data) {
+  internal_subscriber_t   *fsub = (internal_subscriber_t *)self;
+  return fsub->notify(code, data, fsub->privdata);
+}
+
 static const subscriber_fn_t internal_sub_fn = {
   &internal_enqueue,
   &internal_dequeue,
@@ -241,7 +253,8 @@ static const subscriber_fn_t internal_sub_fn = {
   &internal_set_timeout_callback,
   &internal_set_dequeue_callback,
   &internal_reserve,
-  &internal_release
+  &internal_release,
+  &internal_notify
 };
 
 static const subscriber_t new_internal_sub = {

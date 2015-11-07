@@ -9,7 +9,6 @@ typedef struct {
   ngx_int_t               owner;
   unsigned                holding:1;
   unsigned                finalize_request:1;
-  unsigned                already_enqueued:1;
   unsigned                already_responded:1;
   unsigned                awaiting_destruction:1;
   unsigned                shook_hands:1;
