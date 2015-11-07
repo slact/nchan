@@ -4,3 +4,4 @@
 
 extern nchan_store_t  nchan_store_redis;
 
+ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac);

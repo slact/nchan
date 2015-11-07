@@ -1508,6 +1508,30 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   ngx_free(d);
 }
 
+ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
+  char                         *ctx_type = NULL;
+  nchan_store_channel_head_t   *cur, *tmp;
+  if(rdt.ctx == ac) {
+    ctx_type = "command";
+    rdt.ctx = NULL;
+  }
+  else if(rdt.sub_ctx == ac) {
+    ctx_type= "pubsub";
+    rdt.sub_ctx = NULL;
+    
+    HASH_ITER(hh, rdt.subhash, cur, tmp) {
+      cur->spooler.fn->respond_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+      chanhead_gc_add(cur, "redis connection gone");
+    }
+    handle_chanhead_gc_queue(1);
+  
+  }
+  
+  ERR("Connection to redis for %s closed: %s", ctx_type, ac->errstr);
+  
+  return NGX_OK;
+}
+
 nchan_store_t  nchan_store_redis = {
     //init
     &nchan_store_init_module,
