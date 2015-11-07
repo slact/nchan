@@ -674,8 +674,9 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   return NGX_OK;
 }
 
-ngx_int_t stop_spooler(channel_spooler_t *spl) {
+ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
   ngx_rbtree_node_t    *cur, *sentinel;
+  subscriber_pool_t    *spool;
   rbtree_seed_t        *seed = &spl->spoolseed;
   ngx_rbtree_t         *tree = &seed->tree;
   ngx_int_t             n=0;
@@ -686,8 +687,14 @@ ngx_int_t stop_spooler(channel_spooler_t *spl) {
   if(spl->running) {
     
     for(cur = tree->root; cur != NULL && cur != sentinel; cur = tree->root) {
-      rbtree_remove_node(seed, cur);
-      rbtree_destroy_node(seed, cur);
+      spool = (subscriber_pool_t *)rbtree_data_from_node(cur);
+      if(dequeue_subscribers) {
+        destroy_spool(spool);
+      }
+      else {
+        remove_spool(spool);
+        rbtree_destroy_node(seed, cur);
+      }
       n++;
     }
     

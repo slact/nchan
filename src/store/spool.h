@@ -68,7 +68,7 @@ struct channel_spooler_s {
 };
 
 channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store);
-ngx_int_t stop_spooler(channel_spooler_t *spl);
+ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers);
 
 
 #endif  /*SPOOL_HEADER*/

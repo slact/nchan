@@ -585,7 +585,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         //end this crazy channel
         assert(ch->msg_first == NULL);
         
-        stop_spooler(&ch->spooler);
+        stop_spooler(&ch->spooler, 0);
         owner = memstore_channel_owner(&ch->id);
         if(owner == memstore_slot()) {
           shm_free(shm, ch->shared);
