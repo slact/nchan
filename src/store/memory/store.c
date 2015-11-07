@@ -303,7 +303,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
     }
   }
   else {
-    if(head->use_redis) {
+    if(head->status != READY && head->use_redis) {
       nchan_msg_id_t        msgid = {ngx_time(), 0}; //close enough to now
       head->status = WAITING;
       head->redis_sub = memstore_redis_subscriber_create(head);
