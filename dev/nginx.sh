@@ -85,6 +85,9 @@ for opt in $*; do
       NGINX_DAEMON="on"
       debugger=1
       ;;
+    altport)
+      ALTPORT=1
+      ;;
     debuglog)
       ERRLOG_LEVEL="debug"
       ;;
@@ -121,6 +124,10 @@ fi
 #echo $NGINX_CONF
 #echo $NGINX_OPT
 echo "nginx $NGINX_OPT"
+if [[ ! -z $ALTPORT ]]; then
+  conf_replace "listen" 8083
+fi
+
 conf_replace "access_log" $ACCESS_LOG
 conf_replace "error_log" "$ERROR_LOG $ERRLOG_LEVEL"
 conf_replace "worker_processes" $WORKERS
