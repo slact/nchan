@@ -229,5 +229,5 @@ end
 
 local num_messages = redis.call('llen', key.messages)
 
-dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, ", messages: ", num_messages)
-return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.subscribers or 0), tonumber(num_messages)}, new_channel}
+dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, "(fake: ", channel.fake_subscribers or "nil", "), messages: ", num_messages)
+return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}

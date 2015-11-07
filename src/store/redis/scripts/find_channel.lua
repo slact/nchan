@@ -13,7 +13,12 @@ end)(enable_debug)
 dbg(' #######  FIND_CHANNEL ######## ')
 
 if redis.call('EXISTS', key_channel) ~= 0 then
-  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')
+  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers')
+  if(ch[4]) then
+    --replace subscribers count with fake_subscribers
+    ch[3]=ch[4]
+    table.remove(ch, 4)
+  end
   for i = 1, #ch do
     ch[i]=tonumber(ch[i]) or 0
   end

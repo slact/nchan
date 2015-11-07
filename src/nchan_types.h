@@ -190,6 +190,7 @@ typedef struct {
   ngx_int_t              (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
+  ngx_int_t              (*notify)(struct subscriber_s *, ngx_int_t code, void *data);
 } subscriber_fn_t;
 
 struct subscriber_s {

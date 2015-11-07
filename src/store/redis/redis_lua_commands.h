@@ -1,6 +1,10 @@
 //don't edit this please, it was auto-generated
 
 typedef struct {
+  //input:  keys: [], values: [channel_id, number]
+  //output: current_fake_subscribers
+  char *add_fakesub;
+
   //input: keys: [],  values: [ channel_id ]
   //output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
   // delete this channel and all its messages
@@ -42,10 +46,11 @@ typedef struct {
 } store_redis_lua_scripts_t;
 
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
+  "ce88e9317c5f9034831cdf25cc06104e0356d0a8",
   "9af42e385bc489cae6453e569ed40423a52ab397",
-  "c4a7535fa6d50cbdd4411d0c8cd2d2012c593f90",
+  "f5935b801e6793759a44c9bf842812f2416dec34",
   "a1b481b0d7398fc9aff0d14ca4f88a851d396b55",
-  "c5c7089ec72dbefe220e17b45a5df367b366bafd",
+  "427fae06e1298bce71ceb7310f99b780f1b687db",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -54,6 +59,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
 #define REDIS_LUA_HASH_LENGTH 40
 
 static store_redis_lua_scripts_t store_rds_lua_script_names = {
+  "add_fakesub",
   "delete",
   "find_channel",
   "get_message",
@@ -64,6 +70,45 @@ static store_redis_lua_scripts_t store_rds_lua_script_names = {
 };
 
 static store_redis_lua_scripts_t store_rds_lua_scripts = {
+  //add_fakesub
+  "--input:  keys: [], values: [channel_id, number]\n"
+  "--output: current_fake_subscribers\n"
+  "local enable_debug=true\n"
+  "local dbg = (function(on)\n"
+  "if on then\n"
+  "  return function(...)\n"
+  "  redis.call('echo', table.concat({...}))\n"
+  "end\n"
+  "  else\n"
+  "    return function(...)\n"
+  "    return\n"
+  "    end\n"
+  "  end\n"
+  "end)(enable_debug)\n"
+  "dbg(' ####### FAKESUBS ####### ')\n"
+  "local id=ARGV[1]\n"
+  "local num=tonumber(ARGV[2])\n"
+  "if num==nil then\n"
+  "  return {err=\"fakesub number not given\"}\n"
+  "end\n"
+  "\n"
+  "local chan_key = 'channel:'..id\n"
+  "local exists = false\n"
+  "if redis.call('EXISTS', chan_key) == 1 then\n"
+  "  exists = true\n"
+  "end\n"
+  "\n"
+  "local cur = 0\n"
+  "\n"
+  "if exists or (not exists and num > 0) then\n"
+  "  cur = redis.call('HINCRBY', chan_key, 'fake_subscribers', num)\n"
+  "  if not exists then\n"
+  "    redis.call('EXPIRE', chan_key, 5) --something small thing\n"
+  "  end\n"
+  "end\n"
+  "\n"
+  "return cur\n",
+
   //delete
   "--input: keys: [],  values: [ channel_id ]\n"
   "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
@@ -144,7 +189,12 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "dbg(' #######  FIND_CHANNEL ######## ')\n"
   "\n"
   "if redis.call('EXISTS', key_channel) ~= 0 then\n"
-  "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')\n"
+  "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers')\n"
+  "  if(ch[4]) then\n"
+  "    --replace subscribers count with fake_subscribers\n"
+  "    ch[3]=ch[4]\n"
+  "    table.remove(ch, 4)\n"
+  "  end\n"
   "  for i = 1, #ch do\n"
   "    ch[i]=tonumber(ch[i]) or 0\n"
   "  end\n"
@@ -543,8 +593,8 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "\n"
   "local num_messages = redis.call('llen', key.messages)\n"
   "\n"
-  "dbg(\"channel \", id, \" ttl: \",channel.ttl, \", subscribers: \", channel.subscribers, \", messages: \", num_messages)\n"
-  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.subscribers or 0), tonumber(num_messages)}, new_channel}",
+  "dbg(\"channel \", id, \" ttl: \",channel.ttl, \", subscribers: \", channel.subscribers, \"(fake: \", channel.fake_subscribers or \"nil\", \"), messages: \", num_messages)\n"
+  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}",
 
   //publish_status
   "--input:  keys: [], values: [channel_id, status_code]\n"

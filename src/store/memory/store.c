@@ -232,6 +232,9 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
       assert(head->shared != NULL);
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
+    if(head->use_redis) {
+      nchan_store_redis_fakesub_add(&head->id, 1);
+    }
   }
   head->last_subscribed = ngx_time();
   if(head->status == READY) {
@@ -252,6 +255,9 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
   }
   else if(head->shared == NULL) {
     assert(head->shutting_down == 1);
+    if(head->use_redis) {
+      nchan_store_redis_fakesub_add(&head->id, -count);
+    }
   }
   head->sub_count -= count;
   head->channel.subscribers = head->sub_count - head->internal_sub_count;

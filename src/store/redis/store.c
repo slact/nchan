@@ -95,7 +95,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 static nchan_store_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id);
 
 
-static ngx_int_t empty_callback(){
+static ngx_int_t empty_callback() {
   return NGX_OK;
 }
 
@@ -1525,6 +1525,11 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
     d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
   ngx_free(d);
+}
+
+ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count) {
+  redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i", store_rds_lua_hashes.add_fakesub, STR(channel_id), count);
+  return NGX_OK;
 }
 
 ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
