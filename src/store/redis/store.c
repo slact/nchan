@@ -554,6 +554,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
           if(ngx_strmatch(&msg_type, "msg")) {
+            assert(array_sz == 7);
             if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %i:%i", msg.message_time, msg.message_tag);
               nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
@@ -563,6 +564,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
           }
           else if(ngx_strmatch(&msg_type, "ch+msg")) {
+            assert(array_sz == 8);
             if(cmp_read_str_size(&cmp, &sz)) {
               fwd_buf_to_str(&mpbuf, sz, &chid);
               cmp_to_msg(&cmp, &msg, &buf);
@@ -573,6 +575,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
           }
           else if(ngx_strmatch(&msg_type, "msgkey")) {
+            assert(array_sz == 4);
             if(chanhead != NULL) {
               nchan_msg_id_t        msgid;
               
@@ -596,7 +599,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           }
           else if(ngx_strmatch(&msg_type, "ch+msgkey")) {
             nchan_msg_id_t        msgid;
-            
+            assert(array_sz == 5);
             if(! cmp_to_str(&cmp, &chid)) {
               return;
             }

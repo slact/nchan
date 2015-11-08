@@ -32,6 +32,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   //TODO: allocate from pool (but not the request's pool)
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
+    assert(0);
     return NULL;
   }
   ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
@@ -71,6 +72,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   //http request sudden close cleanup
   if((fsub->data.cln = ngx_http_cleanup_add(r, 0)) == NULL) {
     ERR("Unable to add request cleanup for longpoll subscriber");
+    assert(0);
     return NULL;
   }
   fsub->data.cln->data = fsub;

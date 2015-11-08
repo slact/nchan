@@ -264,12 +264,14 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
 
   //etag
   if((etag = ngx_palloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
+    assert(err);
     if(err) *err = "unable to allocate memory for Etag header in subscriber's request pool";
     return NGX_ERROR;
   }
   etag->data = (u_char *)(etag+1);
   etag->len = ngx_sprintf(etag->data,"%ui", msg->id.tag)- etag->data;
   if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
+    assert(err);
     if(err) *err="can't add etag header to response";
     return NGX_ERROR;
   }
@@ -280,6 +282,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
   
   //we know the entity length, and we're using just one buffer. so no chunking please.
   if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
+    assert(err);
     ERR("request %p, send_header response %i", r, rc);
     if(err) *err="WTF just happened to request?";
     return NGX_ERROR;
