@@ -1,5 +1,5 @@
-#define NCHAN_SUBSCRIBER_LEAK_DEBUG 1
-#define NCHAN_MSG_LEAK_DEBUG 1
+//#define NCHAN_SUBSCRIBER_LEAK_DEBUG 1
+//#define NCHAN_MSG_LEAK_DEBUG 1
 
 #include <ngx_http.h>
 #include <nchan_types.h>
@@ -9,12 +9,11 @@
 //debugging config
 //#define FAKESHARD 1
 #if FAKESHARD
-//#define PUB_FAKE_WORKER 1
-//#define SUB_FAKE_WORKER 2
-//#define ONE_FAKE_CHANNEL_OWNER 0
+//#define PUB_FAKE_WORKER 0
+//#define SUB_FAKE_WORKER 1
+//#define ONE_FAKE_CHANNEL_OWNER 2
 #define MAX_FAKE_WORKERS 5
 #endif
-
 
 extern ngx_pool_t *nchan_pool;
 extern ngx_int_t nchan_worker_processes;

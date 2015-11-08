@@ -3,8 +3,8 @@
 #include "spool.h"
 #include <assert.h>
 
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
 
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
@@ -132,14 +132,14 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       
       spool_nextmsg(spool, &msg->id);      
       break;
-      
+    
     case MSG_EXPECTED:
       // ♫ It's gonna be the future soon ♫
       DBG("fetchmsg callback for spool %p msg EXPECTED", spool);
       assert(msg == NULL);
       spool->msg = NULL;
       break;
-      
+    
     case MSG_NOTFOUND:
     case MSG_EXPIRED:
       //is this right?
@@ -150,7 +150,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       spool_transfer_subscribers(spool, nuspool, 1);
       destroy_spool(spool);
       break;
-      
+    
     default:
       assert(0);
       break;
@@ -182,11 +182,11 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   return NGX_OK;
 }
 
-
-
 static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
   spooled_subscriber_cleanup_t  *d = (spooled_subscriber_cleanup_t *)data;
   subscriber_pool_t             *spool = d->spool;
+  
+  DBG("sub %p dequeue callback", sub);
   
   assert(sub == d->ssub->sub);
   spool_remove_subscriber(spool, d->ssub);

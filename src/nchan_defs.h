@@ -36,7 +36,6 @@
 #define NCHAN_MESSAGE_RECEIVED  9000
 #define NCHAN_MESSAGE_QUEUED    9001
 
-
 extern const ngx_str_t NCHAN_HEADER_ETAG;
 extern const ngx_str_t NCHAN_HEADER_IF_NONE_MATCH;
 extern const ngx_str_t NCHAN_HEADER_VARY;

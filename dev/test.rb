@@ -30,8 +30,10 @@ def verify(pub, sub, check_errors=true)
   assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}" if check_errors
   ret, err = sub.messages.matches?(pub.messages)
   assert ret, err || "Messages don't match"
+  i=0
   sub.messages.each do |msg|
-    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive a message."
+    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i}."
+    i+=1
   end
 end
 
@@ -107,10 +109,12 @@ class PubSubTest <  Minitest::Test
     pub.post ["hello", "what is this i don't even"]
     assert_equal 202, pub.response_code
     pub.get
+    
     assert_equal 200, pub.response_code
     assert_match /last requested: -?\d+ sec/, pub.response_body
     
     pub.get "text/json"
+    
     info_json=JSON.parse pub.response_body
     assert_equal 2, info_json["messages"]
     #assert_equal 0, info_json["requested"]
@@ -296,7 +300,7 @@ class PubSubTest <  Minitest::Test
     test_broadcast 3
   end
   
-   def test_broadcast_20
+  def test_broadcast_20
     test_broadcast 20
   end
   

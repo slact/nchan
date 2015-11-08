@@ -10,7 +10,9 @@ if ! [[ $par =~ ^[0-9]+$ ]]; then
 fi
 
 for ((i = 0; i < $par; i++)); do
-  ./test.rb ${@:2} &
+
+    echo ./test.rb ${@:2} 
+    ./test.rb ${@:2} &
 done
 
 jobs=$(jobs -p)

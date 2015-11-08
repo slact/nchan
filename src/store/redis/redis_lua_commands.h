@@ -46,7 +46,7 @@ typedef struct {
 } store_redis_lua_scripts_t;
 
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
-  "ce88e9317c5f9034831cdf25cc06104e0356d0a8",
+  "1c8ae4fa9658ca36790227fa2f8e0e4342ca82d2",
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "a1b481b0d7398fc9aff0d14ca4f88a851d396b55",
@@ -81,7 +81,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "end\n"
   "  else\n"
   "    return function(...)\n"
-  "    return\n"
+  "      return\n"
   "    end\n"
   "  end\n"
   "end)(enable_debug)\n"

@@ -27,7 +27,7 @@ redis_nginx_init(void)
 void
 redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdata)
 {
-    redisAsyncContext **context = privdata;
+    //redisAsyncContext **context = privdata;
     redisReply *reply = rep;
     if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
         /*if (context != NULL) {

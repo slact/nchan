@@ -9,8 +9,8 @@
 #define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
 #define uthash_free(ptr,sz) ngx_free(ptr)
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)

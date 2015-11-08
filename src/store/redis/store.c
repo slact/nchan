@@ -74,8 +74,8 @@ static rdstore_data_t        rdt;
 #define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NCHAN_CHANHEAD_EXPIRE_SEC 1
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
@@ -135,7 +135,6 @@ static bool ngx_buf_reader(cmp_ctx_t *ctx, void *data, size_t limit) {
 static size_t ngx_buf_writer(cmp_ctx_t *ctx, const void *data, size_t count) {
   return 0;
 }
-
 
 static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
 

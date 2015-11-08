@@ -13,6 +13,8 @@ VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heur
 #track files
 #VG_MEMCHECK_OPT+=("--track-fds=yes")
 
+
+
 WORKERS=5
 NGINX_DAEMON="off"
 NGINX_CONF=""
@@ -51,7 +53,7 @@ for opt in $*; do
       valgrind=1
       VALGRIND_OPT+=($VG_MEMCHECK_OPT)
       VALGRIND_OPT+=( "--vgdb=yes" "--vgdb-error=1" )
-      ATTACH_DDD=1
+      #ATTACH_DDD=1
       ;;
     callgrind|profile)
       VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
@@ -123,6 +125,10 @@ if [[ ! -z $NGINX_CONF ]]; then
 fi
 #echo $NGINX_CONF
 #echo $NGINX_OPT
+
+export ASAN_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer
+export ASAN_OPTIONS=symbolize=1
+
 echo "nginx $NGINX_OPT"
 if [[ ! -z $ALTPORT ]]; then
   conf_replace "listen" 8083

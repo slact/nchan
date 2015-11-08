@@ -8,7 +8,7 @@ if on then
 end
   else
     return function(...)
-    return
+      return
     end
   end
 end)(enable_debug)

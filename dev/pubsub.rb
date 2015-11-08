@@ -233,8 +233,12 @@ class Subscriber
       #parse it
       msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
       msg.content_type=response.headers["Content-Type"]
+      #binding.pry
       req.options[:headers]["If-None-Match"]=msg.etag
       req.options[:headers]["If-Modified-Since"]=msg.last_modified
+      
+      #binding.pry 
+      
       unless @subscriber.on_message(msg) == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
@@ -294,9 +298,9 @@ class Subscriber
     end
     
     def poke
-      while @subscriber.finished < @concurrency
-        sleep 0.05
-      end
+      #while @subscriber.finished < @concurrency
+      #  Celluloid.sleep 0.1
+      #end
     end
   end
   
@@ -425,7 +429,7 @@ class Subscriber
     
     def poke
       while @subscriber.finished < @concurrency do
-        sleep 1
+        Celluloid.sleep 0.3
       end
     end
   end
