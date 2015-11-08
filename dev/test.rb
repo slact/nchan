@@ -10,6 +10,7 @@ PORT=ENV["PUSHMODULE_PORT"] || "8082"
 DEFAULT_CLIENT=:longpoll
 
 #Typhoeus::Config.verbose = true
+
 def url(part="")
   part=part[1..-1] if part[0]=="/"
   "http://#{SERVER}:#{PORT}/#{part}"
@@ -122,8 +123,9 @@ class PubSubTest <  Minitest::Test
 
     
     sub.run
-    sleep 0.2
+    sleep 1
     pub.get "text/json"
+
     info_json=JSON.parse pub.response_body
     assert_equal 2, info_json["messages"]
     #assert_equal 0, info_json["requested"]
@@ -200,19 +202,27 @@ class PubSubTest <  Minitest::Test
 
   def test_authorized_channels
     #must be published to before subscribing
-    pub, sub = pubsub 5, timeout: 5, sub: "sub/authorized/"
+    n=5
+    pub, sub = pubsub n, timeout: 6, sub: "sub/authorized/"
     sub.on_failure { false }
     sub.run
+    sleep 1
     sub.wait
-    assert_equal 5, sub.finished
+    assert_equal n, sub.finished
+    
     assert sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
     sub.reset
+    
     pub.post %w( fweep )
     assert_match /20[12]/, pub.response_code.to_s
     sleep 0.1
+    
     sub.run
+    
     sleep 0.1
     pub.post ["fwoop", "FIN"] { assert_match /20[12]/, pub.response_code.to_s }
+    
+    
     sub.wait
     verify pub, sub
     sub.terminate
@@ -253,8 +263,9 @@ class PubSubTest <  Minitest::Test
     40.times do 
       sub.push Subscriber.new(url("/sub/broadcast/#{chan_id}"), 1, use_message_id: false, quit_message: 'FIN')
     end
-
+    
     pub.post ["this message should not be delivered", "nor this one"]
+    
     sub.each {|s| s.run}
     sleep 1
     pub.post "received1"
@@ -308,17 +319,18 @@ class PubSubTest <  Minitest::Test
     pub, sub = pubsub clients
     pub.post "yeah okay"
     sub.run #celluloid async FTW
-    sleep 0.5
+    sleep 1
     pub.post ["hello there", "what is this", "it's nothing", "nothing at all really"]
     pub.post "FIN"
     sub.wait
+    sleep 1
     verify pub, sub
     sub.terminate
   end
   
-  #def test_broadcast_for_3000
-  #  test_broadcast 3000
-  #end
+  def test_broadcast_10000
+    test_broadcast 10000
+  end
   
   def dont_test_subscriber_concurrency
     chan=SecureRandom.hex
@@ -398,7 +410,7 @@ class PubSubTest <  Minitest::Test
     n=5
     while n <= 10000 do
       pub.post "T" * n
-      n=n*1.01
+      n=(n*1.01) + 1
       sleep 0.001
     end
     pub.post "FIN"
