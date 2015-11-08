@@ -234,6 +234,7 @@ typedef struct {
   ngx_int_t                  msg_timeout;
   ngx_int_t                  max_msgs;
   ngx_int_t                  min_msgs;
+  uint8_t                    use_redis;
   callback_pt                callback;
   void                      *callback_privdata;
 } publish_data_t;
@@ -243,7 +244,18 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
   assert(chid->data != NULL);
-  publish_data_t  data = {str_shm_copy(chid), shm_msg, cf->buffer_timeout, cf->max_messages, cf->min_messages, callback, privdata};
+  publish_data_t  data;
+  //stop valgrind's complainting
+  ngx_memzero(&data, sizeof(data));
+  data.shm_chid = str_shm_copy(chid);
+  data.shm_msg = shm_msg;
+  data.msg_timeout = cf->buffer_timeout;
+  data.max_msgs = cf->max_messages;
+  data.min_msgs = cf->min_messages;
+  data.use_redis = cf->use_redis;
+  data.callback = callback;
+  data.callback_privdata = privdata;
+  
   assert(data.shm_chid->data != NULL);
 
   str_shm_verify(data.shm_chid);
@@ -272,6 +284,7 @@ static void receive_publish_message(ngx_int_t sender, void *data) {
   cf.buffer_timeout = d->msg_timeout;
   cf.min_messages = d->min_msgs;
   cf.max_messages = d->max_msgs;
+  cf.use_redis = d->use_redis;
   
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->data != NULL);
