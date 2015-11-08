@@ -389,7 +389,6 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->last_subscribed = 0;
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
-  head->channel.message_queue=NULL;
   head->channel.messages = 0;
   head->channel.subscribers = 0;
   head->channel.last_seen = ngx_time();

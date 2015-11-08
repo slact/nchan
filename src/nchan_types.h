@@ -64,7 +64,6 @@ struct nchan_msg_s {
 
 typedef struct {
   ngx_str_t                       id;
-  nchan_msg_t                    *message_queue;
   ngx_int_t                       messages;
   ngx_int_t                       subscribers;
   time_t                          last_seen;

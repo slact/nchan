@@ -1057,9 +1057,6 @@ static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
     //no id?..
     ch->id.len=0;
     ch->id.data=NULL;
-  
-    //legacy
-    ch->message_queue = NULL;
     
     return NGX_OK;
   }
