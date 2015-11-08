@@ -8,6 +8,20 @@ ngx_module_t     nchan_module;
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 
+/*
+static ngx_http_variable_t  nchan_vars[] = {
+  { ngx_string("nchan_channel_id"), NULL, nchan_channel_id_variable,
+    0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+  { ngx_string("nchan_subscriber_type"), NULL, nchan_subscriber_type_variable,
+    1, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+  { ngx_string("nchan_message"), NULL, nchan_message_variable,
+    2, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+  { ngx_string("nchan_message_id"), NULL, nchan_message_id_variable,
+    3, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+  { ngx_null_string, NULL, NULL, 0, 0, 0 }
+};
+*/
+
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
@@ -95,7 +109,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
   lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
   lcf->channel_timeout=NGX_CONF_UNSET;
-  lcf->channel_group.data=NULL;
   lcf->storage_engine=NULL;
   
   lcf->sub_channel_id = NULL;
