@@ -89,6 +89,8 @@ CfCmd.new do
   nchan_redis_url [:main],
       :ngx_conf_set_str_slot,
       [:main_conf, :redis_url],
+      
+      group: "storage",
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
   
