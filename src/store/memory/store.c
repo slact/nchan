@@ -828,12 +828,14 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
 #endif
   
-  DBG("memstore init_module pid %p", ngx_pid);
+  DBG("memstore init_module pid %i. ipc: %p", ngx_pid, ipc);
 
   //initialize our little IPC
-  ipc = ipc_create(cycle);
+  if(ipc == NULL) {
+    ipc = ipc_create(cycle);
+    ipc_set_handler(ipc, memstore_ipc_alert_handler);
+  }
   ipc_open(ipc,cycle, shdata->max_workers);
-  ipc_set_handler(ipc, memstore_ipc_alert_handler);
 
   return NGX_OK;
 }
