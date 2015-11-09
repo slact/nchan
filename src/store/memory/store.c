@@ -8,10 +8,9 @@
 #include "store-private.h"
 #include "../spool.h"
 
+
 #include <store/redis/store.h>
 #include <subscribers/memstore_redis.h>
-
-static ngx_int_t max_worker_processes = 0;
 
 typedef struct {
   ngx_event_t                     gc_timer;
@@ -151,7 +150,7 @@ void memstore_fakeprocess_push_random(void) {
 
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t h = ngx_crc32_short(id->data, id->len);
+  ngx_int_t       h = ngx_crc32_short(id->data, id->len);
 #if FAKESHARD
   #ifdef ONE_FAKE_CHANNEL_OWNER
   h++; //just to avoid the unused variable warning
@@ -160,7 +159,14 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   return h % MAX_FAKE_WORKERS;
   #endif
 #else
-  return h % max_worker_processes;
+  ngx_int_t       i, slot;
+  i = h % shdata->max_workers;
+  slot = shdata->procslot[i];
+  if(slot == NCHAN_INVALID_SLOT) {
+    ERR("something went wrong, the channel owner is invalid. i: %i h: %i, max: %i", i, h, shdata->max_workers);
+    return NCHAN_INVALID_SLOT;
+  }
+  return slot;
 #endif
 }
 
@@ -170,23 +176,28 @@ static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
 static void nchan_store_chanhead_gc_timer_handler(ngx_event_t *);
 
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
-  shm_data_t       *d;
-  
+  shm_data_t         *d;
+  ngx_int_t           i;
   if(data) { //zone being passed after restart
     zone->data = data;
-    shdata = (shm_data_t *)data;
+    ERR("reattached shm data at %p", data);
+  }
+  else {
+    shm_init(shm);
     
-    return NGX_OK;
+    if((d = shm_calloc(shm, sizeof(*d), "root shared data")) == NULL) {
+      return NGX_ERROR;
+    }
+    
+    zone->data = d;
+    shdata = d;
+    shdata->rlch = NULL;
+    shdata->max_workers = NGX_CONF_UNSET;
+    for(i=0; i< NGX_MAX_PROCESSES; i++) {
+      shdata->procslot[i]=NCHAN_INVALID_SLOT;
+    }
+    ERR("Shm created with data at %p", d);
   }
-  shm_init(shm);
-  
-  if((d = shm_calloc(shm, sizeof(*d), "root shared data")) == NULL) {
-    return NGX_ERROR;
-  }
-  zone->data = d;
-  shdata = d;
-  shdata->rlch = NULL;
-  ERR("Shm created");
   return NGX_OK;
 }
 
@@ -202,11 +213,13 @@ void reload_msgs(void) {
   store_message_t             *smsg;
   nchan_reloading_channel_t   *rlch;
   
+  ERR("time to reload? shdata: %p, rlch: %p", shdata, shdata == NULL ? NULL : shdata->rlch);
+  
   shmtx_lock(shm);
   for(rlch = shdata->rlch; rlch != NULL; rlch = rlch->next) {
     chid = &rlch->id;
     owner = memstore_channel_owner(chid);
-    
+    ERR("serialized channel %p %V", rlch, chid);
     if(owner == memstore_slot()) {
       cf.use_redis  =   rlch->use_redis;
       cf.min_messages = rlch->min_messages;
@@ -214,6 +227,8 @@ void reload_msgs(void) {
       
       ch = nchan_memstore_get_chanhead(chid, &cf);
       assert(ch);
+      
+      ERR("got chanhead %p for id %V", ch, chid);
       
       for(cur = rlch->msgs; cur != NULL; cur = cur->reload_next) {
         assert(ch->shared);
@@ -224,6 +239,7 @@ void reload_msgs(void) {
         }
         
         chanhead_push_message(ch, smsg);
+        ERR("Added message %p (%i:%i) to %V", smsg, smsg->msg->id.time, smsg->msg->id.tag, chid);
       }
       
       shm_free_immutable_string(shm, chid);
@@ -234,7 +250,11 @@ void reload_msgs(void) {
 
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
-
+  ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  ngx_int_t           workers = ccf->worker_processes;
+  ngx_int_t           i, slotset = 0;
+  ngx_atomic_t       *procslot;
+  
 #if FAKESHARD
   ngx_int_t        i;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
@@ -256,12 +276,30 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 
   ipc_start(ipc, cycle);
   
-  DBG("init memstore worker pid:%i slot:%i max workers :%i", ngx_pid, memstore_slot(), max_worker_processes);
+  DBG("init memstore worker pid:%i slot:%i max workers :%i or %i", ngx_pid, memstore_slot(), shdata->max_workers, workers);
+
+  if(shdata->max_workers != workers) {
+    DBG("update number of workers from %i to %i", shdata->max_workers, workers);
+    shdata->max_workers = workers;
+  }
   
+  procslot = shdata->procslot;
+  for(i = 0; i < NGX_MAX_PROCESSES; i++) {
+    if(ngx_atomic_cmp_set(&procslot[i], NCHAN_INVALID_SLOT, ngx_process_slot)) {
+      DBG("set procslot %i to %i", i, ngx_process_slot);
+      slotset = 1;
+      break;
+    }
+  }
   
-  reload_msgs();
+  if(i >= workers) {
+    //we're probably reloading or something
+    ERR("that was a reload just now");
+  }
   
-  ERR("shm: %p, shdata: %p", shm, shdata);
+  //reload_msgs();
+  
+  DBG("shm: %p, shdata: %p", shm, shdata);
   return NGX_OK;
 }
 
@@ -771,7 +809,7 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
 #if FAKESHARD
 
-  max_worker_processes = MAX_FAKE_WORKERS;
+  shdata->max_workers = MAX_FAKE_WORKERS;
   
   ngx_int_t          i;
   memstore_data_t   *cur;
@@ -785,7 +823,8 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 #else
 
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  max_worker_processes = ccf->worker_processes;
+  
+  shdata->max_workers = ccf->worker_processes;
 
 #endif
   
@@ -793,7 +832,7 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
   //initialize our little IPC
   ipc = ipc_create(cycle);
-  ipc_open(ipc,cycle, max_worker_processes);
+  ipc_open(ipc,cycle, shdata->max_workers);
   ipc_set_handler(ipc, memstore_ipc_alert_handler);
 
   return NGX_OK;
@@ -876,7 +915,7 @@ static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
-  DBG("exit worker %i", ngx_pid);
+  ERR("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
   
 #if FAKESHARD
   ngx_int_t        i;
@@ -886,8 +925,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   HASH_ITER(hh, mpt->hash, cur, tmp) {
     cur->shutting_down = 1;
     
-    serialize_chanhead_msgs_for_reload(cur);
-
+    //serialize_chanhead_msgs_for_reload(cur);
+    
     chanhead_gc_add(cur, "exit worker");
   }
   handle_chanhead_gc_queue(1);
@@ -905,13 +944,13 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   ipc_destroy(ipc, cycle); //only for this worker...
   
   shm_destroy(shm); //just for this worker...
+  
+  ERR("shdata rlch: %p", shdata->rlch);
+  
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
 #endif
 }
-
-
-
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   DBG("exit master from pid %i", ngx_pid);
