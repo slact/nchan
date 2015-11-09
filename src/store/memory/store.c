@@ -19,6 +19,9 @@ typedef struct {
   nchan_store_channel_head_t      unbuffered_dummy_chanhead;
   store_channel_head_shm_t        dummy_shared_chaninfo;
   nchan_store_channel_head_t     *hash;
+  
+  ngx_int_t                       workers;
+  
 #if FAKESHARD
   ngx_int_t                       fake_slot;
 #endif
@@ -252,7 +255,7 @@ void reload_msgs(void) {
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   ngx_int_t           workers = ccf->worker_processes;
-  ngx_int_t           i, slotset = 0;
+  ngx_int_t           i;
   ngx_atomic_t       *procslot;
   
 #if FAKESHARD
@@ -287,10 +290,11 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   for(i = 0; i < NGX_MAX_PROCESSES; i++) {
     if(ngx_atomic_cmp_set(&procslot[i], NCHAN_INVALID_SLOT, ngx_process_slot)) {
       DBG("set procslot %i to %i", i, ngx_process_slot);
-      slotset = 1;
       break;
     }
   }
+  
+  mpt->workers = workers;
   
   if(i >= workers) {
     //we're probably reloading or something
@@ -917,10 +921,11 @@ static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
+  ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT, procslot;
+    
   ERR("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
   
 #if FAKESHARD
-  ngx_int_t        i;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
   memstore_fakeprocess_push(i);
 #endif
@@ -942,12 +947,36 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   }
 #endif
   
+  //are there any workers waiting in the wings?
+  //don't care if this is 'ineficient', it only happens once per worker per load
+  for(i = 0; i < NGX_MAX_PROCESSES; i++) {
+    procslot = shdata->procslot[i];
+    if(i < mpt->workers && ngx_process_slot == i) {
+      my_procslot_index = i;
+    }
+    
+    if(i > shdata->max_workers 
+     && my_procslot_index != NCHAN_INVALID_SLOT 
+     && procslot != NCHAN_INVALID_SLOT) { 
+      //we got a live one without a valid procslot, and we know where we are.
+      DBG("swap procslot %i and %i (ngx_process slot %i to %i)", my_procslot_index, i, ngx_process_slot, procslot); 
+      shdata->procslot[my_procslot_index] = procslot;
+      shdata->procslot[i] = NCHAN_INVALID_SLOT;
+      
+      break;
+    }
+  }
+  
+  if(my_procslot_index != NCHAN_INVALID_SLOT && shdata->procslot[my_procslot_index] == ngx_process_slot) {
+    //still our procslot. don't need it anymore
+    DBG("don't need procslot %i anymore", my_procslot_index);
+    shdata->procslot[my_procslot_index] = NCHAN_INVALID_SLOT;
+  }
+  
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle); //only for this worker...
   
   shm_destroy(shm); //just for this worker...
-  
-  ERR("shdata rlch: %p", shdata->rlch);
   
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
