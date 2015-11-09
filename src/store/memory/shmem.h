@@ -9,6 +9,9 @@ void             *shm_alloc(shmem_t *shm, size_t size, const char *label);
 void             *shm_calloc(shmem_t *shm, size_t size, const char *label);
 void              shm_free(shmem_t *shm, void *p);
 
+void              shmtx_lock(shmem_t *shm);
+void              shmtx_unlock(shmem_t *shm);
+
 ngx_str_t        *shm_copy_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_free_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_verify_immutable_string(shmem_t *shm, ngx_str_t *str);

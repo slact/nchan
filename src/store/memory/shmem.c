@@ -52,6 +52,13 @@ ngx_int_t shm_init(shmem_t *shm) {
   return NGX_OK;
 }
 
+void shmtx_lock(shmem_t *shm) {
+  ngx_shmtx_lock(&SHPOOL(shm)->mutex);
+}
+void shmtx_unlock(shmem_t *shm) {
+  ngx_shmtx_unlock(&SHPOOL(shm)->mutex);
+}
+
 ngx_int_t shm_destroy(shmem_t *shm) {
   //VALGRIND_DESTROY_MEMPOOL(SHPOOL(shm));
   ngx_free(shm);
