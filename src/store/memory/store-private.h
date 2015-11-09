@@ -6,7 +6,7 @@ typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
 typedef struct store_message_s store_message_t;
 
 struct store_message_s {
-  nchan_msg_t      *msg;
+  nchan_msg_t               *msg;
   store_message_t           *prev;
   store_message_t           *next;
 }; //store_message_t
@@ -47,8 +47,20 @@ struct nchan_store_channel_head_s {
   UT_hash_handle                  hh;
 };
 
+typedef struct nchan_reloading_channel_s nchan_reloading_channel_t;
+
+struct nchan_reloading_channel_s {
+  ngx_str_t                          id;
+  ngx_uint_t                         min_messages;
+  ngx_uint_t                         max_messages;
+  unsigned                           use_redis:1;
+  struct nchan_reloading_channel_s  *prev;
+  struct nchan_reloading_channel_s  *next;
+  nchan_msg_t                       *msgs;
+};
+
 typedef struct {
-  
+  nchan_reloading_channel_t         *rlch;
 } shm_data_t;
 
 nchan_store_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);

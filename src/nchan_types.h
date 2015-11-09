@@ -42,7 +42,9 @@ struct msg_rsv_dbg_s {
 }; //msg_rsv_dbg_s
 #endif
 
+typedef struct nchan_loc_conf_s nchan_loc_conf_t;
 typedef struct nchan_msg_s nchan_msg_t;
+
 struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
@@ -52,6 +54,9 @@ struct nchan_msg_s {
   time_t                          expires;
   ngx_uint_t                      delete_oldest_received_min_messages; //NGX_MAX_UINT32_VALUE for 'never'
   ngx_atomic_t                    refcount;
+  
+  struct nchan_msg_s             *reload_next;
+  
   unsigned                        shared:1; //for debugging
 #if NCHAN_MSG_LEAK_DEBUG
   ngx_str_t                       lbl;
@@ -92,7 +97,6 @@ typedef struct {
 } nchan_shm_data_t;
 
 typedef struct subscriber_s subscriber_t;
-typedef struct nchan_loc_conf_s nchan_loc_conf_t;
 
 typedef struct{
   //init

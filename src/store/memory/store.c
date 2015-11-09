@@ -170,21 +170,66 @@ static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
 static void nchan_store_chanhead_gc_timer_handler(ngx_event_t *);
 
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
-  shm_data_t     *d;
-
+  shm_data_t       *d;
+  
   if(data) { //zone being passed after restart
     zone->data = data;
+    shdata = (shm_data_t *)data;
+    
     return NGX_OK;
   }
   shm_init(shm);
   
-  if((d = shm_alloc(shm, sizeof(shm_data_t), "root shared data")) == NULL) {
+  if((d = shm_calloc(shm, sizeof(*d), "root shared data")) == NULL) {
     return NGX_ERROR;
   }
   zone->data = d;
   shdata = d;
-
+  shdata->rlch = NULL;
+  ERR("Shm created");
   return NGX_OK;
+}
+
+static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm);
+static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_message_t *msg);
+
+void reload_msgs(void) {
+  nchan_msg_t                 *cur;
+  ngx_str_t                   *chid;
+  nchan_store_channel_head_t  *ch;
+  nchan_loc_conf_t             cf;
+  ngx_int_t                    owner;
+  store_message_t             *smsg;
+  nchan_reloading_channel_t   *rlch;
+  
+  shmtx_lock(shm);
+  for(rlch = shdata->rlch; rlch != NULL; rlch = rlch->next) {
+    chid = &rlch->id;
+    owner = memstore_channel_owner(chid);
+    
+    if(owner == memstore_slot()) {
+      cf.use_redis  =   rlch->use_redis;
+      cf.min_messages = rlch->min_messages;
+      cf.max_messages = rlch->max_messages;
+      
+      ch = nchan_memstore_get_chanhead(chid, &cf);
+      assert(ch);
+      
+      for(cur = rlch->msgs; cur != NULL; cur = cur->reload_next) {
+        assert(ch->shared);
+        
+        if((smsg = create_shared_message(cur, 1)) == NULL) {
+          ERR("can't allocate message for reloading. stop trying.");
+          return;
+        }
+        
+        chanhead_push_message(ch, smsg);
+      }
+      
+      shm_free_immutable_string(shm, chid);
+    }
+  }
+  shmtx_unlock(shm);
 }
 
 
@@ -212,6 +257,11 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ipc_start(ipc, cycle);
   
   DBG("init memstore worker pid:%i slot:%i max workers :%i", ngx_pid, memstore_slot(), max_worker_processes);
+  
+  
+  reload_msgs();
+  
+  ERR("shm: %p, shdata: %p", shm, shdata);
   return NGX_OK;
 }
 
@@ -763,6 +813,67 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
+static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
+  nchan_reloading_channel_t     *sch;
+  store_message_t               *cur, *next;
+  nchan_msg_t                   *msg, *firstmsg, *lastmsg;
+  
+  if(ch->msg_first == NULL) {
+    //empty
+    return;
+  }
+  
+  firstmsg = ch->msg_first->msg;
+  lastmsg = NULL;
+  if(firstmsg != NULL) {
+    if((sch = shm_alloc(shm, sizeof(sch) + ch->id.len, "channel reloading data")) == NULL) {
+      ERR("unable to allocate reloading-channel for msg reload");
+      return;
+    }
+    
+    sch->id.len = ch->id.len;
+    sch->id.data = (u_char *)&sch[1];
+    ngx_memcpy(sch->id.data, ch->id.data, ch->id.len);
+    
+    sch->min_messages = ch->min_messages;
+    sch->max_messages = ch->max_messages;
+    sch->use_redis = ch->use_redis;
+    sch->msgs = firstmsg;
+  }
+  
+  for(cur = ch->msg_first; cur != NULL; cur = next) {
+    msg = cur->msg;
+    if(lastmsg) {
+      lastmsg->reload_next = msg;
+    }
+    
+    lastmsg = msg;
+    
+    next = cur->next;
+    ngx_free(cur);
+  }
+  
+  if(ch->shared) {
+    ch->shared->stored_message_count = 0;
+  }
+  ch->channel.messages = 0;
+  
+  if(firstmsg) {
+    shmtx_lock(shm);
+    
+    lastmsg->reload_next = NULL;
+    
+    sch->prev = NULL;
+    sch->next = shdata->rlch;
+    shdata->rlch = sch;
+    
+    shmtx_unlock(shm);
+  }
+  
+  ch->msg_first = NULL;
+  ch->msg_last = NULL;
+}
+
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
   DBG("exit worker %i", ngx_pid);
@@ -774,6 +885,9 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
 #endif
   HASH_ITER(hh, mpt->hash, cur, tmp) {
     cur->shutting_down = 1;
+    
+    serialize_chanhead_msgs_for_reload(cur);
+
     chanhead_gc_add(cur, "exit worker");
   }
   handle_chanhead_gc_queue(1);
@@ -795,6 +909,9 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   while(memstore_fakeprocess_pop()) {  };
 #endif
 }
+
+
+
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   DBG("exit master from pid %i", ngx_pid);
@@ -871,6 +988,7 @@ static ngx_int_t chanhead_withdraw_message(nchan_store_channel_head_t *ch, store
 static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
   ngx_buf_t         *buf = msg->msg->buf;
   ngx_file_t        *f = buf->file;
+  
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
       DBG("close fd %u ", f->fd);
@@ -885,6 +1003,7 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
 #if NCHAN_MSG_LEAK_DEBUG  
   msg_debug_remove(msg->msg);
 #endif
+  
   ngx_memset(msg->msg, 0xFA, sizeof(*msg->msg)); //debug stuff
   shm_free(shm, msg->msg);
   
@@ -1539,7 +1658,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   }
  
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
- 
+  
   if(cf->use_redis) {
     rc = nchan_store_redis.publish(&chead->id, publish_msg, cf, callback, privdata);
   }
