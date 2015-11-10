@@ -474,11 +474,14 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->sub_count=0;
   head->internal_sub_count=0;
   head->status = NOTREADY;
-  head->waiting_for_publish_response = NULL;
   head->msg_last = NULL;
   head->msg_first = NULL;
   head->foreign_owner_ipc_sub = NULL;
   head->last_subscribed = 0;
+  
+  head->multi=NULL;
+  head->multi_count = 0;
+  
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
   head->channel.messages = 0;

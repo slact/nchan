@@ -3,16 +3,19 @@ CfCmd.new do
   nchan_channel_id [:srv, :loc, :if],
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :pubsub_channel_id],
+      args: 1..5,
       alt: [ :nchan_pubsub_channel_id ]
     
   nchan_publisher_channel_id [:srv, :loc, :if],
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :pub_channel_id],
+      args: 1..5,
       alt: [ :nchan_pub_channel_id ]
     
   nchan_subscriber_channel_id [:srv, :loc, :if],
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :sub_channel_id],
+      args: 1..5,
       alt: [ :nchan_sub_channel_id ]
     
   nchan_pubsub [:srv, :loc, :if],

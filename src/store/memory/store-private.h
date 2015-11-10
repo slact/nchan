@@ -1,4 +1,4 @@
-#ifndef MEMSTORE_PRIVATE_HEADER
+ #ifndef MEMSTORE_PRIVATE_HEADER
 #define MEMSTORE_PRIVATE_HEADER
 
 #include "uthash.h"
@@ -21,6 +21,11 @@ typedef struct {
   ngx_atomic_t                last_seen;
 } store_channel_head_shm_t;
 
+
+typedef struct {
+  ngx_str_t            id;
+} nchan_store_multi_t;
+
 struct nchan_store_channel_head_s {
   ngx_str_t                       id; //channel id
   ngx_uint_t                      owner;  //for debugging
@@ -28,9 +33,12 @@ struct nchan_store_channel_head_s {
   nchan_channel_t                 channel;
   channel_spooler_t               spooler;
   chanhead_pubsub_status_t        status;
-  nchan_llist_timed_t            *waiting_for_publish_response;
   ngx_atomic_t                    sub_count;
   time_t                          last_subscribed;
+  
+  uint8_t                         multi_count;
+  nchan_store_multi_t            *multi;
+  
   store_channel_head_shm_t       *shared;
   ngx_int_t                       internal_sub_count;
   ngx_uint_t                      min_messages;
