@@ -111,9 +111,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->storage_engine=NULL;
   
-  lcf->sub_channel_id = NULL;
-  lcf->pub_channel_id = NULL;
-  lcf->pubsub_channel_id = NULL;
+  ngx_memzero(&lcf->pub_chid, sizeof(nchan_chid_loc_conf_t));
+  ngx_memzero(&lcf->sub_chid, sizeof(nchan_chid_loc_conf_t));
+  ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_chid_loc_conf_t));
   return lcf;
 }
 
@@ -171,14 +171,14 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     return NGX_CONF_ERROR;
   }
   
-  if(conf->pub_channel_id == NULL) {
-    conf->pub_channel_id = prev->pub_channel_id;
+  if(conf->pub_chid.n == 0) {
+    ngx_memcpy(&conf->pub_chid, &prev->pub_chid, sizeof(prev->pub_chid));
   }
-  if(conf->sub_channel_id == NULL) {
-    conf->sub_channel_id = prev->sub_channel_id;
+  if(conf->sub_chid.n == 0) {
+    ngx_memcpy(&conf->sub_chid, &prev->sub_chid, sizeof(prev->sub_chid));
   }
-  if(conf->pubsub_channel_id == NULL) {
-    conf->pubsub_channel_id = prev->pubsub_channel_id;
+  if(conf->pubsub_chid.n == 0) {
+    ngx_memcpy(&conf->pubsub_chid, &prev->pubsub_chid, sizeof(prev->pubsub_chid));
   }
   
   
@@ -391,6 +391,47 @@ static void nchan_exit_master(ngx_cycle_t *cycle) {
   nchan_store_memory.exit_master(cycle);
   nchan_store_redis.exit_master(cycle);
   ngx_destroy_pool(nchan_pool);
+}
+
+static char *nchan_set_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_chid_loc_conf_t *chid) {
+  ngx_int_t                           i;
+  ngx_str_t                          *value;
+  ngx_http_complex_value_t          **cv;
+  ngx_http_compile_complex_value_t    ccv;  
+  
+  chid->n = cf->args->nelts - 1;
+  for(i=1; i < cf->args->nelts; i++) {
+    value = &((ngx_str_t *) cf->args->elts)[i];
+    
+    cv = &chid->id[i-1];
+    *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
+    if (*cv == NULL) {
+      return NGX_CONF_ERROR;
+    }
+    
+    ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+    ccv.cf = cf;
+    ccv.value = value;
+    ccv.complex_value = *cv;
+    
+    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+      return NGX_CONF_ERROR;
+    }
+  }
+  
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_pub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pub_chid);
+}
+
+static char *nchan_set_sub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->sub_chid);
+}
+
+static char *nchan_set_pubsub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pubsub_chid);
 }
 
 static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

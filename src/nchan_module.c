@@ -33,67 +33,154 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r);
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r);
 static const ngx_str_t   TEXT_PLAIN = ngx_string("text/plain");
 
-static ngx_str_t  nchan_legacy_channel_id_var_name = ngx_string("push_channel_id");
+static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_conf_t *cf) {
+  if(id->len > cf->max_channel_id_length) {
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, id->len);
+    return NGX_ERROR;
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chid_loc_conf_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
+  ngx_int_t                   i, n;
+  ngx_str_t                   id[5];
+  ngx_str_t                  *id_out;
+  ngx_str_t                  *group = &cf->channel_group;
+  size_t                      sz = 0, grouplen = group->len;
+  u_char                     *cur;
+  
+  n = idcf->n;  
+  if(n>1) {
+    sz += 3 + n; //space for null-separators and "m/\0" prefix for multi-chid
+  }
+  
+  for(i=0; i < n; i++) {
+    ngx_http_complex_value(r, idcf->id[i], &id[i]);   
+    if(validate_id(r, &id[i], cf) != NGX_OK) {
+      *ret_id = NULL;
+      return NGX_DECLINED;
+    }
+    sz += id[i].len;
+    sz += 1 + grouplen; // "group/"
+  }
+  
+  if((id_out = ngx_palloc(r->pool, sizeof(*id_out) + sz)) == NULL) {
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: can't allocate space for channel id");
+    *ret_id = NULL;
+    return NGX_ERROR;
+  }
+  id_out->len = sz;
+  id_out->data = (u_char *)&id_out[1];
+  cur = id_out->data;
+  
+  if(n > 1) {
+    cur[0]='m';
+    cur[1]='/';
+    cur[2]='\0';
+    cur+=3;
+  }
+  
+  for(i = 0; i < n; i++) {
+    ngx_memcpy(cur, group->data, grouplen);
+    cur += grouplen;
+    cur[0] = '/';
+    cur++;
+    ngx_memcpy(cur, id[i].data, id[i].len);
+    cur += id[i].len;
+    if(n>1) {
+      cur[0] = '\0';
+      cur++;
+    }
+  }
+  *ret_id = id_out;
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
+  static ngx_str_t            channel_id_var_name = ngx_string("push_channel_id");
+  ngx_uint_t                  key = ngx_hash_key(channel_id_var_name.data, channel_id_var_name.len);
+  ngx_http_variable_value_t  *vv = NULL;
+  ngx_str_t                  *group = &cf->channel_group;
+  ngx_str_t                   tmpid;
+  ngx_str_t                  *id;
+  size_t                      sz;
+  u_char                     *cur;
+  
+  vv = ngx_http_get_variable(r, &channel_id_var_name, key);
+  if (vv == NULL || vv->not_found || vv->len == 0) {
+    //ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: the legacy $push_channel_id variable is not set");
+    return NGX_ABORT;
+  }
+  else {
+    tmpid.len = vv->len;
+    tmpid.data = vv->data;
+  }
+  if(validate_id(r, &tmpid, cf) != NGX_OK) {
+    *ret_id = NULL;
+    return NGX_DECLINED;
+  }
+  
+  sz = group->len + 1 + tmpid.len;
+  if((id = ngx_palloc(r->pool, sizeof(*id) + sz)) == NULL) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't allocate space for legacy channel id");
+    *ret_id = NULL;
+    return NGX_ERROR;
+  }
+  id->len = sz;
+  id->data = (u_char *)&id[1];
+  cur = id->data;
+  
+  ngx_memcpy(cur, group->data, group->len);
+  cur += group->len;
+  cur[0]='/';
+  cur++;
+  ngx_memcpy(cur, tmpid.data, tmpid.len);
+  
+  *ret_id = id;
+  return NGX_OK;
+}
 
 ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
   static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
-  
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  ngx_http_variable_value_t      *vv = NULL;
-  ngx_str_t                      *group = &cf->channel_group;
-  size_t                          len;
-  
+  ngx_int_t                       rc;
   ngx_str_t                      *id;
-  ngx_str_t                       tmp_channel_id;
-  ngx_http_complex_value_t       *complex_channel_id;
+  nchan_chid_loc_conf_t          *chid_conf;
   
-  complex_channel_id = what == PUB ? cf->pub_channel_id : cf->sub_channel_id;
-  if(complex_channel_id == NULL) {
-    complex_channel_id = cf->pubsub_channel_id;
+  chid_conf = what == PUB ? &cf->pub_chid : &cf->sub_chid;
+  if(chid_conf->n == 0) {
+    chid_conf = &cf->pubsub_chid;
   }
   
-  if(complex_channel_id == NULL) {
-    //fallback to legacy $push_channel_id
-    ngx_uint_t        key = ngx_hash_key(nchan_legacy_channel_id_var_name.data, nchan_legacy_channel_id_var_name.len);
-    vv = ngx_http_get_variable(r, &nchan_legacy_channel_id_var_name, key);
-    if (vv == NULL || vv->not_found || vv->len == 0) {
-      if(fail_hard) {
-        nchan_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: the legacy $push_channel_id variable is not set");
-      }
-      return NULL;
-    }
-    else {
-      tmp_channel_id.len = vv->len;
-      tmp_channel_id.data = vv->data;
-    }
+  if(chid_conf->n > 0) {
+    rc = nchan_process_multi_channel_id(r, chid_conf, cf, &id);
   }
   else {
-    ngx_http_complex_value(r, complex_channel_id, &tmp_channel_id);
+    //fallback to legacy $push_channel_id
+    rc = nchan_process_legacy_channel_id(r, cf, &id);
   }
   
-  //maximum length limiter for channel id
-  if(tmp_channel_id.len > cf->max_channel_id_length) {
-    if(fail_hard) {
-      nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
-      ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, tmp_channel_id.len);
+  if(id == NULL && fail_hard) {
+    assert(rc != NGX_OK);
+    switch(rc) {
+      case NGX_ERROR:
+        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 0);
+        break;
+      
+      case NGX_DECLINED:
+        nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+        break;
+      
+      case NGX_ABORT:
+        nchan_respond_string(r, NGX_HTTP_NOT_FOUND, &TEXT_PLAIN, &NO_CHANNEL_ID_MESSAGE, 0);
+        break;
     }
-    return NULL;
+    DBG("%s channel id NULL", what == PUB ? "pub" : "sub");
+  }
+  else {
+    DBG("%s channel id %V", what == PUB ? "pub" : "sub", id);
   }
   
-  len = group->len + 1 + tmp_channel_id.len;
-  
-  if((id = ngx_palloc(r->pool, sizeof(*id) + len))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: unable to allocate memory for $push_channel_id string");
-    return NULL;
-  }
-  
-  id->len = len;
-  id->data = (u_char *)(id+1);
-  ngx_memcpy(id->data, group->data, group->len);
-  id->data[group->len] = '/';
-  ngx_memcpy(id->data + group->len + 1, tmp_channel_id.data, tmp_channel_id.len);
-  DBG("%s channel id %V", what == PUB ? "pub" : "sub", id);
   return id;
 }
 

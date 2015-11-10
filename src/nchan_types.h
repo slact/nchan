@@ -139,19 +139,22 @@ typedef struct {
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;
 
+typedef struct {
+  ngx_http_complex_value_t       *id[5];
+  ngx_int_t                       n;
+} nchan_chid_loc_conf_t;
 
 struct nchan_loc_conf_s {
   time_t                          buffer_timeout;
   ngx_int_t                       min_messages;
   ngx_int_t                       max_messages;
   
-  ngx_http_complex_value_t       *pub_channel_id;
+  nchan_chid_loc_conf_t           pub_chid;
+  nchan_chid_loc_conf_t           sub_chid;
+  nchan_chid_loc_conf_t           pubsub_chid;
+  
   nchan_conf_publisher_types_t    pub;
-  
-  ngx_http_complex_value_t       *sub_channel_id;
   nchan_conf_subscriber_types_t   sub; 
-  
-  ngx_http_complex_value_t       *pubsub_channel_id;
   
   ngx_int_t                       subscriber_concurrency;
   time_t                          subscriber_timeout;
