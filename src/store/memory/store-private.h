@@ -24,6 +24,7 @@ typedef struct {
 
 typedef struct {
   ngx_str_t            id;
+  subscriber_t        *sub;
 } nchan_store_multi_t;
 
 struct nchan_store_channel_head_s {

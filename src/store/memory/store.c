@@ -436,6 +436,47 @@ nchan_store_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   return head;
 }
 
+static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_conf_t *cf) {
+  ngx_str_t            *id = &ch->id;
+  u_char               *cur = id->data;
+  u_char               *last = cur + id->len;
+  u_char               *sep;
+  ngx_str_t             ids[5];
+  ngx_int_t             i, n = 0;
+  nchan_store_multi_t  *multi;
+  
+  if(cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR) {
+    cur += 3;
+    while((sep = ngx_strlchr(cur, last, NCHAN_MULTI_SEP_CHR)) != NULL) {
+      ids[n].data=cur;
+      ids[n].len = sep - cur - 1;
+      cur = sep + 1;
+      n++;
+    }
+    
+    if((multi = ngx_alloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
+      ERR("can't allocate multi array for multi-channel %p", ch);
+      return NGX_ERROR;
+    }
+    
+    for(i=0; i < n; i++) {
+      multi[i].id = ids[i];
+      
+      //TODO: create subscriber
+      multi[i].sub = NULL;
+    }
+    
+    ch->multi_count = n;
+    ch->multi = multi;
+    
+    return NGX_OK;
+  }
+  else {
+    ch->multi_count = 0;
+    ch->multi = NULL;
+    return NGX_DECLINED;
+  }
+}
 
 static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   nchan_store_channel_head_t         *head;
@@ -496,6 +537,12 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->oldest_msgid.tag = 0;
   
   head->spooler.running=0;
+  
+  if(chanhead_multi_init(head, cf) == NGX_OK) {
+    //we got a multichannel
+    DBG("we got a multichannel");
+  }
+  
   start_chanhead_spooler(head);
 
   CHANNEL_HASH_ADD(head);
