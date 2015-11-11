@@ -908,6 +908,7 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
+/*
 static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
   nchan_reloading_channel_t     *sch;
   store_message_t               *cur, *next;
@@ -968,6 +969,7 @@ static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
   ch->msg_first = NULL;
   ch->msg_last = NULL;
 }
+*/
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
