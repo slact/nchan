@@ -37,6 +37,7 @@ struct nchan_store_channel_head_s {
   ngx_atomic_t                    sub_count;
   time_t                          last_subscribed;
   
+  uint8_t                         multi_waiting;
   uint8_t                         multi_count;
   nchan_store_multi_t            *multi;
   

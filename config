@@ -13,6 +13,7 @@ _NHPM_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/websocket.c \
   ${ngx_addon_dir}/src/subscribers/internal.c \
   ${ngx_addon_dir}/src/subscribers/memstore_ipc.c \
+  ${ngx_addon_dir}/src/subscribers/memstore_multi.c \
   ${ngx_addon_dir}/src/subscribers/memstore_redis.c \
 "
 

@@ -11,6 +11,8 @@
 
 #include <store/redis/store.h>
 #include <subscribers/memstore_redis.h>
+#include <subscribers/memstore_multi.h>
+
 
 typedef struct {
   ngx_event_t                     gc_timer;
@@ -26,7 +28,6 @@ typedef struct {
   ngx_int_t                       fake_slot;
 #endif
 } memstore_data_t;
-
 
 static void init_mpt(memstore_data_t *m) {
   ngx_memzero(&m->gc_timer, sizeof(m->gc_timer));
