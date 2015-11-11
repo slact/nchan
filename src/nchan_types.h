@@ -21,7 +21,7 @@ typedef struct {
 
 typedef struct {
   time_t                          time; //tag message by time
-  ngx_int_t                       tag;  //used in conjunction with message_time if more than one message have the same time.
+  ngx_uint_t                      tag;  //used in conjunction with message_time if more than one message have the same time.
 } nchan_msg_id_t;
 
 typedef struct {

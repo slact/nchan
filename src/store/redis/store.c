@@ -447,7 +447,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->id.time)) {
     return cmp_err(cmp);
   }
-  if(!cmp_read_integer(cmp, &msg->id.tag)) {
+  if(!cmp_read_uinteger(cmp, &msg->id.tag)) {
     return cmp_err(cmp);
   }
   
@@ -455,7 +455,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->prev_id.time)) {
     return cmp_err(cmp);
   }
-  if(!cmp_read_integer(cmp, &msg->prev_id.tag)) {
+  if(!cmp_read_uinteger(cmp, &msg->prev_id.tag)) {
     return cmp_err(cmp);
   }
   
@@ -583,7 +583,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 return;
               }
               
-              if(!cmp_read_integer(&cmp, &msgid.tag)) {
+              if(!cmp_read_uinteger(&cmp, &msgid.tag)) {
                 cmp_err(&cmp);
                 return;
               }
@@ -606,7 +606,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               cmp_err(&cmp);
               return;
             }
-            if(!cmp_read_integer(&cmp, &msgid.tag)) {
+            if(!cmp_read_uinteger(&cmp, &msgid.tag)) {
               cmp_err(&cmp);
               return;
             }
@@ -1170,10 +1170,10 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
     }
     
     redisReply_to_int(els[offset+0], &msg->id.time);
-    redisReply_to_int(els[offset+1], &msg->id.tag);
+    redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag); // tag is a uint, meh.
     
     redisReply_to_int(els[offset+2], &msg->prev_id.time);
-    redisReply_to_int(els[offset+3], &msg->prev_id.tag);
+    redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag);
     
     return msg;
   }
