@@ -43,7 +43,7 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
 
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chid_loc_conf_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n;
-  ngx_str_t                   id[5];
+  ngx_str_t                   id[NCHAN_MEMSTORE_MULTI_MAX];
   ngx_str_t                  *id_out;
   ngx_str_t                  *group = &cf->channel_group;
   size_t                      sz = 0, grouplen = group->len;

@@ -437,16 +437,18 @@ nchan_store_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
   return head;
 }
 
-static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_conf_t *cf) {
-  ngx_str_t            *id = &ch->id;
-  u_char               *cur = id->data;
-  u_char               *last = cur + id->len;
-  u_char               *sep;
-  ngx_str_t             ids[5];
-  ngx_int_t             i, n = 0;
-  nchan_store_multi_t  *multi;
+static ngx_int_t is_multi_id(ngx_str_t *id) {
+  u_char         *cur = id->data;
+  return (cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR);
+}
+
+static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
+  ngx_int_t       n = 0;
+  u_char         *cur = id->data;
+  u_char         *last = cur + id->len;
+  u_char         *sep;
   
-  if(cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR) {
+  if(is_multi_id(id)) {
     cur += 3;
     while((sep = ngx_strlchr(cur, last, NCHAN_MULTI_SEP_CHR)) != NULL) {
       ids[n].data=cur;
@@ -454,11 +456,25 @@ static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_c
       cur = sep + 1;
       n++;
     }
+    return n;
+  }
+  return 0;
+}
+
+static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_conf_t *cf) {
+  ngx_str_t             ids[NCHAN_MEMSTORE_MULTI_MAX];
+  ngx_int_t             i, n = 0;
+  nchan_store_multi_t  *multi;
+  
+  if((n = parse_multi_id(&ch->id, ids)) > 0) {
     
     if((multi = ngx_alloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
       ERR("can't allocate multi array for multi-channel %p", ch);
       return NGX_ERROR;
     }
+    
+    ch->multi_count = n;
+    ch->multi = multi;
     
     for(i=0; i < n; i++) {
       multi[i].id = ids[i];
@@ -466,10 +482,7 @@ static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_c
         ERR("can't create multi subscriber");
       }
     }
-    
-    ch->multi_count = n;
-    ch->multi = multi;
-    
+
     return NGX_OK;
   }
   else {
@@ -1436,11 +1449,159 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   return NGX_OK;
 }
 
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata);
+
+
+
+typedef struct {
+  nchan_msg_status_t  msg_status;
+  nchan_msg_t        *msg;
+  ngx_int_t           n;
+  
+  ngx_int_t           getting;
+  
+  callback_pt         cb;
+  void               *privdata;
+} get_multi_message_data_t;
+
+typedef struct {
+  ngx_int_t                   n;
+  get_multi_message_data_t   *d;
+} get_multi_message_data_single_t;
+
+static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
+  
+  ngx_int_t                  i;
+  nchan_msg_t                *retmsg = NULL, *dmsg;
+  get_multi_message_data_t   *d = sd->d;
+  nchan_msg_id_t              msgid;
+  
+  d->getting--;
+  
+  if(d->msg_status == MSG_PENDING) {
+    d->msg_status = status;
+    d->msg = msg;
+    d->n = sd->n;
+  }
+  else if(d->msg) {
+    if( msg->id.time < d->msg->id.time 
+     || (msg->id.time == d->msg->id.time && msg->id.tag < d->msg->id.tag)) {
+      d->msg_status = status;
+      d->msg = msg;
+      d->n = sd->n;
+    }
+  }
+  else if(d->msg == NULL && d->msg_status != MSG_EXPECTED) {
+    d->msg_status = status;
+  }
+  
+  ngx_free(sd);
+  
+  if(d->getting > 0) {
+    return NGX_OK;
+  }
+  assert(d->getting == 0);
+  
+  d->cb(d->msg_status, d->msg, d->privdata);
+  
+  ngx_free(d);
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+  
+  nchan_store_channel_head_t  *chead;
+  nchan_store_multi_t         *multi = NULL;
+  
+  ngx_int_t                    n;
+  uint8_t                      want[NCHAN_MEMSTORE_MULTI_MAX];
+  ngx_str_t                    ids[NCHAN_MEMSTORE_MULTI_MAX];
+  nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX];
+  nchan_msg_id_t               unmulti_msgid = *msg_id;
+  nchan_msg_id_t              *lastid;
+  ngx_str_t                   *getmsg_chid;
+  
+  ngx_int_t                    tag = unmulti_msgid.tag;
+  
+  time_t                       time = msg_id->time;
+  ngx_int_t                    i;
+  ngx_int_t                    chan_index;
+  ngx_int_t                    basetag;
+  
+  get_multi_message_data_t    *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  assert(d);
+  d->cb = callback;
+  d->privdata = privdata;
+  d->msg_status = MSG_PENDING;
+  d->msg = NULL;
+  d->n = -1;
+  
+  if((chead = nchan_memstore_find_chanhead(chid)) != NULL) {
+    n = chead->multi_count;
+    multi = chead->multi;
+  }
+  else {
+    n = parse_multi_id(chid, ids);
+  }
+  chan_index = tag % (n+1); //this is the channel index
+  basetag = (tag - chan_index) / (n+1); //decode the tag
+  
+  //what msgids do we want?
+  for(i = 0; i < n; i++) {
+    req_msgid[i].time = time;
+    if(i > chan_index) {
+      if(basetag == 0) {
+        req_msgid[i].time = time - 1;
+        req_msgid[i].tag = (ngx_uint_t ) -1;
+      }
+      else {
+        req_msgid[i].time = basetag - 1;
+      }
+    }
+    req_msgid[i].tag = basetag;
+  }
+  
+  //what do we need to fetch?
+  for(i = 0; i < n; i++) {
+    if(multi) {
+      lastid = &multi->sub->last_msg_id;
+      if( lastid->time == 0 
+       || lastid->time > req_msgid[i].time
+       || (lastid->time == req_msgid[i].time && lastid->tag > req_msgid[i].tag)) {
+        want[i]=1;
+        d->getting++;
+      }
+    }
+    else {
+      want[i]=1;
+      d->getting++;
+    }
+  }
+  
+  //do it.
+  for(i = 0; i < n; i++) {
+    if(want[i]) {
+      get_multi_message_data_single_t  *sd = ngx_alloc(sizeof(*sd), ngx_cycle->log);
+      assert(sd);
+      
+      sd->d = d;
+      sd->n = i;
+      
+      getmsg_chid = (multi == NULL) ? &ids[i] : &multi->id;
+      
+      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+    }
+  }
+  
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
   store_message_t             *chmsg;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
-  subscribe_data_t            *d = subscribe_data_alloc(owner);
+  subscribe_data_t            *d; 
   nchan_msg_status_t           findmsg_status;
+  nchan_store_channel_head_t  *chead;
   
   ngx_int_t                    use_redis = 0;
   
@@ -1449,13 +1610,19 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
     return NGX_ERROR;
   }
   
+  if(is_multi_id(channel_id)) {
+    return nchan_store_async_get_multi_message(channel_id, msg_id, callback, privdata);
+  }
+  
+  chead = nchan_memstore_find_chanhead(channel_id);
+  d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
   d->channel_id = channel_id;
   d->cb = callback;
   d->cb_privdata = privdata;
   d->sub = NULL;
   ngx_memcpy(&d->msg_id, msg_id, sizeof(*msg_id));
-  d->chanhead = nchan_memstore_find_chanhead(d->channel_id);
+  d->chanhead = chead;
   
   if(memstore_slot() != owner) {
     //check if we need to ask for a message
