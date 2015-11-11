@@ -51,7 +51,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
   
   n = idcf->n;  
   if(n>1) {
-    sz += 3 + n; //space for null-separators and "m/\0" prefix for multi-chid
+    sz += 3 + n; //space for null-separators and "m/<SEP>" prefix for multi-chid
   }
   
   for(i=0; i < n; i++) {
@@ -76,7 +76,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
   if(n > 1) {
     cur[0]='m';
     cur[1]='/';
-    cur[2]='\0';
+    cur[2]=NCHAN_MULTI_SEP_CHR;
     cur+=3;
   }
   
@@ -88,7 +88,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
     ngx_memcpy(cur, id[i].data, id[i].len);
     cur += id[i].len;
     if(n>1) {
-      cur[0] = '\0';
+      cur[0] = NCHAN_MULTI_SEP_CHR;
       cur++;
     }
   }
