@@ -18,9 +18,8 @@
 
 
 typedef struct {
-  subscriber_t                 *sub;
   nchan_store_channel_head_t   *multi_chanhead;
-  ngx_str_t                    *chid;
+  nchan_store_multi_t          *multi;
   ngx_int_t                     n;
   ngx_event_t                   timeout_ev;
 } sub_data_t;
@@ -32,7 +31,7 @@ static ngx_int_t empty_callback(){
 */
 
 static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
-  DBG("%p subsriber enqueued ok", d->sub);
+  DBG("%p enqueued ok", d->multi->sub);
   assert(d->multi_chanhead->multi_waiting > 0);
   d->multi_chanhead->multi_waiting --;
   if(d->multi_chanhead->multi_waiting == 0) {
@@ -44,24 +43,30 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
+  DBG("%p dequeued", d->multi->sub);
+  d->multi_chanhead->status = WAITING;
+  d->multi_chanhead->multi_waiting++;
+  d->multi->sub = NULL;
   return NGX_OK;
 }
 
-static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
-  //nchan_msg_t       *msg = (nchan_msg_t *) ptr;
-  //nchan_loc_conf_t   cf;
-  //nchan_msg_id_t    *lastid;    
-  //DBG("%p subscriber respond with message", d->sub);
+static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_data_t* d) { 
+  nchan_msg_t        remsg;
   
-  //this is going to be a little complicated
+  DBG("%p respond with message", d->multi->sub);
   
-  //d->sub->last_msg_id = msg->id;
+  ngx_memcpy(&remsg, msg, sizeof(*msg));
+  
+  remsg.id.tag = d->n + remsg.id.tag * (d->n + 1); //this is how we multiplex
+  
+  memstore_ensure_chanhead_is_ready(d->multi_chanhead);
+  nchan_memstore_publish_generic(d->multi_chanhead, &remsg, 0, NULL);
   
   return NGX_OK;
 }
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
-  DBG("%p subscriber respond with status", d->sub);
+  DBG("%p subscriber respond with status", d->multi->sub);
   switch(status) {
     case NGX_HTTP_GONE: //delete
     case NGX_HTTP_CLOSE: //delete
@@ -98,7 +103,6 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 */
 
 subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
-  
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
@@ -115,14 +119,13 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   
   sub->destroy_after_dequeue = 1;
   sub->dequeue_after_response = 0;
-  
-  d->sub = sub;
+
+  d->multi = &chanhead->multi[n];
+  d->multi->sub = sub;
   d->multi_chanhead = chanhead;
   d->n = n;
+  d->multi_chanhead->multi_waiting++;
   
-  d->chid = &chanhead->multi[n].id;;
-  
-  
-  DBG("%p created with privdata %p", d->sub, d);
+  DBG("%p created with privdata %p", d->multi->sub, d);
   return sub;
 }

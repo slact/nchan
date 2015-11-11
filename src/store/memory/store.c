@@ -462,9 +462,9 @@ static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_c
     
     for(i=0; i < n; i++) {
       multi[i].id = ids[i];
-      
-      //TODO: create subscriber
-      multi[i].sub = NULL;
+      if((multi[i].sub = memstore_multi_subscriber_create(ch, i)) == NULL) {
+        ERR("can't create multi subscriber");
+      }
     }
     
     ch->multi_count = n;
