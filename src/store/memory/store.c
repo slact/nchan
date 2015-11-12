@@ -1320,14 +1320,18 @@ static subscribe_data_t        static_subscribe_data;
 
 static subscribe_data_t *subscribe_data_alloc(ngx_int_t owner) {
   subscribe_data_t            *d;
-  if(memstore_slot() != owner) {
+  //fuck it, just always allocate. we need to handle multis and shit too
+  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  assert(d);
+  d->allocd = 1;
+  /*if(memstore_slot() != owner) {
     d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     d->allocd = 1;
   }
   else {
     d = &static_subscribe_data;
     d->allocd = 0;
-  }
+  }*/
   return d;
 }
 
