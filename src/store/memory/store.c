@@ -1310,7 +1310,7 @@ typedef struct {
   unsigned                     allocd:1;
 } subscribe_data_t;
 
-static subscribe_data_t        static_subscribe_data;
+//static subscribe_data_t        static_subscribe_data;
 
 static subscribe_data_t *subscribe_data_alloc(ngx_int_t owner) {
   subscribe_data_t            *d;
