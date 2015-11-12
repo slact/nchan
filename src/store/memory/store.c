@@ -448,13 +448,6 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
 }
 
 
-nchan_store_channel_head_t * chanhead_memstore_find(ngx_str_t *channel_id) {
-  nchan_store_channel_head_t     *head;
-  assert(channel_id->data != NULL);
-  CHANNEL_HASH_FIND(channel_id, head);
-  return head;
-}
-
 static ngx_int_t is_multi_id(ngx_str_t *id) {
   u_char         *cur = id->data;
   return (cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR);
@@ -578,7 +571,8 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
 
 nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
   nchan_store_channel_head_t     *head = NULL;
-  if((head = chanhead_memstore_find(channel_id)) != NULL) {
+  CHANNEL_HASH_FIND(channel_id, head);
+  if(head != NULL) {
     memstore_ensure_chanhead_is_ready(head);
   }
   return head;
@@ -586,7 +580,7 @@ nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id)
 
 nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   nchan_store_channel_head_t          *head;
-  head = chanhead_memstore_find(channel_id);
+  head = nchan_memstore_find_chanhead(channel_id);
   if(head==NULL) {
     head = chanhead_memstore_create(channel_id, cf);
     memstore_ensure_chanhead_is_ready(head);
