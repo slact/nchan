@@ -463,7 +463,7 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
     cur += 3;
     while((sep = ngx_strlchr(cur, last, NCHAN_MULTI_SEP_CHR)) != NULL) {
       ids[n].data=cur;
-      ids[n].len = sep - cur - 1;
+      ids[n].len = sep - cur;
       cur = sep + 1;
       n++;
     }
