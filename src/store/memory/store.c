@@ -471,9 +471,9 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
 }
 
 static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_conf_t *cf) {
-  ngx_str_t             ids[NCHAN_MEMSTORE_MULTI_MAX];
-  ngx_int_t             i, n = 0;
-  nchan_store_multi_t  *multi;
+  ngx_str_t                     ids[NCHAN_MEMSTORE_MULTI_MAX];
+  ngx_int_t                     i, n = 0;
+  nchan_store_multi_t          *multi;
   
   if((n = parse_multi_id(&ch->id, ids)) > 0) {
     
@@ -487,8 +487,8 @@ static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_c
     
     for(i=0; i < n; i++) {
       multi[i].id = ids[i];
-      if((multi[i].sub = memstore_multi_subscriber_create(ch, i)) == NULL) {
-        ERR("can't create multi subscriber");
+      if(memstore_multi_subscriber_create(ch, i) == NULL) { //stores and enqueues automatically
+        ERR("can't create multi subscriber for channel");
       }
     }
 
