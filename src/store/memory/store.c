@@ -387,6 +387,7 @@ ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head) 
 ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   ngx_int_t                      owner = memstore_channel_owner(&head->id);
   nchan_loc_conf_t               cf;
+  ngx_int_t                      i;
   if(head == NULL) {
     return NGX_OK;
   }
@@ -398,6 +399,14 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(!head->spooler.running) {
     DBG("ensure chanhead ready: Spooler for channel %p %V wasn't running. start it.", head, &head->id);
     start_chanhead_spooler(head);
+  }
+  
+  for(i=0; i< head->multi_count; i++) {
+    if(head->multi[i].sub == NULL) {
+      if(memstore_multi_subscriber_create(head, i) == NULL) { //stores and enqueues automatically
+        ERR("can't create multi subscriber for channel");
+      }
+    }
   }
   
   if(owner != memstore_slot()) {
@@ -415,7 +424,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
     }
   }
   else {
-    if(head->status != READY && head->use_redis) {
+    if(head->use_redis && head->status != READY) {
       if(head->redis_sub == NULL) {
         nchan_msg_id_t        msgid = {ngx_time(), 0}; //close enough to now
         head->redis_sub = memstore_redis_subscriber_create(head);
@@ -470,41 +479,14 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
   return 0;
 }
 
-static ngx_int_t chanhead_multi_init(nchan_store_channel_head_t *ch, nchan_loc_conf_t *cf) {
+static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
+  nchan_store_channel_head_t   *head;
+  ngx_int_t                     owner = memstore_channel_owner(channel_id);
   ngx_str_t                     ids[NCHAN_MEMSTORE_MULTI_MAX];
   ngx_int_t                     i, n = 0;
-  nchan_store_multi_t          *multi;
   
-  if((n = parse_multi_id(&ch->id, ids)) > 0) {
-    
-    if((multi = ngx_alloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
-      ERR("can't allocate multi array for multi-channel %p", ch);
-      return NGX_ERROR;
-    }
-    
-    ch->multi_count = n;
-    ch->multi = multi;
-    
-    for(i=0; i < n; i++) {
-      multi[i].id = ids[i];
-      if(memstore_multi_subscriber_create(ch, i) == NULL) { //stores and enqueues automatically
-        ERR("can't create multi subscriber for channel");
-      }
-    }
-
-    return NGX_OK;
-  }
-  else {
-    ch->multi_count = 0;
-    ch->multi = NULL;
-    return NGX_DECLINED;
-  }
-}
-
-static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
-  nchan_store_channel_head_t         *head;
   head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
-  ngx_int_t                owner = memstore_channel_owner(channel_id);
+  
   if(head == NULL) {
     ERR("can't allocate memory for (new) chanhead");
     return NULL;
@@ -551,6 +533,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   
   head->multi=NULL;
   head->multi_count = 0;
+  head->multi_waiting = 0;
   
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
@@ -567,9 +550,23 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   
   head->spooler.running=0;
   
-  if(cf && chanhead_multi_init(head, cf) == NGX_OK) {
-    //we got a multichannel
-    DBG("we got a multichannel");
+  if((n = parse_multi_id(&head->id, ids)) > 0) {
+    nchan_store_multi_t          *multi;
+    if((multi = ngx_alloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
+      ERR("can't allocate multi array for multi-channel %p", head);
+    }
+    
+    for(i=0; i < n; i++) {
+      multi[i].id = ids[i];
+      multi[i].sub = NULL;
+    }
+    
+    head->multi_count = n;
+    head->multi = multi;
+  }
+  else {
+    head->multi_count = 0;
+    head->multi = NULL;
   }
   
   start_chanhead_spooler(head);
@@ -783,6 +780,9 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         }
         DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
         CHANNEL_HASH_DEL(ch);
+        if(ch->multi) {
+          ngx_free(ch->multi);
+        }
         ngx_free(ch);
       }
       else if(force_delete) {

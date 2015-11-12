@@ -105,6 +105,11 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
   sub_data_t                  *d;
   nchan_store_channel_head_t  *target_ch;
+  
+  nchan_loc_conf_t cf;
+  
+  cf.use_redis = chanhead->use_redis;
+  
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
     ERR("couldn't allocate memstore-redis subscriber data");
@@ -125,9 +130,9 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   d->multi->sub = sub;
   d->multi_chanhead = chanhead;
   d->n = n;
-  d->multi_chanhead->multi_waiting++;
+  chanhead->multi_waiting++;
   
-  target_ch = nchan_memstore_get_chanhead(&d->multi->id, NULL);
+  target_ch = nchan_memstore_get_chanhead(&d->multi->id, &cf);
   assert(target_ch);
   target_ch->spooler.fn->add(&target_ch->spooler, sub);
   
