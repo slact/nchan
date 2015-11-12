@@ -577,8 +577,8 @@ nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, n
   head = chanhead_memstore_find(channel_id);
   if(head==NULL) {
     head = chanhead_memstore_create(channel_id, cf);
+    memstore_ensure_chanhead_is_ready(head);
   }
-  memstore_ensure_chanhead_is_ready(head);
   return head;
 }
 
