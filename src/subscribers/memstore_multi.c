@@ -35,8 +35,7 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
   assert(d->multi_chanhead->multi_waiting > 0);
   d->multi_chanhead->multi_waiting --;
   if(d->multi_chanhead->multi_waiting == 0) {
-    d->multi_chanhead->status = READY;
-    d->multi_chanhead->spooler.fn->handle_channel_status_change(&d->multi_chanhead->spooler);
+    memstore_ready_chanhead_unless_stub(d->multi_chanhead);
   }
   
   return NGX_OK;
@@ -59,6 +58,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   remsg.id.tag = d->n + remsg.id.tag * (d->n + 1); //this is how we multiplex
   
+  assert(d->multi_chanhead->stub == 0);
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
   nchan_memstore_publish_generic(d->multi_chanhead, &remsg, 0, NULL);
   

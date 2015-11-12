@@ -144,8 +144,9 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   else {
     head->foreign_owner_ipc_sub = d->subscriber;
   }
-  head->status = READY;
-  head->spooler.fn->handle_channel_status_change(&head->spooler);
+  
+  memstore_ready_chanhead_unless_stub(head);
+  
   str_shm_free(d->shm_chid);
 }
 
@@ -601,7 +602,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, void *data) {
   }
   else {
     assert(head == d->originator);
-    assert(head->status == READY);
+    assert(head->status == READY || head->status == STUBBED);
     assert(head->foreign_owner_ipc_sub == d->ipc_sub);
     if(head->sub_count == 0) {
       if(ngx_time() - head->last_subscribed > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {

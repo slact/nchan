@@ -50,6 +50,7 @@ struct nchan_store_channel_head_s {
   nchan_msg_id_t                  latest_msgid;
   nchan_msg_id_t                  oldest_msgid;
   subscriber_t                   *foreign_owner_ipc_sub; //points to NULL or inaacceessible memory.
+  unsigned                        stub:1;
   unsigned                        shutting_down:1;
   unsigned                        use_redis:1;
   subscriber_t                   *redis_sub;
@@ -89,6 +90,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
 ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head);
+ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head);
 
 #if FAKESHARD
 void memstore_fakeprocess_push(ngx_int_t slot);

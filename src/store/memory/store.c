@@ -315,14 +315,14 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
-    if(head->status == READY) {
-      assert(head->shared != NULL);
+    if(head->shared) {
+      assert(head->status == READY || head->status == STUBBED);
       ngx_atomic_fetch_add(&head->shared->internal_sub_count, 1);
     }
   }
   else {
-    if(head->status == READY) {
-      assert(head->shared != NULL);
+    if(head->shared) {
+      assert(head->status == READY || head->status == STUBBED);
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
     if(head->use_redis) {
@@ -330,7 +330,8 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
     }
   }
   head->last_subscribed = ngx_time();
-  if(head->status == READY) {
+  if(head->shared) {
+    assert(head->status == READY || head->status == STUBBED);
     head->shared->last_seen = ngx_time();
   }
   assert(head->sub_count >= head->internal_sub_count);
@@ -372,6 +373,17 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   return NGX_OK;
 }
 
+ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head) {
+  if(head->stub) {
+    head->status = STUBBED;
+  }
+  else {
+    head->status = READY;
+    head->spooler.fn->handle_channel_status_change(&head->spooler);
+  }
+  return NGX_OK;
+}
+
 ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   ngx_int_t                      owner = memstore_channel_owner(&head->id);
   nchan_loc_conf_t               cf;
@@ -399,8 +411,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
     }
     else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
       DBG("ensure chanhead ready: subscribe request for %V from %i to %i", &head->id, memstore_slot(), owner);
-      head->status = READY;
-      head->spooler.fn->handle_channel_status_change(&head->spooler);
+      memstore_ready_chanhead_unless_stub(head);
     }
   }
   else {
@@ -413,8 +424,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
       }
       else {
         if(head->redis_sub->enqueued) {
-          head->status = READY;
-          head->spooler.fn->handle_channel_status_change(&head->spooler);
+          memstore_ready_chanhead_unless_stub(head);
         }
         else {
           head->status = WAITING;
@@ -422,8 +432,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
       }
     }
     else {
-      head->status = READY;
-      head->spooler.fn->handle_channel_status_change(&head->spooler);
+      memstore_ready_chanhead_unless_stub(head);
     }
   }
   return NGX_OK;
@@ -504,8 +513,14 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->owner = owner;
   head->shutting_down = 0;
   
-  head->use_redis = cf->use_redis;
-  head->redis_sub = NULL;
+  if(cf) {
+    head->stub = 0;
+    head->use_redis = cf->use_redis;
+    head->redis_sub = NULL;
+  }
+  else {
+    head->stub = 1;
+  }
   
   if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
@@ -552,7 +567,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   
   head->spooler.running=0;
   
-  if(chanhead_multi_init(head, cf) == NGX_OK) {
+  if(cf && chanhead_multi_init(head, cf) == NGX_OK) {
     //we got a multichannel
     DBG("we got a multichannel");
   }
@@ -682,7 +697,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   
   if(head->shared) {
     if(!head->use_redis) {
-      assert(head->status == READY);
+      assert(head->status == READY || head->status == STUBBED);
     }
     shared_sub_count = head->shared->sub_count;
   }
@@ -1458,6 +1473,7 @@ typedef struct {
   nchan_msg_t        *msg;
   ngx_int_t           n;
   
+  nchan_msg_id_t      wanted_msgid;
   ngx_int_t           getting;
   
   callback_pt         cb;
@@ -1471,10 +1487,8 @@ typedef struct {
 
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   
-  ngx_int_t                  i;
-  nchan_msg_t                *retmsg = NULL, *dmsg;
   get_multi_message_data_t   *d = sd->d;
-  nchan_msg_id_t              msgid;
+  nchan_msg_t                 retmsg;
   
   d->getting--;
   
@@ -1502,7 +1516,17 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   }
   assert(d->getting == 0);
   
-  d->cb(d->msg_status, d->msg, d->privdata);
+  if(d->msg) {
+    ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
+    
+    retmsg.id.tag = d->n + retmsg.id.tag * (d->n+1); //encode what channel this msg came from
+    
+    d->cb(d->msg_status, &retmsg, d->privdata);
+  }
+  else {
+    d->cb(d->msg_status, NULL, d->privdata);
+  }
+  
   
   ngx_free(d);
   return NGX_OK;
@@ -1535,46 +1559,59 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   d->msg_status = MSG_PENDING;
   d->msg = NULL;
   d->n = -1;
+  d->getting = 0;
+  d->wanted_msgid = *msg_id;
   
-  if((chead = nchan_memstore_find_chanhead(chid)) != NULL) {
+  if((chead = nchan_memstore_get_chanhead(chid, NULL)) != NULL) {
     n = chead->multi_count;
     multi = chead->multi;
   }
   else {
     n = parse_multi_id(chid, ids);
   }
-  chan_index = tag % (n+1); //this is the channel index
-  basetag = (tag - chan_index) / (n+1); //decode the tag
   
-  //what msgids do we want?
-  for(i = 0; i < n; i++) {
-    req_msgid[i].time = time;
-    if(i > chan_index) {
-      if(basetag == 0) {
-        req_msgid[i].time = time - 1;
-        req_msgid[i].tag = (ngx_uint_t ) -1;
+  if(msg_id->time == 0 && msg_id->tag == 0) {
+    for(i = 0; i < n; i++) {
+      req_msgid[i].time = 0;
+      req_msgid[i].tag = 0;
+      want[i] = 1;
+    }
+    d->getting = n;
+  }
+  else {
+    chan_index = tag % (n+1); //this is the channel index
+    basetag = (tag - chan_index) / (n+1); //decode the tag
+    
+    //what msgids do we want?
+    for(i = 0; i < n; i++) {
+      req_msgid[i].time = time;
+      if(i > chan_index) {
+        if(basetag == 0) {
+          req_msgid[i].time = time - 1;
+          req_msgid[i].tag = (ngx_uint_t ) -1;
+        }
+        else {
+          req_msgid[i].time = basetag - 1;
+        }
+      }
+      req_msgid[i].tag = basetag;
+    }
+    
+    //what do we need to fetch?
+    for(i = 0; i < n; i++) {
+      if(multi) {
+        lastid = &multi->sub->last_msg_id;
+        if( lastid->time == 0 
+        || lastid->time > req_msgid[i].time
+        || (lastid->time == req_msgid[i].time && lastid->tag > req_msgid[i].tag)) {
+          want[i]=1;
+          d->getting++;
+        }
       }
       else {
-        req_msgid[i].time = basetag - 1;
-      }
-    }
-    req_msgid[i].tag = basetag;
-  }
-  
-  //what do we need to fetch?
-  for(i = 0; i < n; i++) {
-    if(multi) {
-      lastid = &multi->sub->last_msg_id;
-      if( lastid->time == 0 
-       || lastid->time > req_msgid[i].time
-       || (lastid->time == req_msgid[i].time && lastid->tag > req_msgid[i].tag)) {
         want[i]=1;
         d->getting++;
       }
-    }
-    else {
-      want[i]=1;
-      d->getting++;
     }
   }
   
