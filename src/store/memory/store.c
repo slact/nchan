@@ -1512,7 +1512,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     d->msg = msg;
     d->n = sd->n;
   }
-  else if(d->msg) {
+  else if(d->msg && msg) {
     ERR("prev best response: %i:%i (%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
     if( msg->id.time < d->msg->id.time 
      || (msg->id.time == d->msg->id.time && msg->id.tag < d->msg->id.tag)) {
@@ -1665,7 +1665,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       sd->d = d;
       sd->n = i;
       
-      getmsg_chid = (multi == NULL) ? &ids[i] : &multi->id;
+      getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       ERR("get message from %V (n: %i) %i:%i", getmsg_chid, i, req_msgid[i].time, req_msgid[i].tag);
       nchan_store_async_get_message(getmsg_chid, &req_msgid[i], (callback_pt )nchan_store_async_get_multi_message_callback, sd);
     }
