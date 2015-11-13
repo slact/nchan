@@ -695,10 +695,10 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
 
   if(head==NULL) {
     if(msg) {
-      ERR("tried publishing %i:%i with a NULL chanhead", msg->id.time, msg->id.tag);
+      DBG("tried publishing %i:%i with a NULL chanhead", msg->id.time, msg->id.tag);
     }
     else {
-      ERR("tried publishing status %i msg with a NULL chanhead", status_code);
+      DBG("tried publishing status %i msg with a NULL chanhead", status_code);
     }
     return NCHAN_MESSAGE_QUEUED;
   }
@@ -1497,38 +1497,39 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   d->getting--;
   
-  
+  /*
   switch(status) {
     case MSG_EXPECTED:
-      ERR("multi %i of %i msg EXPECTED", sd->n, d->multi_count);
+      DBG("multi %i of %i msg EXPECTED", sd->n, d->multi_count);
       break;
     case MSG_NOTFOUND:
-      ERR("multi %i of %i msg NOTFOUND", sd->n, d->multi_count);
+      DBG("multi %i of %i msg NOTFOUND", sd->n, d->multi_count);
       break;
     case MSG_FOUND:
-      ERR("multi %i of %i msg FOUND %i:%i %p", sd->n, d->multi_count, msg->id.time, msg->id.tag, msg);
+      DBG("multi %i of %i msg FOUND %i:%i %p", sd->n, d->multi_count, msg->id.time, msg->id.tag, msg);
       break;
     default:
       assert(0);
   }
+  */
   
   if(d->msg_status == MSG_PENDING) {
-    ERR("first response, saved");
+    DBG("first response, saved");
     d->msg_status = status;
     d->msg = msg;
     d->n = sd->n;
   }
   else if(d->msg && msg) {
-    ERR("prev best response: %i:%i (%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
+    DBG("prev best response: %i:%i (%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
     if( msg->id.time < d->msg->id.time 
      || (msg->id.time == d->msg->id.time && msg->id.tag < d->msg->id.tag)) {
-      ERR("got a better response, replace");
+      DBG("got a better response, replace");
       d->msg_status = status;
       d->msg = msg;
       d->n = sd->n;
     }
     else {
-      ERR("got a worse response, keep prev.");
+      DBG("got a worse response, keep prev.");
     }
   }
   else if(d->msg == NULL && d->msg_status != MSG_EXPECTED) {
@@ -1538,13 +1539,13 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   if(d->getting == 0) {
     //got all the messages we wanted
     if(d->msg) {
-      ERR("ready to respond with msg %i:%i (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
+      DBG("ready to respond with msg %i:%i (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
       ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
       
       retmsg.id.tag = d->n + retmsg.id.tag * d->multi_count; //encode what channel this msg came from
       retmsg.prev_id=d->wanted_msgid;
       
-      ERR("respond msg id transformed into %i:%i", d->msg->id.time, d->msg->id.tag);
+      DBG("respond msg id transformed into %i:%i", d->msg->id.time, d->msg->id.tag);
       
       d->cb(d->msg_status, &retmsg, d->privdata);
     }
@@ -1603,7 +1604,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   d->multi_count = n;
   
-  ERR("get multi msg %i:%i (count: %i)", msg_id->time, msg_id->tag, n);
+  DBG("get multi msg %i:%i (count: %i)", msg_id->time, msg_id->tag, n);
   
   if(msg_id->time == 0 && msg_id->tag == 0) {
     for(i = 0; i < n; i++) {
@@ -1612,13 +1613,13 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       want[i] = 1;
     }
     d->getting = n;
-    ERR("want all msgs");
+    DBG("want all msgs");
   }
   else {
     chan_index = tag % n; //this is the channel index
     basetag = (tag - chan_index) / n; //decode the tag
     
-    ERR("last msgid chan_index: %i, base tag: %i", chan_index, basetag);
+    DBG("last msgid chan_index: %i, base tag: %i", chan_index, basetag);
     
     //what msgids do we want?
     for(i = 0; i < n; i++) {
@@ -1635,27 +1636,27 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       else {
         req_msgid[i].tag = basetag;
       }
-      ERR("might want msgid %i:%i from chan_index %i", req_msgid[i].time, req_msgid[i].tag, i);
+      DBG("might want msgid %i:%i from chan_index %i", req_msgid[i].time, req_msgid[i].tag, i);
     }
     
     //what do we need to fetch?
     for(i = 0; i < n; i++) {
       if(multi) {
         lastid = &multi[i].sub->last_msg_id;
-        ERR("chan index %i last id %i:%i (wanted: %i:%i)", i, lastid->time, lastid->tag, req_msgid[i].time, req_msgid[i].tag);
+        DBG("chan index %i last id %i:%i (wanted: %i:%i)", i, lastid->time, lastid->tag, req_msgid[i].time, req_msgid[i].tag);
         if( lastid->time == 0 
          || lastid->time > req_msgid[i].time
          || (lastid->time == req_msgid[i].time && lastid->tag > req_msgid[i].tag)) {
           want[i]=1;
           d->getting++;
-          ERR("want %i", i);
+          DBG("want %i", i);
         }
         else {
-          ERR("Do not want %i", i);
+          DBG("Do not want %i", i);
         }
       }
       else {
-        ERR("nomulti (lastid), want %i", i);
+        DBG("nomulti (lastid), want %i", i);
         want[i]=1;
         d->getting++;
       }
@@ -1672,7 +1673,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       sd->n = i;
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
-      ERR("get message from %V (n: %i) %i:%i", getmsg_chid, i, req_msgid[i].time, req_msgid[i].tag);
+      DBG("get message from %V (n: %i) %i:%i", getmsg_chid, i, req_msgid[i].time, req_msgid[i].tag);
       nchan_store_async_get_message(getmsg_chid, &req_msgid[i], (callback_pt )nchan_store_async_get_multi_message_callback, sd);
     }
   }
@@ -1690,7 +1691,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   ngx_int_t                    use_redis = 0;
   
   if(callback==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
+    ERR("no callback given for async get_message. someone's using the API wrong!");
     return NGX_ERROR;
   }
   
