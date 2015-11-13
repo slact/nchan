@@ -732,11 +732,12 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nchan_llist_timed_t          *cur, *next;
   nchan_store_channel_head_t   *ch = NULL;
   ngx_int_t                     owner;
+  ngx_int_t                     i;
   DBG("handling chanhead GC queue");
 #if FAKESHARD
-  ngx_int_t        i;
-  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-  memstore_fakeprocess_push(i);
+  ngx_int_t        ifv;
+  for(ifv = 0; ifv < MAX_FAKE_WORKERS; ifv++) {
+  memstore_fakeprocess_push(ifv);
 #endif
   
   
@@ -772,9 +773,14 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         if(owner == memstore_slot()) {
           shm_free(shm, ch->shared);
         }
-        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
+        ERR("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
         CHANNEL_HASH_DEL(ch);
         if(ch->multi) {
+          for(i=0; i < ch->multi_count; i++) {
+            if(ch->multi[i].sub) {
+              ch->multi[i].sub->fn->dequeue(ch->multi[i].sub);
+            }
+          }
           ngx_free(ch->multi);
         }
         ngx_free(ch);
@@ -799,8 +805,8 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
 #if FAKESHARD
   memstore_fakeprocess_pop();
   }
-  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-    memstore_fakeprocess_push(i);
+  for(ifv = 0; ifv < MAX_FAKE_WORKERS; ifv++) {
+    memstore_fakeprocess_push(ifv);
     memstore_fakeprocess_pop();
   }
 #endif
