@@ -1568,6 +1568,11 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     n = parse_multi_id(chid, ids);
   }
   
+  //init loop
+  for(i = 0; i < n; i++) {
+    want[i] = 0;
+  }
+  
   if(msg_id->time == 0 && msg_id->tag == 0) {
     for(i = 0; i < n; i++) {
       req_msgid[i].time = 0;
