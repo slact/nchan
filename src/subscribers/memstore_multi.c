@@ -56,7 +56,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   ngx_memcpy(&remsg, msg, sizeof(*msg));
   
-  remsg.id.tag = d->n + remsg.id.tag * (d->n + 1); //this is how we multiplex
+  remsg.id.tag = d->n + remsg.id.tag * (d->multi_chanhead->multi_count); //this is how we multiplex
   
   assert(d->multi_chanhead->stub == 0);
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
