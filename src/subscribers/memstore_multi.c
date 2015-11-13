@@ -49,8 +49,9 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   return NGX_OK;
 }
 
-static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_data_t* d) { 
+static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_data_t* d) {
   nchan_msg_t        remsg;
+  nchan_msg_id_t    *last_msgid;
   
   DBG("%p respond with message", d->multi->sub);
   
@@ -60,6 +61,13 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   assert(d->multi_chanhead->stub == 0);
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
+  
+  last_msgid = &d->multi_chanhead->spooler.prev_msg_id;
+  assert(last_msgid->time <= remsg.id.time 
+    || (last_msgid->time == remsg.id.time && last_msgid->tag <= remsg.id.tag ));
+  
+  remsg.prev_id = *last_msgid;
+  
   nchan_memstore_publish_generic(d->multi_chanhead, &remsg, 0, NULL);
   
   return NGX_OK;
