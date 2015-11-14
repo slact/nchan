@@ -31,7 +31,7 @@ static ngx_int_t empty_callback(){
 */
 
 static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
-  DBG("%p enqueued ok", d->multi->sub);
+  DBG("%p enqueued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   assert(d->multi_chanhead->multi_waiting > 0);
   d->multi_chanhead->multi_waiting --;
   if(d->multi_chanhead->multi_waiting == 0) {
@@ -42,7 +42,7 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  DBG("%p dequeued", d->multi->sub);
+  DBG("%p dequeued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   d->multi_chanhead->status = WAITING;
   d->multi_chanhead->multi_waiting++;
   d->multi->sub = NULL;
@@ -53,7 +53,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   nchan_msg_t        remsg;
   nchan_msg_id_t    *last_msgid;
   
-  DBG("%p respond with message", d->multi->sub);
+  DBG("%p respond with message (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   
   ngx_memcpy(&remsg, msg, sizeof(*msg));
   
@@ -74,7 +74,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
 }
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
-  DBG("%p subscriber respond with status", d->multi->sub);
+  DBG("%p subscriber respond with status (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   switch(status) {
     case NGX_HTTP_GONE: //delete
     case NGX_HTTP_CLOSE: //delete
