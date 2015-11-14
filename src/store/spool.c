@@ -413,11 +413,22 @@ static ngx_int_t spool_transfer_subscribers(subscriber_pool_t *spool, subscriber
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
   static nchan_msg_id_t      any_msg = {0,0};
   int                        i, max=2;
-  subscriber_pool_t         *spools[] = { find_spool(self, &msg->prev_id), find_spool(self, &any_msg) };
+  subscriber_pool_t         *spools[2];
   DBG("%p respond msg %i:%i", self, msg->id.time, msg->id.tag);
   
   if(msg->prev_id.time == 0 && msg->prev_id.tag == 0) {
-    max = 1;
+    if(self->prev_msg_id.time == 0) {
+      spools[0]= find_spool(self, &any_msg);
+      max = 1;
+    }
+    else {
+      spools[0] = find_spool(self, &any_msg);
+      spools[1] = find_spool(self, &self->prev_msg_id);
+    }
+  }
+  else {
+    spools[1] = find_spool(self, &msg->prev_id);
+    spools[0] = find_spool(self, &any_msg);
   }
   
   for(i=0; i < max; i++) { 
