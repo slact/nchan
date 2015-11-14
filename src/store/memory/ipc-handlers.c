@@ -99,7 +99,7 @@ static void receive_subscribe(ngx_int_t sender, void *data) {
     d->subscriber = NULL;
   }
   else {
-    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->origin_chanhead);
+    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, head->use_redis, d->origin_chanhead);
     d->subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
   }

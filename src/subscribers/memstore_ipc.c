@@ -21,6 +21,7 @@ struct sub_data_s {
   ngx_str_t                    *chid;
   ngx_int_t                     originator;
   ngx_int_t                     owner;
+  unsigned                      use_redis:1;
   void                         *foreign_chanhead;
 //  nchan_store_channel_head_t   *chanhead;
   ngx_event_t                   timeout_ev;
@@ -60,11 +61,12 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   ngx_int_t               rc;
   nchan_msg_t            *msg = (nchan_msg_t *) ptr;
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
-  nchan_loc_conf_t              cf;
-    
-  cf.buffer_timeout =50;
+  nchan_loc_conf_t        cf;
+  
+  cf.buffer_timeout = 50;
   cf.min_messages = 0;
-  cf.max_messages = 0;
+  cf.max_messages = -1;
+  cf.use_redis = d->use_redis;
   
   DBG("%p (%V) memstore subscriber (lastid %i:%i) respond with message %i:%i (lastid %i:%i)", d->sub, d->chid, d->sub->last_msg_id.time, d->sub->last_msg_id.tag, msg->id.time, msg->id.tag, msg->prev_id.time, msg->prev_id.tag);
   
@@ -137,7 +139,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #endif
 }
 
-subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
+subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, uint8_t use_redis, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
@@ -163,6 +165,7 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   d->timeout_ev.handler = timeout_ev_handler;
   d->timeout_ev.data = d;
   d->timeout_ev.log = ngx_cycle->log;
+  d->use_redis = use_redis;
   reset_timer(d);
   DBG("%p (%V) memstore-ipc subscriber created with privdata %p", d->sub, d->chid, d);
   return sub;
