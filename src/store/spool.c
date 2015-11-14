@@ -279,7 +279,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   ngx_memzero(numsubs, sizeof(numsubs));
   self->generation++;
   
-  //DBG("spool %p respond with msg %p or code %i", self, msg, status_code);
+  DBG("spool %p (%i:%i) (subs: %i) respond with msg %p or code %i", self, self->id.time, self->id.tag, self->sub_count, msg, status_code);
   
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
@@ -414,7 +414,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   static nchan_msg_id_t      any_msg = {0,0};
   int                        i, max=2;
   subscriber_pool_t         *spools[] = { find_spool(self, &msg->prev_id), find_spool(self, &any_msg) };
-  //DBG("%p respond msg %i:%i", self, msg->id.time, msg->id.tag);
+  DBG("%p respond msg %i:%i", self, msg->id.time, msg->id.tag);
   
   if(msg->prev_id.time == 0 && msg->prev_id.tag == 0) {
     max = 1;
@@ -423,8 +423,12 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   for(i=0; i < max; i++) { 
     //respond to prev_id spool and the {0,0} spool, as it's meant to accept any message;
     if(spools[i]) {
+      DBG("spool found");
       spool_respond_general(spools[i], msg, 0, NULL);
       spool_nextmsg(spools[i], &msg->id);
+    }
+    else {
+      DBG("spool not found");
     }
   }
 
