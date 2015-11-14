@@ -1277,7 +1277,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     return NULL;
   }
 
-  if(msgid == NULL || (msgid->time == 0 && msgid->tag == 0)) {
+  if(msgid == NULL || (msgid->time < first->msg->id.time || (msgid->time == first->msg->id.time && msgid->tag < first->msg->id.tag)) ) {
     DBG("found message %i:%i", first->msg->id.time, first->msg->id.tag);
     *status = MSG_FOUND;
     return first;
