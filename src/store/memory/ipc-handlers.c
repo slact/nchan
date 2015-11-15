@@ -241,12 +241,12 @@ typedef struct {
 } publish_data_t;
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  ngx_int_t ret;
+  ngx_int_t         ret;
+  publish_data_t    data;
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
   assert(shm_msg->temp_allocd == 0);
   assert(chid->data != NULL);
-  publish_data_t  data;
   //stop valgrind's complainting
   ngx_memzero(&data, sizeof(data));
   data.shm_chid = str_shm_copy(chid);
