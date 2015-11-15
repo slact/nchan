@@ -232,6 +232,40 @@ ngx_int_t rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, voi
   return NGX_OK;
 }
 
+
+static void rbtree_conditional_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_conditional_callback_pt callback, void *data) {
+  rbtree_walk_direction_t    direction;
+  
+  if(node == sentinel || node == NULL) {
+    return;
+  }
+  
+  direction = callback(seed, rbtree_data_from_node(node), data);
+  switch(direction) {
+    case RBTREE_WALK_LEFT:
+      rbtree_conditional_walk_real(seed, node->left, sentinel, callback, data);
+      break;
+    
+    case RBTREE_WALK_RIGHT:
+      rbtree_conditional_walk_real(seed, node->right, sentinel, callback, data);
+      break;
+    
+    case RBTREE_WALK_LEFT_RIGHT:
+      rbtree_conditional_walk_real(seed, node->left, sentinel, callback, data);
+      rbtree_conditional_walk_real(seed, node->right, sentinel, callback, data);
+      break;
+    
+    case RBTREE_WALK_STOP:
+      //no more
+      break;
+  }
+}
+
+ngx_int_t rbtree_conditional_walk(rbtree_seed_t *seed, rbtree_walk_conditional_callback_pt callback, void *data) {
+  rbtree_conditional_walk_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
+  return NGX_OK;
+}
+
 ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, void *(*id)(void *), uint32_t (*hash)(void *), ngx_int_t (*compare)(void *, void *)) {
   seed->name=name;
   assert(id != NULL);
