@@ -129,7 +129,7 @@ class PubSubTest <  Minitest::Test
     info_json=JSON.parse pub.response_body
     assert_equal 2, info_json["messages"]
     #assert_equal 0, info_json["requested"]
-    assert_equal subs, info_json["subscribers"]
+    assert_equal subs, info_json["subscribers"], "text/json subscriber count"
 
     pub.get "text/xml"
     ix = Nokogiri::XML pub.response_body
@@ -178,13 +178,13 @@ class PubSubTest <  Minitest::Test
     sleep 0.2
     assert_equal 0, sub.messages.messages.count
     pub.post "hi there"
-    assert_equal 201, pub.response_code
+    assert_equal 201, pub.response_code, "publisher response code"
     sleep 0.2
-    assert_equal 1, sub.messages.messages.count
+    assert_equal 1, sub.messages.messages.count, "received message count"
     pub.post "FIN"
-    assert_equal 201, pub.response_code
+    assert_equal 201, pub.response_code, "publisher response code"
     sleep 0.2
-    assert_equal 2, sub.messages.messages.count
+    assert_equal 2, sub.messages.messages.count, "recelived messages count"
     assert sub.messages.matches? pub.messages
     sub.terminate
   end
@@ -238,7 +238,7 @@ class PubSubTest <  Minitest::Test
     pub.delete
     sleep 0.1
     assert_equal 200, pub.response_code
-    assert_equal pub.response_body.match(/subscribers:\s+(\d)/)[1].to_i, 5
+    assert_equal par, pub.response_body.match(/subscribers:\s+(\d)/)[1].to_i, "subscriber count after deletion"
     sub.wait
     assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
 
