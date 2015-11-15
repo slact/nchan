@@ -1,5 +1,6 @@
 src/uthash.h
 src/hiredis
+src/store/redis/cmp.*
 src/nginx-source
 dev/nginx-nchan/*.patch
 dev/nginx-nchan/pkg
@@ -10,3 +11,4 @@ dev/nginx-nchan/nginx.logrotate
 dev/nginx-nchan/*.tar
 dev/nginx-nchan/*.gz
 dev/src
+dev/clang-analyzer
