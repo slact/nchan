@@ -2017,7 +2017,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
       return NGX_ERROR;
     }
     
-    publish_msg->prev_id = chead->latest_msgid;
+    publish_msg->prev_id.time = 0;
+    publish_msg->prev_id.tag = 0;
     
     DBG("publish unbuffer msg %i:%i expire %i ", publish_msg->id.time, publish_msg->id.tag, cf->buffer_timeout);
   }

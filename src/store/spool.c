@@ -117,7 +117,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   subscriber_pool_t    *spool, *nuspool;
   
   if((spool = find_spool(data->spooler, &data->msgid)) == NULL) {
-    ERR("spool for msgid %i:%i not found. discarding getmsg callback response.", data->msgid.time, data->msgid.tag);
+    DBG("spool for msgid %i:%i not found. discarding getmsg callback response.", data->msgid.time, data->msgid.tag);
     ngx_free(data);
     return NGX_ERROR;
   }
@@ -413,38 +413,55 @@ static ngx_int_t spool_transfer_subscribers(subscriber_pool_t *spool, subscriber
   return count;
 }
 
-static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
-  static nchan_msg_id_t      any_msg = {0,0};
-  int                        i, max=2;
-  subscriber_pool_t         *spools[2];
-  //DBG("%p respond msg %i:%i", self, msg ? msg->id.time : 0, msg ? msg->id.tag : 0);
-  
-  if(msg->prev_id.time == 0 
-   && msg->prev_id.tag == 0) {
-    if(self->prev_msg_id.time == 0) {
-      spools[0]= find_spool(self, &any_msg);
-      max = 1;
+typedef struct {
+  nchan_msg_id_t      min;
+  nchan_msg_id_t      max;
+  ngx_int_t           n;
+  subscriber_pool_t  *spools[32];
+} spooler_respond_data_t;
+
+typedef enum { SMALLER, LARGER, INRANGE } spoolrange_t;
+
+
+static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
+  nchan_msg_id_t id = spool->id;
+  if(data->min.time < id.time || (data->min.time == id.time && data->min.tag <= id.tag)) {
+    if(data->max.time > id.time || (data->max.time == id.time && data->max.tag > id.tag)) {
+      //inrange
+      assert(data->n < 32);
+      data->spools[data->n] = spool;
+      data->n++;
+      return RBTREE_WALK_LEFT_RIGHT;
     }
     else {
-      spools[0] = find_spool(self, &any_msg);
-      spools[1] = find_spool(self, &self->prev_msg_id);
+      //too large
+      return RBTREE_WALK_LEFT;
     }
   }
   else {
-    spools[1] = find_spool(self, &msg->prev_id);
-    spools[0] = find_spool(self, &any_msg);
+    //too small
+    return RBTREE_WALK_RIGHT;
+  } 
+}
+
+static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
+  int                        i;
+  spooler_respond_data_t     srdata;
+  
+  srdata.min = msg->prev_id;
+  srdata.max = msg->id;
+  srdata.n = 0;
+  
+  //find all spools between msg->prev_id and msg->id
+  rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range, &srdata);
+  
+  if(srdata.n == 0) {
+    DBG("no spools in range %i:%i -- %i:%i", msg->prev_id.time, msg->prev_id.tag, msg->id.time, msg->id.tag);
   }
   
-  for(i=0; i < max; i++) { 
-    //respond to prev_id spool and the {0,0} spool, as it's meant to accept any message;
-    if(spools[i]) {
-      DBG("spool found");
-      spool_respond_general(spools[i], msg, 0, NULL);
-      spool_nextmsg(spools[i], &msg->id);
-    }
-    else {
-      DBG("spool not found");
-    }
+  for(i=0; i < srdata.n; i++) {
+    spool_respond_general(srdata.spools[i], msg, 0, NULL);
+    spool_nextmsg(srdata.spools[i], &msg->id);
   }
 
   self->prev_msg_id.time = msg->id.time;
