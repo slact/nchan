@@ -1502,7 +1502,7 @@ typedef struct {
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   
   get_multi_message_data_t   *d = sd->d;
-  nchan_msg_t                *retmsg;
+  nchan_msg_t                 retmsg;
   
   d->getting--;
   
@@ -1548,19 +1548,19 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   if(d->getting == 0) {
     //got all the messages we wanted
     if(d->msg) {
-      retmsg = ngx_alloc(sizeof(*retmsg), ngx_cycle->log);
-      assert(retmsg);
-      DBG("ready to respond with msg %i:%i (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
-      ngx_memcpy(retmsg, d->msg, sizeof(*retmsg));
-      retmsg->shared = 0;
-      retmsg->temp_allocd = 1;
+      //retmsg = ngx_alloc(sizeof(*retmsg), ngx_cycle->log);
+      //assert(retmsg);
+      ERR("ready to respond with msg %i:%i (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
+      ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
+      retmsg.shared = 0;
+      retmsg.temp_allocd = 0;
       
-      retmsg->id.tag = d->n + retmsg->id.tag * d->multi_count; //encode what channel this msg came from
-      retmsg->prev_id=d->wanted_msgid;
+      retmsg.id.tag = d->n + retmsg.id.tag * d->multi_count; //encode what channel this msg came from
+      retmsg.prev_id=d->wanted_msgid;
       
-      DBG("respond msg id transformed into %p %i:%i", retmsg, d->msg->id.time, d->msg->id.tag);
+      ERR("respond msg id transformed into %p %i:%i", &retmsg, d->msg->id.time, d->msg->id.tag);
       
-      d->cb(d->msg_status, retmsg, d->privdata);
+      d->cb(d->msg_status, &retmsg, d->privdata);
     }
     else {
       d->cb(d->msg_status, NULL, d->privdata);

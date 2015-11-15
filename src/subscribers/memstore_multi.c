@@ -50,30 +50,30 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_data_t* d) {
-  nchan_msg_t       *remsg;
+  nchan_msg_t       remsg;
   nchan_msg_id_t    *last_msgid;
   
-  remsg = ngx_alloc(sizeof(*remsg), ngx_cycle->log);
-  assert(remsg);
+  //remsg = ngx_alloc(sizeof(*remsg), ngx_cycle->log);
+  //assert(remsg);
   
-  ERR("%p respond with message %p (%p %V %i) %V", d->multi->sub, remsg, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
+  ERR("%p respond with message %p (%p %V %i) %V", d->multi->sub, &remsg, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   
-  ngx_memcpy(remsg, msg, sizeof(*msg));
-  remsg->shared = 0;
-  remsg->temp_allocd = 1;
+  ngx_memcpy(&remsg, msg, sizeof(*msg));
+  remsg.shared = 0;
+  remsg.temp_allocd = 0;
   
-  remsg->id.tag = d->n + remsg->id.tag * (d->multi_chanhead->multi_count); //this is how we multiplex
+  remsg.id.tag = d->n + remsg.id.tag * (d->multi_chanhead->multi_count); //this is how we multiplex
   
   assert(d->multi_chanhead->stub == 0);
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
   
   last_msgid = &d->multi_chanhead->spooler.prev_msg_id;
-  assert(last_msgid->time <= remsg->id.time 
-    || (last_msgid->time == remsg->id.time && last_msgid->tag <= remsg->id.tag ));
+  assert(last_msgid->time <= remsg.id.time 
+    || (last_msgid->time == remsg.id.time && last_msgid->tag <= remsg.id.tag ));
   
-  remsg->prev_id = *last_msgid;
+  remsg.prev_id = *last_msgid;
   
-  nchan_memstore_publish_generic(d->multi_chanhead, remsg, 0, NULL);
+  nchan_memstore_publish_generic(d->multi_chanhead, &remsg, 0, NULL);
   
   return NGX_OK;
 }
