@@ -152,9 +152,16 @@ void memstore_fakeprocess_push_random(void) {
 
 #endif
 
+static ngx_int_t is_multi_id(ngx_str_t *id);
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t       h = ngx_crc32_short(id->data, id->len);
+  ngx_int_t       h;
+  //multi is always self-owned
+  if(is_multi_id(id)) {
+    return memstore_slot();
+  }
+  
+  h = ngx_crc32_short(id->data, id->len);
 #if FAKESHARD
   #ifdef ONE_FAKE_CHANNEL_OWNER
   h++; //just to avoid the unused variable warning
@@ -721,7 +728,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   }
     
   //TODO: be smarter about garbage-collecting chanheads
-  if(memstore_channel_owner(&head->id) == memstore_slot()) {
+  if(head->owner == memstore_slot()) {
     //the owner is responsible for the chanhead and its interprocess siblings
     //when removed, said siblings will be notified via IPC
     chanhead_gc_add(head, "add owner chanhead after publish");
@@ -739,7 +746,6 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
   nchan_llist_timed_t          *cur, *next;
   nchan_store_channel_head_t   *ch = NULL;
-  ngx_int_t                     owner;
   ngx_int_t                     i;
   DBG("handling chanhead GC queue");
 #if FAKESHARD
@@ -777,8 +783,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
         assert(ch->msg_first == NULL);
         
         stop_spooler(&ch->spooler, 0);
-        owner = memstore_channel_owner(&ch->id);
-        if(owner == memstore_slot()) {
+        if(ch->owner == memstore_slot() && ch->shared) {
           shm_free(shm, ch->shared);
         }
         DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
