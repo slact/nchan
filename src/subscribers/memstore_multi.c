@@ -56,8 +56,6 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   //remsg = ngx_alloc(sizeof(*remsg), ngx_cycle->log);
   //assert(remsg);
   
-  ERR("%p respond with message %p (%p %V %i) %V", d->multi->sub, &remsg, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
-  
   ngx_memcpy(&remsg, msg, sizeof(*msg));
   remsg.shared = 0;
   remsg.temp_allocd = 0;
@@ -72,6 +70,8 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
     || (last_msgid->time == remsg.id.time && last_msgid->tag <= remsg.id.tag ));
   
   remsg.prev_id = *last_msgid;
+  
+  ERR("%p respond with transformed message %p %i:%i (%p %V %i) %V", d->multi->sub, &remsg, remsg.id.time, remsg.id.tag, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   
   nchan_memstore_publish_generic(d->multi_chanhead, &remsg, 0, NULL);
   
