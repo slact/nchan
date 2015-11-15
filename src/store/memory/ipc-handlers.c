@@ -244,6 +244,7 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   ngx_int_t ret;
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
+  assert(shm_msg->temp_allocd == 0);
   assert(chid->data != NULL);
   publish_data_t  data;
   //stop valgrind's complainting

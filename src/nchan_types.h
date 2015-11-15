@@ -52,12 +52,12 @@ struct nchan_msg_s {
   //  ngx_str_t                   charset;
   ngx_buf_t                      *buf;
   time_t                          expires;
-  ngx_uint_t                      delete_oldest_received_min_messages; //NGX_MAX_UINT32_VALUE for 'never'
   ngx_atomic_t                    refcount;
   
   struct nchan_msg_s             *reload_next;
   
   unsigned                        shared:1; //for debugging
+  unsigned                        temp_allocd:1;
 #if NCHAN_MSG_LEAK_DEBUG
   ngx_str_t                       lbl;
   struct msg_rsv_dbg_s           *rsv;

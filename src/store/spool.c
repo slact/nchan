@@ -75,32 +75,35 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   
   DBG("spool nextmsg %p (%i:%i) newid %i:%i", spool, spool->id.time, spool->id.tag, new_last_id->time, new_last_id->tag);
   
-  assert(spool->id.time != new_last_id->time || spool->id.tag != new_last_id->tag);
-  
-  if((newspool = find_spool(spl, new_last_id)) != NULL) {
-    assert(spool != newspool);
-    spool_transfer_subscribers(spool, newspool, 0);
-    destroy_spool(spool);
+  if(spool->id.time == new_last_id->time && spool->id.tag == new_last_id->tag) {
+    ERR("nextmsg id same as curmsg (%i:%i)", spool->id.time, spool->id.tag);    
   }
   else {
-    ngx_rbtree_node_t       *node;
-    node = rbtree_node_from_data(spool);
-    rbtree_remove_node(&spl->spoolseed, node);
-    spool->id = *new_last_id;
-    rbtree_insert_node(&spl->spoolseed, node);
-    spool->msg_status = MSG_INVALID;
-    spool->msg = NULL;
-    newspool = spool;
-    
-    /*
-    newspool = get_spool(spl, new_last_id);
-    assert(spool != newspool);
-   spool_transfer_subscribers(spool, newspool, 0);
-    destroy_spool(spool);
-    */
-  }
-  if(newspool->sub_count > 0 && newspool->msg_status == MSG_INVALID) {
-    spool_fetch_msg(newspool);
+    if((newspool = find_spool(spl, new_last_id)) != NULL) {
+      assert(spool != newspool);
+      spool_transfer_subscribers(spool, newspool, 0);
+      destroy_spool(spool);
+    }
+    else {
+      ngx_rbtree_node_t       *node;
+      node = rbtree_node_from_data(spool);
+      rbtree_remove_node(&spl->spoolseed, node);
+      spool->id = *new_last_id;
+      rbtree_insert_node(&spl->spoolseed, node);
+      spool->msg_status = MSG_INVALID;
+      spool->msg = NULL;
+      newspool = spool;
+      
+      /*
+      newspool = get_spool(spl, new_last_id);
+      assert(spool != newspool);
+    spool_transfer_subscribers(spool, newspool, 0);
+      destroy_spool(spool);
+      */
+    }
+    if(newspool->sub_count > 0 && newspool->msg_status == MSG_INVALID) {
+      spool_fetch_msg(newspool);
+    }
   }
   return NGX_OK;
 }
@@ -414,9 +417,10 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   static nchan_msg_id_t      any_msg = {0,0};
   int                        i, max=2;
   subscriber_pool_t         *spools[2];
-  DBG("%p respond msg %i:%i", self, msg->id.time, msg->id.tag);
+  //DBG("%p respond msg %i:%i", self, msg ? msg->id.time : 0, msg ? msg->id.tag : 0);
   
-  if(msg->prev_id.time == 0 && msg->prev_id.tag == 0) {
+  if(msg->prev_id.time == 0 
+   && msg->prev_id.tag == 0) {
     if(self->prev_msg_id.time == 0) {
       spools[0]= find_spool(self, &any_msg);
       max = 1;
