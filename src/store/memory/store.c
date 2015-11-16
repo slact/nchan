@@ -335,6 +335,16 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
     if(head->use_redis) {
       nchan_store_redis_fakesub_add(&head->id, 1);
     }
+    
+    if(head->multi) {
+      ngx_int_t     i, max = head->multi_count;
+      subscriber_t *sub;
+      for(i = 0; i < max; i++) {
+        sub = head->multi[i].sub;
+        sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)1);
+      }
+    }
+    
   }
   head->last_subscribed = ngx_time();
   if(head->shared) {
@@ -349,7 +359,9 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
     head->internal_sub_count -= count;
-    ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);
+    if(head->shared) {
+      ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);
+    }
   }
   else {
     if(head->shared){
@@ -362,6 +374,15 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
     */
     if(head->use_redis) {
       nchan_store_redis_fakesub_add(&head->id, -count);
+    }
+    
+    if(head->multi) {
+      ngx_int_t     i, max = head->multi_count;
+      subscriber_t *sub;
+      for(i = 0; i < max; i++) {
+        sub = head->multi[i].sub;
+        sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)-count);
+      }
     }
   }
   head->sub_count -= count;

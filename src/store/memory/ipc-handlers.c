@@ -137,8 +137,9 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   head->shared = d->shared_channel_data;
   
   if(old_shared == NULL) {
-    ERR("%V local sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
-    //ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count);
+    //ERR("%V local sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
+    assert(head->sub_count >= head->internal_sub_count);
+    ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count - head->internal_sub_count);
     ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
   }
   else {

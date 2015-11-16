@@ -5,6 +5,7 @@
 #include "../store/memory/ipc-handlers.h"
 
 #include "../store/memory/store.h"
+#include "../store/redis/store.h"
 
 #include "internal.h"
 #include "memstore_multi.h"
@@ -18,6 +19,7 @@
 
 
 typedef struct {
+  nchan_store_channel_head_t   *target_chanhead;
   nchan_store_channel_head_t   *multi_chanhead;
   nchan_store_multi_t          *multi;
   ngx_int_t                     n;
@@ -29,6 +31,17 @@ static ngx_int_t empty_callback(){
   return NGX_OK;
 }
 */
+
+static void change_sub_count(nchan_store_channel_head_t *ch, ngx_int_t n) {
+  ch->sub_count += n;
+  ch->channel.subscribers += n;
+  if(ch->shared) {
+    ngx_atomic_fetch_add(&ch->shared->sub_count, n);
+  }
+  if(ch->use_redis) {
+    nchan_store_redis_fakesub_add(&ch->id, n);
+  }
+}
 
 static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
   DBG("%p enqueued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
@@ -102,6 +115,9 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
 }
 
 static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
+  if(code == NCHAN_SUB_MULTI_NOTIFY_ADDSUB) {
+    change_sub_count(d->target_chanhead, (ngx_int_t )data);
+  }
   return NGX_OK;
 }
 
@@ -124,6 +140,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
   sub_data_t                  *d;
   nchan_store_channel_head_t  *target_ch;
+  ngx_int_t                    multi_subs;
   
   nchan_loc_conf_t cf;
   
@@ -154,6 +171,12 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   target_ch = nchan_memstore_get_chanhead(&d->multi->id, &cf);
   assert(target_ch);
   target_ch->spooler.fn->add(&target_ch->spooler, sub);
+  
+  multi_subs = chanhead->shared->sub_count;
+  
+  d->target_chanhead = target_ch;
+  
+  change_sub_count(target_ch, multi_subs);
   
   DBG("%p created with privdata %p", d->multi->sub, d);
   return sub;
