@@ -46,6 +46,7 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   d->multi_chanhead->status = WAITING;
   d->multi_chanhead->multi_waiting++;
   d->multi->sub = NULL;
+  ngx_free(d);
   return NGX_OK;
 }
 
