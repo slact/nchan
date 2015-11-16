@@ -6760,3 +6760,406 @@
    fun:ngx_http_core_location
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_pnalloc
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_pnalloc
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_http_init_connection
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_http_init_connection
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_create_temp_buf
+   fun:ngx_http_wait_request_handler
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_http_init_connection
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_create_pool
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_http_init_connection
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_event_accept
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_create_temp_buf
+   fun:ngx_http_wait_request_handler
+   fun:ngx_event_process_posted
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+}
