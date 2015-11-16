@@ -317,13 +317,13 @@ class PubSubTest <  Minitest::Test
   
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
-    pub.post "yeah okay"
+    pub.post "!!"
     sub.run #celluloid async FTW
-    sleep 1
-    pub.post ["hello there", "what is this", "it's nothing", "nothing at all really"]
+    #sleep 2
+    pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"]
     pub.post "FIN"
     sub.wait
-    sleep 1
+    sleep 0.5
     verify pub, sub
     sub.terminate
   end
