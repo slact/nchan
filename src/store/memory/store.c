@@ -349,7 +349,9 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
     head->internal_sub_count -= count;
-    ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);
+    if(head->shared) {
+      ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);  
+    }
   }
   else {
     if(head->shared){
@@ -699,7 +701,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   ngx_int_t          shared_sub_count = 0;
   
   if(head->shared) {
-    if(!head->use_redis) {
+    if(!head->use_redis && !head->multi) {
       assert(head->status == READY || head->status == STUBBED);
     }
     shared_sub_count = head->shared->sub_count;
