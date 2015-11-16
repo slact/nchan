@@ -349,9 +349,7 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
     head->internal_sub_count -= count;
-    if(head->shared) {
-      ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);  
-    }
+    ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);
   }
   else {
     if(head->shared){

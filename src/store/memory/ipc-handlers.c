@@ -115,6 +115,7 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
   subscribe_data_t             *d = (subscribe_data_t *)data;
   nchan_store_channel_head_t   *head;
   nchan_loc_conf_t              fake_conf;
+  store_channel_head_shm_t     *old_shared;
   DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
   
@@ -128,14 +129,21 @@ static void receive_subscribe_reply(ngx_int_t sender, void *data) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
     assert(0);
   }
-  if(head->shared) {
-    assert(head->shared == d->shared_channel_data);
+  old_shared = head->shared;
+  if(old_shared) {
+    assert(old_shared == d->shared_channel_data);
   }
   DBG("receive subscribe proceed to do ipc_sub stuff");
   head->shared = d->shared_channel_data;
   
-  ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count);
-  ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
+  if(old_shared == NULL) {
+    ERR("%V local sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
+    //ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count);
+    ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
+  }
+  else {
+    ERR("%V sub count already shared, don't update", &head->id);
+  }
   
   assert(head->shared != NULL);
   if(head->foreign_owner_ipc_sub) {
