@@ -89,6 +89,10 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
       //TODO: change status to NOTREADY and whatnot
       break;
     
+    case NGX_HTTP_CONFLICT:
+      nchan_memstore_publish_generic(d->multi_chanhead, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_410);
+      break;
+    
     default:
       //meh, no big deal.
       break;
