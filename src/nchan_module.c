@@ -365,7 +365,7 @@ ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id)
   static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
   ngx_str_t                      *last_event_id;
   ngx_str_t                      *if_none_match;
-  ngx_int_t                       tag=0;
+  char                           *strtoull_last;
   
   if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
     u_char       *split, *last;
@@ -375,10 +375,10 @@ ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id)
     if((split = ngx_strlchr(last_event_id->data, last, ':')) != NULL) {
       time = ngx_atoi(last_event_id->data, split - last_event_id->data);
       split++;
-      tag = ngx_atoi(split, last - split);
-      if(time != NGX_ERROR && tag != NGX_ERROR) {
+      strtoull_last = (char *)last;
+      if(time != NGX_ERROR) {
         id->time = time;
-        id->tag = tag;
+        id->tag = strtoull((const char *)split, &strtoull_last, 10);
         return NGX_OK;
       }
     }
@@ -386,10 +386,13 @@ ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id)
   
   if_none_match = nchan_subscriber_get_etag(r);
   id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-  if(if_none_match==NULL || (if_none_match!=NULL && (tag = ngx_atoi(if_none_match->data, if_none_match->len))==NGX_ERROR)) {
-    tag=0;
+  if(if_none_match==NULL) {
+    id->tag=0;
   }
-  id->tag=ngx_abs(tag);
+  else {
+    strtoull_last = (char *)(if_none_match->data + if_none_match->len);
+    id->tag = strtoull((const char *)if_none_match->data, &strtoull_last, 10);
+  }
   return NGX_OK;
 }
 
