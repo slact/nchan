@@ -41,6 +41,87 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
   return NGX_OK;
 }
 
+uint64_t nchan_update_msg_id_multi_tag(uint64_t multitag, uint8_t count, uint8_t n, uint64_t tag) {
+  nchan_multi_msg_id_tag_t   mtag;
+  mtag.n64 = multitag;
+  if (count == 2) {
+    mtag.n32[n] = tag;
+  }
+  else if (count <= 4) {
+    mtag.n16[n] = tag;
+  }
+  else if (count <= 8) {
+    mtag.n8[n] = tag;
+  }
+  else if(count == 1) {
+    mtag.n64 = tag;
+  }
+  else {
+    assert(0);
+  }
+  return mtag.n64;
+}
+
+void nchan_decode_msg_id_multi_tag(uint64_t tag, uint8_t count, uint64_t tag_out[]) {
+  nchan_multi_msg_id_tag_t   mtag;
+  ngx_int_t                  i;
+  mtag.n64 = tag;
+  if (count == 2) {
+    tag_out[0]=mtag.n32[0];
+    tag_out[1]=mtag.n32[1];
+  }
+  else if (count <= 4) {
+    for(i=0; i<count; i++) {
+      tag_out[i]=mtag.n16[i];
+    }
+  }
+  else if (count <= 8) {
+    for(i=0; i<count; i++) {
+      tag_out[i]=mtag.n8[i];
+    }
+  }
+  else if(count == 1) {
+    tag_out[0]=tag;
+  }
+  else {
+    assert(0);
+  }
+}
+
+uint64_t nchan_encode_msg_id_multi_tag(uint64_t tag, uint8_t n, uint8_t count, int8_t blankval) {
+  nchan_multi_msg_id_tag_t   mtag;
+  uint8_t                    i;
+  assert(sizeof(mtag) == sizeof(tag));
+  assert(n < count);
+  if(count == 2) {
+    assert(tag < (uint32_t )-1);
+    for(i=0; i<count; i++) {
+      mtag.n32[i] = (i == n) ? tag : (uint32_t ) blankval;
+    }
+    return mtag.n64;
+  }
+  else if(count <= 4) {
+    assert(tag < (uint16_t )-1);
+    for(i=0; i<count; i++) {
+      mtag.n16[i] = (i == n) ? tag : (uint16_t ) blankval;
+    }
+    return mtag.n64;
+  }
+  else if (count <= 8) {
+    assert(tag < (uint8_t )-1);
+    for(i=0; i<count; i++) {
+      mtag.n8[i] = (i == n) ? tag : (uint8_t ) blankval;
+    }
+    return mtag.n64;
+  }
+  else if(count == 1) {
+    return tag;
+  }
+  else {
+    assert(0);
+  }
+}
+
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chid_loc_conf_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n;
   ngx_str_t                   id[NCHAN_MEMSTORE_MULTI_MAX];

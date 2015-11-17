@@ -21,8 +21,16 @@ typedef struct {
 
 typedef struct {
   time_t                          time; //tag message by time
-  ngx_uint_t                      tag;  //used in conjunction with message_time if more than one message have the same time.
+  uint64_t                        tag;  //used in conjunction with message_time if more than one message have the same time.
 } nchan_msg_id_t;
+
+
+typedef union multi_msg_id_tag_u {
+  uint64_t      n64;
+  uint32_t      n32[2];
+  uint16_t      n16[4];
+  uint8_t       n8[8];
+} nchan_multi_msg_id_tag_t;
 
 typedef struct {
   ngx_chain_t     chain;
@@ -56,6 +64,7 @@ struct nchan_msg_s {
   
   struct nchan_msg_s             *reload_next;
   
+  uint8_t                         multi;
   unsigned                        shared:1; //for debugging
   unsigned                        temp_allocd:1;
 #if NCHAN_MSG_LEAK_DEBUG

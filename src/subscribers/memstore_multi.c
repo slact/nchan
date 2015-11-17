@@ -59,13 +59,15 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   d->multi_chanhead->status = WAITING;
   d->multi_chanhead->multi_waiting++;
   d->multi->sub = NULL;
+  
   ngx_free(d);
   return NGX_OK;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_data_t* d) {
   nchan_msg_t       remsg;
-  nchan_msg_id_t    *last_msgid;
+  //nchan_msg_id_t   *last_msgid;
+  ngx_int_t         mcount;
   
   //remsg = ngx_alloc(sizeof(*remsg), ngx_cycle->log);
   //assert(remsg);
@@ -74,16 +76,21 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   remsg.shared = 0;
   remsg.temp_allocd = 0;
   
-  remsg.id.tag = d->n + remsg.id.tag * (d->multi_chanhead->multi_count); //this is how we multiplex
+  mcount = d->multi_chanhead->multi_count;
   
-  assert(d->multi_chanhead->stub == 0);
+  remsg.multi = mcount;
+  
+  remsg.prev_id.tag = nchan_encode_msg_id_multi_tag(remsg.prev_id.tag, d->n, mcount, -1);
+  
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
   
-  last_msgid = &d->multi_chanhead->spooler.prev_msg_id;
-  assert(last_msgid->time <= remsg.id.time 
-    || (last_msgid->time == remsg.id.time && last_msgid->tag <= remsg.id.tag ));
+  //last_msgid = &d->multi_chanhead->spooler.prev_msg_id;
+  //assert(last_msgid->time <= remsg.id.time 
+  //  || (last_msgid->time == remsg.id.time && last_msgid->tag <= remsg.id.tag ));
   
-  remsg.prev_id = *last_msgid;
+  //remsg.prev_id = *last_msgid;
+  
+  remsg.id.tag = nchan_encode_msg_id_multi_tag(remsg.id.tag, d->n, mcount, 0);
   
   ERR("%p respond with transformed message %p %i:%i (%p %V %i) %V", d->multi->sub, &remsg, remsg.id.time, remsg.id.tag, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   

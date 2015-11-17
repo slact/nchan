@@ -1615,7 +1615,8 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     DBG("prev best response: %i:%i (n:%i) %p", d->msg ? d->msg->id.time : 0, d->msg ? d->msg->id.tag : 0, d->n, d->msg);
     if( d->msg == NULL
      || msg->id.time < d->msg->id.time 
-     || (msg->id.time == d->msg->id.time && msg->id.tag < d->msg->id.tag)) {
+     || (msg->id.time == d->msg->id.time && msg->id.tag < d->msg->id.tag) 
+     || (msg->id.time == d->msg->id.time && msg->id.tag == d->msg->id.tag && sd->n < d->n) ) {
       DBG("got a better response %i:%i (n:%i), replace.", msg->id.time, msg->id.tag, sd->n);
       d->msg_status = status;
       d->msg = msg;
@@ -1639,7 +1640,13 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
       
-      retmsg.id.tag = d->n + retmsg.id.tag * d->multi_count; //encode what channel this msg came from
+      if(d->wanted_msgid.time == retmsg.id.time) {
+        retmsg.id.tag = nchan_update_msg_id_multi_tag(d->wanted_msgid.tag, d->multi_count, d->n, d->msg->id.tag);
+      }
+      else {
+        retmsg.id.tag = nchan_encode_msg_id_multi_tag(retmsg.id.tag, d->n, d->multi_count, 0);
+      }
+      
       retmsg.prev_id=d->wanted_msgid;
       
       ERR("respond msg id transformed into %p %i:%i", &retmsg, d->msg->id.time, d->msg->id.tag);
@@ -1665,6 +1672,9 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   uint8_t                      want[NCHAN_MEMSTORE_MULTI_MAX];
   ngx_str_t                    ids[NCHAN_MEMSTORE_MULTI_MAX];
   nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX];
+  
+  uint64_t                     decoded_tags[8];
+  
   nchan_msg_id_t               unmulti_msgid = *msg_id;
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;
@@ -1673,8 +1683,6 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   time_t                       time = msg_id->time;
   ngx_int_t                    i;
-  ngx_int_t                    chan_index;
-  ngx_int_t                    basetag;
   
   get_multi_message_data_t    *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   assert(d);
@@ -1713,25 +1721,18 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     DBG("want all msgs");
   }
   else {
-    chan_index = tag % n; //this is the channel index
-    basetag = (tag - chan_index) / n; //decode the tag
     
-    DBG("last msgid chan_index: %i, base tag: %i", chan_index, basetag);
+    nchan_decode_msg_id_multi_tag(tag, n, decoded_tags);
     
     //what msgids do we want?
     for(i = 0; i < n; i++) {
       req_msgid[i].time = time;
-      if(i > chan_index) {
-        if(basetag > 0) {
-          req_msgid[i].tag = basetag - 1;
-        }
-        else {
-          req_msgid[i].time = time - 1;
-          req_msgid[i].tag = (ngx_uint_t ) -1;
-        }
+      if(decoded_tags[i] > 0) {
+        req_msgid[i].tag = decoded_tags[i];
       }
       else {
-        req_msgid[i].tag = basetag;
+        req_msgid[i].time --;
+        req_msgid[i].tag = (uint64_t ) -1;
       }
       DBG("might want msgid %i:%i from chan_index %i", req_msgid[i].time, req_msgid[i].tag, i);
     }
@@ -1909,6 +1910,8 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
+  
+  assert(m->multi == 0);
   
   msg = &stuff->msg;
   buf = &stuff->buf;
