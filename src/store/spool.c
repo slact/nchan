@@ -453,7 +453,7 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
       data->n++;
     }
     return dir;
-  } 
+  }
   else {
     nchan_msg_id_t            min = data->min, max = data->max, cur = spool->id;
     uint8_t                   i;
@@ -467,13 +467,27 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
     dir = RBTREE_WALK_STOP;
     for(i=0; i < multi_count; i++) {
       min.tag = nchan_extract_msg_id_multi_tag(min_mtag, multi_count, i);
-      
-      if(min.tag == (uint64_t) -1) {
-        continue;
-      }
-      
       max.tag = nchan_extract_msg_id_multi_tag(max_mtag, multi_count, i);
       cur.tag = nchan_extract_msg_id_multi_tag(cur_mtag, multi_count, i);
+      
+      if(max.tag == (uint64_t) -1) {
+        ERR("max.time --");
+        max.time --;
+        max.tag = 0;
+      }
+      
+      if(cur.tag == (uint64_t) -1) {
+        ERR("cur.time --");
+        cur.time --;
+        cur.tag = 0;
+      }
+      
+      ERR("compare min:%i:%i max:%i:%i cur:%i:%i multi:%i", min.time, min.tag, max.time, max.tag, cur.time, cur.tag, i);
+      
+      if(min.tag == (uint64_t) -1) {
+        ERR("skip this one");
+        continue;
+      }
       
       cur_dir = compare_msgid_range(&min, &max, &cur);
       if(cur_dir == RBTREE_WALK_LEFT_RIGHT) {

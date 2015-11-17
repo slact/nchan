@@ -1635,7 +1635,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     if(d->msg) {
       //retmsg = ngx_alloc(sizeof(*retmsg), ngx_cycle->log);
       //assert(retmsg);
-      ERR("ready to respond with msg %i:%u (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
+      DBG("ready to respond with msg %i:%u (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
       ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
@@ -1651,7 +1651,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
         retmsg.id.tag = nchan_encode_msg_id_multi_tag(retmsg.id.tag, d->n, d->multi_count, -1);
       }
       
-      ERR("respond msg id transformed into %p %i:%u", &retmsg, d->msg->id.time, d->msg->id.tag);
+      DBG("respond msg id transformed into %p %i:%u", &retmsg, retmsg.id.time, retmsg.id.tag);
       
       d->cb(d->msg_status, &retmsg, d->privdata);
     }
