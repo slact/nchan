@@ -10,6 +10,9 @@ PORT=ENV["PUSHMODULE_PORT"] || "8082"
 DEFAULT_CLIENT=:longpoll
 
 #Typhoeus::Config.verbose = true
+def short_id
+  SecureRandom.hex.to_s(36)[0..5]
+end
 
 def url(part="")
   part=part[1..-1] if part[0]=="/"
@@ -170,6 +173,36 @@ class PubSubTest <  Minitest::Test
     assert_equal 0, info_json["subscribers"], "channel should say there are no subscribers"
     
     sub.terminate
+  end
+  
+  def multi_sub_url(pubs)
+    ids = pubs.map{|v| v.id}.shuffle
+    "/sub/multi/#{ids.join '/'}"
+  end
+  
+  def test_multi_n(n=2)
+    class MultiCheck
+      attr_accessor :id, :pub
+      def initialize(id)
+        self.id = :id
+        self.pub = Publisher.new url("/pub/#{self.id}")
+      end
+    end
+    
+    pubs = []
+    n.times do |i|
+      pubs << MultiCheck.new(short_id)
+    end
+    
+    n = 5
+    scrambles = 5
+    subs = []
+    scrambles.times do |i|
+      subs << Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+    end
+    
+    binding.pry
+    
   end
   
   def test_message_delivery
