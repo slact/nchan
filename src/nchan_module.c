@@ -902,7 +902,7 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
 static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, uint8_t multi) {
   if(id1->time > 0 && id2->time > 0) {
     assert(id1->time == id2->time);
-    if(multi != 0) {
+    if(multi == 0) {
       //TODO: do this better
       assert(id1->tag == id2->tag);
     }
