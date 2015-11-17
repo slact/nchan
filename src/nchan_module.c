@@ -899,21 +899,22 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
 }
 
 
-ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, uint8_t multi) {
   if(id1->time > 0 && id2->time > 0) {
     assert(id1->time == id2->time);
-    assert(id1->tag == id2->tag);
+    if(multi != 0) {
+      //TODO: do this better
+      assert(id1->tag == id2->tag);
+    }
   }
   return NGX_OK;
 }
 
 ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
-    verify_msg_id(&sub->last_msg_id, &msg->prev_id);
+    verify_msg_id(&sub->last_msg_id, &msg->prev_id, msg->multi);
+    sub->last_msg_id = msg->id;
   }
-  
-  sub->last_msg_id.time = msg->id.time;
-  sub->last_msg_id.tag = msg->id.tag;
   
   return NGX_OK;
 }
