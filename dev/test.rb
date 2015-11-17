@@ -11,7 +11,7 @@ DEFAULT_CLIENT=:longpoll
 
 #Typhoeus::Config.verbose = true
 def short_id
-  SecureRandom.hex.to_s(36)[0..5]
+  SecureRandom.hex.to_i(16).to_s(36)[0..5]
 end
 
 def url(part="")
@@ -180,26 +180,45 @@ class PubSubTest <  Minitest::Test
     "/sub/multi/#{ids.join '/'}"
   end
   
-  def test_multi_n(n=2)
-    class MultiCheck
-      attr_accessor :id, :pub
-      def initialize(id)
-        self.id = :id
-        self.pub = Publisher.new url("/pub/#{self.id}")
-      end
+  class MultiCheck
+    attr_accessor :id, :pub
+    def initialize(id)
+      self.id = id
+      self.pub = Publisher.new url("/pub/#{self.id}")
     end
+  end
+  
+  def test_multi_n(n=2)
     
     pubs = []
     n.times do |i|
       pubs << MultiCheck.new(short_id)
     end
     
-    n = 5
-    scrambles = 5
+    n = 50
+    scrambles = 1
     subs = []
     scrambles.times do |i|
       subs << Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
     end
+    
+    subs.each &:run
+    
+    pubs.each {|p| p.pub.post "FIRST from #{p.id}" }
+    
+    10.times do |i|
+      pubs.each {|p| p.pub.post "hello #{i} from #{p.id}" }
+    end
+    
+    puts "yeeha"
+    
+    #latesubs = Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+    #subs << latesubs
+    #latesubs.run
+    
+    pubs.first.pub.post "FIN"
+    subs.each &:wait
+    sleep 1
     
     binding.pry
     
