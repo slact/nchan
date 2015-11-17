@@ -90,7 +90,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   //remsg.prev_id = *last_msgid;
   
-  remsg.id.tag = nchan_encode_msg_id_multi_tag(remsg.id.tag, d->n, mcount, 0);
+  remsg.id.tag = nchan_encode_msg_id_multi_tag(remsg.id.tag, d->n, mcount, -1);
   
   ERR("%p respond with transformed message %p %i:%i (%p %V %i) %V", d->multi->sub, &remsg, remsg.id.time, remsg.id.tag, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   

@@ -1635,21 +1635,23 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     if(d->msg) {
       //retmsg = ngx_alloc(sizeof(*retmsg), ngx_cycle->log);
       //assert(retmsg);
-      ERR("ready to respond with msg %i:%i (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
+      ERR("ready to respond with msg %i:%u (n:%i) %p", d->msg->id.time, d->msg->id.tag, d->n, d->msg);
       ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
+      retmsg.multi = d->multi_count;
+      
+      retmsg.prev_id = d->wanted_msgid;
+      //TODO: some kind of missed-message check
       
       if(d->wanted_msgid.time == retmsg.id.time) {
         retmsg.id.tag = nchan_update_msg_id_multi_tag(d->wanted_msgid.tag, d->multi_count, d->n, d->msg->id.tag);
       }
       else {
-        retmsg.id.tag = nchan_encode_msg_id_multi_tag(retmsg.id.tag, d->n, d->multi_count, 0);
+        retmsg.id.tag = nchan_encode_msg_id_multi_tag(retmsg.id.tag, d->n, d->multi_count, -1);
       }
       
-      retmsg.prev_id=d->wanted_msgid;
-      
-      ERR("respond msg id transformed into %p %i:%i", &retmsg, d->msg->id.time, d->msg->id.tag);
+      ERR("respond msg id transformed into %p %i:%u", &retmsg, d->msg->id.time, d->msg->id.tag);
       
       d->cb(d->msg_status, &retmsg, d->privdata);
     }
@@ -1679,7 +1681,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;
   
-  ngx_int_t                    tag = unmulti_msgid.tag;
+  uint64_t                     tag = unmulti_msgid.tag;
   
   time_t                       time = msg_id->time;
   ngx_int_t                    i;
@@ -1709,7 +1711,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   d->multi_count = n;
   
-  DBG("get multi msg %i:%i (count: %i)", msg_id->time, msg_id->tag, n);
+  DBG("get multi msg %i:%u (count: %i)", msg_id->time, msg_id->tag, n);
   
   if(msg_id->time == 0 && msg_id->tag == 0) {
     for(i = 0; i < n; i++) {
@@ -1727,14 +1729,11 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     //what msgids do we want?
     for(i = 0; i < n; i++) {
       req_msgid[i].time = time;
-      if(decoded_tags[i] > 0) {
-        req_msgid[i].tag = decoded_tags[i];
+      req_msgid[i].tag = decoded_tags[i];
+      if(decoded_tags[i] == (uint64_t ) -1) {
+        req_msgid[i].time --; //we might want a 0-tagged message from this channel
       }
-      else {
-        req_msgid[i].time --;
-        req_msgid[i].tag = (uint64_t ) -1;
-      }
-      DBG("might want msgid %i:%i from chan_index %i", req_msgid[i].time, req_msgid[i].tag, i);
+      DBG("might want msgid %i:%u from chan_index %i", req_msgid[i].time, req_msgid[i].tag, i);
     }
     
     //what do we need to fetch?

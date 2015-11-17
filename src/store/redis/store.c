@@ -1460,7 +1460,8 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->privdata=privdata;
   d->msg_time=msg->id.time;
   
-
+  
+  assert(msg->multi == 0);
   //nchan_store_publish_generic(channel_id, msg, 0, NULL);
   
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_messages]
