@@ -70,7 +70,7 @@ uint64_t nchan_extract_msg_id_multi_tag(nchan_multi_msg_id_tag_t mtag, uint8_t c
     return (mtag.n16[n] == (uint16_t) -1) ? (uint64_t ) -1 : mtag.n16[n];
   }
   else if (count <= 8) {
-    return (mtag.n32[n] == (uint8_t) -1) ? (uint64_t ) -1 : mtag.n8[n];
+    return (mtag.n8[n] == (uint8_t) -1) ? (uint64_t ) -1 : mtag.n8[n];
   }
   else if(count == 1) {
     return mtag.n64;
@@ -85,17 +85,17 @@ void nchan_decode_msg_id_multi_tag(uint64_t tag, uint8_t count, uint64_t tag_out
   ngx_int_t                  i;
   mtag.n64 = tag;
   if (count == 2) {
-    tag_out[0]=mtag.n32[0];
-    tag_out[1]=mtag.n32[1];
+    tag_out[0]= (mtag.n32[0] == (uint32_t) -1) ? (uint64_t ) -1 : mtag.n32[0];
+    tag_out[1]= (mtag.n32[1] == (uint32_t) -1) ? (uint64_t ) -1 : mtag.n32[1];
   }
   else if (count <= 4) {
     for(i=0; i<count; i++) {
-      tag_out[i]=mtag.n16[i];
+      tag_out[i]= (mtag.n16[i] == (uint16_t) -1) ? (uint64_t ) -1 : mtag.n16[i];
     }
   }
   else if (count <= 8) {
     for(i=0; i<count; i++) {
-      tag_out[i]=mtag.n8[i];
+      tag_out[i]= (mtag.n8[i] == (uint8_t) -1) ? (uint64_t ) -1 : mtag.n8[i];
     }
   }
   else if(count == 1) {
