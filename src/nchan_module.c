@@ -62,6 +62,24 @@ uint64_t nchan_update_msg_id_multi_tag(uint64_t multitag, uint8_t count, uint8_t
   return mtag.n64;
 }
 
+uint64_t nchan_extract_msg_id_multi_tag(nchan_multi_msg_id_tag_t mtag, uint8_t count, uint8_t n) {
+  if (count == 2) {
+    return (mtag.n32[n] == (uint32_t) -1) ? (uint64_t ) -1 : mtag.n32[n];
+  }
+  else if (count <= 4) {
+    return (mtag.n16[n] == (uint16_t) -1) ? (uint64_t ) -1 : mtag.n16[n];
+  }
+  else if (count <= 8) {
+    return (mtag.n32[n] == (uint8_t) -1) ? (uint64_t ) -1 : mtag.n8[n];
+  }
+  else if(count == 1) {
+    return mtag.n64;
+  }
+  else {
+    assert(0);
+  }
+}
+
 void nchan_decode_msg_id_multi_tag(uint64_t tag, uint8_t count, uint64_t tag_out[]) {
   nchan_multi_msg_id_tag_t   mtag;
   ngx_int_t                  i;

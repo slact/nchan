@@ -416,6 +416,7 @@ static ngx_int_t spool_transfer_subscribers(subscriber_pool_t *spool, subscriber
 typedef struct {
   nchan_msg_id_t      min;
   nchan_msg_id_t      max;
+  uint8_t             multi;
   ngx_int_t           n;
   subscriber_pool_t  *spools[32];
 } spooler_respond_data_t;
@@ -423,14 +424,10 @@ typedef struct {
 typedef enum { SMALLER, LARGER, INRANGE } spoolrange_t;
 
 
-static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
-  nchan_msg_id_t id = spool->id;
-  if(data->min.time < id.time || (data->min.time == id.time && data->min.tag <= id.tag)) {
-    if(data->max.time > id.time || (data->max.time == id.time && data->max.tag > id.tag)) {
+static rbtree_walk_direction_t compare_msgid_range(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan_msg_id_t *id) {
+  if(min->time < id->time || (min->time == id->time && min->tag <= id->tag)) {
+    if(max->time > id->time || (max->time == id->time && max->tag > id->tag)) {
       //inrange
-      assert(data->n < 32);
-      data->spools[data->n] = spool;
-      data->n++;
       return RBTREE_WALK_LEFT_RIGHT;
     }
     else {
@@ -444,12 +441,84 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
   } 
 }
 
+static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
+  rbtree_walk_direction_t  dir;
+  uint8_t multi_count = data->multi;
+  
+  if(multi_count == 0) {
+    dir = compare_msgid_range(&data->min, &data->max, &spool->id);
+    if(dir == RBTREE_WALK_LEFT_RIGHT) {
+      assert(data->n < 32);
+      data->spools[data->n] = spool;
+      data->n++;
+    }
+    return dir;
+  } 
+  else {
+    nchan_msg_id_t            min = data->min, max = data->max, cur = spool->id;
+    uint8_t                   i;
+    uint8_t                   in_range = 0;
+    rbtree_walk_direction_t   cur_dir;
+    nchan_multi_msg_id_tag_t  cur_mtag, min_mtag, max_mtag;
+    cur_mtag.n64 = cur.tag;
+    min_mtag.n64 = min.tag;
+    max_mtag.n64 = max.tag;
+    
+    dir = RBTREE_WALK_STOP;
+    for(i=0; i < multi_count; i++) {
+      min.tag = nchan_extract_msg_id_multi_tag(min_mtag, multi_count, i);
+      
+      if(min.tag == (uint64_t) -1) {
+        continue;
+      }
+      
+      max.tag = nchan_extract_msg_id_multi_tag(max_mtag, multi_count, i);
+      cur.tag = nchan_extract_msg_id_multi_tag(cur_mtag, multi_count, i);
+      
+      cur_dir = compare_msgid_range(&min, &max, &cur);
+      if(cur_dir == RBTREE_WALK_LEFT_RIGHT) {
+        in_range = 1;
+        dir = RBTREE_WALK_LEFT_RIGHT;
+        break; 
+      }
+      else if(cur_dir == RBTREE_WALK_LEFT) {
+        if(dir == RBTREE_WALK_RIGHT) {
+          dir = RBTREE_WALK_LEFT_RIGHT;
+          break;
+        }
+        else {
+          dir = RBTREE_WALK_LEFT;
+        }
+      }
+      else if(cur_dir == RBTREE_WALK_RIGHT) {
+        if(dir == RBTREE_WALK_LEFT) {
+          dir = RBTREE_WALK_LEFT_RIGHT;
+          break;
+        }
+        else {
+          dir = RBTREE_WALK_RIGHT;
+        }
+      }
+    }
+    
+    if(in_range) {
+      assert(data->n < 32);
+      data->spools[data->n] = spool;
+      data->n++;
+    }
+    
+    assert(dir != RBTREE_WALK_STOP);
+    return dir;
+  }
+}
+
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
   int                        i;
   spooler_respond_data_t     srdata;
   
   srdata.min = msg->prev_id;
   srdata.max = msg->id;
+  srdata.multi = msg->multi;
   srdata.n = 0;
   
   //find all spools between msg->prev_id and msg->id

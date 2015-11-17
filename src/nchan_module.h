@@ -30,6 +30,7 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
 void nchan_decode_msg_id_multi_tag(uint64_t tag, uint8_t count, uint64_t tag_out[]);
 uint64_t nchan_encode_msg_id_multi_tag(uint64_t tag, uint8_t n, uint8_t count, int8_t blankval);
 uint64_t nchan_update_msg_id_multi_tag(uint64_t multitag, uint8_t count, uint8_t n, uint64_t tag);
+uint64_t nchan_extract_msg_id_multi_tag(nchan_multi_msg_id_tag_t mtag, uint8_t count, uint8_t n);
 ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg);
 
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
