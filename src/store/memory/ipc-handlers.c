@@ -358,24 +358,20 @@ static void receive_publish_message_reply(ngx_int_t sender, void *data) {
 ////////// GET MESSAGE ////////////////
 typedef struct {
   ngx_str_t              *shm_chid;
-  nchan_msg_id_t          msgid;
   void                   *privdata;
+  nchan_msg_t            *shm_msg;
+  nchan_msg_status_t      getmsg_code;
+  nchan_msg_id_t          msgid;
 } getmessage_data_t;
-
-typedef struct {
-  ngx_str_t           *shm_chid;
-  nchan_msg_t         *shm_msg;
-  nchan_msg_status_t   getmsg_code;
-  void                *privdata;
-} getmessage_reply_data_t;
 
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
   getmessage_data_t      data;
   
   data.shm_chid= str_shm_copy(chid);
-  ngx_memcpy(&data.msgid, msgid, sizeof(*msgid));
+  data.msgid = *msgid;
   data.privdata = privdata;
-  
+  data.shm_msg = NULL;
+  data.getmsg_code = MSG_PENDING;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
@@ -389,31 +385,27 @@ static void receive_get_message(ngx_int_t sender, void *data) {
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
-  getmessage_reply_data_t *rd = (getmessage_reply_data_t *)data;
-  assert(rd->shm_chid->len>1);
-  assert(rd->shm_chid->data!=NULL);
   DBG("IPC: received get_message request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   head = nchan_memstore_find_chanhead(d->shm_chid);
   if(head == NULL) {
     //no such thing here. reply.
-    rd->getmsg_code = MSG_NOTFOUND;
-    rd->shm_msg = NULL;
+    d->getmsg_code = MSG_NOTFOUND;
+    d->shm_msg = NULL;
   }
   else {
     msg = chanhead_find_next_message(head, &d->msgid, &status);
-    rd->getmsg_code = status;
-    rd->shm_msg = msg == NULL ? NULL : msg->msg;
+    d->getmsg_code = status;
+    d->shm_msg = msg == NULL ? NULL : msg->msg;
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
-  if(rd->shm_msg) {
-    msg_reserve(rd->shm_msg, "get_message_reply");
+  if(d->shm_msg) {
+    msg_reserve(d->shm_msg, "get_message_reply");
   }
-  ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, rd, sizeof(*rd));
+  ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, d, sizeof(*d));
 }
 
-static void receive_get_message_reply(ngx_int_t sender, void *data) {
-  getmessage_reply_data_t *d = (getmessage_reply_data_t *)data;
+static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
