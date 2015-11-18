@@ -359,13 +359,11 @@ typedef struct {
 } getmessage_data_t;
 
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
-  getmessage_data_t      data;
+  getmessage_data_t      data = {0}; //memzeroed for debugging
   
   data.shm_chid= str_shm_copy(chid);
-  data.msgid = *msgid;
   data.privdata = privdata;
-  data.shm_msg = NULL;
-  data.getmsg_code = MSG_PENDING;
+  data.msgid = *msgid;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));

@@ -332,7 +332,10 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
   if_none_match = nchan_subscriber_get_etag(r);
   id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
   if(if_none_match==NULL) {
-    id->tag[0]=0;
+    int i;
+    for(i=0; i< NCHAN_MULTITAG_MAX; i++) {
+      id->tag[i]=0;
+    }
     id->multi_count=1;
   }
   else {
@@ -607,7 +610,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_str_t              *channel_id;
   subscriber_t           *sub;
-  nchan_msg_id_t          msg_id;
+  nchan_msg_id_t          msg_id = {0}; //memzeroed for debugging
   ngx_int_t               rc = NGX_DONE;
   
   if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
