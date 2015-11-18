@@ -1377,17 +1377,18 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     return NULL;
   }
   
-
-  if(msgid == NULL || (msgid->time < first->msg->id.time || (msgid->time == first->msg->id.time && msgid->tag < first->msg->id.tag)) ) {
+  assert(msgid->multi_count == 1 && first->msg->id.multi_count == 1);
+  if(msgid == NULL || (msgid->time < first->msg->id.time || (msgid->time == first->msg->id.time && msgid->tag[0] < first->msg->id.tag[0])) ) {
     DBG("found message %V", msgid_to_str(&first->msg->id));
     *status = MSG_FOUND;
     return first;
   }
 
   while(cur != NULL) {
+    assert(cur->msg->id.multi_count == 1);
     DBG("cur: (chid: %V)  %V %V", &ch->id, msgid_to_str(&cur->msg->id), chanhead_msg_to_str(cur));
     
-    if(msgid->time > cur->msg->id.time || (msgid->time == cur->msg->id.time && msgid->tag >= cur->msg->id.tag)){
+    if(msgid->time > cur->msg->id.time || (msgid->time == cur->msg->id.time && msgid->tag[0] >= cur->msg->id.tag[0])){
       if(cur->next != NULL) {
         *status = MSG_FOUND;
         DBG("found message %V", msgid_to_str(&cur->next->msg->id));
@@ -1623,8 +1624,8 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     DBG("prev best response: %V (n:%i) %p", d->msg ? msgid_to_str(&d->msg->id) : &empty_id_str, d->n, d->msg);
     if( d->msg == NULL
      || msg->id.time < d->msg->id.time 
-     || (msg->id.time == d->msg->id.time && msg->id.tag < d->msg->id.tag) 
-     || (msg->id.time == d->msg->id.time && msg->id.tag == d->msg->id.tag && sd->n < d->n) ) {
+     || (msg->id.time == d->msg->id.time && msg->id.tag[0] < d->msg->id.tag[0]) 
+     || (msg->id.time == d->msg->id.time && msg->id.tag[0] == d->msg->id.tag[0] && sd->n < d->n) ) {
       DBG("got a better response %V (n:%i), replace.", msgid_to_str(&msg->id), sd->n);
       d->msg_status = status;
       d->msg = msg;
@@ -1750,10 +1751,10 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     for(i = 0; i < n; i++) {
       if(multi) {
         lastid = &multi[i].sub->last_msgid;
-        DBG("chan index %i last id %V (wanted: %V)", i, msgid_to_str(lastid), msgid_to_str(&req_msgid[i]));
+        DBG("chan index %i last id %V", i, msgid_to_str(lastid));
         if( 1 || lastid->time == 0 
          || lastid->time > req_msgid[i].time
-         || (lastid->time == req_msgid[i].time && lastid->tag > req_msgid[i].tag)) {
+         || (lastid->time == req_msgid[i].time && lastid->tag[0] > req_msgid[i].tag[0])) {
           want[i]=1;
           d->getting++;
           DBG("want %i", i);
@@ -2143,6 +2144,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   chead->latest_msgid = publish_msg->id;
   
   //do the actual publishing
+  assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag[0] != publish_msg->prev_id.tag[0]));
   
   DBG("publish %V expire %i", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   if(publish_msg->buf && publish_msg->buf->file) {

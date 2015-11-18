@@ -1193,11 +1193,12 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
       ngx_memcpy(msg->content_type.data, els[offset+5]->str, content_type_len);
     }
     
+    assert(msg->id.multi_count == 1 && msg->prev_id.multi_count == 1);
     redisReply_to_int(els[offset+0], &msg->id.time);
-    redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag); // tag is a uint, meh.
+    redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag[0]); // tag is a uint, meh.
     
     redisReply_to_int(els[offset+2], &msg->prev_id.time);
-    redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag);
+    redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag[0]);
     
     return msg;
   }
@@ -1278,7 +1279,8 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
-  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag, "FILO", 0);
+  assert(msg_id->multi_count = 1);
+  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag[0], "FILO", 0);
   return NGX_OK; //async only now!
 }
 
@@ -1411,7 +1413,7 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   
   ch->spooler.fn->add(&ch->spooler, d->sub);
   
-  //redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag, "FILO", create_channel_ttl);
+  //redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag[0], "FILO", create_channel_ttl);
   return NGX_OK;
 }
 
@@ -1426,7 +1428,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
     return NULL;
   }
   etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%ui", msg->id.tag)- etag->data;
+  etag->len = ngx_sprintf(etag->data,"%i", msg->id.tag[0])- etag->data;
   return etag;
 }
 

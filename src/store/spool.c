@@ -75,7 +75,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   
   DBG("spool nextmsg %p (%V) newid %V", spool, msgid_to_str(&spool->id), msgid_to_str(new_last_id));
   
-  if(spool->id.time == new_last_id->time && spool->id.tag == new_last_id->tag) {
+  if(spool->id.time == new_last_id->time && spool->id.tag[0] == new_last_id->tag[0]) {
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
   }
   else {
@@ -97,7 +97,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
       /*
       newspool = get_spool(spl, new_last_id);
       assert(spool != newspool);
-    spool_transfer_subscribers(spool, newspool, 0);
+      spool_transfer_subscribers(spool, newspool, 0);
       destroy_spool(spool);
       */
     }
