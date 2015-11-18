@@ -1568,7 +1568,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   return NGX_OK;
 }
 
-static ngx_str_t empty_id_str = ngx_string("0:0");
+static ngx_str_t empty_id_str = ngx_string("-");
 
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata);
 
@@ -2145,8 +2145,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   
   //do the actual publishing
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag[0] != publish_msg->prev_id.tag[0]));
-  
   DBG("publish %V expire %i", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
+  DBG("prev: %V", msgid_to_str(&publish_msg->prev_id));
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }

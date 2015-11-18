@@ -277,7 +277,6 @@ static ngx_int_t spool_remove_subscriber(subscriber_pool_t *self, spooled_subscr
 
   return NGX_OK;
 }
-static ngx_str_t empty_tag = ngx_string("-");
 
 static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_uint_t                  numsubs[SUBSCRIBER_TYPES];
@@ -287,7 +286,11 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   ngx_memzero(numsubs, sizeof(numsubs));
   self->generation++;
   
-  DBG("spool %p (%V) (subs: %i) respond with msg %p (%V prev:%V) or code %i", self, msgid_to_str(&self->id), self->sub_count, msg, msg ? msgid_to_str(&msg->id) : &empty_tag, msg ? msgid_to_str(&msg->prev_id) : &empty_tag, status_code);
+  DBG("spool %p (%V) (subs: %i) respond with msg %p or code %i", self, msgid_to_str(&self->id), self->sub_count, msg, status_code);
+  if(msg) {
+    DBG("msgid: %V", msgid_to_str(&msg->id));
+    DBG("prev: %V", msgid_to_str(&msg->prev_id));
+  }
   
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
