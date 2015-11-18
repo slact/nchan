@@ -41,6 +41,12 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
   return NGX_OK;
 }
 
+void nchan_msg_multi_id_extract_id(nchan_msg_multi_id_t *m, uint8_t n, nchan_msg_id_t *out) {
+  out->time = m->time;
+  assert(m->multi_count > n);
+  out->tag = m->tag[n] == -1 ? (uint64_t ) -1 : m->tag[n];
+}
+
 uint64_t nchan_update_msg_id_multi_tag(uint64_t multitag, uint8_t count, uint8_t n, uint64_t tag) {
   nchan_multi_msg_id_tag_t   mtag;
   mtag.n64 = multitag;
@@ -361,11 +367,78 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   return NULL;
 }
 
+static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_multi_id_t *mid) {
+  u_char    *cur = first;
+  u_char     c;
+  uint8_t    i = 0;
+  uint8_t    neg = 0;
+  int64_t    val = 0;
+  
+  while(cur <= last && i < 8) {
+    if(cur == last) {
+      mid->tag[i]=val;
+      i++;
+      break;
+    }
+    
+    c = *cur;
+    if(c == '-') {
+      neg = 1;
+    }
+    else if (c >= '0' && c <= '9') {
+      val = 10 * val + (c - '0');
+    }
+    else {
+      if(neg) val = val * -1;
+      mid->tag[i]=val;
+      neg=0;
+      val=0;
+      i++;
+    }
+    cur++;
+  }
+  mid->multi_count = i;
+}
+
+static ngx_int_t nchan_subscriber_get_msg_multi_id(ngx_http_request_t *r, nchan_msg_multi_id_t *id) {
+  static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
+  ngx_str_t                      *last_event_id;
+  ngx_str_t                      *if_none_match;
+  
+  if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
+    u_char       *split, *last;
+    ngx_int_t     time;
+    //"<msg_time>:<msg_tag>"
+    last = last_event_id->data + last_event_id->len;
+    if((split = ngx_strlchr(last_event_id->data, last, ':')) != NULL) {
+      time = ngx_atoi(last_event_id->data, split - last_event_id->data);
+      split++;
+      if(time != NGX_ERROR) {
+        id->time = time;
+        nchan_parse_msg_tag(split, last, id);
+        return NGX_OK;
+      }
+    }
+  }
+  
+  if_none_match = nchan_subscriber_get_etag(r);
+  id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+  if(if_none_match==NULL) {
+    id->tag[0]=0;
+    id->multi_count=1;
+  }
+  else {
+    nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
+  }
+  return NGX_OK;
+}
+
 ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
   static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
   ngx_str_t                      *last_event_id;
   ngx_str_t                      *if_none_match;
   char                           *strtoull_last;
+  
   
   if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
     u_char       *split, *last;
