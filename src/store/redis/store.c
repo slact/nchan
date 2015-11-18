@@ -1316,8 +1316,6 @@ typedef struct {
   ngx_msec_t                   t;
   char                        *name;
   ngx_str_t                   *channel_id;
-  nchan_msg_id_t              *msg_id;
-  unsigned                     msgid_allocd;
   callback_pt                  callback;
   subscriber_t                *sub;
   nchan_store_channel_head_t  *chanhead;
@@ -1341,12 +1339,14 @@ static ngx_int_t subscribe_authorize_callback(ngx_int_t status, void *ch, void *
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   redis_subscribe_data_t       *d = NULL;
   
   if(callback == NULL) {
     callback = empty_callback;
   }
+  
+  assert(sub->last_msgid_multi.multi_count == 1);
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
@@ -1358,8 +1358,6 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   d->channel_id->data = (u_char *)&(d->channel_id)[1];
   ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
   
-  d->msg_id=msg_id;
-  d->msgid_allocd = 0;
   d->callback=callback;
   d->privdata=privdata;
 

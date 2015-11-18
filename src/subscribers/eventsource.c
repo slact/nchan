@@ -278,7 +278,7 @@ static ngx_int_t es_enqueue(subscriber_t *sub) {
 static       subscriber_fn_t  eventsource_fn_data;
 static       subscriber_fn_t *eventsource_fn = NULL;
 
-subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
+subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_multi_id_t *msg_id) {
   subscriber_t         *sub;
   full_subscriber_t    *fsub;
   

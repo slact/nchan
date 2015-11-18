@@ -26,7 +26,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
 #endif
 }
 
-subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
+subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_multi_id_t *msg_id) {
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
   //TODO: allocate from pool (but not the request's pool)
@@ -59,12 +59,15 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
 #endif
   
   if(msg_id) {
-    fsub->sub.last_msg_id.time = msg_id->time;
-    fsub->sub.last_msg_id.tag = msg_id->tag;
+    nchan_msg_multi_id_extract_id(msg_id, 0, &fsub->sub.last_msg_id);
+    fsub->sub.last_msgid_multi = *msg_id;
   }
   else {
     fsub->sub.last_msg_id.time = 0;
     fsub->sub.last_msg_id.tag = 0;
+    fsub->sub.last_msgid_multi.time = 0;
+    fsub->sub.last_msgid_multi.tag[0] = 0;
+    fsub->sub.last_msgid_multi.multi_count = 1;
   }
   
   fsub->data.owner = memstore_slot();
@@ -278,6 +281,7 @@ static const subscriber_t new_longpoll_sub = {
   "longpoll",
   LONGPOLL,
   &longpoll_fn,
+  {0},
   {0,0},
   NULL,
   0, //reservations

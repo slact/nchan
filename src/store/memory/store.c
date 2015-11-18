@@ -456,9 +456,8 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   else {
     if(head->use_redis && head->status != READY) {
       if(head->redis_sub == NULL) {
-        nchan_msg_id_t        msgid = {ngx_time(), 0}; //close enough to now
         head->redis_sub = memstore_redis_subscriber_create(head);
-        nchan_store_redis.subscribe(&head->id, &msgid, head->redis_sub, NULL, NULL);
+        nchan_store_redis.subscribe(&head->id, head->redis_sub, NULL, NULL);
         head->status = WAITING;
       }
       else {
@@ -1402,6 +1401,7 @@ typedef struct {
   nchan_store_channel_head_t  *chanhead;
   ngx_str_t                   *channel_id;
   nchan_msg_id_t               msg_id;
+  nchan_msg_multi_id_t         msg_mid;
   callback_pt                  cb;
   void                        *cb_privdata;
   unsigned                     reserved:1;
@@ -1441,14 +1441,12 @@ static void subscribe_data_free(subscribe_data_t *d) {
 static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
-static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, subscriber_t *sub, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t            *d = subscribe_data_alloc(sub->cf->use_redis ? -1 : owner);
   
   assert(d != NULL);
   assert(callback != NULL);
-  
-  d->msg_id = *msg_id;
   
   d->channel_owner = owner;
   d->channel_id = channel_id;
@@ -1457,8 +1455,8 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, nchan_msg_id_t *ms
   d->sub = sub;
   d->subbed = 0;
   d->reserved = 0;
-  
-  DBG("subscribe msgid %i:%i", msg_id->time, msg_id->tag);
+  d->msg_mid = sub->last_msgid_multi;
+  d->msg_id = sub->last_msg_id;
   
   if(sub->cf->authorize_channel) {
     sub->fn->reserve(sub);

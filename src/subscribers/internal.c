@@ -261,6 +261,7 @@ static const subscriber_t new_internal_sub = {
   "internal",
   INTERNAL,
   &internal_sub_fn,
+  {0},
   {0, 0},
   NULL,
   0, //reserved

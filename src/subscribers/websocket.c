@@ -221,7 +221,7 @@ static void websocket_init_frame(ws_frame_t *frame) {
   frame->payload = NULL;
 }
 
-subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
+subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_multi_id_t *msg_id) {
   ngx_buf_t            *b;
   nchan_loc_conf_t     *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   DBG("create for req %p", r);
@@ -240,7 +240,15 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->sub.enqueued = 0;
   
   if(msg_id) {
-    fsub->sub.last_msg_id = *msg_id;
+    nchan_msg_multi_id_extract_id(msg_id, 0, &fsub->sub.last_msg_id);
+    fsub->sub.last_msgid_multi = *msg_id;
+  }
+  else {
+    fsub->sub.last_msg_id.time = 0;
+    fsub->sub.last_msg_id.tag = 0;
+    fsub->sub.last_msgid_multi.time = 0;
+    fsub->sub.last_msgid_multi.tag[0] = 0;
+    fsub->sub.last_msgid_multi.multi_count = 1;
   }
   
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
@@ -944,6 +952,7 @@ static const subscriber_t new_websocket_sub = {
   "websocket",
   WEBSOCKET,
   &websocket_fn,
+  {0},
   {0,0}, //last_msg_id (for debugging)
   NULL,
   0, //reserved
