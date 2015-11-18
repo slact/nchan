@@ -277,7 +277,7 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   uint8_t    neg = 0;
   int64_t    val = 0;
   
-  while(cur <= last && i < 8) {
+  while(cur <= last && i < NCHAN_MULTITAG_MAX) {
     if(cur == last) {
       mid->tag[i]=val;
       i++;
@@ -301,6 +301,11 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
     cur++;
   }
   mid->multi_count = i;
+  
+  //and just so we don't have uninitialized data being passed around
+  for(/**/;i<NCHAN_MULTITAG_MAX;i++) {
+    mid->tag[i]=0;
+  }
 }
 
 static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
