@@ -18,7 +18,7 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
-#define NCHAN_MULTITAG_MAX 8
+#define NCHAN_MULTITAG_MAX 4
 typedef struct {
   time_t                          time; //tag message by time
   int16_t                         tag[NCHAN_MULTITAG_MAX];
