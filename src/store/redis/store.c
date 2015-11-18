@@ -1193,12 +1193,13 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
       ngx_memcpy(msg->content_type.data, els[offset+5]->str, content_type_len);
     }
     
-    assert(msg->id.multi_count == 1 && msg->prev_id.multi_count == 1);
     redisReply_to_int(els[offset+0], &msg->id.time);
     redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag[0]); // tag is a uint, meh.
+    msg->id.multi_count = 1;
     
     redisReply_to_int(els[offset+2], &msg->prev_id.time);
     redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag[0]);
+    msg->prev_id.multi_count = 1;
     
     return msg;
   }
@@ -1485,7 +1486,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->msg_time=msg->id.time;
   
   
-  assert(msg->multi == 0);
+  assert(msg->id.multi_count == 1);
   //nchan_store_publish_generic(channel_id, msg, 0, NULL);
   
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_messages]

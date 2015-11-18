@@ -458,7 +458,7 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
   rbtree_walk_direction_t  dir;
   uint8_t multi_count = data->multi;
   
-  if(multi_count == 0) {
+  if(multi_count <= 1) {
     dir = compare_msgid_onetag_range(&data->min, &data->max, &spool->id);
     if(dir == RBTREE_WALK_LEFT_RIGHT) {
       assert(data->n < 32);
@@ -479,7 +479,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   
   srdata.min = msg->prev_id;
   srdata.max = msg->id;
-  srdata.multi = msg->multi;
+  srdata.multi = msg->id.multi_count;
   srdata.n = 0;
   
   //find all spools between msg->prev_id and msg->id

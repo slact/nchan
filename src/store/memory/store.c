@@ -1647,7 +1647,8 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
-      retmsg.multi = d->multi_count;
+
+      retmsg.id.multi_count = d->multi_count; //IS THIS EVEN NEEDED?
       
       retmsg.prev_id = d->wanted_msgid;
       //TODO: some kind of missed-message check
@@ -1923,7 +1924,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     return NULL;
   }
   
-  assert(m->multi == 0);
+  assert(m->id.multi_count == 1);
   
   msg = &stuff->msg;
   buf = &stuff->buf;

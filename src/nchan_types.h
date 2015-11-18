@@ -57,7 +57,6 @@ struct nchan_msg_s {
   
   struct nchan_msg_s             *reload_next;
   
-  uint8_t                         multi;
   unsigned                        shared:1; //for debugging
   unsigned                        temp_allocd:1;
 #if NCHAN_MSG_LEAK_DEBUG
