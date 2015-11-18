@@ -18,25 +18,12 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
-
+#define NCHAN_MULTITAG_MAX 8
 typedef struct {
   time_t                          time; //tag message by time
-  uint64_t                        tag;  //used in conjunction with message_time if more than one message have the same time.
-} nchan_msg_id_t;
-
-typedef struct {
-  time_t                          time; //tag message by time
-  int16_t                         tag[8];
+  int16_t                         tag[NCHAN_MULTITAG_MAX];
   uint8_t                         multi_count;
-} nchan_msg_multi_id_t;
-
-
-typedef union multi_msg_id_tag_u {
-  uint64_t      n64;
-  uint32_t      n32[2];
-  uint16_t      n16[4];
-  uint8_t       n8[8];
-} nchan_multi_msg_id_tag_t;
+} nchan_msg_id_t;
 
 typedef struct {
   ngx_chain_t     chain;
@@ -126,7 +113,7 @@ typedef struct{
   
   //async-friendly functions with callbacks
   ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
-  ngx_int_t (*subscribe)   (ngx_str_t *, nchan_msg_id_t *, struct subscriber_s *, callback_pt, void *);
+  ngx_int_t (*subscribe)   (ngx_str_t *, struct subscriber_s *, callback_pt, void *);
   ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, struct nchan_loc_conf_s *, callback_pt, void *);
   
   ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
@@ -220,7 +207,7 @@ struct subscriber_s {
   const char             *name;
   subscriber_type_t       type;
   const subscriber_fn_t  *fn;
-  nchan_msg_id_t          last_msg_id;
+  nchan_msg_id_t          last_msgid;
   nchan_loc_conf_t       *cf;
   ngx_uint_t              reserved;
   unsigned                dequeue_after_response:1;

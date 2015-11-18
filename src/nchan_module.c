@@ -41,108 +41,11 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
   return NGX_OK;
 }
 
-void nchan_msg_multi_id_extract_id(nchan_msg_multi_id_t *m, uint8_t n, nchan_msg_id_t *out) {
-  out->time = m->time;
-  assert(m->multi_count > n);
-  out->tag = m->tag[n] == -1 ? (uint64_t ) -1 : m->tag[n];
-}
-
-uint64_t nchan_update_msg_id_multi_tag(uint64_t multitag, uint8_t count, uint8_t n, uint64_t tag) {
-  nchan_multi_msg_id_tag_t   mtag;
-  mtag.n64 = multitag;
-  if (count == 2) {
-    mtag.n32[n] = tag;
-  }
-  else if (count <= 4) {
-    mtag.n16[n] = tag;
-  }
-  else if (count <= 8) {
-    mtag.n8[n] = tag;
-  }
-  else if(count == 1) {
-    mtag.n64 = tag;
-  }
-  else {
-    assert(0);
-  }
-  return mtag.n64;
-}
-
-uint64_t nchan_extract_msg_id_multi_tag(nchan_multi_msg_id_tag_t mtag, uint8_t count, uint8_t n) {
-  if (count == 2) {
-    return (mtag.n32[n] == (uint32_t) -1) ? (uint64_t ) -1 : mtag.n32[n];
-  }
-  else if (count <= 4) {
-    return (mtag.n16[n] == (uint16_t) -1) ? (uint64_t ) -1 : mtag.n16[n];
-  }
-  else if (count <= 8) {
-    return (mtag.n8[n] == (uint8_t) -1) ? (uint64_t ) -1 : mtag.n8[n];
-  }
-  else if(count == 1) {
-    return mtag.n64;
-  }
-  else {
-    assert(0);
-  }
-}
-
-void nchan_decode_msg_id_multi_tag(uint64_t tag, uint8_t count, uint64_t tag_out[]) {
-  nchan_multi_msg_id_tag_t   mtag;
-  ngx_int_t                  i;
-  mtag.n64 = tag;
-  if (count == 2) {
-    tag_out[0]= (mtag.n32[0] == (uint32_t) -1) ? (uint64_t ) -1 : mtag.n32[0];
-    tag_out[1]= (mtag.n32[1] == (uint32_t) -1) ? (uint64_t ) -1 : mtag.n32[1];
-  }
-  else if (count <= 4) {
-    for(i=0; i<count; i++) {
-      tag_out[i]= (mtag.n16[i] == (uint16_t) -1) ? (uint64_t ) -1 : mtag.n16[i];
-    }
-  }
-  else if (count <= 8) {
-    for(i=0; i<count; i++) {
-      tag_out[i]= (mtag.n8[i] == (uint8_t) -1) ? (uint64_t ) -1 : mtag.n8[i];
-    }
-  }
-  else if(count == 1) {
-    tag_out[0]=tag;
-  }
-  else {
-    assert(0);
-  }
-}
-
-uint64_t nchan_encode_msg_id_multi_tag(uint64_t tag, uint8_t n, uint8_t count, int8_t blankval) {
-  nchan_multi_msg_id_tag_t   mtag;
-  uint8_t                    i;
-  assert(sizeof(mtag) == sizeof(tag));
-  assert(n < count);
-  if(count == 2) {
-    assert(tag < (uint32_t )-1);
-    for(i=0; i<count; i++) {
-      mtag.n32[i] = (i == n) ? tag : (uint32_t ) blankval;
-    }
-    return mtag.n64;
-  }
-  else if(count <= 4) {
-    assert(tag < (uint16_t )-1);
-    for(i=0; i<count; i++) {
-      mtag.n16[i] = (i == n) ? tag : (uint16_t ) blankval;
-    }
-    return mtag.n64;
-  }
-  else if (count <= 8) {
-    assert(tag < (uint8_t )-1);
-    for(i=0; i<count; i++) {
-      mtag.n8[i] = (i == n) ? tag : (uint8_t ) blankval;
-    }
-    return mtag.n64;
-  }
-  else if(count == 1) {
-    return tag;
-  }
-  else {
-    assert(0);
+void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill) {
+  int16_t v = id->tag[in_n];
+  uint8_t i;
+  for(i=0; i < NCHAN_MULTITAG_MAX; i++) {
+    id->tag[i] = (i == out_n) ? v : fill;
   }
 }
 
@@ -367,7 +270,7 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   return NULL;
 }
 
-static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_multi_id_t *mid) {
+static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid) {
   u_char    *cur = first;
   u_char     c;
   uint8_t    i = 0;
@@ -400,7 +303,7 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_multi_id_
   mid->multi_count = i;
 }
 
-static ngx_int_t nchan_subscriber_get_msg_multi_id(ngx_http_request_t *r, nchan_msg_multi_id_t *id) {
+static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
   static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
   ngx_str_t                      *last_event_id;
   ngx_str_t                      *if_none_match;
@@ -429,42 +332,6 @@ static ngx_int_t nchan_subscriber_get_msg_multi_id(ngx_http_request_t *r, nchan_
   }
   else {
     nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
-  }
-  return NGX_OK;
-}
-
-ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
-  static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
-  ngx_str_t                      *last_event_id;
-  ngx_str_t                      *if_none_match;
-  char                           *strtoull_last;
-  
-  
-  if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
-    u_char       *split, *last;
-    ngx_int_t     time;
-    //"<msg_time>:<msg_tag>"
-    last = last_event_id->data + last_event_id->len;
-    if((split = ngx_strlchr(last_event_id->data, last, ':')) != NULL) {
-      time = ngx_atoi(last_event_id->data, split - last_event_id->data);
-      split++;
-      strtoull_last = (char *)last;
-      if(time != NGX_ERROR) {
-        id->time = time;
-        id->tag = strtoull((const char *)split, &strtoull_last, 10);
-        return NGX_OK;
-      }
-    }
-  }
-  
-  if_none_match = nchan_subscriber_get_etag(r);
-  id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-  if(if_none_match==NULL) {
-    id->tag=0;
-  }
-  else {
-    strtoull_last = (char *)(if_none_match->data + if_none_match->len);
-    id->tag = strtoull((const char *)if_none_match->data, &strtoull_last, 10);
   }
   return NGX_OK;
 }
@@ -753,7 +620,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-      cf->storage_engine->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
+      cf->storage_engine->subscribe(channel_id, sub, (callback_pt )&subscribe_websocket_callback, (void *)r);
       
       memstore_sub_debug_end();
     }
@@ -776,7 +643,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
-          cf->storage_engine->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_eventsource_callback, (void *)r);
+          cf->storage_engine->subscribe(channel_id, sub, (callback_pt )&subscribe_eventsource_callback, (void *)r);
           
           memstore_sub_debug_end();
         }
@@ -784,6 +651,8 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           memstore_sub_debug_start();
           
           nchan_subscriber_get_msg_id(r, &msg_id);
+          assert(msg_id.multi_count == 1);
+          
           r->main->count++;
           cf->storage_engine->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
           memstore_sub_debug_end();
@@ -796,7 +665,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
-          cf->storage_engine->subscribe(channel_id, &msg_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+          cf->storage_engine->subscribe(channel_id, sub, (callback_pt )&subscribe_longpoll_callback, (void *)r);
           
           memstore_sub_debug_end();
         }
@@ -931,6 +800,8 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       
       ngx_gettimeofday(&tv);
       msg->id.time = tv.tv_sec;
+      msg->id.tag[0] = 0;
+      msg->id.multi_count = 1;
       
       msg->buf = buf;
 #if NCHAN_MSG_LEAK_DEBUG
@@ -977,7 +848,7 @@ static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, uint8_
     assert(id1->time == id2->time);
     if(multi == 0) {
       //TODO: do this better
-      assert(id1->tag == id2->tag);
+      assert(id1->tag[0] == id2->tag[0]);
     }
   }
   return NGX_OK;
@@ -985,8 +856,8 @@ static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, uint8_
 
 ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
-    verify_msg_id(&sub->last_msg_id, &msg->prev_id, msg->multi);
-    sub->last_msg_id = msg->id;
+    verify_msg_id(&sub->last_msgid, &msg->prev_id, msg->multi);
+    sub->last_msgid = msg->id;
   }
   
   return NGX_OK;

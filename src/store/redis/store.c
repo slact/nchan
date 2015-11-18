@@ -443,20 +443,29 @@ static bool cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
 static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   ngx_buf_t  *mpb = (ngx_buf_t *)cmp->buf;
   uint32_t    sz;
+  uint64_t    msgtag;
   //msg id
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->id.time)) {
     return cmp_err(cmp);
   }
-  if(!cmp_read_uinteger(cmp, &msg->id.tag)) {
+  if(!cmp_read_uinteger(cmp, &msgtag)) {
     return cmp_err(cmp);
+  }
+  else {
+    msg->id.tag[0] = msgtag;
+    msg->id.multi_count = 1;
   }
   
   //msg prev_id
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->prev_id.time)) {
     return cmp_err(cmp);
   }
-  if(!cmp_read_uinteger(cmp, &msg->prev_id.tag)) {
+  if(!cmp_read_uinteger(cmp, &msgtag)) {
     return cmp_err(cmp);
+  }
+  else {
+    msg->prev_id.tag[0] = msgtag;
+    msg->prev_id.multi_count = 1;
   }
   
   //message data
@@ -576,6 +585,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           else if(ngx_strmatch(&msg_type, "msgkey")) {
             assert(array_sz == 4);
             if(chanhead != NULL) {
+              uint64_t              msgtag;
               nchan_msg_id_t        msgid;
               
               if(!cmp_read_uinteger(&cmp, (uint64_t *)&msgid.time)) {
@@ -583,9 +593,13 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 return;
               }
               
-              if(!cmp_read_uinteger(&cmp, &msgid.tag)) {
+              if(!cmp_read_uinteger(&cmp, &msgtag)) {
                 cmp_err(&cmp);
                 return;
+              }
+              else {
+                msgid.tag[0] = msgtag;
+                msgid.multi_count = 1;
               }
               
               if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
@@ -597,6 +611,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
           }
           else if(ngx_strmatch(&msg_type, "ch+msgkey")) {
+            uint64_t              msgtag;
             nchan_msg_id_t        msgid;
             assert(array_sz == 5);
             if(! cmp_to_str(&cmp, &chid)) {
@@ -606,10 +621,15 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               cmp_err(&cmp);
               return;
             }
-            if(!cmp_read_uinteger(&cmp, &msgid.tag)) {
+            if(!cmp_read_uinteger(&cmp, &msgtag)) {
               cmp_err(&cmp);
               return;
             }
+            else {
+              msgid.tag[0] = msgtag;
+              msgid.multi_count = 1;
+            }
+            
             if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
               get_msg_from_msgkey(&chid, &msgid, &msg_redis_hash_key);
             }
@@ -873,7 +893,8 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->status = NOTREADY;
   head->generation = 0;
   head->last_msgid.time=0;
-  head->last_msgid.tag=0;
+  head->last_msgid.tag[0]=0;
+  head->last_msgid.multi_count = 1;
   head->shutting_down = 0;
   
   head->spooler.running=0;
@@ -979,8 +1000,11 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
   
   if(head->sub_count > 0) {
     if(msg) {
+      assert(msg->id.multi_count == 1);
       head->last_msgid.time = msg->id.time;
-      head->last_msgid.tag = msg->id.tag;
+      head->last_msgid.tag[0] = msg->id.tag[0];
+      head->last_msgid.multi_count = 1;
+      
       head->spooler.fn->respond_message(&head->spooler, msg);
     }
     else {
@@ -1346,7 +1370,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub,
     callback = empty_callback;
   }
   
-  assert(sub->last_msgid_multi.multi_count == 1);
+  assert(sub->last_msgid.multi_count == 1);
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");

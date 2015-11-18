@@ -68,13 +68,13 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   cf.max_messages = -1;
   cf.use_redis = d->use_redis;
   
-  DBG("%p (%V) memstore subscriber (lastid %i:%i) respond with message %i:%i (lastid %i:%i)", d->sub, d->chid, d->sub->last_msg_id.time, d->sub->last_msg_id.tag, msg->id.time, msg->id.tag, msg->prev_id.time, msg->prev_id.tag);
+  //DBG("%p (%V) memstore subscriber (lastid %i:%i) respond with message %i:%i (lastid %i:%i)", d->sub, d->chid, d->sub->last_msg_id.time, d->sub->last_msg_id.tag, msg->id.time, msg->id.tag, msg->prev_id.time, msg->prev_id.tag);
   
   //verify_subscriber_last_msg_id(d->sub, msg);
   
   rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, &cf, empty_callback, NULL);
   
-  fsub->sub.last_msg_id = msg->id;
+  fsub->sub.last_msgid = msg->id;
   
   return rc;
 }

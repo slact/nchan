@@ -202,11 +202,79 @@ ngx_int_t nchan_respond_membuf(ngx_http_request_t *r, ngx_int_t status_code, con
   str.data = body->start;
   return nchan_respond_string(r, status_code, content_type, &str, finalize);
 }
+/*
+static size_t etag_maxlen(nchan_msg_id_t *id) {
+  return 7 * id->multi_count;
+}
+*/
+
+static char *etag_printf_fmt(nchan_msg_id_t *id) {
+  switch(id->multi_count) {
+    case 1:
+      return "%i";
+    case 2:
+      return "%i,%i";
+    case 3:
+      return "%i,%i,%i";
+    case 4:
+      return "%i,%i,%i,%i";
+    case 5:
+      return "%i,%i,%i,%i,%i";
+    case 6:
+      return "%i,%i,%i,%i,%i,%i";
+    case 7:
+      return "%i,%i,%i,%i,%i,%i,%i";
+    case 8:
+      return "%i,%i,%i,%i,%i,%i,%i,%i";
+    default:
+      assert(0);
+  }
+}
+
+static ngx_str_t msgtag_str;
+static char msgtag_str_buf[8*NCHAN_MULTITAG_MAX];
+
+ngx_str_t *msgtag_to_str(nchan_msg_id_t *id) {
+  char     *fmt = etag_printf_fmt(id);
+  int16_t  *t = id->tag;
+  int       len;
+  switch(id->multi_count) {
+    case 1:
+      len = sprintf(msgtag_str_buf, fmt, t[0]);
+      break;
+    case 2:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1]);
+      break;
+    case 3:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2]);
+      break;
+    case 4:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3]);
+      break;
+    case 5:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4]);
+      break;
+    case 6:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4], t[5]);
+      break;
+    case 7:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
+      break;
+    case 8:
+      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]);
+      break;
+    default:
+      assert(0);
+  }
+  msgtag_str.len = len;
+  msgtag_str.data = (u_char *)msgtag_str_buf;
+  return &msgtag_str;
+}
 
 ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t finalize, char **err) {
   ngx_buf_t                 *buffer = msg->buf;
   nchan_buf_and_chain_t     *cb;
-  ngx_str_t                 *etag;
+  ngx_str_t                 *etag, *tmp_etag;
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
   ngx_buf_t                 *rbuffer;
@@ -263,13 +331,16 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
   r->headers_out.last_modified_time = msg->id.time;
 
   //etag
-  if((etag = ngx_palloc(r->pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
+  
+  tmp_etag = msgtag_to_str(&msg->id);
+  if((etag = ngx_palloc(r->pool, sizeof(*etag) + tmp_etag->len))==NULL) {
     assert(err);
     if(err) *err = "unable to allocate memory for Etag header in subscriber's request pool";
     return NGX_ERROR;
   }
   etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%ui", msg->id.tag)- etag->data;
+  etag->len = tmp_etag->len;
+  ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
   if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
     assert(err);
     if(err) *err="can't add etag header to response";

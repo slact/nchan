@@ -80,7 +80,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   remsg.multi = mcount;
   
-  remsg.prev_id.tag = nchan_encode_msg_id_multi_tag(remsg.prev_id.tag, d->n, mcount, -1);
+  nchan_set_msg_id_multi_tag(&remsg.prev_id, 0, d->n, -1);
   
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
   
@@ -90,7 +90,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   //remsg.prev_id = *last_msgid;
   
-  remsg.id.tag = nchan_encode_msg_id_multi_tag(remsg.id.tag, d->n, mcount, -1);
+  nchan_set_msg_id_multi_tag(&remsg.id, 0, d->n, -1);
   
   DBG("%p respond with transformed message %p %i:%i (%p %V %i) %V", d->multi->sub, &remsg, remsg.id.time, remsg.id.tag, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   

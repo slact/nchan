@@ -27,11 +27,9 @@ ngx_int_t nchan_subscriber_get_etag_int(ngx_http_request_t * r);
 ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard);
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, ngx_str_t **generated_content_type);
 
-void nchan_decode_msg_id_multi_tag(uint64_t tag, uint8_t count, uint64_t tag_out[]);
-uint64_t nchan_encode_msg_id_multi_tag(uint64_t tag, uint8_t n, uint8_t count, int8_t blankval);
-uint64_t nchan_update_msg_id_multi_tag(uint64_t multitag, uint8_t count, uint8_t n, uint64_t tag);
-uint64_t nchan_extract_msg_id_multi_tag(nchan_multi_msg_id_tag_t mtag, uint8_t count, uint8_t n);
 ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg);
+
+void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill);
 
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
 void subscriber_debug_add(subscriber_t *);

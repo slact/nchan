@@ -14,3 +14,5 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_or
 ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t finalize, char **err);
 
 ngx_fd_t nchan_fdcache_get(ngx_str_t *filename);
+
+ngx_str_t *msgtag_to_str(nchan_msg_id_t *id);
