@@ -267,7 +267,6 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_atomic_t       *procslot;
   
 #if FAKESHARD
-  ngx_int_t        i;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
   memstore_fakeprocess_push(i);
 #endif
