@@ -564,7 +564,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           if(ngx_strmatch(&msg_type, "msg")) {
             assert(array_sz == 7);
             if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
-              //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %i:%i", msg.message_time, msg.message_tag);
+              //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
             }
             else {

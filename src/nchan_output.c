@@ -232,41 +232,48 @@ static char *etag_printf_fmt(nchan_msg_id_t *id) {
 }
 
 static ngx_str_t msgtag_str;
-static char msgtag_str_buf[8*NCHAN_MULTITAG_MAX];
+static char msgtag_str_buf[8*NCHAN_MULTITAG_MAX + 30];
 
-ngx_str_t *msgtag_to_str(nchan_msg_id_t *id) {
+static size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
   char     *fmt = etag_printf_fmt(id);
   int16_t  *t = id->tag;
-  int       len;
   switch(id->multi_count) {
     case 1:
-      len = sprintf(msgtag_str_buf, fmt, t[0]);
-      break;
+      return sprintf(ch, fmt, t[0]);
     case 2:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1]);
     case 3:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1], t[2]);
     case 4:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1], t[2], t[3]);
     case 5:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4]);
     case 6:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4], t[5]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4], t[5]);
     case 7:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
     case 8:
-      len = sprintf(msgtag_str_buf, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]);
-      break;
+      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]);
     default:
       assert(0);
   }
+}
+
+ngx_str_t *msgtag_to_str(nchan_msg_id_t *id) {
+  size_t len;
+  len = msgtag_to_strptr(id, msgtag_str_buf);
   msgtag_str.len = len;
+  msgtag_str.data = (u_char *)msgtag_str_buf;
+  return &msgtag_str;
+}
+
+ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
+  int   l1, l2;
+  char *cur;
+  l1 = sprintf(msgtag_str_buf, "%li:", id->time);
+  cur = &msgtag_str_buf[l1];
+  l2 = msgtag_to_strptr(id, cur);
+  msgtag_str.len = l1 + l2;
   msgtag_str.data = (u_char *)msgtag_str_buf;
   return &msgtag_str;
 }

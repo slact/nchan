@@ -219,7 +219,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc = ngx_palloc(pool, sizeof(*bc) + len);
   ngx_memzero(&bc->buf, sizeof(bc->buf));
   cur = (u_char *)&bc[1];
-  ngx_init_set_membuf(&bc->buf, cur, ngx_snprintf(cur, len, "id: %i:%i\n", msg->id.time, msg->id.tag));
+  ngx_init_set_membuf(&bc->buf, cur, ngx_snprintf(cur, len, "id: %V\n", msgid_to_str(&msg->id)));
 
   bc->chain.buf = &bc->buf;
   bc->chain.next = first_link;
