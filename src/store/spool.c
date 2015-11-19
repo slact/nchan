@@ -490,6 +490,12 @@ static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *
   return 0;
 }
 
+static ngx_inline void spoolcollector_addspool(spooler_respond_data_t *data, subscriber_pool_t *spool) {
+  assert(data->n < 32);
+  data->spools[data->n] = spool;
+  data->n++;
+}
+
 static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
   rbtree_walk_direction_t  dir;
   uint8_t multi_count = data->multi;
@@ -514,23 +520,29 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
     else {
       time_t      timmin = data->min.time, timmax = data->max.time, timcur = spool->id.time;
       
-      
-      if(timcur == timmax && timcur == timmin) {
+      if( timcur > timmin && timcur < timmax) {
+        spoolcollector_addspool(data, spool);
+      }
+      else if(timcur == timmax && timcur == timmin) {
         if( msgid_tag_compare(&spool->id, &data->max) < 0
          && msgid_tag_compare(&spool->id, &data->min) >= 0 ) 
         {
-          assert(data->n < 32);
-          data->spools[data->n] = spool;
-          data->n++;
+          spoolcollector_addspool(data, spool);
         } 
       }
       else if((timcur == timmax && msgid_tag_compare(&spool->id, &data->max) < 0) 
             ||(timcur == timmin && msgid_tag_compare(&spool->id, &data->min) >= 0))
       {
-        assert(data->n < 32);
-        data->spools[data->n] = spool;
-        data->n++;
+        spoolcollector_addspool(data, spool);
       }
+      else if( timcur > timmin && timcur < timmax) {
+        spoolcollector_addspool(data, spool);
+      }
+      /*
+      else {
+        ERR("time_min: %i, time_cur: %i, time_max: %i", timmin, timcur, timmax);
+      }
+      */
       
       return RBTREE_WALK_LEFT_RIGHT;
     }
