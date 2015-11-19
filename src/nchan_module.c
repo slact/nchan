@@ -850,25 +850,39 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
 }
 
 
-static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+
+static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   if(id1->time > 0 && id2->time > 0) {
-    assert(id1->time == id2->time);
+    if(id1->time != id2->time) return NGX_ERROR;
     if(id1->tagcount == 1) {
-      assert(id1->tag[0] == id2->tag[0]);
+      if(id1->tag[0] != id2->tag[0]) return NGX_ERROR;
     }
     else {
       int   i, max = id1->tagcount;
       for(i=0; i < max; i++) {
-        assert(id1->tag[i] == id2->tag[i]);
+        if(id1->tag[i] != id2->tag[i]) return NGX_ERROR;
       }
     }
   }
   return NGX_OK;
 }
 
-ngx_int_t *verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
+ngx_int_t verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
-    verify_msg_id(&sub->last_msgid, &msg->prev_id);
+    if(verify_msg_id(&sub->last_msgid, &msg->prev_id) == NGX_ERROR) {
+      struct timeval    tv;
+      time_t            time;
+      int               ttl = msg->expires - msg->id.time;
+      ngx_gettimeofday(&tv);
+      time = tv.tv_sec;
+      
+      if(sub->last_msgid.time + ttl <= time) {
+        ERR("missed a message because it probably expired");
+      }
+      else {
+        assert(0);
+      }
+    }
     sub->last_msgid = msg->id;
   }
   
