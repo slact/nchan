@@ -1595,6 +1595,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   get_multi_message_data_t   *d = sd->d;
   nchan_msg_t                 retmsg;
+  int16_t                     uptag;
   
   d->getting--;
   
@@ -1647,19 +1648,18 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
-
-      retmsg.id.tagcount = d->multi_count; //IS THIS EVEN NEEDED?
       
       retmsg.prev_id = d->wanted_msgid;
       //TODO: some kind of missed-message check
       
       if(d->wanted_msgid.time == retmsg.id.time) {
-        assert(0);
-        //TODO: not done yet!
+        uptag = retmsg.id.tag[0];
+        retmsg.id = d->wanted_msgid;
+        retmsg.id.tag[d->n] = uptag;
       }
       else {
-        assert(0);
-        //GODDAMN TODO
+        retmsg.id.tagcount = d->multi_count;
+        nchan_set_msg_id_multi_tag(&retmsg.id, 0, d->n, -1);
       }
       
       DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
@@ -1684,7 +1684,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   ngx_int_t                    n;
   uint8_t                      want[NCHAN_MEMSTORE_MULTI_MAX];
   ngx_str_t                    ids[NCHAN_MEMSTORE_MULTI_MAX];
-  nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX];
+  nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX] = {{0}};
   
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;
@@ -1720,6 +1720,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   DBG("get multi msg %V (count: %i)", msgid_to_str(msg_id), n);
   
+  
   if(msg_id->time == 0) {
     for(i = 0; i < n; i++) {
       req_msgid[i].time = 0;
@@ -1731,17 +1732,20 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     DBG("want all msgs");
   }
   else {
-    
     //nchan_decode_msg_id_multi_tag(tag, n, decoded_tags);
     
     //what msgids do we want?
     for(i = 0; i < n; i++) {
       req_msgid[i].time = time;
-      //req_msgid[i].tag = decoded_tags[i];
-      //if(decoded_tags[i] == (uint64_t ) -1) {
-      //  req_msgid[i].time --; //we might want a 0-tagged message from this channel
-      //}
-      //DBG("might want msgid %V from chan_index %i", msgid_to_str(&req_msgid[i]), i);
+      if(msg_id->tag[i] == -1) {
+        req_msgid[i].time --;
+        req_msgid[i].tag[0] = 32767; //eeeeeh this is bad. but it's good enough.
+      }
+      else {
+        req_msgid[i].tag[0] = msg_id->tag[i];
+      }
+      req_msgid[i].tagcount = 1;
+      DBG("might want msgid %V from chan_index %i", msgid_to_str(&req_msgid[i]), i);
     }
     
     //what do we need to fetch?
@@ -1749,9 +1753,9 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       if(multi) {
         lastid = &multi[i].sub->last_msgid;
         DBG("chan index %i last id %V", i, msgid_to_str(lastid));
-        if( 1 || lastid->time == 0 
+        if(lastid->time == 0 
          || lastid->time > req_msgid[i].time
-         || (lastid->time == req_msgid[i].time && lastid->tag[0] > req_msgid[i].tag[0])) {
+         || (lastid->time == req_msgid[i].time && lastid->tag[0] >= req_msgid[i].tag[0])) {
           want[i]=1;
           d->getting++;
           DBG("want %i", i);

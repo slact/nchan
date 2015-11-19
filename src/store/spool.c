@@ -73,7 +73,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   subscriber_pool_t      *newspool;
   channel_spooler_t      *spl = spool->spooler;
   
-  DBG("spool nextmsg %p (%V) newid %V", spool, msgid_to_str(&spool->id), msgid_to_str(new_last_id));
+  DBG("spool nextmsg %p (%V) --", spool, msgid_to_str(&spool->id));
+  DBG(" -- newid %V", msgid_to_str(new_last_id));
   
   if(spool->id.time == new_last_id->time && spool->id.tag[0] == new_last_id->tag[0]) {
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
@@ -456,7 +457,7 @@ static rbtree_walk_direction_t compare_msgid_onetag_range(nchan_msg_id_t *min, n
 
 static int8_t compare_msgid_time(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan_msg_id_t *cur) {
   if(min->time <= cur->time) {
-    if(max->time > cur->time) {
+    if(max->time >= cur->time) {
       return 0;
     }
     else {
@@ -496,7 +497,10 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
       
       if(timcur == timmax) {
         for(i=0; i < multi_count; i++) {
-          if(!(tmax[i] > tcur[i] && tmin[i] <= tcur[i])) {
+          if(tmin[i] == -1 && tcur[i] == -1) {
+            break;
+          }
+          else if(tcur[i] >= tmax[i] || tcur[i] < tmin[i]) {
             match = 0;
             break;
           }
