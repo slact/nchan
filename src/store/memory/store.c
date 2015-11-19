@@ -1618,6 +1618,9 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     DBG("first response msg %V (n:%i) %p, saved", msg ? msgid_to_str(&msg->id) : &empty_id_str, sd->n, d->msg);
     d->msg_status = status;
     d->msg = msg;
+    if(msg) {
+      msg_reserve(msg, "get multi msg");
+    }
     d->n = sd->n;
   }
   else if(msg) {
@@ -1627,8 +1630,12 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
      || (msg->id.time == d->msg->id.time && msg->id.tag[0] < d->msg->id.tag[0]) 
      || (msg->id.time == d->msg->id.time && msg->id.tag[0] == d->msg->id.tag[0] && sd->n < d->n) ) {
       DBG("got a better response %V (n:%i), replace.", msgid_to_str(&msg->id), sd->n);
+      if(d->msg) {
+        msg_release(d->msg, "get multi msg");
+      }
       d->msg_status = status;
       d->msg = msg;
+      msg_reserve(msg, "get multi msg");
       d->n = sd->n;
     }
     else {
@@ -1665,6 +1672,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
       
       d->cb(d->msg_status, &retmsg, d->privdata);
+      msg_release(d->msg, "get multi msg");
     }
     else {
       d->cb(d->msg_status, NULL, d->privdata);
