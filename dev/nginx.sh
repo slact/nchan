@@ -7,6 +7,9 @@ VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "-
 
 VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${DEVDIR}/vg.supp" )
 
+#long stack traces
+VG_MEMCHECK_OPT+=("--num-callers=20")
+
 #generate suppresions
 #VG_MEMCHECK_OPT+=("--gen-suppressions=all")
 
