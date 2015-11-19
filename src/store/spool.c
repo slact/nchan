@@ -116,7 +116,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_msg_id_t        anymsg;
   anymsg.time = 0;
   anymsg.tag[0] = 0;
-  anymsg.multi_count = 1;
+  anymsg.tagcount = 1;
   
   subscriber_pool_t    *spool, *nuspool;
   
@@ -434,9 +434,9 @@ typedef enum { SMALLER, LARGER, INRANGE } spoolrange_t;
 
 static rbtree_walk_direction_t compare_msgid_onetag_range(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan_msg_id_t *id) {
   
-  assert(min->multi_count == max->multi_count);
-  assert(max->multi_count == id->multi_count);
-  assert(id->multi_count == 1);
+  assert(min->tagcount == max->tagcount);
+  assert(max->tagcount == id->tagcount);
+  assert(id->tagcount == 1);
   
   if(min->time < id->time || (min->time == id->time && min->tag[0] <= id->tag[0])) {
     if(max->time > id->time || (max->time == id->time && max->tag[0] > id->tag[0])) {
@@ -491,7 +491,7 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
     }
     else {
       int8_t      i, match = 1;
-      time_t      timmin = data->min.time, timmax = data->max.time, timcur = spool->id.time;
+      time_t      timmax = data->max.time, timcur = spool->id.time;
       int16_t    *tmin = data->min.tag, *tmax = data->max.tag, *tcur = spool->id.tag;
       
       if(timcur == timmax) {
@@ -520,7 +520,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   
   srdata.min = msg->prev_id;
   srdata.max = msg->id;
-  srdata.multi = msg->id.multi_count;
+  srdata.multi = msg->id.tagcount;
   srdata.n = 0;
   
   //find all spools between msg->prev_id and msg->id
@@ -635,8 +635,8 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
     return -1;
   }
   else {
-    uint8_t   i, max = id1->multi_count;
-    assert(id1->multi_count == id2->multi_count);
+    uint8_t   i, max = id1->tagcount;
+    assert(id1->tagcount == id2->tagcount);
     
     for(i=0; i < max; i++) {
       tag1 = id1->tag[i];

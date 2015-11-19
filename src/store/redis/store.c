@@ -453,7 +453,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   }
   else {
     msg->id.tag[0] = msgtag;
-    msg->id.multi_count = 1;
+    msg->id.tagcount = 1;
   }
   
   //msg prev_id
@@ -465,7 +465,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   }
   else {
     msg->prev_id.tag[0] = msgtag;
-    msg->prev_id.multi_count = 1;
+    msg->prev_id.tagcount = 1;
   }
   
   //message data
@@ -599,7 +599,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
               else {
                 msgid.tag[0] = msgtag;
-                msgid.multi_count = 1;
+                msgid.tagcount = 1;
               }
               
               if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
@@ -627,7 +627,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
             else {
               msgid.tag[0] = msgtag;
-              msgid.multi_count = 1;
+              msgid.tagcount = 1;
             }
             
             if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
@@ -894,7 +894,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->generation = 0;
   head->last_msgid.time=0;
   head->last_msgid.tag[0]=0;
-  head->last_msgid.multi_count = 1;
+  head->last_msgid.tagcount = 1;
   head->shutting_down = 0;
   
   head->spooler.running=0;
@@ -1000,10 +1000,10 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
   
   if(head->sub_count > 0) {
     if(msg) {
-      assert(msg->id.multi_count == 1);
+      assert(msg->id.tagcount == 1);
       head->last_msgid.time = msg->id.time;
       head->last_msgid.tag[0] = msg->id.tag[0];
-      head->last_msgid.multi_count = 1;
+      head->last_msgid.tagcount = 1;
       
       head->spooler.fn->respond_message(&head->spooler, msg);
     }
@@ -1195,11 +1195,11 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
     
     redisReply_to_int(els[offset+0], &msg->id.time);
     redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag[0]); // tag is a uint, meh.
-    msg->id.multi_count = 1;
+    msg->id.tagcount = 1;
     
     redisReply_to_int(els[offset+2], &msg->prev_id.time);
     redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag[0]);
-    msg->prev_id.multi_count = 1;
+    msg->prev_id.tagcount = 1;
     
     return msg;
   }
@@ -1280,7 +1280,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
-  assert(msg_id->multi_count = 1);
+  assert(msg_id->tagcount = 1);
   redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag[0], "FILO", 0);
   return NGX_OK; //async only now!
 }
@@ -1373,7 +1373,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub,
     callback = empty_callback;
   }
   
-  assert(sub->last_msgid.multi_count == 1);
+  assert(sub->last_msgid.tagcount == 1);
   
   if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
@@ -1486,7 +1486,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->msg_time=msg->id.time;
   
   
-  assert(msg->id.multi_count == 1);
+  assert(msg->id.tagcount == 1);
   //nchan_store_publish_generic(channel_id, msg, 0, NULL);
   
   //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_messages]

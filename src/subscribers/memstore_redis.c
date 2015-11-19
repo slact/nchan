@@ -62,7 +62,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   
   lastid = &d->chanhead->latest_msgid;
   
-  assert(lastid->multi_count == 1 && lastid->multi_count == 1);
+  assert(lastid->tagcount == 1 && lastid->tagcount == 1);
   if(lastid->time < msg->id.time || 
     (lastid->time == msg->id.time && lastid->tag[0] < msg->id.tag[0])) {
     memstore_ensure_chanhead_is_ready(d->chanhead);

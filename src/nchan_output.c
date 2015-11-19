@@ -209,7 +209,7 @@ static size_t etag_maxlen(nchan_msg_id_t *id) {
 */
 
 static char *etag_printf_fmt(nchan_msg_id_t *id) {
-  switch(id->multi_count) {
+  switch(id->tagcount) {
     case 1:
       return "%i";
     case 2:
@@ -237,7 +237,7 @@ static char msgtag_str_buf[8*NCHAN_MULTITAG_MAX + 30];
 static size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
   char     *fmt = etag_printf_fmt(id);
   int16_t  *t = id->tag;
-  switch(id->multi_count) {
+  switch(id->tagcount) {
     case 1:
       return sprintf(ch, fmt, t[0]);
     case 2:

@@ -64,7 +64,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   else {
     fsub->sub.last_msgid.time = 0;
     fsub->sub.last_msgid.tag[0] = 0;
-    fsub->sub.last_msgid.multi_count = 1;
+    fsub->sub.last_msgid.tagcount = 1;
   }
   
   fsub->data.owner = memstore_slot();

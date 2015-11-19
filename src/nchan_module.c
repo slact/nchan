@@ -300,7 +300,7 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
     }
     cur++;
   }
-  mid->multi_count = i;
+  mid->tagcount = i;
   
   //and just so we don't have uninitialized data being passed around
   for(/**/;i<NCHAN_MULTITAG_MAX;i++) {
@@ -336,7 +336,7 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
     for(i=0; i< NCHAN_MULTITAG_MAX; i++) {
       id->tag[i]=0;
     }
-    id->multi_count=1;
+    id->tagcount=1;
   }
   else {
     nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
@@ -659,7 +659,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           memstore_sub_debug_start();
           
           nchan_subscriber_get_msg_id(r, &msg_id);
-          assert(msg_id.multi_count == 1);
+          assert(msg_id.tagcount == 1);
           
           r->main->count++;
           cf->storage_engine->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
@@ -809,7 +809,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       ngx_gettimeofday(&tv);
       msg->id.time = tv.tv_sec;
       msg->id.tag[0] = 0;
-      msg->id.multi_count = 1;
+      msg->id.tagcount = 1;
       
       msg->buf = buf;
 #if NCHAN_MSG_LEAK_DEBUG
@@ -854,7 +854,7 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
 static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   if(id1->time > 0 && id2->time > 0) {
     assert(id1->time == id2->time);
-    if(id1->multi_count == 1) {
+    if(id1->tagcount == 1) {
       //TODO: do this better
       assert(id1->tag[0] == id2->tag[0]);
     }

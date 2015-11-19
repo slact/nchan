@@ -574,9 +574,9 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     }
     
     head->latest_msgid.time = 0;
-    head->latest_msgid.multi_count = n;
+    head->latest_msgid.tagcount = n;
     head->oldest_msgid.time = 0;
-    head->oldest_msgid.multi_count = n;
+    head->oldest_msgid.tagcount = n;
     for(i=0; i < n; i++) {
       head->latest_msgid.tag[n] = 0;
       head->oldest_msgid.tag[n] = 0;
@@ -593,11 +593,11 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     
     head->latest_msgid.time = 0;
     head->latest_msgid.tag[0] = 0;
-    head->latest_msgid.multi_count = 1;
+    head->latest_msgid.tagcount = 1;
     
     head->oldest_msgid.time = 0;
     head->oldest_msgid.tag[0] = 0;
-    head->oldest_msgid.multi_count = 1;
+    head->oldest_msgid.tagcount = 1;
     
     head->multi = NULL;
   }
@@ -1376,7 +1376,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     return NULL;
   }
   
-  assert(msgid->multi_count == 1 && first->msg->id.multi_count == 1);
+  assert(msgid->tagcount == 1 && first->msg->id.tagcount == 1);
   if(msgid == NULL || (msgid->time < first->msg->id.time || (msgid->time == first->msg->id.time && msgid->tag[0] < first->msg->id.tag[0])) ) {
     DBG("found message %V", msgid_to_str(&first->msg->id));
     *status = MSG_FOUND;
@@ -1384,7 +1384,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   }
 
   while(cur != NULL) {
-    assert(cur->msg->id.multi_count == 1);
+    assert(cur->msg->id.tagcount == 1);
     DBG("cur: (chid: %V)  %V %V", &ch->id, msgid_to_str(&cur->msg->id), chanhead_msg_to_str(cur));
     
     if(msgid->time > cur->msg->id.time || (msgid->time == cur->msg->id.time && msgid->tag[0] >= cur->msg->id.tag[0])){
@@ -1648,7 +1648,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
 
-      retmsg.id.multi_count = d->multi_count; //IS THIS EVEN NEEDED?
+      retmsg.id.tagcount = d->multi_count; //IS THIS EVEN NEEDED?
       
       retmsg.prev_id = d->wanted_msgid;
       //TODO: some kind of missed-message check
@@ -1686,9 +1686,6 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   ngx_str_t                    ids[NCHAN_MEMSTORE_MULTI_MAX];
   nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX];
   
-  //uint64_t                     decoded_tags[8];
-  
-  //nchan_msg_id_t               unmulti_msgid = *msg_id;
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;
   
@@ -1727,7 +1724,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     for(i = 0; i < n; i++) {
       req_msgid[i].time = 0;
       req_msgid[i].tag[0] = 0;
-      req_msgid[i].multi_count = 1;
+      req_msgid[i].tagcount = 1;
       want[i] = 1;
     }
     d->getting = n;
@@ -1850,7 +1847,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   msg->next = NULL;
   msg->prev = ch->msg_last;
   
-  assert(msg->msg->id.multi_count == 1);
+  assert(msg->msg->id.tagcount == 1);
   
   if(msg->prev != NULL) {
     msg->prev->next = msg;
@@ -1859,7 +1856,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   else {
     msg->msg->prev_id.time = 0;
     msg->msg->prev_id.tag[0] = 0;
-    msg->msg->prev_id.multi_count = 1;
+    msg->msg->prev_id.tagcount = 1;
   }
   
   //set time and tag
@@ -1924,7 +1921,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     return NULL;
   }
   
-  assert(m->id.multi_count == 1);
+  assert(m->id.tagcount == 1);
   
   msg = &stuff->msg;
   buf = &stuff->buf;
@@ -2072,7 +2069,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     callback = empty_callback;
   }
 
-  assert(msg->id.multi_count == 1);
+  assert(msg->id.tagcount == 1);
   
   //this coould be dangerous!!
   if(msg->id.time == 0) {
@@ -2116,7 +2113,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     
     publish_msg->prev_id.time = 0;
     publish_msg->prev_id.tag[0] = 0;
-    publish_msg->prev_id.multi_count = 1;
+    publish_msg->prev_id.tagcount = 1;
     
     DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   }

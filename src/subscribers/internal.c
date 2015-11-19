@@ -61,7 +61,7 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   fsub->sub.reserved = 0;
   
   ngx_memzero(&fsub->sub.last_msgid, sizeof(fsub->sub.last_msgid));
-  fsub->sub.last_msgid.multi_count = 1;
+  fsub->sub.last_msgid.tagcount = 1;
   
   fsub->sub.name= (name == NULL ? "internal" : name);
   DBG("%p create %s with privdata %p", fsub, fsub->sub.name, privdata);
