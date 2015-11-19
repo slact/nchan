@@ -454,6 +454,20 @@ static rbtree_walk_direction_t compare_msgid_onetag_range(nchan_msg_id_t *min, n
   } 
 }
 
+static int8_t compare_msgid_time(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan_msg_id_t *cur) {
+  if(min->time <= cur->time) {
+    if(max->time > cur->time) {
+      return 0;
+    }
+    else {
+      return 1;
+    }
+  }
+  else {
+    return -1;
+  }
+}
+
 static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
   rbtree_walk_direction_t  dir;
   uint8_t multi_count = data->multi;
@@ -468,8 +482,35 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
     return dir;
   }
   else {
-    assert(0);
-    //not done yet
+    int tc = compare_msgid_time(&data->min, &data->max, &spool->id);
+    if(tc < 0) {
+      return RBTREE_WALK_RIGHT;
+    }
+    else if(tc > 0) {
+      return RBTREE_WALK_LEFT;
+    }
+    else {
+      int8_t      i, match = 1;
+      time_t      timmin = data->min.time, timmax = data->max.time, timcur = spool->id.time;
+      int16_t    *tmin = data->min.tag, *tmax = data->max.tag, *tcur = spool->id.tag;
+      
+      if(timcur == timmax) {
+        for(i=0; i < multi_count; i++) {
+          if(!(tmax[i] > tcur[i] && tmin[i] <= tcur[i])) {
+            match = 0;
+            break;
+          }
+        }
+      }
+      
+      if(match) {
+        assert(data->n < 32);
+        data->spools[data->n] = spool;
+        data->n++;
+      }
+      
+      return RBTREE_WALK_LEFT_RIGHT;
+    }
   }
 }
 
@@ -486,7 +527,8 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range, &srdata);
   
   if(srdata.n == 0) {
-    DBG("no spools in range %V -- %V", msgid_to_str(&msg->prev_id), msgid_to_str(&msg->id));
+    DBG("no spools in range %V -- ", msgid_to_str(&msg->prev_id));
+    DBG(" -- %V", msgid_to_str(&msg->id));
   }
   
   for(i=0; i < srdata.n; i++) {
