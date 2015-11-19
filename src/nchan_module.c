@@ -274,27 +274,26 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   u_char    *cur = first;
   u_char     c;
   uint8_t    i = 0;
-  uint8_t    neg = 0;
-  int64_t    val = 0;
+  int8_t     sign = 1;
+  int16_t    val = 0;
   
   while(cur <= last && i < NCHAN_MULTITAG_MAX) {
     if(cur == last) {
-      mid->tag[i]=val;
+      mid->tag[i]=val * sign;
       i++;
       break;
     }
     
     c = *cur;
     if(c == '-') {
-      neg = 1;
+      sign = -1;
     }
     else if (c >= '0' && c <= '9') {
       val = 10 * val + (c - '0');
     }
     else {
-      if(neg) val = val * -1;
-      mid->tag[i]=val;
-      neg=0;
+      mid->tag[i]=val * sign;
+      sign=1;
       val=0;
       i++;
     }
