@@ -53,7 +53,7 @@ struct nchan_msg_s {
   //  ngx_str_t                   charset;
   ngx_buf_t                      *buf;
   time_t                          expires;
-  ngx_atomic_t                    refcount;
+  ngx_atomic_int_t                refcount;
   
   struct nchan_msg_s             *reload_next;
   
