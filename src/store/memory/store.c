@@ -1983,7 +1983,8 @@ void msg_reserve(nchan_msg_t *msg, char *lbl) {
   ngx_atomic_fetch_add(&msg->refcount, 1);
 #if NCHAN_MSG_LEAK_DEBUG  
   msg_rsv_dbg_t     *rsv;
-  rsv=shm_alloc(shm, sizeof(*rsv) + ngx_strlen(lbl), "msgdebug");
+  shmtx_lock(shm);
+  rsv=shm_locked_alloc(shm, sizeof(*rsv) + ngx_strlen(lbl), "msgdebug");
   rsv->lbl = (char *)(&rsv[1]);
   ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
   if(msg->rsv == NULL) {
@@ -1997,6 +1998,7 @@ void msg_reserve(nchan_msg_t *msg, char *lbl) {
     rsv->prev = NULL;
     msg->rsv = rsv;
   }
+  shmtx_unlock(shm);
 #endif
 }
 void msg_release(nchan_msg_t *msg, char *lbl) {
@@ -2005,6 +2007,8 @@ void msg_release(nchan_msg_t *msg, char *lbl) {
 #if NCHAN_MSG_LEAK_DEBUG
   msg_rsv_dbg_t     *cur, *prev, *next;
   size_t             sz = ngx_strlen(lbl);
+  ngx_int_t          rsv_found=0;
+  shmtx_lock(shm);
   for(cur = msg->rsv; cur != NULL; cur = cur->next) {
     if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
       prev = cur->prev;
@@ -2018,10 +2022,13 @@ void msg_release(nchan_msg_t *msg, char *lbl) {
       if(cur == msg->rsv) {
         msg->rsv = next;
       }
-      shm_free(shm, cur);
+      shm_locked_free(shm, cur);
+      rsv_found = 1;
       break;
     }
   }
+  assert(rsv_found);
+  shmtx_unlock(shm);
 #endif
 }
 
