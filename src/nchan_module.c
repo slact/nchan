@@ -854,12 +854,13 @@ static ngx_int_t *verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   if(id1->time > 0 && id2->time > 0) {
     assert(id1->time == id2->time);
     if(id1->tagcount == 1) {
-      //TODO: do this better
       assert(id1->tag[0] == id2->tag[0]);
     }
     else {
-      assert(0);
-      //TODO
+      int   i, max = id1->tagcount;
+      for(i=0; i < max; i++) {
+        assert(id1->tag[i] == id2->tag[i]);
+      }
     }
   }
   return NGX_OK;
