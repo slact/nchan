@@ -433,15 +433,22 @@ static ngx_int_t spool_transfer_subscribers(subscriber_pool_t *spool, subscriber
   return count;
 }
 
-typedef struct {
-  nchan_msg_id_t      min;
-  nchan_msg_id_t      max;
-  uint8_t             multi;
-  ngx_int_t           n;
-  subscriber_pool_t  *spools[32];
-} spooler_respond_data_t;
+typedef struct spool_collect_overflow_s spool_collect_overflow_t;
+struct spool_collect_overflow_s {
+  subscriber_pool_t                *spool;
+  struct spool_collect_overflow_s  *next;
+};// spool_collect_overflow_t;
 
-typedef enum { SMALLER, LARGER, INRANGE } spoolrange_t;
+#define SPOOLER_RESPOND_SPOOLARRAY_SIZE 32
+
+typedef struct {
+  nchan_msg_id_t             min;
+  nchan_msg_id_t             max;
+  uint8_t                    multi;
+  ngx_int_t                  n;
+  subscriber_pool_t         *spools[SPOOLER_RESPOND_SPOOLARRAY_SIZE];
+  spool_collect_overflow_t  *overflow;
+} spooler_respond_data_t;
 
 
 static rbtree_walk_direction_t compare_msgid_onetag_range(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan_msg_id_t *id) {
@@ -490,11 +497,42 @@ static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *
   return 0;
 }
 
-static ngx_inline void spoolcollector_addspool(spooler_respond_data_t *data, subscriber_pool_t *spool) {
-  assert(data->n < 32);
-  data->spools[data->n] = spool;
+static void spoolcollector_addspool(spooler_respond_data_t *data, subscriber_pool_t *spool) {
+  spool_collect_overflow_t  *overflow;
+  if(data->n < SPOOLER_RESPOND_SPOOLARRAY_SIZE) {
+    data->spools[data->n] = spool;
+  }
+  else {
+    if((overflow = ngx_alloc(sizeof(*overflow), ngx_cycle->log)) == NULL) {
+      ERR("can't allocate spoolcollector overflow");
+      return;
+    }
+    overflow->next = data->overflow;
+    overflow->spool = spool;
+    data->overflow = overflow;
+  }
   data->n++;
 }
+
+static subscriber_pool_t *spoolcollector_unwind_nextspool(spooler_respond_data_t *data) {
+  spool_collect_overflow_t  *overflow;
+  subscriber_pool_t         *spool;
+  if(data->n > SPOOLER_RESPOND_SPOOLARRAY_SIZE) {
+    overflow = data->overflow;
+    spool = overflow->spool;
+    data->overflow = overflow->next;
+    ngx_free(overflow);
+    data->n--;
+    return spool;
+  }
+  else if(data->n > 0) {
+    return data->spools[--data->n];
+  }
+  else {
+    return NULL;
+  }
+}
+
 
 static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
   rbtree_walk_direction_t  dir;
@@ -503,9 +541,7 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
   if(multi_count <= 1) {
     dir = compare_msgid_onetag_range(&data->min, &data->max, &spool->id);
     if(dir == RBTREE_WALK_LEFT_RIGHT) {
-      assert(data->n < 32);
-      data->spools[data->n] = spool;
-      data->n++;
+      spoolcollector_addspool(data, spool);
     }
     return dir;
   }
@@ -550,12 +586,13 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
 }
 
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
-  int                        i;
   spooler_respond_data_t     srdata;
+  subscriber_pool_t         *spool;
   
   srdata.min = msg->prev_id;
   srdata.max = msg->id;
   srdata.multi = msg->id.tagcount;
+  srdata.overflow = NULL;
   srdata.n = 0;
   
   //find all spools between msg->prev_id and msg->id
@@ -566,9 +603,9 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
     DBG(" -- %V", msgid_to_str(&msg->id));
   }
   
-  for(i=0; i < srdata.n; i++) {
-    spool_respond_general(srdata.spools[i], msg, 0, NULL);
-    spool_nextmsg(srdata.spools[i], &msg->id);
+  while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
+    spool_respond_general(spool, msg, 0, NULL);
+    spool_nextmsg(spool, &msg->id);
   }
 
   self->prev_msg_id = msg->id;
