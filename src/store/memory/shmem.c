@@ -98,9 +98,51 @@ void shm_free(shmem_t *shm, void *p) {
 #else
   ngx_slab_free(SHPOOL(shm), p);
 #endif
-  #if (DEBUG_SHM_ALLOC == 1)
+#if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);
+#endif
+}
+
+
+
+//copypasta because these should only be used for debugging
+
+void *shm_locked_alloc(shmem_t *shm, size_t size, const char *label) {
+  void         *p;
+#if FAKESHARD  
+  p = ngx_alloc(size, ngx_cycle->log);
+#else
+  p = ngx_slab_alloc_locked(SHPOOL(shm), size);  
+#endif
+  if(p == NULL) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "shpool alloc failed");
+  }
+
+  #if (DEBUG_SHM_ALLOC == 1)
+  if (p != NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool alloc addr %p size %ui label %s", p, size, label == NULL ? "none" : label);
+  }
   #endif
+  return p;
+}
+
+void *shm_locked_calloc(shmem_t *shm, size_t size, const char *label) {
+  void *p = shm_locked_alloc(shm, size, label);
+  if(p != NULL) {
+    ngx_memzero(p, size);
+  }
+  return p;
+}
+
+void shm_locked_free(shmem_t *shm, void *p) {
+#if FAKESHARD
+  ngx_free(p);
+#else
+  ngx_slab_free_locked(SHPOOL(shm), p);
+#endif
+#if (DEBUG_SHM_ALLOC == 1)
+  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);
+#endif
 }
 
 void shm_verify_immutable_string(shmem_t *shm, ngx_str_t *str) {
