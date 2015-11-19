@@ -3,19 +3,19 @@ CfCmd.new do
   nchan_channel_id [:srv, :loc, :if],
       :nchan_set_pubsub_channel_id,
       :loc_conf,
-      args: 1..5,
+      args: 1..4,
       alt: [ :nchan_pubsub_channel_id ]
     
   nchan_publisher_channel_id [:srv, :loc, :if],
       :nchan_set_pub_channel_id,
       :loc_conf,
-      args: 1..5,
+      args: 1,
       alt: [ :nchan_pub_channel_id ]
     
   nchan_subscriber_channel_id [:srv, :loc, :if],
       :nchan_set_sub_channel_id,
       :loc_conf,
-      args: 1..5,
+      args: 1..4,
       alt: [ :nchan_sub_channel_id ]
     
   nchan_pubsub [:srv, :loc, :if],
