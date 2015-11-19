@@ -33,6 +33,16 @@ static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id)
   }
 }
 
+static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  int i, max;
+  if(id1->time != id2->time) return 0;
+  max = id1->tagcount;
+  for(i=0; i < max; i++) {
+    if(id1->tag[i] != id2->tag[i]) return 0;
+  }
+  return 1;
+}
+
 static subscriber_pool_t *get_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
   ngx_rbtree_node_t  *node;
@@ -76,8 +86,9 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   DBG("spool nextmsg %p (%V) --", spool, msgid_to_str(&spool->id));
   DBG(" -- newid %V", msgid_to_str(new_last_id));
   
-  if(spool->id.time == new_last_id->time && spool->id.tag[0] == new_last_id->tag[0]) {
+  if(msg_ids_equal(&spool->id, new_last_id)) {
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
+    assert(0);
   }
   else {
     if((newspool = find_spool(spl, new_last_id)) != NULL) {
@@ -469,6 +480,16 @@ static int8_t compare_msgid_time(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan
   }
 }
 
+static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  uint8_t i, max = id1->tagcount;
+  int16_t *t1 = id1->tag, *t2 = id2->tag;
+  for(i=0; i < max; i++) {
+    if(t1[i] < t2[i])   return -1;
+    if(t1[i] > t2[i])   return 1;
+  }
+  return 0;
+}
+
 static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
   rbtree_walk_direction_t  dir;
   uint8_t multi_count = data->multi;
@@ -491,23 +512,21 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
       return RBTREE_WALK_LEFT;
     }
     else {
-      int8_t      i, match = 1;
-      time_t      timmax = data->max.time, timcur = spool->id.time;
-      int16_t    *tmin = data->min.tag, *tmax = data->max.tag, *tcur = spool->id.tag;
+      time_t      timmin = data->min.time, timmax = data->max.time, timcur = spool->id.time;
       
-      if(timcur == timmax) {
-        for(i=0; i < multi_count; i++) {
-          if(tmin[i] == -1 && tcur[i] == -1) {
-            break;
-          }
-          else if(tcur[i] >= tmax[i] || tcur[i] < tmin[i]) {
-            match = 0;
-            break;
-          }
-        }
+      
+      if(timcur == timmax && timcur == timmin) {
+        if( msgid_tag_compare(&spool->id, &data->max) < 0
+         && msgid_tag_compare(&spool->id, &data->min) >= 0 ) 
+        {
+          assert(data->n < 32);
+          data->spools[data->n] = spool;
+          data->n++;
+        } 
       }
-      
-      if(match) {
+      else if((timcur == timmax && msgid_tag_compare(&spool->id, &data->max) < 0) 
+            ||(timcur == timmin && msgid_tag_compare(&spool->id, &data->min) >= 0))
+      {
         assert(data->n < 32);
         data->spools[data->n] = spool;
         data->n++;
