@@ -182,6 +182,63 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
 }
 
 
+
+#if NCHAN_MSG_LEAK_DEBUG
+
+nchan_msg_t *msgdebug_head = NULL;
+
+void msg_debug_add(nchan_msg_t *msg) {
+  //ensure this message is present only once
+  nchan_msg_t      *cur;
+  shmtx_lock(shm);
+  for(cur = msgdebug_head; cur != NULL; cur = cur->dbg_next) {
+    assert(cur != msg);
+  }
+  
+  if(msgdebug_head == NULL) {
+    msg->dbg_next = NULL;
+    msg->dbg_prev = NULL;
+  }
+  else {
+    msg->dbg_next = msgdebug_head;
+    msg->dbg_prev = NULL;
+    assert(msgdebug_head->dbg_prev == NULL);
+    msgdebug_head->dbg_prev = msg;
+  }
+  msgdebug_head = msg;
+  shmtx_unlock(shm);
+}
+void msg_debug_remove(nchan_msg_t *msg) {
+  nchan_msg_t *prev, *next;
+  shmtx_lock(shm);
+  prev = msg->dbg_prev;
+  next = msg->dbg_next;
+  if(msgdebug_head == msg) {
+    assert(msg->dbg_prev == NULL);
+    if(next) {
+      next->dbg_prev = NULL;
+    }
+    msgdebug_head = next;
+  }
+  else {
+    if(prev) {
+      prev->dbg_next = next;
+    }
+    if(next) {
+      next->dbg_prev = prev;
+    }
+  }
+  
+  msg->dbg_next = NULL;
+  msg->dbg_prev = NULL;
+  shmtx_unlock(shm);
+}
+void msg_debug_assert_isempty(void) {
+  assert(msgdebug_head == NULL);
+}
+#endif
+
+
 static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
 
 static void nchan_store_chanhead_gc_timer_handler(ngx_event_t *);
@@ -1161,6 +1218,9 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
+#endif
+#if NCHAN_MSG_LEAK_DEBUG
+  msg_debug_assert_isempty();
 #endif
 }
 

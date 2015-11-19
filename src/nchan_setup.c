@@ -382,9 +382,6 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_assert_isempty();
 #endif
-#if NCHAN_MSG_LEAK_DEBUG
-  msg_debug_assert_isempty();
-#endif
 }
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {

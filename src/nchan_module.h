@@ -31,14 +31,9 @@ ngx_int_t verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg);
 
 void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill);
 
+
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
 void subscriber_debug_add(subscriber_t *);
 void subscriber_debug_remove(subscriber_t *);
 void subscriber_debug_assert_isempty(void);
-#endif
-
-#if NCHAN_MSG_LEAK_DEBUG
-void msg_debug_add(nchan_msg_t *);
-void msg_debug_remove(nchan_msg_t *);
-void msg_debug_assert_isempty(void);
 #endif
