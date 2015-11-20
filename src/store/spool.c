@@ -856,7 +856,7 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool) {
   
   rbtree_remove_node(&spl->spoolseed, rbtree_node_from_data(spool));
 
-  assert((node = rbtree_find_node(&spl->spoolseed, &spool->id)) == NULL);
+  //assert((node = rbtree_find_node(&spl->spoolseed, &spool->id)) == NULL);
   //double-check that it's gone 
   
   return NGX_OK;
