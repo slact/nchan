@@ -453,6 +453,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   }
   else {
     msg->id.tag[0] = msgtag;
+    msg->id.tagactive = 0;
     msg->id.tagcount = 1;
   }
   
@@ -465,6 +466,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   }
   else {
     msg->prev_id.tag[0] = msgtag;
+    msg->prev_id.tagactive = 0;
     msg->prev_id.tagcount = 1;
   }
   
@@ -599,6 +601,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
               else {
                 msgid.tag[0] = msgtag;
+                msgid.tagactive = 0;
                 msgid.tagcount = 1;
               }
               
@@ -627,6 +630,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
             else {
               msgid.tag[0] = msgtag;
+              msgid.tagactive = 0;
               msgid.tagcount = 1;
             }
             
@@ -895,6 +899,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->last_msgid.time=0;
   head->last_msgid.tag[0]=0;
   head->last_msgid.tagcount = 1;
+  head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
   
   head->spooler.running=0;
@@ -1004,6 +1009,7 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
       head->last_msgid.time = msg->id.time;
       head->last_msgid.tag[0] = msg->id.tag[0];
       head->last_msgid.tagcount = 1;
+      head->last_msgid.tagactive = 0;
       
       head->spooler.fn->respond_message(&head->spooler, msg);
     }
@@ -1196,10 +1202,12 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t o
     redisReply_to_int(els[offset+0], &msg->id.time);
     redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
+    msg->id.tagactive = 0;
     
     redisReply_to_int(els[offset+2], &msg->prev_id.time);
     redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag[0]);
     msg->prev_id.tagcount = 1;
+    msg->prev_id.tagactive = 0;
     
     return msg;
   }

@@ -1723,10 +1723,12 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
         uptag = retmsg.id.tag[0];
         retmsg.id = d->wanted_msgid;
         retmsg.id.tag[d->n] = uptag;
+        retmsg.id.tagactive = d->n;
       }
       else {
         retmsg.id.tagcount = d->multi_count;
         nchan_set_msg_id_multi_tag(&retmsg.id, 0, d->n, -1);
+        retmsg.id.tagactive = d->n;
       }
       
       DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));

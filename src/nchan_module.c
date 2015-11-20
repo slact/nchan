@@ -811,6 +811,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       ngx_gettimeofday(&tv);
       msg->id.time = tv.tv_sec;
       msg->id.tag[0] = 0;
+      msg->id.tagactive = 0;
       msg->id.tagcount = 1;
       
       msg->buf = buf;
@@ -920,6 +921,7 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
           oldid->tag[i] = newid->tag[i];
         }
       }
+      oldid->tagactive = newid->tagactive;
     }
   }
 }
