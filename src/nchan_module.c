@@ -865,7 +865,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
           if(id2->tag[j] != -1) {
             if( i != -1) {
               //more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg. fail.
-              assert(0);
+              //assert(0);
               return NGX_ERROR;
             }
             else {
@@ -874,7 +874,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
           }
         }
         if(msgid->tag[i] != 0) { //only the first message in a given second is ok. anything else means a missed message.
-          assert(0);
+          //assert(0);
           return NGX_ERROR;
         }
         //ok, it's just the first-per-second message of a channel from a multi-channel
@@ -882,13 +882,13 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         return NGX_OK;
       }
       else {
-        assert(0);
+        //assert(0);
         return NGX_ERROR;
       }
     }
     if(id1->tagcount == 1) {
       if(id1->tag[0] != id2->tag[0]){
-        assert(0);
+        //assert(0);
         return NGX_ERROR;
       }
     }
@@ -896,7 +896,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
       int   i, max = id1->tagcount;
       for(i=0; i < max; i++) {
         if(id2->tag[i] != -1 && id1->tag[i] != id2->tag[i]) {
-          assert(0);
+          //assert(0);
           return NGX_ERROR;
         }
       }
@@ -911,6 +911,9 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
     *oldid = *newid;
   }
   else {
+    //ERR("======= updating multi_msgid ======");
+    //ERR("======= old: %V", msgid_to_str(oldid));
+    //ERR("======= new: %V", msgid_to_str(newid));
     if(oldid->time != newid->time) {
       *oldid = *newid;
     }
@@ -923,6 +926,7 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
       }
       oldid->tagactive = newid->tagactive;
     }
+    //ERR("=== updated: %V", msgid_to_str(oldid));
   }
 }
 

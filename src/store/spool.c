@@ -34,7 +34,7 @@ static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id)
 
 static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   int i, max;
-  if(id1->time != id2->time) return 0;
+  if(id1->time != id2->time || id1->tagcount != id2->tagcount) return 0;
   max = id1->tagcount;
   for(i=0; i < max; i++) {
     if(id1->tag[i] != id2->tag[i]) return 0;
@@ -87,6 +87,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   nchan_update_multi_msgid(&new_id, new_last_id);
   
   DBG("spool nextmsg %p (%V) --", spool, msgid_to_str(&spool->id));
+  DBG(" --  update with (%V) --", msgid_to_str(new_last_id));
   DBG(" -- newid %V", msgid_to_str(&new_id));
   
   if(msg_ids_equal(&spool->id, &new_id)) {
@@ -476,6 +477,7 @@ typedef struct {
   nchan_msg_id_t             max;
   uint8_t                    multi;
   ngx_int_t                  n;
+  nchan_msg_t               *msg;
   subscriber_pool_t         *spools[SPOOLER_RESPOND_SPOOLARRAY_SIZE];
   spool_collect_overflow_t  *overflow;
 } spooler_respond_data_t;
@@ -518,12 +520,34 @@ static int8_t compare_msgid_time(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan
 }
 
 static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
-  uint8_t i, max = id1->tagcount;
-  int16_t *t1 = id1->tag, *t2 = id2->tag;
-  for(i=0; i < max; i++) {
-    if(t1[i] < t2[i])   return -1;
-    if(t1[i] > t2[i])   return 1;
+  uint8_t active = id2->tagactive;
+  int16_t t1, t2;
+  
+  //debugstuff that prevents this function from getting inlined
+  assert(id1->time == id2->time);
+  int i, nonnegs = 0;
+  for (i=0; i < id2->tagcount; i++) {
+    if(id2->tag[i] >= 0) nonnegs++;
   }
+  assert(nonnegs == 1);
+  
+  if(id1->time == 0 && id2->time == 0) return 0; //always equal on zero-time
+  
+  t1 = (active < id1->tagcount) ? id1->tag[active] : -1;
+  t2 = id2->tag[active];
+  
+  //ERR("Comparing msgids: id1: %V --", msgid_to_str(id1));
+  //ERR("  --- id2: %V --", msgid_to_str(id2));
+  
+  if(t1 < t2){ 
+    //ERR("id1 is smaller. -1");
+    return -1;
+  }
+  if(t1 > t2){
+    //ERR("id1 is larger. 1");
+    return  1;
+  }
+  //ERR("id1 equals id2. 0");
   return 0;
 }
 
@@ -542,6 +566,7 @@ static void spoolcollector_addspool(spooler_respond_data_t *data, subscriber_poo
     data->overflow = overflow;
   }
   data->n++;
+  spool_respond_general(spool, data->msg, 0, NULL);
 }
 
 static subscriber_pool_t *spoolcollector_unwind_nextspool(spooler_respond_data_t *data) {
@@ -586,6 +611,8 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
     else {
       time_t      timmin = data->min.time, timmax = data->max.time, timcur = spool->id.time;
       
+      int max_cmp = -1, min_cmp = -1;
+      
       if( timcur > timmin && timcur < timmax) {
         spoolcollector_addspool(data, spool);
       }
@@ -596,8 +623,8 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
           spoolcollector_addspool(data, spool);
         } 
       }
-      else if((timcur == timmax && msgid_tag_compare(&spool->id, &data->max) < 0) 
-            ||(timcur == timmin && msgid_tag_compare(&spool->id, &data->min) >= 0))
+      else if((timcur == timmax && (max_cmp = msgid_tag_compare(&spool->id, &data->max)) < 0) 
+           || (timcur == timmin && (min_cmp = msgid_tag_compare(&spool->id, &data->min)) >= 0))
       {
         spoolcollector_addspool(data, spool);
       }
@@ -623,6 +650,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   srdata.max = msg->id;
   srdata.multi = msg->id.tagcount;
   srdata.overflow = NULL;
+  srdata.msg = msg;
   srdata.n = 0;
   
   //find all spools between msg->prev_id and msg->id
@@ -634,7 +662,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   }
   
   while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
-    spool_respond_general(spool, msg, 0, NULL);
+    //spool_respond_general(spool, msg, 0, NULL);
     spool_nextmsg(spool, &msg->id);
   }
 

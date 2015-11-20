@@ -1651,14 +1651,24 @@ typedef struct {
   get_multi_message_data_t   *d;
 } get_multi_message_data_single_t;
 
+
+static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_message_data_single_t *sd, nchan_msg_t *msg, nchan_msg_status_t status) {
+  d->msg_status = status;
+  if(d->msg) msg_release(d->msg, "get multi msg");
+  d->msg = msg;
+  if(msg) msg_reserve(msg, "get multi msg");
+  d->n = sd->n;
+  d->msg_status = status;
+}
+
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   
   get_multi_message_data_t   *d = sd->d;
   nchan_msg_t                 retmsg;
   int16_t                     uptag;
   
-  d->getting--;
   
+  /*
   switch(status) {
     case MSG_EXPECTED:
       DBG("multi[%i] of %i msg EXPECTED", sd->n, d->multi_count);
@@ -1672,31 +1682,27 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     default:
       assert(0);
   }
+  */
   
+  d->getting--;
   
-  if(d->msg_status == MSG_PENDING) {
-    DBG("first response msg %V (n:%i) %p, saved", msg ? msgid_to_str(&msg->id) : &empty_id_str, sd->n, d->msg);
-    d->msg_status = status;
-    d->msg = msg;
-    if(msg) {
-      msg_reserve(msg, "get multi msg");
-    }
-    d->n = sd->n;
+  if(d->msg == NULL) {
+    DBG("no good message yet, msg %V (n:%i) %p, saved", msg ? msgid_to_str(&msg->id) : &empty_id_str, sd->n, d->msg);
+    set_multimsg_msg(d, sd, msg, status);
   }
   else if(msg) {
     DBG("prev best response: %V (n:%i) %p", d->msg ? msgid_to_str(&d->msg->id) : &empty_id_str, d->n, d->msg);
-    if( d->msg == NULL
-     || msg->id.time < d->msg->id.time 
-     || (msg->id.time == d->msg->id.time && msg->id.tag[0] < d->msg->id.tag[0]) 
-     || (msg->id.time == d->msg->id.time && msg->id.tag[0] == d->msg->id.tag[0] && sd->n < d->n) ) {
+    
+    assert(d->wanted_msgid.time <= msg->id.time);
+    
+    if(msg->id.time < d->msg->id.time) {
+      set_multimsg_msg(d, sd, msg, status);
+    }
+    else if((msg->id.time == d->msg->id.time && msg->id.tag[0] <  d->msg->id.tag[0]) 
+         || (msg->id.time == d->msg->id.time && msg->id.tag[0] == d->msg->id.tag[0] && sd->n < d->n) ) {
+      
       DBG("got a better response %V (n:%i), replace.", msgid_to_str(&msg->id), sd->n);
-      if(d->msg) {
-        msg_release(d->msg, "get multi msg");
-      }
-      d->msg_status = status;
-      d->msg = msg;
-      msg_reserve(msg, "get multi msg");
-      d->n = sd->n;
+      set_multimsg_msg(d, sd, msg, status);    
     }
     else {
       DBG("got a worse response %V (n:%i), keep prev.", msgid_to_str(&msg->id), sd->n);
