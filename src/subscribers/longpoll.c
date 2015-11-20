@@ -26,6 +26,8 @@ static void sudden_abort_handler(subscriber_t *sub) {
 #endif
 }
 
+//void verify_unique_response(ngx_str_t *uri, nchan_msg_id_t *msgid, nchan_msg_t *msg, subscriber_t *sub);
+
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
@@ -214,6 +216,8 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
+
+  //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
   
   if((rc = nchan_respond_msg(fsub->data.request, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
     finalize_maybe(self, rc);
@@ -285,4 +289,91 @@ static const subscriber_t new_longpoll_sub = {
   1, //destroy after dequeue
   0, //enqueued
 };
+
+
+
+
+
+
+/*
+#include <store/rbtree_util.h>
+#include <execinfo.h>
+
+typedef struct {
+  ngx_str_t    id;
+  nchan_msg_t  msg;
+  ngx_str_t    smallmsg;
+  subscriber_t sub;
+  
+} uniq_response_t;
+
+static rbtree_seed_t  uniq_rsp_seed;
+static rbtree_seed_t *urs = NULL;
+
+void *urs_node_id(void *data) {
+  return &((uniq_response_t *)data)->id;
+}
+
+
+void verify_unique_response(ngx_str_t *uri, nchan_msg_id_t *msgid, nchan_msg_t *msg, subscriber_t *sub) {
+  
+  ngx_rbtree_node_t  *node;
+  uniq_response_t    *urnode;
+  
+  u_char              idbuf[1024];
+  ngx_str_t           id; //response id
+  
+  id.data = idbuf;
+  id.len = ngx_sprintf(idbuf, "%V | %V", uri, msgid_to_str(msgid)) - idbuf;
+  
+  if(urs == NULL) {
+    urs = &uniq_rsp_seed;
+    rbtree_init(urs, "unique response verifier", urs_node_id, NULL, NULL);
+  }
+  
+  int msglen = 0;
+  if(!msg->buf->in_file) {
+    msglen = msg->buf->end - msg->buf->start;
+  }
+  
+  if((node = rbtree_find_node(urs, &id)) != NULL) {
+    urnode = rbtree_data_from_node(node);
+    
+    assert(msg->buf == urnode->msg.buf);
+    assert(urnode->smallmsg.len == msglen);
+    assert(ngx_strncmp(urnode->smallmsg.data, msg->buf->start, msglen) == 0);
+    
+    urnode->msg = *msg;
+    urnode->sub = *sub;
+  }
+  else {
+    
+    node = rbtree_create_node(urs, sizeof(*urnode) + id.len + msglen);
+    urnode = rbtree_data_from_node(node);
+    urnode->id.data = (u_char *)&urnode[1];
+    urnode->id.len = id.len;
+    ngx_memcpy(urnode->id.data, id.data, id.len);
+    
+    if(!msg->buf->in_file) {
+      urnode->smallmsg.len = msglen;
+      urnode->smallmsg.data = urnode->id.data + id.len;
+      ngx_memcpy(urnode->smallmsg.data, msg->buf->start, msglen);
+      urnode->smallmsg.len = msglen;
+    }
+    else {
+      urnode->smallmsg.len = 0;
+      urnode->smallmsg.data = NULL;
+    }
+    
+    urnode->msg = *msg;
+    urnode->sub = *sub;
+    
+    rbtree_insert_node(urs, node);
+  }
+  
+}
+*/
+
+
+
 
