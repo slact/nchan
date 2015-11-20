@@ -278,7 +278,7 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
   return &msgtag_str;
 }
 
-ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t finalize, char **err) {
+ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_id_t *msgid, ngx_int_t finalize, char **err) {
   ngx_buf_t                 *buffer = msg->buf;
   nchan_buf_and_chain_t     *cb;
   ngx_str_t                 *etag, *tmp_etag;
@@ -334,12 +334,15 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, ngx_int_t f
     r->headers_out.content_type.data = msg->content_type.data;
   }
   
+  if(msgid == NULL) {
+    msgid = &msg->id;
+  }
   //last-modified
-  r->headers_out.last_modified_time = msg->id.time;
+  r->headers_out.last_modified_time = msgid->time;
 
   //etag
   
-  tmp_etag = msgtag_to_str(&msg->id);
+  tmp_etag = msgtag_to_str(msgid);
   if((etag = ngx_palloc(r->pool, sizeof(*etag) + tmp_etag->len))==NULL) {
     assert(err);
     if(err) *err = "unable to allocate memory for Etag header in subscriber's request pool";

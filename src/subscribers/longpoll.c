@@ -215,7 +215,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
   
-  if((rc = nchan_respond_msg(fsub->data.request, msg, 0, &err)) == NGX_OK) {
+  if((rc = nchan_respond_msg(fsub->data.request, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
     finalize_maybe(self, rc);
     dequeue_maybe(self);
     return rc;

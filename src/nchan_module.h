@@ -29,6 +29,7 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
 
 ngx_int_t verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg);
 
+void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid);
 void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill);
 
 

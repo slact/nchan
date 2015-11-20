@@ -83,15 +83,19 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   subscriber_pool_t      *newspool;
   channel_spooler_t      *spl = spool->spooler;
   
-  DBG("spool nextmsg %p (%V) --", spool, msgid_to_str(&spool->id));
-  DBG(" -- newid %V", msgid_to_str(new_last_id));
+  nchan_msg_id_t          new_id = spool->id;
   
-  if(msg_ids_equal(&spool->id, new_last_id)) {
+  nchan_update_multi_msgid(&new_id, new_last_id);
+  
+  DBG("spool nextmsg %p (%V) --", spool, msgid_to_str(&spool->id));
+  DBG(" -- newid %V", msgid_to_str(&new_id));
+  
+  if(msg_ids_equal(&spool->id, &new_id)) {
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
     assert(0);
   }
   else {
-    if((newspool = find_spool(spl, new_last_id)) != NULL) {
+    if((newspool = find_spool(spl, &new_id)) != NULL) {
       assert(spool != newspool);
       spool_transfer_subscribers(spool, newspool, 0);
       destroy_spool(spool);
@@ -100,14 +104,14 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
       ngx_rbtree_node_t       *node;
       node = rbtree_node_from_data(spool);
       rbtree_remove_node(&spl->spoolseed, node);
-      spool->id = *new_last_id;
+      spool->id = new_id;
       rbtree_insert_node(&spl->spoolseed, node);
       spool->msg_status = MSG_INVALID;
       spool->msg = NULL;
       newspool = spool;
       
       /*
-      newspool = get_spool(spl, new_last_id);
+      newspool = get_spool(spl, &new_id);
       assert(spool != newspool);
       spool_transfer_subscribers(spool, newspool, 0);
       destroy_spool(spool);
@@ -295,6 +299,10 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   
+  //nchan_msg_id_t             unid;
+  //nchan_msg_id_t             unprevid;
+  //int8_t                     i, max;
+  
   ngx_memzero(numsubs, sizeof(numsubs));
   self->generation++;
   
@@ -303,6 +311,19 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     DBG("msgid: %V", msgid_to_str(&msg->id));
     DBG("prev: %V", msgid_to_str(&msg->prev_id));
   }
+  
+  /*
+  if(msg && msg->prev_id.time > 0 && msg->id.tagcount > 1) {
+    assert(msg->shared == 0);
+    max = msg->id.tagcount;
+    for(i=0; i< max; i++) {
+      unid.tag[i] =     msg->id.tag[i];
+      unprevid.tag[i] = msg->prev_id.tag[i];
+      if(unid.tag[i] == -1)     msg->id.tag[i]   =    self->id.tag[i];
+      if(unprevid.tag[i] == -1) msg->prev_id.tag[i] = self->id.tag[i];
+    }
+  }
+  */
   
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
@@ -316,6 +337,16 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
       sub->fn->respond_status(sub, status_code, status_line);
     }
   }
+  
+  /*
+  if(msg && msg->prev_id.time > 0 && msg->id.tagcount > 1) {
+    for(i=0; i< max; i++) {
+      msg->id.tag[i] = unid.tag[i];
+      msg->prev_id.tag[i] = unprevid.tag[i];
+    }
+  }
+  */
+  
   self->responded_count++;
   return NGX_OK;
 }

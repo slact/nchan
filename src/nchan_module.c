@@ -558,7 +558,7 @@ static ngx_int_t subscribe_intervalpoll_callback(nchan_msg_status_t msg_search_o
       break;
       
     case MSG_FOUND:
-      if(nchan_respond_msg(r, msg, 1, &err) != NGX_OK) {
+      if(nchan_respond_msg(r, msg, NULL, 1, &err) != NGX_OK) {
         nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &TEXT_PLAIN, err, 1);
       }
       break;
@@ -851,25 +851,79 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
 
 
 
-static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid) {
   if(id1->time > 0 && id2->time > 0) {
-    if(id1->time != id2->time) return NGX_ERROR;
+    if(id1->time != id2->time) {
+      //is this a missed message, or just a multi msg?
+      if(id2->tagcount > 1) {
+        int i = -1, j, max = id2->tagcount;
+        for(j=0; j < max; j++) {
+          if(id2->tag[j] != -1) {
+            if( i != -1) {
+              //more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg. fail.
+              assert(0);
+              return NGX_ERROR;
+            }
+            else {
+              i = j;
+            }
+          }
+        }
+        if(msgid->tag[i] != 0) { //only the first message in a given second is ok. anything else means a missed message.
+          assert(0);
+          return NGX_ERROR;
+        }
+        //ok, it's just the first-per-second message of a channel from a multi-channel
+        //this is a rather convoluted description... but basically this is ok.
+        return NGX_OK;
+      }
+      else {
+        assert(0);
+        return NGX_ERROR;
+      }
+    }
     if(id1->tagcount == 1) {
-      if(id1->tag[0] != id2->tag[0]) return NGX_ERROR;
+      if(id1->tag[0] != id2->tag[0]){
+        assert(0);
+        return NGX_ERROR;
+      }
     }
     else {
       int   i, max = id1->tagcount;
       for(i=0; i < max; i++) {
-        if(id1->tag[i] != id2->tag[i]) return NGX_ERROR;
+        if(id2->tag[i] != -1 && id1->tag[i] != id2->tag[i]) {
+          assert(0);
+          return NGX_ERROR;
+        }
       }
     }
   }
   return NGX_OK;
 }
 
+void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
+  if(newid->tagcount == 1) {
+    //nice and simple
+    *oldid = *newid;
+  }
+  else {
+    if(oldid->time != newid->time) {
+      *oldid = *newid;
+    }
+    else {
+      int i, max = newid->tagcount;
+      for(i=0; i< max; i++) {
+        if (newid->tag[i] != -1) {
+          oldid->tag[i] = newid->tag[i];
+        }
+      }
+    }
+  }
+}
+
 ngx_int_t verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
-    if(verify_msg_id(&sub->last_msgid, &msg->prev_id) == NGX_ERROR) {
+    if(verify_msg_id(&sub->last_msgid, &msg->prev_id, &msg->id) == NGX_ERROR) {
       struct timeval    tv;
       time_t            time;
       int               ttl = msg->expires - msg->id.time;
@@ -880,10 +934,12 @@ ngx_int_t verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
         ERR("missed a message because it probably expired");
       }
       else {
+        ERR("missed a message for an unknown reason. That's bad! Stop everything!");
         assert(0);
       }
     }
-    sub->last_msgid = msg->id;
+    
+    nchan_update_multi_msgid(&sub->last_msgid, &msg->id);
   }
   
   return NGX_OK;
