@@ -208,55 +208,29 @@ static size_t etag_maxlen(nchan_msg_id_t *id) {
 }
 */
 
-static char *etag_printf_fmt(nchan_msg_id_t *id) {
-  switch(id->tagcount) {
-    case 1:
-      return "%i";
-    case 2:
-      return "%i,%i";
-    case 3:
-      return "%i,%i,%i";
-    case 4:
-      return "%i,%i,%i,%i";
-    case 5:
-      return "%i,%i,%i,%i,%i";
-    case 6:
-      return "%i,%i,%i,%i,%i,%i";
-    case 7:
-      return "%i,%i,%i,%i,%i,%i,%i";
-    case 8:
-      return "%i,%i,%i,%i,%i,%i,%i,%i";
-    default:
-      assert(0);
-  }
-}
 
 static ngx_str_t msgtag_str;
-static char msgtag_str_buf[8*NCHAN_MULTITAG_MAX + 30];
+static char msgtag_str_buf[10*NCHAN_MULTITAG_MAX + 30];
 
 static size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
-  char     *fmt = etag_printf_fmt(id);
   int16_t  *t = id->tag;
-  switch(id->tagcount) {
-    case 1:
-      return sprintf(ch, fmt, t[0]);
-    case 2:
-      return sprintf(ch, fmt, t[0], t[1]);
-    case 3:
-      return sprintf(ch, fmt, t[0], t[1], t[2]);
-    case 4:
-      return sprintf(ch, fmt, t[0], t[1], t[2], t[3]);
-    case 5:
-      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4]);
-    case 6:
-      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4], t[5]);
-    case 7:
-      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
-    case 8:
-      return sprintf(ch, fmt, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]);
-    default:
-      assert(0);
+  uint8_t   max = id->tagcount;
+  uint8_t   i;
+  char     *cur;
+  
+  static char* inactive="%i,";
+  static char*  active="[%i],";
+  if(max == 1) {
+    return sprintf(ch, "%i", t[0]);
   }
+  else {
+    cur = ch;
+    for(i=0; i < max; i++) {
+      cur += sprintf(cur, id->tagactive != i ? inactive : active, t[i]);
+    }
+    cur[-1]='\0';
+    return cur - ch - 1;
+  }  
 }
 
 ngx_str_t *msgtag_to_str(nchan_msg_id_t *id) {

@@ -291,7 +291,10 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
     else if (c >= '0' && c <= '9') {
       val = 10 * val + (c - '0');
     }
-    else {
+    else if (c == '[') {
+      mid->tagactive = i;
+    }
+    else if (c == ',') {
       mid->tag[i]=val * sign;
       sign=1;
       val=0;

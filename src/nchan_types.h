@@ -22,7 +22,8 @@ typedef struct {
 typedef struct {
   time_t                          time; //tag message by time
   int16_t                         tag[NCHAN_MULTITAG_MAX];
-  uint8_t                         tagcount;
+  unsigned                        tagactive:4;
+  unsigned                        tagcount:4;
 } nchan_msg_id_t;
 
 typedef struct {
