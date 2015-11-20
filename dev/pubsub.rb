@@ -567,10 +567,11 @@ end
 class Publisher
   #include Celluloid
   attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept
-  def initialize(url)
+  def initialize(url, opt={})
     @url= url
     @messages = MessageStore.new :noid => true
     @messages.name = "pub"
+    @timeout = opt[:timeout]
   end
   
   def submit(body, method=:POST, content_type= :'text/plain', &block)
@@ -588,8 +589,8 @@ class Publisher
       headers: {:'Content-Type' => content_type, :'Accept' => accept},
       method: method,
       body: body,
-      timeout: PUBLISH_TIMEOUT,
-      connecttimeout: PUBLISH_TIMEOUT
+      timeout: @timeout || PUBLISH_TIMEOUT,
+      connecttimeout: @timeout || PUBLISH_TIMEOUT
     )
     msg=Message.new body
     msg.content_type=content_type
