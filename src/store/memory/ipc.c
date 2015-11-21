@@ -143,9 +143,9 @@ ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
 
 typedef struct {
   ipc_t          *ipc;
-  ngx_int_t       src_slot;
-  ngx_int_t       dst_slot;
-  ngx_uint_t      code;
+  int16_t         src_slot;
+  int16_t         dst_slot;
+  uint8_t         code;
   void           *data[IPC_DATA_SIZE];
 } ipc_alert_t;
 
