@@ -267,7 +267,7 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
 
   str_shm_verify(data.shm_chid);
   
-  msg_reserve(shm_msg, "publish_message");
+  assert(msg_reserve(shm_msg, "publish_message") == NGX_OK);
   
   ret= ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
   return ret;
@@ -391,7 +391,7 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   if(d->shm_msg) {
-    msg_reserve(d->shm_msg, "get_message_reply");
+    assert(msg_reserve(d->shm_msg, "get_message_reply") == NGX_OK);
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, d, sizeof(*d));
 }

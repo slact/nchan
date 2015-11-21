@@ -1264,8 +1264,8 @@ static ngx_int_t validate_chanhead_messages(nchan_store_channel_head_t *ch) {
 static ngx_int_t chanhead_withdraw_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
   //DBG("withdraw message %V from ch %p %V", msgid_to_str(&msg->msg->id), ch, &ch->id);
   validate_chanhead_messages(ch);
-  if(msg->msg->refcount > 0) {
-    ERR("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg->refcount);
+  if(! ngx_atomic_cmp_set(&msg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    DBG("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg->refcount);
     return NGX_ERROR;
   }
   if(ch->msg_first == msg) {
@@ -1301,6 +1301,8 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
   ngx_buf_t         *buf = msg->msg->buf;
   ngx_file_t        *f = buf->file;
   
+  assert(msg->msg->refcount == MSG_REFCOUNT_INVALID);
+  
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
       DBG("close fd %u ", f->fd);
@@ -1325,16 +1327,17 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
 }
 
 static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
-  validate_chanhead_messages(ch);
+  //validate_chanhead_messages(ch);
   if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
     DBG("delete msg %V", msgid_to_str(&msg->msg->id));
     delete_withdrawn_message(msg);
+    return NGX_OK;
   }
   else {
-    ERR("failed to withdraw and delete message %V", msgid_to_str(&msg->msg->id));
+    //ERR("failed to withdraw and delete message %V", msgid_to_str(&msg->msg->id));
+    return NGX_DECLINED;
   }
-  validate_chanhead_messages(ch);
-  return NGX_OK;
+  //validate_chanhead_messages(ch);
 }
 
 static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
@@ -1353,13 +1356,11 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   while(cur != NULL && ch->channel.messages > max_messages) {
     tried_count++;
     next = cur->next;
-    if(cur->msg->refcount > 0) {
-      DBG("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount); //not a big deal
+    if(chanhead_delete_message(ch, cur) == NGX_OK) {
+      deleted_count++;        
     }
     else {
-      DBG("delete queue-too-big msg %V", msgid_to_str(&cur->msg->id));
-      chanhead_delete_message(ch, cur);
-      deleted_count++;
+      DBG("failed to withdraw and delete message %p %V (refcount %i)", msgid_to_str(&cur->msg->id), cur->msg->refcount);
     }
     cur = next;
   }
@@ -1367,13 +1368,11 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg->expires) {
     tried_count++;
     next = cur->next;
-    if(cur->msg->refcount > 0) {
-      DBG("msg %p refcount %i > 0", &cur->msg, cur->msg->refcount);
+    if(chanhead_delete_message(ch, cur) == NGX_OK) {
+      deleted_count++;        
     }
     else {
-      DBG("delete msg %p");
-      chanhead_delete_message(ch, cur);
-      deleted_count++;
+      DBG("failed to withdraw and delete expired message %p %V (refcount %i)", msgid_to_str(&cur->msg->id), cur->msg->refcount);
     }
     cur = next;
   }
@@ -1657,7 +1656,7 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
   d->msg_status = status;
   if(d->msg) msg_release(d->msg, "get multi msg");
   d->msg = msg;
-  if(msg) msg_reserve(msg, "get multi msg");
+  if(msg) assert(msg_reserve(msg, "get multi msg") == NGX_OK);
   d->n = sd->n;
   d->msg_status = status;
 }
@@ -2056,8 +2055,13 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   return msg;
 }
 
-void msg_reserve(nchan_msg_t *msg, char *lbl) {
+ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
   ngx_atomic_fetch_add(&msg->refcount, 1);
+  assert(msg->refcount >= 0);
+  if(msg->refcount < 0) {
+    msg->refcount = MSG_REFCOUNT_INVALID;
+    return NGX_ERROR;
+  }
 #if NCHAN_MSG_LEAK_DEBUG  
   msg_rsv_dbg_t     *rsv;
   shmtx_lock(shm);
@@ -2077,9 +2081,10 @@ void msg_reserve(nchan_msg_t *msg, char *lbl) {
   }
   shmtx_unlock(shm);
 #endif
+  return NGX_OK;
 }
-void msg_release(nchan_msg_t *msg, char *lbl) {
 
+ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
 #if NCHAN_MSG_LEAK_DEBUG
   msg_rsv_dbg_t     *cur, *prev, *next;
   size_t             sz = ngx_strlen(lbl);
@@ -2109,6 +2114,7 @@ void msg_release(nchan_msg_t *msg, char *lbl) {
 #endif
   assert(msg->refcount > 0);
   ngx_atomic_fetch_add(&msg->refcount, -1);
+  return NGX_OK;
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {
