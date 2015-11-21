@@ -185,27 +185,25 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
 
 #if NCHAN_MSG_LEAK_DEBUG
 
-nchan_msg_t *msgdebug_head = NULL;
-
 void msg_debug_add(nchan_msg_t *msg) {
   //ensure this message is present only once
   nchan_msg_t      *cur;
   shmtx_lock(shm);
-  for(cur = msgdebug_head; cur != NULL; cur = cur->dbg_next) {
+  for(cur = shdata->msgdebug_head; cur != NULL; cur = cur->dbg_next) {
     assert(cur != msg);
   }
   
-  if(msgdebug_head == NULL) {
+  if(shdata->msgdebug_head == NULL) {
     msg->dbg_next = NULL;
     msg->dbg_prev = NULL;
   }
   else {
-    msg->dbg_next = msgdebug_head;
+    msg->dbg_next = shdata->msgdebug_head;
     msg->dbg_prev = NULL;
-    assert(msgdebug_head->dbg_prev == NULL);
-    msgdebug_head->dbg_prev = msg;
+    assert(shdata->msgdebug_head->dbg_prev == NULL);
+    shdata->msgdebug_head->dbg_prev = msg;
   }
-  msgdebug_head = msg;
+  shdata->msgdebug_head = msg;
   shmtx_unlock(shm);
 }
 void msg_debug_remove(nchan_msg_t *msg) {
@@ -213,12 +211,12 @@ void msg_debug_remove(nchan_msg_t *msg) {
   shmtx_lock(shm);
   prev = msg->dbg_prev;
   next = msg->dbg_next;
-  if(msgdebug_head == msg) {
+  if(shdata->msgdebug_head == msg) {
     assert(msg->dbg_prev == NULL);
     if(next) {
       next->dbg_prev = NULL;
     }
-    msgdebug_head = next;
+    shdata->msgdebug_head = next;
   }
   else {
     if(prev) {
@@ -234,7 +232,7 @@ void msg_debug_remove(nchan_msg_t *msg) {
   shmtx_unlock(shm);
 }
 void msg_debug_assert_isempty(void) {
-  assert(msgdebug_head == NULL);
+  assert(shdata->msgdebug_head == NULL);
 }
 #endif
 
@@ -264,7 +262,10 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
-    ERR("Shm created with data at %p", d);
+    DBG("Shm created with data at %p", d);
+#if NCHAN_MSG_LEAK_DEBUG
+    shdata->msgdebug_head = NULL;
+#endif
   }
   return NGX_OK;
 }
@@ -2078,13 +2079,13 @@ void msg_reserve(nchan_msg_t *msg, char *lbl) {
 #endif
 }
 void msg_release(nchan_msg_t *msg, char *lbl) {
-  ngx_atomic_fetch_add(&msg->refcount, -1);
-  assert(msg->refcount >= 0);
+
 #if NCHAN_MSG_LEAK_DEBUG
   msg_rsv_dbg_t     *cur, *prev, *next;
   size_t             sz = ngx_strlen(lbl);
   ngx_int_t          rsv_found=0;
   shmtx_lock(shm);
+  assert(msg->refcount > 0);
   for(cur = msg->rsv; cur != NULL; cur = cur->next) {
     if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
       prev = cur->prev;
@@ -2106,6 +2107,8 @@ void msg_release(nchan_msg_t *msg, char *lbl) {
   assert(rsv_found);
   shmtx_unlock(shm);
 #endif
+  assert(msg->refcount > 0);
+  ngx_atomic_fetch_add(&msg->refcount, -1);
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {

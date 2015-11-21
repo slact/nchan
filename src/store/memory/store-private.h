@@ -76,6 +76,9 @@ typedef struct {
   nchan_reloading_channel_t         *rlch;
   ngx_atomic_t                       procslot[NGX_MAX_PROCESSES];
   ngx_atomic_t                       max_workers;
+#if NCHAN_MSG_LEAK_DEBUG
+  nchan_msg_t                       *msgdebug_head;
+#endif
 } shm_data_t;
 
 nchan_store_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);
