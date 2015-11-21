@@ -149,62 +149,37 @@ typedef struct {
   void           *data[IPC_DATA_SIZE];
 } ipc_alert_t;
 
-ngx_int_t ipc_read_channel(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *log) {
+static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *log) {
   DBG("IPC read channel");
   ssize_t             n;
   ngx_err_t           err;
-  struct iovec        iov[1];
-  struct msghdr       msg;
- 
-#if (NGX_HAVE_MSGHDR_MSG_CONTROL)
-  union {
-    struct cmsghdr  cm;
-    char            space[CMSG_SPACE(sizeof(int))];
-  } cmsg;
-#else
-  int                 fd;
-#endif
- 
-  iov[0].iov_base = (char *) alert;
-  iov[0].iov_len = sizeof(*alert);
- 
-  msg.msg_name = NULL;
-  msg.msg_namelen = 0;
-  msg.msg_iov = iov;
-  msg.msg_iovlen = 1;
- 
-#if (NGX_HAVE_MSGHDR_MSG_CONTROL)
-  msg.msg_control = (caddr_t) &cmsg;
-  msg.msg_controllen = sizeof(cmsg);
-#else
-  msg.msg_accrights = (caddr_t) &fd;
-  msg.msg_accrightslen = sizeof(int);
-#endif
- 
-  n = recvmsg(s, &msg, 0);
+  //static char         buf[sizeof(ipc_alert_t) * 2];
+  //static char        *cur;
+  
+  n = read(s, alert, sizeof(ipc_alert_t));
  
   if (n == -1) {
     err = ngx_errno;
     if (err == NGX_EAGAIN) {
       return NGX_AGAIN;
     }
- 
-    ngx_log_error(NGX_LOG_ALERT, log, err, "recvmsg() failed");
+    
+    ngx_log_error(NGX_LOG_ALERT, log, err, "read() failed");
     return NGX_ERROR;
   }
  
   if (n == 0) {
-    ngx_log_debug0(NGX_LOG_DEBUG_CORE, log, 0, "recvmsg() returned zero");
+    ngx_log_debug0(NGX_LOG_DEBUG_CORE, log, 0, "read() returned zero");
     return NGX_ERROR;
   }
  
   if ((size_t) n < sizeof(*alert)) {
-  ngx_log_error(NGX_LOG_ALERT, log, 0, "recvmsg() returned not enough data: %z", n);
+    ngx_log_error(NGX_LOG_ALERT, log, 0, "read() returned not enough data: %z", n);
     return NGX_ERROR;
   }
- 
+  
   return n;
- }
+}
 
 static void ipc_channel_handler(ngx_event_t *ev) {
   DBG("IPC channel handler");
@@ -219,7 +194,7 @@ static void ipc_channel_handler(ngx_event_t *ev) {
   c = ev->data;
   
   while(1) {
-    n = ipc_read_channel(c->fd, &alert, ev->log);
+    n = ipc_read_socket(c->fd, &alert, ev->log);
     if (n == NGX_ERROR) {
       if (ngx_event_flags & NGX_USE_EPOLL_EVENT) {
         ngx_del_conn(c, 0);
@@ -228,20 +203,22 @@ static void ipc_channel_handler(ngx_event_t *ev) {
       return;
     }
     if ((ngx_event_flags & NGX_USE_EVENTPORT_EVENT) && (ngx_add_event(ev, NGX_READ_EVENT, 0) == NGX_ERROR)) {
+      ERR("coundn't re-add event or something?...");
       return;
     }
     if (n == NGX_AGAIN) {
+      //ERR("NGX_AGAIN made things hard..."); //what does thjis mean?...
       return;
     }
     //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "nchan: channel command: %d", ch.command);
-
+    
+    assert(n == sizeof(alert));
+    
     if(ngx_process_slot != alert.dst_slot) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_process_slot, alert.dst_slot);
-      alert.ipc->handler(alert.src_slot, alert.code, alert.data);
     }
-    else {
-      alert.ipc->handler(alert.src_slot, alert.code, alert.data);
-    }
+    alert.ipc->handler(alert.src_slot, alert.code, alert.data);
+
   }
 } 
 
@@ -270,29 +247,9 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   //switch back  
   
 #else
-  ssize_t             n;
-  ngx_err_t           err;
-  struct iovec        iov[1];
-  struct msghdr       msg;
-  ngx_socket_t        s = ipc->socketpairs[slot][0];
-  
-#if (NGX_HAVE_MSGHDR_MSG_CONTROL)
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-#else
-  msg.msg_accrights = NULL;
-  msg.msg_accrightslen = 0;
-#endif
- 
-  iov[0].iov_base = (char *) &alert;
-  iov[0].iov_len = sizeof(alert);
- 
-  msg.msg_name = NULL;
-  msg.msg_namelen = 0;
-  msg.msg_iov = iov;
-  msg.msg_iovlen = 1;
- 
-  n = sendmsg(s, &msg, 0);
+  size_t        n;
+  ngx_err_t     err;
+  n = write(ipc->socketpairs[slot][0], &alert, sizeof(alert));
  
   if (n == -1) {
     err = ngx_errno;
@@ -304,6 +261,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     assert(0);
     return NGX_ERROR;
   }
+  assert(n == sizeof(alert));
 #endif
 
   return NGX_OK;
