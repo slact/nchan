@@ -215,7 +215,7 @@ ngx_int_t rbtree_remove_node(rbtree_seed_t *seed, ngx_rbtree_node_t *node) {
   return NGX_OK;
 }
 
-static void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_callback_pt callback, void *data) {
+static ngx_inline void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_callback_pt callback, void *data) {
   ngx_rbtree_node_t  *left, *right;
   if(node == sentinel || node == NULL) {
     return;
@@ -233,7 +233,7 @@ ngx_int_t rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, voi
 }
 
 
-static void rbtree_conditional_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_conditional_callback_pt callback, void *data) {
+static ngx_inline void rbtree_conditional_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_conditional_callback_pt callback, void *data) {
   rbtree_walk_direction_t    direction;
   
   if(node == sentinel || node == NULL) {

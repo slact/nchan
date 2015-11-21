@@ -1416,6 +1416,10 @@ static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
 
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status) {
   store_message_t      *cur, *first;
+  
+  time_t           mid_time; //optimization yeah
+  int16_t          mid_tag; //optimization yeah
+  
   DBG("find next message %V", msgid_to_str(msgid));
   if(ch == NULL) {
     *status = MSG_NOTFOUND;
@@ -1442,12 +1446,15 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     *status = MSG_FOUND;
     return first;
   }
-
+  
+  mid_time = msgid->time;
+  mid_tag = msgid->tag[0];
+  
   while(cur != NULL) {
-    assert(cur->msg->id.tagcount == 1);
-    DBG("cur: (chid: %V)  %V %V", &ch->id, msgid_to_str(&cur->msg->id), chanhead_msg_to_str(cur));
+    //assert(cur->msg->id.tagcount == 1);
+    //DBG("cur: (chid: %V)  %V %V", &ch->id, msgid_to_str(&cur->msg->id), chanhead_msg_to_str(cur));
     
-    if(msgid->time > cur->msg->id.time || (msgid->time == cur->msg->id.time && msgid->tag[0] >= cur->msg->id.tag[0])){
+    if(mid_time > cur->msg->id.time || (mid_time == cur->msg->id.time && mid_tag >= cur->msg->id.tag[0])){
       if(cur->next != NULL) {
         *status = MSG_FOUND;
         DBG("found message %V", msgid_to_str(&cur->next->msg->id));
