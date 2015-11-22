@@ -14,7 +14,7 @@
 
 
 
-static void ipc_channel_handler(ngx_event_t *ev);
+static void ipc_read_handler(ngx_event_t *ev);
 
 ipc_t *ipc_create(ngx_cycle_t *cycle) {
   ipc_t *ipc;
@@ -37,16 +37,29 @@ ngx_int_t ipc_set_handler(ipc_t *ipc, void (*alert_handler)(ngx_int_t, ngx_uint_
   return NGX_OK;
 }
 
+static void ipc_try_close_fd(ngx_socket_t *fd) {
+  if(*fd != NGX_INVALID_FILE) {
+    ngx_close_socket(*fd);
+    *fd=NGX_INVALID_FILE;
+  }
+}
+
 ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
-//initialize socketpairs for workers in advance.
+//initialize pipes for workers in advance.
   static int invalid_sockets_initialized = 0;
-  int                             i, s = 0;//, on = 1;
+  int                             i, j, s = 0;//, on = 1;
   ngx_int_t                       last_expected_process = ngx_last_process;
+  ipc_process_t                  *proc;
+  ngx_socket_t                   *socks;
   
   if(!invalid_sockets_initialized) {
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
-      ipc->socketpairs[i][0]=NGX_INVALID_FILE;
-      ipc->socketpairs[i][1]=NGX_INVALID_FILE;
+      proc = &ipc->process[i];
+      proc->ipc = ipc;
+      proc->pipe[0]=NGX_INVALID_FILE;
+      proc->pipe[1]=NGX_INVALID_FILE;
+      proc->c=NULL;
+      proc->active = 0;
     }
     invalid_sockets_initialized=1;
   }
@@ -55,7 +68,7 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
     * socketpairs are unusable for our purposes (as of nginx 0.8 -- check the 
     * code to see why), and the module initialization callbacks occur before
     * any workers are spawned. Rather than futzing around with existing 
-    * socketpairs, we populate our own socketpairs array. 
+    * socketpairs, we make our own pipes array. 
     * Trouble is, ngx_spawn_process() creates them one-by-one, and we need to 
     * do it all at once. So we must guess all the workers' ngx_process_slots in 
     * advance. Meaning the spawning logic must be copied to the T.
@@ -67,65 +80,147 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
       //find empty existing slot
       s++;
     }
-    ngx_socket_t               *socks = ipc->socketpairs[s];
-    if(socks[0] == NGX_INVALID_FILE || socks[1] == NGX_INVALID_FILE) {
-      //copypasta from os/unix/ngx_process.c (ngx_spawn_process)
+    
+    proc = &ipc->process[i];
+    
+    if(!proc->active) {
+      socks = proc->pipe;
+      
+      assert(socks[0] == NGX_INVALID_FILE && socks[1] == NGX_INVALID_FILE);
+      
+      //make-a-pipe
       if (pipe(socks) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing nchan");
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "pipe() failed while initializing nchan IPC");
         return NGX_ERROR;
+      }
+      //make noth ends nonblocking
+      for(j=0; j <= 1; j++) {
+        if (ngx_nonblocking(socks[j]) == -1) {
+          ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on pipe socket %i while initializing nchan", j);
+          ipc_try_close_fd(&socks[0]);
+          ipc_try_close_fd(&socks[1]);
+          return NGX_ERROR;
+        }
       }
       
-      if (ngx_nonblocking(socks[0]) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing nchan");
-        ngx_close_channel(socks, cycle->log);
-        return NGX_ERROR;
-      }
-      
-      /*
-      if (ngx_nonblocking(socks[1]) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing nchan");
-        ngx_close_channel(socks, cycle->log);
-        return NGX_ERROR;
-      }
-      */
+      //It's ALIIIIIVE! ... erm.. active...
+      proc->active = 1;
     }
     s++; //NEXT!!
   }
   return NGX_OK;
 }
 
+
+
 ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
   int i;
+  ipc_process_t  *proc;
   for (i=0; i<NGX_MAX_PROCESSES; i++) {
-    if(ipc->socketpairs[i][0] != NGX_INVALID_FILE || ipc->socketpairs[i][1] != NGX_INVALID_FILE) {
-      ngx_close_channel(ipc->socketpairs[i], cycle->log);
-    }
+    proc = &ipc->process[i];
+    if(!proc->active) continue;
+    
+    assert(proc->c);
+    ngx_close_connection(proc->c);
+
+    ipc_try_close_fd(&proc->pipe[0]);
+    ipc_try_close_fd(&proc->pipe[1]);
+    ipc->process[i].active = 0;
   }
   return NGX_OK;
 }
 
-ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
+static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
+  int         n;
+  ngx_int_t   err;
   
-  ngx_connection_t          *c;
-  
-  c = ngx_get_connection(ipc->socketpairs[ngx_process_slot][0], cycle->log);
-  c->data = ipc;
-  
-  c->read->handler = ipc_channel_handler;
-  c->read->log = cycle->log;
-  c->write->handler = NULL;
-  
-  ngx_add_event(c->read, NGX_READ_EVENT, 0);
-  
+  n = write(fd, alert, sizeof(*alert));
+ 
+  if (n == -1) {
+    err = ngx_errno;
+    if (err == NGX_EAGAIN) {
+      return NGX_AGAIN;
+    }
+    
+    ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "write() failed");
+    assert(0);
+    return NGX_ERROR;
+  }
   return NGX_OK;
 }
 
-typedef struct {
-  int16_t         src_slot;
-  int16_t         dst_slot;
-  uint8_t         code;
-  void           *data[IPC_DATA_SIZE];
-} ipc_alert_t;
+static void ipc_write_handler(ngx_event_t *ev) {
+  ngx_connection_t        *c = ev->data;
+  ipc_process_t           *proc = (ipc_process_t *) c->data;
+  
+  ipc_writev_data_t      **wevd_first = &proc->wevd_first;
+  
+  ipc_writev_data_t       *cur, *next;
+  ngx_socket_t             fd = c->fd;
+  
+  for(cur = *wevd_first; cur != NULL; cur = next) {
+    next = cur->next;
+    if(ipc_write_alert_fd(fd, &cur->alert) == NGX_OK) {
+      ngx_free(cur);
+    }
+    else {
+      break;
+    }
+  }
+  
+  *wevd_first = cur;
+  if(cur == NULL) {
+    proc->wevd_last = NULL;
+  }
+  else {
+    //need to write some more
+    DBG("NOT FINISHED WRITING!!");
+    ngx_handle_write_event(c->write, 0);
+    //ngx_add_event(c->write, NGX_WRITE_EVENT, NGX_CLEAR_EVENT);
+  }
+}
+
+ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
+  int                    i;    
+  ngx_connection_t      *c;
+  ipc_process_t         *proc;
+  
+  for(i=0; i< NGX_MAX_PROCESSES; i++) {
+    
+    proc = &ipc->process[i];
+    
+    if(!proc->active) continue;
+    
+    assert(proc->pipe[0] != NGX_INVALID_FILE);
+    assert(proc->pipe[1] != NGX_INVALID_FILE);
+    
+    if(i==ngx_process_slot) {
+      //set up read connection
+      c = ngx_get_connection(proc->pipe[0], cycle->log);
+      c->data = ipc;
+      
+      c->read->handler = ipc_read_handler;
+      c->read->log = cycle->log;
+      c->write->handler = NULL;
+      
+      ngx_add_event(c->read, NGX_READ_EVENT, 0);
+      proc->c=c;
+    }
+    else {
+      //set up write connection
+      c = ngx_get_connection(proc->pipe[1], cycle->log);
+      
+      c->data = proc;
+      
+      c->read->handler = NULL;
+      c->write->log = cycle->log;
+      c->write->handler = ipc_write_handler;
+      
+      proc->c=c;
+    }
+  }
+  return NGX_OK;
+}
 
 static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *log) {
   DBG("IPC read channel");
@@ -159,7 +254,7 @@ static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *
   return n;
 }
 
-static void ipc_channel_handler(ngx_event_t *ev) {
+static void ipc_read_handler(ngx_event_t *ev) {
   DBG("IPC channel handler");
   //copypasta from os/unix/ngx_process_cycle.c (ngx_channel_handler)
   ngx_int_t          n;
@@ -193,7 +288,7 @@ static void ipc_channel_handler(ngx_event_t *ev) {
     ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 
   }
-} 
+}
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
@@ -219,21 +314,25 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   //switch back  
   
 #else
-  size_t        n;
-  ngx_err_t     err;
-  n = write(ipc->socketpairs[slot][1], &alert, sizeof(alert));
- 
-  if (n == -1) {
-    err = ngx_errno;
-    if (err == NGX_EAGAIN) {
-      return NGX_AGAIN;
-    }
-    
-    ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "sendmsg() failed");
-    assert(0);
-    return NGX_ERROR;
+  
+  
+  ipc_process_t      *proc = &ipc->process[slot];
+  ipc_writev_data_t  *wd = ngx_alloc(sizeof(*wd), ngx_cycle->log);
+  wd->alert = alert;
+  if(proc->wevd_last) {
+    proc->wevd_last->next = wd;
   }
-  assert(n == sizeof(alert));
+  wd->next = NULL;
+  proc->wevd_last = wd;
+  if(! proc->wevd_first) {
+    proc->wevd_first = wd;
+  }
+  
+  ipc_write_handler(proc->c->write);
+  
+  //ngx_handle_write_event(ipc->c[slot]->write, 0);
+  //ngx_add_event(ipc->c[slot]->write, NGX_WRITE_EVENT, NGX_CLEAR_EVENT);
+  
 #endif
 
   return NGX_OK;
