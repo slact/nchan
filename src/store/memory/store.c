@@ -8,10 +8,24 @@
 #include "store-private.h"
 #include "../spool.h"
 
+#include <nchan_reaper.h>
 
 #include <store/redis/store.h>
 #include <subscribers/memstore_redis.h>
 #include <subscribers/memstore_multi.h>
+
+
+#if FAKESHARD
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
+
+#else
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
+
+#endif
 
 
 typedef struct {
@@ -21,7 +35,7 @@ typedef struct {
   nchan_store_channel_head_t      unbuffered_dummy_chanhead;
   store_channel_head_shm_t        dummy_shared_chaninfo;
   nchan_store_channel_head_t     *hash;
-  
+  nchan_reaper_t                  msg_reaper;
   ngx_int_t                       workers;
   
 #if FAKESHARD
@@ -29,10 +43,40 @@ typedef struct {
 #endif
 } memstore_data_t;
 
+static ngx_int_t nchan_memstore_msg_ready_to_reap(store_message_t *smsg) {
+  if(ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    return NGX_OK;
+  }
+  else {
+    ERR("not ready to reap msg %V, reservations: %i", msgid_to_str(&smsg->msg->id), smsg->msg->refcount);
+    
+#if NCHAN_MSG_LEAK_DEBUG
+    msg_rsv_dbg_t *rsv;
+    for(rsv = smsg->msg->rsv; rsv != NULL; rsv = rsv->next) {
+      ERR("   reservation label: %s", rsv->lbl);
+    }
+#endif
+    
+    return NGX_DECLINED;
+  }
+}
+
+static ngx_int_t memstore_reap_message( store_message_t *msg );
+
 static void init_mpt(memstore_data_t *m) {
   ngx_memzero(&m->gc_timer, sizeof(m->gc_timer));
   m->gc_head = NULL;
   m->gc_tail = NULL;
+  
+  nchan_reaper_start(&m->msg_reaper, 
+                     "memstore message reaper", 
+                     offsetof(store_message_t, prev), 
+                     offsetof(store_message_t, next), 
+    (ngx_int_t (*)(void *)) nchan_memstore_msg_ready_to_reap,
+         (void (*)(void *)) memstore_reap_message,
+                     5
+  );
+  
   ngx_memzero(&m->unbuffered_dummy_chanhead, sizeof(nchan_store_channel_head_t));
   m->unbuffered_dummy_chanhead.id.data= (u_char *)"unbuffered fake";
   m->unbuffered_dummy_chanhead.id.len=15;
@@ -104,9 +148,6 @@ ipc_t *nchan_memstore_get_ipc(void){
 
 #if FAKESHARD
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
-
 static nchan_llist_timed_t *fakeprocess_top = NULL;
 void memstore_fakeprocess_push(ngx_int_t slot) {
   assert(slot < MAX_FAKE_WORKERS);
@@ -144,11 +185,6 @@ ngx_int_t memstore_fakeprocess_pop(void) {
 void memstore_fakeprocess_push_random(void) {
   return memstore_fakeprocess_push(rand() % MAX_FAKE_WORKERS);
 }
-
-#else
-
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
 
 #endif
 
@@ -1181,6 +1217,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   if(mpt->gc_timer.timer_set) {
     ngx_del_timer(&mpt->gc_timer);
   }
+  
+  nchan_reaper_stop(&mpt->msg_reaper);
 #if FAKESHARD
   memstore_fakeprocess_pop();
   }
@@ -1215,13 +1253,14 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   ipc_close(ipc, cycle);
   ipc_destroy(ipc, cycle); //only for this worker...
   
+#if NCHAN_MSG_LEAK_DEBUG
+  msg_debug_assert_isempty();
+#endif
+  
   shm_destroy(shm); //just for this worker...
   
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
-#endif
-#if NCHAN_MSG_LEAK_DEBUG
-  msg_debug_assert_isempty();
 #endif
 }
 
@@ -1261,43 +1300,7 @@ static ngx_int_t validate_chanhead_messages(nchan_store_channel_head_t *ch) {
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_withdraw_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
-  //DBG("withdraw message %V from ch %p %V", msgid_to_str(&msg->msg->id), ch, &ch->id);
-  validate_chanhead_messages(ch);
-  if(! ngx_atomic_cmp_set(&msg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
-    DBG("trying to withdraw (remove) message %p with refcount %i", msg, msg->msg->refcount);
-    return NGX_ERROR;
-  }
-  if(ch->msg_first == msg) {
-    //DBG("first message removed");
-    ch->msg_first = msg->next;
-  }
-  if(ch->msg_last == msg) {
-    //DBG("last message removed");
-    ch->msg_last = msg->prev;
-  }
-  if(msg->next != NULL) {
-    //DBG("set next");
-    msg->next->prev = msg->prev;
-  }
-  if(msg->prev != NULL) {
-    //DBG("set prev");
-    msg->prev->next = msg->next;
-  }
-  
-  ch->channel.messages--;
-  
-  ngx_atomic_fetch_add(&ch->shared->stored_message_count, -1);
-  
-  if(ch->channel.messages == 0) {
-    assert(ch->msg_first == NULL);
-    assert(ch->msg_last == NULL);
-  }
-  validate_chanhead_messages(ch);
-  return NGX_OK;
-}
-
-static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
+static ngx_int_t memstore_reap_message( store_message_t *msg ) {
   ngx_buf_t         *buf = msg->msg->buf;
   ngx_file_t        *f = buf->file;
   
@@ -1309,7 +1312,7 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
       ngx_close_file(f->fd);
     }
     else {
-      DBG("delete withdrawn fd invalid");
+      DBG("reap msg fd invalid");
     }
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
@@ -1328,16 +1331,37 @@ static ngx_int_t delete_withdrawn_message( store_message_t *msg ) {
 
 static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
   //validate_chanhead_messages(ch);
-  if(chanhead_withdraw_message(ch, msg) == NGX_OK) {
-    DBG("delete msg %V", msgid_to_str(&msg->msg->id));
-    delete_withdrawn_message(msg);
-    return NGX_OK;
+  
+  //DBG("withdraw message %V from ch %p %V", msgid_to_str(&msg->msg->id), ch, &ch->id);
+  if(ch->msg_first == msg) {
+    //DBG("first message removed");
+    ch->msg_first = msg->next;
   }
-  else {
-    //ERR("failed to withdraw and delete message %V", msgid_to_str(&msg->msg->id));
-    return NGX_DECLINED;
+  if(ch->msg_last == msg) {
+    //DBG("last message removed");
+    ch->msg_last = msg->prev;
   }
-  //validate_chanhead_messages(ch);
+  if(msg->next != NULL) {
+    //DBG("set next");
+    msg->next->prev = msg->prev;
+  }
+  if(msg->prev != NULL) {
+    //DBG("set prev");
+    assert(0);
+    msg->prev->next = msg->next;
+  }
+  
+  ch->channel.messages--;
+  
+  ngx_atomic_fetch_add(&ch->shared->stored_message_count, -1);
+  
+  if(ch->channel.messages == 0) {
+    assert(ch->msg_first == NULL);
+    assert(ch->msg_last == NULL);
+  }
+  
+  nchan_reaper_add(&mpt->msg_reaper, msg);
+  return NGX_OK;
 }
 
 static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
@@ -1356,24 +1380,16 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   while(cur != NULL && ch->channel.messages > max_messages) {
     tried_count++;
     next = cur->next;
-    if(chanhead_delete_message(ch, cur) == NGX_OK) {
-      deleted_count++;        
-    }
-    else {
-      DBG("failed to withdraw and delete message %p %V (refcount %i)", msgid_to_str(&cur->msg->id), cur->msg->refcount);
-    }
+    chanhead_delete_message(ch, cur);
+    deleted_count++;        
     cur = next;
   }
   
+  //any expired messages?
   while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg->expires) {
     tried_count++;
     next = cur->next;
-    if(chanhead_delete_message(ch, cur) == NGX_OK) {
-      deleted_count++;        
-    }
-    else {
-      DBG("failed to withdraw and delete expired message %p %V (refcount %i)", msgid_to_str(&cur->msg->id), cur->msg->refcount);
-    }
+    chanhead_delete_message(ch, cur);
     cur = next;
   }
   DBG("message GC results: started with %i, walked %i, deleted %i msgs", started_count, tried_count, deleted_count);
@@ -2072,7 +2088,7 @@ ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
 #if NCHAN_MSG_LEAK_DEBUG  
   msg_rsv_dbg_t     *rsv;
   shmtx_lock(shm);
-  rsv=shm_locked_alloc(shm, sizeof(*rsv) + ngx_strlen(lbl), "msgdebug");
+  rsv=shm_locked_calloc(shm, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
   rsv->lbl = (char *)(&rsv[1]);
   ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
   if(msg->rsv == NULL) {
@@ -2178,7 +2194,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   if(msg->id.time == 0) {
     msg->id.time = ngx_time();
   }
-  msg->expires = ngx_time() + cf->buffer_timeout;
+  msg->expires = msg->id.time + cf->buffer_timeout;
   
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
