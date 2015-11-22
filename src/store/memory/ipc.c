@@ -70,7 +70,7 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
     ngx_socket_t               *socks = ipc->socketpairs[s];
     if(socks[0] == NGX_INVALID_FILE || socks[1] == NGX_INVALID_FILE) {
       //copypasta from os/unix/ngx_process.c (ngx_spawn_process)
-      if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == -1) {
+      if (pipe(socks) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing nchan");
         return NGX_ERROR;
       }
@@ -127,7 +127,7 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
 }
 
 ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
-  if (ngx_add_channel_event(cycle, ipc->socketpairs[ngx_process_slot][1], NGX_READ_EVENT, ipc_channel_handler) == NGX_ERROR) {
+  if (ngx_add_channel_event(cycle, ipc->socketpairs[ngx_process_slot][0], NGX_READ_EVENT, ipc_channel_handler) == NGX_ERROR) {
     ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing nchan worker");
     return NGX_ERROR;
   }
@@ -249,7 +249,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
 #else
   size_t        n;
   ngx_err_t     err;
-  n = write(ipc->socketpairs[slot][0], &alert, sizeof(alert));
+  n = write(ipc->socketpairs[slot][1], &alert, sizeof(alert));
  
   if (n == -1) {
     err = ngx_errno;
