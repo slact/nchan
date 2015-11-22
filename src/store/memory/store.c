@@ -50,7 +50,7 @@ static ngx_int_t nchan_memstore_msg_ready_to_reap(store_message_t *smsg) {
   else {
     ERR("not ready to reap msg %V, reservations: %i", msgid_to_str(&smsg->msg->id), smsg->msg->refcount);
     
-#if NCHAN_MSG_LEAK_DEBUG
+#if NCHAN_MSG_RESERVE_DEBUG
     msg_rsv_dbg_t *rsv;
     for(rsv = smsg->msg->rsv; rsv != NULL; rsv = rsv->next) {
       ERR("   reservation label: %s", rsv->lbl);
@@ -2067,8 +2067,10 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   msg->shared = 1;
   msg->temp_allocd = 0;
   
-#if NCHAN_MSG_LEAK_DEBUG  
+#if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
+#endif
+#if NCHAN_MSG_LEAK_DEBUG  
   msg->lbl.len = m->lbl.len;
   msg->lbl.data = (u_char *)stuff + (total_sz - debug_sz);
   ngx_memcpy(msg->lbl.data, m->lbl.data, msg->lbl.len);
@@ -2086,7 +2088,7 @@ ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
     msg->refcount = MSG_REFCOUNT_INVALID;
     return NGX_ERROR;
   }
-#if NCHAN_MSG_LEAK_DEBUG  
+#if NCHAN_MSG_RESERVE_DEBUG  
   msg_rsv_dbg_t     *rsv;
   shmtx_lock(shm);
   rsv=shm_locked_calloc(shm, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
@@ -2109,7 +2111,7 @@ ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
 }
 
 ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
-#if NCHAN_MSG_LEAK_DEBUG
+#if NCHAN_MSG_RESERVE_DEBUG
   msg_rsv_dbg_t     *cur, *prev, *next;
   size_t             sz = ngx_strlen(lbl);
   ngx_int_t          rsv_found=0;

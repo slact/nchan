@@ -1,4 +1,5 @@
 //#define NCHAN_SUBSCRIBER_LEAK_DEBUG 1
+//#define NCHAN_MSG_RESERVE_DEBUG 1
 //#define NCHAN_MSG_LEAK_DEBUG 1
 
 #include <ngx_http.h>

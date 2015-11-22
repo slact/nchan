@@ -35,12 +35,12 @@ typedef struct {
 
 //message queue
 
-#if NCHAN_MSG_LEAK_DEBUG
+#if NCHAN_MSG_RESERVE_DEBUG
 typedef struct msg_rsv_dbg_s msg_rsv_dbg_t;
 struct msg_rsv_dbg_s {
   char                  *lbl;
-  struct msg_rsv_dbg_s  *prev;
-  struct msg_rsv_dbg_s  *next;
+  msg_rsv_dbg_t         *prev;
+  msg_rsv_dbg_t         *next;
 }; //msg_rsv_dbg_s
 #endif
 
@@ -60,9 +60,11 @@ struct nchan_msg_s {
   
   unsigned                        shared:1; //for debugging
   unsigned                        temp_allocd:1;
+#if NCHAN_MSG_RESERVE_DEBUG
+  struct msg_rsv_dbg_s           *rsv;
+#endif
 #if NCHAN_MSG_LEAK_DEBUG
   ngx_str_t                       lbl;
-  struct msg_rsv_dbg_s           *rsv;
   struct nchan_msg_s             *dbg_prev;
   struct nchan_msg_s             *dbg_next;
 #endif
