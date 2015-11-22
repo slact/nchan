@@ -74,16 +74,20 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "socketpair() failed on socketpair while initializing nchan");
         return NGX_ERROR;
       }
+      
       if (ngx_nonblocking(socks[0]) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
+      
+      /*
       if (ngx_nonblocking(socks[1]) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on socketpair while initializing nchan");
         ngx_close_channel(socks, cycle->log);
         return NGX_ERROR;
       }
+      */
       /*
       if (ioctl(socks[0], FIOASYNC, &on) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "ioctl(FIOASYNC) failed on socketpair while initializing nchan");
@@ -256,7 +260,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     if (err == NGX_EAGAIN) {
       return NGX_AGAIN;
     }
- 
+    
     ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "sendmsg() failed");
     assert(0);
     return NGX_ERROR;
