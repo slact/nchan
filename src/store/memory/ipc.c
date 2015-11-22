@@ -88,32 +88,6 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
         return NGX_ERROR;
       }
       */
-      /*
-      if (ioctl(socks[0], FIOASYNC, &on) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "ioctl(FIOASYNC) failed on socketpair while initializing nchan");
-        ngx_close_channel(socks, cycle->log);
-        return NGX_ERROR;
-      }
-
-      if (fcntl(socks[0], F_SETOWN, ngx_pid) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(F_SETOWN) failed on socketpair while initializing nchan");
-        ngx_close_channel(socks, cycle->log);
-        return NGX_ERROR;
-      }
-      
-      
-      if (fcntl(socks[0], F_SETFD, FD_CLOEXEC) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(FD_CLOEXEC) failed on socketpair while initializing nchan");
-        ngx_close_channel(socks, cycle->log);
-        return NGX_ERROR;
-      }
-
-      if (fcntl(socks[1], F_SETFD, FD_CLOEXEC) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(FD_CLOEXEC) failed while initializing nchan");
-        ngx_close_channel(socks, cycle->log);
-        return NGX_ERROR;
-      }
-      */
     }
     s++; //NEXT!!
   }
@@ -131,22 +105,22 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
 }
 
 ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
-  if (ngx_add_channel_event(cycle, ipc->socketpairs[ngx_process_slot][0], NGX_READ_EVENT, ipc_channel_handler) == NGX_ERROR) {
-    ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "failed to register channel handler while initializing nchan worker");
-    return NGX_ERROR;
-  }
-  /*
-  if (fcntl(ipc->socketpairs[ngx_process_slot][0], F_SETOWN, ngx_pid) == -1) {
-    ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "fcntl(F_SETOWN) failed on socketpair while initializing nchan worker %i", ngx_pid);
-    return NGX_ERROR;
-  }
-  */
+  
+  ngx_connection_t          *c;
+  
+  c = ngx_get_connection(ipc->socketpairs[ngx_process_slot][0], cycle->log);
+  c->data = ipc;
+  
+  c->read->handler = ipc_channel_handler;
+  c->read->log = cycle->log;
+  c->write->handler = NULL;
+  
+  ngx_add_event(c->read, NGX_READ_EVENT, 0);
   
   return NGX_OK;
 }
 
 typedef struct {
-  ipc_t          *ipc;
   int16_t         src_slot;
   int16_t         dst_slot;
   uint8_t         code;
@@ -206,12 +180,7 @@ static void ipc_channel_handler(ngx_event_t *ev) {
       ngx_close_connection(c);
       return;
     }
-    if ((ngx_event_flags & NGX_USE_EVENTPORT_EVENT) && (ngx_add_event(ev, NGX_READ_EVENT, 0) == NGX_ERROR)) {
-      ERR("coundn't re-add event or something?...");
-      return;
-    }
     if (n == NGX_AGAIN) {
-      //ERR("NGX_AGAIN made things hard..."); //what does thjis mean?...
       return;
     }
     //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "nchan: channel command: %d", ch.command);
@@ -221,7 +190,7 @@ static void ipc_channel_handler(ngx_event_t *ev) {
     if(ngx_process_slot != alert.dst_slot) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_process_slot, alert.dst_slot);
     }
-    alert.ipc->handler(alert.src_slot, alert.code, alert.data);
+    ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 
   }
 } 
@@ -232,7 +201,6 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   ipc_alert_t         alert = {0};
   
-  alert.ipc = ipc;
   alert.src_slot = memstore_slot();
   alert.dst_slot = slot;
   alert.code = code;
@@ -246,7 +214,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   //switch to destination
   memstore_fakeprocess_push(alert.dst_slot);
-  alert.ipc->handler(alert.src_slot, alert.code, alert.data);
+  ipc->handler(alert.src_slot, alert.code, alert.data);
   memstore_fakeprocess_pop();
   //switch back  
   
