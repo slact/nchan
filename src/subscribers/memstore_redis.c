@@ -120,21 +120,6 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 }
 */
 
-/*
-static void timeout_ev_handler(ngx_event_t *ev) {
-  sub_data_t *d = (sub_data_t *)ev->data;
-  
-#if FAKESHARD
-  memstore_fakeprocess_push(d->owner);
-#endif
-  DBG("%p timeout event. Ping originator to see if still needed.", d->sub);
-  d->sub->reserve(d->sub);
-  memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
-#if FAKESHARD
-  memstore_fakeprocess_pop();
-#endif
-}
-*/
 
 subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
   
