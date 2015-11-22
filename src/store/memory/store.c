@@ -789,6 +789,7 @@ ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead, const char 
 }
 
 
+/*
 static ngx_str_t *msg_to_str(nchan_msg_t *msg) {
   static ngx_str_t str;
   ngx_buf_t *buf = msg->buf;
@@ -802,8 +803,8 @@ static ngx_str_t *msg_to_str(nchan_msg_t *msg) {
   }
   return &str;
 }
-
-
+*/
+/*
 static ngx_str_t *chanhead_msg_to_str(store_message_t *msg) {
   static ngx_str_t str;
   if (msg == NULL) {
@@ -815,7 +816,7 @@ static ngx_str_t *chanhead_msg_to_str(store_message_t *msg) {
     return msg_to_str(msg->msg); //WHOA, shared space!
   }
 }
-
+*/
 
 ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   
