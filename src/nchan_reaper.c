@@ -67,13 +67,15 @@ ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing) {
   }
   
   void    **next = thing_next_ptr(rp, thing);
-  void    **prev = thing_next_ptr(rp, thing);
+  void    **prev = thing_prev_ptr(rp, thing);
   
+  if(rp->last) {
+    *thing_next_ptr(rp, rp->last) = thing;
+  }
   *prev = rp->last;
   *next = NULL;
-  
-  *thing_next_ptr(rp, thing) = thing;
   rp->last = thing;
+  
   if(rp->first == NULL) {
     rp->first = thing;
   }
@@ -92,8 +94,8 @@ static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {
     if(force || rp->ready(cur) == NGX_OK) {
       prev = thing_prev(rp, cur);
       rp->reap(cur);
-      *thing_next_ptr(rp, prev) = next;
-      *thing_prev_ptr(rp, next) = prev;
+      if(prev) *thing_next_ptr(rp, prev) = next;
+      if(next) *thing_prev_ptr(rp, next) = prev;
       if(cur == first) rp->first = NULL;
       if(cur == last) rp->last = NULL;
       rp->count--;
