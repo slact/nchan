@@ -26,6 +26,8 @@
 #define IPC_SUBSCRIBER_KEEPALIVE    17
 #define IPC_SUBSCRIBER_KEEPALIVE_REPLY 18
 
+#define IPC_TEST_FLOOD                 30
+
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -608,6 +610,28 @@ static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_d
   str_shm_free(d->shm_chid);
 }
 
+/////////// FLOOD TEST ///////////
+typedef struct {
+  uint64_t          n;
+} flood_data_t;
+
+
+static int  flood_seq = 0;
+ngx_int_t memstore_ipc_send_flood_test(ngx_int_t dst) {
+  flood_data_t        data = {flood_seq++};
+  ipc_alert(nchan_memstore_get_ipc(), dst, IPC_TEST_FLOOD, &data, sizeof(data));
+  return NGX_OK;
+}
+
+
+static void receive_flood_test(ngx_int_t sender, flood_data_t *d) {
+  struct timespec  tv;
+  tv.tv_sec=0;
+  tv.tv_nsec=8000000;
+  ERR("      received FLOOD TEST from %i seq %l", sender, d->n);
+  nanosleep(&tv, NULL);
+}
+
 static ipc_handler_pt ipc_alert_handler[] = {
   [IPC_SUBSCRIBE] =                   (ipc_handler_pt )receive_subscribe,
   [IPC_SUBSCRIBE_REPLY] =             (ipc_handler_pt )receive_subscribe_reply,
@@ -624,7 +648,8 @@ static ipc_handler_pt ipc_alert_handler[] = {
   [IPC_DOES_CHANNEL_EXIST] =          (ipc_handler_pt )receive_does_channel_exist,
   [IPC_DOES_CHANNEL_EXIST_REPLY]=     (ipc_handler_pt )receive_does_channel_exist_reply,
   [IPC_SUBSCRIBER_KEEPALIVE] =        (ipc_handler_pt )receive_subscriber_keepalive,
-  [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  (ipc_handler_pt )receive_subscriber_keepalive_reply
+  [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  (ipc_handler_pt )receive_subscriber_keepalive_reply,
+  [IPC_TEST_FLOOD]                 =  (ipc_handler_pt )receive_flood_test
 };
 
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {
