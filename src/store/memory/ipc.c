@@ -3,32 +3,38 @@
 #include <ngx_channel.h>
 #include <assert.h>
 #include "ipc.h"
+
+#if FAKESHARD
 #include "shmem.h"
 #include "store-private.h"
+#endif
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 //#define DEBUG_LEVEL NGX_LOG_WARN
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC(%i):" fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC(%i):" fmt, memstore_slot(), ##args)
-
-
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC:" fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC:" fmt, ##args)
 
 static void ipc_read_handler(ngx_event_t *ev);
 
-ipc_t *ipc_create(ngx_cycle_t *cycle) {
-  ipc_t *ipc;
-  ipc = ngx_calloc(sizeof(*ipc), cycle->log);
-  if(ipc == NULL) {
-    return NULL;
+ngx_int_t ipc_init(ipc_t *ipc) {
+  int                             i = 0;
+  ipc_process_t                  *proc;
+  
+  for(i=0; i< NGX_MAX_PROCESSES; i++) {
+    proc = &ipc->process[i];
+    proc->ipc = ipc;
+    proc->pipe[0]=NGX_INVALID_FILE;
+    proc->pipe[1]=NGX_INVALID_FILE;
+    proc->c=NULL;
+    proc->active = 0;
+    ngx_memzero(proc->wbuf.alerts, sizeof(proc->wbuf.alerts));
+    proc->wbuf.first = 0;
+    proc->wbuf.n = 0;
+    proc->wbuf.overflow_first = NULL;
+    proc->wbuf.overflow_last = NULL;
+    proc->wbuf.overflow_n = 0;
   }
-  DBG("created IPC %p", ipc);
-  return ipc;
-}
-
-ngx_int_t ipc_destroy(ipc_t *ipc, ngx_cycle_t *cycle) {
-  DBG("destroying IPC %p", ipc);
-  ngx_free(ipc);
   return NGX_OK;
 }
 
@@ -46,23 +52,10 @@ static void ipc_try_close_fd(ngx_socket_t *fd) {
 
 ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
 //initialize pipes for workers in advance.
-  static int invalid_sockets_initialized = 0;
-  int                             i, j, s = 0;//, on = 1;
+  int                             i, j, s = 0;
   ngx_int_t                       last_expected_process = ngx_last_process;
   ipc_process_t                  *proc;
   ngx_socket_t                   *socks;
-  
-  if(!invalid_sockets_initialized) {
-    for(i=0; i< NGX_MAX_PROCESSES; i++) {
-      proc = &ipc->process[i];
-      proc->ipc = ipc;
-      proc->pipe[0]=NGX_INVALID_FILE;
-      proc->pipe[1]=NGX_INVALID_FILE;
-      proc->c=NULL;
-      proc->active = 0;
-    }
-    invalid_sockets_initialized=1;
-  }
   
   /* here's the deal: we have no control over fork()ing, nginx's internal 
     * socketpairs are unusable for our purposes (as of nginx 0.8 -- check the 
@@ -93,7 +86,7 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "pipe() failed while initializing nchan IPC");
         return NGX_ERROR;
       }
-      //make noth ends nonblocking
+      //make both ends nonblocking
       for(j=0; j <= 1; j++) {
         if (ngx_nonblocking(socks[j]) == -1) {
           ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on pipe socket %i while initializing nchan", j);
@@ -102,7 +95,6 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
           return NGX_ERROR;
         }
       }
-      
       //It's ALIIIIIVE! ... erm.. active...
       proc->active = 1;
     }
@@ -115,14 +107,23 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
 
 ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
   int i;
-  ipc_process_t  *proc;
+  ipc_process_t            *proc;
+  ipc_writebuf_overflow_t  *of, *of_next;
+  
   for (i=0; i<NGX_MAX_PROCESSES; i++) {
     proc = &ipc->process[i];
     if(!proc->active) continue;
     
-    assert(proc->c);
-    ngx_close_connection(proc->c);
-
+    if(proc->c) {
+      ngx_close_connection(proc->c);
+      proc->c = NULL;
+    }
+    
+    for(of = proc->wbuf.overflow_first; of != NULL; of = of_next) {
+      of_next = of->next;
+      ngx_free(of);
+    }
+    
     ipc_try_close_fd(&proc->pipe[0]);
     ipc_try_close_fd(&proc->pipe[1]);
     ipc->process[i].active = 0;
@@ -151,36 +152,82 @@ static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
 
 static void ipc_write_handler(ngx_event_t *ev) {
   ngx_connection_t        *c = ev->data;
-  ipc_process_t           *proc = (ipc_process_t *) c->data;
-  
-  ipc_writev_data_t      **wevd_first = &proc->wevd_first;
-  
-  ipc_writev_data_t       *cur, *next;
   ngx_socket_t             fd = c->fd;
   
-  for(cur = *wevd_first; cur != NULL; cur = next) {
-    next = cur->next;
-    if(ipc_write_alert_fd(fd, &cur->alert) == NGX_OK) {
-      ngx_free(cur);
-    }
-    else {
+  ipc_process_t           *proc = (ipc_process_t *) c->data;
+  ipc_alert_t             *alerts = proc->wbuf.alerts;
+  
+  int                      i, first = proc->wbuf.first, last = first + proc->wbuf.n;
+  uint8_t                  write_aborted = 0;
+  
+  //DBG("%i alerts to write, with %i in overflow", proc->wbuf.n, proc->wbuf.overflow_n);
+  
+  for(i = first; i < last; i++) {
+    //ERR("send alert at %i", i % IPC_WRITEBUF_SIZE );
+    if(ipc_write_alert_fd(fd, &alerts[i % IPC_WRITEBUF_SIZE]) != NGX_OK) {
+      write_aborted = 1;
+      //DBG("write aborted at %i iter. first: %i, n: %i", i - first, first, proc->wbuf.n);
       break;
     }
+    /*
+    else {
+      DBG("wrote alert at %i", i % IPC_WRITEBUF_SIZE);
+    }
+    */
   }
   
-  *wevd_first = cur;
-  if(cur == NULL) {
-    proc->wevd_last = NULL;
+  if(i==last) { //sent all outstanding alerts
+    //DBG("finished writing %i alerts.", proc->wbuf.n);
+    proc->wbuf.first = 0; // for debugging and stuff
+    proc->wbuf.n = 0;
   }
   else {
-    //need to write some more
-    DBG("NOT FINISHED WRITING!!");
+    proc->wbuf.first = i;
+    proc->wbuf.n -= (i - first);
+    //DBG("first now at %i, %i alerts remain", i, proc->wbuf.n);
+  }
+  
+  if(proc->wbuf.overflow_n > 0 && i - first > 0) {
+    ipc_writebuf_overflow_t  *of;
+    first = proc->wbuf.first + proc->wbuf.n;
+    last = first + (IPC_WRITEBUF_SIZE - proc->wbuf.n);
+    //DBG("try to squeeze in overflow between %i and %i", first, last);
+    for(i = first; i < last; i++) {
+      of = proc->wbuf.overflow_first;
+      ///DBG("looking at overflow %p next %p", of, of->next);
+      alerts[i % IPC_WRITEBUF_SIZE] = of->alert;
+      proc->wbuf.overflow_n--;
+      proc->wbuf.n++;
+      assert(proc->wbuf.overflow_n >= 0);
+      
+      proc->wbuf.overflow_first = of->next;
+      
+      ngx_free(of);
+      
+      //DBG("squeezed in overflow at %i, %i overflow remaining", i, proc->wbuf.overflow_n);
+      
+      if(proc->wbuf.overflow_first == NULL) {
+        proc->wbuf.overflow_last = NULL;
+        break;
+      }
+    }
+    
+    if(!write_aborted) {
+      //retry
+      //DBG("retry write after squeezing in overflow");
+      ipc_write_handler(ev);
+      return;
+    }
+    
+  }
+  
+  if(write_aborted) {
+    //DBG("re-add event because the write failed");
     ngx_handle_write_event(c->write, 0);
-    //ngx_add_event(c->write, NGX_WRITE_EVENT, NGX_CLEAR_EVENT);
   }
 }
 
-ngx_int_t ipc_start(ipc_t *ipc, ngx_cycle_t *cycle) {
+ngx_int_t ipc_register_worker(ipc_t *ipc, ngx_cycle_t *cycle) {
   int                    i;    
   ngx_connection_t      *c;
   ipc_process_t         *proc;
@@ -292,20 +339,17 @@ static void ipc_read_handler(ngx_event_t *ev) {
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
-  //ripped from ngx_send_channel
+  
+  assert(data_size < IPC_DATA_SIZE * sizeof(void *));
+  
+#if (FAKESHARD)
   
   ipc_alert_t         alert = {0};
   
   alert.src_slot = memstore_slot();
   alert.dst_slot = slot;
   alert.code = code;
-  assert(data_size < IPC_DATA_SIZE * sizeof(void *));
-  
   ngx_memcpy(alert.data, data, data_size);
-  
-  assert(alert.src_slot != alert.dst_slot);
-  
-#if (FAKESHARD)
   
   //switch to destination
   memstore_fakeprocess_push(alert.dst_slot);
@@ -315,18 +359,40 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
 #else
   
-  
   ipc_process_t      *proc = &ipc->process[slot];
-  ipc_writev_data_t  *wd = ngx_alloc(sizeof(*wd), ngx_cycle->log);
-  wd->alert = alert;
-  if(proc->wevd_last) {
-    proc->wevd_last->next = wd;
+  ipc_writebuf_t     *wb = &proc->wbuf;
+  ipc_alert_t        *alert;
+  
+  
+  
+  if(wb->n < IPC_WRITEBUF_SIZE) {
+    alert = &wb->alerts[wb->first + wb->n++];
   }
-  wd->next = NULL;
-  proc->wevd_last = wd;
-  if(! proc->wevd_first) {
-    proc->wevd_first = wd;
+  else { //overflow
+    ipc_writebuf_overflow_t  *overflow;
+    DBG("writebuf overflow, allocating memory");
+    if((overflow = ngx_alloc(sizeof(*overflow), ngx_cycle->log)) == NULL) {
+      ERR("can't allocate memory for IPC write buffer overflow");
+      return NGX_ERROR;
+    }
+    overflow->next = NULL;
+    alert= &overflow->alert;
+    
+    if(wb->overflow_first == NULL) {
+      wb->overflow_first = overflow;
+    }
+    if(wb->overflow_last) {
+      wb->overflow_last->next = overflow;
+    }
+    wb->overflow_last = overflow;
+  
+    wb->overflow_n++;
   }
+  
+  alert->src_slot = ngx_process_slot;
+  alert->dst_slot = slot;
+  alert->code = code;
+  ngx_memcpy(&alert->data, data, data_size);
   
   ipc_write_handler(proc->c->write);
   

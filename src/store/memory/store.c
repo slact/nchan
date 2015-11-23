@@ -113,7 +113,8 @@ ngx_int_t memstore_slot() {
 
 static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
-static ipc_t           *ipc;
+static ipc_t            ipc_data;
+static ipc_t           *ipc = NULL;
 
 shmem_t *nchan_memstore_get_shm(void){
   return shm;
@@ -378,7 +379,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   }
 #endif
 
-  ipc_start(ipc, cycle);
+  ipc_register_worker(ipc, cycle);
   
   DBG("init memstore worker pid:%i slot:%i max workers :%i or %i", ngx_pid, memstore_slot(), shdata->max_workers, workers);
 
@@ -1110,10 +1111,11 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
   //initialize our little IPC
   if(ipc == NULL) {
-    ipc = ipc_create(cycle);
+    ipc = &ipc_data;
+    ipc_init(ipc);
     ipc_set_handler(ipc, memstore_ipc_alert_handler);
   }
-  ipc_open(ipc,cycle, shdata->max_workers);
+  ipc_open(ipc, cycle, shdata->max_workers);
 
   return NGX_OK;
 }
@@ -1252,7 +1254,6 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   }
   
   ipc_close(ipc, cycle);
-  ipc_destroy(ipc, cycle); //only for this worker...
   
 #if NCHAN_MSG_LEAK_DEBUG
   msg_debug_assert_isempty();
@@ -1269,7 +1270,6 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   DBG("exit master from pid %i", ngx_pid);
   
   ipc_close(ipc, cycle);
-  ipc_destroy(ipc, cycle);
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
  #endif
