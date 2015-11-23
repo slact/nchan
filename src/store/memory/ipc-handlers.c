@@ -61,23 +61,25 @@ static void str_shm_verify(ngx_str_t *str) {
 }
 
 ////////// SUBSCRIBE ////////////////
+union subdata_u {
+  nchan_store_channel_head_t  *origin_chanhead;
+  subscriber_t                *subscriber;
+};
+
 typedef struct {
   ngx_str_t                   *shm_chid;
   store_channel_head_shm_t    *shared_channel_data;
-  nchan_store_channel_head_t  *origin_chanhead;
-  subscriber_t                *subscriber;
-  unsigned                     use_redis:1;
+  union subdata_u              d;
+  uint8_t                      use_redis;
 } subscribe_data_t;
 
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
   DBG("send subscribe to %i, %V", dst, chid);
   //origin_chanhead->use_redis
-  subscribe_data_t   data;
-  ngx_memzero(&data, sizeof(data));
+  subscribe_data_t   data = {0}; //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
   data.shm_chid = str_shm_copy(chid);
   data.shared_channel_data = NULL;
-  data.origin_chanhead = origin_chanhead;
-  data.subscriber = NULL;
+  data.d.origin_chanhead = origin_chanhead;
   data.use_redis = cf->use_redis;
   
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
@@ -97,11 +99,11 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   if(head == NULL) {
     ERR("couldn't get chanhead while receiving subscribe ipc msg");
     d->shared_channel_data = NULL;
-    d->subscriber = NULL;
+    d->d.subscriber = NULL;
   }
   else {
-    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, head->use_redis, d->origin_chanhead);
-    d->subscriber = ipc_sub;
+    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, head->use_redis, d->d.origin_chanhead);
+    d->d.subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
   }
   
@@ -148,10 +150,10 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   
   assert(head->shared != NULL);
   if(head->foreign_owner_ipc_sub) {
-    assert(head->foreign_owner_ipc_sub == d->subscriber);
+    assert(head->foreign_owner_ipc_sub == d->d.subscriber);
   }
   else {
-    head->foreign_owner_ipc_sub = d->subscriber;
+    head->foreign_owner_ipc_sub = d->d.subscriber;
   }
   
   memstore_ready_chanhead_unless_stub(head);
@@ -239,27 +241,27 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
 typedef struct {
   ngx_str_t                 *shm_chid;
   nchan_msg_t               *shm_msg;
-  ngx_int_t                  msg_timeout;
-  ngx_int_t                  max_msgs;
-  ngx_int_t                  min_msgs;
-  uint8_t                    use_redis;
+  uint16_t                   msg_timeout;
+  uint16_t                   max_msgs;
   callback_pt                callback;
   void                      *callback_privdata;
+  uint8_t                    min_msgs;
+  unsigned                   use_redis:1;
+  
 } publish_data_t;
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t         ret;
-  publish_data_t    data;
+  publish_data_t    data = {0}; //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
   assert(shm_msg->temp_allocd == 0);
   assert(chid->data != NULL);
-  //stop valgrind's complainting
-  ngx_memzero(&data, sizeof(data));
   data.shm_chid = str_shm_copy(chid);
   data.shm_msg = shm_msg;
   data.msg_timeout = cf->buffer_timeout;
   data.max_msgs = cf->max_messages;
+  assert(cf->min_messages < 255);
   data.min_msgs = cf->min_messages;
   data.use_redis = cf->use_redis;
   data.callback = callback;
@@ -352,20 +354,29 @@ static void receive_publish_message_reply(ngx_int_t sender, publish_response_dat
 
 
 ////////// GET MESSAGE ////////////////
+union getmsg_u {
+  struct req_s {
+    nchan_msg_id_t          msgid;
+  } req;
+  
+  struct resp_s {
+    nchan_msg_status_t      getmsg_code;
+    nchan_msg_t            *shm_msg;
+  } resp; 
+};
+
 typedef struct {
   ngx_str_t              *shm_chid;
   void                   *privdata;
-  nchan_msg_t            *shm_msg;
-  nchan_msg_status_t      getmsg_code;
-  nchan_msg_id_t          msgid;
+  union getmsg_u          d;
 } getmessage_data_t;
 
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
-  getmessage_data_t      data = {0}; //memzeroed for debugging
+  getmessage_data_t      data;
   
   data.shm_chid= str_shm_copy(chid);
   data.privdata = privdata;
-  data.msgid = *msgid;
+  data.d.req.msgid = *msgid;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
@@ -383,31 +394,37 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
   head = nchan_memstore_find_chanhead(d->shm_chid);
   if(head == NULL) {
     //no such thing here. reply.
-    d->getmsg_code = MSG_NOTFOUND;
-    d->shm_msg = NULL;
+    d->d.resp.getmsg_code = MSG_NOTFOUND;
+    d->d.resp.shm_msg = NULL;
   }
   else {
-    msg = chanhead_find_next_message(head, &d->msgid, &status);
-    d->getmsg_code = status;
-    d->shm_msg = msg == NULL ? NULL : msg->msg;
+    msg = chanhead_find_next_message(head, &d->d.req.msgid, &status);
+    d->d.resp.getmsg_code = status;
+    d->d.resp.shm_msg = msg == NULL ? NULL : msg->msg;
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
-  if(d->shm_msg) {
-    assert(msg_reserve(d->shm_msg, "get_message_reply") == NGX_OK);
+  if(d->d.resp.shm_msg) {
+    assert(msg_reserve(d->d.resp.shm_msg, "get_message_reply") == NGX_OK);
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, d, sizeof(*d));
 }
 
 static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   
+  char     rsvlbl[50];
+  
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
-  DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->shm_msg, d->privdata);
-  nchan_memstore_handle_get_message_reply(d->shm_msg, d->getmsg_code, d->privdata);
-  if(d->shm_msg) {
-    assert(d->shm_msg->refcount > 0);
-    msg_release(d->shm_msg, "get_message_reply");
+  DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
+  if(d->d.resp.shm_msg) {
+    sprintf(rsvlbl, "handle_get_message_reply from %li by %li", sender, ngx_process_slot);
+    msg_reserve(d->d.resp.shm_msg, rsvlbl);
+    msg_release(d->d.resp.shm_msg, "get_message_reply");
+  }
+  nchan_memstore_handle_get_message_reply(d->d.resp.shm_msg, d->d.resp.getmsg_code, d->privdata);
+  if(d->d.resp.shm_msg) {
+    msg_release(d->d.resp.shm_msg, rsvlbl);
   }
   str_shm_free(d->shm_chid);
 }

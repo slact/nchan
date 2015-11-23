@@ -100,6 +100,9 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
     }
     s++; //NEXT!!
   }
+  
+  //ERR("ipc_alert_t size %i bytes", sizeof(ipc_alert_t));
+  
   return NGX_OK;
 }
 
@@ -284,17 +287,17 @@ static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *
       return NGX_AGAIN;
     }
     
-    ngx_log_error(NGX_LOG_ALERT, log, err, "read() failed");
+    ngx_log_error(NGX_LOG_ERR, log, err, "nchan IPC: read() failed");
     return NGX_ERROR;
   }
  
   if (n == 0) {
-    ngx_log_debug0(NGX_LOG_DEBUG_CORE, log, 0, "read() returned zero");
+    ngx_log_debug0(NGX_LOG_ERR, log, 0, "nchan IPC: read() returned zero");
     return NGX_ERROR;
   }
  
   if ((size_t) n < sizeof(*alert)) {
-    ngx_log_error(NGX_LOG_ALERT, log, 0, "read() returned not enough data: %z", n);
+    ngx_log_error(NGX_LOG_ERR, log, 0, "nchan IPC: read() returned not enough data: %z", n);
     return NGX_ERROR;
   }
   
@@ -305,7 +308,7 @@ static void ipc_read_handler(ngx_event_t *ev) {
   DBG("IPC channel handler");
   //copypasta from os/unix/ngx_process_cycle.c (ngx_channel_handler)
   ngx_int_t          n;
-  ipc_alert_t        alert = {0};
+  ipc_alert_t        alert;
   ngx_connection_t  *c;
   if (ev->timedout) {
     ev->timedout = 0;
@@ -316,10 +319,8 @@ static void ipc_read_handler(ngx_event_t *ev) {
   while(1) {
     n = ipc_read_socket(c->fd, &alert, ev->log);
     if (n == NGX_ERROR) {
-      if (ngx_event_flags & NGX_USE_EPOLL_EVENT) {
-        ngx_del_conn(c, 0);
-      }
-      ngx_close_connection(c);
+      ERR("IPC_READ_SOCKET failed: bad connection. This should never have happened, yet here we are...");
+      assert(0);
       return;
     }
     if (n == NGX_AGAIN) {
@@ -329,9 +330,6 @@ static void ipc_read_handler(ngx_event_t *ev) {
     
     assert(n == sizeof(alert));
     
-    if(ngx_process_slot != alert.dst_slot) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "process %i got alert intented for pid %i. don';t care, doing it anyway.", ngx_process_slot, alert.dst_slot);
-    }
     ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 
   }
@@ -340,7 +338,10 @@ static void ipc_read_handler(ngx_event_t *ev) {
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
   
-  assert(data_size < IPC_DATA_SIZE * sizeof(void *));
+  if(data_size > IPC_DATA_SIZE) {
+    ERR("IPC_DATA_SIZE too small. wanted %i, have %i", data_size, IPC_DATA_SIZE);
+    assert(0);
+  }
   
 #if (FAKESHARD)
   
@@ -390,7 +391,6 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   }
   
   alert->src_slot = ngx_process_slot;
-  alert->dst_slot = slot;
   alert->code = code;
   ngx_memcpy(&alert->data, data, data_size);
   
