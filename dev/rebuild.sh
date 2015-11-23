@@ -9,6 +9,7 @@ _clang="ccache clang -Qunused-arguments -fcolor-diagnostics"
 clang_sanitize_memory="-use-gold-plugins -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer -fsanitize-blacklist=bl.txt"
 clang_sanitize_addres="-fsanitize=address,undefined -fno-omit-frame-pointer"
 
+optimize_level=0;
 
 for opt in $*; do
   case $opt in
@@ -33,6 +34,14 @@ for opt in $*; do
       export NO_MAKE=1;;
     nodebug)
       export NO_DEBUG=1;;
+    O0)
+      optimize_level=0;;
+    O1)
+      optimize_level=1;;
+    O2)
+      optimize_level=2;;
+    O3)
+      optimize_level=3;;
     mudflap)
       export MUDFLAP=1
       export CC=gcc
@@ -52,6 +61,8 @@ for opt in $*; do
       ;;
   esac
 done
+
+export OPTIMIZE_LEVEL=$optimize_level
 
 if [[ -z $NO_MAKE ]]; then
   
