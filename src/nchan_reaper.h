@@ -21,5 +21,6 @@ ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next,
 ngx_int_t nchan_reaper_stop(nchan_reaper_t *rp);
 
 ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing);
+ngx_int_t nchan_reaper_withdraw(nchan_reaper_t *rp, void *thing);
 
 #endif /*NCHAN_REAPER_H*/

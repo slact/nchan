@@ -86,6 +86,22 @@ ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing) {
   return NGX_OK;
 }
 
+
+//this is not a safe function -- it doesn't check if the thing is actually being reaped.
+ngx_int_t nchan_reaper_withdraw(nchan_reaper_t *rp, void *thing) {
+  
+  if(rp->last == thing)  rp->last  = thing_prev(rp, thing);
+  if(rp->first == thing) rp->first = thing_next(rp, thing);
+  
+  rp->count--;
+  
+  //debugging stuff
+  *thing_next_ptr(rp, thing) = NULL;
+  *thing_prev_ptr(rp, thing) = NULL;
+  
+  return NGX_OK;
+}
+
 static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {
   void                *cur = rp->first, *next, *prev;
   void                *first = rp->first, *last = rp->last;
