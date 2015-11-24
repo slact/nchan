@@ -1,5 +1,6 @@
 #include <nchan_module.h>
 #include <nchan_reaper.h>
+#include <assert.h>
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -66,13 +67,15 @@ static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
 }
 
 ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing) {
+  int i = rp->count;
   if(rp->ready(thing) == NGX_OK) {
     rp->reap(thing);
+    assert(i == rp->count);
     return NGX_OK;
   }
   
   void *cur;
-  int i=0;
+  i=0;
   for(cur = rp->first; cur != NULL; cur = thing_next(rp, cur)) {
     i++;
     assert(cur != thing);
@@ -95,8 +98,10 @@ ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing) {
   }
   
   assert(rp->count >= 0 && rp->count < 1000);
-  DBG("reap %s %p later (waiting to be reaped: %i)", rp->name, thing, rp->count);
   rp->count++;
+  
+  DBG("reap %s %p later (waiting to be reaped: %i)", rp->name, thing, rp->count);
+  
   reaper_reset_timer(rp);
   return NGX_OK;
 }
@@ -115,19 +120,20 @@ ngx_int_t nchan_reaper_withdraw(nchan_reaper_t *rp, void *thing) {
   
   if(next) *thing_prev_ptr(rp, next) = prev;
   
-  if(rp->last == thing)  rp->last  = prev;
-  if(rp->first == thing) rp->first = next;
+  if(thing == rp->first) rp->first = next;
+  if(thing == rp->last)  rp->last  = prev;
   
   assert(rp->count > 0);
   rp->count--;
+
+  *thing_next_ptr(rp, thing) = NULL;
+  *thing_prev_ptr(rp, thing) = NULL;
   
   if(rp->last == NULL) {
     assert(rp->count == 0);
   }
-  
-  //debugging stuff
-  *thing_next_ptr(rp, thing) = NULL;
-  *thing_prev_ptr(rp, thing) = NULL;
+  if(rp->count == 0) assert(rp->last == NULL && rp->first == NULL);
+
   
   int i=0;
   for(cur = rp->first; cur != NULL; cur = thing_next(rp, cur)) {
@@ -135,6 +141,7 @@ ngx_int_t nchan_reaper_withdraw(nchan_reaper_t *rp, void *thing) {
     assert(cur != thing);
   }
   assert(i == rp->count);
+
   
   DBG("withdraw %s %p", rp->name, thing);
   return NGX_OK;

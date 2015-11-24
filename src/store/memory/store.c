@@ -72,19 +72,42 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
   
   chanhead_messages_gc(ch);
   
+  if(ch->status != INACTIVE) {
+    char *sts;
+    switch(ch->status) {
+      case NOTREADY:
+        sts = "NOTREADY";
+        break;
+      case WAITING:
+        sts = "WAITING";
+        break;
+      case STUBBED:
+        sts = "STUBBED";
+        break;
+      case READY:
+        sts = "READY";
+        break;
+      case INACTIVE:
+        sts = "INACTIVE";
+        break;
+    }
+    ERR("not ready to reap %V : status %s", &ch->id, sts);
+    return NGX_DECLINED;
+  }
+  
   if(ch->gc_time - ngx_time() > 0) {
     ERR("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
     return NGX_DECLINED;
   }
   
   if (ch->sub_count > 0) { //there are subscribers
-    ERR("not yet time to reap %V, %i subs left", &ch->id, ch->sub_count);
+    ERR("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
     return NGX_DECLINED;
   }
   
   if(ch->channel.messages > 0) {
     assert(ch->msg_first != NULL);
-    ERR("not yet time to reap %V, %i messages left", &ch->id, ch->channel.messages);
+    ERR("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
     return NGX_DECLINED;
   }
   
@@ -572,7 +595,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   }
 
   DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
-  if(head->status == INACTIVE) {//recycled chanhead
+  if(head->in_gc_queue) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
   if(!head->spooler.running) {
@@ -665,7 +688,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->slot = memstore_slot();
   head->owner = owner;
   head->shutting_down = 0;
-  
+  head->in_gc_queue = 0;
   if(cf) {
     head->stub = 0;
     head->use_redis = cf->use_redis;
@@ -791,11 +814,11 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   }
   
   assert(ch->slot == slot);
-  
-  if(ch->status != INACTIVE) {
+  if(! ch->in_gc_queue) {
     ch->gc_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
     ch->status = INACTIVE;
     ch->gc_queued_times ++;
+    ch->in_gc_queue = 1;
     nchan_reaper_add(&mpt->chanhead_reaper, ch);
   }
   else {
@@ -809,11 +832,9 @@ ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *ch, const char *reaso
   //remove from gc list if we're there
   DBG("Chanhead gc withdraw %p %V: %s", ch, &ch->id, reason);
   
-  if(ch->status == INACTIVE) {
+  if(ch->in_gc_queue) {
     nchan_reaper_withdraw(&mpt->chanhead_reaper, ch);
-  }
-  else {
-    DBG("gc_withdraw chanhead %p (%V), but already inactive", ch, &ch->id);
+    ch->in_gc_queue = 0;
   }
   
   return NGX_OK;
@@ -1256,6 +1277,8 @@ static ngx_int_t memstore_reap_message( store_message_t *msg ) {
 #if NCHAN_MSG_LEAK_DEBUG  
   msg_debug_remove(msg->msg);
 #endif
+  
+  //ERR("reap msg %p", msg);
   
   ngx_memset(msg->msg, 0xFA, sizeof(*msg->msg)); //debug stuff
   shm_free(shm, msg->msg);

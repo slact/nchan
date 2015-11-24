@@ -54,6 +54,7 @@ struct nchan_store_channel_head_s {
   unsigned                        stub:1;
   unsigned                        shutting_down:1;
   unsigned                        use_redis:1;
+  unsigned                        in_gc_queue:1;
   subscriber_t                   *redis_sub;
   
   nchan_store_channel_head_t     *gc_prev;
