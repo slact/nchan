@@ -55,7 +55,11 @@ struct nchan_store_channel_head_s {
   unsigned                        shutting_down:1;
   unsigned                        use_redis:1;
   subscriber_t                   *redis_sub;
-  nchan_llist_timed_t             cleanlink;
+  
+  nchan_store_channel_head_t     *gc_prev;
+  nchan_store_channel_head_t     *gc_next;
+  time_t                          gc_time;
+  
   UT_hash_handle                  hh;
 };
 

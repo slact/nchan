@@ -14,6 +14,7 @@
 #include <subscribers/memstore_redis.h>
 #include <subscribers/memstore_multi.h>
 
+#define NCHAN_CHANHEAD_EXPIRE_SEC 5
 
 #if FAKESHARD
 
@@ -29,13 +30,11 @@
 
 
 typedef struct {
-  ngx_event_t                     gc_timer;
-  nchan_llist_timed_t            *gc_head;
-  nchan_llist_timed_t            *gc_tail;
   nchan_store_channel_head_t      unbuffered_dummy_chanhead;
   store_channel_head_shm_t        dummy_shared_chaninfo;
   nchan_store_channel_head_t     *hash;
   nchan_reaper_t                  msg_reaper;
+  nchan_reaper_t                  chanhead_reaper;
   ngx_int_t                       workers;
   
 #if FAKESHARD
@@ -48,6 +47,7 @@ static ngx_int_t nchan_memstore_msg_ready_to_reap(store_message_t *smsg) {
     return NGX_OK;
   }
   else {
+    /*
     ERR("not ready to reap msg %V, reservations: %i", msgid_to_str(&smsg->msg->id), smsg->msg->refcount);
     
 #if NCHAN_MSG_RESERVE_DEBUG
@@ -56,24 +56,61 @@ static ngx_int_t nchan_memstore_msg_ready_to_reap(store_message_t *smsg) {
       ERR("   reservation label: %s", rsv->lbl);
     }
 #endif
-    
+    */
     return NGX_DECLINED;
   }
 }
 
 static ngx_int_t memstore_reap_message( store_message_t *msg );
 
+static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
+static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
+
+
+
+static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_t *ch) {
+  
+  chanhead_messages_gc(ch);
+  
+  if(ch->gc_time - ngx_time() > 0) {
+    ERR("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
+    return NGX_DECLINED;
+  }
+  
+  if (ch->sub_count > 0) { //there are subscribers
+    ERR("not yet time to reap %V, %i subs left", &ch->id, ch->sub_count);
+    return NGX_DECLINED;
+  }
+  
+  if(ch->channel.messages > 0) {
+    assert(ch->msg_first != NULL);
+    ERR("not yet time to reap %V, %i messages left", &ch->id, ch->channel.messages);
+    return NGX_DECLINED;
+  }
+  
+  ERR("ok to delete channel %V", &ch->id);
+  return NGX_OK;
+}
+
+static void memstore_reap_chanhead(nchan_store_channel_head_t *ch);
+
 static void init_mpt(memstore_data_t *m) {
-  ngx_memzero(&m->gc_timer, sizeof(m->gc_timer));
-  m->gc_head = NULL;
-  m->gc_tail = NULL;
   
   nchan_reaper_start(&m->msg_reaper, 
-                     "memstore message reaper", 
+                     "memstore message", 
                      offsetof(store_message_t, prev), 
                      offsetof(store_message_t, next), 
     (ngx_int_t (*)(void *)) nchan_memstore_msg_ready_to_reap,
          (void (*)(void *)) memstore_reap_message,
+                     5
+  );
+  
+  nchan_reaper_start(&m->chanhead_reaper, 
+                     "chanhead", 
+                     offsetof(nchan_store_channel_head_t, gc_prev), 
+                     offsetof(nchan_store_channel_head_t, gc_next), 
+    (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap,
+         (void (*)(void *)) memstore_reap_chanhead,
                      5
   );
   
@@ -86,6 +123,7 @@ static void init_mpt(memstore_data_t *m) {
   m->unbuffered_dummy_chanhead.min_messages = 0;
   m->unbuffered_dummy_chanhead.max_messages = (ngx_uint_t )-1;
   m->unbuffered_dummy_chanhead.shared = &m->dummy_shared_chaninfo;
+  
 }
 
 #if FAKESHARD
@@ -138,7 +176,6 @@ ipc_t *nchan_memstore_get_ipc(void){
 
 #define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
 #define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
-#define NCHAN_CHANHEAD_EXPIRE_SEC 1
 #define NCHAN_NOBUFFER_MSG_EXPIRE_SEC 10
 
 
@@ -274,10 +311,6 @@ void msg_debug_assert_isempty(void) {
 #endif
 
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
-
-static void nchan_store_chanhead_gc_timer_handler(ngx_event_t *);
-
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   shm_data_t         *d;
   ngx_int_t           i;
@@ -305,6 +338,33 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 #endif
   }
   return NGX_OK;
+}
+
+
+static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
+  int       i;
+  
+  chanhead_messages_delete(ch);
+  
+  if(ch->sub_count > 0) {
+    ch->spooler.fn->respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+  }
+  stop_spooler(&ch->spooler, 0);
+  
+  if(ch->owner == memstore_slot() && ch->shared) {
+    shm_free(shm, ch->shared);
+  }
+  DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
+  CHANNEL_HASH_DEL(ch);
+  if(ch->multi) {
+    for(i=0; i < ch->multi_count; i++) {
+      if(ch->multi[i].sub) {
+        ch->multi[i].sub->fn->dequeue(ch->multi[i].sub);
+      }
+    }
+    ngx_free(ch->multi);
+  }
+  ngx_free(ch);
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm);
@@ -368,11 +428,6 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   
   init_mpt(mpt);
-  
-  if(mpt->gc_timer.handler == NULL) {
-    mpt->gc_timer.handler=&nchan_store_chanhead_gc_timer_handler;
-    mpt->gc_timer.log=ngx_cycle->log;
-  }
 
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -723,67 +778,42 @@ nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, n
   return head;
 }
 
-ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason) {
-  nchan_llist_timed_t         *chanhead_cleanlink;
+ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   ngx_int_t                   slot = memstore_slot();
-  DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
-  chanhead_cleanlink = &head->cleanlink;
-  if(!head->shutting_down) {
-    assert(head->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
+  DBG("Chanhead gc add %p %V: %s", ch, &ch->id, reason);
+  
+  if(!ch->shutting_down) {
+    assert(ch->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
   }
-  if(head->slot != head->owner) {
-    head->shared = NULL;
+  
+  if(ch->slot != ch->owner) {
+    ch->shared = NULL;
   }
-  assert(head->slot == slot);
-  if(head->status != INACTIVE) {
-    chanhead_cleanlink->data=(void *)head;
-    chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=mpt->gc_tail;
-    if(mpt->gc_tail != NULL) {
-      mpt->gc_tail->next=chanhead_cleanlink;
-    }
-    chanhead_cleanlink->next=NULL;
-    mpt->gc_tail=chanhead_cleanlink;
-    if(mpt->gc_head==NULL) {
-      mpt->gc_head = chanhead_cleanlink;
-    }
-    head->status = INACTIVE;
+  
+  assert(ch->slot == slot);
+  
+  if(ch->status != INACTIVE) {
+    ch->gc_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
+    ch->status = INACTIVE;
+    ch->gc_queued_times ++;
+    nchan_reaper_add(&mpt->chanhead_reaper, ch);
   }
   else {
-    DBG("gc_add chanhead %V: already added", &head->id);
-  }
-
-  //initialize gc timer
-  if(! mpt->gc_timer.timer_set) {
-    mpt->gc_timer.data=mpt->gc_head; //don't really care whre this points, so long as it's not null (for some debugging)
-    ngx_add_timer(&mpt->gc_timer, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
+    DBG("gc_add chanhead %V: already added", &ch->id);
   }
 
   return NGX_OK;
 }
 
-ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead, const char *reason) {
+ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *ch, const char *reason) {
   //remove from gc list if we're there
-  nchan_llist_timed_t    *cl;
-  DBG("Chanhead gc withdraw %p %V: %s", chanhead, &chanhead->id, reason);
+  DBG("Chanhead gc withdraw %p %V: %s", ch, &ch->id, reason);
   
-  if(chanhead->status == INACTIVE) {
-    cl=&chanhead->cleanlink;
-    if(cl->prev!=NULL)
-      cl->prev->next=cl->next;
-    if(cl->next!=NULL)
-      cl->next->prev=cl->prev;
-
-    if(mpt->gc_head==cl) {
-      mpt->gc_head=cl->next;
-    }
-    if(mpt->gc_tail==cl) {
-      mpt->gc_tail=cl->prev;
-    }
-    cl->prev = cl->next = NULL;
+  if(ch->status == INACTIVE) {
+    nchan_reaper_withdraw(&mpt->chanhead_reaper, ch);
   }
   else {
-    DBG("gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
+    DBG("gc_withdraw chanhead %p (%V), but already inactive", ch, &ch->id);
   }
   
   return NGX_OK;
@@ -868,102 +898,8 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
-static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
-  nchan_llist_timed_t          *cur, *next;
-  nchan_store_channel_head_t   *ch = NULL;
-  ngx_int_t                     i;
-  DBG("handling chanhead GC queue");
-#if FAKESHARD
-  ngx_int_t        ifv;
-  for(ifv = 0; ifv < MAX_FAKE_WORKERS; ifv++) {
-  memstore_fakeprocess_push(ifv);
-#endif
-  
-  
-  for(cur=mpt->gc_head ; cur != NULL; cur=next) {
-    ch = (nchan_store_channel_head_t *)cur->data;
-    next=cur->next;
-    if(force_delete || ngx_time() - cur->time > NCHAN_CHANHEAD_EXPIRE_SEC) {
-      
-      
-      if (ch->sub_count > 0) { //there are subscribers
-        if(force_delete) {
-          DBG("chanhead %p (%V) is still in use by %i subscribers. Try to delete it anyway.", ch, &ch->id, ch->sub_count);
-          //ch->spooler.prepare_to_stop(&ch->spooler);
-          ch->spooler.fn->respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-          assert(ch->sub_count == 0);
-        }
-      }
-      
-      force_delete ? chanhead_messages_delete(ch) : chanhead_messages_gc(ch);
-      
-      if(ch->msg_first != NULL) {
-        assert(ch->channel.messages != 0);
-        DBG("chanhead %p (%V) is still storing %i messages.", ch, &ch->id, ch->channel.messages);
-        break;
-      }
-      
-      if (ch->sub_count == 0 && ch->channel.messages == 0) {
-        //end this crazy channel
-        assert(ch->msg_first == NULL);
-        
-        stop_spooler(&ch->spooler, 0);
-        if(ch->owner == memstore_slot() && ch->shared) {
-          shm_free(shm, ch->shared);
-        }
-        DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
-        CHANNEL_HASH_DEL(ch);
-        if(ch->multi) {
-          for(i=0; i < ch->multi_count; i++) {
-            if(ch->multi[i].sub) {
-              ch->multi[i].sub->fn->dequeue(ch->multi[i].sub);
-            }
-          }
-          ngx_free(ch->multi);
-        }
-        ngx_free(ch);
-      }
-      else if(force_delete) {
-        //counldn't force-delete channel, even though we tried
-        assert(0);
-      }
-    }
-    else {
-      break; //dijkstra probably hates this
-    }
-  }
-  mpt->gc_head=cur;
-  if (cur==NULL) { //we went all the way to the end
-    mpt->gc_tail=NULL;
-  }
-  else {
-    cur->prev=NULL;
-  }
-  
-#if FAKESHARD
-  memstore_fakeprocess_pop();
-  }
-  for(ifv = 0; ifv < MAX_FAKE_WORKERS; ifv++) {
-    memstore_fakeprocess_push(ifv);
-    memstore_fakeprocess_pop();
-  }
-#endif
-}
 
 static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete);
-
-static void nchan_store_chanhead_gc_timer_handler(ngx_event_t *ev) {
-  nchan_llist_timed_t  *head = mpt->gc_head;
-  handle_chanhead_gc_queue(0);
-  handle_unbuffered_messages_gc(0);
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || head == NULL || mpt->unbuffered_dummy_chanhead.msg_first == NULL)) {
-    DBG("re-adding chanhead gc event timer");
-    ngx_add_timer(ev, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
-  }
-  else if(head == NULL) {
-    DBG("chanhead gc queue looks empty, stop gc_queue handler");
-  }
-}
 
 static ngx_int_t empty_callback(){
   return NGX_OK;
@@ -1214,12 +1150,11 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     
     chanhead_gc_add(cur, "exit worker");
   }
-  handle_chanhead_gc_queue(1);
-  handle_unbuffered_messages_gc(1);
   
-  if(mpt->gc_timer.timer_set) {
-    ngx_del_timer(&mpt->gc_timer);
-  }
+  assert(mpt->chanhead_reaper.count == 0);
+  
+  nchan_reaper_stop(&mpt->chanhead_reaper);
+  handle_unbuffered_messages_gc(1);
   
   nchan_reaper_stop(&mpt->msg_reaper);
 #if FAKESHARD

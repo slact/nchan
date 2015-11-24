@@ -11,7 +11,8 @@ typedef struct {
   void           *first;
   ngx_event_t     timer;
   int             tick_usec;
-  
+  unsigned        rotate:1;
+  uint16_t        max_notready;
   ngx_int_t       (*ready)(void *); //ready to be reaped?
   void            (*reap)(void *); //reap it
 } nchan_reaper_t;
