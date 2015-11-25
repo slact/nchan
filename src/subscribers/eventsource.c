@@ -113,8 +113,12 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_file_t             *msg_file;
   ngx_int_t               rc;
-
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->data.request, nchan_module);
+  
+  
+  ctx->prev_msg_id = fsub->sub.last_msgid;
   verify_subscriber_last_msg_id(sub, msg);
+  ctx->msg_id = fsub->sub.last_msgid;
   
   es_ensure_headers_sent(fsub);
   
@@ -278,10 +282,12 @@ static ngx_int_t es_enqueue(subscriber_t *sub) {
 static       subscriber_fn_t  eventsource_fn_data;
 static       subscriber_fn_t *eventsource_fn = NULL;
 
+static       ngx_str_t   sub_name = ngx_string("eventsource");
+
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub;
   full_subscriber_t    *fsub;
-  
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
   sub = longpoll_subscriber_create(r, msg_id);
   
   if(eventsource_fn == NULL) {
@@ -295,8 +301,8 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
   fsub = (full_subscriber_t *)sub;
   
   sub->fn = eventsource_fn;
-  sub->name = "eventsource";
-  sub->type =  EVENTSOURCE;
+  sub->name = &sub_name;
+  sub->type = EVENTSOURCE;
   
   sub->dequeue_after_response = 0;
   
@@ -304,5 +310,8 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
   
   DBG("%p create subscriber", sub);
   
+  if(ctx) {
+    ctx->subscriber_type = sub->name;
+  }
   return sub;
 }

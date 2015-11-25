@@ -1,0 +1,1 @@
+ngx_int_t nchan_add_variables(ngx_conf_t *cf);

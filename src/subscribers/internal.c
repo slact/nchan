@@ -41,7 +41,9 @@ ngx_int_t internal_subscriber_set_respond_status_handler(subscriber_t *sub, call
   return NGX_OK;
 }
 
-subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
+static ngx_str_t     subscriber_name = ngx_string("internal");
+
+subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   internal_subscriber_t               *fsub;
   static nchan_loc_conf_t  dummy_config = {0};
   dummy_config.buffer_timeout = 0;
@@ -63,7 +65,7 @@ subscriber_t *internal_subscriber_create(const char* name, void *privdata) {
   ngx_memzero(&fsub->sub.last_msgid, sizeof(fsub->sub.last_msgid));
   fsub->sub.last_msgid.tagcount = 1;
   
-  fsub->sub.name= (name == NULL ? "internal" : name);
+  fsub->sub.name= (name == NULL ? &subscriber_name : name);
   DBG("%p create %s with privdata %p", fsub, fsub->sub.name, privdata);
   fsub->privdata = privdata;
   
@@ -238,7 +240,7 @@ static ngx_int_t internal_set_dequeue_callback(subscriber_t *self, subscriber_ca
   return NGX_OK;
 }
 
-ngx_int_t internal_subscriber_set_name(subscriber_t *self, const char *name) {
+ngx_int_t internal_subscriber_set_name(subscriber_t *self, ngx_str_t *name) {
   self->name = name;
   return NGX_OK;
 }
@@ -261,7 +263,7 @@ static const subscriber_fn_t internal_sub_fn = {
 };
 
 static const subscriber_t new_internal_sub = {
-  "internal",
+  &subscriber_name,
   INTERNAL,
   &internal_sub_fn,
   {0},
@@ -270,8 +272,5 @@ static const subscriber_t new_internal_sub = {
   0, //stick around after response
   1, //destroy after dequeue
   0, //enqueued
-#if NCHAN_SUBSCRIBER_LEAK_DEBUG
-  NULL,
-  NULL
-#endif
+
 };

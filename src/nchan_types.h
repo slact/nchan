@@ -77,6 +77,7 @@ typedef struct {
   ngx_int_t                       subscribers;
   time_t                          last_seen;
   time_t                          expires;
+  nchan_msg_id_t                  last_published_msg_id;
 } nchan_channel_t;
 
 
@@ -206,7 +207,7 @@ typedef struct {
 } subscriber_fn_t;
 
 struct subscriber_s {
-  const char             *name;
+  ngx_str_t              *name;
   subscriber_type_t       type;
   const subscriber_fn_t  *fn;
   nchan_msg_id_t          last_msgid;
@@ -221,5 +222,17 @@ struct subscriber_s {
   struct subscriber_s    *dbg_next;
 #endif
 }; //subscriber_t
+
+
+typedef struct {
+  subscriber_t   *sub;
+  ngx_str_t      *subscriber_type;
+  nchan_msg_id_t  msg_id;
+  nchan_msg_id_t  prev_msg_id;
+  ngx_str_t      *publisher_type;
+  ngx_str_t       channel_id[NCHAN_MULTITAG_MAX];
+  int             channel_id_count;
+} nchan_request_ctx_t;
+
 
 #endif  /* NCHAN_TYPES_H */

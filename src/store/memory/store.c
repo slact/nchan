@@ -2271,6 +2271,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   }
   
   chead->latest_msgid = publish_msg->id;
+  channel_copy->last_published_msg_id = chead->latest_msgid;
   
   //do the actual publishing
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag[0] != publish_msg->prev_id.tag[0]));

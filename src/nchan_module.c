@@ -57,6 +57,10 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
   size_t                      sz = 0, grouplen = group->len;
   u_char                     *cur;
   
+  static ngx_str_t            empty_string = ngx_string("");
+  
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  
   n = idcf->n;  
   if(n>1) {
     sz += 3 + n; //space for null-separators and "m/<SEP>" prefix for multi-chid
@@ -70,6 +74,13 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
     }
     sz += id[i].len;
     sz += 1 + grouplen; // "group/"
+    ctx->channel_id[i] = id[i];
+  }
+  if(ctx) {
+    ctx->channel_id_count = i;
+    for(; i < NCHAN_MULTITAG_MAX; i++) {
+      ctx->channel_id[i] = empty_string;
+    }
   }
   
   if((id_out = ngx_palloc(r->pool, sizeof(*id_out) + sz)) == NULL) {
@@ -113,6 +124,9 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   ngx_str_t                  *id;
   size_t                      sz;
   u_char                     *cur;
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  
+  ctx->channel_id_count = 0;
   
   vv = ngx_http_get_variable(r, &channel_id_var_name, key);
   if (vv == NULL || vv->not_found || vv->len == 0) {
@@ -123,6 +137,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
     tmpid.len = vv->len;
     tmpid.data = vv->data;
   }
+  
   if(validate_id(r, &tmpid, cf) != NGX_OK) {
     *ret_id = NULL;
     return NGX_DECLINED;
@@ -143,6 +158,9 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   cur[0]='/';
   cur++;
   ngx_memcpy(cur, tmpid.data, tmpid.len);
+  
+  ctx->channel_id_count = 1;
+  ctx->channel_id[0] = *id;
   
   *ret_id = id;
   return NGX_OK;
@@ -615,6 +633,12 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_msg_id_t          msg_id = {0}; //memzeroed for debugging
   ngx_int_t               rc = NGX_DONE;
   
+  nchan_request_ctx_t    *ctx;
+  if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  ngx_http_set_ctx(r, ctx, nchan_module);
+  
   if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
     //just get the subscriber_channel_id for now. the publisher one is handled elsewhere
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -726,16 +750,21 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_re
 
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   nchan_channel_t       *ch = rptr;
-    
+  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  static nchan_msg_id_t  empty_msgid = {0};
   //DBG("publish_callback %V owner %i status %i", ch_id, memstore_channel_owner(ch_id), status);
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:
       //message was queued successfully, but there were no subscribers to receive it.
+      ctx->prev_msg_id = ctx->msg_id;
+      ctx->msg_id = ch != NULL ? ch->last_published_msg_id : empty_msgid;
       ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_ACCEPTED));
       return NGX_OK;
       
     case NCHAN_MESSAGE_RECEIVED:
       //message was queued successfully, and it was already sent to at least one subscriber
+      ctx->prev_msg_id = ctx->msg_id;
+      ctx->msg_id = ch != NULL ? ch->last_published_msg_id : empty_msgid;
       ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_CREATED));
       return NGX_OK;
       
@@ -743,11 +772,15 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: error publishing message");
+      ctx->prev_msg_id = empty_msgid;;
+      ctx->msg_id = empty_msgid;
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
       
     default:
       //for debugging, mostly. I don't expect this branch to behit during regular operation
+      ctx->prev_msg_id = empty_msgid;;
+      ctx->msg_id = empty_msgid;
       ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: TOTALLY UNEXPECTED error publishing message, status code %i", status);
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
@@ -835,6 +868,11 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
 
 static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   ngx_int_t                       rc;
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  
+  static ngx_str_t                publisher_name = ngx_string("http");
+  
+  if(ctx) ctx->publisher_type = &publisher_name;
   
   /* Instruct ngx_http_read_subscriber_request_body to store the request
      body entirely in a memory buffer or in a file */

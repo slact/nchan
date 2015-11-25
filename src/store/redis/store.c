@@ -1532,12 +1532,14 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
   redisReply                    *reply=r;
   redisReply                    *cur;
-  //nchan_msg_id_t msg_id;
+  //nchan_msg_id_t                 msg_id;
   nchan_channel_t                ch={{0}};
 
   if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)) {
-    //msg_id.time=d->msg_time;
-    //msg_id.tag=reply->element[0]->integer;
+    ch.last_published_msg_id.time=d->msg_time;
+    ch.last_published_msg_id.tag[0]=reply->element[0]->integer;
+    ch.last_published_msg_id.tagcount = 1;
+    ch.last_published_msg_id.tagactive = 0;
 
     cur=reply->element[1];
     switch(redis_array_to_channel(cur, &ch)) {

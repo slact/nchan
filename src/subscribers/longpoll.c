@@ -30,7 +30,8 @@ static void sudden_abort_handler(subscriber_t *sub) {
 
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   DBG("create for req %p", r);
-  full_subscriber_t  *fsub;
+  full_subscriber_t      *fsub;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
   //TODO: allocate from pool (but not the request's pool)
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
@@ -81,11 +82,17 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
   
+  if(ctx) {
+    ctx->sub = &fsub->sub;
+    ctx->subscriber_type = fsub->sub.name;
+  }
+  
   return &fsub->sub;
 }
 
 ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
+  
   if(sub->reserved > 0) {
     DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->data.request);
     fsub->data.awaiting_destruction = 1;
@@ -189,6 +196,10 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->data.request, nchan_module);
+  
+  ctx->sub = NULL;
+  
   if(fsub->data.finalize_request) {
     DBG("finalize request %p", fsub->data.request);
     ngx_http_finalize_request(fsub->data.request, rc);
@@ -206,13 +217,17 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_int_t                  rc;
   char                      *err = NULL;
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->data.request, nchan_module);
+  
   DBG("%p respond req %p msg %p", self, fsub->data.request, msg);
   
   assert(fsub->data.already_responded != 1);
   
   fsub->data.already_responded = 1;
   
+  ctx->prev_msg_id = self->last_msgid;
   verify_subscriber_last_msg_id(self, msg);
+  ctx->msg_id = self->last_msgid;
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
@@ -278,8 +293,10 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_release
 };
 
+static ngx_str_t  sub_name = ngx_string("longpoll");
+
 static const subscriber_t new_longpoll_sub = {
-  "longpoll",
+  &sub_name,
   LONGPOLL,
   &longpoll_fn,
   {0},

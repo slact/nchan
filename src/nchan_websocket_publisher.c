@@ -54,9 +54,15 @@ static void ws_publisher_dequeue_callback(subscriber_t *sub, void *privdata) {
   nchan_ws_llink_destroy((nchan_llist_timed_t *)privdata);
 }
 
+static ngx_str_t   pub_name = ngx_string("websocket");
+
 ngx_int_t nchan_create_websocket_publisher(ngx_http_request_t  *r) {
   subscriber_t         *sub;
   nchan_llist_timed_t  *sub_link;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  if(ctx) {
+    ctx->publisher_type = &pub_name;
+  }
   
   if((sub = websocket_subscriber_create(r, NULL)) == NULL) {
     ERR("couldn't create websocket publisher.");

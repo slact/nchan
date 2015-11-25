@@ -317,18 +317,20 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
 }
 
 typedef struct {
-  ngx_int_t    status;// NCHAN_MESSAGE_RECEIVED or NCHAN_MESSAGE_QUEUED;
-  time_t       last_seen;
-  ngx_uint_t   subscribers;
-  ngx_uint_t   messages;
-  callback_pt  callback;
-  void        *callback_privdata;
+  uint16_t        status;// NCHAN_MESSAGE_RECEIVED or NCHAN_MESSAGE_QUEUED;
+  uint32_t        subscribers;
+  uint16_t        messages;
+  time_t          last_seen;
+  time_t          msg_time;
+  uint16_t        msg_tag;
+  callback_pt     callback;
+  void           *callback_privdata;
 } publish_response_data;
 
 static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, void *privdata) {
   DBG("IPC: publish message generic callback");
   publish_callback_data   *cd = (publish_callback_data *)privdata;
-  publish_response_data    rd;
+  publish_response_data    rd = {0}; //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
   nchan_channel_t *ch = (nchan_channel_t *)rptr;
   rd.status = status;
   rd.callback = cd->d->callback;
@@ -337,6 +339,9 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
     rd.last_seen = ch->last_seen;
     rd.subscribers = ch->subscribers;
     rd.messages = ch->messages;
+    assert(ch->last_published_msg_id.tagcount == 1);
+    rd.msg_time = ch->last_published_msg_id.time;
+    rd.msg_tag = ch->last_published_msg_id.tag[0];
   }
   DBG("IPC: publish message reply to %i", cd->sender);
   ipc_alert(nchan_memstore_get_ipc(), cd->sender, IPC_PUBLISH_MESSAGE_REPLY, &rd, sizeof(rd));
@@ -349,6 +354,10 @@ static void receive_publish_message_reply(ngx_int_t sender, publish_response_dat
   ch.last_seen = d->last_seen;
   ch.subscribers = d->subscribers;
   ch.messages = d->messages;
+  ch.last_published_msg_id.time = d->msg_time;
+  ch.last_published_msg_id.tag[0] = d->msg_tag;
+  ch.last_published_msg_id.tagcount = 1;
+  ch.last_published_msg_id.tagactive = 0;
   d->callback(d->status, &ch, d->callback_privdata);
 }
 

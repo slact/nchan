@@ -1,0 +1,121 @@
+#include <nchan_module.h>
+
+typedef struct {
+  ngx_str_t                   name;
+  ngx_http_get_variable_pt    handler;
+  uintptr_t                   data;
+} nchan_variable_t;
+
+static void set_varval(ngx_http_variable_value_t *v, u_char *data, size_t len) {
+  v->valid = 1;
+  v->no_cacheable = 1;
+  v->not_found = 0;
+  v->len = len;
+  v->data = data;
+}
+
+static ngx_int_t nchan_channel_id_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  if(ctx == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  
+  set_varval(v, ctx->channel_id[data].data, ctx->channel_id[data].len);
+  
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_subscriber_type_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  if(ctx == NULL || ctx->subscriber_type == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  
+  set_varval(v, ctx->subscriber_type->data, ctx->subscriber_type->len);
+  
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_publisher_type_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  if(ctx == NULL || ctx->publisher_type == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  
+  set_varval(v, ctx->publisher_type->data, ctx->publisher_type->len);
+  
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_message_id_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  
+  
+  v->not_found = 1;
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_prev_message_id_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  
+  
+  v->not_found = 1;
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_message_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  
+  
+  v->not_found = 1;
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_message_alert_type_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  
+  
+  v->not_found = 1;
+  return NGX_OK;
+}
+
+
+
+
+
+
+
+nchan_variable_t nchan_vars[] = {
+  { ngx_string("nchan_channel_id"),         nchan_channel_id_variable, 0},
+  { ngx_string("nchan_channel_id1"),        nchan_channel_id_variable, 0},
+  { ngx_string("nchan_channel_id2"),        nchan_channel_id_variable, 1},
+  { ngx_string("nchan_channel_id3"),        nchan_channel_id_variable, 2},
+  { ngx_string("nchan_channel_id4"),        nchan_channel_id_variable, 3},
+  { ngx_string("nchan_subscriber_type"),    nchan_subscriber_type_variable, 0},
+  { ngx_string("nchan_publisher_type"),     nchan_publisher_type_variable, 0},
+  { ngx_string("nchan_message"),            nchan_message_variable, 0},
+  { ngx_string("nchan_prev_message_id"),    nchan_prev_message_id_variable, 0},
+  { ngx_string("nchan_message_id"),         nchan_message_id_variable, 0},
+  { ngx_string("nchan_prev_message_id"),    nchan_prev_message_id_variable, 0},
+  { ngx_string("nchan_message_alert_type"), nchan_message_alert_type_variable, 0},
+  
+  { ngx_null_string,                        NULL, 0 }
+};
+
+
+ngx_int_t nchan_add_variables(ngx_conf_t *cf) {
+  nchan_variable_t              *var;
+  ngx_http_variable_t           *v;
+
+  for (var = nchan_vars; var->name.len; var++) {
+    
+    v = ngx_http_add_variable(cf, &var->name, NGX_HTTP_VAR_CHANGEABLE);
+    if (v == NULL) {
+      return NGX_ERROR;
+    }
+    
+    v->get_handler = var->handler;
+    v->data = var->data;
+  }
+
+  return NGX_OK;
+}

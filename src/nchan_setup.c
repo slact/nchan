@@ -1,6 +1,7 @@
 #include <nchan_websocket_publisher.h>
 #include <nchan_types.h>
 #include <nchan_output.h>
+#include <nchan_variables.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 
@@ -8,19 +9,6 @@ ngx_module_t     nchan_module;
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 
-/*
-static ngx_http_variable_t  nchan_vars[] = {
-  { ngx_string("nchan_channel_id"), NULL, nchan_channel_id_variable,
-    0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-  { ngx_string("nchan_subscriber_type"), NULL, nchan_subscriber_type_variable,
-    1, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-  { ngx_string("nchan_message"), NULL, nchan_message_variable,
-    2, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-  { ngx_string("nchan_message_id"), NULL, nchan_message_id_variable,
-    3, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-  { ngx_null_string, NULL, NULL, 0, 0, 0 }
-};
-*/
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -469,7 +457,7 @@ static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, 
 #include "nchan_config_commands.c" //hideous but hey, it works
 
 static ngx_http_module_t  nchan_module_ctx = {
-    NULL,                          /* preconfiguration */
+    nchan_add_variables,           /* preconfiguration */
     nchan_postconfig,              /* postconfiguration */
     nchan_create_main_conf,        /* create main configuration */
     NULL,                          /* init main configuration */

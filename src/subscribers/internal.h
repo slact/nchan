@@ -18,10 +18,10 @@ typedef struct {
   unsigned                awaiting_destruction:1;
 } internal_subscriber_t;
 
-extern subscriber_t *internal_subscriber_create(const char*, void *privdata);
+extern subscriber_t *internal_subscriber_create(ngx_str_t *, void *privdata);
 extern ngx_int_t internal_subscriber_destroy(subscriber_t *sub);
 
-ngx_int_t internal_subscriber_set_name(subscriber_t *sub, const char *name);
+ngx_int_t internal_subscriber_set_name(subscriber_t *sub, ngx_str_t *name);
 ngx_int_t internal_subscriber_set_enqueue_handler(subscriber_t *sub, callback_pt handler);
 ngx_int_t internal_subscriber_set_dequeue_handler(subscriber_t *sub, callback_pt handler);
 ngx_int_t internal_subscriber_set_notify_handler(subscriber_t *sub, callback_pt handler);

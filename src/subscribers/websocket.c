@@ -185,6 +185,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_str_t *msg_str) {
   nchan_msg_t              msg;
   ngx_buf_t                buf;
+  struct timeval           tv;
   static ngx_str_t         nopublishing = ngx_string("Publishing not allowed.");
   
   if(!fsub->sub.cf->pub.websocket) {
@@ -207,6 +208,12 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_str_t *msg_str) 
     msg.content_type.len = r->headers_in.content_type->value.len;
   }
   
+  ngx_gettimeofday(&tv);
+  msg.id.time = tv.tv_sec;
+  msg.id.tag[0]=0;
+  msg.id.tagcount=1;
+  msg.id.tagactive=0;
+  
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub);
   
   return NGX_OK;
@@ -224,6 +231,8 @@ static void websocket_init_frame(ws_frame_t *frame) {
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   ngx_buf_t            *b;
   nchan_loc_conf_t     *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
@@ -292,7 +301,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
   
-  ngx_http_set_ctx(r, fsub, nchan_module); //gonna need this for recv
+  assert(ctx != NULL);
+  ctx->sub = &fsub->sub; //gonna need this for recv
+  ctx->subscriber_type = fsub->sub.name;
   
   #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_add(&fsub->sub);
@@ -302,7 +313,10 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 }
 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
+  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->request, nchan_module);
+  ctx->sub = NULL;
+  
   if(sub->reserved > 0) {
     DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->request);
     fsub->awaiting_destruction = 1;
@@ -498,7 +512,8 @@ static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len)
  * thanks, guys!
 */
 static void websocket_reading(ngx_http_request_t *r) {
-  full_subscriber_t          *fsub = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
   ws_frame_t                 *frame = &fsub->frame;
   ngx_int_t                   rc = NGX_OK;
   ngx_event_t                *rev;
@@ -945,8 +960,10 @@ static const subscriber_fn_t websocket_fn = {
   NULL
 };
 
+static ngx_str_t     sub_name = ngx_string("websocket");
+
 static const subscriber_t new_websocket_sub = {
-  "websocket",
+  &sub_name,
   WEBSOCKET,
   &websocket_fn,
   {0},

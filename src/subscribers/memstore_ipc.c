@@ -139,6 +139,8 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #endif
 }
 
+static ngx_str_t  sub_name = ngx_string("memstore-ipc");
+
 subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, uint8_t use_redis, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
@@ -148,7 +150,7 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   }
   
   assert(originator_slot != memstore_slot());
-  subscriber_t *sub = internal_subscriber_create("memstore-ipc", d);
+  subscriber_t *sub = internal_subscriber_create(&sub_name, d);
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);

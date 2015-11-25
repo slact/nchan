@@ -54,6 +54,7 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
   ${ngx_addon_dir}/src/nchan_thingcache.c \
   ${ngx_addon_dir}/src/nchan_reaper.c \
+  ${ngx_addon_dir}/src/nchan_variables.c \
   ${ngx_addon_dir}/src/nchan_module.c \
 "
 

@@ -130,6 +130,8 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
   return NGX_OK;
 }
 
+static ngx_str_t  sub_name = ngx_string("memstore-redis");
+
 subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
   sub_data_t                  *d;
   nchan_store_channel_head_t  *target_ch;
@@ -145,7 +147,7 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
     return NULL;
   }
   
-  subscriber_t *sub = internal_subscriber_create("memstore-redis", d);
+  subscriber_t *sub = internal_subscriber_create(&sub_name, d);
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
