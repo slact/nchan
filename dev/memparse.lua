@@ -201,8 +201,9 @@ function parse_line(str)
       return ptr
     end
     
-    start, size = msg:match("ngx_http_push_shpool start (%w+) size (%d+)")
+    start, size = msg:match("nchan_shpool start (%w+) size (%d+)")
     if size and start then
+      init()
       poolsize=tonumber(size)
       poolstart = tonumber(start, 16)
       printf("shm start %s size %s", start, formatsize(poolsize))

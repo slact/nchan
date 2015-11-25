@@ -30,11 +30,15 @@
 
 
 typedef struct {
-  nchan_store_channel_head_t      unbuffered_dummy_chanhead;
+  //nchan_store_channel_head_t      unbuffered_dummy_chanhead;
   store_channel_head_shm_t        dummy_shared_chaninfo;
   nchan_store_channel_head_t     *hash;
   nchan_reaper_t                  msg_reaper;
+  nchan_reaper_t                  nobuffer_msg_reaper;
   nchan_reaper_t                  chanhead_reaper;
+  
+  nchan_reaper_t                  chanhead_churner;
+  
   ngx_int_t                       workers;
   
 #if FAKESHARD
@@ -42,26 +46,20 @@ typedef struct {
 #endif
 } memstore_data_t;
 
-static ngx_int_t nchan_memstore_msg_ready_to_reap(store_message_t *smsg) {
+static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg) {
+  if(smsg->msg->expires > ngx_time()) {
+    //not time yet
+    return NGX_DECLINED;
+  }
+//   
   if(ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
     return NGX_OK;
   }
-  else {
-    /*
-    ERR("not ready to reap msg %V, reservations: %i", msgid_to_str(&smsg->msg->id), smsg->msg->refcount);
-    
-#if NCHAN_MSG_RESERVE_DEBUG
-    msg_rsv_dbg_t *rsv;
-    for(rsv = smsg->msg->rsv; rsv != NULL; rsv = rsv->next) {
-      ERR("   reservation label: %s", rsv->lbl);
-    }
-#endif
-    */
-    return NGX_DECLINED;
-  }
+  return NGX_DECLINED;
 }
 
-static ngx_int_t memstore_reap_message( store_message_t *msg );
+static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
+static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
 static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
@@ -91,12 +89,36 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
         sts = "INACTIVE";
         break;
     }
-    ERR("not ready to reap %V : status %s", &ch->id, sts);
+    DBG("not ready to reap %V : status %s", &ch->id, sts);
     return NGX_DECLINED;
   }
   
   if(ch->gc_time - ngx_time() > 0) {
     DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
+    return NGX_DECLINED;
+  }
+  
+  if (ch->sub_count > 0) { //there are subscribers
+    DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    return NGX_DECLINED;
+  }
+  
+  if(ch->channel.messages > 0) {
+    assert(ch->msg_first != NULL);
+    DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+    return NGX_DECLINED;
+  }
+  
+  //DBG("ok to delete channel %V", &ch->id);
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channel_head_t *ch) {
+  
+  chanhead_messages_gc(ch);
+  
+  if(ch->churn_time - ngx_time() > 0) {
+    DBG("not yet time to reap %V, %i sec left", &ch->id, ch->churn_time - ngx_time());
     return NGX_DECLINED;
   }
   
@@ -123,10 +145,21 @@ static void init_mpt(memstore_data_t *m) {
                      "memstore message", 
                      offsetof(store_message_t, prev), 
                      offsetof(store_message_t, next), 
-    (ngx_int_t (*)(void *)) nchan_memstore_msg_ready_to_reap,
-         (void (*)(void *)) memstore_reap_message,
+    (ngx_int_t (*)(void *)) nchan_memstore_store_msg_ready_to_reap,
+         (void (*)(void *)) memstore_reap_store_message,
                      5
   );
+  
+  nchan_reaper_start(&m->nobuffer_msg_reaper, 
+                     "memstore nobuffer message", 
+                     offsetof(store_message_t, prev), 
+                     offsetof(store_message_t, next), 
+    (ngx_int_t (*)(void *)) nchan_memstore_store_msg_ready_to_reap,
+         (void (*)(void *)) memstore_reap_store_message,
+                     2
+  );
+  m->nobuffer_msg_reaper.rotate = 1;
+  m->nobuffer_msg_reaper.max_notready = 4;
   
   nchan_reaper_start(&m->chanhead_reaper, 
                      "chanhead", 
@@ -134,18 +167,17 @@ static void init_mpt(memstore_data_t *m) {
                      offsetof(nchan_store_channel_head_t, gc_next), 
     (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap,
          (void (*)(void *)) memstore_reap_chanhead,
-                     5
+                     4
   );
   
-  ngx_memzero(&m->unbuffered_dummy_chanhead, sizeof(nchan_store_channel_head_t));
-  m->unbuffered_dummy_chanhead.id.data= (u_char *)"unbuffered fake";
-  m->unbuffered_dummy_chanhead.id.len=15;
-  m->unbuffered_dummy_chanhead.owner = memstore_slot();
-  m->unbuffered_dummy_chanhead.slot = memstore_slot();
-  m->unbuffered_dummy_chanhead.status = READY;
-  m->unbuffered_dummy_chanhead.min_messages = 0;
-  m->unbuffered_dummy_chanhead.max_messages = (ngx_uint_t )-1;
-  m->unbuffered_dummy_chanhead.shared = &m->dummy_shared_chaninfo;
+  nchan_reaper_start(&m->chanhead_churner, 
+                     "chanhead churner", 
+                     offsetof(nchan_store_channel_head_t, churn_prev), 
+                     offsetof(nchan_store_channel_head_t, churn_next), 
+    (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap_slowly,
+         (void (*)(void *)) memstore_reap_chanhead,
+                     15
+  );
   
 }
 
@@ -334,12 +366,43 @@ void msg_debug_assert_isempty(void) {
 #endif
 
 
+
+static ngx_int_t chanhead_churner_add(nchan_store_channel_head_t *ch) {
+  DBG("Chanhead churn add %p %V", ch, &ch->id);
+  
+  if(!ch->shutting_down) {
+    assert(ch->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
+  }
+
+  assert(!ch->in_gc_queue);
+  
+  if(!ch->in_churn_queue) {
+    ch->in_churn_queue = 1;
+    ch->churn_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
+    nchan_reaper_add(&mpt->chanhead_churner, ch);
+  }
+
+  return NGX_OK;
+}
+
+static ngx_int_t chanhead_churner_withdraw(nchan_store_channel_head_t *ch) {
+  //remove from gc list if we're there
+  DBG("Chanhead churn withdraw %p %V", ch, &ch->id);
+  
+  if(ch->in_churn_queue) {
+    ch->in_churn_queue = 0;
+    nchan_reaper_withdraw(&mpt->chanhead_churner, ch);
+  }
+  
+  return NGX_OK;
+}
+
 static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   shm_data_t         *d;
   ngx_int_t           i;
   if(data) { //zone being passed after restart
     zone->data = data;
-    ERR("reattached shm data at %p", data);
+    DBG("reattached shm data at %p", data);
   }
   else {
     shm_init(shm);
@@ -402,7 +465,7 @@ void reload_msgs(void) {
   store_message_t             *smsg;
   nchan_reloading_channel_t   *rlch;
   
-  ERR("time to reload? shdata: %p, rlch: %p", shdata, shdata == NULL ? NULL : shdata->rlch);
+  DBG("time to reload? shdata: %p, rlch: %p", shdata, shdata == NULL ? NULL : shdata->rlch);
   
   shmtx_lock(shm);
   for(rlch = shdata->rlch; rlch != NULL; rlch = rlch->next) {
@@ -478,7 +541,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   if(i >= workers) {
     //we're probably reloading or something
-    ERR("that was a reload just now");
+    DBG("that was a reload just now");
   }
   
   //reload_msgs();
@@ -598,6 +661,10 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(head->in_gc_queue) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
+  if(!head->in_churn_queue) {
+    chanhead_churner_add(head);
+  }
+  
   if(!head->spooler.running) {
     DBG("ensure chanhead ready: Spooler for channel %p %V wasn't running. start it.", head, &head->id);
     start_chanhead_spooler(head);
@@ -689,6 +756,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->owner = owner;
   head->shutting_down = 0;
   head->in_gc_queue = 0;
+  head->in_churn_queue = 0;
   if(cf) {
     head->stub = 0;
     head->use_redis = cf->use_redis;
@@ -812,12 +880,13 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   if(ch->slot != ch->owner) {
     ch->shared = NULL;
   }
-  
+  assert(ch->status != WAITING);
   assert(ch->slot == slot);
   if(! ch->in_gc_queue) {
     ch->gc_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
     ch->status = INACTIVE;
     ch->gc_queued_times ++;
+    chanhead_churner_withdraw(ch);
     ch->in_gc_queue = 1;
     nchan_reaper_add(&mpt->chanhead_reaper, ch);
   }
@@ -836,6 +905,7 @@ ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *ch, const char *reaso
     nchan_reaper_withdraw(&mpt->chanhead_reaper, ch);
     ch->in_gc_queue = 0;
   }
+  chanhead_churner_add(ch);
   
   return NGX_OK;
 }
@@ -1158,7 +1228,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
   ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT, procslot;
     
-  ERR("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
+  DBG("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
   
 #if FAKESHARD
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
@@ -1174,9 +1244,11 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   
   assert(mpt->chanhead_reaper.count == 0);
   
-  nchan_reaper_stop(&mpt->chanhead_reaper);
-  handle_unbuffered_messages_gc(1);
   
+  nchan_reaper_stop(&mpt->chanhead_churner);
+  nchan_reaper_stop(&mpt->chanhead_reaper);
+  
+  nchan_reaper_stop(&mpt->nobuffer_msg_reaper);
   nchan_reaper_stop(&mpt->msg_reaper);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -1257,11 +1329,11 @@ static ngx_int_t validate_chanhead_messages(nchan_store_channel_head_t *ch) {
   return NGX_OK;
 }
 
-static ngx_int_t memstore_reap_message( store_message_t *msg ) {
-  ngx_buf_t         *buf = msg->msg->buf;
+static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
+  ngx_buf_t         *buf = msg->buf;
   ngx_file_t        *f = buf->file;
   
-  assert(msg->msg->refcount == MSG_REFCOUNT_INVALID);
+  assert(msg->refcount == MSG_REFCOUNT_INVALID);
   
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
@@ -1273,20 +1345,28 @@ static ngx_int_t memstore_reap_message( store_message_t *msg ) {
     }
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
-  //DBG("free msg %p", msg);
+  //DBG("free smsg %p",s msg);
 #if NCHAN_MSG_LEAK_DEBUG  
-  msg_debug_remove(msg->msg);
+  msg_debug_remove(msg);
 #endif
   
   //ERR("reap msg %p", msg);
   
-  ngx_memset(msg->msg, 0xFA, sizeof(*msg->msg)); //debug stuff
-  shm_free(shm, msg->msg);
-  
-  ngx_memset(msg, 0xBC, sizeof(*msg)); //debug stuff
-  ngx_free(msg);
+  ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
+  shm_free(shm, msg);
   return NGX_OK;
 }
+
+static ngx_int_t memstore_reap_store_message( store_message_t *smsg ) {
+  
+  memstore_reap_message(smsg->msg);
+  
+  ngx_memset(smsg, 0xBC, sizeof(*smsg)); //debug stuff
+  ngx_free(smsg);
+  return NGX_OK;
+}
+
+
 
 static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
   //validate_chanhead_messages(ch);
@@ -1363,29 +1443,6 @@ static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
   chanhead_messages_gc_custom(ch, 0, 0);
-  return NGX_OK;
-}
-
-static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete) {
-  nchan_store_channel_head_t         *ch = &mpt->unbuffered_dummy_chanhead;
-  DBG("handling unbuffered messages GC queue");
-  
-  #if FAKESHARD
-  ngx_int_t        i;
-  for(i = 0; i < MAX_FAKE_WORKERS; i++) {
-  memstore_fakeprocess_push(i);
-  #endif
-  if(!force_delete) {
-    chanhead_messages_gc(ch);
-  }
-  else {
-    chanhead_messages_delete(ch);
-  }
-  
-  #if FAKESHARD
-  memstore_fakeprocess_pop();
-  }
-  #endif
   return NGX_OK;
 }
 
@@ -2185,15 +2242,11 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     publish_msg= shmsg_link->msg;
     publish_msg->expires = ngx_time() + NCHAN_NOBUFFER_MSG_EXPIRE_SEC;
     
-    if(chanhead_push_message(&mpt->unbuffered_dummy_chanhead, shmsg_link) != NGX_OK) {
-      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-      ERR("can't enqueue unbuffered message for channel %V", &chead->id);
-      return NGX_ERROR;
-    }
-    
     publish_msg->prev_id.time = 0;
     publish_msg->prev_id.tag[0] = 0;
     publish_msg->prev_id.tagcount = 1;
+    
+    nchan_reaper_add(&mpt->nobuffer_msg_reaper, shmsg_link);
     
     DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   }

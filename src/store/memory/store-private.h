@@ -54,12 +54,18 @@ struct nchan_store_channel_head_s {
   unsigned                        stub:1;
   unsigned                        shutting_down:1;
   unsigned                        use_redis:1;
-  unsigned                        in_gc_queue:1;
+
   subscriber_t                   *redis_sub;
   
   nchan_store_channel_head_t     *gc_prev;
   nchan_store_channel_head_t     *gc_next;
   time_t                          gc_time;
+  unsigned                        in_gc_queue:1;
+  
+  nchan_store_channel_head_t     *churn_prev;
+  nchan_store_channel_head_t     *churn_next;
+  time_t                          churn_time;
+  unsigned                        in_churn_queue:1;
   
   UT_hash_handle                  hh;
 };
