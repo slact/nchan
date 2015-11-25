@@ -185,6 +185,8 @@ static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {
   
   max_notready = rp->max_notready_ratio * rp->count;
   
+  DBG("%s scan max notready %i", rp->name, max_notready);
+  
   while(cur != NULL && notready <= max_notready) {
     next = thing_next(rp, cur);
     if(force || rp->ready(cur) == NGX_OK) {
@@ -206,6 +208,8 @@ static void its_reaping_time_keep_place(nchan_reaper_t *rp, uint8_t force) {
   int                  n = 0;
   max_notready = rp->max_notready_ratio * rp->count;
   cur = rp->position == NULL ? rp->first : rp->position;
+  
+  DBG("%s keep_place max notready %i, cur %p", rp->name, max_notready, cur);
   
   while(n < rp->count && notready <= max_notready) {
     n++;
@@ -232,6 +236,8 @@ static void its_reaping_rotating_time(nchan_reaper_t *rp, uint8_t force) {
   
   max_notready = rp->max_notready_ratio * rp->count;
   
+  DBG("%s rotatey max notready %i", rp->name, max_notready);
+  
   while(cur != NULL && cur != firstmoved && notready <= max_notready) {
     next = thing_next(rp, cur);
     if(force || rp->ready(cur) == NGX_OK) {
@@ -240,7 +246,11 @@ static void its_reaping_rotating_time(nchan_reaper_t *rp, uint8_t force) {
     else {
       //move to the end of the list
       //TODO: bulk move
-      if(max_notready > 0) notready++;
+      if(max_notready > 0) {
+        DBG("not ready to reap %s %p", rp->name, cur);
+        notready++;
+        verify_reaper_list(rp, NULL);
+      }
       
       if(!firstmoved) firstmoved = cur;
       
@@ -279,12 +289,15 @@ static void reaper_timer_handler(ngx_event_t *ev) {
   switch (rp->strategy) {
     case RESCAN:
       its_reaping_time(rp, 0);
+      reaper_reset_timer(rp);
       return;
     case ROTATE:
       its_reaping_rotating_time(rp, 0);
+      reaper_reset_timer(rp);
       return;
     case KEEP_PLACE:
       its_reaping_time_keep_place(rp, 0);
+      reaper_reset_timer(rp);
       return;
   }
 }
