@@ -96,22 +96,22 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
   }
   
   if(ch->gc_time - ngx_time() > 0) {
-    ERR("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
+    DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
     return NGX_DECLINED;
   }
   
   if (ch->sub_count > 0) { //there are subscribers
-    ERR("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
     return NGX_DECLINED;
   }
   
   if(ch->channel.messages > 0) {
     assert(ch->msg_first != NULL);
-    ERR("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+    DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
     return NGX_DECLINED;
   }
   
-  ERR("ok to delete channel %V", &ch->id);
+  //DBG("ok to delete channel %V", &ch->id);
   return NGX_OK;
 }
 

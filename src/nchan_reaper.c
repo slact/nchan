@@ -60,7 +60,7 @@ static ngx_inline void *thing_prev(nchan_reaper_t *rp, void *thing) {
 static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
   if(rp->first == NULL) assert(rp->count == 0);
   if (rp->count > 0) {
-    ERR("reap %s again later (remaining: %i)", rp->name, rp->count);
+    DBG("reap %s again later (remaining: %i)", rp->name, rp->count);
     ngx_add_timer(&rp->timer, rp->tick_usec);
   }
   
