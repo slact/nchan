@@ -158,8 +158,8 @@ static void init_mpt(memstore_data_t *m) {
          (void (*)(void *)) memstore_reap_store_message,
                      2
   );
-  m->nobuffer_msg_reaper.rotate = 1;
-  m->nobuffer_msg_reaper.max_notready = 4;
+  m->nobuffer_msg_reaper.strategy = ROTATE;
+  m->nobuffer_msg_reaper.max_notready_ratio = 0.20;
   
   nchan_reaper_start(&m->chanhead_reaper, 
                      "chanhead", 
@@ -176,8 +176,10 @@ static void init_mpt(memstore_data_t *m) {
                      offsetof(nchan_store_channel_head_t, churn_next), 
     (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap_slowly,
          (void (*)(void *)) memstore_reap_chanhead,
-                     15
+                     10
   );
+  m->nobuffer_msg_reaper.strategy = KEEP_PLACE;
+  m->nobuffer_msg_reaper.max_notready_ratio = 0.10;
   
 }
 
@@ -988,9 +990,6 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
 }
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
-
-
-static ngx_int_t handle_unbuffered_messages_gc(ngx_int_t force_delete);
 
 static ngx_int_t empty_callback(){
   return NGX_OK;

@@ -1,20 +1,23 @@
 #ifndef NCHAN_REAPER_H
 #define NCHAN_REAPER_H
 
+typedef enum {RESCAN, ROTATE, KEEP_PLACE} nchan_reaper_strategy_t;
 
 typedef struct {
-  char           *name;
-  int             count;
-  int             next_ptr_offset;
-  int             prev_ptr_offset;
-  void           *last;
-  void           *first;
-  ngx_event_t     timer;
-  int             tick_usec;
-  unsigned        rotate:1;
-  uint16_t        max_notready;
-  ngx_int_t       (*ready)(void *); //ready to be reaped?
-  void            (*reap)(void *); //reap it
+  char                      *name;
+  int                        count;
+  int                        next_ptr_offset;
+  int                        prev_ptr_offset;
+  void                      *last;
+  void                      *first;
+  ngx_int_t                  (*ready)(void *); //ready to be reaped?
+  void                       (*reap)(void *); //reap it
+  ngx_event_t                timer;
+  int                        tick_usec;
+  nchan_reaper_strategy_t    strategy;
+  float                      max_notready_ratio;
+  void                      *position;
+
 } nchan_reaper_t;
 
 ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next, ngx_int_t (*ready)(void *), void (*reap)(void *), int tick_sec);

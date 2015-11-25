@@ -2,8 +2,8 @@
 #include <nchan_reaper.h>
 #include <assert.h>
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REAPER: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REAPER: " fmt, ##args)
 
@@ -24,8 +24,9 @@ ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next,
   rp->timer.log = ngx_cycle->log;
   rp->timer.data = rp;
   rp->tick_usec = tick_sec * 1000;
-  rp->rotate = 0;
-  rp->max_notready = 0;
+  rp->strategy = RESCAN;
+  rp->max_notready_ratio = 0; //disabled
+  rp->position = NULL;
   
   DBG("start reaper %s with tick time of %i sec", name, tick_sec);
   verify_reaper_list(rp, NULL);
@@ -180,7 +181,10 @@ static ngx_inline void reap_ready_thing(nchan_reaper_t *rp, void *cur, void *nex
 
 static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {
   void                *cur = rp->first, *next;
-  int                  max_notready = rp->max_notready, notready = 0; 
+  int                  max_notready, notready = 0; 
+  
+  max_notready = rp->max_notready_ratio * rp->count;
+  
   while(cur != NULL && notready <= max_notready) {
     next = thing_next(rp, cur);
     if(force || rp->ready(cur) == NGX_OK) {
@@ -196,11 +200,38 @@ static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {
   } 
 }
 
+static void its_reaping_time_keep_place(nchan_reaper_t *rp, uint8_t force) {
+  void                *cur, *next;
+  int                  max_notready, notready = 0; 
+  int                  n = 0;
+  max_notready = rp->max_notready_ratio * rp->count;
+  cur = rp->position == NULL ? rp->first : rp->position;
+  
+  while(n < rp->count && notready <= max_notready) {
+    n++;
+    next = thing_next(rp, cur);
+    if(force || rp->ready(cur) == NGX_OK) {
+      reap_ready_thing(rp, cur, next);
+      verify_reaper_list(rp, cur);
+    }
+    else if(max_notready > 0) {
+      DBG("not ready to reap %s %p", rp->name, cur);
+      notready++;
+      verify_reaper_list(rp, NULL);
+    }
+    cur = (next == NULL ? rp->first : next);
+  }
+  rp->position = cur;
+}
+
 static void its_reaping_rotating_time(nchan_reaper_t *rp, uint8_t force) {
   void                *cur = rp->first, *next, *prev;
   void                *firstmoved = NULL;
   void               **next_ptr, **prev_ptr;
-  int                  max_notready = rp->max_notready, notready = 0; 
+  int                  max_notready, notready = 0; 
+  
+  max_notready = rp->max_notready_ratio * rp->count;
+  
   while(cur != NULL && cur != firstmoved && notready <= max_notready) {
     next = thing_next(rp, cur);
     if(force || rp->ready(cur) == NGX_OK) {
@@ -245,11 +276,15 @@ static void its_reaping_rotating_time(nchan_reaper_t *rp, uint8_t force) {
 
 static void reaper_timer_handler(ngx_event_t *ev) {
   nchan_reaper_t      *rp = ev->data;
-  if(rp->rotate) {
-    its_reaping_rotating_time(rp, 0);
+  switch (rp->strategy) {
+    case RESCAN:
+      its_reaping_time(rp, 0);
+      return;
+    case ROTATE:
+      its_reaping_rotating_time(rp, 0);
+      return;
+    case KEEP_PLACE:
+      its_reaping_time_keep_place(rp, 0);
+      return;
   }
-  else {
-    its_reaping_time(rp, 0);
-  }
-  reaper_reset_timer(rp);
 }
