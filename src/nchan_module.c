@@ -968,7 +968,7 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
   }
 }
 
-ngx_int_t verify_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
+ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
     if(verify_msg_id(&sub->last_msgid, &msg->prev_id, &msg->id) == NGX_ERROR) {
       struct timeval    tv;

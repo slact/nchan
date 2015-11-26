@@ -893,7 +893,7 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   full_subscriber_t *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
   
-  verify_subscriber_last_msg_id(self, msg);
+  update_subscriber_last_msg_id(self, msg);
   
   rc = nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
   

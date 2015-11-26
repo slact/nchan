@@ -117,7 +117,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
-  verify_subscriber_last_msg_id(sub, msg);
+  update_subscriber_last_msg_id(sub, msg);
   ctx->msg_id = fsub->sub.last_msgid;
   
   es_ensure_headers_sent(fsub);

@@ -226,7 +226,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   fsub->data.already_responded = 1;
   
   ctx->prev_msg_id = self->last_msgid;
-  verify_subscriber_last_msg_id(self, msg);
+  update_subscriber_last_msg_id(self, msg);
   ctx->msg_id = self->last_msgid;
   
   //disable abort handler
