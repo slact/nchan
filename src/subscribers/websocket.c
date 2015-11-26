@@ -890,10 +890,13 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 
 static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   ngx_int_t        rc;
-  full_subscriber_t *fsub = (full_subscriber_t *)self;
+  full_subscriber_t         *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->request, nchan_module);
   
+  ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
+  ctx->msg_id = self->last_msgid;
   
   rc = nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
   
