@@ -1,4 +1,5 @@
 //Copyright (c) 2014 Wandenberg Peixoto under the MIT Licence
+//edited by slact 2015
 
 #include <ngx_event.h>
 #include <ngx_connection.h>
