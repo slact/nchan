@@ -897,8 +897,6 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   
   rc = nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
   
-  fsub->sub.last_msgid = msg->id;
-  
   return rc;
 }
 
