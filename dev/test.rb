@@ -188,7 +188,8 @@ class PubSubTest <  Minitest::Test
     end
   end
   
-  def test_multi_n(n=2)
+  
+  def no_test_multi_n(n=2)
     
     pubs = []
     n.times do |i|
@@ -196,7 +197,7 @@ class PubSubTest <  Minitest::Test
     end
     
     n = 50
-    scrambles = 1
+    scrambles = 5
     subs = []
     scrambles.times do |i|
       subs << Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
@@ -210,11 +211,23 @@ class PubSubTest <  Minitest::Test
       pubs.each {|p| p.pub.post "hello #{i} from #{p.id}" }
     end
     
-    puts "yeeha"
+    5.times do |i|
+      pubs.first.pub.post "yes #{i} from #{pubs.first.id}"
+    end
     
-    #latesubs = Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
-    #subs << latesubs
-    #latesubs.run
+    pubs.each do |p| 
+      10.times do |i|
+        p.pub.post "hello #{i} from #{p.id}"
+      end
+    end
+    
+    latesubs = Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+    subs << latesubs
+    latesubs.run
+    
+    10.times do |i|
+      pubs.each {|p| p.pub.post "hello again #{i} from #{p.id}" }
+    end
     
     pubs.first.pub.post "FIN"
     subs.each &:wait
