@@ -1,5 +1,6 @@
 #include <nchan_module.h>
 
+#include <signal.h> 
 #include <assert.h>
 #include "store.h"
 #include "shmem.h"
@@ -15,6 +16,10 @@
 #include <subscribers/memstore_multi.h>
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 5
+
+
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #if FAKESHARD
 
@@ -234,11 +239,6 @@ ipc_t *nchan_memstore_get_ipc(void){
 #define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
 #define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NCHAN_NOBUFFER_MSG_EXPIRE_SEC 10
-
-
-
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 
 #if FAKESHARD
