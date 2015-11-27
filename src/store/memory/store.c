@@ -759,6 +759,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->shutting_down = 0;
   head->in_gc_queue = 0;
   head->in_churn_queue = 0;
+  head->gc_queued_times = 0;
   if(cf) {
     head->stub = 0;
     head->use_redis = cf->use_redis;

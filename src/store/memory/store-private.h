@@ -42,6 +42,7 @@ struct nchan_store_channel_head_s {
   uint8_t                         multi_count;
   nchan_store_multi_t            *multi;
   
+  ngx_int_t                       gc_queued_times; // useful for debugging
   store_channel_head_shm_t       *shared;
   ngx_int_t                       internal_sub_count;
   ngx_uint_t                      min_messages;
