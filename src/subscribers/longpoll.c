@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include <subscribers/common.h>
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
@@ -39,7 +40,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
     return NULL;
   }
   ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
-  fsub->data.request = r;
+  fsub->sub.request = r;
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 1;
   fsub->data.holding = 0;
@@ -94,11 +95,11 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
   
   if(sub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->data.request);
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->data.awaiting_destruction = 1;
   }
   else {
-    DBG("%p destroy for req %p", sub, fsub->data.request);
+    DBG("%p destroy for req %p", sub, fsub->sub.request);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
     ngx_free(sub->lbl);
@@ -111,11 +112,11 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
 
 static void ensure_request_hold(full_subscriber_t *fsub) {
   if(fsub->data.holding == 0) {
-    DBG("hodl request %p", fsub->data.request);
+    DBG("hodl request %p", fsub->sub.request);
     fsub->data.holding = 1;
-    fsub->data.request->read_event_handler = ngx_http_test_reading;
-    fsub->data.request->write_event_handler = ngx_http_request_empty_handler;
-    fsub->data.request->main->count++; //this is the right way to hold and finalize the request... maybe
+    fsub->sub.request->read_event_handler = ngx_http_test_reading;
+    fsub->sub.request->write_event_handler = ngx_http_request_empty_handler;
+    fsub->sub.request->main->count++; //this is the right way to hold and finalize the request... maybe
   }
 }
 
@@ -123,14 +124,14 @@ static ngx_int_t longpoll_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
   self->reserved++;
-  DBG("%p reserve for req %p, reservations: %i", self, fsub->data.request, self->reserved);
+  DBG("%p reserve for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   return NGX_OK;
 }
 static ngx_int_t longpoll_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;
-  DBG("%p release for req %p. reservations: %i", self, fsub->data.request, self->reserved);
+  DBG("%p release for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
   if(nodestroy == 0 && fsub->data.awaiting_destruction == 1 && self->reserved == 0) {
     longpoll_subscriber_destroy(self);
     return NGX_ABORT;
@@ -196,13 +197,13 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->data.request, nchan_module);
+  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   ctx->sub = NULL;
   
   if(fsub->data.finalize_request) {
-    DBG("finalize request %p", fsub->data.request);
-    ngx_http_finalize_request(fsub->data.request, rc);
+    DBG("finalize request %p", fsub->sub.request);
+    ngx_http_finalize_request(fsub->sub.request, rc);
   }
   return NGX_OK;
 }
@@ -217,9 +218,9 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_int_t                  rc;
   char                      *err = NULL;
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->data.request, nchan_module);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
-  DBG("%p respond req %p msg %p", self, fsub->data.request, msg);
+  DBG("%p respond req %p msg %p", self, fsub->sub.request, msg);
   
   assert(fsub->data.already_responded != 1);
   
@@ -234,7 +235,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
   
-  if((rc = nchan_respond_msg(fsub->data.request, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
+  if((rc = nchan_respond_msg(fsub->sub.request, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
     finalize_maybe(self, rc);
     dequeue_maybe(self);
     return rc;
@@ -245,7 +246,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_http_request_t    *r = ((full_subscriber_t *)self)->data.request;
+  ngx_http_request_t    *r = ((full_subscriber_t *)self)->sub.request;
   DBG("%p respond req %p status %i", self, r, status_code);
   
   //disable abort handler
@@ -273,7 +274,7 @@ static void request_cleanup_handler(subscriber_t *sub) {
 static ngx_int_t longpoll_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   if(fsub->data.cln == NULL) {
-    fsub->data.cln = ngx_http_cleanup_add(fsub->data.request, 0);
+    fsub->data.cln = ngx_http_cleanup_add(fsub->sub.request, 0);
     fsub->data.cln->data = self;
     fsub->data.cln->handler = (ngx_http_cleanup_pt )request_cleanup_handler;
   }
@@ -290,7 +291,9 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_set_timeout_callback,
   &longpoll_set_dequeue_callback,
   &longpoll_reserve,
-  &longpoll_release
+  &longpoll_release,
+  NULL,
+  &nchan_subscriber_authorize_subscribe
 };
 
 static ngx_str_t  sub_name = ngx_string("longpoll");
@@ -300,6 +303,7 @@ static const subscriber_t new_longpoll_sub = {
   LONGPOLL,
   &longpoll_fn,
   {0},
+  NULL,
   NULL,
   0, //reservations
   1, //deque after response

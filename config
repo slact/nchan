@@ -8,6 +8,7 @@ ngx_feature_libs=
 ngx_feature_test=
 
 _NHPM_SUBSCRIBERS_SRCS="\
+  ${ngx_addon_dir}/src/subscribers/common.c \
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
   ${ngx_addon_dir}/src/subscribers/eventsource.c \
   ${ngx_addon_dir}/src/subscribers/websocket.c \

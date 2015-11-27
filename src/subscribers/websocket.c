@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include <subscribers/common.h>
 #include <ngx_crypt.h>
 #include <ngx_sha1.h>
 
@@ -95,7 +96,6 @@ typedef struct {
 
 typedef struct {
   subscriber_t            sub;
-  ngx_http_request_t     *request;
   ngx_http_cleanup_t     *cln;
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
@@ -148,7 +148,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   time_t               last_seen = 0;
   ngx_uint_t           subscribers = 0;
   ngx_uint_t           messages = 0;
-  ngx_http_request_t  *r = fsub->request;
+  ngx_http_request_t  *r = fsub->sub.request;
   ngx_str_t           *accept_header = NULL;
   ngx_buf_t           *tmp_buf;
   if(ch) {
@@ -172,7 +172,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       ngx_memcpy(&fsub->msg_buf, tmp_buf, sizeof(*tmp_buf));
       fsub->msg_buf.last_buf=1;
       
-      nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&fsub->msg_buf))));
+      nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&fsub->msg_buf))));
       break;
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
@@ -192,7 +192,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_str_t *msg_str) 
     return websocket_send_close_frame(fsub, CLOSE_POLICY_VIOLATION, &nopublishing);
   }
   
-  ngx_http_request_t   *r = fsub->request;
+  ngx_http_request_t   *r = fsub->sub.request;
   
   init_msg_buf(&buf);
   buf.start = msg_str->data;
@@ -240,7 +240,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
     return NULL;
   }
   ngx_memcpy(&fsub->sub, &new_websocket_sub, sizeof(new_websocket_sub));
-  fsub->request = r;
+  fsub->sub.request = r;
   fsub->cln = NULL;
   fsub->finalize_request = 0;
   fsub->holding = 0;
@@ -314,15 +314,15 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
-  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->request, nchan_module);
+  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   ctx->sub = NULL;
   
   if(sub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->request);
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->awaiting_destruction = 1;
   }
   else {
-    DBG("%p destroy for req %p", sub, fsub->request);
+    DBG("%p destroy for req %p", sub, fsub->sub.request);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
@@ -339,7 +339,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   u_char              buf[255];
   ngx_str_t          *tmp, *ws_key;
   ngx_int_t           ws_version;
-  ngx_http_request_t *r = fsub->request;
+  ngx_http_request_t *r = fsub->sub.request;
   
   ngx_sha1_t          sha1;
   
@@ -396,9 +396,9 @@ static void websocket_reading(ngx_http_request_t *r);
 
 static void ensure_request_hold(full_subscriber_t *fsub) {
   if(fsub->holding == 0) {
-    fsub->request->read_event_handler = websocket_reading;
-    fsub->request->write_event_handler = ngx_http_request_empty_handler;
-    fsub->request->main->count++; //this is the right way to hold and finalize the
+    fsub->sub.request->read_event_handler = websocket_reading;
+    fsub->sub.request->write_event_handler = ngx_http_request_empty_handler;
+    fsub->sub.request->main->count++; //this is the right way to hold and finalize the
     fsub->holding = 1;
   }
 }
@@ -417,14 +417,14 @@ static ngx_int_t websocket_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
   self->reserved++;
-  DBG("%p reserve for req %p. reservations: %i", self, fsub->request, self->reserved);
+  DBG("%p reserve for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
   return NGX_OK;
 }
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;
-  DBG("%p release for req %p, reservations: %i", self, fsub->request, self->reserved);
+  DBG("%p release for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
     ngx_free(fsub);
     return NGX_ABORT;
@@ -820,7 +820,7 @@ static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const 
 }
 
 static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len) {
-  return nchan_output_filter(fsub->request, websocket_frame_header_chain(fsub, opcode, len));
+  return nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, opcode, len));
 }
 
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
@@ -847,7 +847,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
 
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  nchan_output_filter(fsub->request, websocket_close_frame_chain(fsub, code, err));
+  nchan_output_filter(fsub->sub.request, websocket_close_frame_chain(fsub, code, err));
   return NGX_OK;
 }
 
@@ -892,13 +892,13 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   ngx_int_t        rc;
   full_subscriber_t         *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->request, nchan_module);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
   ctx->msg_id = self->last_msgid;
   
-  rc = nchan_output_filter(fsub->request, websocket_msg_frame_chain(fsub, msg));
+  rc = nchan_output_filter(fsub->sub.request, websocket_msg_frame_chain(fsub, msg));
   
   return rc;
 }
@@ -916,7 +916,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   
   if(!fsub->shook_hands) {
     //still in HTTP land
-    return nchan_respond_status(fsub->request, status_code, status_line, 0);
+    return nchan_respond_status(fsub->sub.request, status_code, status_line, 0);
   }
   
   switch(status_code) {
@@ -958,7 +958,8 @@ static const subscriber_fn_t websocket_fn = {
   &websocket_set_dequeue_callback,
   &websocket_reserve,
   &websocket_release,
-  NULL
+  NULL,
+  &nchan_subscriber_authorize_subscribe
 };
 
 static ngx_str_t     sub_name = ngx_string("websocket");
@@ -968,6 +969,7 @@ static const subscriber_t new_websocket_sub = {
   WEBSOCKET,
   &websocket_fn,
   {0},
+  NULL,
   NULL,
   0, //reserved
   0, //deque after response

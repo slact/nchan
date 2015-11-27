@@ -116,7 +116,7 @@ typedef struct{
   
   //async-friendly functions with callbacks
   ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
-  ngx_int_t (*subscribe)   (ngx_str_t *, struct subscriber_s *, callback_pt, void *);
+  ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *, callback_pt, void *);
   ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, struct nchan_loc_conf_s *, callback_pt, void *);
   
   ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
@@ -204,22 +204,25 @@ typedef struct {
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
   ngx_int_t              (*notify)(struct subscriber_s *, ngx_int_t code, void *data);
+  ngx_int_t              (*subscribe)(subscriber_t *, nchan_store_t *, ngx_str_t *, callback_pt, void *);
+  
 } subscriber_fn_t;
 
 struct subscriber_s {
-  ngx_str_t              *name;
-  subscriber_type_t       type;
-  const subscriber_fn_t  *fn;
-  nchan_msg_id_t          last_msgid;
-  nchan_loc_conf_t       *cf;
-  ngx_uint_t              reserved;
-  unsigned                dequeue_after_response:1;
-  unsigned                destroy_after_dequeue:1;
-  unsigned                enqueued:1;
+  ngx_str_t                 *name;
+  subscriber_type_t          type;
+  const subscriber_fn_t     *fn;
+  nchan_msg_id_t             last_msgid;
+  nchan_loc_conf_t          *cf;
+  ngx_http_request_t        *request;
+  ngx_uint_t                 reserved;
+  unsigned                   dequeue_after_response:1;
+  unsigned                   destroy_after_dequeue:1;
+  unsigned                   enqueued:1;
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
-  u_char                 *lbl;
-  struct subscriber_s    *dbg_prev;
-  struct subscriber_s    *dbg_next;
+  u_char                    *lbl;
+  subscriber_t              *dbg_prev;
+  subscriber_t              *dbg_next;
 #endif
 }; //subscriber_t
 

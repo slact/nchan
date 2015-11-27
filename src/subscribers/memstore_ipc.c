@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include <subscribers/common.h>
 #include "../store/memory/shmem.h"
 #include "../store/memory/ipc.h"
 #include "../store/memory/store-private.h"

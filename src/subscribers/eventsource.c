@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include <subscribers/common.h>
 #include "longpoll.h"
 #include "longpoll-private.h"
 
@@ -30,7 +31,7 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
   static const ngx_str_t   everything_ok = ngx_string("200 OK");
   static const ngx_str_t   hello = ngx_string(": hi\n\n");
   
-  ngx_http_request_t             *r = fsub->data.request;
+  ngx_http_request_t             *r = fsub->sub.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
   nchan_buf_and_chain_t           bc;
   if(!fsub->data.shook_hands) {
@@ -53,7 +54,7 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
     bc.chain.buf = &bc.buf;
     bc.buf.last_buf=1;
     bc.chain.next = NULL;
-    nchan_output_filter(fsub->data.request, &bc.chain);
+    nchan_output_filter(fsub->sub.request, &bc.chain);
     
     fsub->data.shook_hands = 1; 
   }
@@ -113,7 +114,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_file_t             *msg_file;
   ngx_int_t               rc;
-  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->data.request, nchan_module);
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
@@ -230,7 +231,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   first_link=&bc->chain;
   
   
-  rc = nchan_output_filter(fsub->data.request, first_link);
+  rc = nchan_output_filter(fsub->sub.request, first_link);
   
   ngx_destroy_pool(pool);
   
@@ -255,12 +256,12 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V\n", status_code, status_line ? status_line : &empty_line));
   bc.buf.last_buf = 1;
   
-  nchan_output_filter(fsub->data.request, &bc.chain);
+  nchan_output_filter(fsub->sub.request, &bc.chain);
   
   if(status_code >=400 && status_code <599) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
-    fsub->data.request->keepalive=0;
-    ngx_http_finalize_request(fsub->data.request, NGX_OK);
+    fsub->sub.request->keepalive=0;
+    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
     sub->fn->dequeue(sub);
   }
 

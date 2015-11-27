@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include <subscribers/common.h>
 #include "internal.h"
 #include <assert.h>
 
@@ -259,7 +260,8 @@ static const subscriber_fn_t internal_sub_fn = {
   &internal_set_dequeue_callback,
   &internal_reserve,
   &internal_release,
-  &internal_notify
+  &internal_notify,
+  &nchan_subscriber_subscribe
 };
 
 static const subscriber_t new_internal_sub = {
@@ -267,6 +269,7 @@ static const subscriber_t new_internal_sub = {
   INTERNAL,
   &internal_sub_fn,
   {0},
+  NULL,
   NULL,
   0, //reserved
   0, //stick around after response

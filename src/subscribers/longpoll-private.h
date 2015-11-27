@@ -1,5 +1,4 @@
 typedef struct {
-  ngx_http_request_t      *request;
   ngx_http_cleanup_t      *cln;
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
