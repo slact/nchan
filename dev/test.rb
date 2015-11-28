@@ -51,7 +51,7 @@ class PubSubTest <  Minitest::Test
     ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
     
     sub.on_failure do |resp|
-      assert_equal resp.code, 404
+      assert_equal resp.code, 304 #handshake will be treated as intervalpoll client?...
       false
     end
     
