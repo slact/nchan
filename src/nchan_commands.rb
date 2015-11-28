@@ -5,19 +5,19 @@ CfCmd.new do
       :loc_conf,
       args: 1..4,
       alt: [ :nchan_pubsub_channel_id ]
-    
+  
   nchan_publisher_channel_id [:srv, :loc, :if],
       :nchan_set_pub_channel_id,
       :loc_conf,
       args: 1,
       alt: [ :nchan_pub_channel_id ]
-    
+  
   nchan_subscriber_channel_id [:srv, :loc, :if],
       :nchan_set_sub_channel_id,
       :loc_conf,
       args: 1..4,
       alt: [ :nchan_sub_channel_id ]
-    
+  
   nchan_pubsub [:srv, :loc, :if],
       :nchan_pubsub_directive,
       :loc_conf,
@@ -26,7 +26,7 @@ CfCmd.new do
       group: "pubsub",
       default: "(none)",
       info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTS publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
-    
+  
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
       :loc_conf,
@@ -37,7 +37,7 @@ CfCmd.new do
       value: ["any", "websocket", "eventsource", "longpoll", "intervalpoll"],
       default: "any (websocket|eventsource|longpoll)",
       info: "Defines a server or location as a subscriber. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically via caching information request headers (If-Modified-Since and If-None-Match), beginning with the oldest available message. Requests for upcoming messages are handled in accordance with the setting provided. See the protocol documentation for a detailed description."
-    
+  
   nchan_subscriber_concurrency [:main, :srv, :loc, :if],
       :nchan_set_subscriber_concurrency,
       [:loc_conf, :subscriber_concurrency],
@@ -123,7 +123,7 @@ CfCmd.new do
       value: "<number>",
       default: "none",
       info: "The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value."
-    
+  
   nchan_message_timeout [:main, :srv, :loc], 
       :ngx_conf_set_sec_slot, 
       [:loc_conf, :buffer_timeout],
@@ -133,7 +133,7 @@ CfCmd.new do
       value: "<time>",
       default: "1h",
       info: "The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context."
-    
+  
   nchan_min_message_buffer_length [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, :min_messages],
@@ -143,7 +143,7 @@ CfCmd.new do
       value: "<number>",
       default: 1,
       info: "The minimum number of messages to store per channel. A channel's message  buffer will retain at least this many most recent messages."
-    
+  
   nchan_max_message_buffer_length [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, :max_messages],
@@ -153,7 +153,7 @@ CfCmd.new do
       value: "<number>",
       default: 10,
       info: "The maximum number of messages to store per channel. A channel's message buffer will retain at most this many most recent messages."
-    
+  
   nchan_delete_oldest_received_message [:main, :srv, :loc],
       :ngx_conf_set_flag_slot,
       [:loc_conf, :delete_oldest_received_message],
@@ -163,7 +163,7 @@ CfCmd.new do
       value: [ :on, :off ],
       default: :off,
       info: "When enabled, as soon as the oldest message in a channel's message queue has been received by a subscriber, it is deleted -- provided there are more than push_min_message_buffer_length messages in the channel's message buffer. Recommend avoiding this directive as it violates subscribers' assumptions of GET request idempotence."
-    
+  
   nchan_authorized_channels_only [:main, :srv, :loc],
       :ngx_conf_set_flag_slot, 
       [:loc_conf, :authorize_channel],
@@ -173,7 +173,7 @@ CfCmd.new do
       value: [:on, :off],
       default: :off,
       info: "Whether or not a subscriber may create a channel by making a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
-    
+  
   nchan_channel_group [:srv, :loc], 
       :ngx_conf_set_str_slot, 
       [:loc_conf, :channel_group],
@@ -183,7 +183,7 @@ CfCmd.new do
       value: "<string>",
       default: "(none)",
       info: "Because settings are bound to locations and not individual channels, it is useful to be able to have channels that can be reached only from some locations and never others. That's where this setting comes in. Think of it as a prefix string for the channel id."
-    
+  
   nchan_max_channel_id_length [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, :max_channel_id_length],
