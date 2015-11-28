@@ -252,10 +252,32 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
   return &msgtag_str;
 }
 
+ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_msg_id_t *msgid) {
+  ngx_str_t                 *etag, *tmp_etag;
+  
+  //last-modified
+  r->headers_out.last_modified_time = msgid->time;
+  
+  //etag
+  tmp_etag = msgtag_to_str(msgid);
+  if((etag = ngx_palloc(r->pool, sizeof(*etag) + tmp_etag->len))==NULL) {
+    return NGX_ERROR;
+  }
+  etag->data = (u_char *)(etag+1);
+  etag->len = tmp_etag->len;
+  ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
+  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
+    return NGX_ERROR;
+  }
+  
+  //Vary header needed for proper HTTP caching.
+  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NCHAN_VARY_HEADER_VALUE);
+  return NGX_OK;
+}
+
 ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_id_t *msgid, ngx_int_t finalize, char **err) {
   ngx_buf_t                 *buffer = msg->buf;
   nchan_buf_and_chain_t     *cb;
-  ngx_str_t                 *etag, *tmp_etag;
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
   ngx_buf_t                 *rbuffer;
@@ -311,27 +333,12 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   if(msgid == NULL) {
     msgid = &msg->id;
   }
-  //last-modified
-  r->headers_out.last_modified_time = msgid->time;
-
-  //etag
   
-  tmp_etag = msgtag_to_str(msgid);
-  if((etag = ngx_palloc(r->pool, sizeof(*etag) + tmp_etag->len))==NULL) {
+  if(nchan_set_msgid_http_response_headers(r, msgid) != NGX_OK) {
     assert(err);
-    if(err) *err = "unable to allocate memory for Etag header in subscriber's request pool";
+    if(err) *err = "can't set msgid headers";
     return NGX_ERROR;
   }
-  etag->data = (u_char *)(etag+1);
-  etag->len = tmp_etag->len;
-  ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
-  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
-    assert(err);
-    if(err) *err="can't add etag header to response";
-    return NGX_ERROR;
-  }
-  //Vary header needed for proper HTTP caching.
-  nchan_add_response_header(r, &NCHAN_HEADER_VARY, &NCHAN_VARY_HEADER_VALUE);
   
   r->headers_out.status=NGX_HTTP_OK;
   

@@ -36,6 +36,7 @@ static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   int i, max;
   if(id1->time != id2->time || id1->tagcount != id2->tagcount) return 0;
   max = id1->tagcount;
+  
   for(i=0; i < max; i++) {
     if(id1->tag[i] != id2->tag[i]) return 0;
   }
@@ -159,6 +160,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
     case MSG_EXPECTED:
       // ♫ It's gonna be the future soon ♫
       DBG("fetchmsg callback for spool %p msg EXPECTED", spool);
+      spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
       assert(msg == NULL);
       spool->msg = NULL;
       break;
@@ -167,7 +169,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
     case MSG_EXPIRED:
       //is this right?
       //TODO: maybe message-expired notification
-      //spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
+      spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
       nuspool = get_spool(spool->spooler, &anymsg);
       assert(spool != nuspool);
       spool_transfer_subscribers(spool, nuspool, 1);
@@ -346,8 +348,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     }
   }
   */
-  
-  self->responded_count++;
+  if(status_code != NGX_HTTP_NO_CONTENT) self->responded_count++;
   return NGX_OK;
 }
 
@@ -426,8 +427,12 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
     
     case MSG_CHANNEL_NOTREADY:
     case MSG_PENDING:
+      //nothing to do
+      break;
+      
     case MSG_EXPECTED:
-      //nothing to do but wait
+      //notify subscriber
+      sub->fn->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
       break;
       
     case MSG_EXPIRED:

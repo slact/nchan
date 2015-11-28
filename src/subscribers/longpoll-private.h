@@ -6,6 +6,7 @@ typedef struct {
   subscriber_callback_pt  timeout_handler;
   void                   *timeout_handler_data;
   ngx_int_t               owner;
+  unsigned                act_as_intervalpoll:1;
   unsigned                holding:1;
   unsigned                finalize_request:1;
   unsigned                already_responded:1;

@@ -914,6 +914,11 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   uint16_t                  close_code=0;
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
   
+  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+    //don't care, ignore
+    return NGX_OK;
+  }
+  
   if(!fsub->shook_hands) {
     //still in HTTP land
     return nchan_respond_status(fsub->sub.request, status_code, status_line, 0);

@@ -116,7 +116,7 @@ typedef struct{
   
   //async-friendly functions with callbacks
   ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
-  ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *, callback_pt, void *);
+  ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *);
   ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, struct nchan_loc_conf_s *, callback_pt, void *);
   
   ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
@@ -193,7 +193,7 @@ typedef struct nchan_llist_timed_s {
 } nchan_llist_timed_t;
 
 typedef enum {PUB, SUB} pub_or_sub_t;
-typedef enum {LONGPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
+typedef enum {LONGPOLL, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 
 typedef struct {
@@ -206,7 +206,7 @@ typedef struct {
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
   ngx_int_t              (*notify)(struct subscriber_s *, ngx_int_t code, void *data);
-  ngx_int_t              (*subscribe)(subscriber_t *, ngx_str_t *, callback_pt, void *);
+  ngx_int_t              (*subscribe)(subscriber_t *, ngx_str_t *);
   
 } subscriber_fn_t;
 

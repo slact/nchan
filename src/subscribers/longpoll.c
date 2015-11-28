@@ -44,6 +44,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 1;
   fsub->data.holding = 0;
+  fsub->data.act_as_intervalpoll = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
   fsub->data.timeout_handler = empty_handler;
@@ -248,8 +249,23 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  ngx_http_request_t    *r = ((full_subscriber_t *)self)->sub.request;
+  
+  full_subscriber_t     *fsub = (full_subscriber_t *)self;
+  ngx_http_request_t    *r = fsub->sub.request;
+  
+  if(fsub->data.act_as_intervalpoll) {
+    if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED || status_code == NGX_HTTP_NOT_FOUND ) {
+      status_code = NGX_HTTP_NOT_MODIFIED;
+    }
+  }
+  else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+    //don't care, ignore
+      return NGX_OK;
+  }
+  
   DBG("%p respond req %p status %i", self, r, status_code);
+  
+  nchan_set_msgid_http_response_headers(r, &self->last_msgid);
   
   //disable abort handler
   ((full_subscriber_t *)self)->data.cln->handler = empty_handler;

@@ -1,8 +1,8 @@
 #include <nchan_module.h>
 #include <assert.h>
 
-ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id, callback_pt callback, void *privdata) {
-  return sub->cf->storage_engine->subscribe(ch_id, sub, callback, privdata);
+ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
+  return sub->cf->storage_engine->subscribe(ch_id, sub);
 }
 
 typedef struct {
@@ -10,8 +10,6 @@ typedef struct {
   ngx_str_t       *ch_id;
   ngx_int_t        rc;
   ngx_int_t        http_response_code;
-  callback_pt      callback;
-  void            *privdata;
 } nchan_auth_subrequest_data_t;
 
 typedef struct {
@@ -29,7 +27,7 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
     ngx_int_t code = d->http_response_code;
     if(code >= 200 && code <299) {
       //authorized. proceed as planned
-      nchan_subscriber_subscribe(d->sub, d->ch_id, d->callback, d->privdata);
+      nchan_subscriber_subscribe(d->sub, d->ch_id);
     }
     else { //anything else means forbidden
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL); //auto-closes subscriber
@@ -61,13 +59,13 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
   return NGX_OK;
 }
 
-ngx_int_t nchan_subscriber_authorize_subscribe(subscriber_t *sub, ngx_str_t *ch_id, callback_pt callback, void *privdata) {
+ngx_int_t nchan_subscriber_authorize_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   
   ngx_http_complex_value_t  *authorize_request_url_ccv = sub->cf->authorize_request_url;
   ngx_str_t                  auth_request_url;
   
   if(!authorize_request_url_ccv) {
-    return nchan_subscriber_subscribe(sub, ch_id, callback, privdata);
+    return nchan_subscriber_subscribe(sub, ch_id);
   }
   else {
     nchan_auth_subrequest_stuff_t *psr_stuff = ngx_palloc(sub->request->pool, sizeof(*psr_stuff));
@@ -88,8 +86,6 @@ ngx_int_t nchan_subscriber_authorize_subscribe(subscriber_t *sub, ngx_str_t *ch_
     
     psrd->sub = sub;
     psrd->ch_id = ch_id;
-    psrd->callback = callback;
-    psrd->privdata = privdata;
     
     ngx_http_subrequest(sub->request, &auth_request_url, NULL, &sr, psr, 0);
     

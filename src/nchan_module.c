@@ -6,6 +6,7 @@
 #include <nchan_module.h>
 
 #include <subscribers/longpoll.h>
+#include <subscribers/intervalpoll.h>
 #include <subscribers/eventsource.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
@@ -552,50 +553,6 @@ static ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_h
   return NGX_OK;
 }
 
-static ngx_int_t subscribe_longpoll_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
-  return NGX_OK;
-}
-static ngx_int_t subscribe_eventsource_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
-  return NGX_OK;
-}
-static ngx_int_t subscribe_websocket_callback(ngx_int_t status, void *_, ngx_http_request_t *r) {
-  return NGX_OK;
-}
-
-static ngx_int_t subscribe_intervalpoll_callback(nchan_msg_status_t msg_search_outcome, nchan_msg_t *msg, ngx_http_request_t *r) {
-  //inefficient, but close enough for now
-  ngx_str_t               *etag;
-  char                    *err;
-  switch(msg_search_outcome) {
-    case MSG_EXPECTED:
-      //interval-polling subscriber requests get a 304 with their entity tags preserved.
-      if (r->headers_in.if_modified_since != NULL) {
-        r->headers_out.last_modified_time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-      }
-      if ((etag=nchan_subscriber_get_etag(r)) != NULL) {
-        nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
-      }
-      nchan_respond_status(r, NGX_HTTP_NOT_MODIFIED, NULL, 1);
-      break;
-      
-    case MSG_FOUND:
-      if(nchan_respond_msg(r, msg, NULL, 1, &err) != NGX_OK) {
-        nchan_respond_cstring(r, NGX_HTTP_INTERNAL_SERVER_ERROR, &TEXT_PLAIN, err, 1);
-      }
-      break;
-      
-    case MSG_NOTFOUND:
-    case MSG_EXPIRED:
-      nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 1);
-      break;
-      
-    default:
-      nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
-      return NGX_ERROR;
-  }
-  return NGX_DONE;
-}
-
 static void memstore_sub_debug_start() {
 #if FAKESHARD  
   #ifdef SUB_FAKE_WORKER
@@ -654,7 +611,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-      sub->fn->subscribe(sub, channel_id, (callback_pt )&subscribe_websocket_callback, (void *)r);
+      sub->fn->subscribe(sub, channel_id);
       
       memstore_sub_debug_end();
     }
@@ -667,47 +624,40 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     return NGX_DONE;
   }
   else {
+    subscriber_t *(*sub_create)(ngx_http_request_t *r, nchan_msg_id_t *msg_id) = NULL;
+    
     switch(r->method) {
       case NGX_HTTP_GET:
         if(cf->sub.eventsource && nchan_detect_eventsource_request(r)) {
-          memstore_sub_debug_start();
-          
-          nchan_subscriber_get_msg_id(r, &msg_id);
-          if((sub = eventsource_subscriber_create(r, &msg_id)) == NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          }
-          sub->fn->subscribe(sub, channel_id, (callback_pt )&subscribe_eventsource_callback, (void *)r);
-          
-          memstore_sub_debug_end();
+          sub_create = eventsource_subscriber_create;
         }
         else if(cf->sub.poll) {
-          memstore_sub_debug_start();
-          
-          nchan_subscriber_get_msg_id(r, &msg_id);
-          assert(msg_id.tagcount == 1);
-          
-          r->main->count++;
-          cf->storage_engine->get_message(channel_id, &msg_id, (callback_pt )&subscribe_intervalpoll_callback, (void *)r);
-          memstore_sub_debug_end();
+          sub_create = intervalpoll_subscriber_create;
         }
         else if(cf->sub.longpoll) {
-          memstore_sub_debug_start();
-          
-          nchan_subscriber_get_msg_id(r, &msg_id);
-          if((sub = longpoll_subscriber_create(r, &msg_id)) == NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          }
-          
-          sub->fn->subscribe(sub, channel_id, (callback_pt )&subscribe_longpoll_callback, (void *)r);
-          
-          memstore_sub_debug_end();
+          sub_create = longpoll_subscriber_create;
         }
         else if(cf->pub.http) {
           nchan_http_publisher_handler(r);
         }
-        else goto forbidden;
+        else {
+          goto forbidden;
+        }
+        
+        if(sub_create) {
+          memstore_sub_debug_start();
+          
+          nchan_subscriber_get_msg_id(r, &msg_id);
+          if((sub = sub_create(r, &msg_id)) == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create subscriber");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          
+          sub->fn->subscribe(sub, channel_id);
+          
+          memstore_sub_debug_end();
+        }
+        
         break;
       
       case NGX_HTTP_POST:
