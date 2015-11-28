@@ -20,6 +20,8 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool);
 static ngx_int_t remove_spool(subscriber_pool_t *spool);
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool);
 
+static nchan_msg_id_t     latest_msg_id = {-1, {0}, 1, 0};
+
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
   ngx_rbtree_node_t  *node;
@@ -43,10 +45,30 @@ static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   return 1;
 }
 
+static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spool, nchan_msg_id_t *id) {
+  spool->id = *id;
+  spool->msg = NULL;
+  spool->msg_status = MSG_INVALID;
+  
+  spool->first = NULL;
+  spool->pool = NULL;
+  spool->sub_count = 0;
+  spool->generation = 0;
+  spool->responded_count = 0;
+  
+  spool->spooler = spl;
+}
+
 static subscriber_pool_t *get_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
   ngx_rbtree_node_t  *node;
   subscriber_pool_t *spool;
+  
+  if(id->time == -1) {
+    spool = &spl->current_msg_spool;
+    spool->msg_status = MSG_EXPECTED;
+    return &spl->current_msg_spool;
+  }
   
   if((node = rbtree_find_node(seed, id)) == NULL) {
     
@@ -58,12 +80,7 @@ static subscriber_pool_t *get_spool(channel_spooler_t *spl, nchan_msg_id_t *id) 
    // DBG("CREATED spool node %p for msgid %V", node, msgid_to_str(id));
     spool = (subscriber_pool_t *)rbtree_data_from_node(node);
     
-    ngx_memzero(spool, sizeof(*spool));
-    spool->spooler = spl;
-    spool->id = *id;
-    spool->spooler = spl;
-    spool->msg_status = MSG_INVALID;
-    spool->msg = NULL;
+    init_spool(spl, spool, id);
     
     if(rbtree_insert_node(seed, node) != NGX_OK) {
       ERR("couldn't insert spool node");
@@ -83,6 +100,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   subscriber_pool_t      *newspool;
   channel_spooler_t      *spl = spool->spooler;
   
+  ngx_int_t               immortal_spool = spool->id.time == -1;
+  
   nchan_msg_id_t          new_id = spool->id;
   
   nchan_update_multi_msgid(&new_id, new_last_id);
@@ -96,13 +115,16 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     assert(0);
   }
   else {
-    if((newspool = find_spool(spl, &new_id)) != NULL) {
+    newspool = !immortal_spool ? find_spool(spl, &new_id) : get_spool(spl, &new_id);
+    
+    if(newspool != NULL) {
       assert(spool != newspool);
       spool_transfer_subscribers(spool, newspool, 0);
-      destroy_spool(spool);
+      if(!immortal_spool) destroy_spool(spool);
     }
     else {
       ngx_rbtree_node_t       *node;
+      assert(!immortal_spool);
       node = rbtree_node_from_data(spool);
       rbtree_remove_node(&spl->spoolseed, node);
       spool->id = new_id;
@@ -571,7 +593,6 @@ static void spoolcollector_addspool(spooler_respond_data_t *data, subscriber_poo
     data->overflow = overflow;
   }
   data->n++;
-  spool_respond_general(spool, data->msg, 0, NULL);
 }
 
 static subscriber_pool_t *spoolcollector_unwind_nextspool(spooler_respond_data_t *data) {
@@ -667,7 +688,13 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   }
   
   while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
-    //spool_respond_general(spool, msg, 0, NULL);
+    spool_respond_general(spool, msg, 0, NULL);
+    spool_nextmsg(spool, &msg->id);
+  }
+  
+  spool = get_spool(self, &latest_msg_id);
+  if(spool->sub_count > 0) {
+    spool_respond_general(spool, msg, 0, NULL);
     spool_nextmsg(spool, &msg->id);
   }
 
@@ -849,6 +876,10 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     
     spl->running = 1;
     //spl->want_to_stop = 0;
+    
+    init_spool(spl, &spl->current_msg_spool, &latest_msg_id);
+    spl->current_msg_spool.msg_status = MSG_EXPECTED;
+    
     return spl;
   }
   else {
@@ -865,16 +896,6 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
   spl = get_spool(spl, &id);
   
   */
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
   
   
 }

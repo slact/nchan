@@ -333,6 +333,9 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
   static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
   ngx_str_t                      *last_event_id;
   ngx_str_t                      *if_none_match;
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  
+  time_t                          default_time = cf->subscriber_start_at_oldest_message ? 0 : -1;
   
   if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
     u_char       *split, *last;
@@ -351,7 +354,7 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
   }
   
   if_none_match = nchan_subscriber_get_etag(r);
-  id->time=(r->headers_in.if_modified_since == NULL) ? 0 : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+  id->time=(r->headers_in.if_modified_since == NULL) ? default_time : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
   if(if_none_match==NULL) {
     int i;
     for(i=0; i< NCHAN_MULTITAG_MAX; i++) {

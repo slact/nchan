@@ -38,6 +38,16 @@ CfCmd.new do
       default: "any (websocket|eventsource|longpoll)",
       info: "Defines a server or location as a subscriber. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically via caching information request headers (If-Modified-Since and If-None-Match), beginning with the oldest available message. Requests for upcoming messages are handled in accordance with the setting provided. See the protocol documentation for a detailed description."
   
+    nchan_subscriber_first_message [:srv, :loc, :if],
+      :nchan_subscriber_first_message_directive,
+      :loc_conf,
+      args: 1,
+      
+      group: "pubsub",
+      value: ["oldest", "newest"],
+      default: "newest",
+      info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives"
+  
   nchan_subscriber_concurrency [:main, :srv, :loc, :if],
       :nchan_set_subscriber_concurrency,
       [:loc_conf, :subscriber_concurrency],

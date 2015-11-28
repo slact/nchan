@@ -90,6 +90,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->max_messages=NGX_CONF_UNSET;
   lcf->min_messages=NGX_CONF_UNSET;
   lcf->subscriber_concurrency=NGX_CONF_UNSET;
+  lcf->subscriber_start_at_oldest_message=NGX_CONF_UNSET;
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->authorize_channel=NGX_CONF_UNSET;
@@ -139,6 +140,8 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
   ngx_conf_merge_value(conf->min_messages, prev->min_messages, NCHAN_DEFAULT_MIN_MESSAGES);
   ngx_conf_merge_value(conf->subscriber_concurrency, prev->subscriber_concurrency, NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST);
+  
+  ngx_conf_merge_value(conf->subscriber_start_at_oldest_message, prev->subscriber_start_at_oldest_message, 1);
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->authorize_channel, prev->authorize_channel, 0);
@@ -366,6 +369,22 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
     }
   }
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+}
+
+static char nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t   *lcf = (nchan_loc_conf_t *)conf;
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  if(nchan_strmatch(val, 1, "oldest")) {
+    lcf->subscriber_start_at_oldest_message = 1;
+  }
+  else if(nchan_strmatch(val, 1, "newest")) {
+    lcf->subscriber_start_at_oldest_message = 0;
+  }
+  else {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V, must be either 'oldest' or 'newest'", &cmd->name, val);
+    return NGX_CONF_ERROR;
+  }
+  return NGX_CONF_OK;
 }
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {

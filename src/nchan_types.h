@@ -168,6 +168,8 @@ struct nchan_loc_conf_s {
   ngx_int_t                       subscriber_concurrency;
   time_t                          subscriber_timeout;
   
+  ngx_int_t                       subscriber_start_at_oldest_message;
+  
   ngx_int_t                       authorize_channel;
   ngx_int_t                       use_redis;
   ngx_int_t                       delete_oldest_received_message;

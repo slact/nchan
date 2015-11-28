@@ -47,6 +47,7 @@ typedef struct {
 
 struct channel_spooler_s {
   rbtree_seed_t               spoolseed;
+  subscriber_pool_t           current_msg_spool;
   nchan_msg_id_t              prev_msg_id;
   ngx_uint_t                  responded_count;
   ngx_str_t                  *chid;
