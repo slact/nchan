@@ -84,6 +84,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->sub.eventsource=0;
   lcf->sub.websocket=0;
   
+  lcf->authorize_request_url = NULL;
+  
   lcf->buffer_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
   lcf->min_messages=NGX_CONF_UNSET;
@@ -150,6 +152,10 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   if(conf->storage_engine == NULL) {
     conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;
+  }
+  
+  if(conf->authorize_request_url == NULL) {
+    conf->authorize_request_url = prev->authorize_request_url;
   }
   
   //sanity checks

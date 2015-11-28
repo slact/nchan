@@ -49,7 +49,7 @@ CfCmd.new do
       - broadcast: any number of concurrent subscriber requests may be held.
       - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.
       - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
-   
+  
   nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
       :loc_conf,
@@ -58,7 +58,7 @@ CfCmd.new do
       
       group: "pubsub",
       info: "Defines a server or location as a message publisher. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description."
-    
+  
   nchan_subscriber_timeout [:main, :srv, :loc, :if],
       :ngx_conf_set_sec_slot,
       [:loc_conf, :subscriber_timeout],
@@ -68,7 +68,15 @@ CfCmd.new do
       value: "<number>",
       default: "0 (none)",
       info: "The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a push_subscriber is present in this or a child context."
-    
+  
+  nchan_authorize_request [:srv, :loc, :if], 
+      :ngx_http_set_complex_value_slot,
+      [:loc_conf, :authorize_request_url],
+      
+      group: "pubsub",
+      value: "<url>",
+      info: "send GET request to internal location (which may proxy to an upstream server) for authorization of ap ublisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it."
+  
   nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,
       :loc_conf,

@@ -247,6 +247,11 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   u_char                    resp_buf[256];
   nchan_buf_and_chain_t     bc;
   
+  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
+    nchan_respond_status(sub->request, status_code, status_line, 1);
+    return NGX_OK;
+  }
+  
   es_ensure_headers_sent(fsub);
   
   DBG("%p output status to subscriber", sub);

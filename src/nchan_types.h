@@ -156,6 +156,8 @@ struct nchan_loc_conf_s {
   ngx_int_t                       min_messages;
   ngx_int_t                       max_messages;
   
+  ngx_http_complex_value_t       *authorize_request_url;
+  
   nchan_chid_loc_conf_t           pub_chid;
   nchan_chid_loc_conf_t           sub_chid;
   nchan_chid_loc_conf_t           pubsub_chid;
@@ -226,15 +228,15 @@ struct subscriber_s {
 #endif
 }; //subscriber_t
 
-
 typedef struct {
-  subscriber_t   *sub;
-  ngx_str_t      *subscriber_type;
-  nchan_msg_id_t  msg_id;
-  nchan_msg_id_t  prev_msg_id;
-  ngx_str_t      *publisher_type;
-  ngx_str_t       channel_id[NCHAN_MULTITAG_MAX];
-  int             channel_id_count;
+  subscriber_t                  *sub;
+  ngx_str_t                     *subscriber_type;
+  nchan_msg_id_t                 msg_id;
+  nchan_msg_id_t                 prev_msg_id;
+  ngx_str_t                     *publisher_type;
+  ngx_str_t                      channel_id[NCHAN_MULTITAG_MAX];
+  int                            channel_id_count;
+  
 } nchan_request_ctx_t;
 
 

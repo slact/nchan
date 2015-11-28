@@ -6,6 +6,20 @@ typedef struct {
   uintptr_t                   data;
 } nchan_variable_t;
 
+static nchan_request_ctx_t *get_main_request_ctx(ngx_http_request_t *r){
+  nchan_request_ctx_t        *ctx;
+  ngx_http_request_t        *rcur;
+  
+  //if this is an subrequest, get nearest parent existing ctx
+  for(rcur = r; rcur != NULL; rcur = rcur->parent) {
+    ctx = ngx_http_get_module_ctx(rcur, nchan_module);
+    if(ctx) return ctx;
+  }
+  
+  //no existing ctx found
+  return NULL;
+}
+
 static void set_varval(ngx_http_variable_value_t *v, u_char *data, size_t len) {
   v->valid = 1;
   v->no_cacheable = 1;
@@ -15,7 +29,7 @@ static void set_varval(ngx_http_variable_value_t *v, u_char *data, size_t len) {
 }
 
 static ngx_int_t nchan_channel_id_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
   if(ctx == NULL) {
     v->not_found = 1;
     return NGX_OK;
@@ -27,7 +41,7 @@ static ngx_int_t nchan_channel_id_variable(ngx_http_request_t *r, ngx_http_varia
 }
 
 static ngx_int_t nchan_subscriber_type_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
   if(ctx == NULL || ctx->subscriber_type == NULL) {
     v->not_found = 1;
     return NGX_OK;
@@ -39,7 +53,7 @@ static ngx_int_t nchan_subscriber_type_variable(ngx_http_request_t *r, ngx_http_
 }
 
 static ngx_int_t nchan_publisher_type_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
   if(ctx == NULL || ctx->publisher_type == NULL) {
     v->not_found = 1;
     return NGX_OK;
