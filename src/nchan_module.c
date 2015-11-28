@@ -654,7 +654,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-      sub->fn->subscribe(sub, cf->storage_engine, channel_id, (callback_pt )&subscribe_websocket_callback, (void *)r);
+      sub->fn->subscribe(sub, channel_id, (callback_pt )&subscribe_websocket_callback, (void *)r);
       
       memstore_sub_debug_end();
     }
@@ -677,7 +677,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create longpoll subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
-          sub->fn->subscribe(sub, cf->storage_engine, channel_id, (callback_pt )&subscribe_eventsource_callback, (void *)r);
+          sub->fn->subscribe(sub, channel_id, (callback_pt )&subscribe_eventsource_callback, (void *)r);
           
           memstore_sub_debug_end();
         }
@@ -700,7 +700,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
           
-          sub->fn->subscribe(sub, cf->storage_engine, channel_id, (callback_pt )&subscribe_longpoll_callback, (void *)r);
+          sub->fn->subscribe(sub, channel_id, (callback_pt )&subscribe_longpoll_callback, (void *)r);
           
           memstore_sub_debug_end();
         }

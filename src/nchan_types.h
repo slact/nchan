@@ -206,7 +206,7 @@ typedef struct {
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
   ngx_int_t              (*notify)(struct subscriber_s *, ngx_int_t code, void *data);
-  ngx_int_t              (*subscribe)(subscriber_t *, nchan_store_t *, ngx_str_t *, callback_pt, void *);
+  ngx_int_t              (*subscribe)(subscriber_t *, ngx_str_t *, callback_pt, void *);
   
 } subscriber_fn_t;
 

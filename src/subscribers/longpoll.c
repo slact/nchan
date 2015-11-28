@@ -71,6 +71,8 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
     fsub->sub.last_msgid.tagcount = 1;
   }
   
+  ctx->prev_msg_id = fsub->sub.last_msgid;
+  
   fsub->data.owner = memstore_slot();
   
   //http request sudden close cleanup
