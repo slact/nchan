@@ -123,7 +123,7 @@ ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing) {
     rp->first = thing;
   }
   
-  assert(rp->count >= 0 && rp->count < 1000);
+  assert(rp->count >= 0);
   rp->count++;
   
   DBG("reap %s %p later (waiting to be reaped: %i)", rp->name, thing, rp->count);
@@ -174,7 +174,7 @@ static ngx_inline void reap_ready_thing(nchan_reaper_t *rp, void *cur, void *nex
   
   rp->reap(cur);
   
-  assert(rp->count >= 0 && rp->count < 1000);
+  assert(rp->count >= 0);
   verify_reaper_list(rp, cur);
   DBG("reaped %s %p (waiting to be reaped: %l)", rp->name, cur, rp->count);
 }
