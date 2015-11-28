@@ -174,17 +174,27 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
     fsub->data.timeout_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
+  
   return NGX_OK;
 }
 
 static ngx_int_t longpoll_dequeue(subscriber_t *self) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  full_subscriber_t    *fsub = (full_subscriber_t  *)self;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
   DBG("%p dequeue", self);
   fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
   self->enqueued = 0;
+  
+  ctx->sub = NULL;
+  
+  if(fsub->data.finalize_request) {
+    DBG("finalize request %p", fsub->sub.request);
+    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+  }
+  
   if(self->destroy_after_dequeue) {
     longpoll_subscriber_destroy(self);
   }
@@ -198,21 +208,8 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
   return NGX_OK;
 }
 
-static ngx_int_t finalize_maybe(subscriber_t *self, ngx_int_t rc) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
-  
-  ctx->sub = NULL;
-  
-  if(fsub->data.finalize_request) {
-    DBG("finalize request %p", fsub->sub.request);
-    ngx_http_finalize_request(fsub->sub.request, rc);
-  }
-  return NGX_OK;
-}
 static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   ERR("abort! %s", errmsg ? errmsg : "unknown error");
-  finalize_maybe(sub, NGX_ERROR);
   dequeue_maybe(sub);
   return NGX_ERROR;
 }
@@ -238,8 +235,8 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
   
+  
   if((rc = nchan_respond_msg(fsub->sub.request, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
-    finalize_maybe(self, rc);
     dequeue_maybe(self);
     return rc;
   }
@@ -271,8 +268,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   ((full_subscriber_t *)self)->data.cln->handler = empty_handler;
   
   nchan_respond_status(r, status_code, status_line, 0);
-  
-  finalize_maybe(self, NGX_OK);
+
   dequeue_maybe(self);
   return NGX_OK;
 }
