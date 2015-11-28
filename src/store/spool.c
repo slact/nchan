@@ -365,10 +365,10 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     nnext = nsub->next;
     
     if(msg) {
-      sub->fn->respond_message(sub, msg);
       if(publish_events) {
         nchan_maybe_send_channel_event_message(sub->request, SUB_RECEIVE_MESSAGE);
       }
+      sub->fn->respond_message(sub, msg);
     }
     else {
       sub->fn->respond_status(sub, status_code, status_line);

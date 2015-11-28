@@ -118,6 +118,8 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
 
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_event_type_t event_type) {
+  static nchan_loc_conf_t            evcf_data;
+  static nchan_loc_conf_t           *evcf = NULL;
   
   static ngx_str_t group =           ngx_string("meta");
   
@@ -127,6 +129,8 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   static ngx_str_t evt_sub_recvsts = ngx_string("subscriber_receive_status");
   static ngx_str_t evt_chan_publish= ngx_string("channel_publish");
   static ngx_str_t evt_chan_delete = ngx_string("channel_delete");
+
+  struct timeval             tv;
   
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_http_complex_value_t  *cv = cf->channel_events_channel_id;
@@ -193,10 +197,25 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   buf.end = buf.last;
   
   ngx_memzero(&msg, sizeof(msg));
+  ngx_gettimeofday(&tv);
+  msg.id.time = tv.tv_sec;
   msg.id.tagcount = 1;
   msg.buf = &buf;
   
-  cf->storage_engine->publish(id, &msg, cf, NULL, NULL);
+  
+  if(evcf == NULL) {
+    evcf = &evcf_data;
+    ngx_memzero(evcf, sizeof(*evcf));
+    evcf->buffer_timeout = 10;
+    evcf->min_messages = 0;
+    evcf->max_messages = 30;
+    evcf->subscriber_start_at_oldest_message = 0;
+    evcf->channel_timeout = 30;
+  }
+  evcf->storage_engine = cf->storage_engine;
+  evcf->use_redis = cf->use_redis;
+  
+  evcf->storage_engine->publish(id, &msg, evcf, NULL, NULL);
   
   return NGX_OK;
 }
@@ -797,6 +816,8 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
       //message was queued successfully, but there were no subscribers to receive it.
       ctx->prev_msg_id = ctx->msg_id;
       ctx->msg_id = ch != NULL ? ch->last_published_msg_id : empty_msgid;
+      
+      nchan_maybe_send_channel_event_message(r, CHAN_PUBLISH);
       ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_ACCEPTED));
       return NGX_OK;
       
@@ -804,6 +825,8 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
       //message was queued successfully, and it was already sent to at least one subscriber
       ctx->prev_msg_id = ctx->msg_id;
       ctx->msg_id = ch != NULL ? ch->last_published_msg_id : empty_msgid;
+      
+      nchan_maybe_send_channel_event_message(r, CHAN_PUBLISH);
       ngx_http_finalize_request(r, nchan_response_channel_ptr_info(ch, r, NGX_HTTP_CREATED));
       return NGX_OK;
       
@@ -891,7 +914,6 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       msg->lbl = r->uri;
 #endif
       cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
-      nchan_maybe_send_channel_event_message(r, CHAN_PUBLISH);
       
       memstore_pub_debug_end();
       break;
