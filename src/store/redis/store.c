@@ -23,6 +23,7 @@ struct nchan_store_channel_head_s {
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
   nchan_llist_timed_t          cleanlink;
+  unsigned                     meta:1;
   unsigned                     shutting_down:1;
   UT_hash_handle               hh;
 };
@@ -898,8 +899,18 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
   
+  if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
+    head->meta = 1;
+  }
+  else {
+    head->meta = 0;
+  }
+  
   head->spooler.running=0;
   start_chanhead_spooler(head);
+  if(head->meta) {
+    head->spooler.publish_events = 0;
+  }
 
   DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
   redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));

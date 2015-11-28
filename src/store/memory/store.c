@@ -635,6 +635,9 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory);
+  if(head->meta) {
+    head->spooler.publish_events = 0;
+  }
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
   return NGX_OK;
@@ -807,6 +810,13 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->channel.last_seen = ngx_time();
   head->min_messages = 0;
   head->max_messages = (ngx_int_t) -1;
+  
+  if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
+    head->meta = 1;
+  }
+  else {
+    head->meta = 0;
+  }
   
   head->spooler.running=0;
   

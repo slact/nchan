@@ -64,6 +64,7 @@ struct channel_spooler_s {
   void                        (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
   void                       *bulk_dequeue_handler_privdata;
   
+  unsigned                    publish_events:1;
   unsigned                    running:1;
   unsigned                    want_to_stop:1;
 };

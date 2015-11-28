@@ -5,7 +5,6 @@
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 
-#define NCHAN_DEFAULT_CHANNEL_EVENTS_GROUP "meta"
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
 
 ngx_module_t     nchan_module;
@@ -186,9 +185,6 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     
     conf->channel_event_string = cv;
   }
-  
-  
-  ngx_conf_merge_str_value(conf->channel_events_group, prev->channel_events_group, "meta");
   
   if(conf->storage_engine == NULL) {
     conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;

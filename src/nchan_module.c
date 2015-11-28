@@ -119,6 +119,8 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_event_type_t event_type) {
   
+  static ngx_str_t group =           ngx_string("meta");
+  
   static ngx_str_t evt_sub_enqueue = ngx_string("subscriber_enqueue");
   static ngx_str_t evt_sub_dequeue = ngx_string("subscriber_dequeue");
   static ngx_str_t evt_sub_recvmsg = ngx_string("subscriber_receive_message");
@@ -134,7 +136,6 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   }
   
   nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  ngx_str_t                 *group = &cf->channel_events_group;
   ngx_str_t                  tmpid;
   size_t                     sz;
   ngx_str_t                 *id;
@@ -166,7 +167,7 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   
   //the id
   ngx_http_complex_value(r, cv, &tmpid); 
-  sz = group->len + 1 + tmpid.len;
+  sz = group.len + 1 + tmpid.len;
   if((id = ngx_palloc(r->pool, sizeof(*id) + sz)) == NULL) {
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't allocate space for legacy channel id");
     return NGX_ERROR;
@@ -174,8 +175,8 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   id->len = sz;
   id->data = (u_char *)&id[1];
   cur = id->data;  
-  ngx_memcpy(cur, group->data, group->len);
-  cur += group->len;
+  ngx_memcpy(cur, group.data, group.len);
+  cur += group.len;
   cur[0]='/';
   cur++;
   ngx_memcpy(cur, tmpid.data, tmpid.len);
@@ -889,15 +890,15 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
 #if NCHAN_MSG_LEAK_DEBUG
       msg->lbl = r->uri;
 #endif
-      nchan_maybe_send_channel_event_message(r, CHAN_PUBLISH);
       cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
+      nchan_maybe_send_channel_event_message(r, CHAN_PUBLISH);
       
       memstore_pub_debug_end();
       break;
       
     case NGX_HTTP_DELETE:
-      nchan_maybe_send_channel_event_message(r, CHAN_DELETE);
       cf->storage_engine->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      nchan_maybe_send_channel_event_message(r, CHAN_DELETE);
       break;
       
     default: 

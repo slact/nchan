@@ -239,6 +239,10 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
   spool_remove_subscriber(spool, d->ssub);
   spool_bubbleup_dequeue_handler(spool, sub, spool->spooler);
   
+  if(spool->spooler->publish_events) {
+    nchan_maybe_send_channel_event_message(sub->request, SUB_DEQUEUE);
+  }
+  
 /*
   if(spool->bulk_dequeue_handler) {
     void         *pd = spool->bulk_dequeue_handler_privdata;
@@ -286,6 +290,10 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
   
   if(enqueue) {
     sub->fn->enqueue(sub);
+  }
+  
+  if(self->spooler->publish_events) {
+    nchan_maybe_send_channel_event_message(sub->request, SUB_ENQUEUE);
   }
   
   sub->fn->set_dequeue_callback(sub, spool_sub_dequeue_callback, &ssub->dequeue_callback_data);
@@ -349,6 +357,8 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   }
   */
   
+  uint8_t publish_events = self->spooler->publish_events;
+  
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
     self->responded_count++;
@@ -356,6 +366,9 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     
     if(msg) {
       sub->fn->respond_message(sub, msg);
+      if(publish_events) {
+        nchan_maybe_send_channel_event_message(sub->request, SUB_RECEIVE_MESSAGE);
+      }
     }
     else {
       sub->fn->respond_status(sub, status_code, status_line);
@@ -876,6 +889,7 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     
     spl->running = 1;
     //spl->want_to_stop = 0;
+    spl->publish_events = 1;
     
     init_spool(spl, &spl->current_msg_spool, &latest_msg_id);
     spl->current_msg_spool.msg_status = MSG_EXPECTED;

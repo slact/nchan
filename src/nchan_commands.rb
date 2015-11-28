@@ -200,16 +200,7 @@ CfCmd.new do
       args: 1,
       
       group: "meta",
-      info: "Channel id where `nchan_channel_id`'s events should be sent. Things like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string."
-  
-  nchan_channel_events_group [:srv, :loc, :if], 
-      :ngx_conf_set_str_slot, 
-      [:loc_conf, :channel_events_group],
-      
-      group: "meta",
-      value: "<string>",
-      default: "meta",
-      info: "Prefix string for the channel events channel. Defaults to 'meta'."
+      info: "Channel id where `nchan_channel_id`'s events should be sent. Things like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'."
   
   nchan_channel_event_string [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,

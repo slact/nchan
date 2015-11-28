@@ -176,7 +176,6 @@ struct nchan_loc_conf_s {
   ngx_int_t                       subscriber_start_at_oldest_message;
   
   ngx_http_complex_value_t       *channel_events_channel_id;
-  ngx_str_t                       channel_events_group;
   ngx_http_complex_value_t       *channel_event_string;
   
   ngx_int_t                       authorize_channel;
