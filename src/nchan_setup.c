@@ -5,6 +5,9 @@
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 
+#define NCHAN_DEFAULT_CHANNEL_EVENTS_GROUP "meta"
+static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
+
 ngx_module_t     nchan_module;
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
@@ -102,6 +105,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->storage_engine=NULL;
   
+  lcf->channel_events_channel_id = NULL;
+  lcf->channel_event_string = NULL;
+  
   ngx_memzero(&lcf->pub_chid, sizeof(nchan_chid_loc_conf_t));
   ngx_memzero(&lcf->sub_chid, sizeof(nchan_chid_loc_conf_t));
   ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_chid_loc_conf_t));
@@ -152,6 +158,37 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
+  
+  if(conf->channel_events_channel_id == NULL) {
+    conf->channel_events_channel_id = prev->channel_events_channel_id;
+  }
+  if(conf->channel_event_string == NULL) {
+    conf->channel_event_string = prev->channel_event_string;
+  }
+  if(conf->channel_event_string == NULL) { //still null? use the default string
+    ngx_http_complex_value_t           *cv;
+    ngx_http_compile_complex_value_t    ccv;
+    
+    cv = ngx_palloc(cf->pool, sizeof(*cv));
+    if (cv == NULL) {
+      return NGX_CONF_ERROR;
+    }
+    
+    ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+    
+    ccv.cf = cf;
+    ccv.value = &DEFAULT_CHANNEL_EVENT_STRING;
+    ccv.complex_value = cv;
+    
+    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+      return NGX_CONF_ERROR;
+    }
+    
+    conf->channel_event_string = cv;
+  }
+  
+  
+  ngx_conf_merge_str_value(conf->channel_events_group, prev->channel_events_group, "meta");
   
   if(conf->storage_engine == NULL) {
     conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;
@@ -442,6 +479,28 @@ static char *nchan_set_sub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *
 
 static char *nchan_set_pubsub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pubsub_chid);
+}
+
+static char *nchan_set_channel_events_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t                          *value = &((ngx_str_t *) cf->args->elts)[1];
+  ngx_http_complex_value_t          **cv = &((nchan_loc_conf_t *)conf)->channel_events_channel_id;
+  ngx_http_compile_complex_value_t    ccv;  
+  
+  *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
+  if (*cv == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  
+  ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+  ccv.cf = cf;
+  ccv.value = value;
+  ccv.complex_value = *cv;
+  
+  if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+    return NGX_CONF_ERROR;
+  }
+  
+  return NGX_CONF_OK;
 }
 
 static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

@@ -6,6 +6,10 @@ typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 typedef enum {MSG_CHANNEL_NOTREADY, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY} chanhead_pubsub_status_t;
 
+typedef enum {
+  SUB_ENQUEUE, SUB_DEQUEUE, SUB_RECEIVE_MESSAGE, SUB_RECEIVE_STATUS, 
+  CHAN_PUBLISH, CHAN_DELETE  
+} channel_event_type_t;
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
@@ -161,6 +165,7 @@ struct nchan_loc_conf_s {
   nchan_chid_loc_conf_t           pub_chid;
   nchan_chid_loc_conf_t           sub_chid;
   nchan_chid_loc_conf_t           pubsub_chid;
+  ngx_str_t                       channel_group;
   
   nchan_conf_publisher_types_t    pub;
   nchan_conf_subscriber_types_t   sub; 
@@ -170,10 +175,13 @@ struct nchan_loc_conf_s {
   
   ngx_int_t                       subscriber_start_at_oldest_message;
   
+  ngx_http_complex_value_t       *channel_events_channel_id;
+  ngx_str_t                       channel_events_group;
+  ngx_http_complex_value_t       *channel_event_string;
+  
   ngx_int_t                       authorize_channel;
   ngx_int_t                       use_redis;
   ngx_int_t                       delete_oldest_received_message;
-  ngx_str_t                       channel_group;
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;
   ngx_int_t                       ignore_queue_on_no_cache;
@@ -236,6 +244,7 @@ typedef struct {
   nchan_msg_id_t                 msg_id;
   nchan_msg_id_t                 prev_msg_id;
   ngx_str_t                     *publisher_type;
+  ngx_str_t                     *channel_event_name;
   ngx_str_t                      channel_id[NCHAN_MULTITAG_MAX];
   int                            channel_id_count;
   

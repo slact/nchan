@@ -243,6 +243,27 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, channel_group),
     NULL } ,
 
+  { ngx_string("nchan_channel_events_channel_id"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    nchan_set_channel_events_channel_id,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
+  { ngx_string("nchan_channel_events_group"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, channel_events_group),
+    NULL } ,
+
+  { ngx_string("nchan_channel_event_string"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_http_set_complex_value_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, channel_event_string),
+    NULL } ,
+
   { ngx_string("nchan_max_channel_id_length"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_num_slot,

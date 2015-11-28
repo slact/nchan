@@ -194,6 +194,32 @@ CfCmd.new do
       default: "(none)",
       info: "Because settings are bound to locations and not individual channels, it is useful to be able to have channels that can be reached only from some locations and never others. That's where this setting comes in. Think of it as a prefix string for the channel id."
   
+  nchan_channel_events_channel_id [:srv, :loc, :if],
+      :nchan_set_channel_events_channel_id,
+      :loc_conf,
+      args: 1,
+      
+      group: "meta",
+      info: "Channel id where `nchan_channel_id`'s events should be sent. Things like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string."
+  
+  nchan_channel_events_group [:srv, :loc, :if], 
+      :ngx_conf_set_str_slot, 
+      [:loc_conf, :channel_events_group],
+      
+      group: "meta",
+      value: "<string>",
+      default: "meta",
+      info: "Prefix string for the channel events channel. Defaults to 'meta'."
+  
+  nchan_channel_event_string [:srv, :loc, :if], 
+      :ngx_http_set_complex_value_slot,
+      [:loc_conf, :channel_event_string],
+      
+      group: "meta",
+      value: "<string>",
+      default: "$nchan_channel_event $nchan_channel_id",
+      info: "Contents of channel event message"
+  
   nchan_max_channel_id_length [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, :max_channel_id_length],

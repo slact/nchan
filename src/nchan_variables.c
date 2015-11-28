@@ -34,6 +34,18 @@ static void set_varval(ngx_http_variable_value_t *v, u_char *data, size_t len) {
   v->data = data;
 }
 
+static ngx_int_t nchan_channel_event(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
+  if(ctx == NULL || ctx->channel_event_name == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  
+  set_varval(v, ctx->channel_event_name->data, ctx->channel_event_name->len);
+  
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_channel_id_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
   nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
   if(ctx == NULL) {
@@ -134,6 +146,7 @@ nchan_variable_t nchan_vars[] = {
   { ngx_string("nchan_channel_id2"),        nchan_channel_id_variable, 1},
   { ngx_string("nchan_channel_id3"),        nchan_channel_id_variable, 2},
   { ngx_string("nchan_channel_id4"),        nchan_channel_id_variable, 3},
+  { ngx_string("nchan_channel_event"),      nchan_channel_event, 0},
   { ngx_string("nchan_subscriber_type"),    nchan_subscriber_type_variable, 0},
   { ngx_string("nchan_publisher_type"),     nchan_publisher_type_variable, 0},
 //  { ngx_string("nchan_message"),            nchan_message_variable, 0},

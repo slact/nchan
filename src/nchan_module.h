@@ -32,7 +32,7 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg);
 
 void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid);
 void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill);
-
+ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_event_type_t);
 
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
 void subscriber_debug_add(subscriber_t *);

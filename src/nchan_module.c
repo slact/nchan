@@ -116,6 +116,90 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
   return NGX_OK;
 }
 
+
+ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_event_type_t event_type) {
+  
+  static ngx_str_t evt_sub_enqueue = ngx_string("subscriber_enqueue");
+  static ngx_str_t evt_sub_dequeue = ngx_string("subscriber_dequeue");
+  static ngx_str_t evt_sub_recvmsg = ngx_string("subscriber_receive_message");
+  static ngx_str_t evt_sub_recvsts = ngx_string("subscriber_receive_status");
+  static ngx_str_t evt_chan_publish= ngx_string("channel_publish");
+  static ngx_str_t evt_chan_delete = ngx_string("channel_delete");
+  
+  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  ngx_http_complex_value_t  *cv = cf->channel_events_channel_id;
+  if(cv==NULL) {
+    //nothing to send
+    return NGX_OK;
+  }
+  
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  ngx_str_t                 *group = &cf->channel_events_group;
+  ngx_str_t                  tmpid;
+  size_t                     sz;
+  ngx_str_t                 *id;
+  u_char                    *cur;
+  ngx_str_t                  evstr;
+  ngx_buf_t                  buf = {0};
+  nchan_msg_t                msg;
+  
+  switch(event_type) {
+    case SUB_ENQUEUE:
+      ctx->channel_event_name = &evt_sub_enqueue;
+      break;
+    case SUB_DEQUEUE:
+      ctx->channel_event_name = &evt_sub_dequeue;
+      break;
+    case SUB_RECEIVE_MESSAGE:
+      ctx->channel_event_name = &evt_sub_recvmsg;
+      break;
+    case SUB_RECEIVE_STATUS:
+      ctx->channel_event_name = &evt_sub_recvsts;
+      break;
+    case CHAN_PUBLISH:
+      ctx->channel_event_name = &evt_chan_publish;
+      break;
+    case CHAN_DELETE:
+      ctx->channel_event_name = &evt_chan_delete;
+      break;
+  }
+  
+  //the id
+  ngx_http_complex_value(r, cv, &tmpid); 
+  sz = group->len + 1 + tmpid.len;
+  if((id = ngx_palloc(r->pool, sizeof(*id) + sz)) == NULL) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't allocate space for legacy channel id");
+    return NGX_ERROR;
+  }
+  id->len = sz;
+  id->data = (u_char *)&id[1];
+  cur = id->data;  
+  ngx_memcpy(cur, group->data, group->len);
+  cur += group->len;
+  cur[0]='/';
+  cur++;
+  ngx_memcpy(cur, tmpid.data, tmpid.len);
+  
+  
+  //the event message
+  ngx_http_complex_value(r, cf->channel_event_string, &evstr);
+  buf.temporary = 1;
+  buf.memory = 1;
+  buf.last_buf = 1;
+  buf.pos = evstr.data;
+  buf.last = evstr.data + evstr.len;
+  buf.start = buf.pos;
+  buf.end = buf.last;
+  
+  ngx_memzero(&msg, sizeof(msg));
+  msg.id.tagcount = 1;
+  msg.buf = &buf;
+  
+  cf->storage_engine->publish(id, &msg, cf, NULL, NULL);
+  
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   static ngx_str_t            channel_id_var_name = ngx_string("push_channel_id");
   ngx_uint_t                  key = ngx_hash_key(channel_id_var_name.data, channel_id_var_name.len);
@@ -804,13 +888,15 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       msg->buf = buf;
 #if NCHAN_MSG_LEAK_DEBUG
       msg->lbl = r->uri;
-#endif      
+#endif
+      nchan_maybe_send_channel_event_message(r, CHAN_PUBLISH);
       cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
       
       memstore_pub_debug_end();
       break;
       
     case NGX_HTTP_DELETE:
+      nchan_maybe_send_channel_event_message(r, CHAN_DELETE);
       cf->storage_engine->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
       break;
       
