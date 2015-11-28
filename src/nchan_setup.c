@@ -371,7 +371,7 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }
 
-static char nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t   *lcf = (nchan_loc_conf_t *)conf;
   ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
   if(nchan_strmatch(val, 1, "oldest")) {
