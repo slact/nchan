@@ -401,7 +401,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   
   if(wb->n < IPC_WRITEBUF_SIZE) {
-    alert = &wb->alerts[wb->first + wb->n++];
+    alert = &wb->alerts[(wb->first + wb->n++) % IPC_WRITEBUF_SIZE];
   }
   else { //overflow
     ipc_writebuf_overflow_t  *overflow;
