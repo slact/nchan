@@ -15,6 +15,8 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC:" fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC:" fmt, ##args)
 
+//#define DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC 100
+
 static void ipc_read_handler(ngx_event_t *ev);
 
 ngx_int_t ipc_init(ipc_t *ipc) {
@@ -304,6 +306,24 @@ static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *
   return n;
 }
 
+#if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
+typedef struct {
+  ngx_event_t   timer;
+  ipc_alert_t   alert;
+  ipc_t        *ipc;
+} delayed_alert_glob_t;
+static void fake_ipc_alert_delay_handler(ngx_event_t *ev) {
+  delayed_alert_glob_t *glob = (delayed_alert_glob_t *)ev->data;
+  
+  if(ngx_time() - glob->alert.time_sent >= 2) {
+    ERR("got IPC alert delayed by %i sec", ngx_time() - glob->alert.time_sent);
+  }
+  
+  glob->ipc->handler(glob->alert.src_slot, glob->alert.code, glob->alert.data);
+  ngx_free(glob);
+}
+#endif
+
 static void ipc_read_handler(ngx_event_t *ev) {
   DBG("IPC channel handler");
   //copypasta from os/unix/ngx_process_cycle.c (ngx_channel_handler)
@@ -330,11 +350,21 @@ static void ipc_read_handler(ngx_event_t *ev) {
     
     assert(n == sizeof(alert));
     
+#if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
+    delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
+    ngx_memzero(&glob->timer, sizeof(glob->timer));
+    glob->timer.handler = fake_ipc_alert_delay_handler;
+    glob->timer.log = ngx_cycle->log;
+    glob->timer.data = glob;
+    glob->alert = alert;
+    glob->ipc = (ipc_t *)c->data;
+    ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);
+#else
     if(ngx_time() - alert.time_sent >= 2) {
       ERR("got IPC alert delayed by %i sec", ngx_time() - alert.time_sent);
     }
     ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
-
+#endif
   }
 }
 
