@@ -330,6 +330,9 @@ static void ipc_read_handler(ngx_event_t *ev) {
     
     assert(n == sizeof(alert));
     
+    if(ngx_time() - alert.time_sent >= 2) {
+      ERR("got IPC alert delayed by %i sec", ngx_time() - alert.time_sent);
+    }
     ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 
   }
@@ -348,6 +351,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   ipc_alert_t         alert = {0};
   
   alert.src_slot = memstore_slot();
+  alert.time_sent = ngx_time();
   alert.dst_slot = slot;
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
@@ -391,6 +395,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   }
   
   alert->src_slot = ngx_process_slot;
+  alert->time_sent = ngx_time();
   alert->code = code;
   ngx_memcpy(&alert->data, data, data_size);
   

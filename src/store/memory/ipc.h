@@ -1,7 +1,9 @@
-#define IPC_DATA_SIZE 56
+//#define IPC_DATA_SIZE 56
+#define IPC_DATA_SIZE 80
 
 typedef struct {
   char            data[IPC_DATA_SIZE];
+  time_t          time_sent;
   int16_t         src_slot;
   uint8_t         code;
 } ipc_alert_t;
