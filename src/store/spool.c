@@ -357,7 +357,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   }
   */
   
-  uint8_t publish_events = self->spooler->publish_events;
+  //uint8_t publish_events = self->spooler->publish_events;
   
   for(nsub = self->first; nsub != NULL; nsub = nnext) {
     sub = nsub->sub;
@@ -365,9 +365,11 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     nnext = nsub->next;
     
     if(msg) {
+      /*
       if(sub->type != INTERNAL && publish_events) {
         nchan_maybe_send_channel_event_message(sub->request, SUB_RECEIVE_MESSAGE);
       }
+      */
       sub->fn->respond_message(sub, msg);
     }
     else {
