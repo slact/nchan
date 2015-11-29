@@ -239,7 +239,7 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
   spool_remove_subscriber(spool, d->ssub);
   spool_bubbleup_dequeue_handler(spool, sub, spool->spooler);
   
-  if(spool->spooler->publish_events) {
+  if(sub->type != INTERNAL && spool->spooler->publish_events) {
     nchan_maybe_send_channel_event_message(sub->request, SUB_DEQUEUE);
   }
   
@@ -292,7 +292,7 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
     sub->fn->enqueue(sub);
   }
   
-  if(self->spooler->publish_events) {
+  if(sub->type != INTERNAL && self->spooler->publish_events) {
     nchan_maybe_send_channel_event_message(sub->request, SUB_ENQUEUE);
   }
   
@@ -365,7 +365,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     nnext = nsub->next;
     
     if(msg) {
-      if(publish_events) {
+      if(sub->type != INTERNAL && publish_events) {
         nchan_maybe_send_channel_event_message(sub->request, SUB_RECEIVE_MESSAGE);
       }
       sub->fn->respond_message(sub, msg);
@@ -375,14 +375,6 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     }
   }
   
-  /*
-  if(msg && msg->prev_id.time > 0 && msg->id.tagcount > 1) {
-    for(i=0; i< max; i++) {
-      msg->id.tag[i] = unid.tag[i];
-      msg->prev_id.tag[i] = unprevid.tag[i];
-    }
-  }
-  */
   if(status_code != NGX_HTTP_NO_CONTENT) self->responded_count++;
   return NGX_OK;
 }
