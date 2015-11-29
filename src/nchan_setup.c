@@ -100,7 +100,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->delete_oldest_received_message=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
-  lcf->ignore_queue_on_no_cache=NGX_CONF_UNSET;
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->storage_engine=NULL;
   
@@ -154,7 +153,6 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->delete_oldest_received_message, prev->delete_oldest_received_message, 0);
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
-  ngx_conf_merge_value(conf->ignore_queue_on_no_cache, prev->ignore_queue_on_no_cache, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   

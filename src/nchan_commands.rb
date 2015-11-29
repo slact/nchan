@@ -231,13 +231,6 @@ CfCmd.new do
       default: "0 (unlimited)",
       info: "Maximum concurrent subscribers."
   
-  nchan_ignore_queue_on_no_cache [:main, :srv, :loc],
-      :ngx_conf_set_flag_slot,
-      [:loc_conf, :ignore_queue_on_no_cache],
-      legacy: "push_ignore_queue_on_no_cache",
-      
-      group: "obsolete"
-  
   nchan_channel_timeout [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,
       [:loc_conf, :channel_timeout],

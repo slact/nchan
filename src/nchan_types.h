@@ -183,7 +183,6 @@ struct nchan_loc_conf_s {
   ngx_int_t                       delete_oldest_received_message;
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;
-  ngx_int_t                       ignore_queue_on_no_cache;
   time_t                          channel_timeout;
   nchan_store_t                  *storage_engine;
 };// nchan_loc_conf_t;
