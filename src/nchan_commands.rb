@@ -176,16 +176,6 @@ CfCmd.new do
       default: "none",
       info: "The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value."
   
-  nchan_delete_oldest_received_message [:main, :srv, :loc],
-      :ngx_conf_set_flag_slot,
-      [:loc_conf, :delete_oldest_received_message],
-      legacy: "push_delete_oldest_received_message",
-      
-      group: "storage",
-      value: [ :on, :off ],
-      default: :off,
-      info: "When enabled, as soon as the oldest message in a channel's message queue has been received by a subscriber, it is deleted -- provided there are more than push_min_message_buffer_length messages in the channel's message buffer. Recommend avoiding this directive as it violates subscribers' assumptions of GET request idempotence."
-  
   nchan_authorized_channels_only [:main, :srv, :loc],
       :ngx_conf_set_flag_slot, 
       [:loc_conf, :authorize_channel],
