@@ -144,7 +144,7 @@ cmds.sort! do |c1, c2|
   if c1.group != c2.group
     group_order[c1] - group_order[c2]
   else
-    (c1.name < c2.name) ? 1 : -1
+    (c1.name < c2.name) ? -1 : 1
   end
 end
 
