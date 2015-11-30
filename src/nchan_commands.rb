@@ -136,16 +136,6 @@ CfCmd.new do
       default: :off,
       info: "Use redis for message storage at this location."
   
-  nchan_message_buffer_length [:main, :srv, :loc],
-      :nchan_set_message_buffer_length,
-      :loc_conf,
-      legacy: "push_message_buffer_length",
-      
-      group: "storage",
-      value: "<number>",
-      default: "none",
-      info: "The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value."
-  
   nchan_message_timeout [:main, :srv, :loc], 
       :ngx_conf_set_sec_slot, 
       [:loc_conf, :buffer_timeout],
@@ -175,6 +165,16 @@ CfCmd.new do
       value: "<number>",
       default: 10,
       info: "The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
+  
+    nchan_message_buffer_length [:main, :srv, :loc],
+      :nchan_set_message_buffer_length,
+      :loc_conf,
+      legacy: "push_message_buffer_length",
+      
+      group: "storage",
+      value: "<number>",
+      default: "none",
+      info: "The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value."
   
   nchan_delete_oldest_received_message [:main, :srv, :loc],
       :ngx_conf_set_flag_slot,
