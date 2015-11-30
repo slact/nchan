@@ -143,6 +143,9 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channe
 }
 
 static void memstore_reap_chanhead(nchan_store_channel_head_t *ch);
+static void memstore_reap_churned_chanhead(nchan_store_channel_head_t *ch) { //different method for some debug tracing
+  memstore_reap_chanhead(ch);
+}
 
 static void init_mpt(memstore_data_t *m) {
   
@@ -180,7 +183,7 @@ static void init_mpt(memstore_data_t *m) {
                      offsetof(nchan_store_channel_head_t, churn_prev), 
                      offsetof(nchan_store_channel_head_t, churn_next), 
     (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap_slowly,
-         (void (*)(void *)) memstore_reap_chanhead,
+         (void (*)(void *)) memstore_reap_churned_chanhead,
                      10
   );
   m->nobuffer_msg_reaper.strategy = KEEP_PLACE;
@@ -371,6 +374,9 @@ void msg_debug_assert_isempty(void) {
 
 static ngx_int_t chanhead_churner_add(nchan_store_channel_head_t *ch) {
   DBG("Chanhead churn add %p %V", ch, &ch->id);
+  
+  //the churner is only allowed to churn self-owned channels
+  assert(ch->owner == ch->slot);
   
   if(!ch->shutting_down) {
     assert(ch->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
@@ -666,7 +672,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(head->in_gc_queue) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }
-  if(!head->in_churn_queue) {
+  if(head->owner == head->slot && !head->in_churn_queue) {
     chanhead_churner_add(head);
   }
   
@@ -893,7 +899,12 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   if(ch->slot != ch->owner) {
     ch->shared = NULL;
   }
-  assert(ch->status != WAITING);
+  if(ch->status == WAITING) {
+    ERR("tried adding WAITING chanhead %p %V to chanhead_gc. why?", ch, &ch->id);
+    //don't gc it just yet.
+    return NGX_OK;
+  }
+  
   assert(ch->slot == slot);
   if(! ch->in_gc_queue) {
     ch->gc_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
@@ -918,7 +929,9 @@ ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *ch, const char *reaso
     nchan_reaper_withdraw(&mpt->chanhead_reaper, ch);
     ch->in_gc_queue = 0;
   }
-  chanhead_churner_add(ch);
+  if(ch->owner == ch->slot) {
+    chanhead_churner_add(ch);
+  }
   
   return NGX_OK;
 }
