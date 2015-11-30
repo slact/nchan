@@ -43,12 +43,12 @@ class CfCmd #let's make a DSL!
       if value.class == Array
         val = "#{value.join ' | '}"
       elsif value
-        val = "*#{value}*"
+        val = "#{value}"
       end
       if val
-        lines << "`**#{name}**` `[ #{val} ]`"
+        lines << "**`#{name}`** `[ #{val} ]`"
       else
-        lines << "`**#{name}**`"
+        lines << "**`#{name}`**"
       end
       
       if default
@@ -69,11 +69,10 @@ class CfCmd #let's make a DSL!
         out = info.lines.map do |line|
           "> #{line.chomp}"
         end
-        out.each do |line|
-          lines << line
-        end
+        lines << out.join("\n")
       end
       
+      lines.map! {|l| "#{l}  "}
       lines.join "\n"
     end
   end
@@ -163,7 +162,7 @@ readme_path = "#{ROOT_DIR}/#{README_FILE}"
 text = File.read(readme_path)
 
 config_heading = "##Configuration Directives"
-new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^##)/m, "\n#{config_documentation}\n\n")
+new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^##)/m, "\n\n#{config_documentation}\n\n")
 
 File.open(readme_path, "w") {|file| file.puts new_contents }
 
