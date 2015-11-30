@@ -161,7 +161,7 @@ readme_path = "#{ROOT_DIR}/#{README_FILE}"
 
 text = File.read(readme_path)
 
-config_heading = "##Configuration Directives"
+config_heading = "## Configuration Directives"
 new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^##)/m, "\n\n#{config_documentation}\n\n")
 
 File.open(readme_path, "w") {|file| file.puts new_contents }

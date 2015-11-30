@@ -2,7 +2,7 @@
 
 Nchan is a scalable, flexible pub/sub server for the modern web, built on top of the Nginx web server. It can be configured as a standalone server, or a a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
 
-Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
+Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
 ## Status and History
 
@@ -27,7 +27,7 @@ make
 ```
 ## Usage
 
-Nchan can be configured as a shim between your application and subscribers, a standalone pub/sub server for web clients, or as websocket proxy for your application. There are many other use cases, but for now I will focus on the above.
+Nchan can be configured as a shim between your application and subscribers, a standalone pub/sub server for web clients, or as websocket proxy with long-polling fallback for your application. There are many other use cases, but for now I will focus on the above.
 
 ### The Basics 
 
@@ -59,7 +59,9 @@ http {
 The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscriber endpoint* , and similarly `/pub` onto channel `foobar`'s *publisher endpoint*.
 
 
-### Publisher Endpoint
+#### Publisher Endpoints
+
+Nginx config *locations* with the *`nchan_publisher`* directive.
 
 Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
 
@@ -102,13 +104,31 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 - **HTTP `DELETE`** requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
-###Subscriber endpoint
+#### Subscriber endpoint
 
+Nginx config *locations* with the *`nchan_subscriber`* directive.
 
+Nchan supports a few different kinds of subscribers for receiving messages: *Websocket*, *EventSource* (Server Sent Events),  *Long-Poll*, and *Interval-Poll*.
 
+- *Long-Polling*  
+  Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
+  The long-polling subscriber walks through a channel's message queue via the built-in cache mecnahism of HTTP clients, namely with the *Last-Modified* and *Etag* headers. Explicitly, given a long-poll subscriber response, to receive the next message, send a request with the "`If-Modified-Since`" header to the previous response's "`Last-Modified`", and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
+  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" requests the first message in a channel's message queue.
+  
+- *Interval-Polling*  
+  Works just like long-polling, except if the requested message is not yet available, immediately responds with a `304 Not Modified`.
 
+- *Websocket*  
+  Nchan supports the latest protocol version 13 (RFC 6455). To use a websocket subscriber, initiate a connection to the desired subscriber endpoint location.  
+  If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection.  
+  Websocket extensions and subprotocols are not yet supported.
+  
+- *EventSource* ( Server-Sent Events )
+  Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
+  To resume a closed EventSource connection from the last-received message, initiate the connection with the *`Last-Event-ID`* header set to the last message's `id`.
+  
 
-##Configuration Directives
+## Configuration Directives
 
 - **nchan_channel_id**  
   default: `(none)`  
