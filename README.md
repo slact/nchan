@@ -1,6 +1,6 @@
 ![NCHAN](https://raw.githubusercontent.com/slact/nchan/master/nchan_logo.png)
 
-Nchan is a scalable, flexible pub/sub server for the modern web, built on top of the Nginx web server. It can be configured as a standalone server, or a a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
+Nchan is a scalable, flexible pub/sub server for the modern web, built on top of the Nginx web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
 
 Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
@@ -8,7 +8,7 @@ Messages are published to channels with HTTP POST requests and websockets, and s
 
 **This document is being actively developed.**
 
-The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
+The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
 
 Nchan is already very fast (parsing regular expressions within nginx uses more CPU cycles than all of the nchan code), but there is also a lot of room left for improvement. This release focuses on *correctness* and *stability*, with further optimizations (like zero-copy message publishing) planned for later.
 
@@ -61,11 +61,11 @@ The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscribe
 
 #### Publisher Endpoints
 
-Nginx config *locations* with the *`nchan_publisher`* directive.
+Publisher endpoints are Nginx config *locations* with the *`nchan_publisher`* directive.
 
 Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
 
-##### Publishing messages
+##### Publishing Messages
 
 Requests and websocket messages are responded to with information about the channel at time of message publication. Here's an example from publishing with `curl`:
 
@@ -91,7 +91,7 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 ##### Other Publisher Endpoint Actions
 
-- **HTTP `GET`** requests return channel information without publishing a message. The respose code is `200` if the channel exists, and `404` otherwise:
+- HTTP `GET` requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:
 
   ```
   > curl --request POST --data "test message" http://127.0.0.2:80/pub
@@ -102,18 +102,18 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
   {"messages": 1, "requested": 7, "subscribers": 0 }
   ```
 
-- **HTTP `DELETE`** requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
+- HTTP `DELETE` requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
-#### Subscriber endpoint
+#### Subscriber Endpoint
 
-Nginx config *locations* with the *`nchan_subscriber`* directive.
+Subscriber endpoints are Nginx config *locations* with the *`nchan_subscriber`* directive.
 
-Nchan supports a few different kinds of subscribers for receiving messages: *Websocket*, *EventSource* (Server Sent Events),  *Long-Poll*, and *Interval-Poll*.
+Nchan supports several different kinds of subscribers for receiving messages: *Websocket*, *EventSource* (Server Sent Events),  *Long-Poll*, and *Interval-Poll*.
 
 - *Long-Polling*  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
-  The long-polling subscriber walks through a channel's message queue via the built-in cache mecnahism of HTTP clients, namely with the *Last-Modified* and *Etag* headers. Explicitly, given a long-poll subscriber response, to receive the next message, send a request with the "`If-Modified-Since`" header to the previous response's "`Last-Modified`", and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
-  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" requests the first message in a channel's message queue.
+  The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
+  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the first message in a channel's message queue.
   
 - *Interval-Polling*  
   Works just like long-polling, except if the requested message is not yet available, immediately responds with a `304 Not Modified`.
@@ -125,12 +125,12 @@ Nchan supports a few different kinds of subscribers for receiving messages: *Web
   
 - *EventSource* ( Server-Sent Events )  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
-  To resume a closed EventSource connection from the last-received message, initiate the connection with the *`Last-Event-ID`* header set to the last message's `id`.
+  To resume a closed EventSource connection from the last-received message, initiate the connection with the "`Last-Event-ID`" header set to the last message's `id`.
 
 
-#### PubSub endpoint  
+#### PubSub Endpoint  
 
-Nginx config *locations* with the *`nchan_pubsub`* directive.
+PubSub endpoints are Nginx config *locations* with the *`nchan_pubsub`* directive.
 
 A combination of *publisher* and *subscriber* endpoints, this location treats all **HTTP `GET`** requests as subscribers, and all **HTTP `POST`** as publishers. One simple use case is an echo server:
 
