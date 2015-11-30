@@ -4,19 +4,31 @@ CfCmd.new do
       :nchan_set_pubsub_channel_id,
       :loc_conf,
       args: 1..4,
-      alt: [ :nchan_pubsub_channel_id ]
+      alt: [ :nchan_pubsub_channel_id ],
+      
+      group: "pubsub",
+      default: "(none)",
+      info: "Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels."
   
   nchan_publisher_channel_id [:srv, :loc, :if],
       :nchan_set_pub_channel_id,
       :loc_conf,
       args: 1,
-      alt: [ :nchan_pub_channel_id ]
+      alt: [ :nchan_pub_channel_id ],
+      
+      group: "pubsub",
+      default: "(none)",
+      info: "Channel id for publisher location."
   
   nchan_subscriber_channel_id [:srv, :loc, :if],
       :nchan_set_sub_channel_id,
       :loc_conf,
       args: 1..4,
-      alt: [ :nchan_sub_channel_id ]
+      alt: [ :nchan_sub_channel_id ],
+      group: "pubsub",
+          
+      default: "(none)",
+      info: "Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels."
   
   nchan_pubsub [:srv, :loc, :if],
       :nchan_pubsub_directive,
@@ -83,7 +95,7 @@ CfCmd.new do
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :authorize_request_url],
       
-      group: "pubsub",
+      group: "security",
       value: "<url>",
       info: "send GET request to internal location (which may proxy to an upstream server) for authorization of ap ublisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it."
   
@@ -239,5 +251,8 @@ CfCmd.new do
   nchan_storage_engine [:main, :srv, :loc],
       :nchan_set_storage_engine, 
       [:loc_conf, :storage_engine],
-      legacy: "push_storage_engine"
+      legacy: "push_storage_engine",
+      
+      group: "development",
+      info: "development directive to completely replace default storage engine. Don't use unless you know what you're doing"
 end
