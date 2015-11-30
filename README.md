@@ -63,7 +63,7 @@ The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscribe
 
 Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
 
-#### Publishing messages
+##### Publishing messages
 
 Requests and websocket messages are responded to with information about the channel at time of message publication. Here's an example from publishing with `curl`:
 
@@ -87,7 +87,7 @@ Websocket publishers also receive the same responses when publishing, with the e
 
 The response code for an HTTP request is *`202` Accepted* if no subscribers are present at time of publication, or *`201` Created* if at least 1 subscriber was present.
 
-#### Other Publisher Endpoint Actions
+##### Other Publisher Endpoint Actions
 
 - **HTTP `GET`** requests return channel information without publishing a message. The respose code is `200` if the channel exists, and `404` otherwise:
 
