@@ -4,7 +4,7 @@ Nchan is a scalable, flexible pub/sub server for the modern web, built on top of
 
 Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
-##Status and History
+## Status and History
 
 **This document is being actively developed.**
 
@@ -14,22 +14,22 @@ Nchan is already very fast (parsing regular expressions within nginx uses more C
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
-##Getting Started
+## Getting Started
 
-###Download
+### Download
 For now, grab the code from github.
 
-###Build and Install
+### Build and Install
 For now, build a recent Nginx version with 
 ```
 ./configure --add-module=path/to/nchan ...
 make 
 ```
-##Usage
+## Usage
 
 Nchan can be configured as a shim between your application and subscribers, a standalone pub/sub server for web clients, or as websocket proxy for your application. There are many other use cases, but for now I will focus on the above.
 
-###The Basics 
+### The Basics 
 
 The basic unit of most pub/sub solutions is the messaging *channel*. Nchan is no different. Publishers send messages to channels with a certain *channel id*, and subscribers subscribed to those channels receive them. Pretty simple, right? 
 
@@ -56,7 +56,56 @@ http {
 }
 ```
 
-The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscriber endpoint* , and similarly `/pub` onto channel `foobar`'s *publisher endpoint.
+The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscriber endpoint* , and similarly `/pub` onto channel `foobar`'s *publisher endpoint*.
+
+
+### Publisher Endpoint
+
+Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
+
+#### Publishing messages
+
+Requests and websocket messages are responded to with information about the channel at time of message publication. Here's an example from publishing with `curl`:
+
+```
+>  curl --request POST --data "test message" http://127.0.0.1:80/pub
+
+queued messages: 5
+last requested: 4 sec. ago (-1=never)
+active subscribers: 0
+```
+
+The response can be in plaintext (as above), JSON, or XML, based on the request's *`Accept`* header:
+
+```
+> curl --request POST --data "test message" -H "Accept: text/json" http://127.0.0.2:80/pub
+
+{"messages": 2, "requested": 4, "subscribers": 0 }
+```
+
+Websocket publishers also receive the same responses when publishing, with the encoding determined by the *`Accept`* header present during the handshake.
+
+The response code for an HTTP request is *`202` Accepted* if no subscribers are present at time of publication, or *`201` Created* if at least 1 subscriber was present.
+
+#### Other Publisher Endpoint Actions
+
+- **HTTP `GET`** requests return channel information without publishing a message. The respose code is `200` if the channel exists, and `404` otherwise:
+
+  ```
+  > curl --request POST --data "test message" http://127.0.0.2:80/pub
+  ...
+  
+  > curl -v --request GET -H "Accept: text/json" http://127.0.0.2:80/pub
+  
+  {"messages": 1, "requested": 7, "subscribers": 0 }
+  ```
+
+- **HTTP `DELETE`** requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
+
+###Subscriber endpoint
+
+
+
 
 
 ##Configuration Directives
