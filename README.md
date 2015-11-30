@@ -194,6 +194,7 @@ Any subscriber location can be an endpoint for up to 4 channels. Messages publis
   }
 ```
 
+Publishing to multiple channels from one location is not supported.
 
 ## Configuration Directives
 
