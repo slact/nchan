@@ -132,7 +132,8 @@ Nchan supports several different kinds of subscribers for receiving messages: *W
 
 PubSub endpoints are Nginx config *locations* with the *`nchan_pubsub`* directive.
 
-A combination of *publisher* and *subscriber* endpoints, this location treats all **HTTP `GET`** requests as subscribers, and all **HTTP `POST`** as publishers. One simple use case is an echo server:
+A combination of *publisher* and *subscriber* endpoints, this location treats all HTTP `GET`
+requests as subscribers, and all HTTP `POST` as publishers. One simple use case is an echo server:
 
 ```nginx
   location = /pubsub {
@@ -151,7 +152,7 @@ A more applicable setup may set different publisher and subscriber channel ids:
   }
 ```
 
-Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar'. This can be useful when setting up websocket proxying between web clients and your application.
+Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar`. This can be useful when setting up websocket proxying between web clients and your application.
 
 ## The Channel ID
 

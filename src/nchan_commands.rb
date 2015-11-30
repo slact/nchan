@@ -37,7 +37,7 @@ CfCmd.new do
       
       group: "pubsub",
       default: "(none)",
-      info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTS publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
+      info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
   
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
@@ -58,7 +58,7 @@ CfCmd.new do
       group: "pubsub",
       value: ["oldest", "newest"],
       default: "newest",
-      info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives"
+      info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives."
   
   nchan_subscriber_concurrency [:main, :srv, :loc, :if],
       :nchan_set_subscriber_concurrency,
@@ -97,7 +97,7 @@ CfCmd.new do
       
       group: "security",
       value: "<url>",
-      info: "send GET request to internal location (which may proxy to an upstream server) for authorization of ap ublisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it."
+      info: "Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it."
   
   nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,
@@ -174,7 +174,7 @@ CfCmd.new do
       group: "storage",
       value: "<number>",
       default: 10,
-      info: "The maximum number of messages to store per channel. A channel's message buffer will retain at most this many most recent messages."
+      info: "The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
   
   nchan_delete_oldest_received_message [:main, :srv, :loc],
       :ngx_conf_set_flag_slot,
@@ -194,7 +194,7 @@ CfCmd.new do
       group: "security",
       value: [:on, :off],
       default: :off,
-      info: "Whether or not a subscriber may create a channel by making a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
+      info: "Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
   
   nchan_channel_group [:srv, :loc, :if], 
       :ngx_conf_set_str_slot, 
@@ -212,7 +212,7 @@ CfCmd.new do
       args: 1,
       
       group: "meta",
-      info: "Channel id where `nchan_channel_id`'s events should be sent. Things like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'."
+      info: "Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'."
   
   nchan_channel_event_string [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
@@ -246,7 +246,10 @@ CfCmd.new do
   nchan_channel_timeout [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,
       [:loc_conf, :channel_timeout],
-      legacy: "push_channel_timeout"
+      legacy: "push_channel_timeout",
+      
+      group: "development",
+      info: "Amount of time an empty channel hangs around. Don't mess with this setting unless you know what you are doing!"
   
   nchan_storage_engine [:main, :srv, :loc],
       :nchan_set_storage_engine, 
@@ -254,5 +257,5 @@ CfCmd.new do
       legacy: "push_storage_engine",
       
       group: "development",
-      info: "development directive to completely replace default storage engine. Don't use unless you know what you're doing"
+      info: "Development directive to completely replace default storage engine. Don't use unless you know what you're doing"
 end
