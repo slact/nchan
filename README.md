@@ -33,14 +33,31 @@ Nchan can be configured as a shim between your application and subscribers, a st
 
 The basic unit of most pub/sub solutions is the messaging *channel*. Nchan is no different. Publishers send messages to channels with a certain *channel id*, and subscribers subscribed to those channels receive them. Pretty simple, right? 
 
-Well... the trouble is that nginx configuration does not deal with channels, publishers, and subscribers. Rather, it has several sections for incominf requests to match agains *server* and *location* sections. Consider this very simple nginx config:
+Well... the trouble is that nginx configuration does not deal with channels, publishers, and subscribers. Rather, it has several sections for incoming requests to match against *server* and *location* sections. *Nchan configuration directives map servers and locations onto channel publishing and subscribing endpoints*:
 
 ```nginx
+#very basic nginx confing
+worker_processes 5;
 
-
-
-
+http {  
+  server {
+    listen       80;
+    
+    location = /sub {
+      nchan_subscriber;
+      nchan_channel_id foobar;
+    }
+    
+    location = /pub {
+      nchan_publisher;
+      nchan_channel_id foobar;
+    }
+  }
+}
 ```
+
+The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscriber endpoint* , and similarly `/pub` onto channel `foobar`'s *publisher endpoint.
+
 
 ##Configuration Directives
 
