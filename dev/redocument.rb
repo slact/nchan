@@ -46,28 +46,28 @@ class CfCmd #let's make a DSL!
         val = "#{value}"
       end
       if val
-        lines << "**`#{name}`** `[ #{val} ]`"
+        lines << "- **#{name}** `[ #{val} ]`"
       else
-        lines << "**`#{name}`**"
+        lines << "- **#{name}**"
       end
       
       if default
-        lines << "default: `#{default == "none" ? "*none*" : default}`"
+        lines << "  default: `#{default == "none" ? "*none*" : default}`"
       end
       
       ctx_lookup = { main: :http, srv: :server, loc: :location }
       ctx = contexts.map do |c|
         ctx_lookup[c] || c;
       end
-      lines << "context: #{ctx.join ', '}"
+      lines << "  context: #{ctx.join ', '}"
       
       if legacy
-        lines << "legacy name: #{legacy}"
+        lines << "  legacy name: #{legacy}"
       end
       
       if info
         out = info.lines.map do |line|
-          "> #{line.chomp}"
+          "  > #{line.chomp}"
         end
         lines << out.join("\n")
       end
