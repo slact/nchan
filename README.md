@@ -98,12 +98,6 @@ Well... the trouble is that nginx configuration does not deal with channels, pub
   context: server, location, if  
   > send GET request to internal location (which may proxy to an upstream server) for authorization of ap ublisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
 
-- **nchan_delete_oldest_received_message** `[ on | off ]`  
-  default: `off`  
-  context: http, server, location  
-  legacy name: push_delete_oldest_received_message  
-  > When enabled, as soon as the oldest message in a channel's message queue has been received by a subscriber, it is deleted -- provided there are more than push_min_message_buffer_length messages in the channel's message buffer. Recommend avoiding this directive as it violates subscribers' assumptions of GET request idempotence.    
-
 - **nchan_max_message_buffer_length** `[ <number> ]`  
   default: `10`  
   context: http, server, location  
