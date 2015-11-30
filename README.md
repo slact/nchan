@@ -123,7 +123,7 @@ Nchan supports a few different kinds of subscribers for receiving messages: *Web
   If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection.  
   Websocket extensions and subprotocols are not yet supported.
   
-- *EventSource* ( Server-Sent Events )
+- *EventSource* ( Server-Sent Events )  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
   To resume a closed EventSource connection from the last-received message, initiate the connection with the *`Last-Event-ID`* header set to the last message's `id`.
   
