@@ -137,7 +137,7 @@ A combination of *publisher* and *subscriber* endpoints, this location treats al
 ```nginx
   location = /pubsub {
     nchan_pubsub;
-    nchan_channel_id: foobar;
+    nchan_channel_id foobar;
   }
 ```
 
@@ -145,14 +145,17 @@ A more applicable setup may set different publisher and subscriber channel ids:
 
 ```nginx
   location = /pubsub {
-  nchan_pubsub;
-  nchan_publisher_channel_id foo;
-  nchan_subscriber_channel_id bar;
+    nchan_pubsub;
+    nchan_publisher_channel_id foo;
+    nchan_subscriber_channel_id bar;
+  }
 ```
 
 Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar'. This can be useful when setting up websocket proxying between web clients and your application.
 
+## The Channel ID
 
+Like a banana, but more unique.
 
 
 ## Configuration Directives
