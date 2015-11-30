@@ -4,14 +4,43 @@ Nchan is a scalable, flexible pub/sub server for the modern web, built on top of
 
 Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
-##Documentation
-This document is being actively developed.
-
 ##Status and History
 
-The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of new functionality, specifically *redis storage and channel events are still experimental* and may still be a bit buggy, and the rest is somewhere in between.
+**This document is being actively developed.**
+
+The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
+
+Nchan is already very fast (parsing regular expressions within nginx uses more CPU cycles than all of the nchan code), but there is also a lot of room left for improvement. This release focuses on *correctness* and *stability*, with further optimizations (like zero-copy message publishing) planned for later.
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
+
+##Getting Started
+
+###Download
+For now, grab the code from github.
+
+###Build and Install
+For now, build a recent Nginx version with 
+```
+./configure --add-module=path/to/nchan ...
+make 
+```
+##Usage
+
+Nchan can be configured as a shim between your application and subscribers, a standalone pub/sub server for web clients, or as websocket proxy for your application. There are many other use cases, but for now I will focus on the above.
+
+###The Basics 
+
+The basic unit of most pub/sub solutions is the messaging *channel*. Nchan is no different. Publishers send messages to channels with a certain *channel id*, and subscribers subscribed to those channels receive them. Pretty simple, right? 
+
+Well... the trouble is that nginx configuration does not deal with channels, publishers, and subscribers. Rather, it has several sections for incominf requests to match agains *server* and *location* sections. Consider this very simple nginx config:
+
+```nginx
+
+
+
+
+```
 
 ##Configuration Directives
 
