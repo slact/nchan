@@ -67,7 +67,7 @@ class CfCmd #let's make a DSL!
       
       if info
         out = info.lines.map do |line|
-          "  > #{line.chomp}"
+          "  > #{line.chomp}  "
         end
         lines << out.join("\n")
       end
