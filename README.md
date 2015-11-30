@@ -155,7 +155,44 @@ Here, subscribers will listen for messages on channel `foo`, and publishers will
 
 ## The Channel ID
 
-Like a banana, but more unique.
+So far the examples have used static channel ids, which is not very useful in practice. It can be set to any nginx *variable*, such as a querystring argument, a header value, or a part of the location url:
+
+```nginx
+  location = /sub_by_ip {
+    #channel id is the subscriber's IP address
+    nchan_subscriber;
+    nchan_channel_id $remote_addr;
+  }
+  
+  location /sub_by_querystring {
+    #channel id is the query string parameter chanid
+    # GET /sub/sub_by_querystring?foo=bar&chanid=baz will have the channel id set to 'baz'
+    nchan_subscriber;
+    nchan_channel_id $arg_chanid;
+  }
+
+  location ~ /sub/(\w+)$ {
+    #channel id is the word after /sub/
+    # GET /sub/foobar_baz will have the channel id set to 'foobar_baz'
+    # I hope you know your regular expressions...
+    nchan_subscriber;
+    nchan_channel_id $1; #first capture of the location match
+  }
+```
+
+#### Channel Multiplexing
+
+Any subscriber location can be an endpoint for up to 4 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. This is configured by specifying multiple channel ids for the `nchan_channel_id` or `nchan_channel_subscriber_id` config directive:
+
+```nginx
+  location ~/multisub/(\w+)/(\w+)$ {
+    nchan_subscriber;
+    nchan_channel_id "$1" "$2" "common_channel";
+    #GET /multisub/foo/bar will be subscribed to:
+    # channels 'foo', 'bar', and 'common_channel',
+    #and will received messages from all of the above.
+  }
+```
 
 
 ## Configuration Directives
