@@ -126,7 +126,34 @@ Nchan supports a few different kinds of subscribers for receiving messages: *Web
 - *EventSource* ( Server-Sent Events )  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
   To resume a closed EventSource connection from the last-received message, initiate the connection with the *`Last-Event-ID`* header set to the last message's `id`.
-  
+
+
+#### PubSub endpoint  
+
+Nginx config *locations* with the *`nchan_pubsub`* directive.
+
+A combination of *publisher* and *subscriber* endpoints, this location treats all **HTTP `GET`** requests as subscribers, and all **HTTP `POST`** as publishers. One simple use case is an echo server:
+
+```nginx
+  location = /pubsub {
+    nchan_pubsub;
+    nchan_channel_id: foobar;
+  }
+```
+
+A more applicable setup may set different publisher and subscriber channel ids:
+
+```nginx
+  location = /pubsub {
+  nchan_pubsub;
+  nchan_publisher_channel_id foo;
+  nchan_subscriber_channel_id bar;
+```
+
+Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar'. This can be useful when setting up websocket proxying between web clients and your application.
+
+
+
 
 ## Configuration Directives
 
