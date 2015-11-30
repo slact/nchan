@@ -152,6 +152,10 @@ static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
     assert(0);
     return NGX_ERROR;
   }
+  
+  if(ngx_time() - alert->time_sent >= 2) {
+    ERR("Sending of IPC alert delayed by %i sec", ngx_time() - alert->time_sent);
+  }
   return NGX_OK;
 }
 
