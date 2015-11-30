@@ -204,19 +204,6 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, max_messages),
     NULL } ,
 
-  { ngx_string("nchan_delete_oldest_received_message"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_flag_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, delete_oldest_received_message),
-    NULL } ,
-  { ngx_string("push_delete_oldest_received_message"), //legacy for nchan_delete_oldest_received_message
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_flag_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, delete_oldest_received_message),
-    NULL } ,
-
   { ngx_string("nchan_authorized_channels_only"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_flag_slot,
