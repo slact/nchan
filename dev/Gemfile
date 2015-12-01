@@ -11,4 +11,4 @@ gem 'minitest'
 gem 'minitest-reporters'
 gem 'eventmachine'
 gem 'websocket-eventmachine-client'
-gem 'fpm'
+gem 'fpm', :github => "slact/fpm"
