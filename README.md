@@ -14,17 +14,19 @@ Please help make the entire codebase ready for production use! Report any quirks
 
 ## Getting Started
 
-### Download
+### Install
+
 ##### Pre-built packages
-A source package is available for [arch linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/). Debian package coming soon.
+A source package is available for [arch linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/). Debian package coming soon, and maybe some others.
 
 
-### Build and Install
-For now, build a recent Nginx version with 
+### From Source
+Grab the latest copy of Nginx from [nginx.org](https://nginx.org). Grab the latest Nchan source. Follow the instructions for [building Nginx](https://www.nginx.com/resources/wiki/start/topics/tutorials/install/#source-releases), except during the `configure` stage, add
 ```
 ./configure --add-module=path/to/nchan ...
-make 
 ```
+Run `make`, `make install`, and enjoy. (Caution, contents may be hot.)
+
 ## Usage
 
 Nchan can be configured as a shim between your application and subscribers, a standalone pub/sub server for web clients, or as websocket proxy with long-polling fallback for your application. There are many other use cases, but for now I will focus on the above.
