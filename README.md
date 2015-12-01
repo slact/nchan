@@ -1,12 +1,10 @@
 ![NCHAN](https://raw.githubusercontent.com/slact/nchan/master/nchan_logo.png)
 
-Nchan is a scalable, flexible pub/sub server for the modern web, built on top of the Nginx web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
+Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the Nginx web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
 
 Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
 ## Status and History
-
-**This document is being actively developed.**
 
 The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
 
@@ -17,7 +15,9 @@ Please help make the entire codebase ready for production use! Report any quirks
 ## Getting Started
 
 ### Download
-For now, grab the code from github.
+##### Pre-built packages
+A source package is available for [arch linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/). Debian package coming soon.
+
 
 ### Build and Install
 For now, build a recent Nginx version with 
