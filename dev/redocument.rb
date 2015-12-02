@@ -51,6 +51,14 @@ class CfCmd #let's make a DSL!
         lines << "- **#{name}**"
       end
       
+      if Range === args
+        lines << "  arguments: #{args.first} - #{args.exclude_end? ? args.last - 1 : args.last}"
+      elsif Numeric === args
+        lines << "  arguments: #{args}"
+      else
+        raise "invalid args: #{args}"
+      end
+      
       if default
         lines << "  default: `#{default == "none" ? "*none*" : default}`"
       end
