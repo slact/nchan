@@ -12,15 +12,13 @@ Nchan is already very fast (parsing regular expressions within nginx uses more C
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
-## Getting Started
+## Install
 
-### Install
-
-##### Pre-built packages
+#### Pre-built packages
 A source package is available for [arch linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/). Debian package coming soon, and maybe some others.
 
 
-### From Source
+#### From Source
 Grab the latest copy of Nginx from [nginx.org](https://nginx.org). Grab the latest Nchan source. Follow the instructions for [building Nginx](https://www.nginx.com/resources/wiki/start/topics/tutorials/install/#source-releases), except during the `configure` stage, add
 ```
 ./configure --add-module=path/to/nchan ...
@@ -74,9 +72,9 @@ Requests and websocket messages are responded to with information about the chan
 ```
 >  curl --request POST --data "test message" http://127.0.0.1:80/pub
 
-queued messages: 5
-last requested: 4 sec. ago (-1=never)
-active subscribers: 0
+  queued messages: 5
+  last requested: 4 sec. ago (-1=never)
+  active subscribers: 0
 ```
 
 The response can be in plaintext (as above), JSON, or XML, based on the request's *`Accept`* header:
@@ -84,7 +82,7 @@ The response can be in plaintext (as above), JSON, or XML, based on the request'
 ```
 > curl --request POST --data "test message" -H "Accept: text/json" http://127.0.0.2:80/pub
 
-{"messages": 2, "requested": 4, "subscribers": 0 }
+  {"messages": 2, "requested": 4, "subscribers": 0 }
 ```
 
 Websocket publishers also receive the same responses when publishing, with the encoding determined by the *`Accept`* header present during the handshake.
@@ -97,11 +95,11 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
   ```
   > curl --request POST --data "test message" http://127.0.0.2:80/pub
-  ...
+    ...
   
   > curl -v --request GET -H "Accept: text/json" http://127.0.0.2:80/pub
   
-  {"messages": 1, "requested": 7, "subscribers": 0 }
+    {"messages": 1, "requested": 7, "subscribers": 0 }
   ```
 
 - HTTP `DELETE` requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
@@ -156,7 +154,7 @@ A more applicable setup may set different publisher and subscriber channel ids:
 
 Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar`. This can be useful when setting up websocket proxying between web clients and your application.
 
-## The Channel ID
+### The Channel ID
 
 So far the examples have used static channel ids, which is not very useful in practice. It can be set to any nginx *variable*, such as a querystring argument, a header value, or a part of the location url:
 
