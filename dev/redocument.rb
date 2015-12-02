@@ -1,4 +1,6 @@
 #!/usr/bin/ruby
+require "git"
+require "date"
 require "pry"
 
 ROOT_DIR=".."
@@ -6,6 +8,10 @@ SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
 
 README_FILE="README.md"
+
+current_release=(`git describe --abbrev=0 --tags`).chomp
+current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
+current_release_date = DateTime.parse(current_release_date).strftime("%B %-d, %Y")
 
 class CfCmd #let's make a DSL!
   attr_accessor :cmds
@@ -171,6 +177,9 @@ text = File.read(readme_path)
 
 config_heading = "## Configuration Directives"
 new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^##)/m, "\n\n#{config_documentation}\n\n")
+
+new_contents = text.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
+
 
 File.open(readme_path, "w") {|file| file.puts new_contents }
 
