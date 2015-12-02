@@ -200,13 +200,13 @@ Publishing to multiple channels from one location is not supported.
 ## Configuration Directives
 
 - **nchan_channel_id**  
-  arguments: 1 - 4  
+  arguments: 1 -- 4  
   default: `(none)`  
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
 
 - **nchan_publisher** `[ http | websocket ]`  
-  arguments: 0 - 2  
+  arguments: 0 -- 2  
   default: `http websocket`  
   context: server, location, if  
   legacy name: push_publisher  
@@ -219,13 +219,13 @@ Publishing to multiple channels from one location is not supported.
   > Channel id for publisher location.    
 
 - **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll ]`  
-  arguments: 0 - 5  
+  arguments: 0 -- 5  
   default: `http websocket eventsource longpoll`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll ]`  
-  arguments: 0 - 4  
+  arguments: 0 -- 4  
   default: `websocket eventsource longpoll`  
   context: server, location, if  
   legacy name: push_subscriber  
@@ -233,7 +233,7 @@ Publishing to multiple channels from one location is not supported.
   >  The value is a list of permitted subscriber types.    
 
 - **nchan_subscriber_channel_id**  
-  arguments: 1 - 4  
+  arguments: 1 -- 4  
   default: `(none)`  
   context: server, location, if  
   > Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    

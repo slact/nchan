@@ -10,21 +10,24 @@ README_FILE="README.md"
 
 if ARGV[0]
   ROOT_DIR = ARGV[0]
+  readme_path = "#{ROOT_DIR}/#{README_FILE}"
   readme_output_path = ARGV[1]
   mysite = true
 else
   ROOT_DIR = ".."
+  readme_path = "#{ROOT_DIR}/#{README_FILE}"
   readme_output_path = readme_path
   mysite = nil
 end
-readme_path = "#{ROOT_DIR}/#{README_FILE}"
 
+current_release = nil
+current_release_date = nil
+Dir.chdir ROOT_DIR do
+  current_release=(`git describe --abbrev=0 --tags`).chomp
+  current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
+  current_release_date = DateTime.parse(current_release_date).strftime("%B %-d, %Y")
+end
 
-puts "redocument #{readme_path} #{readme_output_path}"
-
-current_release=(`git describe --abbrev=0 --tags`).chomp
-current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
-current_release_date = DateTime.parse(current_release_date).strftime("%B %-d, %Y")
 
 class CfCmd #let's make a DSL!
   attr_accessor :cmds
@@ -56,6 +59,13 @@ class CfCmd #let's make a DSL!
       @group || :none
     end
     
+    def descr(str, opt)
+      if opt[:mysite]
+        "<span class=\"description\">#{str}:</span>"
+      else
+        "#{str}:"
+      end
+    end
     
     def to_md(opt={})
       lines = []
@@ -66,7 +76,7 @@ class CfCmd #let's make a DSL!
       end
       
       if opt[:mysite]
-        namestr = "<a name=\"#{name}\">#{name}</a>"
+        namestr = "<a class=\"directive\" name=\"#{name}\" href=\"##{name}\">#{name}</a>"
       else
         namestr = "**#{name}**"
       end
@@ -78,25 +88,25 @@ class CfCmd #let's make a DSL!
       end
       
       if Range === args
-        lines << "  arguments: #{args.first} - #{args.exclude_end? ? args.last - 1 : args.last}"
+        lines << "  #{descr 'arguments', opt} #{args.first} -- #{args.exclude_end? ? args.last - 1 : args.last}"
       elsif Numeric === args
-        lines << "  arguments: #{args}"
+        lines << "  #{descr 'arguments', opt} #{args}"
       else
         raise "invalid args: #{args}"
       end
       
       if default
-        lines << "  default: `#{Array === default ? default.join(' ') : default}`"
+        lines << "  #{descr 'default', opt} `#{Array === default ? default.join(' ') : default}`"
       end
       
       ctx_lookup = { main: :http, srv: :server, loc: :location }
       ctx = contexts.map do |c|
         ctx_lookup[c] || c;
       end
-      lines << "  context: #{ctx.join ', '}"
+      lines << "  #{descr 'context', opt} #{ctx.join ', '}"
       
       if legacy
-        lines << "  legacy name: #{legacy}"
+        lines << "  #{descr 'legacy name', opt} #{legacy}"
       end
       
       if info
