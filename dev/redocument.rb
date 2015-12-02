@@ -1,9 +1,7 @@
 #!/usr/bin/ruby
-require "git"
 require "date"
-require "pry"
 
-ROOT_DIR=".."
+
 SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
 
@@ -11,14 +9,18 @@ CONFIG_IN="nchan_commands.rb"
 README_FILE="README.md"
 
 if ARGV[0]
-  readme_path = ARGV[0]
+  ROOT_DIR = ARGV[0]
+  readme_output_path = ARGV[1]
   mysite = true
 else
-  readme_path = "#{ROOT_DIR}/#{README_FILE}"
+  ROOT_DIR = ".."
+  readme_output_path = readme_path
   mysite = nil
 end
-  
+readme_path = "#{ROOT_DIR}/#{README_FILE}"
 
+
+puts "redocument #{readme_path} #{readme_output_path}"
 
 current_release=(`git describe --abbrev=0 --tags`).chomp
 current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
@@ -196,5 +198,5 @@ new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_do
 
 new_contents = new_contents.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
 
-File.open(readme_path, "w") {|file| file.puts new_contents }
+File.open(readme_output_path, "w") {|file| file.puts new_contents }
 
