@@ -205,8 +205,9 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
 
-- **nchan_publisher**  
-  arguments: 0  
+- **nchan_publisher** `[ http | websocket ]`  
+  arguments: 0 - 2  
+  default: `http websocket`  
   context: server, location, if  
   legacy name: push_publisher  
   > Defines a server or location as a message publisher. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.    
@@ -223,12 +224,13 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
-- **nchan_subscriber** `[ any | websocket | eventsource | longpoll | intervalpoll ]`  
+- **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll ]`  
   arguments: 0 - 4  
-  default: `any (websocket|eventsource|longpoll)`  
+  default: `websocket eventsource longpoll`  
   context: server, location, if  
   legacy name: push_subscriber  
-  > Defines a server or location as a subscriber. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically via caching information request headers (If-Modified-Since and If-None-Match), beginning with the oldest available message. Requests for upcoming messages are handled in accordance with the setting provided. See the protocol documentation for a detailed description.    
+  > Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.    
+  >  The value is a list of permitted subscriber types.    
 
 - **nchan_subscriber_channel_id**  
   arguments: 1 - 4  
@@ -247,7 +249,7 @@ Publishing to multiple channels from one location is not supported.
 
 - **nchan_subscriber_first_message** `[ oldest | newest ]`  
   arguments: 1  
-  default: `newest`  
+  default: `oldest`  
   context: server, location, if  
   > Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives.    
 
@@ -279,7 +281,7 @@ Publishing to multiple channels from one location is not supported.
 
 - **nchan_message_buffer_length** `[ <number> ]`  
   arguments: 1  
-  default: `*none*`  
+  default: `none`  
   context: http, server, location  
   legacy name: push_message_buffer_length  
   > The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value.    

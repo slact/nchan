@@ -46,9 +46,9 @@ CfCmd.new do
       legacy: "push_subscriber",
       
       group: "pubsub",
-      value: ["any", "websocket", "eventsource", "longpoll", "intervalpoll"],
-      default: "any (websocket|eventsource|longpoll)",
-      info: "Defines a server or location as a subscriber. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically via caching information request headers (If-Modified-Since and If-None-Match), beginning with the oldest available message. Requests for upcoming messages are handled in accordance with the setting provided. See the protocol documentation for a detailed description."
+      value: ["websocket", "eventsource", "longpoll", "intervalpoll"],
+      default: ["websocket", "eventsource", "longpoll"],
+      info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." 
   
     nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,
@@ -57,7 +57,7 @@ CfCmd.new do
       
       group: "pubsub",
       value: ["oldest", "newest"],
-      default: "newest",
+      default: "oldest",
       info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives."
   
   nchan_subscriber_concurrency [:main, :srv, :loc, :if],
@@ -75,10 +75,12 @@ CfCmd.new do
   nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
       :loc_conf,
-      args: 0,
+      args: 0..2,
       legacy: "push_publisher",
       
       group: "pubsub",
+      value: ["http", "websocket"],
+      default: ["http", "websocket"],
       info: "Defines a server or location as a message publisher. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description."
   
   nchan_subscriber_timeout [:main, :srv, :loc, :if],

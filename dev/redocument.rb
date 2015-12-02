@@ -60,7 +60,7 @@ class CfCmd #let's make a DSL!
       end
       
       if default
-        lines << "  default: `#{default == "none" ? "*none*" : default}`"
+        lines << "  default: `#{Array === default ? default.join(' ') : default}`"
       end
       
       ctx_lookup = { main: :http, srv: :server, loc: :location }
