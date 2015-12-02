@@ -370,5 +370,5 @@ Publishing to multiple channels from one location is not supported.
   legacy name: push_storage_engine  
   > Development directive to completely replace default storage engine. Don't use unless you know what you're doing    
 
-##Contribute
+## Contribute
 Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 1NHPMyqSanG2BC21Twqi8Pf1pXXgbPuLdJ . Other donation methods can be found at https://nchan.slact.net

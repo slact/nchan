@@ -7,7 +7,18 @@ ROOT_DIR=".."
 SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
 
+
 README_FILE="README.md"
+
+if ARGV[0]
+  readme_path = ARGV[0]
+  mysite = true
+else
+  readme_path = "#{ROOT_DIR}/#{README_FILE}"
+  mysite = nil
+end
+  
+
 
 current_release=(`git describe --abbrev=0 --tags`).chomp
 current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
@@ -44,17 +55,24 @@ class CfCmd #let's make a DSL!
     end
     
     
-    def to_md
+    def to_md(opt={})
       lines = []
       if value.class == Array
         val = "#{value.join ' | '}"
       elsif value
         val = "#{value}"
       end
-      if val
-        lines << "- **#{name}** `[ #{val} ]`"
+      
+      if opt[:mysite]
+        namestr = "<a name=\"#{name}\">#{name}</a>"
       else
-        lines << "- **#{name}**"
+        namestr = "**#{name}**"
+      end
+      
+      if val
+        lines << "- #{namestr} `[ #{val} ]`"
+      else
+        lines << "- #{namestr}"
       end
       
       if Range === args
@@ -165,21 +183,18 @@ end
 
 
 cmds.map! do |cmd|
-  cmd.to_md
+  cmd.to_md(:mysite => mysite)
 end
 
 
 config_documentation= cmds.join "\n\n"
 
-readme_path = "#{ROOT_DIR}/#{README_FILE}"
-
 text = File.read(readme_path)
 
 config_heading = "## Configuration Directives"
-new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^##)/m, "\n\n#{config_documentation}\n\n")
+new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_documentation}\n\n")
 
-new_contents = text.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
-
+new_contents = new_contents.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
 
 File.open(readme_path, "w") {|file| file.puts new_contents }
 
