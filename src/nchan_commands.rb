@@ -36,7 +36,8 @@ CfCmd.new do
       args: 0..5,
       
       group: "pubsub",
-      default: "(none)",
+      value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll"],
+      default: ["http", "websocket", "eventsource", "longpoll"],
       info: "Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
   
   nchan_subscriber [:srv, :loc, :if],
