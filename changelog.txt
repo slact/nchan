@@ -1,4 +1,12 @@
+0.9 (Dec. 2 2015) - first beta pre-release tag after rebranding as Nchan
+ feature: meta channel events: track when subscribers connect and disconnect, and when messages are
+          published, with configurable event strings
+ feature: request authorization: send upstream request before publishing or subscribing.
+          works just like the auth_request module.
+ feature: channel multiplexing. up to 4 channels can be subscribed to from a single location
  fix: channel ids were not set within if statements in the nginx config
+ feature: hybrid memstore + redis storage. local caching + distributed message publishing, the best
+          of both worlds. (still slower than pure memstore though)
  feature: pubsub locations, optional separate publisher and subscriber channel ids per location
  feature: websocket publisher support
  name change: we're nchan now. code renamed, and cleaned up. config options are backwards-compatible.
