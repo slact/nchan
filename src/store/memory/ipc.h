@@ -8,7 +8,7 @@ typedef struct {
   uint8_t         code;
 } ipc_alert_t;
 
-#define IPC_WRITEBUF_SIZE 15
+#define IPC_WRITEBUF_SIZE 64
 
 typedef struct ipc_writebuf_overflow_s ipc_writebuf_overflow_t;
 struct ipc_writebuf_overflow_s {
