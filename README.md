@@ -218,9 +218,9 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id for publisher location.    
 
-- **nchan_pubsub**  
+- **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll ]`  
   arguments: 0 - 5  
-  default: `(none)`  
+  default: `http websocket eventsource longpoll`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
