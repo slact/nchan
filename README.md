@@ -6,37 +6,37 @@ Messages are published to channels with HTTP POST requests and websockets, and s
 
 ## Status and History
 
+The latest Nchan release is <tag> (date). This is a pre-release that will crash if anything even remotely unexpected happens. It is suitable for testing and experimentation. A real release is coming soon.
+
 The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
 
 Nchan is already very fast (parsing regular expressions within nginx uses more CPU cycles than all of the nchan code), but there is also a lot of room left for improvement. This release focuses on *correctness* and *stability*, with further optimizations (like zero-copy message publishing) planned for later.
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
-## Install
+## Download
 
 #### Pre-built packages
-A source package is available for [arch linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/). Debian package coming soon, and maybe some others.
+ - For [Arch Linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) is available in the Arch User Repository.  
+ - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/) : A compiled 64-bit [.deb package is also available](https://nchan.slact.net/download/nginx-nchan-latest.deb).
+ - The compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/binary-tarball).
 
 
 #### From Source
-Grab the latest copy of Nginx from [nginx.org](https://nginx.org). Grab the latest Nchan source. Follow the instructions for [building Nginx](https://www.nginx.com/resources/wiki/start/topics/tutorials/install/#source-releases), except during the `configure` stage, add
+Grab the latest copy of Nginx from [nginx.org](https://nginx.org). Grab the latest Nchan source from gihub. Follow the instructions for [building Nginx](https://www.nginx.com/resources/wiki/start/topics/tutorials/install/#source-releases), except during the `configure` stage, add
 ```
 ./configure --add-module=path/to/nchan ...
 ```
 Run `make`, `make install`, and enjoy. (Caution, contents may be hot.)
 
-## Usage
+## Conceptual Overview
 
-Nchan can be configured as a shim between your application and subscribers, a standalone pub/sub server for web clients, or as websocket proxy with long-polling fallback for your application. There are many other use cases, but for now I will focus on the above.
+The basic unit of most pub/sub solutions is the messaging *channel*. Nchan is no different. Publishers send messages to channels with a certain *channel id*, and subscribers subscribed to those channels receive them. Some number of messages may be buffered for a time in a channel's message buffer before they are deleted. Pretty simple, right? 
 
-### The Basics 
-
-The basic unit of most pub/sub solutions is the messaging *channel*. Nchan is no different. Publishers send messages to channels with a certain *channel id*, and subscribers subscribed to those channels receive them. Pretty simple, right? 
-
-Well... the trouble is that nginx configuration does not deal with channels, publishers, and subscribers. Rather, it has several sections for incoming requests to match against *server* and *location* sections. *Nchan configuration directives map servers and locations onto channel publishing and subscribing endpoints*:
+Well... the trouble is that nginx configuration does not deal with channels, publishers, and subscribers. Rather, it has several sections for incoming requests to match against *server* and *location* sections. **Nchan configuration directives map servers and locations onto channel publishing and subscribing endpoints**:
 
 ```nginx
-#very basic nginx confing
+#very basic nchan config
 worker_processes 5;
 
 http {  
