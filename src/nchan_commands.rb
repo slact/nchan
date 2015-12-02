@@ -37,7 +37,7 @@ CfCmd.new do
       
       group: "pubsub",
       default: "(none)",
-      info: "Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
+      info: "Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
   
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
@@ -81,7 +81,7 @@ CfCmd.new do
       group: "pubsub",
       value: ["http", "websocket"],
       default: ["http", "websocket"],
-      info: "Defines a server or location as a message publisher. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description."
+      info: "Defines a server or location as a publisher endpoint. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description."
   
   nchan_subscriber_timeout [:main, :srv, :loc, :if],
       :ngx_conf_set_sec_slot,

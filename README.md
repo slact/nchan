@@ -210,7 +210,7 @@ Publishing to multiple channels from one location is not supported.
   default: `http websocket`  
   context: server, location, if  
   legacy name: push_publisher  
-  > Defines a server or location as a message publisher. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.    
+  > Defines a server or location as a publisher endpoint. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.    
 
 - **nchan_publisher_channel_id**  
   arguments: 1  
@@ -222,7 +222,7 @@ Publishing to multiple channels from one location is not supported.
   arguments: 0 - 5  
   default: `(none)`  
   context: server, location, if  
-  > Defines a server or location as a publisher and subscriber endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
+  > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll ]`  
   arguments: 0 - 4  
