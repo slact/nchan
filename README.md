@@ -6,9 +6,9 @@ Messages are published to channels with HTTP POST requests and websockets, and s
 
 ## Status and History
 
-The latest Nchan release is <tag> (date). This is a pre-release that will crash if anything even remotely unexpected happens. It is suitable for testing and experimentation. A real release is coming soon.
+The latest Nchan release is <tag> (date) ([changelog](https://nchan.slact.net/changelog)). This is a pre-release that will crash if anything even remotely unexpected happens. It is suitable for testing and experimentation. A full-fledged release will be made available once the documentation is complete.
 
-The first iteration of Nchan was written in 2009-2010 as the Nginx HTTP Push Module. It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
+The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net). It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
 
 Nchan is already very fast (parsing regular expressions within nginx uses more CPU cycles than all of the nchan code), but there is also a lot of room left for improvement. This release focuses on *correctness* and *stability*, with further optimizations (like zero-copy message publishing) planned for later.
 
