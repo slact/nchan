@@ -23,7 +23,7 @@ Please help make the entire codebase ready for production use! Report any quirks
 
 
 #### From Source
-Grab the latest copy of Nginx from [nginx.org](https://nginx.org). Grab the latest Nchan source from gihub. Follow the instructions for [building Nginx](https://www.nginx.com/resources/wiki/start/topics/tutorials/install/#source-releases), except during the `configure` stage, add
+Grab the latest copy of Nginx from [nginx.org](https://nginx.org). Grab the latest Nchan source from [github](https://github.com/slact/nchan). Follow the instructions for [building Nginx](https://www.nginx.com/resources/wiki/start/topics/tutorials/install/#source-releases), except during the `configure` stage, add
 ```
 ./configure --add-module=path/to/nchan ...
 ```
@@ -110,21 +110,21 @@ Subscriber endpoints are Nginx config *locations* with the *`nchan_subscriber`* 
 
 Nchan supports several different kinds of subscribers for receiving messages: *Websocket*, *EventSource* (Server Sent Events),  *Long-Poll*, and *Interval-Poll*.
 
-- *Long-Polling*  
+- ##### Long-Polling
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
   The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
-  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the first message in a channel's message queue.
+  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the oldest message in a channel's message queue, or waits until the next published message, depending on the value of the `nchan_subscriber_first_message` config directive.
   
-- *Interval-Polling*  
+- ##### Interval-Polling
   Works just like long-polling, except if the requested message is not yet available, immediately responds with a `304 Not Modified`.
 
-- *Websocket*  
-  Nchan supports the latest protocol version 13 (RFC 6455). To use a websocket subscriber, initiate a connection to the desired subscriber endpoint location.  
+- ##### Websocket
+  Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)). To use a websocket subscriber, initiate a connection to the desired subscriber endpoint location.  
   If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection.  
   Websocket extensions and subprotocols are not yet supported.
   
-- *EventSource* ( Server-Sent Events )  
-  Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
+- ##### EventSource
+  Also known as Server-Sent Events or SSE, EventSource subscriber connections are initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
   To resume a closed EventSource connection from the last-received message, initiate the connection with the "`Last-Event-ID`" header set to the last message's `id`.
 
 
