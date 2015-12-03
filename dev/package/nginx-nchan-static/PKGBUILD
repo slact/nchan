@@ -2,7 +2,7 @@
 _nchan_ver=0.901
 _nginx_ver=1.8.0
 
-_openssl_ver=1.0.2d
+_openssl_ver=1.0.2e
 _pcre_ver=8.38
 _zlib_ver=1.2.8
 
@@ -69,13 +69,13 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
        )
 
 md5sums=('3ca4a37931e9fa301964b8ce889da8cb'
-         '8a353fe1450216b6655dfcf3561716d9'
-         '38dd619b2e77cbac69b99f52a053d25a'
-         '44d667c142d7cda120332623eab69f40'
-         '845cab784b50f1666bbf89d7435ac7af'
-         '79031b58828462dec53a9faed9ddb36a'
-         '6696dc228a567506bca3096b5197c9db'
-         'SKIP')
+	 '8a353fe1450216b6655dfcf3561716d9'
+	 '2218c1a6f807f7206c11eb3ee3a5ec80'
+	 '44d667c142d7cda120332623eab69f40'
+	 '845cab784b50f1666bbf89d7435ac7af'
+	 '79031b58828462dec53a9faed9ddb36a'
+	 '6696dc228a567506bca3096b5197c9db'
+	 'SKIP')
 
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
