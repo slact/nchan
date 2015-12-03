@@ -70,7 +70,7 @@ class CfCmd #let's make a DSL!
     def to_md(opt={})
       lines = []
       if value.class == Array
-        val = "#{value.join ' | '}"
+        val = "[ #{value.join ' | '} ]"
       elsif value
         val = "#{value}"
       end
@@ -82,13 +82,13 @@ class CfCmd #let's make a DSL!
       end
       
       if val
-        lines << "- #{namestr} `[ #{val} ]`"
+        lines << "- #{namestr} `#{val}`"
       else
         lines << "- #{namestr}"
       end
       
       if Range === args
-        lines << "  #{descr 'arguments', opt} #{args.first} -- #{args.exclude_end? ? args.last - 1 : args.last}"
+        lines << "  #{descr 'arguments', opt} #{args.first} #{opt[:mysite] ? "&ndash;" : "-"} #{args.exclude_end? ? args.last - 1 : args.last}"
       elsif Numeric === args
         lines << "  #{descr 'arguments', opt} #{args}"
       else
@@ -200,6 +200,10 @@ end
 
 
 config_documentation= cmds.join "\n\n"
+
+#if mysite
+#  config_documentation = "<div class='configuration'><markdown>#{config_documentation}</markdown></div>"
+#end
 
 text = File.read(readme_path)
 
