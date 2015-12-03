@@ -81,8 +81,7 @@ build() {
   cd ${srcdir}/openssl-${_openssl_ver}
   #don't install_docs
   sed -i 's/^install: all install_docs install_sw$/install: all install_sw/' Makefile Makefile.org
-  
-  
+    
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
   local _build_dir="${_src_dir}/objs"
   cd $_src_dir
@@ -120,8 +119,9 @@ build() {
 
   CFLAGS="$CFLAGS -ggdb" #make sure debug symbols are present
   
-  ./configure ${CONFIGURE[@]} 
-  make
+  ./configure ${CONFIGURE[@]}
+
+  make -j3
 }
 
 package() {
