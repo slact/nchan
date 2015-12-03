@@ -10,7 +10,7 @@
 static void reaper_timer_handler(ngx_event_t *ev);
 void verify_reaper_list(nchan_reaper_t *rp, void *thing);
 
-ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next, ngx_int_t (*ready)(void *), void (*reap)(void *), int tick_sec) {
+ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next, ngx_int_t (*ready)(void *, uint8_t), void (*reap)(void *), int tick_sec) {
   rp->name = name;
   rp->count = 0;
   rp->next_ptr_offset = next;
@@ -104,7 +104,7 @@ static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
 ngx_int_t nchan_reaper_add(nchan_reaper_t *rp, void *thing) {
   verify_reaper_list(rp, thing);
   
-  if(rp->ready(thing) == NGX_OK) {
+  if(rp->ready(thing, 0) == NGX_OK) {
     rp->reap(thing);
     return NGX_OK;
   }
@@ -189,7 +189,7 @@ static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {
   
   while(cur != NULL && notready <= max_notready) {
     next = thing_next(rp, cur);
-    if(force || rp->ready(cur) == NGX_OK) {
+    if(rp->ready(cur, force) == NGX_OK) {
       reap_ready_thing(rp, cur, next);
       verify_reaper_list(rp, cur);
     }
@@ -214,7 +214,7 @@ static void its_reaping_time_keep_place(nchan_reaper_t *rp, uint8_t force) {
   while(n < rp->count && notready <= max_notready) {
     n++;
     next = thing_next(rp, cur);
-    if(force || rp->ready(cur) == NGX_OK) {
+    if(rp->ready(cur, force) == NGX_OK) {
       reap_ready_thing(rp, cur, next);
       verify_reaper_list(rp, cur);
     }
@@ -240,7 +240,7 @@ static void its_reaping_rotating_time(nchan_reaper_t *rp, uint8_t force) {
   
   while(cur != NULL && cur != firstmoved && notready <= max_notready) {
     next = thing_next(rp, cur);
-    if(force || rp->ready(cur) == NGX_OK) {
+    if(rp->ready(cur, force) == NGX_OK) {
       reap_ready_thing(rp, cur, next);
     }
     else {

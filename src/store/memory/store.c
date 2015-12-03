@@ -51,16 +51,27 @@ typedef struct {
 #endif
 } memstore_data_t;
 
-static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg) {
-  if(smsg->msg->expires > ngx_time()) {
-    //not time yet
+static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg, uint8_t force) {
+  if(!force) {
+    if(smsg->msg->expires > ngx_time()) {
+      //not time yet
+      return NGX_DECLINED;
+    }
+    
+    if(ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+      return NGX_OK;
+    }
     return NGX_DECLINED;
   }
-//   
-  if(ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+  else {
+    if(! ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+      if(smsg->msg->refcount > 0) {
+        ERR("force-reaping msg with refcount %d", smsg->msg->refcount);
+      }
+      smsg->msg->refcount = MSG_REFCOUNT_INVALID;
+    }
     return NGX_OK;
   }
-  return NGX_DECLINED;
 }
 
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
@@ -71,71 +82,77 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 
 
-static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_t *ch) {
+static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_t *ch, uint8_t force) {
   
   chanhead_messages_gc(ch);
-  
-  if(ch->status != INACTIVE) {
-    char *sts;
-    switch(ch->status) {
-      case NOTREADY:
-        sts = "NOTREADY";
-        break;
-      case WAITING:
-        sts = "WAITING";
-        break;
-      case STUBBED:
-        sts = "STUBBED";
-        break;
-      case READY:
-        sts = "READY";
-        break;
-      case INACTIVE:
-        sts = "INACTIVE";
-        break;
+  if(!force) {
+    if(ch->status != INACTIVE) {
+      char *sts;
+      switch(ch->status) {
+        case NOTREADY:
+          sts = "NOTREADY";
+          break;
+        case WAITING:
+          sts = "WAITING";
+          break;
+        case STUBBED:
+          sts = "STUBBED";
+          break;
+        case READY:
+          sts = "READY";
+          break;
+        case INACTIVE:
+          sts = "INACTIVE";
+          break;
+      }
+      DBG("not ready to reap %V : status %s", &ch->id, sts);
+      return NGX_DECLINED;
     }
-    DBG("not ready to reap %V : status %s", &ch->id, sts);
-    return NGX_DECLINED;
+    
+    if(ch->gc_time - ngx_time() > 0) {
+      DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
+      return NGX_DECLINED;
+    }
+    
+    if (ch->sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+      return NGX_DECLINED;
+    }
+    
+    if(ch->channel.messages > 0) {
+      assert(ch->msg_first != NULL);
+      DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+      return NGX_DECLINED;
+    }
+    
+    //DBG("ok to delete channel %V", &ch->id);
+    return NGX_OK;
   }
-  
-  if(ch->gc_time - ngx_time() > 0) {
-    DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
-    return NGX_DECLINED;
+  else {
+    //force delete is always ok
+    return NGX_OK;
   }
-  
-  if (ch->sub_count > 0) { //there are subscribers
-    DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
-    return NGX_DECLINED;
-  }
-  
-  if(ch->channel.messages > 0) {
-    assert(ch->msg_first != NULL);
-    DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
-    return NGX_DECLINED;
-  }
-  
-  //DBG("ok to delete channel %V", &ch->id);
-  return NGX_OK;
 }
 
-static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channel_head_t *ch) {
+static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channel_head_t *ch, uint8_t force) {
   
   chanhead_messages_gc(ch);
-  
-  if(ch->churn_time - ngx_time() > 0) {
-    DBG("not yet time to reap %V, %i sec left", &ch->id, ch->churn_time - ngx_time());
-    return NGX_DECLINED;
-  }
-  
-  if (ch->sub_count > 0) { //there are subscribers
-    DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
-    return NGX_DECLINED;
-  }
-  
-  if(ch->channel.messages > 0) {
-    assert(ch->msg_first != NULL);
-    DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
-    return NGX_DECLINED;
+  if(!force) {
+    if(ch->churn_time - ngx_time() > 0) {
+      DBG("not yet time to reap %V, %i sec left", &ch->id, ch->churn_time - ngx_time());
+      return NGX_DECLINED;
+    }
+    
+    if (ch->sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+      return NGX_DECLINED;
+    }
+    
+    if(ch->channel.messages > 0) {
+      assert(ch->msg_first != NULL);
+      DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+      return NGX_DECLINED;
+    }
   }
   
   //DBG("ok to delete channel %V", &ch->id);
@@ -153,7 +170,7 @@ static void init_mpt(memstore_data_t *m) {
                      "memstore message", 
                      offsetof(store_message_t, prev), 
                      offsetof(store_message_t, next), 
-    (ngx_int_t (*)(void *)) nchan_memstore_store_msg_ready_to_reap,
+    (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_store_msg_ready_to_reap,
          (void (*)(void *)) memstore_reap_store_message,
                      5
   );
@@ -162,7 +179,7 @@ static void init_mpt(memstore_data_t *m) {
                      "memstore nobuffer message", 
                      offsetof(store_message_t, prev), 
                      offsetof(store_message_t, next), 
-    (ngx_int_t (*)(void *)) nchan_memstore_store_msg_ready_to_reap,
+    (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_store_msg_ready_to_reap,
          (void (*)(void *)) memstore_reap_store_message,
                      2
   );
@@ -173,7 +190,7 @@ static void init_mpt(memstore_data_t *m) {
                      "chanhead", 
                      offsetof(nchan_store_channel_head_t, gc_prev), 
                      offsetof(nchan_store_channel_head_t, gc_next), 
-    (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap,
+    (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_chanhead_ready_to_reap,
          (void (*)(void *)) memstore_reap_chanhead,
                      4
   );
@@ -182,7 +199,7 @@ static void init_mpt(memstore_data_t *m) {
                      "chanhead churner", 
                      offsetof(nchan_store_channel_head_t, churn_prev), 
                      offsetof(nchan_store_channel_head_t, churn_next), 
-    (ngx_int_t (*)(void *)) nchan_memstore_chanhead_ready_to_reap_slowly,
+    (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_chanhead_ready_to_reap_slowly,
          (void (*)(void *)) memstore_reap_churned_chanhead,
                      10
   );
@@ -1265,19 +1282,19 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     chanhead_gc_add(cur, "exit worker");
   }
   
-  if(mpt->chanhead_reaper.count == 0) {
+  if(mpt->chanhead_reaper.count > 0) {
     ERR("%i channels still present in reaper at exit  (slot %i)", mpt->chanhead_reaper.count, ngx_process_slot);
   }
   
-  if(mpt->chanhead_churner.count == 0) {
+  if(mpt->chanhead_churner.count > 0) {
     ERR("%i channels still present in churner at exit  (slot %i)", mpt->chanhead_churner.count, ngx_process_slot);
   }
   
-  if(mpt->nobuffer_msg_reaper.count == 0) {
+  if(mpt->nobuffer_msg_reaper.count > 0) {
     ERR("%i unbuffered messages still present in reaper at exit  (slot %i)", mpt->nobuffer_msg_reaper.count, ngx_process_slot);
   }
   
-  if(mpt->msg_reaper.count == 0) {
+  if(mpt->msg_reaper.count > 0) {
     ERR("%i messages still present in reaper at exit  (slot %i)", mpt->msg_reaper.count, ngx_process_slot);
   }
   

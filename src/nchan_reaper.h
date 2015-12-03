@@ -10,7 +10,7 @@ typedef struct {
   int                        prev_ptr_offset;
   void                      *last;
   void                      *first;
-  ngx_int_t                  (*ready)(void *); //ready to be reaped?
+  ngx_int_t                  (*ready)(void *, uint8_t force); //ready to be reaped?
   void                       (*reap)(void *); //reap it
   ngx_event_t                timer;
   int                        tick_usec;
@@ -20,7 +20,7 @@ typedef struct {
 
 } nchan_reaper_t;
 
-ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next, ngx_int_t (*ready)(void *), void (*reap)(void *), int tick_sec);
+ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next, ngx_int_t (*ready)(void *, uint8_t force), void (*reap)(void *), int tick_sec);
 
 ngx_int_t nchan_reaper_stop(nchan_reaper_t *rp);
 
