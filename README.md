@@ -186,7 +186,7 @@ So far the examples have used static channel ids, which is not very useful in pr
 Any subscriber location can be an endpoint for up to 4 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. This is configured by specifying multiple channel ids for the `nchan_channel_id` or `nchan_channel_subscriber_id` config directive:
 
 ```nginx
-  location ~/multisub/(\w+)/(\w+)$ {
+  location ~ /multisub/(\w+)/(\w+)$ {
     nchan_subscriber;
     nchan_channel_id "$1" "$2" "common_channel";
     #GET /multisub/foo/bar will be subscribed to:
@@ -200,13 +200,13 @@ Publishing to multiple channels from one location is not supported.
 ## Configuration Directives
 
 - **nchan_channel_id**  
-  arguments: 1 -- 4  
+  arguments: 1 - 4  
   default: `(none)`  
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
 
 - **nchan_publisher** `[ http | websocket ]`  
-  arguments: 0 -- 2  
+  arguments: 0 - 2  
   default: `http websocket`  
   context: server, location, if  
   legacy name: push_publisher  
@@ -219,13 +219,13 @@ Publishing to multiple channels from one location is not supported.
   > Channel id for publisher location.    
 
 - **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll ]`  
-  arguments: 0 -- 5  
+  arguments: 0 - 5  
   default: `http websocket eventsource longpoll`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll ]`  
-  arguments: 0 -- 4  
+  arguments: 0 - 4  
   default: `websocket eventsource longpoll`  
   context: server, location, if  
   legacy name: push_subscriber  
@@ -233,7 +233,7 @@ Publishing to multiple channels from one location is not supported.
   >  The value is a list of permitted subscriber types.    
 
 - **nchan_subscriber_channel_id**  
-  arguments: 1 -- 4  
+  arguments: 1 - 4  
   default: `(none)`  
   context: server, location, if  
   > Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
@@ -253,47 +253,47 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives.    
 
-- **nchan_subscriber_timeout** `[ <number> ]`  
+- **nchan_subscriber_timeout** `<number>`  
   arguments: 1  
   default: `0 (none)`  
   context: http, server, location, if  
   legacy name: push_subscriber_timeout  
   > The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a push_subscriber is present in this or a child context.    
 
-- **nchan_authorize_request** `[ <url> ]`  
+- **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
 
-- **nchan_max_message_buffer_length** `[ <number> ]`  
+- **nchan_max_message_buffer_length** `<number>`  
   arguments: 1  
   default: `10`  
   context: http, server, location  
   legacy name: push_max_message_buffer_length  
   > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
 
-- **nchan_max_reserved_memory** `[ <size> ]`  
+- **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
   default: `32M`  
   context: http  
   legacy name: push_max_reserved_memory  
   > The size of the shared memory chunk this module will use for message queuing and buffering.    
 
-- **nchan_message_buffer_length** `[ <number> ]`  
+- **nchan_message_buffer_length** `<number>`  
   arguments: 1  
   default: `none`  
   context: http, server, location  
   legacy name: push_message_buffer_length  
   > The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value.    
 
-- **nchan_message_timeout** `[ <time> ]`  
+- **nchan_message_timeout** `<time>`  
   arguments: 1  
   default: `1h`  
   context: http, server, location  
   legacy name: push_message_timeout  
   > The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
 
-- **nchan_min_message_buffer_length** `[ <number> ]`  
+- **nchan_min_message_buffer_length** `<number>`  
   arguments: 1  
   default: `1`  
   context: http, server, location  
@@ -326,14 +326,14 @@ Publishing to multiple channels from one location is not supported.
   legacy name: push_authorized_channels_only  
   > Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
 
-- **nchan_channel_group** `[ <string> ]`  
+- **nchan_channel_group** `<string>`  
   arguments: 1  
   default: `(none)`  
   context: server, location, if  
   legacy name: push_channel_group  
   > Because settings are bound to locations and not individual channels, it is useful to be able to have channels that can be reached only from some locations and never others. That's where this setting comes in. Think of it as a prefix string for the channel id.    
 
-- **nchan_channel_event_string** `[ <string> ]`  
+- **nchan_channel_event_string** `<string>`  
   arguments: 1  
   default: `$nchan_channel_event $nchan_channel_id`  
   context: server, location, if  
@@ -344,14 +344,14 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'.    
 
-- **nchan_max_channel_id_length** `[ <number> ]`  
+- **nchan_max_channel_id_length** `<number>`  
   arguments: 1  
   default: `512`  
   context: http, server, location  
   legacy name: push_max_channel_id_length  
   > Maximum permissible channel id length (number of characters). Longer ids will be truncated.    
 
-- **nchan_max_channel_subscribers** `[ <number> ]`  
+- **nchan_max_channel_subscribers** `<number>`  
   arguments: 1  
   default: `0 (unlimited)`  
   context: http, server, location  
