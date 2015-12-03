@@ -296,7 +296,6 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     rfile = rbuffer->file;
     if(rfile != NULL) {
       if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
-        assert(err);
         if(err) *err = "couldn't allocate memory for file struct";
         return NGX_ERROR;
       }
@@ -306,13 +305,11 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     
     if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
       if(rfile->name.len == 0) {
-        assert(err);
         if(err) *err = "longpoll subscriber given an invalid fd with no filename";
         return NGX_ERROR;
       }
       rfile->fd = nchan_fdcache_get(&rfile->name);
       if(rfile->fd == NGX_INVALID_FILE) {
-        assert(err);
         if(err) *err = "can't create output chain, file in buffer won't open";
         return NGX_ERROR;
       }
@@ -335,7 +332,6 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   }
   
   if(nchan_set_msgid_http_response_headers(r, msgid) != NGX_OK) {
-    assert(err);
     if(err) *err = "can't set msgid headers";
     return NGX_ERROR;
   }
@@ -344,7 +340,6 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   
   //we know the entity length, and we're using just one buffer. so no chunking please.
   if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
-    assert(err);
     ERR("request %p, send_header response %i", r, rc);
     if(err) *err="WTF just happened to request?";
     return NGX_ERROR;

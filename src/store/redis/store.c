@@ -656,6 +656,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
+              ERR("unsub one not yet implemented");
               assert(0);
             }
             else if(ngx_strmatch(&alerttype, "unsub all") && array_sz > 1) {
@@ -668,6 +669,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
+              ERR("unsub all except not yet  implemented");
               assert(0);
             }
             else {
@@ -715,6 +717,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           ERR("REDIS: PUB/SUB already unsubscribed from %s, chanhead %p (id %V) INACTIVE.", reply->element[1]->str, chanhead, &chanhead->id);
           break;
         default:
+          ERR("REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
           assert(0);
           //not sposed to happen
       }
@@ -1295,7 +1298,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
-  assert(msg_id->tagcount = 1);
+  assert(msg_id->tagcount == 1);
   redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag[0], "FILO", 0);
   return NGX_OK; //async only now!
 }

@@ -59,8 +59,8 @@ static ngx_inline void *thing_prev(nchan_reaper_t *rp, void *thing) {
 }
 
 
-void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
-  
+ngx_inline void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
+  /*
   if(rp->first == NULL) {
     assert(rp->count == 0 && rp->last == NULL);
   }
@@ -89,7 +89,7 @@ void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
     if(thing) assert(cur != thing);
   }
   assert(i == rp->count);
-  
+  */
 }
 
 static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
