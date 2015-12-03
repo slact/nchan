@@ -1265,8 +1265,21 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     chanhead_gc_add(cur, "exit worker");
   }
   
-  assert(mpt->chanhead_reaper.count == 0);
+  if(mpt->chanhead_reaper.count == 0) {
+    ERR("%i channels still present in reaper at exit  (slot %i)", mpt->chanhead_reaper.count, ngx_process_slot);
+  }
   
+  if(mpt->chanhead_churner.count == 0) {
+    ERR("%i channels still present in churner at exit  (slot %i)", mpt->chanhead_churner.count, ngx_process_slot);
+  }
+  
+  if(mpt->nobuffer_msg_reaper.count == 0) {
+    ERR("%i unbuffered messages still present in reaper at exit  (slot %i)", mpt->nobuffer_msg_reaper.count, ngx_process_slot);
+  }
+  
+  if(mpt->msg_reaper.count == 0) {
+    ERR("%i messages still present in reaper at exit  (slot %i)", mpt->msg_reaper.count, ngx_process_slot);
+  }
   
   nchan_reaper_stop(&mpt->chanhead_churner);
   nchan_reaper_stop(&mpt->chanhead_reaper);
