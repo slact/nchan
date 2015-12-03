@@ -1,6 +1,6 @@
 <img class="logo" alt="NCHAN" src="https://raw.githubusercontent.com/slact/nchan/master/nchan_logo.png" />
 
-Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the Nginx web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
+Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](https://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via Redis. All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with Redis.
 
 Messages are published to channels with HTTP POST requests and websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
@@ -8,18 +8,22 @@ Messages are published to channels with HTTP POST requests and websockets, and s
 
 The latest Nchan release is v0.901 (December 3, 2015) ([changelog](https://nchan.slact.net/changelog)). This is a pre-release that will crash if anything even remotely unexpected happens. It is suitable for testing and experimentation. A full-fledged release will be made available once the documentation is complete.
 
-The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net). It was vastly refactored in 2014-2015, and here we are today. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
+The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2015. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
 
 Nchan is already very fast (parsing regular expressions within nginx uses more CPU cycles than all of the nchan code), but there is also a lot of room left for improvement. This release focuses on *correctness* and *stability*, with further optimizations (like zero-copy message publishing) planned for later.
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
+#### Upgrade from Nginx HTTP Push Module
+
+Although Nchan is *mostly* backwards-compatible with Push Module configuration directives, some of the more unusual and rarely used settings have been removed. See the [upgrade page](https://nchan.slact.net/upgrade) for a detailed list of changes and improvements, as well as a full list of incompatibilities.
+
 ## Download
 
 #### Pre-built packages
  - For [Arch Linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) is available in the Arch User Repository.  
- - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/) : A compiled 64-bit [.deb package is also available](https://nchan.slact.net/download/nginx-nchan-latest.deb).
- - The compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/binary-tarball).
+ - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/) : A statically compiled 64-bit [.deb package is available](https://nchan.slact.net/download/nginx-nchan-latest.deb).
+ - The same statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/binary-tarball).
 
 
 #### From Source
