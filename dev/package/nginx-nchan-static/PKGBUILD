@@ -1,5 +1,5 @@
 #!/bin/zsh
-_nchan_ver=0.901
+_nchan_ver=0.902
 _nginx_ver=1.8.0
 
 _openssl_ver=1.0.2e
