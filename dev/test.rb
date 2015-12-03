@@ -393,9 +393,9 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def test_broadcast_10000
-    test_broadcast 10000
-  end
+  #def test_broadcast_10000
+  #  test_broadcast 10000
+  #end
   
   def dont_test_subscriber_concurrency
     chan=SecureRandom.hex
