@@ -1,5 +1,5 @@
-//#define IPC_DATA_SIZE 56
-#define IPC_DATA_SIZE 80
+#define IPC_DATA_SIZE 56
+//#define IPC_DATA_SIZE 80
 
 typedef struct {
   char            data[IPC_DATA_SIZE];
@@ -8,7 +8,7 @@ typedef struct {
   uint8_t         code;
 } ipc_alert_t;
 
-#define IPC_WRITEBUF_SIZE 64
+#define IPC_WRITEBUF_SIZE 32
 
 typedef struct ipc_writebuf_overflow_s ipc_writebuf_overflow_t;
 struct ipc_writebuf_overflow_s {
