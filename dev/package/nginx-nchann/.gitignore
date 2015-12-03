@@ -1,0 +1,5 @@
+pkg/
+src/
+nchan/
+*.tar.gz
+*.pkg.*
