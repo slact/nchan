@@ -121,7 +121,7 @@ build() {
   
   ./configure ${CONFIGURE[@]}
 
-  make -j3
+  make -j1
 }
 
 package() {
