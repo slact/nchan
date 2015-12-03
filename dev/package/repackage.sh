@@ -5,7 +5,7 @@ pkgdir=$mydir/pkgs
 
 rm $pkgdir/* -fv >/dev/null 2>/dev/null
 
-pushd $mydir/nginx-nchan-git
+pushd $mydir/nginx-nchan
 MTUNE_GENERIC=1 PKGDEST="$pkgdir" makepkg
 popd
 
