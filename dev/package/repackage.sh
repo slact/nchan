@@ -14,7 +14,7 @@ archpkg=`echo *pkg.tar.xz`
 
 bundle exec fpm -s pacman -t tar $archpkg
 
-bundle exec fpm -s pacman -t deb $archpkg
+bundle exec fpm -s pacman --no-auto-depends -d libpcre3 -d libssl1.0.2 -d zlib1g -t deb $archpkg
 #bundle exec fpm -s pacman -t rpm $archpkg
 #bundle exec fpm -s pacman -t osxpkg $archpkg
 
