@@ -80,7 +80,8 @@ md5sums=('3ca4a37931e9fa301964b8ce889da8cb'
 build() {
   cd ${srcdir}/openssl-${_openssl_ver}
   #don't install_docs
-  sed -i 's/^install: all install_docs install_sw$/install: all install_sw/' Makefile Makefile.org
+  sed -i 's/^install: all install_docs install_sw$/install: all install_sw/' Makefile.org
+  rm Makefile #damn, openssl...
     
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
   local _build_dir="${_src_dir}/objs"
