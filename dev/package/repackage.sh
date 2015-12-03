@@ -1,10 +1,11 @@
 #!/bin/zsh
+mydir=${0:a:h}
 
-pkgdir=`pwd`/pkgs
+pkgdir=$mydir/pkgs
 
 rm $pkgdir/* -fv >/dev/null 2>/dev/null
 
-pushd nginx-nchan-git
+pushd $mydir/nginx-nchan-git
 MTUNE_GENERIC=1 PKGDEST="$pkgdir" makepkg
 popd
 

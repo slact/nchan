@@ -1,3 +1,6 @@
 [submodule "dev/package/nginx-nchan-git"]
 	path = dev/package/nginx-nchan-git
 	url = ssh://aur@aur.archlinux.org/nginx-nchan-git.git
+[submodule "dev/package/nginx-nchan"]
+	path = dev/package/nginx-nchan
+	url = ssh://aur@aur.archlinux.org/nginx-nchan.git
