@@ -21,9 +21,9 @@ Although Nchan is *mostly* backwards-compatible with Push Module configuration d
 ## Download
 
 #### Pre-built packages
- - For [Arch Linux](https://archlinux.org): [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) is available in the Arch User Repository.  
+ - For [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/) : A statically compiled 64-bit [.deb package is available](https://nchan.slact.net/download/nginx-nchan-latest.deb).
- - The same statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/binary-tarball).
+ - The same statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
 
 
 #### From Source
