@@ -524,7 +524,7 @@ static void websocket_reading(ngx_http_request_t *r) {
   
   set_buffer(&buf, frame->header, frame->last, 8);
 
-  ERR("fsub: %p, frame: %p", fsub, frame);
+  //ERR("fsub: %p, frame: %p", fsub, frame);
   
   c = r->connection;
   rev = c->read;
@@ -629,7 +629,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             msg_in_str.data=frame->payload;
             msg_in_str.len=frame->payload_len;
             
-            ERR("we got data %V", &msg_in_str);
+            DBG("we got data %V", &msg_in_str);
             
             websocket_publish(fsub, &msg_in_str);
           }
@@ -648,7 +648,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             break;
           
           case WEBSOCKET_OPCODE_CLOSE:
-            ERR("wants to close");
+            DBG("wants to close");
             websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
             goto finalize;
             break; //good practice?

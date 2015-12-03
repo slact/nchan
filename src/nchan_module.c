@@ -546,7 +546,10 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   
   len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
   
-  assert(len < 512);
+  if(len > 512) {
+    ERR("Channel info string too long: max: 512, is: %i",len);
+    len = 512;
+  }
   
   b->last = ngx_sprintf(b->start, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers);
   b->end = b->last;
@@ -965,8 +968,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         for(j=0; j < max; j++) {
           if(id2->tag[j] != -1) {
             if( i != -1) {
-              //more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg. fail.
-              //assert(0);
+              ERR("verify_msg_id: more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg. fail.");
               return NGX_ERROR;
             }
             else {
@@ -974,8 +976,8 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
             }
           }
         }
-        if(msgid->tag[i] != 0) { //only the first message in a given second is ok. anything else means a missed message.
-          //assert(0);
+        if(msgid->tag[i] != 0) {
+          ERR("verify_msg_id: only the first message in a given second is ok. anything else means a missed message.");
           return NGX_ERROR;
         }
         //ok, it's just the first-per-second message of a channel from a multi-channel
@@ -983,13 +985,14 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         return NGX_OK;
       }
       else {
-        //assert(0);
+        ERR("verify_msg_id: not a multimsg tag, different times. could be a missed message.");
         return NGX_ERROR;
       }
     }
+    
     if(id1->tagcount == 1) {
       if(id1->tag[0] != id2->tag[0]){
-        //assert(0);
+        ERR("verify_msg_id: tag mismatch. missed message?");
         return NGX_ERROR;
       }
     }
@@ -997,7 +1000,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
       int   i, max = id1->tagcount;
       for(i=0; i < max; i++) {
         if(id2->tag[i] != -1 && id1->tag[i] != id2->tag[i]) {
-          //assert(0);
+          ERR("verify_msg_id: multitag mismatch. missed message?");
           return NGX_ERROR;
         }
       }
@@ -1044,8 +1047,7 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
         ERR("missed a message because it probably expired");
       }
       else {
-        ERR("missed a message for an unknown reason. That's bad! Stop everything!");
-        assert(0);
+        ERR("missed a message for an unknown reason. Maybe it's a bug or maybe the message queue length is too small.");
       }
     }
     
