@@ -14,7 +14,7 @@
 #include <nchan_setup.c>
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
-#include <store/memory/store-private.h> //for debugging
+//#include <store/memory/store-private.h> //for debugging
 #include <nchan_output.h>
 #include <nchan_websocket_publisher.h>
 
@@ -26,8 +26,8 @@ ngx_module_t        nchan_module;
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN(%i):" fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN(%i):" fmt, memstore_slot(), ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
 
 
 static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r);
