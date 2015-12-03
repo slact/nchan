@@ -213,7 +213,7 @@ new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_do
 new_contents = new_contents.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
 
 if mysite
-  new_contents = new_contents.gsub(/https:\/\/nchan.slact.net\//g, "/")
+  new_contents = new_contents.gsub(/https:\/\/nchan\.slact\.net\//, "/")
 end
 
 File.open(readme_output_path, "w") {|file| file.puts new_contents }
