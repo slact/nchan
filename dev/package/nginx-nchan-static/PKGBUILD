@@ -70,12 +70,12 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
 
 md5sums=('3ca4a37931e9fa301964b8ce889da8cb'
 	 '8a353fe1450216b6655dfcf3561716d9'
-	 '2218c1a6f807f7206c11eb3ee3a5ec80'
+	 '5262bfa25b60ed9de9f28d5d52d77fc5'
 	 '44d667c142d7cda120332623eab69f40'
 	 '845cab784b50f1666bbf89d7435ac7af'
 	 '79031b58828462dec53a9faed9ddb36a'
 	 '6696dc228a567506bca3096b5197c9db'
-	 'SKIP')
+	          'SKIP')
 
 build() {
   cd ${srcdir}/openssl-${_openssl_ver}
