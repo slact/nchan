@@ -3,7 +3,7 @@ ROOT_DIR=".."
 SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
 CONFIG_OUT=ARGV[0]
-  
+
 class CfCmd #let's make a DSL!
   class OneOf
     def initialize(arg) 

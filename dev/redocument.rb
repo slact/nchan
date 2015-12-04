@@ -47,7 +47,7 @@ class CfCmd #let's make a DSL!
   
   class Cmd
     attr_accessor :name, :type, :set, :conf, :offset_name
-    attr_accessor :contexts, :args, :legacy, :alt, :disabled
+    attr_accessor :contexts, :args, :legacy, :alt, :disabled, :undocumented
     attr_accessor :group, :default, :info, :value
 
     def initialize(name, func)
@@ -150,6 +150,7 @@ class CfCmd #let's make a DSL!
     cmd.legacy = opt[:legacy]
     cmd.alt = opt[:alt]
     cmd.disabled = opt[:disabled]
+    cmd.undocumented = opt[:undocumented]
     
     cmd.args = opt.has_key?(:args) ? opt[:args] : 1
     cmd.group = opt[:group]
@@ -157,7 +158,7 @@ class CfCmd #let's make a DSL!
     cmd.default = opt[:default]
     cmd.info = opt[:info]
     
-    @cmds << cmd
+    @cmds << cmd if !cmd.disabled && !cmd.undocumented
   end
  
 end
