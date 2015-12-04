@@ -153,6 +153,7 @@ CfCmd.new do
       :ngx_conf_set_num_slot,
       [:loc_conf, :max_messages],
       legacy: "push_max_message_buffer_length",
+      alt: ["nchan_message_max_buffer_length"],
       
       group: "storage",
       value: "<number>",

@@ -177,6 +177,12 @@ static ngx_command_t  nchan_commands[] = {
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, max_messages),
     NULL } ,
+  { ngx_string("nchan_message_max_buffer_length"), //alt for nchan_message_buffer_length
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_num_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, max_messages),
+    NULL } ,
 
   { ngx_string("nchan_authorized_channels_only"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
