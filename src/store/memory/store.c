@@ -1198,68 +1198,6 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
-/*
-static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
-  nchan_reloading_channel_t     *sch;
-  store_message_t               *cur, *next;
-  nchan_msg_t                   *msg, *firstmsg, *lastmsg;
-  
-  if(ch->msg_first == NULL) {
-    //empty
-    return;
-  }
-  
-  firstmsg = ch->msg_first->msg;
-  lastmsg = NULL;
-  if(firstmsg != NULL) {
-    if((sch = shm_alloc(shm, sizeof(sch) + ch->id.len, "channel reloading data")) == NULL) {
-      ERR("unable to allocate reloading-channel for msg reload");
-      return;
-    }
-    
-    sch->id.len = ch->id.len;
-    sch->id.data = (u_char *)&sch[1];
-    ngx_memcpy(sch->id.data, ch->id.data, ch->id.len);
-    
-    sch->max_messages = ch->max_messages;
-    sch->use_redis = ch->use_redis;
-    sch->msgs = firstmsg;
-  }
-  
-  for(cur = ch->msg_first; cur != NULL; cur = next) {
-    msg = cur->msg;
-    if(lastmsg) {
-      lastmsg->reload_next = msg;
-    }
-    
-    lastmsg = msg;
-    
-    next = cur->next;
-    ngx_free(cur);
-  }
-  
-  if(ch->shared) {
-    ch->shared->stored_message_count = 0;
-  }
-  ch->channel.messages = 0;
-  
-  if(firstmsg) {
-    shmtx_lock(shm);
-    
-    lastmsg->reload_next = NULL;
-    
-    sch->prev = NULL;
-    sch->next = shdata->rlch;
-    shdata->rlch = sch;
-    
-    shmtx_unlock(shm);
-  }
-  
-  ch->msg_first = NULL;
-  ch->msg_last = NULL;
-}
-*/
-
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
   ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT, procslot;
