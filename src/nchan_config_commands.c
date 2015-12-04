@@ -165,43 +165,17 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, buffer_timeout),
     NULL } ,
 
-  { ngx_string("nchan_min_message_buffer_length"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_num_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, min_messages),
-    NULL } ,
-  { ngx_string("push_min_message_buffer_length"), //legacy for nchan_min_message_buffer_length
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_num_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, min_messages),
-    NULL } ,
-
-  { ngx_string("nchan_max_message_buffer_length"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_num_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, max_messages),
-    NULL } ,
-  { ngx_string("push_max_message_buffer_length"), //legacy for nchan_max_message_buffer_length
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_num_slot,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, max_messages),
-    NULL } ,
-
   { ngx_string("nchan_message_buffer_length"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    nchan_set_message_buffer_length,
+    ngx_conf_set_num_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
-    0,
+    offsetof(nchan_loc_conf_t, max_messages),
     NULL } ,
-  { ngx_string("push_message_buffer_length"), //legacy for nchan_message_buffer_length
+  { ngx_string("push_max_message_buffer_length"), //legacy for nchan_message_buffer_length
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    nchan_set_message_buffer_length,
+    ngx_conf_set_num_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
-    0,
+    offsetof(nchan_loc_conf_t, max_messages),
     NULL } ,
 
   { ngx_string("nchan_authorized_channels_only"),

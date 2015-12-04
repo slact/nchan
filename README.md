@@ -269,13 +269,6 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
 
-- **nchan_max_message_buffer_length** `<number>`  
-  arguments: 1  
-  default: `10`  
-  context: http, server, location  
-  legacy name: push_max_message_buffer_length  
-  > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
-
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
   default: `32M`  
@@ -285,10 +278,10 @@ Publishing to multiple channels from one location is not supported.
 
 - **nchan_message_buffer_length** `<number>`  
   arguments: 1  
-  default: `none`  
+  default: `10`  
   context: http, server, location  
-  legacy name: push_message_buffer_length  
-  > The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value.    
+  legacy name: push_max_message_buffer_length  
+  > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
 
 - **nchan_message_timeout** `<time>`  
   arguments: 1  
@@ -296,13 +289,6 @@ Publishing to multiple channels from one location is not supported.
   context: http, server, location  
   legacy name: push_message_timeout  
   > The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
-
-- **nchan_min_message_buffer_length** `<number>`  
-  arguments: 1  
-  default: `1`  
-  context: http, server, location  
-  legacy name: push_min_message_buffer_length  
-  > The minimum number of messages to store per channel. A channel's message  buffer will retain at least this many most recent messages.    
 
 - **nchan_redis_url**  
   arguments: 1  

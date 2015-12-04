@@ -45,7 +45,6 @@ struct nchan_store_channel_head_s {
   ngx_int_t                       gc_queued_times; // useful for debugging
   store_channel_head_shm_t       *shared;
   ngx_int_t                       internal_sub_count;
-  ngx_uint_t                      min_messages;
   ngx_uint_t                      max_messages;
   store_message_t                *msg_first;
   store_message_t                *msg_last;
@@ -76,7 +75,6 @@ typedef struct nchan_reloading_channel_s nchan_reloading_channel_t;
 
 struct nchan_reloading_channel_s {
   ngx_str_t                          id;
-  ngx_uint_t                         min_messages;
   ngx_uint_t                         max_messages;
   unsigned                           use_redis:1;
   struct nchan_reloading_channel_s  *prev;

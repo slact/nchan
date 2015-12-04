@@ -149,17 +149,7 @@ CfCmd.new do
       default: "1h",
       info: "The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context."
   
-  nchan_min_message_buffer_length [:main, :srv, :loc],
-      :ngx_conf_set_num_slot,
-      [:loc_conf, :min_messages],
-      legacy: "push_min_message_buffer_length",
-      
-      group: "storage",
-      value: "<number>",
-      default: 1,
-      info: "The minimum number of messages to store per channel. A channel's message  buffer will retain at least this many most recent messages."
-  
-  nchan_max_message_buffer_length [:main, :srv, :loc],
+  nchan_message_buffer_length [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, :max_messages],
       legacy: "push_max_message_buffer_length",
@@ -168,16 +158,6 @@ CfCmd.new do
       value: "<number>",
       default: 10,
       info: "The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
-  
-    nchan_message_buffer_length [:main, :srv, :loc],
-      :nchan_set_message_buffer_length,
-      :loc_conf,
-      legacy: "push_message_buffer_length",
-      
-      group: "storage",
-      value: "<number>",
-      default: "none",
-      info: "The exact number of messages to store per channel. Sets both nchan_max_message_buffer_length and nchan_min_message_buffer_length to this value."
   
   nchan_authorized_channels_only [:main, :srv, :loc],
       :ngx_conf_set_flag_slot, 

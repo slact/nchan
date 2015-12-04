@@ -55,7 +55,6 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_msg_id_t    *lastid;    
   DBG("%p memstore-redis subscriber respond with message", d->sub);
   
-  cf.min_messages = d->chanhead->min_messages;
   cf.max_messages = d->chanhead->max_messages;
   cf.use_redis = 0;
   

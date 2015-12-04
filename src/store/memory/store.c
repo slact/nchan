@@ -499,7 +499,6 @@ void reload_msgs(void) {
     ERR("serialized channel %p %V", rlch, chid);
     if(owner == memstore_slot()) {
       cf.use_redis  =   rlch->use_redis;
-      cf.min_messages = rlch->min_messages;
       cf.max_messages = rlch->max_messages;
       
       ch = nchan_memstore_get_chanhead(chid, &cf);
@@ -708,7 +707,6 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   
   if(owner != memstore_slot()) {
     if(head->foreign_owner_ipc_sub == NULL && head->status != WAITING) {
-      cf.min_messages = head->min_messages;
       cf.max_messages = head->max_messages;
       cf.use_redis = head->use_redis;
       DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
@@ -831,7 +829,6 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->channel.messages = 0;
   head->channel.subscribers = 0;
   head->channel.last_seen = ngx_time();
-  head->min_messages = 0;
   head->max_messages = (ngx_int_t) -1;
   
   if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
@@ -1224,7 +1221,6 @@ static void serialize_chanhead_msgs_for_reload(nchan_store_channel_head_t *ch) {
     sch->id.data = (u_char *)&sch[1];
     ngx_memcpy(sch->id.data, ch->id.data, ch->id.len);
     
-    sch->min_messages = ch->min_messages;
     sch->max_messages = ch->max_messages;
     sch->use_redis = ch->use_redis;
     sch->msgs = firstmsg;
@@ -1456,13 +1452,13 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_uint_t min_messages, ngx_uint_t max_messages) {
+static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_uint_t max_messages) {
   validate_chanhead_messages(ch);
   store_message_t   *cur = ch->msg_first;
   store_message_t   *next = NULL;
   time_t             now = ngx_time();
   ngx_int_t          started_count, tried_count, deleted_count;
-  DBG("chanhead_gc max %i min %i count %i", max_messages, min_messages, ch->channel.messages);
+  DBG("chanhead_gc max %i count %i", max_messages, ch->channel.messages);
   
   started_count = ch->channel.messages;
   tried_count = 0;
@@ -1478,7 +1474,7 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   }
   
   //any expired messages?
-  while(cur != NULL && ch->channel.messages > min_messages && now > cur->msg->expires) {
+  while(cur != NULL && now > cur->msg->expires) {
     tried_count++;
     next = cur->next;
     chanhead_delete_message(ch, cur);
@@ -1491,11 +1487,11 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
 
 static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
-  return chanhead_messages_gc_custom(ch, ch->min_messages, ch->max_messages);
+  return chanhead_messages_gc_custom(ch, ch->max_messages);
 }
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
-  chanhead_messages_gc_custom(ch, 0, 0);
+  chanhead_messages_gc_custom(ch, 0);
   return NGX_OK;
 }
 
@@ -2272,10 +2268,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   
   chead->channel.expires = ngx_time() + cf->buffer_timeout;
   sub_count = chead->shared->sub_count;
-  
-  //TODO: address this weirdness
-  //chead->min_messages = cf->min_messages;
-  chead->min_messages = 0; // for backwards-compatibility, this value is ignored? weird...
   
   chead->max_messages = cf->max_messages;
   

@@ -245,7 +245,6 @@ typedef struct {
   uint16_t                   max_msgs;
   callback_pt                callback;
   void                      *callback_privdata;
-  uint8_t                    min_msgs;
   unsigned                   use_redis:1;
   
 } publish_data_t;
@@ -261,8 +260,6 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   data.shm_msg = shm_msg;
   data.msg_timeout = cf->buffer_timeout;
   data.max_msgs = cf->max_messages;
-  assert(cf->min_messages < 255);
-  data.min_msgs = cf->min_messages;
   data.use_redis = cf->use_redis;
   data.callback = callback;
   data.callback_privdata = privdata;
@@ -292,7 +289,6 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
   cd.sender = sender;
   
   cf.buffer_timeout = d->msg_timeout;
-  cf.min_messages = d->min_msgs;
   cf.max_messages = d->max_msgs;
   cf.use_redis = d->use_redis;
   

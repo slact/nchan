@@ -207,7 +207,6 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
     evcf = &evcf_data;
     ngx_memzero(evcf, sizeof(*evcf));
     evcf->buffer_timeout = 10;
-    evcf->min_messages = 0;
     evcf->max_messages = NGX_MAX_INT_T_VALUE;
     evcf->subscriber_start_at_oldest_message = 0;
     evcf->channel_timeout = 30;

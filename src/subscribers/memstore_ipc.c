@@ -65,8 +65,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_loc_conf_t        cf;
   
   cf.buffer_timeout = 50;
-  cf.min_messages = 0;
-  cf.max_messages = -1;
+  cf.max_messages = -1; //TODO: fix this value
   cf.use_redis = d->use_redis;
   
   //DBG("%p (%V) memstore subscriber (lastid %V) respond with message %V (lastid %V)", d->sub, d->chid, msgid_to_str(&d->sub->last_msg_id), msgid_to_str(&msg->id), msgid_to_str(&msg->prev_id));

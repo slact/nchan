@@ -90,7 +90,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->buffer_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
-  lcf->min_messages=NGX_CONF_UNSET;
   lcf->subscriber_concurrency=NGX_CONF_UNSET;
   lcf->subscriber_start_at_oldest_message=NGX_CONF_UNSET;
   
@@ -141,7 +140,6 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
-  ngx_conf_merge_value(conf->min_messages, prev->min_messages, NCHAN_DEFAULT_MIN_MESSAGES);
   ngx_conf_merge_value(conf->subscriber_concurrency, prev->subscriber_concurrency, NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST);
   
   ngx_conf_merge_value(conf->subscriber_start_at_oldest_message, prev->subscriber_start_at_oldest_message, 1);
@@ -188,13 +186,6 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   if(conf->authorize_request_url == NULL) {
     conf->authorize_request_url = prev->authorize_request_url;
-  }
-  
-  //sanity checks
-  if(conf->max_messages < conf->min_messages) {
-    //min/max buffer size makes sense?
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "push_max_message_buffer_length cannot be smaller than push_min_message_buffer_length.");
-    return NGX_CONF_ERROR;
   }
   
   if(conf->pub_chid.n == 0) {
@@ -495,36 +486,14 @@ static char *nchan_set_channel_events_channel_id(ngx_conf_t *cf, ngx_command_t *
   return NGX_CONF_OK;
 }
 
-static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  char                           *p = conf;
-  ngx_int_t                      *min, *max;
-  ngx_str_t                      *value;
-  ngx_int_t                       intval;
-  min = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, min_messages));
-  max = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, max_messages));
-  if(*min != NGX_CONF_UNSET || *max != NGX_CONF_UNSET) {
-    return "is duplicate";
-  }
-  value = cf->args->elts;
-  if((intval = ngx_atoi(value[1].data, value[1].len))==NGX_ERROR) {
-    return "invalid number";
-  }
-  *min = intval;
-  *max = intval;
-  
-  return NGX_CONF_OK;
-}
-
 static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   char    *p = conf;
   ngx_str_t *val = cf->args->elts;
 
   
   if (ngx_strcasecmp(val[1].data, (u_char *) "off") == 0) {
-    ngx_int_t *min, *max;
-    min = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, min_messages));
+    ngx_int_t *max;
     max = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, max_messages));
-    *min=0;
     *max=0;
   }
   return NGX_CONF_OK;
