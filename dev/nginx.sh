@@ -47,6 +47,8 @@ for opt in $*; do
     WORKERS=$opt
   fi
   case $opt in
+    noredis|no-redis)
+      no_redis=1;;
     redis-persist)
       persist_redis=1;;
     leak|leakcheck|valgrind|memcheck)
@@ -158,12 +160,16 @@ if [[ ! -z $old_redis_pid ]] && [[ -z $persist_redis ]]; then
   sleep 1
 fi
 #start redis
-if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
-  redis-server $REDIS_CONF --port $REDIS_PORT &
-  redis_pid=$!
-  echo "started redis on port $REDIS_PORT with pid $redis_pid"
+if [[ -z $no_redis ]]; then
+  if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
+    redis-server $REDIS_CONF --port $REDIS_PORT &
+    redis_pid=$!
+    echo "started redis on port $REDIS_PORT with pid $redis_pid"
+  else
+    echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
+  fi
 else
-  echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
+  echo "don't start redis"
 fi
 
 

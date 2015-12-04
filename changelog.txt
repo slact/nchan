@@ -1,3 +1,6 @@
+ fix: better redis engine connection initializer
+ change: simpler message buffer settings
+ fix: more backwards-compatibility for pushmodule config settings
 0.9 (Dec. 2 2015) - first beta pre-release tag after rebranding as Nchan
  feature: meta channel events: track when subscribers connect and disconnect, and when messages are
           published, with configurable event strings

@@ -1576,10 +1576,10 @@ ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
   char                         *ctx_type = "Some";
   nchan_store_channel_head_t   *cur, *tmp;
   if(rdt.ctx == ac) {
-    ctx_type = "Command";
+    ctx_type = "[Command]";
   }
   else if(rdt.sub_ctx == ac) {
-    ctx_type = "Pubsub";
+    ctx_type = "[Pubsub]";
   }
 
   rds_ctx_teardown(ac);
@@ -1590,7 +1590,7 @@ ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
   }
   handle_chanhead_gc_queue(1);
   
-  ERR("%s connection to redis for closed: %s", ctx_type, ac->errstr);
+  ERR("%s connection to redis for %V closed: %s", ctx_type, rdt.connect_url, ctx_type, ac->errstr);
   
   return NGX_OK;
 }

@@ -574,6 +574,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
+#define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (head->use_redis == 1 && head->status == WAITING && head->owner == head->slot)
 
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
@@ -588,7 +589,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   }
   else {
     if(head->shared) {
-      assert(head->status == READY || head->status == STUBBED);
+      assert(CHANHEAD_SHARED_OKAY(head));
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
     if(head->use_redis) {
@@ -607,7 +608,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   }
   head->last_subscribed = ngx_time();
   if(head->shared) {
-    assert(head->status == READY || head->status == STUBBED);
+    assert(CHANHEAD_SHARED_OKAY(head));
     head->shared->last_seen = ngx_time();
   }
   assert(head->sub_count >= head->internal_sub_count);
@@ -913,7 +914,7 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   if(ch->slot != ch->owner) {
     ch->shared = NULL;
   }
-  if(ch->status == WAITING) {
+  if(ch->status == WAITING && !ch->use_redis) {
     ERR("tried adding WAITING chanhead %p %V to chanhead_gc. why?", ch, &ch->id);
     //don't gc it just yet.
     return NGX_OK;
