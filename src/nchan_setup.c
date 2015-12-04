@@ -250,23 +250,18 @@ static char *nchan_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd
 
   return NGX_CONF_OK;
 }
-
 static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  static nchan_strval_t  concurrency[] = {
-    { "first"    , NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
-    { "last"     , NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN    },
-    { "broadcast", NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST },
-    {NULL}
-  };
-  ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
+  nchan_loc_conf_t     *lcf = conf;
+  ngx_str_t            *val = &((ngx_str_t *) cf->args->elts)[1];
   
-  if (*field != NGX_CONF_UNSET) {
-    return "is duplicate";
+  if(nchan_strmatch(val, 1, "memory")) {
+    lcf->storage_engine = &nchan_store_memory;
   }
-  
-  ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-  if(nchan_strval(value, concurrency, field)!=NGX_OK) {
-    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
+  else if(nchan_strmatch(val, 1, "redis")) {
+    lcf->storage_engine = &nchan_store_redis;
+  }
+  else {
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid %V value: %V", &cmd->name, val);
     return NGX_CONF_ERROR;
   }
 
