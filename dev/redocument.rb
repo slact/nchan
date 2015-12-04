@@ -106,7 +106,11 @@ class CfCmd #let's make a DSL!
       lines << "  #{descr 'context', opt} #{ctx.join ', '}"
       
       if legacy
-        lines << "  #{descr 'legacy name', opt} #{legacy}"
+        if Array === self.legacy
+          lines << "  #{descr 'legacy names', opt} #{legacy.join ', '}"
+        else
+          lines << "  #{descr 'legacy name', opt} #{legacy}"
+        end
       end
       
       if info

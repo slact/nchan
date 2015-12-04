@@ -280,7 +280,7 @@ Publishing to multiple channels from one location is not supported.
   arguments: 1  
   default: `10`  
   context: http, server, location  
-  legacy name: push_max_message_buffer_length  
+  legacy names: push_max_message_buffer_length, push_message_buffer_length  
   > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
 
 - **nchan_message_timeout** `<time>`  
