@@ -1,3 +1,4 @@
+0.903 (Dec 3 2015)
  fix: better redis engine connection initializer
  change: simpler message buffer settings
  fix: more backwards-compatibility for pushmodule config settings
