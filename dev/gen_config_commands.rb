@@ -66,7 +66,12 @@ class CfCmd #let's make a DSL!
     def to_s
       str=[]
       str << to_c_def
-      str << to_c_def(legacy, "legacy for #{name}") if legacy
+      if self.legacy
+        lgc = self.legacy.kind_of?(Array) ? self.legacy : [ self.legacy ]
+        lgc.each do |v|
+          str << to_c_def(v, "legacy for #{name}")
+        end
+      end
       (alt || []).each {|v| str << to_c_def(v, "alt for #{name}")}
       if disabled
         str.unshift "/* DISABLED\r\n"
