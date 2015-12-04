@@ -66,19 +66,6 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
-  { ngx_string("nchan_subscriber_concurrency"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
-    nchan_set_subscriber_concurrency,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, subscriber_concurrency),
-    NULL } ,
-  { ngx_string("push_subscriber_concurrency"), //legacy for nchan_subscriber_concurrency
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
-    nchan_set_subscriber_concurrency,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, subscriber_concurrency),
-    NULL } ,
-
   { ngx_string("nchan_publisher"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2,
     nchan_publisher_directive,
@@ -275,11 +262,19 @@ static ngx_command_t  nchan_commands[] = {
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, storage_engine),
     NULL } ,
-  { ngx_string("push_storage_engine"), //legacy for nchan_storage_engine
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    nchan_set_storage_engine,
+
+  { ngx_string("push_min_message_buffer_length"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    nchan_ignore_obsolete_setting,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, storage_engine),
+    0,
+    NULL } ,
+
+  { ngx_string("push_subscriber_concurrency"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    nchan_ignore_subscriber_concurrency,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
     NULL } ,
 
 

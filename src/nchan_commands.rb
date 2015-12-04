@@ -61,17 +61,17 @@ CfCmd.new do
       default: "oldest",
       info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives."
   
-  nchan_subscriber_concurrency [:main, :srv, :loc, :if],
-      :nchan_set_subscriber_concurrency,
-      [:loc_conf, :subscriber_concurrency],
-      legacy: "push_subscriber_concurrency",
-      
-      group: "pubsub",
-      value: [ :last, :first, :broadcast ],
-      info: "Controls how multiple subscriber requests to a channel (identified by some common ID) are handled.The values work as follows:
-      - broadcast: any number of concurrent subscriber requests may be held.
-      - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.
-      - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
+  #nchan_subscriber_concurrency [:main, :srv, :loc, :if],
+  #    :nchan_set_subscriber_concurrency,
+  #    [:loc_conf, :subscriber_concurrency],
+  #    legacy: "push_subscriber_concurrency",
+  #    
+  #    group: "pubsub",
+  #    value: [ :last, :first, :broadcast ],
+  #    info: "Controls how multiple subscriber requests to a channel (identified by some common ID) are handled.The values work as follows:
+  #    - broadcast: any number of concurrent subscriber requests may be held.
+  #    - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.
+  #    - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
   
   nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
@@ -228,8 +228,22 @@ CfCmd.new do
   nchan_storage_engine [:main, :srv, :loc],
       :nchan_set_storage_engine, 
       [:loc_conf, :storage_engine],
-      legacy: "push_storage_engine",
       
       group: "development",
-      info: "Development directive to completely replace default storage engine. Don't use unless you know what you're doing"
+      value: ["memory", "redis"],
+      default: "memory",
+      info: "Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer."
+  
+  push_min_message_buffer_length [:srv, :loc, :if],
+      :nchan_ignore_obsolete_setting,
+      :loc_conf,
+      undocumented: true,
+      group: "obsolete"
+  
+  push_subscriber_concurrency [:srv, :loc, :if],
+      :nchan_ignore_subscriber_concurrency,
+      :loc_conf,
+      undocumented: true,
+      group: "obsolete"
+  
 end

@@ -90,7 +90,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->buffer_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
-  lcf->subscriber_concurrency=NGX_CONF_UNSET;
   lcf->subscriber_start_at_oldest_message=NGX_CONF_UNSET;
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
@@ -140,8 +139,6 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
-  ngx_conf_merge_value(conf->subscriber_concurrency, prev->subscriber_concurrency, NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST);
-  
   ngx_conf_merge_value(conf->subscriber_start_at_oldest_message, prev->subscriber_start_at_oldest_message, 1);
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
@@ -213,43 +210,6 @@ static char *nchan_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handle
   return NGX_CONF_OK;
 }
 
-typedef struct {
-  char                           *str;
-  ngx_int_t                       val;
-} nchan_strval_t;
-
-static ngx_int_t nchan_strval(ngx_str_t string, nchan_strval_t strval[], ngx_int_t *val) {
-  ngx_int_t                      i;
-  for(i=0; &strval[i] != NULL; i++) {
-    if(ngx_strncasecmp(string.data, (u_char *)strval[i].str, string.len)==0) {
-      *val = strval[i].val;
-      return NGX_OK;
-    }
-  }
-  return NGX_DONE; //nothing matched
-}
-
-static char *nchan_set_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  static nchan_strval_t  concurrency[] = {
-    { "first"    , NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN   },
-    { "last"     , NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN    },
-    { "broadcast", NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST },
-    {NULL}
-  };
-  ngx_int_t                      *field = (ngx_int_t *) ((char *) conf + cmd->offset);
-  
-  if (*field != NGX_CONF_UNSET) {
-    return "is duplicate";
-  }
-  
-  ngx_str_t                   value = (((ngx_str_t *) cf->args->elts)[1]);
-  if(nchan_strval(value, concurrency,field)!=NGX_OK) {
-    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid push_subscriber_concurrency value: %V", &value);
-    return NGX_CONF_ERROR;
-  }
-
-  return NGX_CONF_OK;
-}
 static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t     *lcf = conf;
   ngx_str_t            *val = &((ngx_str_t *) cf->args->elts)[1];
@@ -493,6 +453,21 @@ static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, 
   }
   return NGX_CONF_OK;
 }
+
+static char *nchan_ignore_obsolete_setting(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "ignoring obsolete nchan config directive '%V'.", &cmd->name);
+  return NGX_CONF_OK;
+}
+
+static char *nchan_ignore_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  if(!nchan_strmatch(val, 1, "broadcast")) {
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "ignoring obsolete nchan config directive '%V %V;'. Only 'broadcast' is currently supported.", &cmd->name, val);
+  }
+  return NGX_CONF_OK;
+}
+
+
 
 #include "nchan_config_commands.c" //hideous but hey, it works
 

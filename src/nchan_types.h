@@ -169,7 +169,6 @@ struct nchan_loc_conf_s {
   nchan_conf_publisher_types_t    pub;
   nchan_conf_subscriber_types_t   sub; 
   
-  ngx_int_t                       subscriber_concurrency;
   time_t                          subscriber_timeout;
   
   ngx_int_t                       subscriber_start_at_oldest_message;

@@ -810,7 +810,10 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
   redis_subscriber_register_t *sdata=NULL;
   
   
-  switch (sub->cf->subscriber_concurrency) {
+  concurrency = "broadcast";
+  
+  /*
+  switch (subscriber_concurrency) {
     case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
       concurrency = "broadcast";
       break;
@@ -823,6 +826,7 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
     default:
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unknown concurrency setting");
   }
+  */
   
   //input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
   //  'subscriber_id' can be '-' for new id, or an existing id
@@ -831,7 +835,7 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
   //output: subscriber_id, num_current_subscribers
   
   if((sdata = ngx_alloc(sizeof(*sdata), ngx_cycle->log)) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "No memory for sdata. Part IV of the Cryptic Error Series.");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "No memory for sdata. Part IV, subparagraph 12 of the Cryptic Error Series.");
     return NGX_ERROR;
   }
   sdata->chanhead = chanhead;
