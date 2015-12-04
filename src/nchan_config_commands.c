@@ -177,17 +177,17 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, max_messages),
     NULL } ,
 
-  { ngx_string("nchan_authorized_channels_only"),
+  { ngx_string("nchan_subscribe_existing_channels_only"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_flag_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, authorize_channel),
+    offsetof(nchan_loc_conf_t, subscribe_only_existing_channel),
     NULL } ,
-  { ngx_string("push_authorized_channels_only"), //legacy for nchan_authorized_channels_only
+  { ngx_string("push_authorized_channels_only"), //legacy for nchan_subscribe_existing_channels_only
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_flag_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, authorize_channel),
+    offsetof(nchan_loc_conf_t, subscribe_only_existing_channel),
     NULL } ,
 
   { ngx_string("nchan_channel_group"),

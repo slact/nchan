@@ -160,9 +160,9 @@ CfCmd.new do
       default: 10,
       info: "The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
   
-  nchan_authorized_channels_only [:main, :srv, :loc],
+  nchan_subscribe_existing_channels_only [:main, :srv, :loc],
       :ngx_conf_set_flag_slot, 
-      [:loc_conf, :authorize_channel],
+      [:loc_conf, :subscribe_only_existing_channel],
       legacy: "push_authorized_channels_only",
       
       group: "security",

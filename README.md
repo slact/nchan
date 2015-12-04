@@ -300,19 +300,19 @@ Publishing to multiple channels from one location is not supported.
   context: http, server, location  
   > Use redis for message storage at this location.    
 
-- **nchan_authorized_channels_only** `[ on | off ]`  
-  arguments: 1  
-  default: `off`  
-  context: http, server, location  
-  legacy name: push_authorized_channels_only  
-  > Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
-
 - **nchan_channel_group** `<string>`  
   arguments: 1  
   default: `(none)`  
   context: server, location, if  
   legacy name: push_channel_group  
   > Because settings are bound to locations and not individual channels, it is useful to be able to have channels that can be reached only from some locations and never others. That's where this setting comes in. Think of it as a prefix string for the channel id.    
+
+- **nchan_subscribe_existing_channels_only** `[ on | off ]`  
+  arguments: 1  
+  default: `off`  
+  context: http, server, location  
+  legacy name: push_authorized_channels_only  
+  > Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
 
 - **nchan_channel_event_string** `<string>`  
   arguments: 1  

@@ -1371,7 +1371,7 @@ typedef struct {
 
 static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d);
 
-static ngx_int_t subscribe_authorize_callback(ngx_int_t status, void *ch, void *d) {
+static ngx_int_t subscribe_existing_channel_callback(ngx_int_t status, void *ch, void *d) {
   nchan_channel_t              *channel = (nchan_channel_t *)ch;
   redis_subscribe_data_t       *data = (redis_subscribe_data_t *)d;
   
@@ -1407,8 +1407,8 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->sub = sub;
   sub->fn->reserve(sub);
   
-  if(sub->cf->authorize_channel) {
-    nchan_store_find_channel(channel_id, subscribe_authorize_callback, d);
+  if(sub->cf->subscribe_only_existing_channel) {
+    nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
   }
   else {
     nchan_store_subscribe_continued(d);
@@ -1419,7 +1419,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
 static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   //nchan_loc_conf_t             *cf = d->sub->cf;
   nchan_store_channel_head_t   *ch;
-  //ngx_int_t                     create_channel_ttl = cf->authorize_channel==1 ? 0 : cf->channel_timeout;
+  //ngx_int_t                     create_channel_ttl = cf->subscribe_only_existing_channel==1 ? 0 : cf->channel_timeout;
   
   ch = nchan_store_get_chanhead(d->channel_id);
   

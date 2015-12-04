@@ -1549,7 +1549,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->reserved = 0;
   d->msg_id = sub->last_msgid;
   
-  if(sub->cf->authorize_channel) {
+  if(sub->cf->subscribe_only_existing_channel) {
     sub->fn->reserve(sub);
     d->reserved = 1;
     if(memstore_slot() != owner) {

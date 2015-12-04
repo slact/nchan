@@ -176,7 +176,7 @@ struct nchan_loc_conf_s {
   ngx_http_complex_value_t       *channel_events_channel_id;
   ngx_http_complex_value_t       *channel_event_string;
   
-  ngx_int_t                       authorize_channel;
+  ngx_int_t                       subscribe_only_existing_channel;
   ngx_int_t                       use_redis;
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;
