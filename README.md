@@ -242,15 +242,6 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
 
-- **nchan_subscriber_concurrency** `[ last | first | broadcast ]`  
-  arguments: 1  
-  context: http, server, location, if  
-  legacy name: push_subscriber_concurrency  
-  > Controls how multiple subscriber requests to a channel (identified by some common ID) are handled.The values work as follows:  
-  >       - broadcast: any number of concurrent subscriber requests may be held.  
-  >       - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.  
-  >       - first: only the oldest subscriber request is kept, all others get a 409 Conflict response.    
-
 - **nchan_subscriber_first_message** `[ oldest | newest ]`  
   arguments: 1  
   default: `oldest`  
