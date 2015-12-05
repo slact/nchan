@@ -214,7 +214,7 @@ text = File.read(readme_path)
 
 if mysite
   #remove first line
-  text.sub!(/^<.*>$\n/m, "")
+  text.sub!(/^<.*>$\n\n?/m, "")
   #remove second line
   text.sub!(/^https:\/\/nchan.slact.net$\n\n?/m, "")
 end
