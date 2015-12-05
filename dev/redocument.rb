@@ -76,7 +76,7 @@ class CfCmd #let's make a DSL!
       end
       
       if opt[:mysite]
-        namestr = "<a class=\"directive\" name=\"#{name}\" href=\"##{name}\">#{name}</a>"
+        namestr = "<a class=\"directive\" id=\"#{name}\" href=\"##{name}\">#{name}</a>"
       else
         namestr = "**#{name}**"
       end
