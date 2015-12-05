@@ -212,8 +212,12 @@ config_documentation= cmds.join "\n\n"
 
 text = File.read(readme_path)
 
-#remove first line
-text.sub!(/^<a.*a>$\n?\n?/m, "")
+if mysite
+  #remove first line
+  text.sub!(/^<.*>$\n/m, "")
+  #remove second line
+  text.sub!(/^https:\/\/nchan.slact.net$\n\n?/m, "")
+end
 
 config_heading = "## Configuration Directives"
 text.gsub!(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_documentation}\n\n")
