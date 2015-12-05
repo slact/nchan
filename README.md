@@ -97,7 +97,7 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 ##### Other Publisher Endpoint Actions
 
-- HTTP `GET` requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:
+- HTTP `GET` requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:  
   ```console
   > curl --request POST --data "test message" http://127.0.0.2:80/pub
    ...
