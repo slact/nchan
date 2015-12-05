@@ -75,20 +75,20 @@ Messages can be published to a channel by sending HTTP **POST** requests with th
 
 Requests and websocket messages are responded to with information about the channel at time of message publication. Here's an example from publishing with `curl`:
 
-```
+```console
 >  curl --request POST --data "test message" http://127.0.0.1:80/pub
 
-  queued messages: 5
-  last requested: 4 sec. ago (-1=never)
-  active subscribers: 0
+ queued messages: 5
+ last requested: 4 sec. ago (-1=never)
+ active subscribers: 0
 ```
 
 The response can be in plaintext (as above), JSON, or XML, based on the request's *`Accept`* header:
 
-```
+```console
 > curl --request POST --data "test message" -H "Accept: text/json" http://127.0.0.2:80/pub
 
-  {"messages": 2, "requested": 4, "subscribers": 0 }
+ {"messages": 2, "requested": 4, "subscribers": 0 }
 ```
 
 Websocket publishers also receive the same responses when publishing, with the encoding determined by the *`Accept`* header present during the handshake.
@@ -99,13 +99,13 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 - HTTP `GET` requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:
 
-  ```
+  ```console
   > curl --request POST --data "test message" http://127.0.0.2:80/pub
-    ...
+   ...
   
   > curl -v --request GET -H "Accept: text/json" http://127.0.0.2:80/pub
   
-    {"messages": 1, "requested": 7, "subscribers": 0 }
+   {"messages": 1, "requested": 7, "subscribers": 0 }
   ```
 
 - HTTP `DELETE` requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
