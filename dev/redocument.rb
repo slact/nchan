@@ -217,8 +217,9 @@ new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_do
 
 if mysite
   contrib_heading = "## Contribute"
-  new_contents = new_contents.gsub(/(^#{contrib_heading}$).*(?=^## )/m, "")
+  new_contents = new_contents.gsub(/(^#{contrib_heading}$).*(?=^## )?/m, "")
 end
+
 
 new_contents = new_contents.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
 
