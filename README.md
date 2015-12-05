@@ -97,18 +97,18 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 ##### Other Publisher Endpoint Actions
 
-- HTTP `GET` requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:  
-  
-  ```console
-  > curl --request POST --data "test message" http://127.0.0.2:80/pub
-   ...
-  
-  > curl -v --request GET -H "Accept: text/json" http://127.0.0.2:80/pub
-  
-   {"messages": 1, "requested": 7, "subscribers": 0 }
-  ```
+HTTP `GET` requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:  
+```console
+> curl --request POST --data "test message" http://127.0.0.2:80/pub
+  ...
 
-- HTTP `DELETE` requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
+> curl -v --request GET -H "Accept: text/json" http://127.0.0.2:80/pub
+
+  {"messages": 1, "requested": 7, "subscribers": 0 }
+```
+
+
+HTTP `DELETE` requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
 #### Subscriber Endpoint
 
