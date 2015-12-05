@@ -1,6 +1,6 @@
 #!/usr/bin/ruby
 require "date"
-
+require "pry"
 
 SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
@@ -212,20 +212,23 @@ config_documentation= cmds.join "\n\n"
 
 text = File.read(readme_path)
 
+#remove first line
+text.sub!(/^<a.*a>$\n?\n?/m, "")
+
 config_heading = "## Configuration Directives"
-new_contents = text.gsub(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_documentation}\n\n")
+text.gsub!(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_documentation}\n\n")
 
 if mysite
   contrib_heading = "## Contribute"
-  new_contents = new_contents.gsub(/(^#{contrib_heading}$).*(?=^## )?/m, "")
+  text.gsub!(/(^#{contrib_heading}$).*(?=^## )?/m, "")
 end
 
 
-new_contents = new_contents.gsub(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
+text.gsub!(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
 
 if mysite
-  new_contents = new_contents.gsub(/https:\/\/nchan\.slact\.net\//, "/")
+  text.gsub!(/https:\/\/nchan\.slact\.net\//, "/")
 end
 
-File.open(readme_output_path, "w") {|file| file.puts new_contents }
+File.open(readme_output_path, "w") {|file| file.puts text }
 
