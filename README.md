@@ -352,4 +352,4 @@ Publishing to multiple channels from one location is not supported.
   > Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer.    
 
 ## Contribute
-Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 1NHPMyqSanG2BC21Twqi8Pf1pXXgbPuLdJ . Other donation methods can be found at https://nchan.slact.net
+Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 15dLBzRS4HLRwCCVjx4emYkxXcyAPmGxM3 . Other donation methods can be found at https://nchan.slact.net
