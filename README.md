@@ -127,7 +127,7 @@ Nchan supports several different kinds of subscribers for receiving messages: *W
 - ##### Websocket
   Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)). To use a websocket subscriber, initiate a connection to the desired subscriber endpoint location.  
   If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection.  
-  Websocket extensions and subprotocols are not yet supported.
+  Websocket extensions and subprotocols are not yet supported, nor are server-side keep-alive pings.
   
 - ##### EventSource
   Also known as Server-Sent Events or SSE, EventSource subscriber connections are initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
