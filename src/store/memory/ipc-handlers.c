@@ -175,7 +175,7 @@ ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* p
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_UNSUBSCRIBED, &data, sizeof(data));
 }
 static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
-  DBG("received unsubscribed request for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received unsubscribed request for channel %V pridata %V", d->shm_chid, d->privdata);
   if(memstore_channel_owner(d->shm_chid) != memstore_slot()) {
     nchan_store_channel_head_t    *head;
     //find channel
