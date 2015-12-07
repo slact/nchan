@@ -175,7 +175,7 @@ ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* p
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_UNSUBSCRIBED, &data, sizeof(data));
 }
 static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
-  DBG("received unsubscribed request for channel %V pridata %V", d->shm_chid, d->privdata);
+  DBG("received unsubscribed request for channel %V privdata %p", d->shm_chid, d->privdata);
   if(memstore_channel_owner(d->shm_chid) != memstore_slot()) {
     nchan_store_channel_head_t    *head;
     //find channel
@@ -421,7 +421,7 @@ static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
-  DBG("IPC: received get_message reply for channel %V  msg %p pridata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
+  DBG("IPC: received get_message reply for channel %V msg %p privdata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
   if(d->d.resp.shm_msg) {
     sprintf(rsvlbl, "handle_get_message_reply from %li by %li", sender, ngx_process_slot);
     msg_reserve(d->d.resp.shm_msg, rsvlbl);
@@ -457,7 +457,7 @@ static ngx_int_t delete_callback_handler(ngx_int_t, nchan_channel_t *, delete_da
 
 static void receive_delete(ngx_int_t sender, delete_data_t *d) {
   d->sender = sender;
-  DBG("IPC received delete request for channel %V pridata %p", d->shm_chid, d->privdata);
+  DBG("IPC received delete request for channel %V privdata %p", d->shm_chid, d->privdata);
   nchan_memstore_force_delete_channel(d->shm_chid, (callback_pt )delete_callback_handler, d);
 }
 
@@ -515,7 +515,7 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, cal
 static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
   nchan_store_channel_head_t    *head;
   
-  DBG("received get_channel_info request for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received get_channel_info request for channel %V privdata %p", d->shm_chid, d->privdata);
   head = nchan_memstore_find_chanhead(d->shm_chid);
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
   if(head == NULL) {
@@ -567,7 +567,7 @@ ngx_int_t memstore_ipc_send_does_channel_exist(ngx_int_t dst, ngx_str_t *chid, c
 static void receive_does_channel_exist(ngx_int_t sender, channel_existence_data_t *d) {
   nchan_store_channel_head_t    *head;
   
-  DBG("received does_channel_exist request for channel %V pridata %V", d->shm_chid, d->privdata);
+  DBG("received does_channel_exist request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   head = nchan_memstore_find_chanhead(d->shm_chid);
   
