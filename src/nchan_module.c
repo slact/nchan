@@ -344,7 +344,7 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
   }
   
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_CONNECTION))) {
-    if(ngx_strncasecmp(tmp->data, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len) != 0) return 0;
+    if(ngx_strcasestrn(tmp->data, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len) == NULL) return 0;
   }
   else return 0;
   
