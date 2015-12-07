@@ -13,6 +13,8 @@ print_content_type = false
 show_id=false
 client=:longpoll
 
+url = nil
+
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
   opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
@@ -22,12 +24,15 @@ opt=OptionParser.new do |opts|
   opts.on("-c", "--content-type", "show received content-type"){|v| print_content_type = true}
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
+  opts.on("--full-url URL", "full subscriber url") do |v|
+    url = v
+  end
   opts.on("-v", "--verbose", "somewhat rather extraneously wordful output"){Typhoeus::Config.verbose=true}
 end
 opt.banner="Usage: sub.rb [options] url"
 opt.parse!
 
-url = "http://#{server}#{ARGV.last}"
+url ||= "http://#{server}#{ARGV.last}"
 
 puts "Subscribing #{par} #{client} client#{par!=1 ? "s":""} to #{url}."
 puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
