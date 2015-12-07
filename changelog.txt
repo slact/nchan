@@ -1,3 +1,6 @@
+0.904 (Dec. 7 2015)
+ fix: more flexible Websocket handshake for "Connection" header. thanks @eschultz
+ fix: out-of-memory safety check. thanks @woodyhymns
 0.903 (Dec 3 2015)
  fix: better redis engine connection initializer
  change: simpler message buffer settings
