@@ -567,7 +567,7 @@ ngx_int_t memstore_ipc_send_does_channel_exist(ngx_int_t dst, ngx_str_t *chid, c
 static void receive_does_channel_exist(ngx_int_t sender, channel_existence_data_t *d) {
   nchan_store_channel_head_t    *head;
   
-  DBG("received does_channel_exist request for channel %V pridata", d->shm_chid, d->privdata);
+  DBG("received does_channel_exist request for channel %V pridata %V", d->shm_chid, d->privdata);
   
   head = nchan_memstore_find_chanhead(d->shm_chid);
   
