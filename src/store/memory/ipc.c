@@ -356,6 +356,10 @@ static void ipc_read_handler(ngx_event_t *ev) {
     
 #if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
     delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
+    if (NULL == glob) {
+        ERR("Couldn't allocate memory for alert glob data.");
+        return;
+    }
     ngx_memzero(&glob->timer, sizeof(glob->timer));
     glob->timer.handler = fake_ipc_alert_delay_handler;
     glob->timer.log = ngx_cycle->log;
