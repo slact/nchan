@@ -1,5 +1,4 @@
 #!/bin/zsh
-_nchan_ver=0.903
 _nginx_ver=1.8.0
 
 _openssl_ver=1.0.2e
@@ -7,7 +6,7 @@ _pcre_ver=8.38
 _zlib_ver=1.2.8
 
 
-_nchan_tag="v${_nchan_ver}"
+_nchan_tag=`git describe --abbrev=0 --tags`
 
 OPTIONS=(!strip debug) #nchan is still young, in case something goes wrong we want good coredumps
 
@@ -29,12 +28,12 @@ _access_log="/dev/stdout"
 _error_log="errors.log"
 
 pkgver() {
-  echo "${_nginx_ver}.nchan${_nchan_ver}"
+  echo "${_nginx_ver}.nchan${_nchan_tag:1}"
 }
 
 
 pkgname=nginx-nchan-static
-pkgver=1.8.0.nchan0.903
+pkgver=1.8.0.nchan0.904
 pkgrel=1
 pkgdesc="Nginx + Nchan - a flexible pub/sub server"
 arch=('i686' 'x86_64')
