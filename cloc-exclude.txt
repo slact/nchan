@@ -2,6 +2,7 @@ src/uthash.h
 src/hiredis
 src/store/redis/cmp.*
 src/nginx-source
+dev/package
 dev/nginx-nchan/*.patch
 dev/nginx-nchan/pkg
 dev/nginx-nchan/src
