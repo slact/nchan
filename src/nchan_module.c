@@ -344,13 +344,12 @@ static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
   }
   
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_CONNECTION))) {
-    if(tmp->len < NCHAN_UPGRADE.len) return 0;
-    if(ngx_strcasestrn(tmp->data, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len) == NULL) return 0;
+    if(ngx_strlcasestrn(tmp->data, tmp->data + tmp->len, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len - 1) == NULL) return 0;
   }
   else return 0;
   
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_UPGRADE))) {
-    if(ngx_strncasecmp(tmp->data, NCHAN_WEBSOCKET.data, NCHAN_WEBSOCKET.len) != 0) return 0;
+    if(tmp->len != NCHAN_WEBSOCKET.len || ngx_strncasecmp(tmp->data, NCHAN_WEBSOCKET.data, NCHAN_WEBSOCKET.len) != 0) return 0;
   }
   else return 0;
 
