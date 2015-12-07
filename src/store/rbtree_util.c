@@ -133,7 +133,9 @@ ngx_rbtree_node_t *rbtree_create_node(rbtree_seed_t *seed, size_t data) {
     node->parent = NULL;
   }
 #if NCHAN_RBTREE_DBG
-  seed->allocd_nodes++;
+  if (node) {
+      seed->allocd_nodes++;
+  }
 #endif
   DBG("created node %p", node);
   return node;
