@@ -1,5 +1,5 @@
 #!/bin/zsh
-_nginx_ver_latest=1.9.5
+_nginx_ver_latest=1.9.7
 _nginx_ver_stable=1.8.0
 _nginx_ver_nopool=1.9.3
 _nginx_ver_old=1.0.1
@@ -29,7 +29,7 @@ _group="http"
 _doc_root="/usr/share/${_pkgname}/http"
 _sysconf_path="etc"
 _conf_path="${_sysconf_path}/${_pkgname}"
-_tmp_path="/tmp/"
+_tmp_path="/tmp"
 _pid_path="/run"
 _lock_path="/var/lock"
 _access_log="/dev/stdout"
@@ -85,8 +85,9 @@ md5sums=('SKIP'
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
   ln -sfT "$_src_dir" "$srcdir/nginx"
+  ln -sfT "$_nchan_dir" "$srcdir/nchan"
   local _build_dir="${_src_dir}/objs"
-  cd $_src_dir
+  cd "$srcdir/nginx"
   
   if [[ -z $CONTINUE ]] && [[ -z $NO_EXTRACT_SOURCE ]]; then
     if [[ $NO_POOL == 1 ]]; then
@@ -117,10 +118,10 @@ build() {
     --user=${_user}
     --group=${_group}
     --with-debug
-    --add-module=${_nchan_dir})
+    --add-module="../nchan")
 
   if [[ -z $NGINX_VERYOLDVERSION ]]; then
-    CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}scgi_temp" )
+    CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}/scgi_temp" )
   fi
 
   if [[ $CC == *clang* ]]; then
