@@ -21,7 +21,7 @@ struct ipc_writebuf_s {
   //a ring buffer with a linked-list overflow for writing alerts, 
   uint16_t                  n;
   uint16_t                  first;
-  uint32_t                  overflow_n;
+  int32_t                   overflow_n;
   ipc_writebuf_overflow_t  *overflow_first;
   ipc_writebuf_overflow_t  *overflow_last;
   ipc_alert_t               alerts[IPC_WRITEBUF_SIZE];

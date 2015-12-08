@@ -30,12 +30,12 @@ typedef struct {
 
 struct nchan_store_channel_head_s {
   ngx_str_t                       id; //channel id
-  ngx_uint_t                      owner;  //for debugging
-  ngx_uint_t                      slot;  //also mostly for debugging
+  ngx_int_t                       owner;
+  ngx_int_t                       slot;
   nchan_channel_t                 channel;
   channel_spooler_t               spooler;
   chanhead_pubsub_status_t        status;
-  ngx_atomic_t                    sub_count;
+  ngx_atomic_int_t                sub_count;
   time_t                          last_subscribed;
   
   uint8_t                         multi_waiting;
@@ -86,7 +86,7 @@ struct nchan_reloading_channel_s {
 
 typedef struct {
   nchan_reloading_channel_t         *rlch;
-  ngx_atomic_t                       procslot[NGX_MAX_PROCESSES];
+  ngx_atomic_int_t                   procslot[NGX_MAX_PROCESSES];
   ngx_atomic_t                       max_workers;
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;

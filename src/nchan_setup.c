@@ -249,7 +249,7 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 static char *nchan_publisher_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_int_t fail) {
   nchan_loc_conf_t     *lcf = conf;
   ngx_str_t            *val;
-  ngx_int_t             i;
+  ngx_uint_t            i;
   
   nchan_conf_publisher_types_t *pubt = &lcf->pub;
   
@@ -285,7 +285,7 @@ static char *nchan_publisher_directive(ngx_conf_t *cf, ngx_command_t *cmd, void 
 static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_int_t fail) {
   nchan_loc_conf_t     *lcf = conf;
   ngx_str_t            *val;
-  ngx_int_t             i;
+  ngx_uint_t            i;
   
   nchan_conf_subscriber_types_t *subt = &lcf->sub;
   
@@ -333,7 +333,7 @@ static char *nchan_subscriber_directive(ngx_conf_t *cf, ngx_command_t *cmd, void
 
 static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   ngx_str_t            *val;
-  ngx_int_t             i;
+  ngx_uint_t            i;
   nchan_publisher_directive_parse(cf, cmd, conf, 0);
   nchan_subscriber_directive_parse(cf, cmd, conf, 0);
   for(i=1; i < cf->args->nelts; i++) {
@@ -379,7 +379,7 @@ static void nchan_exit_master(ngx_cycle_t *cycle) {
 }
 
 static char *nchan_set_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_chid_loc_conf_t *chid) {
-  ngx_int_t                           i;
+  ngx_uint_t                          i;
   ngx_str_t                          *value;
   ngx_http_complex_value_t          **cv;
   ngx_http_compile_complex_value_t    ccv;  

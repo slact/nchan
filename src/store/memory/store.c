@@ -527,9 +527,9 @@ void reload_msgs(void) {
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  ngx_int_t           workers = ccf->worker_processes;
-  ngx_int_t           i;
-  ngx_atomic_t       *procslot;
+  ngx_uint_t          workers = ccf->worker_processes;
+  ngx_uint_t          i;
+  ngx_atomic_int_t   *procslot;
   
 #if FAKESHARD
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
@@ -1251,7 +1251,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
       my_procslot_index = i;
     }
     
-    if(i > shdata->max_workers 
+    if((unsigned )i > shdata->max_workers 
      && my_procslot_index != NCHAN_INVALID_SLOT 
      && procslot != NCHAN_INVALID_SLOT) { 
       //we got a live one without a valid procslot, and we know where we are.
@@ -1391,7 +1391,7 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_uint_t max_messages) {
+static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages) {
   validate_chanhead_messages(ch);
   store_message_t   *cur = ch->msg_first;
   store_message_t   *next = NULL;

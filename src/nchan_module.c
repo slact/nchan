@@ -35,7 +35,7 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_re
 static const ngx_str_t   TEXT_PLAIN = ngx_string("text/plain");
 
 static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_conf_t *cf) {
-  if(id->len > cf->max_channel_id_length) {
+  if(id->len > (unsigned )cf->max_channel_id_length) {
     ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, id->len);
     return NGX_ERROR;
   }

@@ -237,7 +237,7 @@ static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdat
   static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
   redisReply *reply = (redisReply *)r;
   if(reply != NULL && reply->type == REDIS_REPLY_ERROR) {
-    if(ngx_strncmp(reply->str, script_error_start.data, script_error_start.len) == 0 && reply->len > script_error_start.len + REDIS_LUA_HASH_LENGTH) {
+    if(ngx_strncmp(reply->str, script_error_start.data, script_error_start.len) == 0 && (unsigned ) reply->len > script_error_start.len + REDIS_LUA_HASH_LENGTH) {
       char *hash = &reply->str[script_error_start.len];
       char * (*hashes)[]=(char* (*)[])&store_rds_lua_hashes;
       char * (*names)[]=(char* (*)[])&store_rds_lua_script_names;
@@ -259,7 +259,7 @@ static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdat
 
 static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply = r;
-  ngx_int_t   i;
+  unsigned    i;
   //nchan_channel_t * channel = (nchan_channel_t *)privdata;
   if (reply == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY is NULL");
@@ -355,14 +355,14 @@ static redisAsyncContext * rds_ctx(void){
 static void * ngx_store_alloc(size_t size) {
   return ngx_alloc(size, ngx_cycle->log);
 }
-static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size));
+static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t offset, void *(*allocator)(size_t size));
 
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
 #define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
 #define CHECK_REPLY_STRNVAL(reply, v, n) ( CHECK_REPLY_STR(reply) && ngx_strncmp((reply)->str, v, n) == 0 )
 #define CHECK_REPLY_INT(reply) ((reply)->type == REDIS_REPLY_INTEGER)
 #define CHECK_REPLY_INTVAL(reply, v) ( CHECK_REPLY_INT(reply) && (reply)->integer == v )
-#define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= size )
+#define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= (unsigned )size )
 #define CHECK_REPLY_NIL(reply) ((reply)->type == REDIS_REPLY_NIL)
 #define CHECK_REPLY_INT_OR_STR(reply) ((reply)->type == REDIS_REPLY_INTEGER || (reply)->type == REDIS_REPLY_STRING)
 
@@ -782,8 +782,6 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
     redis_subscriber_unregister(&head->id, sub);
   }
   
-  assert(head->sub_count >= 0);
-  
   if(head->sub_count == 0) {
     chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
   }
@@ -801,7 +799,7 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
 
 typedef struct {
   nchan_store_channel_head_t *chanhead;
-  ngx_int_t            generation;
+  unsigned             generation;
   subscriber_t        *sub;
 } redis_subscriber_register_t;
 
@@ -1123,7 +1121,8 @@ typedef struct {
 static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply *reply=r;
   redis_channel_callback_data_t *d=(redis_channel_callback_data_t *)privdata;
-  nchan_channel_t channel = {{0}};
+  nchan_channel_t channel;
+  ngx_memzero(&channel, sizeof(channel)); // for ddebugging. this should be removed later.
   
   log_redis_reply(d->name, d->t);
   
@@ -1177,7 +1176,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
   return NGX_OK;
 }
 
-static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, ngx_int_t offset, void *(*allocator)(size_t size)) {
+static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t offset, void *(*allocator)(size_t size)) {
   nchan_msg_t *msg=NULL;
   ngx_buf_t           *buf=NULL;
   redisReply         **els = r->element;
@@ -1538,7 +1537,8 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   redisReply                    *reply=r;
   redisReply                    *cur;
   //nchan_msg_id_t                 msg_id;
-  nchan_channel_t                ch={{0}};
+  nchan_channel_t                ch;
+  ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
 
   if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)) {
     ch.last_published_msg_id.time=d->msg_time;

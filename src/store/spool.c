@@ -319,9 +319,9 @@ static ngx_int_t spool_remove_subscriber(subscriber_pool_t *self, spooled_subscr
   }
   
   ngx_free(ssub);
-  
+
+  assert(self->sub_count > 0);
   self->sub_count--;
-  assert(self->sub_count >= 0);
 
   return NGX_OK;
 }
