@@ -267,6 +267,11 @@ static nchan_llist_timed_t *fakeprocess_top = NULL;
 void memstore_fakeprocess_push(ngx_int_t slot) {
   assert(slot < MAX_FAKE_WORKERS);
   nchan_llist_timed_t *link = ngx_calloc(sizeof(*fakeprocess_top), ngx_cycle->log);
+  if (!link) {
+    ERR("Unable to allocate time node.");
+    assert(0);
+    return;
+  }
   link->data = (void *)slot;
   link->time = ngx_time();
   link->next = fakeprocess_top;
