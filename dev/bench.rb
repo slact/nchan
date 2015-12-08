@@ -46,17 +46,17 @@ class BenchDB
   end
   
   def add(start_time, snd_time, rcv_time, measured_time)
-    if snd_time < start_time
+    if start_time && snd_time < start_time
       #use measured time if possible
       if measured_time
         @db << measured_time
       else
-        @db << start_time - rcv_time
-        puts "approx time"
+        @db << rcv_time - start_time
+        #puts "approx time"
       end
     else
-      @db << snd_time - rcv_time
-      puts "approx time"
+      @db << rcv_time - snd_time
+      #puts "approx time"
     end
   end
   
