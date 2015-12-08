@@ -9,6 +9,9 @@ OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
     CFLAGS="-ggdb -O$OPTIMIZE_LEVEL -Wall"
 fi
+
+CFLAGS="$CFLAGS -Wextra -Wno-unused-parameter"
+
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nginx_ver_nopool
 elif [[ $NGINX_OLDVERSION == 1 ]]; then
