@@ -2,6 +2,7 @@
 #include <subscribers/common.h>
 #include <ngx_crypt.h>
 #include <ngx_sha1.h>
+#include <nginx.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -381,7 +382,9 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     
     nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
     nchan_add_response_header(r, &NCHAN_HEADER_UPGRADE, &NCHAN_WEBSOCKET);
+#if nginx_version < 1003013
     nchan_add_response_header(r, &NCHAN_HEADER_CONNECTION, &NCHAN_UPGRADE);
+#endif
     r->headers_out.status_line = NCHAN_HTTP_STATUS_101;
     r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
 
