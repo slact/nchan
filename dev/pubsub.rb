@@ -278,18 +278,22 @@ class Subscriber
       headers = {}
       headers["User-Agent"] = opt[:useragent] if opt[:useragent]
       if opt[:old_request]
-        req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
+        #req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
+        
+        #reuse request
+        req = opt[:old_request]
       else
         req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
-      end
-      req.on_complete do |response|
-        @subscriber.waiting-=1
-        if response.success?
-          response_success response, req
-        else
-          response_failure response, req
+          req.on_complete do |response|
+          @subscriber.waiting-=1
+          if response.success?
+            response_success response, req
+          else
+            response_failure response, req
+          end
         end
       end
+      
       req
     end
 
