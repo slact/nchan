@@ -27,7 +27,7 @@ static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char
 }
 
 static void es_ensure_headers_sent(full_subscriber_t *fsub) {
-  static const ngx_str_t   content_type = ngx_string("text/event-stream; charset=utf8");
+  static const ngx_str_t   content_type = ngx_string("text/event-stream; charset=utf-8");
   static const ngx_str_t   everything_ok = ngx_string("200 OK");
   static const ngx_str_t   hello = ngx_string(": hi\n\n");
   
