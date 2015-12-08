@@ -60,6 +60,11 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   subscriber_debug_add(&fsub->sub);
   //set debug label
   fsub->sub.lbl = ngx_calloc(r->uri.len+1, ngx_cycle->log);
+  if (!fsub->sub.lbl) {
+    ERR("Unable to allocate sub lbl.");
+    assert(0);
+    return NULL;
+  }
   ngx_memcpy(fsub->sub.lbl, r->uri.data, r->uri.len);
 #endif
   
