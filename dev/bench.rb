@@ -80,7 +80,7 @@ def t
 end
 
 Typhoeus.before do |req|
-  #binding.pry
+
   req.original_options[:start_time]=Time.now.to_f
 end
 
@@ -90,12 +90,22 @@ class BenchSub
     self.sub = Subscriber.new url, parallel, timeout: SUB_TIMEOUT, client: client_type, nomsg: true
     self.benchdb = benchdb
     sub.on_message do |msg, req|
-      #puts "got msg #{msg}"
+      #puts "msg is: #{msg}"
       unless msg == QUIT_MSG
         t_now = Time.now.to_f
         t_msg = msg.to_f
-        t_start = req.original_options[:start_time]
-        benchdb.add(t_start, t_msg, t_now, req.response.time)
+        if sub.client_class == Subscriber::LongPollClient
+          t_start = req.original_options[:start_time]
+          measured_time = req.response.time
+        elsif sub.client_class == Subscriber::EventSourceClient
+          t_start = req.original_options[:last_msg_time] || req.original_options[:start_time]
+          measured_time = nil 
+          
+        elsif sub.client_class == Subscriber::WebSocketClient
+          t_start = req.last_event_time
+          measured_time = nil 
+        end
+        benchdb.add(t_start, t_msg, t_now, measured_time)
       else
         false
       end

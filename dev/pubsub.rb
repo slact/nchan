@@ -123,6 +123,7 @@ class Subscriber
     #a little sugar for handshake errors
     class WebSocket::EventMachine::Client
       attr_accessor :handshake # we want this for erroring
+      attr_accessor :last_event_time
     end
     
     class WebSocket::Handshake::Client
@@ -182,6 +183,7 @@ class Subscriber
           ws.onopen do
             @connected[ws] = true
             @connections += 1
+            ws.last_event_time=Time.now.to_f
             #puts "Connected"
           end
           ws.onerror do |err, err2|
@@ -193,8 +195,10 @@ class Subscriber
           ws.onmessage do |data, type|
             #puts "Received message: #{data} type: #{type}"
             msg= @nomsg ? data : Message.new(data)
-            if @subscriber.on_message(msg) == false
+            if @subscriber.on_message(msg, ws) == false
               halt
+            else
+              ws.last_event_time=Time.now.to_f
             end
           end
           ws.onclose do |code, reason|
@@ -373,9 +377,11 @@ class Subscriber
           msg = bufs[:data].join("\n")
         end
         
-        if @subscriber.on_message(msg) == false
+        if @subscriber.on_message(msg, req) == false
           @subscriber.finished+=1
           return :abort
+        else
+          req.original_options[:last_msg_time]=Time.now.to_f
         end
       end
       
