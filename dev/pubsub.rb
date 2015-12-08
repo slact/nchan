@@ -158,6 +158,7 @@ class Subscriber
       @ws = []
       @connected={}
       @connections = 0
+      @nomsg = opt[:nomsg]
     end
     
     def try_halt
@@ -191,7 +192,7 @@ class Subscriber
           end
           ws.onmessage do |data, type|
             #puts "Received message: #{data} type: #{type}"
-            msg=Message.new data
+            msg= @nomsg ? data : Message.new(data)
             if @subscriber.on_message(msg) == false
               halt
             end
@@ -226,23 +227,27 @@ class Subscriber
       @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency, pipelining: opt[:pipelining])
       @gzip=opt[:gzip]
       @retry_delay=opt[:retry_delay]
+      @nomsg=opt[:nomsg]
     end
     
     def response_success(response, req)
       #puts "received OK response at #{req.url}"
       #parse it
-      msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
-      msg.content_type=response.headers["Content-Type"]
-      #binding.pry
-      req.options[:headers]["If-None-Match"]=msg.etag
-      req.options[:headers]["If-Modified-Since"]=msg.last_modified
+      unless @nomsg
+        msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
+        msg.content_type=response.headers["Content-Type"]
+        req.options[:headers]["If-None-Match"]=msg.etag
+        req.options[:headers]["If-Modified-Since"]=msg.last_modified
+      else
+        msg=response.body
+        req.options[:headers]["If-None-Match"] = response.headers["Etag"]
+        req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
+      end
       
-      #binding.pry 
-      
-      unless @subscriber.on_message(msg) == false
+      unless @subscriber.on_message(msg, req) == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue  new_request(old_request: req)
+        @hydra.queue new_request(old_request: req)
       else
         @subscriber.finished+=1
       end
@@ -294,6 +299,7 @@ class Subscriber
         @subscriber.waiting+=1
         @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
       end
+      
       @hydra.run
     end
     
@@ -356,8 +362,12 @@ class Subscriber
       bufs = buf req
       
       if bufs[:data].length > 0
-        msg=Message.new bufs[:data].join("\n")
-        msg.id= bufs[:id] if bufs[:id]
+        unless @nomsg
+          msg=Message.new bufs[:data].join("\n")
+          msg.id= bufs[:id] if bufs[:id]
+        else
+          msg = bufs[:data].join("\n")
+        end
         
         if @subscriber.on_message(msg) == false
           @subscriber.finished+=1
@@ -457,18 +467,21 @@ class Subscriber
     else
       raise "unknown client type #{opt[:client]}"
     end
+    @dont_process_msg=opt[:nomsg]
     @concurrency=concurrency
     @client_class ||= opt[:client_class] || LongPollClient
     reset
     new_client @client_class
   end
   def new_client(client_class=LongPollClient)
-    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay)
+    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @dont_process_msg)
   end
   def reset
     @errors=[]
-    @messages=MessageStore.new :noid => !@care_about_message_ids
-    @messages.name="sub"
+    unless @dont_process_msg
+      @messages=MessageStore.new :noid => !@care_about_message_ids
+      @messages.name="sub"
+    end
     @waiting=0
     @finished=0
     new_client(@client_class) if terminated?
@@ -520,16 +533,16 @@ class Subscriber
     @client.poke
   end
 
-  def on_message(msg=nil, &block)
+  def on_message(msg=nil, req=nil, &block)
     #puts "received message #{msg.to_s[0..15]}"
     if block_given?
       @on_message=block
     else
-      @messages << msg
+      @messages << msg if @messages
       if @quit_message == msg.to_s
         return false 
       end
-      @on_message.call(msg) if @on_message.respond_to? :call
+      @on_message.call(msg, req) if @on_message.respond_to? :call
     end
   end
   
@@ -569,9 +582,16 @@ class Publisher
   attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept
   def initialize(url, opt={})
     @url= url
-    @messages = MessageStore.new :noid => true
-    @messages.name = "pub"
+    unless opt[:nostore]
+      @messages = MessageStore.new :noid => true
+      @messages.name = "pub"
+    end
     @timeout = opt[:timeout]
+  end
+  
+  def on_complete(&block)
+    raise ArgumentError, "block must be given" unless block
+    @on_complete = block
   end
   
   def submit(body, method=:POST, content_type= :'text/plain', &block)
@@ -592,38 +612,44 @@ class Publisher
       timeout: @timeout || PUBLISH_TIMEOUT,
       connecttimeout: @timeout || PUBLISH_TIMEOUT
     )
-    msg=Message.new body
-    msg.content_type=content_type
-    post.on_complete do |response|
-      self.response=response
-      self.response_code=response.response_code
-      self.response_body=response.response_body
-      if response.success?
-        #puts "published message #{msg.to_s[0..15]}"
-        @messages << msg
-      elsif response.timed_out?
-        # aw hell no
-        #puts "publisher err: timeout"
+    if @messages
+      msg=Message.new body
+      msg.content_type=content_type
+    end
+    if @on_complete
+      post.on_complete @on_complete
+    else
+      post.on_complete do |response|
+        self.response=response
+        self.response_code=response.response_code
+        self.response_body=response.response_body
+        if response.success?
+          #puts "published message #{msg.to_s[0..15]}"
+          @messages << msg if @messages
+        elsif response.timed_out?
+          # aw hell no
+          #puts "publisher err: timeout"
 
-        url=URI.parse(response.request.url)
-        url = "#{url.path}#{url.query ? "?#{url.query}" : nil}"
-        raise "Publisher #{response.request.options[:method]} to #{url} timed out."
-      elsif response.code == 0
-        # Could not get an http response, something's wrong.
-        #puts "publisher err: #{response.return_message}"
-        errmsg="No HTTP response: #{response.return_message}"
-        unless self.nofail then
-          raise errmsg
+          url=URI.parse(response.request.url)
+          url = "#{url.path}#{url.query ? "?#{url.query}" : nil}"
+          raise "Publisher #{response.request.options[:method]} to #{url} timed out."
+        elsif response.code == 0
+          # Could not get an http response, something's wrong.
+          #puts "publisher err: #{response.return_message}"
+          errmsg="No HTTP response: #{response.return_message}"
+          unless self.nofail then
+            raise errmsg
+          end
+        else
+          # Received a non-successful http response.
+          #puts "publisher err: #{response.code.to_s}"
+          errmsg="HTTP request failed: #{response.code.to_s}"
+          unless self.nofail then
+            raise errmsg
+          end
         end
-      else
-        # Received a non-successful http response.
-        #puts "publisher err: #{response.code.to_s}"
-        errmsg="HTTP request failed: #{response.code.to_s}"
-        unless self.nofail then
-          raise errmsg
-        end
+        block.call(self) if block
       end
-      block.call(self) if block
     end
     #puts "publishing to #{@url}"
     begin
