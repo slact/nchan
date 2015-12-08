@@ -542,7 +542,7 @@ class Subscriber
       if @quit_message == msg.to_s
         return false 
       end
-      @on_message.call(msg, req) if @on_message.respond_to? :call
+      @on_message.call(msg, req) if @on_message
     end
   end
   
