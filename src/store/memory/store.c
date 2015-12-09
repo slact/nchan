@@ -104,6 +104,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
         case INACTIVE:
           sts = "INACTIVE";
           break;
+        default:
+          sts = "????";
       }
       DBG("not ready to reap %V : status %s", &ch->id, sts);
       return NGX_DECLINED;

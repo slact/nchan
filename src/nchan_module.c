@@ -274,7 +274,7 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
   static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_int_t                       rc;
-  ngx_str_t                      *id;
+  ngx_str_t                      *id = NULL;
   nchan_chid_loc_conf_t          *chid_conf;
   
   chid_conf = what == PUB ? &cf->pub_chid : &cf->sub_chid;
