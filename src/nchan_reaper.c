@@ -45,14 +45,14 @@ ngx_int_t nchan_reaper_stop(nchan_reaper_t *rp) {
 }
 
 static ngx_inline void **thing_next_ptr(nchan_reaper_t *rp, void *thing) {
-  return thing + rp->next_ptr_offset;
+  return (void *)((char *)thing + rp->next_ptr_offset);
 }
 static ngx_inline void *thing_next(nchan_reaper_t *rp, void *thing) {
   return *thing_next_ptr(rp, thing);
 }
 
 static ngx_inline void **thing_prev_ptr(nchan_reaper_t *rp, void *thing) {
-  return thing + rp->prev_ptr_offset;
+  return (void *)((char *)thing + rp->prev_ptr_offset);
 }
 static ngx_inline void *thing_prev(nchan_reaper_t *rp, void *thing) {
   return *thing_prev_ptr(rp, thing);
