@@ -7,8 +7,16 @@ gem 'nokogiri'
 gem 'pry'
 gem 'pry-debundle'
 gem 'celluloid'
+gem 'celluloid-io'
+gem 'websocket-driver', :github => 'faye/websocket-driver-ruby'
+
 gem 'minitest'
 gem 'minitest-reporters'
+
+
+gem 'celluloid-websocket-client'
+
 gem 'eventmachine'
 gem 'websocket-eventmachine-client'
+
 gem 'fpm', :github => "slact/fpm"
