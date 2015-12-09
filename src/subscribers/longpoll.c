@@ -9,8 +9,8 @@
 
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
-void memstore_fakeprocess_pop();
-ngx_int_t memstore_slot();
+void memstore_fakeprocess_pop(void);
+ngx_int_t memstore_slot(void);
 
 static const subscriber_t new_longpoll_sub;
 

@@ -517,7 +517,7 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   if(accept_header) {
     //lame content-negotiation (without regard for qvalues)
     u_char                    *accept = accept_header->data;
-    size_t                     len = accept_header->len;
+    len = accept_header->len;
     size_t                     rem;
     u_char                    *cur = accept;
     u_char                    *priority=&accept[len-1];

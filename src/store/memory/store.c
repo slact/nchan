@@ -599,11 +599,11 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
     }
     
     if(head->multi) {
-      ngx_int_t     i, max = head->multi_count;
-      subscriber_t *sub;
+      ngx_int_t      i, max = head->multi_count;
+      subscriber_t  *msub;
       for(i = 0; i < max; i++) {
-        sub = head->multi[i].sub;
-        sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)1);
+        msub = head->multi[i].sub;
+        msub->fn->notify(msub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)1);
       }
     }
     
