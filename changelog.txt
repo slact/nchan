@@ -1,3 +1,5 @@
+ fix: segfault when websocket publishes message and immediately disconnects
+ fix: Duplicate "Connection: Upgrade" header for websocket handshake. thanks @eschultz 
 0.904 (Dec. 7 2015)
  fix: more flexible Websocket handshake for "Connection" header. thanks @eschultz
  fix: out-of-memory safety check. thanks @woodyhymns

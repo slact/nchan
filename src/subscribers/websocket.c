@@ -129,6 +129,8 @@ static ngx_flag_t is_utf8(u_char *, size_t);
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 
+static ngx_int_t websocket_reserve(subscriber_t *self);
+static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 
 static void sudden_abort_handler(subscriber_t *sub) {
 #if FAKESHARD
@@ -156,6 +158,12 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     subscribers = ch->subscribers;
     last_seen = ch->last_seen;
     messages  = ch->messages;
+  }
+  
+  if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
+    //zombie publisher
+    //nothing more to do, we're finished here
+    return NGX_OK;
   }
   
   switch(status) {
@@ -215,6 +223,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_str_t *msg_str) 
   msg.id.tagcount=1;
   msg.id.tagactive=0;
   
+  websocket_reserve(&fsub->sub);
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub);
   
   return NGX_OK;
@@ -315,8 +324,11 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
-  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
-  ctx->sub = NULL;
+  nchan_request_ctx_t *ctx;
+  if(!fsub->awaiting_destruction) {
+    ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+    ctx->sub = NULL;
+  }
   
   if(sub->reserved > 0) {
     DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
@@ -327,6 +339,8 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
+    //debug 
+    ngx_memset(fsub, 0x13, sizeof(*fsub));
     ngx_free(fsub);
   }
   return NGX_OK;
@@ -429,7 +443,7 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
   self->reserved--;
   DBG("%p release for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
-    ngx_free(fsub);
+    websocket_subscriber_destroy(self);
     return NGX_ABORT;
   }
   else {
