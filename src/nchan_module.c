@@ -145,7 +145,7 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   ngx_str_t                 *id;
   u_char                    *cur;
   ngx_str_t                  evstr;
-  ngx_buf_t                  buf = {0};
+  ngx_buf_t                  buf;
   nchan_msg_t                msg;
   
   switch(event_type) {
@@ -188,6 +188,7 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   
   //the event message
   ngx_http_complex_value(r, cf->channel_event_string, &evstr);
+  ngx_memzero(&buf, sizeof(buf)); //do we really need this?...
   buf.temporary = 1;
   buf.memory = 1;
   buf.last_buf = 1;
@@ -696,10 +697,10 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_str_t              *channel_id;
   subscriber_t           *sub;
-  nchan_msg_id_t          msg_id = {0}; //memzeroed for debugging
+  nchan_msg_id_t          msg_id = NCHAN_ZERO_MSGID;
   ngx_int_t               rc = NGX_DONE;
-  
   nchan_request_ctx_t    *ctx;
+  
   if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
@@ -811,7 +812,7 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_re
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   nchan_channel_t       *ch = rptr;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  static nchan_msg_id_t  empty_msgid = {0};
+  static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
   //DBG("publish_callback %V owner %i status %i", ch_id, memstore_channel_owner(ch_id), status);
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:

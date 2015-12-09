@@ -22,6 +22,7 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
+#define NCHAN_ZERO_MSGID {0, {0}, 0, 0}
 #define NCHAN_MULTITAG_MAX 4
 typedef struct {
   time_t                          time; //tag message by time

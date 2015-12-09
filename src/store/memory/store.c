@@ -1786,7 +1786,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   ngx_int_t                    n;
   uint8_t                      want[NCHAN_MEMSTORE_MULTI_MAX];
   ngx_str_t                    ids[NCHAN_MEMSTORE_MULTI_MAX];
-  nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX] = {{0}};
+  nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX] = {NCHAN_ZERO_MSGID};
   
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;

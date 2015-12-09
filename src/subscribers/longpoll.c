@@ -316,7 +316,7 @@ static const subscriber_t new_longpoll_sub = {
   &sub_name,
   LONGPOLL,
   &longpoll_fn,
-  {0},
+  NCHAN_ZERO_MSGID,
   NULL,
   NULL,
   0, //reservations

@@ -521,13 +521,15 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   redisReply             *reply = r;
   redisReply             *el = NULL;
   nchan_msg_t             msg;
-  ngx_buf_t               buf = {0};
-  ngx_str_t               chid = {0};
-  ngx_str_t               msg_redis_hash_key = {0};
+  ngx_buf_t               buf;
+  ngx_str_t               chid = ngx_null_string;
+  ngx_str_t               msg_redis_hash_key = ngx_null_string;
   ngx_uint_t              subscriber_id;
   
   ngx_buf_t               mpbuf;
   cmp_ctx_t               cmp;
+  
+  ngx_memzero(&buf, sizeof(buf)); 
   
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "redis_subscriber_callback,  privdata=%p", privdata);
   

@@ -43,12 +43,17 @@ ngx_int_t internal_subscriber_set_respond_status_handler(subscriber_t *sub, call
 }
 
 static ngx_str_t     subscriber_name = ngx_string("internal");
+static nchan_loc_conf_t              dummy_config;
+static nchan_loc_conf_t             *dummy_config_ptr = NULL;
 
 subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   internal_subscriber_t               *fsub;
-  static nchan_loc_conf_t  dummy_config = {0};
-  dummy_config.buffer_timeout = 0;
-  dummy_config.max_messages = -1;
+  if(dummy_config_ptr == NULL) {
+    ngx_memzero(&dummy_config, sizeof(dummy_config));
+    dummy_config.buffer_timeout = 0;
+    dummy_config.max_messages = -1;
+    dummy_config_ptr = &dummy_config;
+  }
   
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
@@ -268,7 +273,7 @@ static const subscriber_t new_internal_sub = {
   &subscriber_name,
   INTERNAL,
   &internal_sub_fn,
-  {0},
+  NCHAN_ZERO_MSGID,
   NULL,
   NULL,
   0, //reserved

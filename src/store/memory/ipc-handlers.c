@@ -76,7 +76,8 @@ typedef struct {
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
   DBG("send subscribe to %i, %V", dst, chid);
   //origin_chanhead->use_redis
-  subscribe_data_t   data = {0}; //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  subscribe_data_t   data; 
+  ngx_memzero(&data, sizeof(data));//debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
   data.shm_chid = str_shm_copy(chid);
   data.shared_channel_data = NULL;
   data.d.origin_chanhead = origin_chanhead;
@@ -251,7 +252,8 @@ typedef struct {
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t         ret;
-  publish_data_t    data = {0}; //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  publish_data_t    data; 
+  ngx_memzero(&data, sizeof(data)); //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
   assert(shm_msg->temp_allocd == 0);
@@ -326,7 +328,10 @@ typedef struct {
 static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, void *privdata) {
   DBG("IPC: publish message generic callback");
   publish_callback_data   *cd = (publish_callback_data *)privdata;
-  publish_response_data    rd = {0}; //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  publish_response_data    rd; 
+  
+  //ngx_memzero(&rd, sizeof(rd)); //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  
   nchan_channel_t *ch = (nchan_channel_t *)rptr;
   rd.status = status;
   rd.callback = cd->d->callback;

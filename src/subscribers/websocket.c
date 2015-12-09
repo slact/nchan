@@ -976,7 +976,7 @@ static const subscriber_t new_websocket_sub = {
   &sub_name,
   WEBSOCKET,
   &websocket_fn,
-  {0},
+  NCHAN_ZERO_MSGID,
   NULL,
   NULL,
   0, //reserved
