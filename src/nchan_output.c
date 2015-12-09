@@ -24,7 +24,7 @@ static void *fd_open(ngx_str_t *filename) {
   ngx_fd_t        fd;
   off_t           len = filename->len;
   last = filename->data + len;
-  if(last == '\0' || (filename->len > 0 && last - 1 == '\0')) {
+  if(*last == '\0' || (filename->len > 0 && *(last - 1) == '\0')) {
     fname = filename->data;
   }
   else if(filename->len < 512) {
