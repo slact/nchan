@@ -9,6 +9,9 @@ Typhoeus::Config.memoize = false
 require "websocket-eventmachine-client"
 require 'eventmachine'
 
+new_size = EventMachine.set_descriptor_table_size( 60000 )
+EventMachine.epoll
+
 PUBLISH_TIMEOUT=3 #seconds
 
 class Message

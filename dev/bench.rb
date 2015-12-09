@@ -17,6 +17,7 @@ sub_uri="/sub/broadcast/#{myid}"
 pub_uri="/pub/#{myid}"
 
 SUB_TIMEOUT = 1000
+START_MSG = "START"
 QUIT_MSG = "FIN"
 
 opt=OptionParser.new do |opts|
@@ -85,13 +86,22 @@ Typhoeus.before do |req|
 end
 
 class BenchSub
-  attr_accessor :sub, :benchdb
+  attr_accessor :sub, :benchdb, :startmsg_received, :msg_received
   def initialize(url, parallel, client_type, benchdb)
     self.sub = Subscriber.new url, parallel, timeout: SUB_TIMEOUT, client: client_type, nomsg: true
     self.benchdb = benchdb
+    self.startmsg_received = 0
+    self.msg_received = 0
+    sub.on_failure do |resp|
+      puts "FAIL!!"
+    end
     sub.on_message do |msg, req|
       #puts "msg is: #{msg}"
-      unless msg == QUIT_MSG
+      if msg == START_MSG
+        self.startmsg_received +=1
+      elsif msg == QUIT_MSG
+        false
+      else
         t_now = Time.now.to_f
         t_msg = msg.to_f
         if sub.client_class == Subscriber::LongPollClient
@@ -105,9 +115,8 @@ class BenchSub
           t_start = req.last_event_time
           measured_time = nil 
         end
+        self.msg_received += 1
         benchdb.add(t_start, t_msg, t_now, measured_time)
-      else
-        false
       end
     end
     
@@ -136,15 +145,17 @@ threads.times do
   benches << BenchSub.new(sub_url, par, client, benchmark)
 end
 
-pub = Publisher.new pub_url, nostore: true
+pub = Publisher.new pub_url, nostore: true, timeout: 30
 
 num_msgs = 20
 msgs = []
 
 puts "publish #{num_msgs} messages to #{pub_url}"
+pub.post START_MSG
 num_msgs.times do
   pub.post mkmsg
 end
+pub.post QUIT_MSG
 
 sleep 1
 
@@ -154,11 +165,16 @@ benches.each &:run
 sleep 1
 
 
-pub.post QUIT_MSG
+
 
 benches.each &:wait
 
 puts "done."
+
+benches.each do |b|
+  puts "STARTMSG received #{b.startmsg_received} times"
+  puts "MSG received #{b.msg_received} times"
+end
 
 puts benchmark.analyze
 
