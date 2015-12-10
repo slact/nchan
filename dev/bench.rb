@@ -112,7 +112,7 @@ class BenchSub
           measured_time = nil 
           
         elsif sub.client_class == Subscriber::WebSocketClient
-          t_start = req.last_event_time
+          t_start = req.last_message_time
           measured_time = nil 
         end
         self.msg_received += 1

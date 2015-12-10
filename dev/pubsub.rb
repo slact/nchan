@@ -6,14 +6,10 @@ require 'celluloid/current'
 require 'date'
 Typhoeus::Config.memoize = false
 require 'celluloid/io'
-require 'celluloid/websocket/client'
-require 'websocket-driver-ruby'
+require 'websocket'
+require 'uri'
 
-require "websocket-eventmachine-client"
 require 'eventmachine'
-
-new_size = EventMachine.set_descriptor_table_size( 60000 )
-EventMachine.epoll
 
 PUBLISH_TIMEOUT=3 #seconds
 
@@ -133,16 +129,16 @@ class Subscriber
     #  attr_accessor :last_event_time
     #end
     
-    #class WebSocket::Handshake::Client
-    #  attr_accessor :data
-    #  def response_code(what=:code)
-    #    resp=@data.match(/^HTTP\/1.1 (?<code>\d+) (?<line>[^\\\r\\\n]+)/)
-    #    resp[what]
-    #  end
-    #  def response_line
-    #    response_code :line
-    #  end
-    #end
+    class WebSocket::Handshake::Client
+      attr_accessor :data
+      def response_code(what=:code)
+        resp=@data.match(/^HTTP\/1.1 (?<code>\d+) (?<line>[^\\\r\\\n]+)/)
+        resp[what]
+      end
+      def response_line
+        response_code :line
+      end
+    end
     
     class WebSocketErrorResponse
       attr_accessor :code, :msg, :connected
@@ -153,7 +149,24 @@ class Subscriber
       end
     end
     
+    class WebSocketBundle
+      attr_accessor :ws, :sock, :last_message_time
+      def initialize(handshake, sock)
+        self.ws = WebSocket::Frame::Incoming::Server.new(version: handshake.version)
+        self.sock = sock
+      end
+      
+      def read
+        ws << sock.read
+      end
+      
+      def next
+        ws.next
+      end
+    end
+    
     include Celluloid::IO
+    
     attr_accessor :last_modified, :etag, :timeout
     attr_accessor :active_connections
     def initialize(subscr, opt={})
@@ -161,11 +174,12 @@ class Subscriber
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
-      @url.gsub!(/^http:/, "ws:")
+      @url.gsub!(/^http(s)?:/, "ws\\1:")
+      
       @concurrency=(opt[:concurrency] || opt[:clients] || 1).to_i
       @retry_delay=opt[:retry_delay]
-      @ws = []
-      @connected={}
+      @ws = {}
+      @connected=0
       current_actor.active_connections = 0
       @nomsg = opt[:nomsg]
     end
@@ -180,18 +194,57 @@ class Subscriber
     
     def halt
       @halting = true
-      
-      
-      #EventMachine.stop_event_loop
     end
     
     def run(was_success = nil)
+      uri = URI.parse(@url)
+      port = uri.port || (uri.scheme == "ws" ? 80 : 443)
+      @ready=Celluloid::Condition.new
+      @connected = @concurrency
       @concurrency.times do
-        ws = Celluloid::WebSocket::Client.new(@url, current_actor)
-        @ws << ws
+        if uri.scheme == "ws"
+          sock = Celluloid::IO::TCPSocket.new(uri.host, port)
+        elsif uri.scheme == "wss"
+          sock = Celluloid::IO::SSLSocket.new(uri.host, port)
+        else
+          raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
+        end
+          
+        handshake = WebSocket::Handshake::Client.new(url: @url)
+        sock << handshake.to_s
+        
+        #handshake response
+        loop do
+          handshake << sock.readline
+          if handshake.finished?
+            if !handshake.valid?
+              binding.pry
+            end
+            break
+          end
+        end
+        
+        bundle = WebSocketBundle.new(handshake, sock)
+        @ws[bundle]=true
+        async.listen bundle
       end
     end
     
+    def listen(bundle)
+      loop do
+        begin
+          bundle.read
+          while msg = bundle.next do
+            if on_message(msg.data, msg.type, bundle) == false
+              close bundle
+            end
+          end
+        rescue EOFError
+          puts "*** disconnected"
+          socket.close
+        end
+      end
+    end
     
     def on_open(*args)
       current_actor.active_connections += 1
@@ -200,41 +253,33 @@ class Subscriber
     
     def on_error(err, err2)
       puts "Received error #{err}"
-      binding.pry
       if !@connected[ws]
         @subscriber.on_failure WebSocketErrorResponse.new(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
         try_halt
       end
     end
     
-    def on_message(data, type)
-      puts "Received message: #{data} type: #{type}"
-      binding.pry
+    def on_message(data, type, bundle)
       #puts "Received message: #{data} type: #{type}"
       msg= @nomsg ? data : Message.new(data)
-      if @subscriber.on_message(msg, ws) == false
-        halt
-      else
-        ws.last_event_time=Time.now.to_f
+      bundle.last_message_time=Time.now.to_f
+      @subscriber.on_message(msg, bundle)
+    end
+    
+    
+    def close(bundle)
+      @ws.delete bundle
+      @connected -= 1
+      if @connected == 0
+        binding.pry unless @ws.count == 0
+        puts "the future is now!"
+        #binding.pry
+        @ready.signal true
       end
     end
     
-    def on_close(code, reason)
-      binding.pry
-      #puts "Disconnected with status code: #{code} (reason: #{reason})"
-      if ! @halting && code != 1000 #1000 is not an error
-        @subscriber.on_failure(WebSocketErrorResponse.new(code, reason, @connected[ws]))
-      else
-        #TODO: should grab last message's id send in the close reason body
-      end
-      try_halt
-      end
-    
     def poke
-      while current_actor.active_connections > 0
-        Celluloid.sleep 1
-      end
-      puts "nopoke"
+      @connected > 0 && @ready.wait
     end
   end
   
