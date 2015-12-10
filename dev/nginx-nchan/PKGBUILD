@@ -50,7 +50,7 @@ pkgname=nginx-nchan-dev
 pkgver=$(_pkgver)
 pkgrel=1
 pkgdesc="Nginx + Nchan dev version"
-arch=('i686' 'x86_64')
+arch=('i686' 'x86_64' 'armv7h')
 install=install
 
 
