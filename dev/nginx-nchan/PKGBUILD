@@ -7,8 +7,8 @@ _nginx_ver_very_old=0.8.40
 
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
-    #debug build. clear cflags
-    CFLAGS=" -ggdb -O$OPTIMIZE_LEVEL"
+  #debug build. clear cflags
+  CFLAGS=" -ggdb -O$OPTIMIZE_LEVEL"
 fi
 
 CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wstrict-overflow=5 -Winline -Wnested-externs -Wstrict-aliasing=2"
