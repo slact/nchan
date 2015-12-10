@@ -11,7 +11,7 @@ if [[ -z $NO_DEBUG ]]; then
   CFLAGS=" -ggdb -O$OPTIMIZE_LEVEL"
 fi
 
-CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wstrict-overflow=5 -Winline -Wnested-externs -Wstrict-aliasing=2"
+CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs"
 
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nginx_ver_nopool
