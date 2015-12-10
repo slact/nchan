@@ -1183,6 +1183,7 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
   ngx_buf_t           *buf=NULL;
   redisReply         **els = r->element;
   size_t len = 0, content_type_len = 0;
+  ngx_int_t            time_int;
   
   if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 6)
    && CHECK_REPLY_INT_OR_STR(els[offset])     //id - time
@@ -1214,12 +1215,14 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
       ngx_memcpy(msg->content_type.data, els[offset+5]->str, content_type_len);
     }
     
-    redisReply_to_int(els[offset+0], &msg->id.time);
+    redisReply_to_int(els[offset+0], &time_int);
+    msg->id.time = time_int;
     redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
     msg->id.tagactive = 0;
     
-    redisReply_to_int(els[offset+2], &msg->prev_id.time);
+    redisReply_to_int(els[offset+2], &time_int);
+    msg->prev_id.time = time_int;
     redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag[0]);
     msg->prev_id.tagcount = 1;
     msg->prev_id.tagactive = 0;

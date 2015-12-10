@@ -428,7 +428,7 @@ static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V msg %p privdata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
   if(d->d.resp.shm_msg) {
-    sprintf(rsvlbl, "handle_get_message_reply from %li by %li", sender, ngx_process_slot);
+    sprintf(rsvlbl, "handle_get_message_reply from %i by %i", sender, ngx_process_slot);
     msg_reserve(d->d.resp.shm_msg, rsvlbl);
     msg_release(d->d.resp.shm_msg, "get_message_reply");
   }
