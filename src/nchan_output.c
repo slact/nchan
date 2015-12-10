@@ -285,6 +285,10 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
+    if (!cb) {
+        if(err) *err = "couldn't allocate memory for buf-and-chain while responding with msg";
+        return NGX_ERROR;
+    }
     rchain = &cb->chain;
     rbuffer = &cb->buf;
     
@@ -296,7 +300,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     rfile = rbuffer->file;
     if(rfile != NULL) {
       if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
-        if(err) *err = "couldn't allocate memory for file struct";
+        if(err) *err = "couldn't allocate memory for file struct while responding with msg";
         return NGX_ERROR;
       }
       ngx_memcpy(rfile, buffer->file, sizeof(*rbuffer));
@@ -370,20 +374,30 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
     r->headers_out.content_type.data = content_type->data;
   }
   
-  chain->buf=b;
-  chain->next=NULL;
-  
-  b->last_buf = 1;
-  b->last_in_chain = 1;
-  b->flush = 1; //flush just to be sure, although I should perhaps rethink this
-  b->memory = 1;
-  b->start = body->data;
-  b->pos = body->data;
-  b->end = body->data + body->len;
-  b->last = b->end;
-  
-  ngx_http_send_header(r);
-  rc= nchan_output_filter(r, chain);
+  if ((!b) || (!chain)) {
+    ERR("Couldn't allocate ngx buf or chain.");
+    r->headers_out.status=NGX_HTTP_INTERNAL_SERVER_ERROR;
+    r->headers_out.content_length_n = 0;
+    r->header_only = 1;
+    ngx_http_send_header(r);
+    rc=NGX_ERROR;
+  }
+  else {
+    chain->buf=b;
+    chain->next=NULL;
+    
+    b->last_buf = 1;
+    b->last_in_chain = 1;
+    b->flush = 1; //flush just to be sure, although I should perhaps rethink this
+    b->memory = 1;
+    b->start = body->data;
+    b->pos = body->data;
+    b->end = body->data + body->len;
+    b->last = b->end;
+    
+    ngx_http_send_header(r);
+    rc= nchan_output_filter(r, chain);
+  }
   
   if(finalize) {
     ngx_http_finalize_request(r, rc);
