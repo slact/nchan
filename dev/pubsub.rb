@@ -152,12 +152,14 @@ class Subscriber
     class WebSocketBundle
       attr_accessor :ws, :sock, :last_message_time
       def initialize(handshake, sock)
+        @buf=""
         self.ws = WebSocket::Frame::Incoming::Client.new(version: handshake.version)
         self.sock = sock
       end
       
       def read
-        ws << sock.readpartial(4096)
+        @buf.clear
+        ws << sock.readpartial(4096, @buf)
       end
       
       def next
