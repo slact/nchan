@@ -8,6 +8,7 @@ Typhoeus::Config.memoize = false
 require 'celluloid/io'
 require 'websocket'
 require 'uri'
+require "http/parser"
 
 PUBLISH_TIMEOUT=3 #seconds
 
@@ -168,7 +169,6 @@ class Subscriber
     include Celluloid::IO
     
     attr_accessor :last_modified, :etag, :timeout
-    attr_accessor :active_connections
     def initialize(subscr, opt={})
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
@@ -180,7 +180,6 @@ class Subscriber
       @retry_delay=opt[:retry_delay]
       @ws = {}
       @connected=0
-      current_actor.active_connections = 0
       @nomsg = opt[:nomsg]
     end
     
@@ -199,7 +198,7 @@ class Subscriber
     def run(was_success = nil)
       uri = URI.parse(@url)
       port = uri.port || (uri.scheme == "ws" ? 80 : 443)
-      @ready=Celluloid::Condition.new
+      @cooked=Celluloid::Condition.new
       @connected = @concurrency
       @concurrency.times do
         if uri.scheme == "ws"
@@ -248,11 +247,6 @@ class Subscriber
       end
     end
     
-    def on_open(*args)
-      current_actor.active_connections += 1
-      puts "open #{current_actor.active_connections}"
-    end
-    
     def on_error(err, err2)
       puts "Received error #{err}"
       if !@connected[ws]
@@ -276,12 +270,163 @@ class Subscriber
         binding.pry unless @ws.count == 0
         puts "the future is now!"
         #binding.pry
-        @ready.signal true
+        @cooked.signal true
       end
     end
     
     def poke
-      @connected > 0 && @ready.wait
+      @connected > 0 && @cooked.wait
+    end
+  end
+  
+  class FastLongPollClient
+    include Celluloid::IO
+    
+    class HTTPBundle
+      attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
+      def initialize(uri, sock, user_agent)
+        @http={}
+        @buf=""
+        @sndbuf=""
+        @parser = Http::Parser.new
+        @sock = sock
+        @done = false
+        @send_noid_str= <<-END.gsub(/^ {10}/, '')
+          GET #{uri.path} HTTP/1.1
+          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Accept: */*
+          User-Agent: #{user_agent || "HTTPBundle"}
+          
+        END
+        
+        @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
+          GET #{uri.path} HTTP/1.1
+          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Accept: */*
+          User-Agent: #{user_agent || "HTTPBundle"}
+          If-Modified-Since: %s
+          If-None-Match: %s
+          
+        END
+      end
+      
+      def send_GET(msg_time=nil, msg_tag=nil)
+        @sndbuf.clear
+        if msg_time
+          @sndbuf << sprintf(@send_withid_fmt, msg_time, msg_tag)
+        else
+          @sndbuf << @send_noid_str
+        end
+        @time_requested=Time.now.to_f
+        @sock << @sndbuf
+      end
+      
+      def read
+        @buf.clear
+        @parser << sock.readpartial(4096, @buf)
+        return false if @done || sock.closed?
+      end
+    end
+    
+    attr_accessor :last_modified, :etag, :timeout
+    def initialize(subscr, opt={})
+      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
+      @connect_timeout = opt[:connect_timeout]
+      @subscriber=subscr
+      @url=subscr.url
+      @concurrency=opt[:concurrency] || opt[:clients] || 1
+      @gzip=opt[:gzip]
+      @retry_delay=opt[:retry_delay]
+      @nomsg=opt[:nomsg]
+      @http={}
+      @body_buf=""
+    end
+    
+    def run(was_success = nil)
+      uri = URI.parse(@url)
+      port = uri.port || (uri.scheme == "http" ? 80 : 443)
+      @cooked=Celluloid::Condition.new
+      @connected = @concurrency
+      @concurrency.times do |i|
+        if uri.scheme == "http"
+          sock = Celluloid::IO::TCPSocket.new(uri.host, port)
+        elsif uri.scheme == "https"
+          sock = Celluloid::IO::SSLSocket.new(uri.host, port)
+        else
+          raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
+        end
+        bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} ##{i}")
+        @http[bundle]=true
+        bundle.send_GET
+        async.listen bundle
+      end
+    end
+    
+    def new_bundle(uri, sock, useragent)
+      b=HTTPBundle.new(uri, sock, useragent)
+      prsr = b.parser
+      prsr.on_headers_complete = proc do
+        @body_buf.clear
+      end
+      prsr.on_message_complete = proc do
+        # Headers and body is all parsed
+        @last_modified = prsr.headers["Last-Modified"]
+        @etag = prsr.headers["Etag"]
+        b.request_time = Time.now.to_f - b.time_requested
+        if prsr.status_code != 200
+          unless @subscriber.on_failure(response) == false
+            Celluloid.sleep @retry_delay if @retry_delay
+          else
+            @subscriber.finished+=1
+            close b
+          end
+        end
+        
+        unless @nomsg
+          msg=Message.new @body_buf, @last_modified, @etag
+          msg.content_type=prsr.headers["Content-Type"]
+        else
+          msg=@body_buf
+        end
+        
+        unless @subscriber.on_message(msg, b) == false
+          @subscriber.waiting+=1
+          Celluloid.sleep @retry_delay if @retry_delay
+          b.send_GET @last_modified, @etag
+        else
+          @subscriber.finished+=1
+          close b
+        end
+        
+      end
+      
+      prsr.on_body = proc do |chunk|
+        @body_buf << chunk
+      end
+      b
+    end
+    
+    def listen(bundle)
+      loop do
+        begin
+          return if bundle.read == false
+        rescue EOFError
+          close bundle
+        end
+      end
+    end
+    
+    def close(bundle)
+      bundle.done=true
+      bundle.sock.close
+      @connected -= 1
+      if @connected == 0
+        @cooked.signal true
+      end
+    end
+    
+    def poke
+      @connected > 0 && @cooked.wait
     end
   end
   
@@ -533,6 +678,8 @@ class Subscriber
     case opt[:client]
     when :longpoll, :long, nil
       @client_class=LongPollClient
+    when :fastlongpoll, nil
+      @client_class=FastLongPollClient
     when :interval, :intervalpoll
       @client_class=IntervalPollClient
     when :ws, :websocket

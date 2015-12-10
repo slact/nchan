@@ -88,12 +88,13 @@ end
 class BenchSub
   attr_accessor :sub, :benchdb, :startmsg_received, :msg_received
   def initialize(url, parallel, client_type, benchdb)
-    self.sub = Subscriber.new url, parallel, timeout: SUB_TIMEOUT, client: client_type, nomsg: true
+    self.sub = Subscriber.new url, parallel, timeout: SUB_TIMEOUT, client: client_type, nomsg: true, nostore: true
     self.benchdb = benchdb
     self.startmsg_received = 0
     self.msg_received = 0
     sub.on_failure do |resp|
       puts "FAIL!!"
+      binding.pry
     end
     sub.on_message do |msg, req|
       #puts "msg is: #{msg}"
@@ -107,6 +108,9 @@ class BenchSub
         if sub.client_class == Subscriber::LongPollClient
           t_start = req.original_options[:start_time]
           measured_time = req.response.time
+        elsif sub.client_class == Subscriber::FastLongPollClient
+          t_start = req.time_requested
+          measured_time = req.request_time
         elsif sub.client_class == Subscriber::EventSourceClient
           t_start = req.original_options[:last_msg_time] || req.original_options[:start_time]
           measured_time = nil 
@@ -145,24 +149,24 @@ threads.times do
   benches << BenchSub.new(sub_url, par, client, benchmark)
 end
 
-pub = Publisher.new pub_url, nostore: true, timeout: 30
+pub = Publisher.new pub_url, nostore: true, nomsg: true, timeout: 30
 
 num_msgs = 20
 msgs = []
 
-puts "publish #{num_msgs} messages to #{pub_url}"
+puts "will publish #{num_msgs} messages to #{pub_url}"
+
+
+puts "subscribe to #{sub_url} & run #{threads} threads of #{par} #{client} subs"
+benches.each &:run
+
+sleep 20
+
 pub.post START_MSG
 num_msgs.times do
   pub.post mkmsg
 end
 pub.post QUIT_MSG
-
-sleep 1
-
-puts "subscribe to #{sub_url} & run #{threads} threads of #{par} #{client} subs"
-benches.each &:run
-
-sleep 1
 
 benches.each &:wait
 
