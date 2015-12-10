@@ -157,7 +157,7 @@ class Subscriber
       end
       
       def read
-        ws << sock.read
+        ws << sock.readpartial(4096)
       end
       
       def next
