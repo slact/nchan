@@ -3,6 +3,7 @@ require 'securerandom'
 require_relative 'pubsub.rb'
 require "optparse"
 
+
 server= "localhost:8082"
 par=1
 quit_msg='FIN'
@@ -14,6 +15,7 @@ show_id=false
 client=:longpoll
 
 url = nil
+sub = nil
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
