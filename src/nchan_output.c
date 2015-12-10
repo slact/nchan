@@ -285,6 +285,10 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
+    if (!cb) {
+        if(err) *err = "couldn't allocate memory for cb struct";
+        return NGX_ERROR;
+    }
     rchain = &cb->chain;
     rbuffer = &cb->buf;
     
@@ -368,6 +372,11 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
   if(content_type) {
     r->headers_out.content_type.len = content_type->len;
     r->headers_out.content_type.data = content_type->data;
+  }
+  
+  if ((!b) || (!chain)) {
+    ERR("Couldn't allocate ngx buf or chain.");
+    return NGX_ERROR;
   }
   
   chain->buf=b;
