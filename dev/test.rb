@@ -55,7 +55,7 @@ class PubSubTest <  Minitest::Test
       false
     end
     
-    #ws_sub.run
+    ws_sub.run
     sub.run
     sub.wait
 

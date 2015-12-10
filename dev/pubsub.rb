@@ -174,7 +174,7 @@ class Subscriber
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
-      @url.gsub!(/^http(s)?:/, "ws\\1:")
+      @url = @url.gsub(/^http(s)?:/, "ws\\1:")
       
       @concurrency=(opt[:concurrency] || opt[:clients] || 1).to_i
       @retry_delay=opt[:retry_delay]
@@ -217,16 +217,18 @@ class Subscriber
         loop do
           handshake << sock.readline
           if handshake.finished?
-            if !handshake.valid?
-              binding.pry
+            unless handshake.valid?
+              @subscriber.on_failure WebSocketErrorResponse.new(handshake.response_code, handshake.response_line, false)
             end
             break
           end
         end
         
-        bundle = WebSocketBundle.new(handshake, sock)
-        @ws[bundle]=true
-        async.listen bundle
+        if handshake.valid?
+          bundle = WebSocketBundle.new(handshake, sock)
+          @ws[bundle]=true
+          async.listen bundle
+        end
       end
     end
     
