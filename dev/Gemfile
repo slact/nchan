@@ -11,13 +11,10 @@ gem 'celluloid-io'
 gem 'websocket'
 gem 'websocket-native'
 
+gem "memory_profiler", :github => "slact/memory_profiler"
+
 gem 'minitest'
 gem 'minitest-reporters'
 
-
-#gem 'celluloid-websocket-client'
-
-gem 'eventmachine'
-gem 'websocket-eventmachine-client'
 
 gem 'fpm', :github => "slact/fpm"
