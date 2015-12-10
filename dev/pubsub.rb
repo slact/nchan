@@ -152,7 +152,7 @@ class Subscriber
     class WebSocketBundle
       attr_accessor :ws, :sock, :last_message_time
       def initialize(handshake, sock)
-        self.ws = WebSocket::Frame::Incoming::Server.new(version: handshake.version)
+        self.ws = WebSocket::Frame::Incoming::Client.new(version: handshake.version)
         self.sock = sock
       end
       
