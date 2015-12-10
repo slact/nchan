@@ -56,10 +56,6 @@ static void str_shm_free(ngx_str_t *str) {
   shm_free_immutable_string(nchan_memstore_get_shm(), str);
 }
 
-static void str_shm_verify(ngx_str_t *str) {
-  shm_verify_immutable_string(nchan_memstore_get_shm(), str);
-}
-
 ////////// SUBSCRIBE ////////////////
 union subdata_u {
   nchan_store_channel_head_t  *origin_chanhead;
@@ -93,7 +89,6 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   //ngx_memzero(&fake_conf, sizeof(fake_conf));
   fake_conf.use_redis = d->use_redis;
   
-  str_shm_verify(d->shm_chid);
   DBG("received subscribe request for channel %V", d->shm_chid);
   head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
   
@@ -124,8 +119,6 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   
   //ngx_memzero(&fake_conf, sizeof(fake_conf));
   fake_conf.use_redis = d->use_redis;
-  
-  str_shm_verify(d->shm_chid);
   
   head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
   if(head == NULL) {
@@ -222,8 +215,6 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
   
   nchan_store_channel_head_t    *chead;
   
-  str_shm_verify(d->shm_chid);
-  
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
     ERR("can't find chanhead for id %V", d->shm_chid);
     assert(0);
@@ -267,9 +258,6 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   data.callback_privdata = privdata;
   
   assert(data.shm_chid->data != NULL);
-
-  str_shm_verify(data.shm_chid);
-  
   assert(msg_reserve(shm_msg, "publish_message") == NGX_OK);
   
   ret= ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
@@ -294,7 +282,6 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
   cf.max_messages = d->max_msgs;
   cf.use_redis = d->use_redis;
   
-  str_shm_verify(d->shm_chid);
   assert(d->shm_chid->data != NULL);
   
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
@@ -396,7 +383,6 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
   store_message_t             *msg = NULL;
   nchan_msg_status_t           status;
   
-  str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message request for channel %V privdata %p", d->shm_chid, d->privdata);
@@ -421,7 +407,6 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
 
 static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   
-  str_shm_verify(d->shm_chid);
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V msg %p privdata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
@@ -483,7 +468,6 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, nchan_channel_t *chan, 
   return NGX_OK;
 }
 static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
-  str_shm_verify(d->shm_chid);
   
   DBG("IPC received delete reply for channel %V privdata %p", d->shm_chid, d->privdata);
   d->callback(d->code, d->shm_channel_info, d->privdata);
