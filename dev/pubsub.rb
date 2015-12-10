@@ -9,8 +9,6 @@ require 'celluloid/io'
 require 'websocket'
 require 'uri'
 
-require 'eventmachine'
-
 PUBLISH_TIMEOUT=3 #seconds
 
 class Message
