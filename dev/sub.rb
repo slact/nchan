@@ -37,7 +37,7 @@ url ||= "http://#{server}#{ARGV.last}"
 puts "Subscribing #{par} #{client} client#{par!=1 ? "s":""} to #{url}."
 puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
 
-sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg, client: client
+sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg, client: client, nostore: true
 
 nomsgmessage="\r"*30 + "Received message %i, len:%i"
 

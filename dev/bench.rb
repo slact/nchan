@@ -164,9 +164,6 @@ benches.each &:run
 
 sleep 1
 
-
-
-
 benches.each &:wait
 
 puts "done."

@@ -543,18 +543,23 @@ class Subscriber
     else
       raise "unknown client type #{opt[:client]}"
     end
-    @dont_process_msg=opt[:nomsg]
+    @nomsg=opt[:nomsg]
+    @nostore=opt[:nostore]
+    if !@nostore && @nomsg
+      @nomsg = nil
+      puts "nomsg reverted to false because nostore is false"
+    end
     @concurrency=concurrency
     @client_class ||= opt[:client_class] || LongPollClient
     reset
     new_client @client_class
   end
   def new_client(client_class=LongPollClient)
-    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @dont_process_msg)
+    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @nomsg)
   end
   def reset
     @errors=[]
-    unless @dont_process_msg
+    unless @nostore
       @messages=MessageStore.new :noid => !@care_about_message_ids
       @messages.name="sub"
     end
