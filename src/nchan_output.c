@@ -285,6 +285,10 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
+    if (!cb) {
+        if(err) *err = "couldn't allocate memory for cb struct";
+        return NGX_ERROR;
+    }
     rchain = &cb->chain;
     rbuffer = &cb->buf;
     
@@ -294,9 +298,10 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
     
     rfile = rbuffer->file;
-    if(rfile != NULL) {
+    if(rfile == NULL) {
       if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
         if(err) *err = "couldn't allocate memory for file struct";
+        (void)ngx_free(r->pool, cb);
         return NGX_ERROR;
       }
       ngx_memcpy(rfile, buffer->file, sizeof(*rbuffer));
@@ -306,11 +311,15 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
       if(rfile->name.len == 0) {
         if(err) *err = "longpoll subscriber given an invalid fd with no filename";
+        (void)ngx_free(r->pool, rfile);
+        (void)ngx_free(r->pool, cb);
         return NGX_ERROR;
       }
       rfile->fd = nchan_fdcache_get(&rfile->name);
       if(rfile->fd == NGX_INVALID_FILE) {
         if(err) *err = "can't create output chain, file in buffer won't open";
+        (void)ngx_free(r->pool, rfile);
+        (void)ngx_free(r->pool, cb);
         return NGX_ERROR;
       }
     }
@@ -368,6 +377,11 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
   if(content_type) {
     r->headers_out.content_type.len = content_type->len;
     r->headers_out.content_type.data = content_type->data;
+  }
+  
+  if ((!b) || (!chain)) {
+    ERR("Couldn't allocate ngx buf or chain."");
+    return NGX_ERROR;
   }
   
   chain->buf=b;
