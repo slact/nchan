@@ -217,6 +217,9 @@ if mysite
   text.sub!(/^<.*>$\n\n?/m, "")
   #remove second line
   text.sub!(/^https:\/\/nchan.slact.net$\n\n?/m, "")
+  
+  # add an #about link
+  text.prepend '<div id="about"></div>'
 end
 
 config_heading = "## Configuration Directives"
