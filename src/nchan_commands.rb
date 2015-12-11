@@ -36,8 +36,8 @@ CfCmd.new do
       args: 0..5,
       
       group: "pubsub",
-      value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll"],
-      default: ["http", "websocket", "eventsource", "longpoll"],
+      value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll", "chunked"],
+      default: ["http", "websocket", "eventsource", "longpoll", "chunked"],
       info: "Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
   
   nchan_subscriber [:srv, :loc, :if],
@@ -47,8 +47,8 @@ CfCmd.new do
       legacy: "push_subscriber",
       
       group: "pubsub",
-      value: ["websocket", "eventsource", "longpoll", "intervalpoll"],
-      default: ["websocket", "eventsource", "longpoll"],
+      value: ["websocket", "eventsource", "longpoll", "intervalpoll", "chunked"],
+      default: ["websocket", "eventsource", "longpoll", "chunked"],
       info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." 
   
     nchan_subscriber_first_message [:srv, :loc, :if],

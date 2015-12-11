@@ -12,6 +12,7 @@ _NHPM_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
   ${ngx_addon_dir}/src/subscribers/intervalpoll.c \
   ${ngx_addon_dir}/src/subscribers/eventsource.c \
+  ${ngx_addon_dir}/src/subscribers/http-chunked.c \
   ${ngx_addon_dir}/src/subscribers/websocket.c \
   ${ngx_addon_dir}/src/subscribers/internal.c \
   ${ngx_addon_dir}/src/subscribers/memstore_ipc.c \

@@ -8,6 +8,7 @@
 #include <subscribers/longpoll.h>
 #include <subscribers/intervalpoll.h>
 #include <subscribers/eventsource.h>
+#include <subscribers/http-chunked.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
@@ -706,6 +707,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
       case NGX_HTTP_GET:
         if(cf->sub.eventsource && nchan_detect_eventsource_request(r)) {
           sub_create = eventsource_subscriber_create;
+        }
+        if(cf->sub.http_chunked && nchan_detect_chunked_subscriber_request(r)) {
+          sub_create = http_chunked_subscriber_create;
         }
         else if(cf->sub.poll) {
           sub_create = intervalpoll_subscriber_create;

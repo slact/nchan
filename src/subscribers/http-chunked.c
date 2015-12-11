@@ -6,8 +6,8 @@
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:EVENTSOURCE:" fmt, ##arg)
-#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:EVENTSOURCE:" fmt, ##arg)
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:CHUNKED:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:CHUNKED:" fmt, ##arg)
 #include <assert.h> 
 
 static void chunked_ensure_headers_sent(full_subscriber_t *fsub) {
@@ -158,7 +158,7 @@ static       subscriber_fn_t *chunked_fn = NULL;
 
 static       ngx_str_t   sub_name = ngx_string("http-chunked");
 
-subscriber_t *chunked_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
+subscriber_t *http_chunked_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub;
   full_subscriber_t    *fsub;
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
@@ -188,4 +188,62 @@ subscriber_t *chunked_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *m
     ctx->subscriber_type = sub->name;
   }
   return sub;
+}
+
+
+
+ngx_int_t nchan_detect_chunked_subscriber_request(ngx_http_request_t *r) {
+  static ngx_str_t   TE_HEADER = ngx_string("TE");
+  ngx_str_t         *tmp;
+  u_char            *cur, *last;
+  
+  if(r->method != NGX_HTTP_GET) {
+    return 0;
+  }
+  
+  if((tmp = nchan_get_header_value(r, TE_HEADER)) != NULL) {
+    last = tmp->data + tmp->len;
+    cur = ngx_strlcasestrn(tmp->data, last, (u_char *)"chunked", 7 - 1);
+    
+    if(cur == NULL) {
+      return 0;
+    }
+    
+    //see if there's a qvalue
+    cur += 7;
+    if((cur + 1 <= last) && cur[0]==' ') { 
+      //no qvalue. assume non-zero, meaning it's legit
+      return 1;
+    }
+    else if((cur + 4) < last) {
+      //maybe there is...
+      if(cur[0]==';' && cur[1]=='q' && cur[2]=='=') {
+        //parse the freaking qvalue
+        cur += 3;
+        ngx_int_t qval_fp;
+        qval_fp = ngx_atofp(cur, last - cur, 2);
+        if(qval_fp == NGX_ERROR) {
+          DBG("invalid qval. reject.");
+          return 0;
+        }
+        else if(qval_fp > 0) {
+          //got nonzero qval. accept
+          return 1;
+        }
+        else {
+          //qval=0. reject
+          return 0;
+        }
+      }
+      else {
+        //we're looking at  "chunkedsomething", not "chunked;q=<...>". reject.
+        return 0;
+      }
+    }
+    else {
+      //too small to have a qvalue, not followed by a space. must be "chunkedsomething"
+      return 0;
+    }
+  }
+  else return 0;
 }

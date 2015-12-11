@@ -147,6 +147,7 @@ typedef struct {
 typedef struct {
   unsigned                        poll:1; //bleugh
   unsigned                        longpoll:1;
+  unsigned                        http_chunked:1;
   unsigned                        eventsource:1;
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;

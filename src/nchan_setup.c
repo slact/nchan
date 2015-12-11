@@ -85,6 +85,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->sub.longpoll=0;
   lcf->sub.eventsource=0;
   lcf->sub.websocket=0;
+  lcf->sub.http_chunked=0;
   
   lcf->authorize_request_url = NULL;
   
@@ -135,6 +136,7 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_bitmask_value(conf->sub.poll, prev->sub.poll, 0);
   ngx_conf_merge_bitmask_value(conf->sub.longpoll, prev->sub.longpoll, 0);
   ngx_conf_merge_bitmask_value(conf->sub.eventsource, prev->sub.eventsource, 0);
+  ngx_conf_merge_bitmask_value(conf->sub.http_chunked, prev->sub.http_chunked, 0);
   ngx_conf_merge_bitmask_value(conf->sub.websocket, prev->sub.websocket, 0);
   
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
@@ -236,6 +238,9 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 #define EVENTSOURCE_STRINGS "eventsource", "event-source", "es", "sse"
 #define EVENTSOURCE_STRINGS_N 4
 
+#define HTTP_CHUNKED_STRINGS "chunked", "http-chunked"
+#define HTTP_CHUNKED_STRINGS_N 2
+
 #define LONGPOLL_STRINGS "longpoll", "long-poll"
 #define LONGPOLL_STRINGS_N 2
 
@@ -294,6 +299,7 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
     subt->longpoll=1;
     subt->websocket=1;
     subt->eventsource=1;
+    subt->http_chunked=1;
   }
   else {
     for(i=1; i < cf->args->nelts; i++) {
@@ -303,6 +309,9 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
       }
       else if(nchan_strmatch(val, INTERVALPOLL_STRINGS_N, INTERVALPOLL_STRINGS)) {
         subt->poll=1;
+      }
+      else if(nchan_strmatch(val, HTTP_CHUNKED_STRINGS_N, HTTP_CHUNKED_STRINGS)) {
+        subt->http_chunked=1;
       }
       else if(nchan_strmatch(val, WEBSOCKET_STRINGS_N, WEBSOCKET_STRINGS)) {
         subt->websocket=1;
@@ -338,7 +347,7 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   nchan_subscriber_directive_parse(cf, cmd, conf, 0);
   for(i=1; i < cf->args->nelts; i++) {
     val = &((ngx_str_t *) cf->args->elts)[i];
-    if(! nchan_strmatch(val, WEBSOCKET_STRINGS_N + EVENTSOURCE_STRINGS_N + LONGPOLL_STRINGS_N + INTERVALPOLL_STRINGS_N + DISABLED_STRINGS_N, WEBSOCKET_STRINGS, EVENTSOURCE_STRINGS, LONGPOLL_STRINGS, INTERVALPOLL_STRINGS, DISABLED_STRINGS)) {
+    if(! nchan_strmatch(val, WEBSOCKET_STRINGS_N + EVENTSOURCE_STRINGS_N + LONGPOLL_STRINGS_N + INTERVALPOLL_STRINGS_N + + HTTP_CHUNKED_STRINGS_N, DISABLED_STRINGS_N, WEBSOCKET_STRINGS, EVENTSOURCE_STRINGS, LONGPOLL_STRINGS, INTERVALPOLL_STRINGS, HTTP_CHUNKED_STRINGS, DISABLED_STRINGS)) {
       ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
       return NGX_CONF_ERROR;
     }
