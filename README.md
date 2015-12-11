@@ -4,7 +4,7 @@ https://nchan.slact.net
 
 Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with [Redis](http://redis.io).
 
-Messages are published to channels with HTTP `POST` requests or websockets, and subscribed also through websockets, long-polling, EventSource (SSE), or old-fashioned interval polling. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
+Messages are published to channels with HTTP `POST` requests or websockets, and subscribed also through websockets, long-polling, EventSource (SSE), old-fashioned interval polling, and more. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
 
 ## Status and History
 
@@ -136,6 +136,12 @@ Nchan supports several different kinds of subscribers for receiving messages: *W
 - ##### EventSource
   Also known as Server-Sent Events or SSE, EventSource subscriber connections are initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. Each message `data: ` segment will be prefaced by the message `id: `.  
   To resume a closed EventSource connection from the last-received message, initiate the connection with the "`Last-Event-ID`" header set to the last message's `id`.
+  
+- ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
+  This subscription method uses the `chunked` `Transfer-Encoding` to receive messages. It is initiated by explicitly including `chunked` in the [`TE` header](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.39):  
+  `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)  
+  
+  
 
 
 #### PubSub Endpoint  

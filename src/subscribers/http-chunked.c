@@ -58,7 +58,7 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[0].buf.memory = 1;
   bc[0].buf.start = chunk_start;
   bc[0].buf.pos = chunk_start;
-  bc[0].buf.end = ngx_snprintf(chunk_start, 15, "%x\r\n", ngx_buf_size(msg_buf));
+  bc[0].buf.end = ngx_snprintf(chunk_start, 15, "%xi\r\n", ngx_buf_size(msg_buf));
   bc[0].buf.last = bc[0].buf.end;
   
   bc[1].chain.buf = &bc[1].buf;
@@ -72,14 +72,15 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[2].chain.buf = &bc[2].buf;
   bc[2].chain.next = NULL;
   
+  ngx_memzero(&bc[2].buf, sizeof(ngx_buf_t));
   bc[2].buf.start = chunk_end;
   bc[2].buf.pos = chunk_end;
   bc[2].buf.end = chunk_end + 2;
   bc[2].buf.last = bc[2].buf.end;
+  bc[2].buf.memory = 1;
   bc[2].buf.last_buf = 1;
   bc[2].buf.last_in_chain = 1;
   bc[2].buf.flush = 1;
-
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
   update_subscriber_last_msg_id(sub, msg);
@@ -239,6 +240,10 @@ ngx_int_t nchan_detect_chunked_subscriber_request(ngx_http_request_t *r) {
         //we're looking at  "chunkedsomething", not "chunked;q=<...>". reject.
         return 0;
       }
+    }
+    else if (cur == last){
+      //last thing in the header. "chunked". accept
+      return 1;
     }
     else {
       //too small to have a qvalue, not followed by a space. must be "chunkedsomething"
