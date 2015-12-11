@@ -971,6 +971,27 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   return NGX_OK;
 }
 
+
+ngx_int_t nchan_detect_websocket_request(ngx_http_request_t *r) {
+  ngx_str_t       *tmp;
+  
+  if(r->method != NGX_HTTP_GET) {
+    return 0;
+  }
+  
+  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_CONNECTION))) {
+    if(ngx_strlcasestrn(tmp->data, tmp->data + tmp->len, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len - 1) == NULL) return 0;
+  }
+  else return 0;
+  
+  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_UPGRADE))) {
+    if(tmp->len != NCHAN_WEBSOCKET.len || ngx_strncasecmp(tmp->data, NCHAN_WEBSOCKET.data, NCHAN_WEBSOCKET.len) != 0) return 0;
+  }
+  else return 0;
+
+  return 1;
+}
+
 static const subscriber_fn_t websocket_fn = {
   &websocket_enqueue,
   &websocket_dequeue,

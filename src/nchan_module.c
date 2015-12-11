@@ -337,40 +337,6 @@ ngx_str_t * nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name
   return NULL;
 }
 
-static ngx_int_t nchan_detect_websocket_handshake(ngx_http_request_t *r) {
-  ngx_str_t       *tmp;
-  
-  if(r->method != NGX_HTTP_GET) {
-    return 0;
-  }
-  
-  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_CONNECTION))) {
-    if(ngx_strlcasestrn(tmp->data, tmp->data + tmp->len, NCHAN_UPGRADE.data, NCHAN_UPGRADE.len - 1) == NULL) return 0;
-  }
-  else return 0;
-  
-  if((tmp = nchan_get_header_value(r, NCHAN_HEADER_UPGRADE))) {
-    if(tmp->len != NCHAN_WEBSOCKET.len || ngx_strncasecmp(tmp->data, NCHAN_WEBSOCKET.data, NCHAN_WEBSOCKET.len) != 0) return 0;
-  }
-  else return 0;
-
-  return 1;
-}
-
-static ngx_int_t nchan_detect_eventsource_request(ngx_http_request_t *r) {
-  ngx_str_t       *accept_header;
-  if(r->headers_in.accept == NULL) {
-    return 0;
-  }
-  accept_header = &r->headers_in.accept->value;
-
-  if(ngx_strnstr(accept_header->data, "text/event-stream", accept_header->len)) {
-    return 1;
-  }
-  
-  return 0;
-}
-
 ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
@@ -711,7 +677,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
-  if(nchan_detect_websocket_handshake(r)) {
+  if(nchan_detect_websocket_request(r)) {
     //want websocket?
     if(cf->sub.websocket) {
       //we prefer to subscribe

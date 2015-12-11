@@ -326,3 +326,17 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
   }
   return sub;
 }
+
+ngx_int_t nchan_detect_eventsource_request(ngx_http_request_t *r) {
+  ngx_str_t       *accept_header;
+  if(r->headers_in.accept == NULL) {
+    return 0;
+  }
+  accept_header = &r->headers_in.accept->value;
+
+  if(ngx_strnstr(accept_header->data, "text/event-stream", accept_header->len)) {
+    return 1;
+  }
+  
+  return 0;
+}
