@@ -219,7 +219,7 @@ if mysite
   text.sub!(/^https:\/\/nchan.slact.net$\n\n?/m, "")
   
   # add an #about link
-  text.prepend '<div id="about"></div>'
+  text.prepend "<a id=\"about\"></a>\n"
 end
 
 config_heading = "## Configuration Directives"
