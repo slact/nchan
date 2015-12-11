@@ -49,6 +49,11 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_int_t               rc;
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
+  if (ngx_buf_size(msg_buf) == 0) {
+    //empty messages are skipped, because a zero-length chunk finalizes the request
+    return NGX_OK;
+  }
+  
   nchan_buf_and_chain_t   bc[3];
   
   bc[0].chain.buf = &bc[0].buf;
@@ -136,7 +141,7 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   if(status_code >=400 && status_code <599) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
-    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    fsub->data.finalize_request=1;
     sub->fn->dequeue(sub);
   }
 

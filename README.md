@@ -149,9 +149,12 @@ Nchan supports several different kinds of subscribers for receiving messages: *W
   To resume a closed EventSource connection from the last-received message, initiate the connection with the "`Last-Event-ID`" header set to the last message's `id`.
   
 - ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
-  This subscription method uses the `chunked` `Transfer-Encoding` to receive messages. It is initiated by explicitly including `chunked` in the [`TE` header](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.39):  
-  `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)  
+  This subscription method uses the `chunked` `Transfer-Encoding` to receive messages. 
   
+  Initiated by explicitly including `chunked` in the [`TE` header](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.39):  
+  `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)
+  
+  The response headers are sent right away, and each message will be sent as an individual chunk. Note that because a zero-length chunk terminates the transfer, **zero-length messages will not be sent** to the subscriber.
   
 
 
