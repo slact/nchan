@@ -286,8 +286,8 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
     if (!cb) {
-        if(err) *err = "couldn't allocate memory for buf-and-chain while responding with msg";
-        return NGX_ERROR;
+      if(err) *err = "couldn't allocate memory for buf-and-chain while responding with msg";
+      return NGX_ERROR;
     }
     rchain = &cb->chain;
     rbuffer = &cb->buf;
