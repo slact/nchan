@@ -324,6 +324,7 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
         subt->longpoll=0;
         subt->websocket=0;
         subt->eventsource=0;
+        subt->http_chunked=0;
       }
       else {
         if(fail) {
