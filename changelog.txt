@@ -1,3 +1,10 @@
+ feature: HTTP multipart/mixed subscriber
+ fix: EventSource bad memory access on disconnect
+ feature: HTTP chunked encoding subscriber
+ fix: resolved some strict compiler warnings
+ fix: more stringent out-of-memory detection during response output. thanks @woodyhymns
+ fix: less-than-optimal cache filename handling. thanks @ZhouBox
+ fix: incorrect EventSource charset in header. thanks @eschultz
  fix: segfault when websocket publishes message and immediately disconnects
  fix: Duplicate "Connection: Upgrade" header for websocket handshake. thanks @eschultz 
 0.904 (Dec. 7 2015)
