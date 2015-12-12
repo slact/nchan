@@ -245,15 +245,15 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id for publisher location.    
 
-- **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked ]`  
+- **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed ]`  
   arguments: 0 - 5  
-  default: `http websocket eventsource longpoll chunked`  
+  default: `http websocket eventsource longpoll chunked multipart-mixed`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
-- **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked ]`  
+- **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed ]`  
   arguments: 0 - 4  
-  default: `websocket eventsource longpoll chunked`  
+  default: `websocket eventsource longpoll chunked multipart-mixed`  
   context: server, location, if  
   legacy name: push_subscriber  
   > Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.    
