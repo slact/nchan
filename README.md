@@ -4,7 +4,7 @@ https://nchan.slact.net
 
 Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with [Redis](http://redis.io).
 
-Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or websockets, and [subscribed](#subscriber-endpoint) also through websockets, [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipartmixed). Any location can be a subscriber endpoint for [up to 4 channels](#channel-multiplexing). Each subscriber can be optionally [authenticated](#nchan_authorize_request) via a custom application url, and an [events](#nchan_channel_event_string) [meta channel](#nchan_channel_events_channel_id) is available for debugging.
+Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or websockets, and [subscribed](#subscriber-endpoint) also through websockets, [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipart-mixed). Any location can be a subscriber endpoint for [up to 4 channels](#channel-multiplexing). Each subscriber can be optionally [authenticated](#nchan_authorize_request) via a custom application url, and an [events](#nchan_channel_event_string) [meta channel](#nchan_channel_events_channel_id) is available for debugging.
 
 ## Status and History
 
@@ -118,7 +118,7 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*](#nchan_subscriber) directive.
 
-Nchan supports several different kinds of subscribers for receiving messages: [*Websocket*](#websocket), [*EventSource*](#eventsource) (Server Sent Events),  [*Long-Poll*](#long-polling), [*Interval-Poll*](#interval-polling). [*HTTP chunked transfer*](#http-chunked-transfer), and [*HTTP multipart/mixed*](#http-multipartmixed).
+Nchan supports several different kinds of subscribers for receiving messages: [*Websocket*](#websocket), [*EventSource*](#eventsource) (Server Sent Events),  [*Long-Poll*](#long-polling), [*Interval-Poll*](#interval-polling). [*HTTP chunked transfer*](#http-chunked-transfer), and [*HTTP multipart/mixed*](#http-multipart-mixed).
 
 - ##### Long-Polling
   The tried-and-true server-push method supported by every browser out there.  
