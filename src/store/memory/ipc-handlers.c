@@ -211,8 +211,10 @@ ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_i
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
 }
 
+
+
 static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
-  
+  static ngx_str_t               nullstring = ngx_null_string;
   nchan_store_channel_head_t    *chead;
   
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
@@ -221,7 +223,7 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
     return;
   }
   
-  DBG("IPC: received publish status for channel %V status %i %s", d->shm_chid, d->status_code, d->status_line == NULL ? "" : d->status_line);
+  DBG("IPC: received publish status for channel %V status %i %s", d->shm_chid, d->status_code, d->status_line == NULL ? &nullstring : d->status_line);
   
   nchan_memstore_publish_generic(chead, NULL, d->status_code, d->status_line);
   
