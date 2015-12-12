@@ -4,7 +4,7 @@ https://nchan.slact.net
 
 Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with [Redis](http://redis.io).
 
-Messages are published to channels with HTTP `POST` requests or websockets, and subscribed also through websockets, long-polling, EventSource (SSE), old-fashioned interval polling, and more. Any location can be a subscriber endpoint for up to 4 channels. Each subscriber can be optionally authenticated via a custom application url, and an events meta channel is available for debugging.
+Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or websockets, and [subscribed](#subscriber-endpoint) also through websockets, [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipartmixed). Any location can be a subscriber endpoint for [up to 4 channels](#channel-multiplexing). Each subscriber can be optionally [authenticated](#nchan_authorize_request) via a custom application url, and an [events](#nchan_channel_event_string) [meta channel](#nchan_channel_events_channel_id) is available for debugging.
 
 ## Status and History
 
@@ -71,7 +71,7 @@ The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscribe
 
 #### Publisher Endpoints
 
-Publisher endpoints are Nginx config *locations* with the *`nchan_publisher`* directive.
+Publisher endpoints are Nginx config *locations* with the [*`nchan_publisher`*](#nchan_publisher) directive.
 
 Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
 
@@ -116,9 +116,9 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 #### Subscriber Endpoint
 
-Subscriber endpoints are Nginx config *locations* with the *`nchan_subscriber`* directive.
+Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*](#nchan_subscriber) directive.
 
-Nchan supports several different kinds of subscribers for receiving messages: *Websocket*, *EventSource* (Server Sent Events),  *Long-Poll*, and *Interval-Poll*.
+Nchan supports several different kinds of subscribers for receiving messages: [*Websocket*](#websocket), [*EventSource*](#eventsource) (Server Sent Events),  [*Long-Poll*](#long-polling), [*Interval-Poll*](#interval-polling). [*HTTP chunked transfer*](#http-chunked-transfer), and [*HTTP multipart/mixed*](http-multipartmixed).
 
 - ##### Long-Polling
   The tried-and-true server-push method supported by every browser out there.  
@@ -152,12 +152,12 @@ Nchan supports several different kinds of subscribers for receiving messages: *W
   The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.  
   Initiated by including an `Accept: multipart/mixed` header.  
   The response headers and the unused "preamble" portion of the response body are sent right away, with the boundary string generated randomly for each subscriber.  Each subsequent message will be sent as one part of the multipart message, and will include the message time and tag (`Last-Modified` and `Etag`) as well as the optional `Content-Type` headers.  
-  Each messages is terminated with the next multipart message's boundary **without a trailing newline**. While this conforms to the multipart spec, it is unusual as multipart messages are defined as *starting*, rather than ending with a boundary.
+  Each message is terminated with the next multipart message's boundary **without a trailing newline**. While this conforms to the multipart spec, it is unusual as multipart messages are defined as *starting*, rather than ending with a boundary.
 
 
 #### PubSub Endpoint  
 
-PubSub endpoints are Nginx config *locations* with the *`nchan_pubsub`* directive.
+PubSub endpoints are Nginx config *locations* with the [*`nchan_pubsub`*](#nchan_pubsub) directive.
 
 A combination of *publisher* and *subscriber* endpoints, this location treats all HTTP `GET`
 requests as subscribers, and all HTTP `POST` as publishers. One simple use case is an echo server:
