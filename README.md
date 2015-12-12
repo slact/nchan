@@ -20,10 +20,6 @@ Please help make the entire codebase ready for production use! Report any quirks
 
 Although Nchan is backwards-compatible with all Push Module configuration directives, some of the more unusual and rarely used settings have been disabled and will be ignored (with a warning). See the [upgrade page](https://nchan.slact.net/upgrade) for a detailed list of changes and improvements, as well as a full list of incompatibilities.
 
-#### What's happening right now?
-
-I'm currently stress-testing the stability of the Redis storage engine. Also, this thing's going to need some benchmarks. Who doesn't love a good graph?
-
 ## Download
 
 #### Pre-built packages
