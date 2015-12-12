@@ -678,6 +678,7 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
   spooler_respond_data_t     srdata;
   subscriber_pool_t         *spool;
+  ngx_int_t                  responded_subs = 0;
   
   srdata.min = msg->prev_id;
   srdata.max = msg->id;
@@ -695,17 +696,22 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   }
   
   while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
+    responded_subs += spool->sub_count;
     spool_respond_general(spool, msg, 0, NULL);
     spool_nextmsg(spool, &msg->id);
   }
   
   spool = get_spool(self, &latest_msg_id);
   if(spool->sub_count > 0) {
+    responded_subs += spool->sub_count;
     spool_respond_general(spool, msg, 0, NULL);
     spool_nextmsg(spool, &msg->id);
   }
 
   self->prev_msg_id = msg->id;
+#if NCHAN_BENCHMARK
+  self->last_responded_subscriber_count = responded_subs;
+#endif
   
   return NGX_OK;
 }

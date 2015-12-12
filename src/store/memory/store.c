@@ -1007,6 +1007,19 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   if(msg) {
     DBG("tried publishing %V to chanhead %p (subs: %i)", msgid_to_str(&msg->id), head, head->sub_count);
     head->spooler.fn->respond_message(&head->spooler, msg);
+
+#if NCHAN_BENCHMARK
+    struct timeval          tv, diff;
+    ngx_gettimeofday(&tv);
+    nchan_timeval_subtract(&diff, &tv, &msg->start_tv);
+    
+    ngx_str_t              *msgid_str = msgid_to_str(&msg->id);
+    
+    assert(diff.tv_sec < 10);
+    
+    ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size(msg->buf), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
+#endif
+    
     if(msg->temp_allocd) {
       ngx_free(msg);
     }

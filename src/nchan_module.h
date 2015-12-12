@@ -1,6 +1,7 @@
 //#define NCHAN_SUBSCRIBER_LEAK_DEBUG 1
 //#define NCHAN_MSG_RESERVE_DEBUG 1
 //#define NCHAN_MSG_LEAK_DEBUG 1
+//#define NCHAN_BENCHMARK 1
 
 #include <ngx_http.h>
 #include <nchan_types.h>
@@ -38,4 +39,8 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_e
 void subscriber_debug_add(subscriber_t *);
 void subscriber_debug_remove(subscriber_t *);
 void subscriber_debug_assert_isempty(void);
+#endif
+
+#if NCHAN_BENCHMARK
+int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
 #endif

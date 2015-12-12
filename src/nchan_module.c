@@ -753,11 +753,20 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_msg_id_t          msg_id = NCHAN_ZERO_MSGID;
   ngx_int_t               rc = NGX_DONE;
   nchan_request_ctx_t    *ctx;
+
+#if NCHAN_BENCHMARK
+  struct timeval          tv;
+  ngx_gettimeofday(&tv);
+#endif
   
   if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
   ngx_http_set_ctx(r, ctx, nchan_module);
+
+#if NCHAN_BENCHMARK
+  ctx->start_tv = tv;
+#endif
   
   if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
     //just get the subscriber_channel_id for now. the publisher one is handled elsewhere
@@ -975,6 +984,11 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
 #if NCHAN_MSG_LEAK_DEBUG
       msg->lbl = r->uri;
 #endif
+#if NCHAN_BENCHMARK
+      nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+      msg->start_tv = ctx->start_tv;
+#endif
+      
       cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
       
       memstore_pub_debug_end();
@@ -1016,7 +1030,29 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   return NGX_DONE;
 }
 
+#if NCHAN_BENCHMARK
+int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y) {
+  /* Perform the carry for the later subtraction by updating y. */
+  if (x->tv_usec < y->tv_usec) {
+    int nsec = (y->tv_usec - x->tv_usec) / 1000000 + 1;
+    y->tv_usec -= 1000000 * nsec;
+    y->tv_sec += nsec;
+  }
+  if (x->tv_usec - y->tv_usec > 1000000) {
+    int nsec = (x->tv_usec - y->tv_usec) / 1000000;
+    y->tv_usec += 1000000 * nsec;
+    y->tv_sec -= nsec;
+  }
 
+  /* Compute the time remaining to wait.
+     tv_usec is certainly positive. */
+  result->tv_sec = x->tv_sec - y->tv_sec;
+  result->tv_usec = x->tv_usec - y->tv_usec;
+
+  /* Return 1 if result is negative. */
+  return x->tv_sec < y->tv_sec;
+}
+#endif
 
 static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid) {
   if(id1->time > 0 && id2->time > 0) {
@@ -1115,6 +1151,8 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   
   return NGX_OK;
 }
+
+
 
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
 

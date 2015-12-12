@@ -73,6 +73,9 @@ struct nchan_msg_s {
   struct nchan_msg_s             *dbg_prev;
   struct nchan_msg_s             *dbg_next;
 #endif
+#if NCHAN_BENCHMARK
+  struct timeval                  start_tv;
+#endif
 }; // nchan_msg_t
 
 
@@ -250,6 +253,9 @@ typedef struct {
   ngx_str_t                     *channel_event_name;
   ngx_str_t                      channel_id[NCHAN_MULTITAG_MAX];
   int                            channel_id_count;
+#if NCHAN_BENCHMARK
+  struct timeval                 start_tv;
+#endif
   
 } nchan_request_ctx_t;
 
