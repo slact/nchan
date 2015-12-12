@@ -153,10 +153,11 @@ typedef struct {
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;
 
+#define NCHAN_COMPLEX_VALUE_ARRAY_MAX 5
 typedef struct {
-  ngx_http_complex_value_t       *id[5];
+  ngx_http_complex_value_t       *cv[NCHAN_COMPLEX_VALUE_ARRAY_MAX];
   ngx_int_t                       n;
-} nchan_chid_loc_conf_t;
+} nchan_complex_value_arr_t;
 
 struct nchan_loc_conf_s {
   time_t                          buffer_timeout;
@@ -164,10 +165,12 @@ struct nchan_loc_conf_s {
   
   ngx_http_complex_value_t       *authorize_request_url;
   
-  nchan_chid_loc_conf_t           pub_chid;
-  nchan_chid_loc_conf_t           sub_chid;
-  nchan_chid_loc_conf_t           pubsub_chid;
+  nchan_complex_value_arr_t       pub_chid;
+  nchan_complex_value_arr_t       sub_chid;
+  nchan_complex_value_arr_t       pubsub_chid;
   ngx_str_t                       channel_group;
+  
+  nchan_complex_value_arr_t       last_message_id;
   
   nchan_conf_publisher_types_t    pub;
   nchan_conf_subscriber_types_t   sub; 

@@ -59,6 +59,13 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
+  { ngx_string("nchan_subscriber_last_message_id"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5,
+    nchan_subscriber_last_message_id,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_subscriber_first_message"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_subscriber_first_message_directive,

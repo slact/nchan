@@ -51,7 +51,16 @@ CfCmd.new do
       default: ["websocket", "eventsource", "longpoll", "chunked", "multipart-mixed"],
       info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." 
   
-    nchan_subscriber_first_message [:srv, :loc, :if],
+  nchan_subscriber_last_message_id [:srv, :loc, :if], 
+      :nchan_subscriber_last_message_id,
+      :loc_conf,
+      args: 1..5,
+      
+      group: "pubsub",
+      default: ["$http_last_event_id", "$arg_last_event_id"],
+      info: "If `Last-Modified` and `Etag` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object. "
+  
+  nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,
       :loc_conf,
       args: 1,

@@ -50,7 +50,7 @@ void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n,
   }
 }
 
-static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chid_loc_conf_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
+static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_complex_value_arr_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n;
   ngx_str_t                   id[NCHAN_MEMSTORE_MULTI_MAX];
   ngx_str_t                  *id_out;
@@ -68,7 +68,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_chi
   }
   
   for(i=0; i < n; i++) {
-    ngx_http_complex_value(r, idcf->id[i], &id[i]);   
+    ngx_http_complex_value(r, idcf->cv[i], &id[i]);   
     if(validate_id(r, &id[i], cf) != NGX_OK) {
       *ret_id = NULL;
       return NGX_DECLINED;
@@ -276,7 +276,7 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_int_t                       rc;
   ngx_str_t                      *id = NULL;
-  nchan_chid_loc_conf_t          *chid_conf;
+  nchan_complex_value_arr_t          *chid_conf;
   
   chid_conf = what == PUB ? &cf->pub_chid : &cf->sub_chid;
   if(chid_conf->n == 0) {

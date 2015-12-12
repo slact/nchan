@@ -104,9 +104,10 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_events_channel_id = NULL;
   lcf->channel_event_string = NULL;
   
-  ngx_memzero(&lcf->pub_chid, sizeof(nchan_chid_loc_conf_t));
-  ngx_memzero(&lcf->sub_chid, sizeof(nchan_chid_loc_conf_t));
-  ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_chid_loc_conf_t));
+  ngx_memzero(&lcf->pub_chid, sizeof(nchan_complex_value_arr_t));
+  ngx_memzero(&lcf->sub_chid, sizeof(nchan_complex_value_arr_t));
+  ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_complex_value_arr_t));
+  ngx_memzero(&lcf->last_message_id, sizeof(nchan_complex_value_arr_t));
   return lcf;
 }
 
@@ -125,7 +126,31 @@ static ngx_int_t nchan_strmatch(ngx_str_t *val, ngx_int_t n, ...) {
   return 0;
 }
 
-static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
+static char * create_complex_value_from_ngx_str(ngx_conf_t *cf, ngx_http_complex_value_t **dst_cv, ngx_str_t *str) {
+  ngx_http_complex_value_t           *cv;
+  ngx_http_compile_complex_value_t    ccv;
+  
+  cv = ngx_palloc(cf->pool, sizeof(*cv));
+  if (cv == NULL) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "unable to allocate space for complex value");
+    return NGX_CONF_ERROR;
+  }
+  
+  ngx_memzero(&ccv, sizeof(ccv));
+  
+  ccv.cf = cf;
+  ccv.value = str;
+  ccv.complex_value = cv;
+  
+  if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+    return NGX_CONF_ERROR;
+  }
+  
+  *dst_cv = cv;
+  return NGX_CONF_OK;
+}
+
+static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_loc_conf_t       *prev = parent, *conf = child;
   
   //publisher types
@@ -158,25 +183,9 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->channel_event_string = prev->channel_event_string;
   }
   if(conf->channel_event_string == NULL) { //still null? use the default string
-    ngx_http_complex_value_t           *cv;
-    ngx_http_compile_complex_value_t    ccv;
-    
-    cv = ngx_palloc(cf->pool, sizeof(*cv));
-    if (cv == NULL) {
+    if(create_complex_value_from_ngx_str(cf, &conf->channel_event_string, &DEFAULT_CHANNEL_EVENT_STRING) == NGX_CONF_ERROR) {
       return NGX_CONF_ERROR;
     }
-    
-    ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
-    
-    ccv.cf = cf;
-    ccv.value = &DEFAULT_CHANNEL_EVENT_STRING;
-    ccv.complex_value = cv;
-    
-    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
-      return NGX_CONF_ERROR;
-    }
-    
-    conf->channel_event_string = cv;
   }
   
   if(conf->storage_engine == NULL) {
@@ -195,6 +204,22 @@ static char *  nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   }
   if(conf->pubsub_chid.n == 0) {
     ngx_memcpy(&conf->pubsub_chid, &prev->pubsub_chid, sizeof(prev->pubsub_chid));
+  }
+  
+  if(conf->last_message_id.n == 0) {
+    ngx_memcpy(&conf->last_message_id, &prev->last_message_id, sizeof(prev->last_message_id));
+  }
+  if(conf->last_message_id.n == 0) { //if it's still null
+    ngx_str_t      first_choice_msgid = ngx_string("$http_last_message_id");
+    ngx_str_t      second_choice_msgid = ngx_string("$arg_last_message_id");
+    
+    if(create_complex_value_from_ngx_str(cf, &conf->last_message_id.cv[0], &first_choice_msgid) == NGX_CONF_ERROR) {
+      return NGX_CONF_ERROR;
+    }
+    if(create_complex_value_from_ngx_str(cf, &conf->last_message_id.cv[1], &second_choice_msgid) == NGX_CONF_ERROR) {
+      return NGX_CONF_ERROR;
+    }
+    conf->last_message_id.n = 2;
   }
   
   
@@ -396,17 +421,17 @@ static void nchan_exit_master(ngx_cycle_t *cycle) {
   ngx_destroy_pool(nchan_pool);
 }
 
-static char *nchan_set_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_chid_loc_conf_t *chid) {
+static char *nchan_set_complex_value_array(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_complex_value_arr_t *chid) {
   ngx_uint_t                          i;
   ngx_str_t                          *value;
   ngx_http_complex_value_t          **cv;
   ngx_http_compile_complex_value_t    ccv;  
   
   chid->n = cf->args->nelts - 1;
-  for(i=1; i < cf->args->nelts; i++) {
+  for(i=1; i < cf->args->nelts && i <= NCHAN_COMPLEX_VALUE_ARRAY_MAX; i++) {
     value = &((ngx_str_t *) cf->args->elts)[i];
     
-    cv = &chid->id[i-1];
+    cv = &chid->cv[i-1];
     *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
     if (*cv == NULL) {
       return NGX_CONF_ERROR;
@@ -426,15 +451,19 @@ static char *nchan_set_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 }
 
 static char *nchan_set_pub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pub_chid);
+  return nchan_set_complex_value_array(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pub_chid);
 }
 
 static char *nchan_set_sub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->sub_chid);
+  return nchan_set_complex_value_array(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->sub_chid);
 }
 
 static char *nchan_set_pubsub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return nchan_set_channel_id(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pubsub_chid);
+  return nchan_set_complex_value_array(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pubsub_chid);
+}
+
+static char *nchan_subscriber_last_message_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return nchan_set_complex_value_array(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->last_message_id);
 }
 
 static char *nchan_set_channel_events_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
