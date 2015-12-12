@@ -1,4 +1,4 @@
-<img class="logo" alt="NCHAN" src="https://raw.githubusercontent.com/slact/nchan/master/nchan_logo.png" />
+<img class="logo" alt="NCHAN" src="https://nchan.slact.net/github-logo.png" />
 
 https://nchan.slact.net
 
