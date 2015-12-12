@@ -1,3 +1,6 @@
+0.93 (Dec. 12 2015)
+ feature: optionally only use Etag for subscriber message id
+ feature: optionally get requested message id from variable config
 0.92 (Dec. 11 2015)
  feature: HTTP multipart/mixed subscriber
  fix: EventSource bad memory access on disconnect
