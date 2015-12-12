@@ -151,6 +151,10 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   
   assert(originator_slot != memstore_slot());
   subscriber_t *sub = internal_subscriber_create(&sub_name, d);
+  
+  sub->last_msgid.time=-1;
+  sub->last_msgid.tagcount=1;
+  
   internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
   internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
