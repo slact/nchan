@@ -154,10 +154,10 @@ static void empty_handler(void) {}
 
 static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
   nchan_buf_and_chain_t     bc;
-  static u_char            *end_boundary="--\r\n";
+  static u_char            *end_boundary=(u_char *)"--\r\n";
   
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
-  nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
     //ignore
