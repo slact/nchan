@@ -472,7 +472,9 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   int                             i;
   
-  if(r->headers_in.if_modified_since != NULL) {
+  
+  
+  if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
     id->time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
     if_none_match = nchan_subscriber_get_etag(r);
     
@@ -487,6 +489,11 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
       nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
     }
     return NGX_OK;
+  }
+  else if(cf->msg_in_etag_only && (if_none_match = nchan_subscriber_get_etag(r)) != NULL) {
+    if(nchan_parse_compound_msgid(id, if_none_match) == NGX_OK) {
+      return NGX_OK;
+    }
   }
   else {
     nchan_complex_value_arr_t   *alt_msgid_cv_arr = &cf->last_message_id;

@@ -1,4 +1,5 @@
 #include <ngx_http.h>
+#include <nchan_module.h>
 #include "nchan_output.h"
 #include <assert.h>
 #include <nchan_thingcache.h>
@@ -254,12 +255,18 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
 
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
+  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   
-  //last-modified
-  r->headers_out.last_modified_time = msgid->time;
   
-  //etag
-  tmp_etag = msgtag_to_str(msgid);
+  if(!cf->msg_in_etag_only) {
+    //last-modified
+    r->headers_out.last_modified_time = msgid->time;
+    tmp_etag = msgtag_to_str(msgid);
+  }
+  else {
+    tmp_etag = msgid_to_str(msgid);
+  }
+  
   if((etag = ngx_palloc(r->pool, sizeof(*etag) + tmp_etag->len))==NULL) {
     return NGX_ERROR;
   }

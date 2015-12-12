@@ -67,20 +67,28 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
   ngx_buf_t              *msg_buf = msg->buf;
   ngx_int_t               rc;
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, nchan_module);
+  
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   u_char                 *cur=headerbuf;
   nchan_buf_and_chain_t   bc[4];
   
   //generate the headers
-  //msgtime
-  cur = ngx_cpymem(cur, "\r\nLast-Modified: ", sizeof("\r\nLast-Modified: ") - 1);
-  cur = ngx_http_time(cur, msg->id.time);
-  *cur++ = CR; *cur++ = LF;
-  //msgtag
-  cur = ngx_cpymem(cur, "Etag: ", sizeof("Etag: ") - 1);
-  cur += msgtag_to_strptr(&msg->id, (char *)cur);
-  *cur++ = CR; *cur++ = LF;
+  if(!cf->msg_in_etag_only) {
+    //msgtime
+    cur = ngx_cpymem(cur, "\r\nLast-Modified: ", sizeof("\r\nLast-Modified: ") - 1);
+    cur = ngx_http_time(cur, msg->id.time);
+    *cur++ = CR; *cur++ = LF;
+    //msgtag
+    cur = ngx_cpymem(cur, "Etag: ", sizeof("Etag: ") - 1);
+    cur += msgtag_to_strptr(&msg->id, (char *)cur);
+    *cur++ = CR; *cur++ = LF;
+  }
+  else {
+    ngx_str_t   *tmp_etag = msgid_to_str(&msg->id);
+    cur = ngx_snprintf(cur, 58 + 10*NCHAN_MULTITAG_MAX, "\r\nEtag: %V\r\n", tmp_etag);
+  }
   
   //content-type maybe
   bc[0].chain.buf = &bc[0].buf;

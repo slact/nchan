@@ -51,6 +51,19 @@ CfCmd.new do
       default: ["websocket", "eventsource", "longpoll", "chunked", "multipart-mixed"],
       info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." 
   
+  nchan_subscriber_compound_etag_message_id [:srv, :loc, :if], 
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :msg_in_etag_only],
+      args: 1,
+      
+      group: "pubsub",
+      default: "off",
+      info: <<-EOS.gsub(/^ {8}/, '')
+        Override the default behavior of using both `Last-Modified` and `Etag` headers for the message id.  
+        Enabling this option packs the entire message id into the `Etag` header, and discards
+        `Last-Modified` and `If-Modified-Since` headers.
+      EOS
+  
   nchan_subscriber_last_message_id [:srv, :loc, :if], 
       :nchan_subscriber_last_message_id,
       :loc_conf,

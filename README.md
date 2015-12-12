@@ -263,6 +263,14 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
 
+- **nchan_subscriber_compound_etag_message_id**  
+  arguments: 1  
+  default: `off`  
+  context: server, location, if  
+  > Override the default behavior of using both `Last-Modified` and `Etag` headers for the message id.    
+  > Enabling this option packs the entire message id into the `Etag` header, and discards  
+  > `Last-Modified` and `If-Modified-Since` headers.    
+
 - **nchan_subscriber_first_message** `[ oldest | newest ]`  
   arguments: 1  
   default: `oldest`  

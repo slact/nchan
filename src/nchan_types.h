@@ -171,6 +171,7 @@ struct nchan_loc_conf_s {
   ngx_str_t                       channel_group;
   
   nchan_complex_value_arr_t       last_message_id;
+  ngx_int_t                       msg_in_etag_only;
   
   nchan_conf_publisher_types_t    pub;
   nchan_conf_subscriber_types_t   sub; 
