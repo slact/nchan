@@ -210,8 +210,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     ngx_memcpy(&conf->last_message_id, &prev->last_message_id, sizeof(prev->last_message_id));
   }
   if(conf->last_message_id.n == 0) { //if it's still null
-    ngx_str_t      first_choice_msgid = ngx_string("$http_last_message_id");
-    ngx_str_t      second_choice_msgid = ngx_string("$arg_last_message_id");
+    ngx_str_t      first_choice_msgid = ngx_string("$http_last_event_id");
+    ngx_str_t      second_choice_msgid = ngx_string("$arg_last_event_id");
     
     if(create_complex_value_from_ngx_str(cf, &conf->last_message_id.cv[0], &first_choice_msgid) == NGX_CONF_ERROR) {
       return NGX_CONF_ERROR;

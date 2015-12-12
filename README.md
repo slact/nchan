@@ -136,7 +136,9 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   Also known as [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events) or SSE, it predates Websockets in the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html), and is a [very simple protocol](http://www.w3.org/TR/eventsource/#event-stream-interpretation).  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header.    
   Each message `data: ` segment will be prefaced by the message `id: `.  
-  To resume a closed EventSource connection from the last-received message, initiate the connection with the "`Last-Event-ID`" header set to the last message's `id`.
+  To resume a closed EventSource connection from the last-received message, one *should* start the connection with the "`Last-Event-ID`" header set to the last message's `id`.  
+  Unfortunately, browsers [don't support setting](http://www.w3.org/TR/2011/WD-eventsource-20111020/#concept-event-stream-last-event-id) this header for an `EventSource` object, so by default the last message id is set either from the "`Last-Event-Id`" header or the `last_event_id` url query string argument.  
+  This behavior can be configured via the [`nchan_subscriber_last_message_id`](#nchan_subscriber_last_message_id) config.
   
 - ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
   This subscription method uses the `chunked` `Transfer-Encoding` to receive messages.   
@@ -266,6 +268,12 @@ Publishing to multiple channels from one location is not supported.
   default: `oldest`  
   context: server, location, if  
   > Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives.    
+
+- **nchan_subscriber_last_message_id**  
+  arguments: 1 - 5  
+  default: `$http_last_event_id $arg_last_event_id`  
+  context: server, location, if  
+  > If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object.     
 
 - **nchan_subscriber_timeout** `<number>`  
   arguments: 1  

@@ -58,7 +58,7 @@ CfCmd.new do
       
       group: "pubsub",
       default: ["$http_last_event_id", "$arg_last_event_id"],
-      info: "If `Last-Modified` and `Etag` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object. "
+      info: "If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object. "
   
   nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,

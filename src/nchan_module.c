@@ -399,42 +399,122 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   }
 }
 
+
+static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str){
+  u_char       *split, *last;
+  ngx_int_t     time;
+  //"<msg_time>:<msg_tag>"
+  last = str->data + str->len;
+  if((split = ngx_strlchr(str->data, last, ':')) != NULL) {
+    time = ngx_atoi(str->data, split - str->data);
+    split++;
+    if(time != NGX_ERROR) {
+      id->time = time;
+      nchan_parse_msg_tag(split, last, id);
+      return NGX_OK;
+    }
+    else {
+      return NGX_ERROR;
+    }
+  }
+  return NGX_DECLINED;
+}
+
+
+static ngx_int_t ngx_http_complex_value_noalloc(ngx_http_request_t *r, ngx_http_complex_value_t *val, ngx_str_t *value, size_t maxlen) {
+  size_t                        len;
+  ngx_http_script_code_pt       code;
+  ngx_http_script_len_code_pt   lcode;
+  ngx_http_script_engine_t      e;
+
+  if (val->lengths == NULL) {
+    *value = val->value;
+    return NGX_OK;
+  }
+
+  ngx_http_script_flush_complex_value(r, val);
+
+  ngx_memzero(&e, sizeof(ngx_http_script_engine_t));
+
+  e.ip = val->lengths;
+  e.request = r;
+  e.flushed = 1;
+
+  len = 0;
+
+  while (*(uintptr_t *) e.ip) {
+    lcode = *(ngx_http_script_len_code_pt *) e.ip;
+    len += lcode(&e);
+  }
+  
+  if(len > maxlen) {
+    return NGX_ERROR;
+  }
+  
+  value->len = len;
+
+  e.ip = val->values;
+  e.pos = value->data;
+  e.buf = *value;
+
+  while (*(uintptr_t *) e.ip) {
+    code = *(ngx_http_script_code_pt *) e.ip;
+    code((ngx_http_script_engine_t *) &e);
+  }
+
+  *value = e.buf;
+
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
-  static ngx_str_t                last_event_id_header = ngx_string("Last-Event-ID");
-  ngx_str_t                      *last_event_id;
   ngx_str_t                      *if_none_match;
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  int                             i;
   
-  time_t                          default_time = cf->subscriber_start_at_oldest_message ? 0 : -1;
-  
-  if((last_event_id = nchan_get_header_value(r, last_event_id_header)) != NULL) {
-    u_char       *split, *last;
-    ngx_int_t     time;
-    //"<msg_time>:<msg_tag>"
-    last = last_event_id->data + last_event_id->len;
-    if((split = ngx_strlchr(last_event_id->data, last, ':')) != NULL) {
-      time = ngx_atoi(last_event_id->data, split - last_event_id->data);
-      split++;
-      if(time != NGX_ERROR) {
-        id->time = time;
-        nchan_parse_msg_tag(split, last, id);
-        return NGX_OK;
+  if(r->headers_in.if_modified_since != NULL) {
+    id->time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+    if_none_match = nchan_subscriber_get_etag(r);
+    
+    if(if_none_match==NULL) {
+      for(i=0; i< NCHAN_MULTITAG_MAX; i++) {
+        id->tag[i]=0;
+      }
+      id->tagcount=1;
+      id->tagactive=0;
+    }
+    else {
+      nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
+    }
+    return NGX_OK;
+  }
+  else {
+    nchan_complex_value_arr_t   *alt_msgid_cv_arr = &cf->last_message_id;
+    u_char                       buf[128];
+    ngx_str_t                    str;
+    ngx_int_t                    rc;
+    int                          n = alt_msgid_cv_arr->n;
+    
+    str.len = 0;
+    str.data = buf;
+    
+    for(i=0; i < n; i++) {
+      rc = ngx_http_complex_value_noalloc(r, alt_msgid_cv_arr->cv[i], &str, 128);
+      if(str.len > 0 && rc == NGX_OK) {
+        if(nchan_parse_compound_msgid(id, &str) == NGX_OK) {
+          return NGX_OK;
+        }
       }
     }
   }
   
-  if_none_match = nchan_subscriber_get_etag(r);
-  id->time=(r->headers_in.if_modified_since == NULL) ? default_time : ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-  if(if_none_match==NULL) {
-    int i;
-    for(i=0; i< NCHAN_MULTITAG_MAX; i++) {
-      id->tag[i]=0;
-    }
-    id->tagcount=1;
+  //eh, we didn't find a valid alt_msgid value from variables. use the defaults
+  id->time = cf->subscriber_start_at_oldest_message ? 0 : -1;
+  for(i=0; i< NCHAN_MULTITAG_MAX; i++) {
+    id->tag[i]=0;
   }
-  else {
-    nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
-  }
+  id->tagcount=1;
+  id->tagactive=0;
   return NGX_OK;
 }
 
