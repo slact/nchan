@@ -9,6 +9,7 @@
 #include <subscribers/intervalpoll.h>
 #include <subscribers/eventsource.h>
 #include <subscribers/http-chunked.h>
+#include <subscribers/http-multipart-mixed.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
@@ -23,13 +24,11 @@ ngx_int_t           nchan_worker_processes;
 ngx_pool_t         *nchan_pool;
 ngx_module_t        nchan_module;
 
-
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
-
 
 static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r);
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r);
@@ -708,8 +707,11 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         if(cf->sub.eventsource && nchan_detect_eventsource_request(r)) {
           sub_create = eventsource_subscriber_create;
         }
-        if(cf->sub.http_chunked && nchan_detect_chunked_subscriber_request(r)) {
+        else if(cf->sub.http_chunked && nchan_detect_chunked_subscriber_request(r)) {
           sub_create = http_chunked_subscriber_create;
+        }
+        else if(cf->sub.http_multipart && nchan_detect_multipart_subscriber_request(r)) {
+          sub_create = http_multipart_subscriber_create;
         }
         else if(cf->sub.poll) {
           sub_create = intervalpoll_subscriber_create;

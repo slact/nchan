@@ -149,7 +149,7 @@ ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
 
   c = r->connection;
   wev = c->write;
-
+  
   rc = ngx_http_output_filter(r, in);
 
   if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
@@ -212,7 +212,7 @@ static size_t etag_maxlen(nchan_msg_id_t *id) {
 static ngx_str_t msgtag_str;
 static char msgtag_str_buf[10*NCHAN_MULTITAG_MAX + 30];
 
-static size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
+size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
   int16_t  *t = id->tag;
   uint8_t   max = id->tagcount;
   uint8_t   i;

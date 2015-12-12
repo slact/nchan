@@ -148,6 +148,7 @@ typedef struct {
   unsigned                        poll:1; //bleugh
   unsigned                        longpoll:1;
   unsigned                        http_chunked:1;
+  unsigned                        http_multipart:1;
   unsigned                        eventsource:1;
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;
@@ -200,7 +201,7 @@ typedef struct nchan_llist_timed_s {
 } nchan_llist_timed_t;
 
 typedef enum {PUB, SUB} pub_or_sub_t;
-typedef enum {LONGPOLL, HTTP_CHUNKED, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
+typedef enum {LONGPOLL, HTTP_CHUNKED, HTTP_MULTIPART, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 
 typedef struct {
@@ -241,6 +242,7 @@ typedef struct {
   nchan_msg_id_t                 msg_id;
   nchan_msg_id_t                 prev_msg_id;
   ngx_str_t                     *publisher_type;
+  ngx_str_t                     *multipart_boundary;
   ngx_str_t                     *channel_event_name;
   ngx_str_t                      channel_id[NCHAN_MULTITAG_MAX];
   int                            channel_id_count;

@@ -18,3 +18,4 @@ ngx_fd_t nchan_fdcache_get(ngx_str_t *filename);
 
 ngx_str_t *msgtag_to_str(nchan_msg_id_t *id);
 ngx_str_t *msgid_to_str(nchan_msg_id_t *id);
+size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch);
