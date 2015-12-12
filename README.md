@@ -121,10 +121,8 @@ Subscriber endpoints are Nginx config *locations* with the *`nchan_subscriber`* 
 Nchan supports several different kinds of subscribers for receiving messages: *Websocket*, *EventSource* (Server Sent Events),  *Long-Poll*, and *Interval-Poll*.
 
 - ##### Long-Polling
-  The tried-and-true server-push method supported by every browser out there.
-
+  The tried-and-true server-push method supported by every browser out there.  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
-  
   The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
   Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the oldest message in a channel's message queue, or waits until the next published message, depending on the value of the `nchan_subscriber_first_message` config directive.
   
@@ -133,36 +131,27 @@ Nchan supports several different kinds of subscribers for receiving messages: *W
   There is no way to differentiate between long-poll and interval-poll subscriber requests, so long-polling must be disabled for a subscriber location if you wish to use interval-polling.
 
 - ##### Websocket
-  Bidirectional communication for web browsers. Part of the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html). Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)). 
-  
-  Initiated by sending a websocket handshake to the desired subscriber endpoint location.
-  
+  Bidirectional communication for web browsers. Part of the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html). Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)).   
+  Initiated by sending a websocket handshake to the desired subscriber endpoint location.  
   If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection.  
   Websocket extensions and subprotocols are not yet supported, nor are server-side keep-alive pings.
   
 - ##### EventSource
-  Also known as [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events) or SSE, it predates Websockets in the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html), and is a [very simple protocol](http://www.w3.org/TR/eventsource/#event-stream-interpretation).
-  
-  Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header. 
-  
+  Also known as [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events) or SSE, it predates Websockets in the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html), and is a [very simple protocol](http://www.w3.org/TR/eventsource/#event-stream-interpretation).  
+  Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header.    
   Each message `data: ` segment will be prefaced by the message `id: `.  
   To resume a closed EventSource connection from the last-received message, initiate the connection with the "`Last-Event-ID`" header set to the last message's `id`.
   
 - ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
-  This subscription method uses the `chunked` `Transfer-Encoding` to receive messages. 
-  
+  This subscription method uses the `chunked` `Transfer-Encoding` to receive messages.   
   Initiated by explicitly including `chunked` in the [`TE` header](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.39):  
-  `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)
-  
+  `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)  
   The response headers are sent right away, and each message will be sent as an individual chunk. Note that because a zero-length chunk terminates the transfer, **zero-length messages will not be sent** to the subscriber.
   
 - ##### HTTP [multipart/mixed](http://www.w3.org/Protocols/rfc1341/7_2_Multipart.html#z0)
-  The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.
-  
-  Initiated by including an `Accept: multipart/mixed` header.
-  
-  The response headers and the unused "preamble" portion of the response body are sent right away, with the boundary string generated randomly for each subscriber.  Each subsequent message will be sent as one part of the multipart message, and will include the message time and tag (`Last-Modified` and `Etag`) as well as the optional `Content-Type` headers.
-  
+  The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.  
+  Initiated by including an `Accept: multipart/mixed` header.  
+  The response headers and the unused "preamble" portion of the response body are sent right away, with the boundary string generated randomly for each subscriber.  Each subsequent message will be sent as one part of the multipart message, and will include the message time and tag (`Last-Modified` and `Etag`) as well as the optional `Content-Type` headers.  
   Each messages is terminated with the next multipart message's boundary **without a trailing newline**. While this conforms to the multipart spec, it is unusual as multipart messages are defined as *starting*, rather than ending with a boundary.
 
 
