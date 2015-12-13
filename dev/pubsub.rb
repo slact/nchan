@@ -286,7 +286,7 @@ class Subscriber
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
       def initialize(uri, sock, user_agent)
         @http={}
-        @buf=""
+        @rcvbuf=""
         @sndbuf=""
         @parser = Http::Parser.new
         @sock = sock
@@ -322,8 +322,10 @@ class Subscriber
       end
       
       def read
-        @buf.clear
-        @parser << sock.readpartial(4096, @buf)
+        @rcvbuf.clear
+        sock.readpartial(4096, @rcvbuf)
+        #puts "\"#{@buf}\""
+        @parser << @rcvbuf
         return false if @done || sock.closed?
       end
     end
@@ -374,7 +376,8 @@ class Subscriber
         @etag = prsr.headers["Etag"]
         b.request_time = Time.now.to_f - b.time_requested
         if prsr.status_code != 200
-          unless @subscriber.on_failure(response) == false
+          binding.pry
+          unless @subscriber.on_failure(prsr) == false
             Celluloid.sleep @retry_delay if @retry_delay
           else
             @subscriber.finished+=1
@@ -419,6 +422,7 @@ class Subscriber
     def close(bundle)
       bundle.done=true
       bundle.sock.close
+      @http.delete bundle
       @connected -= 1
       if @connected == 0
         @cooked.signal true
@@ -529,101 +533,123 @@ class Subscriber
     end
   end
   
-  class EventSourceClient < LongPollClient
-    def initialize(subscr, opt={})
-      @ready = Celluloid::Future.new
-      @buf={}
-      opt.merge(pipelining: 0)
-      super
-    end
+  class EventSourceClient < FastLongPollClient
     
-    def buf(req)
-      @buf[req]
-    end
+    include Celluloid::IO
     
-    def reset_bufs(req)
-      @buf[req]||={}
-      @buf[req][:data] = []
-      @buf[req][:event_id] = []
-      @buf[req][:comments] = []
-      @buf[req][:retry_timeout] = nil
-      @buf[req][:event] = nil
-    end
-    
-    def wait_until_ready
-      while !@ready do
-        sleep 0.3
-      end
-      self
-    end
-    
-    def new_request(opt = {})
-      req = super
-      
-      req.options[:headers]["Accept"] = "text/event-stream"
-      
-      req.on_headers do |headers|
-        if @subscriber.waiting == @concurrency
-          @ready = true
-        end
-      end
-      
-      req.on_body do |body|
-        parse_body body, req
-      end
-      
-      reset_bufs req
-      
-      req
-    end
-    
-    def parse_event(req)
-      bufs = buf req
-      
-      if bufs[:data].length > 0
-        unless @nomsg
-          msg=Message.new bufs[:data].join("\n")
-          msg.id= bufs[:id] if bufs[:id]
-        else
-          msg = bufs[:data].join("\n")
-        end
+    class EventSourceBundle < FastLongPollClient::HTTPBundle
+      attr_accessor :buf, :on_headers
+      def initialize(uri, sock, user_agent)
+        super
+        @send_noid_str= <<-END.gsub(/^ {10}/, '')
+          GET #{uri.path} HTTP/1.1
+          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Accept: text/event-stream
+          User-Agent: #{user_agent || "HTTPBundle"}
+          
+        END
         
-        if @subscriber.on_message(msg, req) == false
-          @subscriber.finished+=1
-          return :abort
-        else
-          req.original_options[:last_msg_time]=Time.now.to_f
+        @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
+          GET #{uri.path} HTTP/1.1
+          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Accept: text/event-stream
+          User-Agent: #{user_agent || "HTTPBundle"}
+          Last-Event-ID: %s
+          
+        END
+        @buf={data: "", event_id: "", comments: ""}
+        #binding.pry
+        
+        @parser.on_headers_complete= proc do 
+          @on_headers.call parser
+          @gotheaders = true
         end
       end
       
-      reset_bufs req
-    end
+      def on_headers(&block)
+        @on_headers = block
+      end
     
-    def parse_body(body, req)
-      #puts body
-      lines = body.lines
+      def read
+        @rcvbuf.clear
+        @rcvbuf << sock.readline
+        #puts @rcvbuf
+        unless @gotheaders
+          @parser << @rcvbuf
+        else 
+          parse_line @rcvbuf
+        end
+        return false if @done || sock.closed?
+      end
       
-      ret = nil
+      def buf_reset
+        @buf[:data].clear
+        @buf[:event_id].clear
+        @buf[:comments].clear
+        @buf[:retry_timeout] = nil
+        @buf[:event] = nil
+      end
       
-      lines.each do |line|
+      def parse_event
+        if @buf[:comments].length > 0
+          @on_event.call :comment, @buf[:comments].chomp!
+        else
+          @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
+        end
+        buf_reset
+      end
+      
+      def on_event(&block)
+        @on_event=block
+      end
+      
+      def parse_line(line)
+        ret = nil
         case line
         when /^: ?(.*)/
-          buf(req)[:comments] << $1
+          @buf[:comments] << "#{$1}\n"
         when /^data(: (.*))?/
-          buf(req)[:data] << $2 or ""
+          @buf[:data] << "#{$2}\n" or "\n"
         when /^id(: (.*))?/
-          buf(req)[:id] = $2 or ""
+          @buf[:id] = $2 or ""
         when /^event(: (.*))?/
-          buf(req)[:event] = $2 or ""
+          @buf[:event] = $2 or ""
         when /^retry: (.*)/
-          buf(req)[:retry_timeout] = $1
+          @buf[:retry_timeout] = $1
         when /^$/
-          ret = parse_event req
+          ret = parse_event
         end
+        ret
       end
       
-      ret
     end
+    
+     def new_bundle(uri, sock, useragent)
+      b=EventSourceBundle.new(uri, sock, useragent)
+      b.on_headers do |parser|
+        if parser.status_code != 200
+          @subscriber.on_failure(parser)
+          close b
+        end
+      end
+      b.on_event do |evt, data, evt_id|
+        if evt == :message
+          unless @nomsg
+            msg=Message.new data
+            msg.id=evt_id
+          else
+            msg=data
+          end
+          
+          if @subscriber.on_message(msg, b) == false
+            close b
+          end
+          
+        end
+      end
+      b
+    end
+    
   end
   
   class IntervalPollClient < LongPollClient
@@ -797,6 +823,8 @@ class Subscriber
         error = response.connected ? "Websocket connection failed: " : "Websocket handshake failed: "
         error << "#{response.msg} (code #{response.code})"
         @errors << error
+      when FastLongPollClient, EventSourceClient
+        @errors << "HTTP request failed: (code #{response.status_code})"
       else
         binding.pry
       end
