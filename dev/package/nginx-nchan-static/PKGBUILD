@@ -16,13 +16,15 @@ fi
 
 _pkgname=nginx
 
-_user="http"
-_group="http"
+_user=nginx
+_group=nginx
+
 _doc_root="/usr/share/${_pkgname}/http"
 _sysconf_path="etc"
 _conf_path="${_sysconf_path}/${_pkgname}"
-_tmp_path="/tmp/"
-_pid_path="/run"
+_log_path="/var/log/nginx"
+_cache_path="/var/cache/nginx"
+_pid_path="/var/run"
 _lock_path="/var/lock"
 _access_log="/dev/stdout"
 _error_log="errors.log"
@@ -33,8 +35,8 @@ pkgver() {
 
 
 pkgname=nginx-nchan-static
-pkgver=1.8.0.nchan0.904
-pkgrel=1
+pkgver=1.8.0.nchan0.93
+pkgrel=2
 pkgdesc="Nginx + Nchan - a flexible pub/sub server"
 arch=('i686' 'x86_64')
 
@@ -44,18 +46,18 @@ url="https://nchan.slact.net"
 license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom' 'nginx-nchan-git') 
 provides=('nginx')
-backup=("${_conf_path}/conf/nginx.conf"
-  "${_conf_path}/conf/koi-win"
-  "${_conf_path}/conf/koi-utf"
-  "${_conf_path}/conf/win-utf"
-  "${_conf_path}/conf/mime.types"
-  "${_conf_path}/conf/fastcgi.conf"
-  "${_conf_path}/conf/fastcgi_params"
-  "${_conf_path}/conf/scgi_params"
-  "${_conf_path}/conf/uwsgi_params"
+backup=("${_conf_path}/nginx.conf"
+  "${_conf_path}/koi-win"
+  "${_conf_path}/koi-utf"
+  "${_conf_path}/win-utf"
+  "${_conf_path}/mime.types"
+  "${_conf_path}/fastcgi.conf"
+  "${_conf_path}/fastcgi_params"
+  "${_conf_path}/scgi_params"
+  "${_conf_path}/uwsgi_params"
   "etc/logrotate.d/nginx")
-_user=http
-_group=http
+_user=nginx
+_group=nginx
 
 source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "http://ftp.csx.cam.ac.uk/pub/software/programming/pcre/pcre-${_pcre_ver}.tar.gz"
@@ -88,34 +90,48 @@ build() {
   
   CONFIGURE=(
     --prefix=/${_conf_path}
-    --sbin-path=/usr/bin/nginx
+    --sbin-path=/usr/sbin/nginx
+    --conf-path=/${_conf_path}/nginx.conf
+    --error-log-path=${_log_path}/error.log
+    --http-log-path=${_log_path}/access.log
     --pid-path=${_pid_path}/nginx.pid
     --lock-path=${_pid_path}/nginx.lock
-    --http-client-body-temp-path=${_tmp_path}/client_body_temp
-    --http-proxy-temp-path=${_tmp_path}/proxy_temp
-    --http-fastcgi-temp-path=${_tmp_path}/fastcgi_temp
-    --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
-    --http-scgi-temp-path=${_tmp_path}scgi_temp
-    --http-log-path=${_log_path}/access.log
-    --error-log-path=${_log_path}/error.log
+    
+    --http-client-body-temp-path=${_cache_path}/client_temp
+    --http-proxy-temp-path=${_cache_path}/proxy_temp
+    --http-fastcgi-temp-path=${_cache_path}/fastcgi_temp
+    --http-uwsgi-temp-path=${_cache_path}/uwsgi_temp
+    --http-scgi-temp-path=${_cache_path}/scgi_temp
+    
     --user=${_user}
     --group=${_group}
+    
     --with-zlib="../zlib-${_zlib_ver}"
     --with-pcre="../pcre-${_pcre_ver}"
     --with-openssl="../openssl-${_openssl_ver}"
+    
     --with-http_ssl_module
-    --with-http_stub_status_module
-    --with-http_dav_module
-    --with-http_gzip_static_module
     --with-http_realip_module
+    --with-http_addition_module
     --with-http_sub_module
+    --with-http_dav_module
     --with-http_flv_module
-    --with-http_mp4_module
+    --with-http_mp4_module    
+    --with-http_gunzip_module
+    --with-http_gzip_static_module
+    --with-http_random_index_module
     --with-http_secure_link_module
+    --with-http_stub_status_module
+    --with-http_auth_request_module
+    --with-mail
+    --with-mail_ssl_module
+    --with-file-aio
+    --with-http_spdy_module
+    --with-ipv6
     --with-debug
     --with-ld-opt="-static-libgcc" #totally statically link everything
     --with-cc-opt="-static"
-    --add-module="${srcdir}/nchan")
+    --add-module="../nchan")
 
   CFLAGS="$CFLAGS -ggdb" #make sure debug symbols are present
   
@@ -126,12 +142,13 @@ build() {
 
 package() {
   cd "${srcdir}/nginx-${_nginx_ver}"
-  make DESTDIR="$pkgdir/" install >/dev/null
-  
-  sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/$_conf_path/conf/nginx.conf
-  
+
   mkdir -p ${pkgdir}/$_conf_path/sites-enabled/
   mkdir -p ${pkgdir}/$_conf_path/sites-available/
+  
+  make DESTDIR="$pkgdir/" install >/dev/null
+  
+  sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/$_conf_path/nginx.conf
   
   install -d "${pkgdir}/${_tmp_path}" 
   install -d "${pkgdir}/${_doc_root}" 
