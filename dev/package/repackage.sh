@@ -18,9 +18,6 @@ tarname=${tarname:r}
 
 echo $tarname
 
-chmod 0777 "$archpkg"
-chown root:root "$archpkg"
-
 bundle exec fpm -s pacman -t tar -n "$tarname" $archpkg
 gzip -f "$tarname.tar"
 
