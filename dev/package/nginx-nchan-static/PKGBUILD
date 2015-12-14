@@ -145,6 +145,7 @@ package() {
 
   mkdir -p ${pkgdir}/$_conf_path/sites-enabled/
   mkdir -p ${pkgdir}/$_conf_path/sites-available/
+  mkdir -p ${pkgdir}${_cache_path}
   
   make DESTDIR="$pkgdir/" install >/dev/null
   
