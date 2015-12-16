@@ -22,13 +22,18 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
-#define NCHAN_ZERO_MSGID {0, {0}, 0, 0}
+#define NCHAN_ZERO_MSGID {0, {{0}}, 0, 0}
 #define NCHAN_MULTITAG_MAX 4
+union nchan_msg_multitag {
+  int16_t         fixed[NCHAN_MULTITAG_MAX];
+  int16_t        *allocd;
+};
+
 typedef struct {
   time_t                          time; //tag message by time
-  int16_t                         tag[NCHAN_MULTITAG_MAX];
-  unsigned                        tagactive:4;
-  unsigned                        tagcount:4;
+  union nchan_msg_multitag        tag;
+  unsigned                        tagactive:16;
+  unsigned                        tagcount:16;
 } nchan_msg_id_t;
 
 typedef struct {
@@ -140,7 +145,7 @@ typedef struct{
 
 } nchan_store_t;
 
-#define NCHAN_MULTI_SEP_CHR '\0'
+#define NCHAN_MULTI_SEP_CHR '|'
 
 typedef struct {
   unsigned                        http:1;

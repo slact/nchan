@@ -219,7 +219,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_str_t *msg_str) 
   
   ngx_gettimeofday(&tv);
   msg.id.time = tv.tv_sec;
-  msg.id.tag[0]=0;
+  msg.id.tag.fixed[0]=0;
   msg.id.tagcount=1;
   msg.id.tagactive=0;
   
@@ -263,7 +263,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   }
   else {
     fsub->sub.last_msgid.time = 0;
-    fsub->sub.last_msgid.tag[0] = 0;
+    fsub->sub.last_msgid.tag.fixed[0] = 0;
     fsub->sub.last_msgid.tagcount = 1;
   }
   

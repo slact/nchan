@@ -211,13 +211,17 @@ static size_t etag_maxlen(nchan_msg_id_t *id) {
 
 
 static ngx_str_t msgtag_str;
-static char msgtag_str_buf[10*NCHAN_MULTITAG_MAX + 30];
+static char msgtag_str_buf[10*255 + 30];
 
 size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
-  int16_t  *t = id->tag;
+
   uint8_t   max = id->tagcount;
+  int16_t  *t = max < NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
+  
   uint8_t   i;
   char     *cur;
+  
+  assert(max < 255);
   
   static char* inactive="%i,";
   static char*  active="[%i],";
@@ -227,7 +231,14 @@ size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
   else {
     cur = ch;
     for(i=0; i < max; i++) {
-      cur += sprintf(cur, id->tagactive != i ? inactive : active, t[i]);
+      if(t[i] != -1) {
+        cur += sprintf(cur, id->tagactive != i ? inactive : active, t[i]);
+      }
+      else { //shorthand
+        assert(id->tagactive != i);
+        *cur++='-';
+        *cur++=',';
+      }
     }
     cur[-1]='\0';
     return cur - ch - 1;

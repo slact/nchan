@@ -20,7 +20,7 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool);
 static ngx_int_t remove_spool(subscriber_pool_t *spool);
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool);
 
-static nchan_msg_id_t     latest_msg_id = {-1, {0}, 1, 0};
+static nchan_msg_id_t     latest_msg_id = {-1, {{0}}, 1, 0};
 
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
@@ -35,12 +35,23 @@ static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id)
 }
 
 static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
-  int i, max;
+  int           i, max;
+  int16_t      *tags1, *tags2;
+  
   if(id1->time != id2->time || id1->tagcount != id2->tagcount) return 0;
   max = id1->tagcount;
+  if(max <= NCHAN_MULTITAG_MAX) {
+    tags1 = id1->tag.fixed;
+    tags2 = id2->tag.fixed;
+  }
+  else {
+    tags1 = id1->tag.allocd;
+    tags2 = id2->tag.allocd;
+  }
+  
   
   for(i=0; i < max; i++) {
-    if(id1->tag[i] != id2->tag[i]) return 0;
+    if(tags1[i] != tags2[i]) return 0;
   }
   return 1;
 }
@@ -154,7 +165,7 @@ typedef struct {
 static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nchan_msg_t *msg, fetchmsg_data_t *data) {
   nchan_msg_id_t        anymsg;
   anymsg.time = 0;
-  anymsg.tag[0] = 0;
+  anymsg.tag.fixed[0] = 0;
   anymsg.tagcount = 1;
   
   subscriber_pool_t    *spool, *nuspool;
@@ -523,8 +534,8 @@ static rbtree_walk_direction_t compare_msgid_onetag_range(nchan_msg_id_t *min, n
   assert(max->tagcount == id->tagcount);
   assert(id->tagcount == 1);
   
-  if(min->time < id->time || (min->time == id->time && min->tag[0] <= id->tag[0])) {
-    if(max->time > id->time || (max->time == id->time && max->tag[0] > id->tag[0])) {
+  if(min->time < id->time || (min->time == id->time && min->tag.fixed[0] <= id->tag.fixed[0])) {
+    if(max->time > id->time || (max->time == id->time && max->tag.fixed[0] > id->tag.fixed[0])) {
       //inrange
       return RBTREE_WALK_LEFT_RIGHT;
     }
@@ -555,20 +566,27 @@ static int8_t compare_msgid_time(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan
 
 static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   uint8_t active = id2->tagactive;
+  int16_t *tags1, *tags2;
   int16_t t1, t2;
+  
+  if(id1->tagcount <= NCHAN_MULTITAG_MAX) tags1 = id1->tag.fixed;
+  else tags1 = id1->tag.allocd;
+  
+  if(id2->tagcount <= NCHAN_MULTITAG_MAX) tags2 = id2->tag.fixed;
+  else tags2 = id2->tag.allocd;
   
   //debugstuff that prevents this function from getting inlined
   assert(id1->time == id2->time);
   int i, nonnegs = 0;
   for (i=0; i < id2->tagcount; i++) {
-    if(id2->tag[i] >= 0) nonnegs++;
+    if(tags2[i] >= 0) nonnegs++;
   }
   assert(nonnegs == 1);
   
   if(id1->time == 0 && id2->time == 0) return 0; //always equal on zero-time
   
-  t1 = (active < id1->tagcount) ? id1->tag[active] : -1;
-  t2 = id2->tag[active];
+  t1 = (active < id1->tagcount) ? tags1[active] : -1;
+  t2 = tags2[active];
   
   //ERR("Comparing msgids: id1: %V --", msgid_to_str(id1));
   //ERR("  --- id2: %V --", msgid_to_str(id2));
@@ -811,11 +829,20 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
   }
   else {
     uint8_t   i, max = id1->tagcount;
+    int16_t  *tags1, *tags2;
     assert(id1->tagcount == id2->tagcount);
+    if(max <= NCHAN_MULTITAG_MAX) {
+      tags1 = id1->tag.fixed;
+      tags2 = id2->tag.fixed;
+    }
+    else {
+      tags1 = id1->tag.allocd;
+      tags2 = id2->tag.allocd;
+    }
     
     for(i=0; i < max; i++) {
-      tag1 = id1->tag[i];
-      tag2 = id2->tag[i];
+      tag1 = tags1[i];
+      tag2 = tags2[i];
       if(tag1 > tag2) {
         return 1;
       }

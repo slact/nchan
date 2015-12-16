@@ -449,7 +449,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
     return cmp_err(cmp);
   }
   else {
-    msg->id.tag[0] = msgtag;
+    msg->id.tag.fixed[0] = msgtag;
     msg->id.tagactive = 0;
     msg->id.tagcount = 1;
   }
@@ -462,7 +462,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
     return cmp_err(cmp);
   }
   else {
-    msg->prev_id.tag[0] = msgtag;
+    msg->prev_id.tag.fixed[0] = msgtag;
     msg->prev_id.tagactive = 0;
     msg->prev_id.tagcount = 1;
   }
@@ -599,7 +599,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 return;
               }
               else {
-                msgid.tag[0] = msgtag;
+                msgid.tag.fixed[0] = msgtag;
                 msgid.tagactive = 0;
                 msgid.tagcount = 1;
               }
@@ -628,7 +628,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               return;
             }
             else {
-              msgid.tag[0] = msgtag;
+              msgid.tag.fixed[0] = msgtag;
               msgid.tagactive = 0;
               msgid.tagcount = 1;
             }
@@ -901,7 +901,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->status = NOTREADY;
   head->generation = 0;
   head->last_msgid.time=0;
-  head->last_msgid.tag[0]=0;
+  head->last_msgid.tag.fixed[0]=0;
   head->last_msgid.tagcount = 1;
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
@@ -1021,7 +1021,7 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
     if(msg) {
       assert(msg->id.tagcount == 1);
       head->last_msgid.time = msg->id.time;
-      head->last_msgid.tag[0] = msg->id.tag[0];
+      head->last_msgid.tag.fixed[0] = msg->id.tag.fixed[0];
       head->last_msgid.tagcount = 1;
       head->last_msgid.tagactive = 0;
       
@@ -1217,13 +1217,13 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
     
     redisReply_to_int(els[offset+0], &time_int);
     msg->id.time = time_int;
-    redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag[0]); // tag is a uint, meh.
+    redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
     msg->id.tagactive = 0;
     
     redisReply_to_int(els[offset+2], &time_int);
     msg->prev_id.time = time_int;
-    redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag[0]);
+    redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag.fixed[0]);
     msg->prev_id.tagcount = 1;
     msg->prev_id.tagactive = 0;
     
@@ -1307,7 +1307,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
   assert(msg_id->tagcount == 1);
-  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag[0], "FILO", 0);
+  redisAsyncCommand(rds_ctx(), &redis_get_message_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.get_message, STR(channel_id), msg_id->time, msg_id->tag.fixed[0], "FILO", 0);
   return NGX_OK; //async only now!
 }
 
@@ -1446,7 +1446,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
     return NULL;
   }
   etag->data = (u_char *)(etag+1);
-  etag->len = ngx_sprintf(etag->data,"%i", msg->id.tag[0])- etag->data;
+  etag->len = ngx_sprintf(etag->data,"%i", msg->id.tag.fixed[0])- etag->data;
   return etag;
 }
 
@@ -1547,7 +1547,7 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
 
   if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)) {
     ch.last_published_msg_id.time=d->msg_time;
-    ch.last_published_msg_id.tag[0]=reply->element[0]->integer;
+    ch.last_published_msg_id.tag.fixed[0]=reply->element[0]->integer;
     ch.last_published_msg_id.tagcount = 1;
     ch.last_published_msg_id.tagactive = 0;
 

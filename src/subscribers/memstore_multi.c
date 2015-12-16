@@ -70,8 +70,13 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   //nchan_msg_id_t   *last_msgid;
   ngx_int_t         mcount;
   
+  int16_t          tags[255], prevtags[255];
+  
   //remsg = ngx_alloc(sizeof(*remsg), ngx_cycle->log);
   //assert(remsg);
+  
+  assert( msg->id.tagcount == 1 );
+  assert( msg->prev_id.tagcount == 1 );
   
   ngx_memcpy(&remsg, msg, sizeof(*msg));
   remsg.shared = 0;
@@ -79,9 +84,21 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   mcount = d->multi_chanhead->multi_count;
   
-  nchan_set_msg_id_multi_tag(&remsg.prev_id, 0, d->n, -1);
   remsg.prev_id.tagcount = mcount;
   remsg.prev_id.tagactive = d->n;
+  
+  remsg.id.tagcount = mcount;
+  remsg.id.tagactive = d->n;
+  
+  if(mcount > NCHAN_MULTITAG_MAX) {
+    remsg.id.tag.allocd = tags;
+    tags[0]=msg->id.tag.fixed[0];
+    remsg.prev_id.tag.allocd = prevtags;
+    prevtags[0]=msg->prev_id.tag.fixed[0];
+  }
+  
+  
+  nchan_set_msg_id_multi_tag(&remsg.prev_id, 0, d->n, -1);
   
   memstore_ensure_chanhead_is_ready(d->multi_chanhead);
   
@@ -91,9 +108,8 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   
   //remsg.prev_id = *last_msgid;
   
+  
   nchan_set_msg_id_multi_tag(&remsg.id, 0, d->n, -1);
-  remsg.id.tagcount = mcount;
-  remsg.id.tagactive = d->n;
   
   DBG("%p respond with transformed message %p %V (%p %V %i) %V", d->multi->sub, &remsg, msgid_to_str(&remsg.id), d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   
