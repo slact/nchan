@@ -1725,29 +1725,32 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   d->getting--;
   
-  if(d->msg == NULL) {
-    DBG("no good message yet, msg %V (n:%i) %p, saved", msg ? msgid_to_str(&msg->id) : &empty_id_str, sd->n, d->msg);
-    if (d->msg_status != MSG_EXPECTED) {
-      assert(d->msg_status != MSG_FOUND);
-      set_multimsg_msg(d, sd, msg, status);
-    }
+  if(d->msg_status == MSG_PENDING) {
+    assert(d->msg_status != MSG_FOUND);
+    set_multimsg_msg(d, sd, msg, status);
   }
   else if(msg) {
-    DBG("prev best response: %V (n:%i) %p", d->msg ? msgid_to_str(&d->msg->id) : &empty_id_str, d->n, d->msg);
-    
-    assert(d->wanted_msgid.time <= msg->id.time);
-    
-    if(msg->id.time < d->msg->id.time) {
-      set_multimsg_msg(d, sd, msg, status);
-    }
-    else if((msg->id.time == d->msg->id.time && msg->id.tag[0] <  d->msg->id.tag[0]) 
-         || (msg->id.time == d->msg->id.time && msg->id.tag[0] == d->msg->id.tag[0] && sd->n < d->n) ) {
-      
-      DBG("got a better response %V (n:%i), replace.", msgid_to_str(&msg->id), sd->n);
-      set_multimsg_msg(d, sd, msg, status);    
+    if(d->msg == NULL) {
+      //DBG("first response: %V (n:%i) %p", d->msg ? msgid_to_str(&d->msg->id) : &empty_id_str, d->n, d->msg);
+      set_multimsg_msg(d, sd, msg, status); 
     }
     else {
-      DBG("got a worse response %V (n:%i), keep prev.", msgid_to_str(&msg->id), sd->n);
+      //DBG("prev best response: %V (n:%i) %p", d->msg ? msgid_to_str(&d->msg->id) : &empty_id_str, d->n, d->msg);
+      
+      assert(d->wanted_msgid.time <= msg->id.time);
+      
+      if(msg->id.time < d->msg->id.time) {
+        set_multimsg_msg(d, sd, msg, status);
+      }
+      else if((msg->id.time == d->msg->id.time && msg->id.tag[0] <  d->msg->id.tag[0]) 
+          || (msg->id.time == d->msg->id.time && msg->id.tag[0] == d->msg->id.tag[0] && sd->n < d->n) ) {
+        
+        //DBG("got a better response %V (n:%i), replace.", msgid_to_str(&msg->id), sd->n);
+        set_multimsg_msg(d, sd, msg, status);    
+      }
+      //else {
+      //  DBG("got a worse response %V (n:%i), keep prev.", msgid_to_str(&msg->id), sd->n);
+      //}
     }
   }
   else if(d->msg == NULL && d->msg_status != MSG_EXPECTED) {
@@ -1759,7 +1762,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     if(d->msg) {
       //retmsg = ngx_alloc(sizeof(*retmsg), ngx_cycle->log);
       //assert(retmsg);
-      DBG("ready to respond with msg %V (n:%i) %p", msgid_to_str(&d->msg->id), d->n, d->msg);
+      //DBG("ready to respond with msg %V (n:%i) %p", msgid_to_str(&d->msg->id), d->n, d->msg);
       ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
@@ -1779,7 +1782,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
         retmsg.id.tagactive = d->n;
       }
       
-      DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
+      //DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
       
       d->cb(d->msg_status, &retmsg, d->privdata);
       msg_release(d->msg, "get multi msg");
