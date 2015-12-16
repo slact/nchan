@@ -1727,7 +1727,10 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   if(d->msg == NULL) {
     DBG("no good message yet, msg %V (n:%i) %p, saved", msg ? msgid_to_str(&msg->id) : &empty_id_str, sd->n, d->msg);
-    set_multimsg_msg(d, sd, msg, status);
+    if (d->msg_status != MSG_EXPECTED) {
+      assert(d->msg_status != MSG_FOUND);
+      set_multimsg_msg(d, sd, msg, status);
+    }
   }
   else if(msg) {
     DBG("prev best response: %V (n:%i) %p", d->msg ? msgid_to_str(&d->msg->id) : &empty_id_str, d->n, d->msg);
