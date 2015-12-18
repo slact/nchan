@@ -1,3 +1,7 @@
+ change: "last requested" no longer has a -1 value for 'never requested'.
+ fix: "last requested" in channel info sometimes not updated
+ fix: deleting empty channels
+ change: more compact message ids
 0.931 (Dec. 14 2015)
  optimize: inter-process internal subscriber fetched too many messages
 0.93 (Dec. 12 2015)
