@@ -232,7 +232,7 @@ Publishing to multiple channels from one location is not supported.
 ## Configuration Directives
 
 - **nchan_channel_id**  
-  arguments: 1 - 4  
+  arguments: 1 - 7  
   default: `(none)`  
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
@@ -265,7 +265,7 @@ Publishing to multiple channels from one location is not supported.
   >  The value is a list of permitted subscriber types.    
 
 - **nchan_subscriber_channel_id**  
-  arguments: 1 - 4  
+  arguments: 1 - 7  
   default: `(none)`  
   context: server, location, if  
   > Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    

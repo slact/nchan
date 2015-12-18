@@ -64,7 +64,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
 #endif
   
   if(msg_id) {
-    fsub->sub.last_msgid = *msg_id;
+    nchan_copy_new_msg_id(&fsub->sub.last_msgid, msg_id);
   }
   else {
     fsub->sub.last_msgid.time = 0;
@@ -103,6 +103,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
+    nchan_free_msg_id(&fsub->sub.last_msgid);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
     ngx_free(sub->lbl);

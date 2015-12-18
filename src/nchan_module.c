@@ -42,21 +42,66 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
   return NGX_OK;
 }
 
-void nchan_set_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill) {
-  int16_t *tags = id->tagcount <= NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
-  int16_t v;
+void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill) {
+  int16_t v, n = id->tagcount;
+  int16_t *tags = n <= NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
   uint8_t i;
-  assert(id->tagcount > in_n && id->tagcount > out_n);
+  assert(n > in_n && n > out_n);
   v = tags[in_n];
   
-  for(i=0; i < id->tagcount; i++) {
+  for(i=0; i < n; i++) {
     tags[i] = (i == out_n) ? v : fill;
   }
 }
 
+ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
+  ngx_memcpy(dst, src, sizeof(*src));
+  if(src->tagcount > NCHAN_MULTITAG_MAX) {
+    size_t sz = sizeof(*src->tag.allocd) * src->tagcount;
+    if((src->tag.allocd = ngx_alloc(sz, ngx_cycle->log)) == NULL) {
+      return NGX_ERROR;
+    }
+    ngx_memcpy(dst->tag.allocd, src->tag.allocd, sz);
+  }
+  return NGX_OK; 
+}
+ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *largetags) {
+  uint16_t n = dst->tagcount;
+  dst->time = src->time;
+  
+  dst->tagcount = src->tagcount;
+  dst->tagactive = src->tagactive;
+  if(src->tagcount <= NCHAN_MULTITAG_MAX) {
+    dst->tag = src->tag;
+  }
+  else {
+    if(n > src->tagcount) {
+      
+      if(n > NCHAN_MULTITAG_MAX) ngx_free(dst->tag.allocd);
+      
+      if(!largetags) {
+        if((largetags = ngx_alloc(sizeof(*largetags) * n, ngx_cycle->log)) == NULL) {
+          return NGX_ERROR;
+        }
+      }
+      
+      dst->tag.allocd = largetags;
+    }
+    ngx_memcpy(dst->tag.allocd, src->tag.allocd, sizeof(*src->tag.allocd) * src->tagcount);
+  }
+  return NGX_OK;
+}
+ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
+  if(id->tagcount > NCHAN_MULTITAG_MAX) {
+    ngx_free(id->tag.allocd);
+    id->tag.allocd = NULL;
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_complex_value_arr_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n;
-  ngx_str_t                   id[NCHAN_MEMSTORE_MULTI_MAX];
+  ngx_str_t                   id[255];
   ngx_str_t                  *id_out;
   ngx_str_t                  *group = &cf->channel_group;
   size_t                      sz = 0, grouplen = group->len;
@@ -373,7 +418,7 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   
   while(cur <= last && i < 255) {
     if(cur == last) {
-      tags[i]=val * sign;
+      tags[i]=(val == 0 && sign == -1) ? -1 : val * sign; //shorthand "-" for "-1";
       i++;
       break;
     }
@@ -398,19 +443,13 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   }
   mid->tagcount = i;
   
-  if(i < NCHAN_MULTITAG_MAX) {
+  if(i <= NCHAN_MULTITAG_MAX) {
     ngx_memcpy(mid->tag.fixed, tags, sizeof(mid->tag.fixed));
   }
   else {
-    assert(0);
-    ngx_memcpy(mid->tag.allocd, tags, sizeof(*mid->tag.allocd)*i);
+    
+    mid->tag.allocd=tags;
   }
-  
-  
-  //and just so we don't have uninitialized data being passed around
-  //for(/**/;i<NCHAN_MULTITAG_MAX;i++) {
-  //  mid->tag[i]=0;
-  //}
 }
 
 
@@ -481,29 +520,28 @@ static ngx_int_t ngx_http_complex_value_noalloc(ngx_http_request_t *r, ngx_http_
   return NGX_OK;
 }
 
-static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id_t *id) {
+static nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
+  static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
   ngx_str_t                      *if_none_match;
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   int                             i;
   
-  
-  
   if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
-    id->time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+    id.time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
     if_none_match = nchan_subscriber_get_etag(r);
     
     if(if_none_match==NULL) {
-      id->tagcount=1;
-      id->tagactive=0;
+      id.tagcount=1;
+      id.tagactive=0;
     }
     else {
-      nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, id);
+      nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, &id);
     }
-    return NGX_OK;
+    return &id;
   }
   else if(cf->msg_in_etag_only && (if_none_match = nchan_subscriber_get_etag(r)) != NULL) {
-    if(nchan_parse_compound_msgid(id, if_none_match) == NGX_OK) {
-      return NGX_OK;
+    if(nchan_parse_compound_msgid(&id, if_none_match) == NGX_OK) {
+      return &id;
     }
   }
   else {
@@ -519,19 +557,19 @@ static ngx_int_t nchan_subscriber_get_msg_id(ngx_http_request_t *r, nchan_msg_id
     for(i=0; i < n; i++) {
       rc = ngx_http_complex_value_noalloc(r, alt_msgid_cv_arr->cv[i], &str, 128);
       if(str.len > 0 && rc == NGX_OK) {
-        if(nchan_parse_compound_msgid(id, &str) == NGX_OK) {
-          return NGX_OK;
+        if(nchan_parse_compound_msgid(&id, &str) == NGX_OK) {
+          return &id;
         }
       }
     }
   }
   
   //eh, we didn't find a valid alt_msgid value from variables. use the defaults
-  id->time = cf->subscriber_start_at_oldest_message ? 0 : -1;
-  id->tagcount=1;
-  id->tagactive=0;
-  id->tag.fixed[0] = 0;
-  return NGX_OK;
+  id.time = cf->subscriber_start_at_oldest_message ? 0 : -1;
+  id.tagcount=1;
+  id.tagactive=0;
+  id.tag.fixed[0] = 0;
+  return &id;
 }
 
 
@@ -759,7 +797,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_str_t              *channel_id;
   subscriber_t           *sub;
-  nchan_msg_id_t          msg_id = NCHAN_ZERO_MSGID;
+  nchan_msg_id_t         *msg_id;
   ngx_int_t               rc = NGX_DONE;
   nchan_request_ctx_t    *ctx;
 
@@ -787,8 +825,8 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     if(cf->sub.websocket) {
       //we prefer to subscribe
       memstore_sub_debug_start();
-      nchan_subscriber_get_msg_id(r, &msg_id);
-      if((sub = websocket_subscriber_create(r, &msg_id)) == NULL) {
+      msg_id = nchan_subscriber_get_msg_id(r);
+      if((sub = websocket_subscriber_create(r, msg_id)) == NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
@@ -834,8 +872,8 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         if(sub_create) {
           memstore_sub_debug_start();
           
-          nchan_subscriber_get_msg_id(r, &msg_id);
-          if((sub = sub_create(r, &msg_id)) == NULL) {
+          msg_id = nchan_subscriber_get_msg_id(r);
+          if((sub = sub_create(r, msg_id)) == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
@@ -1124,25 +1162,50 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
     *oldid = *newid;
   }
   else {
-    //ERR("======= updating multi_msgid ======");
-    //ERR("======= old: %V", msgid_to_str(oldid));
-    //ERR("======= new: %V", msgid_to_str(newid));
+    //DBG("======= updating multi_msgid ======");
+    //DBG("======= old: %V", msgid_to_str(oldid));
+    //DBG("======= new: %V", msgid_to_str(newid));
+    if(newid->tagcount > NCHAN_MULTITAG_MAX && oldid->tagcount < newid->tagcount) {
+      int16_t       *oldtags, *old_largetags = NULL;
+      int            i;
+      size_t         sz = sizeof(*oldid->tag.allocd) * newid->tagcount;
+      if(oldid->tagcount > NCHAN_MULTITAG_MAX) {
+        old_largetags = oldid->tag.allocd;
+        oldtags = old_largetags;
+      }
+      else {
+        oldtags = oldid->tag.fixed;
+      }
+      oldid->tag.allocd = ngx_alloc(sz, ngx_cycle->log);
+      for(i=0; i < newid->tagcount; i++) {
+        oldid->tag.allocd[i] = (i < oldid->tagcount) ? oldtags[i] : -1;
+      }
+      if(old_largetags) {
+        ngx_free(old_largetags);
+      }
+    }
+    
     if(oldid->time != newid->time) {
-      *oldid = *newid;
+      nchan_copy_msg_id(oldid, newid, NULL);
     }
     else {
       int i, max = newid->tagcount;
       int16_t  *oldtags = oldid->tagcount <= NCHAN_MULTITAG_MAX ? oldid->tag.fixed : oldid->tag.allocd;
       int16_t  *newtags = newid->tagcount <= NCHAN_MULTITAG_MAX ? newid->tag.fixed : newid->tag.allocd;
       
+      assert(max == oldid->tagcount);
+      
       for(i=0; i< max; i++) {
+        if(newid->tagactive == i) {
+          assert(newtags[i] > oldtags[i]);
+        }
         if (newtags[i] != -1) {
           oldtags[i] = newtags[i];
         }
       }
       oldid->tagactive = newid->tagactive;
     }
-    //ERR("=== updated: %V", msgid_to_str(oldid));
+    //DBG("=== updated: %V", msgid_to_str(oldid));
   }
 }
 

@@ -161,7 +161,7 @@ typedef struct {
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;
 
-#define NCHAN_COMPLEX_VALUE_ARRAY_MAX 5
+#define NCHAN_COMPLEX_VALUE_ARRAY_MAX 8
 typedef struct {
   ngx_http_complex_value_t       *cv[NCHAN_COMPLEX_VALUE_ARRAY_MAX];
   ngx_int_t                       n;
@@ -256,7 +256,7 @@ typedef struct {
   ngx_str_t                     *publisher_type;
   ngx_str_t                     *multipart_boundary;
   ngx_str_t                     *channel_event_name;
-  ngx_str_t                      channel_id[NCHAN_MULTITAG_MAX];
+  ngx_str_t                      channel_id[255];
   int                            channel_id_count;
 #if NCHAN_BENCHMARK
   struct timeval                 start_tv;

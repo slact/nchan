@@ -57,7 +57,7 @@ static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
 }
 
 static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spool, nchan_msg_id_t *id) {
-  spool->id = *id;
+  nchan_copy_new_msg_id(&spool->id, id);
   spool->msg = NULL;
   spool->msg_status = MSG_INVALID;
   
@@ -112,14 +112,15 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   channel_spooler_t      *spl = spool->spooler;
   
   ngx_int_t               immortal_spool = spool->id.time == -1;
+  int16_t                 largetags[255];
+  nchan_msg_id_t          new_id = NCHAN_ZERO_MSGID;
   
-  nchan_msg_id_t          new_id = spool->id;
-  
+  nchan_copy_msg_id(&new_id, &spool->id, largetags);
   nchan_update_multi_msgid(&new_id, new_last_id);
   
-  DBG("spool nextmsg %p (%V) --", spool, msgid_to_str(&spool->id));
-  DBG(" --  update with (%V) --", msgid_to_str(new_last_id));
-  DBG(" -- newid %V", msgid_to_str(&new_id));
+  //ERR("spool %p nextmsg (%V) --", spool, msgid_to_str(&spool->id));
+  //ERR(" --  update with               (%V) --", msgid_to_str(new_last_id));
+  //ERR(" -- newid                       %V", msgid_to_str(&new_id));
   
   if(msg_ids_equal(&spool->id, &new_id)) {
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
@@ -569,11 +570,8 @@ static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *
   int16_t *tags1, *tags2;
   int16_t t1, t2;
   
-  if(id1->tagcount <= NCHAN_MULTITAG_MAX) tags1 = id1->tag.fixed;
-  else tags1 = id1->tag.allocd;
-  
-  if(id2->tagcount <= NCHAN_MULTITAG_MAX) tags2 = id2->tag.fixed;
-  else tags2 = id2->tag.allocd;
+  tags1 = (id1->tagcount <= NCHAN_MULTITAG_MAX) ? id1->tag.fixed : id1->tag.allocd;
+  tags2 = (id2->tagcount <= NCHAN_MULTITAG_MAX) ? id2->tag.fixed : id2->tag.allocd;
   
   //debugstuff that prevents this function from getting inlined
   assert(id1->time == id2->time);
@@ -662,7 +660,7 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
     else {
       time_t      timmin = data->min.time, timmax = data->max.time, timcur = spool->id.time;
       
-      int max_cmp = -1, min_cmp = -1;
+      int         max_cmp = -1, min_cmp = -1;
       
       if( timcur > timmin && timcur < timmax) {
         spoolcollector_addspool(data, spool);
@@ -715,7 +713,13 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   
   while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
     responded_subs += spool->sub_count;
+    if(msg->id.tagcount > NCHAN_MULTITAG_MAX) {
+      assert(spool->id.tag.allocd != msg->id.tag.allocd);
+    }
     spool_respond_general(spool, msg, 0, NULL);
+    if(msg->id.tagcount > NCHAN_MULTITAG_MAX) {
+      assert(spool->id.tag.allocd != msg->id.tag.allocd);
+    }
     spool_nextmsg(spool, &msg->id);
   }
   
@@ -726,7 +730,8 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
     spool_nextmsg(spool, &msg->id);
   }
 
-  self->prev_msg_id = msg->id;
+  nchan_copy_msg_id(&self->prev_msg_id, &msg->id, NULL);
+  
 #if NCHAN_BENCHMARK
   self->last_responded_subscriber_count = responded_subs;
 #endif
@@ -828,21 +833,16 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
     return -1;
   }
   else {
-    uint8_t   i, max = id1->tagcount;
-    int16_t  *tags1, *tags2;
-    assert(id1->tagcount == id2->tagcount);
-    if(max <= NCHAN_MULTITAG_MAX) {
-      tags1 = id1->tag.fixed;
-      tags2 = id2->tag.fixed;
-    }
-    else {
-      tags1 = id1->tag.allocd;
-      tags2 = id2->tag.allocd;
-    }
+    uint16_t   i, max1 = id1->tagcount, max2 = id2->tagcount;
+    uint16_t   max = max1 > max2 ? max1 : max2;
+    int16_t   *tags1, *tags2;
+    
+    tags1 = max1 <= NCHAN_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
+    tags2 = max2 <= NCHAN_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
     
     for(i=0; i < max; i++) {
-      tag1 = tags1[i];
-      tag2 = tags2[i];
+      tag1 = i < max1 ? tags1[i] : -1;
+      tag2 = i < max2 ? tags2[i] : -1;
       if(tag1 > tag2) {
         return 1;
       }
@@ -974,6 +974,8 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   }
   assert(spool->sub_count == 0);
   assert(spool->first == NULL);
+  
+  nchan_free_msg_id(&spool->id);
   
   ngx_memset(spool, 0x42, sizeof(*spool)); //debug
   

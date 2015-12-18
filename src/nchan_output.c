@@ -216,13 +216,12 @@ static char msgtag_str_buf[10*255 + 30];
 size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
 
   uint8_t   max = id->tagcount;
-  int16_t  *t = max < NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
+  int16_t  *t = max <= NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
   
   uint8_t   i;
   char     *cur;
   
   assert(max < 255);
-  
   static char* inactive="%i,";
   static char*  active="[%i],";
   if(max == 1) {
@@ -231,6 +230,9 @@ size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
   else {
     cur = ch;
     for(i=0; i < max; i++) {
+      
+      assert(t[i] >= -2);
+      
       if(t[i] != -1) {
         cur += sprintf(cur, id->tagactive != i ? inactive : active, t[i]);
       }

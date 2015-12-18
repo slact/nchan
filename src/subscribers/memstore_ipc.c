@@ -74,6 +74,9 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   
   rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, &cf, empty_callback, NULL);
   
+  //no multi-ids allowed here
+  assert(msg->id.tagcount == 1);
+    
   fsub->sub.last_msgid = msg->id;
   
   return rc;
