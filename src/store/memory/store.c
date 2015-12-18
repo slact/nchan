@@ -580,6 +580,17 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 
 #define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (head->use_redis == 1 && head->status == WAITING && head->owner == head->slot)
 
+static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
+  nchan_store_channel_head_t  *head = d;
+  time_t t = ngx_time();
+  //ugh, this is so redundant. TODO: clean this shit up
+  head->last_subscribed_local = t;
+  head->channel.last_seen = t;
+  if(head->shared) {
+    head->shared->last_seen = t;
+  }
+}
+
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
   head->sub_count++;
@@ -610,11 +621,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
     }
     
   }
-  head->last_subscribed = ngx_time();
-  if(head->shared) {
-    assert(CHANHEAD_SHARED_OKAY(head));
-    head->shared->last_seen = ngx_time();
-  }
+
   assert(head->sub_count >= head->internal_sub_count);
 }
 
@@ -667,6 +674,7 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   }
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
+  head->spooler.fn->set_bulk_post_subscribe_handler(&head->spooler, spooler_bulk_post_subscribe_handler, head);
   return NGX_OK;
 }
 
@@ -823,7 +831,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->msg_last = NULL;
   head->msg_first = NULL;
   head->foreign_owner_ipc_sub = NULL;
-  head->last_subscribed = 0;
+  head->last_subscribed_local = 0;
   
   head->multi=NULL;
   head->multi_count = 0;
@@ -1173,10 +1181,21 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   nchan_store_channel_head_t  *ch;
+  nchan_channel_t              chaninfo;
   
   if(memstore_slot() == owner) {
     ch = nchan_memstore_find_chanhead(channel_id);
-    callback(NGX_OK, ch != NULL ? &ch->channel : NULL , privdata);
+    if(ch == NULL) {
+      callback(NGX_OK, NULL, privdata);
+    }
+    else {
+      chaninfo = ch->channel;
+      if(ch->shared) {
+        chaninfo.last_seen = ch->shared->last_seen;
+      }
+      callback(NGX_OK, &chaninfo, privdata);
+    }
+    
   }
   else {
     memstore_ipc_send_get_channel_info(owner, channel_id, callback, privdata);
@@ -2304,6 +2323,9 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   }
   
   chead->latest_msgid = publish_msg->id;
+  if (chead->shared) {
+    channel_copy->last_seen = chead->shared->last_seen;
+  }
   channel_copy->last_published_msg_id = chead->latest_msgid;
   
   //do the actual publishing

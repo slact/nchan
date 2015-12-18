@@ -790,10 +790,15 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
   
 }
 
+static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
+  //nothing. 
+}
+
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis);
   head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
   head->spooler.fn->set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
+  head->spooler.fn->set_bulk_post_subscribe_handler(&head->spooler, spooler_bulk_post_subscribe_handler, NULL);
   return NGX_OK;
 }
 

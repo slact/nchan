@@ -27,6 +27,7 @@ struct subscriber_pool_s {
   spooled_subscriber_t       *first;
   ngx_pool_t                 *pool;
   ngx_uint_t                  sub_count;
+  ngx_uint_t                  non_internal_sub_count;
   ngx_uint_t                  generation;
   ngx_uint_t                  responded_count;
   struct channel_spooler_s   *spooler;
@@ -43,6 +44,7 @@ typedef struct {
   ngx_int_t            (*set_add_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void *), void*);
   ngx_int_t            (*set_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_t *, void*), void*);
   ngx_int_t            (*set_bulk_dequeue_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void*), void*);
+  ngx_int_t            (*set_bulk_post_subscribe_handler)(channel_spooler_t *, void (*cb)(channel_spooler_t *, int, void *), void*);
 } channel_spooler_fn_t;
 
 struct channel_spooler_s {
@@ -53,7 +55,7 @@ struct channel_spooler_s {
   ngx_str_t                  *chid;
   chanhead_pubsub_status_t   *channel_status;
   nchan_store_t              *store;
-  channel_spooler_fn_t       *fn;  
+  channel_spooler_fn_t       *fn;
   
   void                        (*add_handler)(channel_spooler_t *, subscriber_t *, void *);
   void                       *add_handler_privdata;
@@ -63,6 +65,9 @@ struct channel_spooler_s {
   
   void                        (*bulk_dequeue_handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs
   void                       *bulk_dequeue_handler_privdata;
+  
+  void                        (*bulk_post_subscribe_handler)(channel_spooler_t *, int, void *);
+  void                       *bulk_post_subscribe_privdata;
 #if NCHAN_BENCHMARK
   ngx_int_t                   last_responded_subscriber_count;
 #endif  

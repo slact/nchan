@@ -42,7 +42,7 @@ const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modifie
 
 const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN = ngx_string(
   "queued messages: %ui" CRLF
-  "last requested: %d sec. ago (-1=never)" CRLF
+  "last requested: %d sec. ago" CRLF
   "active subscribers: %ui"
   "\0");
 

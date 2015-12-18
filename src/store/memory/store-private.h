@@ -36,7 +36,7 @@ struct nchan_store_channel_head_s {
   channel_spooler_t               spooler;
   chanhead_pubsub_status_t        status;
   ngx_atomic_int_t                sub_count;
-  time_t                          last_subscribed;
+  time_t                          last_subscribed_local;
   
   uint8_t                         multi_waiting;
   uint8_t                         multi_count;
