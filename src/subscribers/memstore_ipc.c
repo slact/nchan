@@ -85,6 +85,12 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p (%V) memstore subscriber respond with status", d->sub, d->chid);
   const ngx_str_t *status_line = NULL;
+  
+  if(status == NGX_HTTP_NO_CONTENT || status == NGX_HTTP_NOT_MODIFIED) {
+    //don't care, ignore
+    return NGX_OK;
+  }
+  
   switch(status) {
     case NGX_HTTP_GONE: //delete
       status_line = &NCHAN_HTTP_STATUS_410;
