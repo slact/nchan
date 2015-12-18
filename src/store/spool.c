@@ -780,6 +780,7 @@ static ngx_int_t spooler_respond_rbtree_node_spool(rbtree_seed_t *seed, subscrib
 static ngx_int_t spooler_respond_generic(channel_spooler_t *self, nchan_msg_t *msg, ngx_int_t code, const ngx_str_t *line) {
   spooler_respond_generic_data_t  data = {self, msg, code, line};
   rbtree_walk(&self->spoolseed, (rbtree_walk_callback_pt )spooler_respond_rbtree_node_spool, &data);
+  spool_respond_general(&self->current_msg_spool, data.msg, data.code, data.line);
   return NGX_OK;
 }
 
