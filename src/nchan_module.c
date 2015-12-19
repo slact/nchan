@@ -104,7 +104,7 @@ ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
 
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_complex_value_arr_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n;
-  ngx_str_t                   id[255];
+  ngx_str_t                   id[300];
   ngx_str_t                  *id_out;
   ngx_str_t                  *group = &cf->channel_group;
   size_t                      sz = 0, grouplen = group->len;
@@ -412,12 +412,12 @@ ngx_str_t * nchan_subscriber_get_etag(ngx_http_request_t * r) {
 }
 
 static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid) {
-  u_char    *cur = first;
-  u_char     c;
-  int16_t    i = 0;
-  int8_t     sign = 1;
-  int16_t    val = 0;
-  int16_t    tags[255];
+  u_char           *cur = first;
+  u_char            c;
+  int16_t           i = 0;
+  int8_t            sign = 1;
+  int16_t           val = 0;
+  static int16_t    tags[255];
   
   while(cur <= last && i < 255) {
     if(cur == last) {

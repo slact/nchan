@@ -140,7 +140,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
       assert(!immortal_spool);
       node = rbtree_node_from_data(spool);
       rbtree_remove_node(&spl->spoolseed, node);
-      spool->id = new_id;
+      nchan_copy_new_msg_id(&spool->id, &new_id);
       rbtree_insert_node(&spl->spoolseed, node);
       spool->msg_status = MSG_INVALID;
       spool->msg = NULL;
