@@ -1738,8 +1738,8 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
   d->msg_status = status;
 }
 
-static int16_t              multi_largetag[255], multi_prevlargetag[255];
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
+  static int16_t              multi_largetag[255], multi_prevlargetag[255];
   ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
   nchan_msg_t                 retmsg;
@@ -1817,17 +1817,16 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
           retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
         }
         retmsg.id.tagcount = d->multi_count;
-        
-        nchan_expand_msg_id_multi_tag(&retmsg.id, 0, d->n, -1);
+        nchan_expand_msg_id_multi_tag(&retmsg.id, 0, n, -1);
       }
       else {
         nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
       }
       
       muhtags = (d->multi_count > NCHAN_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
-      muhtags[d->n] = d->msg->id.tag.fixed[0];
+      muhtags[n] = d->msg->id.tag.fixed[0];
       
-      retmsg.id.tagactive = d->n;
+      retmsg.id.tagactive = n;
       
       DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
       
@@ -1837,6 +1836,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     else {
       d->cb(d->msg_status, NULL, d->privdata);
     }
+    nchan_free_msg_id(&d->wanted_msgid);
     ngx_free(d);
   }
   
@@ -1869,7 +1869,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   d->msg = NULL;
   d->n = -1;
   d->getting = 0;
-  d->wanted_msgid = *msg_id;
+  nchan_copy_new_msg_id(&d->wanted_msgid, msg_id);
   
   if((chead = nchan_memstore_get_chanhead(chid, NULL)) != NULL) {
     n = chead->multi_count;
