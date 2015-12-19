@@ -58,7 +58,7 @@ ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
   ngx_memcpy(dst, src, sizeof(*src));
   if(src->tagcount > NCHAN_MULTITAG_MAX) {
     size_t sz = sizeof(*src->tag.allocd) * src->tagcount;
-    if((src->tag.allocd = ngx_alloc(sz, ngx_cycle->log)) == NULL) {
+    if((dst->tag.allocd = ngx_alloc(sz, ngx_cycle->log)) == NULL) {
       return NGX_ERROR;
     }
     ngx_memcpy(dst->tag.allocd, src->tag.allocd, sz);
@@ -66,28 +66,31 @@ ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
   return NGX_OK; 
 }
 ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *largetags) {
-  uint16_t n = dst->tagcount;
+  uint16_t dst_n = dst->tagcount, src_n = src->tagcount;
   dst->time = src->time;
+  
+  if(dst_n > NCHAN_MULTITAG_MAX && dst_n > src_n) {
+    ngx_free(dst->tag.allocd);
+    dst_n = NCHAN_MULTITAG_MAX;
+  }
   
   dst->tagcount = src->tagcount;
   dst->tagactive = src->tagactive;
-  if(src->tagcount <= NCHAN_MULTITAG_MAX) {
+  
+  if(src_n <= NCHAN_MULTITAG_MAX) {
     dst->tag = src->tag;
   }
   else {
-    if(n > src->tagcount) {
-      
-      if(n > NCHAN_MULTITAG_MAX) ngx_free(dst->tag.allocd);
-      
+    if(dst_n < src_n) {
       if(!largetags) {
-        if((largetags = ngx_alloc(sizeof(*largetags) * n, ngx_cycle->log)) == NULL) {
+        if((largetags = ngx_alloc(sizeof(*largetags) * src_n, ngx_cycle->log)) == NULL) {
           return NGX_ERROR;
         }
       }
-      
       dst->tag.allocd = largetags;
     }
-    ngx_memcpy(dst->tag.allocd, src->tag.allocd, sizeof(*src->tag.allocd) * src->tagcount);
+    
+    ngx_memcpy(dst->tag.allocd, src->tag.allocd, sizeof(*src->tag.allocd) * src_n);
   }
   return NGX_OK;
 }

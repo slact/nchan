@@ -1738,11 +1738,11 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
   d->msg_status = status;
 }
 
+static int16_t              multi_largetag[255], multi_prevlargetag[255];
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
   nchan_msg_t                 retmsg;
-  int16_t                     largetag[255], prevlargetag[255];
   
   /*
   switch(status) {
@@ -1804,23 +1804,24 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       retmsg.shared = 0;
       retmsg.temp_allocd = 0;
       
-      nchan_copy_msg_id(&retmsg.prev_id, &d->wanted_msgid, prevlargetag);
+      nchan_copy_msg_id(&retmsg.prev_id, &d->wanted_msgid, multi_prevlargetag);
       
       //TODO: some kind of missed-message check maybe?
       
       if (d->wanted_msgid.time != d->msg->id.time) {
-        nchan_copy_msg_id(&retmsg.id, &d->msg->id, largetag);
+        nchan_copy_msg_id(&retmsg.id, &d->msg->id, multi_largetag);
         
         if(d->multi_count > NCHAN_MULTITAG_MAX) {
-          retmsg.id.tag.allocd[0] = largetag[0];
-          retmsg.id.tag.allocd = largetag;
+          retmsg.id.tag.allocd = multi_largetag;
+          assert(d->msg->id.tagcount == 1);
+          retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
         }
         retmsg.id.tagcount = d->multi_count;
         
         nchan_expand_msg_id_multi_tag(&retmsg.id, 0, d->n, -1);
       }
       else {
-        nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, largetag); 
+        nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
       }
       
       muhtags = (n <= NCHAN_MULTITAG_MAX) ? retmsg.id.tag.fixed : retmsg.id.tag.allocd;

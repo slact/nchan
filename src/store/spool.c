@@ -447,7 +447,6 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   subscriber_pool_t       *spool;
   subscriber_type_t        subtype;
   
-  
   if(self->want_to_stop) {
     ERR("Not accepting new subscribers right now. want to stop.");
     return NGX_ERROR;
@@ -456,6 +455,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   spool = get_spool(self, msgid);
   
   assert(spool->id.time == msgid->time);
+  
   
   if(spool == NULL) {
     return NGX_ERROR;
