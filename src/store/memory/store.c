@@ -1824,7 +1824,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
         nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
       }
       
-      muhtags = (n <= NCHAN_MULTITAG_MAX) ? retmsg.id.tag.fixed : retmsg.id.tag.allocd;
+      muhtags = (d->multi_count > NCHAN_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
       muhtags[d->n] = d->msg->id.tag.fixed[0];
       
       retmsg.id.tagactive = d->n;

@@ -1199,9 +1199,13 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
       assert(max == oldid->tagcount);
       
       for(i=0; i< max; i++) {
-        if(newid->tagactive == i) {
+        
+        //DEBUG CHECK -- REMOVE BEFORE RELEASE
+        if(newid->tagactive == i && newtags[i] != -1 && oldtags[i] != -1) {
           assert(newtags[i] > oldtags[i]);
         }
+        
+        
         if (newtags[i] != -1) {
           oldtags[i] = newtags[i];
         }
