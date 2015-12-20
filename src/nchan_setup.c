@@ -10,6 +10,8 @@ static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_
 ngx_module_t     nchan_module;
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
+ngx_flag_t       global_redis_enabled = 0;
+
 
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
@@ -24,7 +26,9 @@ static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   
   //initialize storage engines
   nchan_store_memory.init_module(cycle);
-  nchan_store_redis.init_module(cycle);
+  if(global_redis_enabled) {
+    nchan_store_redis.init_module(cycle);
+  }
   return NGX_OK;
 }
 
@@ -38,7 +42,7 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
     return NGX_ERROR;
   }
   
-  if(nchan_store_redis.init_worker(cycle)!=NGX_OK) {
+  if(global_redis_enabled && nchan_store_redis.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
   
@@ -52,7 +56,7 @@ static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
   if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
-  if(nchan_store_redis.init_postconfig(cf)!=NGX_OK) {
+  if(global_redis_enabled && nchan_store_redis.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
   return NGX_OK;
@@ -66,7 +70,9 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   }
   
   nchan_store_memory.create_main_conf(cf, mcf);
-  nchan_store_redis.create_main_conf(cf, mcf);
+  if(global_redis_enabled) {
+    nchan_store_redis.create_main_conf(cf, mcf);
+  }
   
   return mcf;
 }
@@ -250,6 +256,7 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
   }
   else if(nchan_strmatch(val, 1, "redis")) {
     lcf->storage_engine = &nchan_store_redis;
+    global_redis_enabled = 1;
   }
   else {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "invalid %V value: %V", &cmd->name, val);
@@ -411,7 +418,9 @@ static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_comman
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_memory.exit_worker(cycle);
-  nchan_store_redis.exit_worker(cycle);
+  if(global_redis_enabled) {
+    nchan_store_redis.exit_worker(cycle);
+  }
   nchan_output_shutdown();
   ngx_destroy_pool(nchan_pool); // just for this worker
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
@@ -421,7 +430,9 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {
   nchan_store_memory.exit_master(cycle);
-  nchan_store_redis.exit_master(cycle);
+  if(global_redis_enabled) {
+    nchan_store_redis.exit_master(cycle);
+  }
   ngx_destroy_pool(nchan_pool);
 }
 
@@ -518,7 +529,22 @@ static char *nchan_ignore_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *
   return NGX_CONF_OK;
 }
 
-
+static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  char                *rc;
+  ngx_flag_t          *fp;
+  char                *p = conf;
+  
+  rc = ngx_conf_set_flag_slot(cf, cmd, conf);
+  if(rc == NGX_CONF_ERROR) {
+    return rc;
+  }
+  fp = (ngx_flag_t *) (p + cmd->offset);
+  if(fp) {
+    global_redis_enabled = 1;
+  }
+  
+  return rc;
+}
 
 #include "nchan_config_commands.c" //hideous but hey, it works
 

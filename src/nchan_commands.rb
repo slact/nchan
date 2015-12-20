@@ -153,7 +153,7 @@ CfCmd.new do
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
   
   nchan_use_redis [:main, :srv, :loc],
-      :ngx_conf_set_flag_slot,
+      :ngx_conf_enable_redis,
       [:loc_conf, :use_redis],
       
       group: "storage",
