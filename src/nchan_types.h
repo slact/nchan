@@ -23,6 +23,8 @@ typedef struct {
 } ngx_rwlock_t;
 
 #define NCHAN_ZERO_MSGID {0, {{0}}, 0, 0}
+#define NCHAN_OLDEST_MSGID {0, {{0}}, 1, 0}
+#define NCHAN_NEWEST_MSGID {-1, {{0}}, 1, 0}
 #define NCHAN_MULTITAG_MAX 4
 union nchan_msg_multitag {
   int16_t         fixed[NCHAN_MULTITAG_MAX];

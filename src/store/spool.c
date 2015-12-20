@@ -20,7 +20,7 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool);
 static ngx_int_t remove_spool(subscriber_pool_t *spool);
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool);
 
-static nchan_msg_id_t     latest_msg_id = {-1, {{0}}, 1, 0};
+static nchan_msg_id_t     latest_msg_id = NCHAN_NEWEST_MSGID;
 
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
@@ -182,10 +182,12 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   
   if((spool = find_spool(data->spooler, &data->msgid)) == NULL) {
     DBG("spool for msgid %V not found. discarding getmsg callback response.", msgid_to_str(&data->msgid));
+    nchan_free_msg_id(&data->msgid);
     ngx_free(data);
     return NGX_ERROR;
   }
   
+  nchan_free_msg_id(&data->msgid);
   ngx_free(data);
   
   spool->msg_status = findmsg_status;
@@ -240,7 +242,7 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   
   assert(data);
   
-  data->msgid = spool->id;
+  nchan_copy_new_msg_id(&data->msgid, &spool->id);
   data->spooler = spool->spooler;
   
   assert(spool->msg == NULL);

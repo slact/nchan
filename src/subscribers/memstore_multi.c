@@ -142,6 +142,7 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
 static ngx_str_t  sub_name = ngx_string("memstore-redis");
 
 subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
+  static nchan_msg_id_t        latest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                  *d;
   nchan_store_channel_head_t  *target_ch;
   ngx_int_t                    multi_subs;
@@ -162,6 +163,8 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
   internal_subscriber_set_notify_handler(sub, (callback_pt )sub_notify_handler);
+  
+  sub->last_msgid = latest_msgid;
   
   sub->destroy_after_dequeue = 1;
   sub->dequeue_after_response = 0;
