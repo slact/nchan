@@ -20,13 +20,22 @@ CfCmd.new do
       default: "(none)",
       info: "Channel id for publisher location."
   
+  nchan_channel_id_split_delimiter [:srv, :loc, :if],
+      :ngx_conf_set_str_slot,
+      [:loc_conf, :channel_id_split_delimiter],
+      
+      group: "pubsub",
+      default: "(none)",
+      info: "Split the channel id into several ids for multiplexing using the delimiter string provided."
+      
+  
   nchan_subscriber_channel_id [:srv, :loc, :if],
       :nchan_set_sub_channel_id,
       :loc_conf,
       args: 1..7,
       alt: [ :nchan_sub_channel_id ],
       group: "pubsub",
-          
+      
       default: "(none)",
       info: "Channel id for subscriber location. Can have up to 4 values to subscribe to up to 4 channels."
   

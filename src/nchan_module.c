@@ -102,39 +102,86 @@ ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
   return NGX_OK;
 }
 
+static u_char *nchan_strsplit(u_char **s1, ngx_str_t *sub, u_char *last_char) {
+  u_char   *delim = sub->data;
+  size_t    delim_sz = sub->len;
+  u_char   *last = last_char - delim_sz;
+  u_char   *cur;
+  
+  for(cur = *s1; cur < last; cur++) {
+    if(ngx_strncmp(cur, delim, delim_sz) == 0) {
+      *s1 = cur + delim_sz;
+      return cur;
+    }
+  }
+  *s1 = last_char;
+  if(cur == last) {
+    return last_char;
+  }
+  else if(cur > last) {
+    return NULL;
+  }
+  assert(0);
+  return NULL;
+}
+
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_complex_value_arr_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
-  ngx_int_t                   i, n;
-  ngx_str_t                   id[300];
+  ngx_int_t                   i, n = idcf->n, n_out = 0;
+  ngx_str_t                   id[255];
   ngx_str_t                  *id_out;
   ngx_str_t                  *group = &cf->channel_group;
   size_t                      sz = 0, grouplen = group->len;
   u_char                     *cur;
   
-  static ngx_str_t            empty_string = ngx_string("");
+  //static ngx_str_t            empty_string = ngx_string("");
   
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
-  n = idcf->n;  
-  if(n>1) {
-    sz += 3 + n; //space for null-separators and "m/<SEP>" prefix for multi-chid
-  }
-  
-  for(i=0; i < n; i++) {
-    ngx_http_complex_value(r, idcf->cv[i], &id[i]);   
-    if(validate_id(r, &id[i], cf) != NGX_OK) {
+  for(i=0; i < n && n_out < 255; i++) {
+    ngx_http_complex_value(r, idcf->cv[i], &id[n_out]);
+    if(validate_id(r, &id[n_out], cf) != NGX_OK) {
       *ret_id = NULL;
       return NGX_DECLINED;
     }
-    sz += id[i].len;
-    sz += 1 + grouplen; // "group/"
-    ctx->channel_id[i] = id[i];
-  }
-  if(ctx) {
-    ctx->channel_id_count = i;
-    for(; i < NCHAN_MULTITAG_MAX; i++) {
-      ctx->channel_id[i] = empty_string;
+    
+    if(cf->channel_id_split_delimiter.len > 0) {
+      ngx_str_t  *delim = &cf->channel_id_split_delimiter;
+      u_char     *cur_last, *last;
+      cur = id[n_out].data;
+      last = cur + id[n_out].len;
+      
+      u_char     *cur_first = cur;
+      while ((cur_last = nchan_strsplit(&cur, delim, last)) != NULL) {
+        id[n_out].data = cur_first;
+        id[n_out].len = cur_last - cur_first;
+        cur_first = cur;
+        sz += id[n_out].len + 1 + grouplen; // "group/<channel-id>"
+        if(n_out < NCHAN_MULTITAG_MAX) {
+          ctx->channel_id[n_out] = id[n_out];
+        }
+        n_out++;
+      }
+      
+    }
+    else {
+      sz += id[n_out].len + 1 + grouplen; // "group/<channel-id>"
+      if(n_out < NCHAN_MULTITAG_MAX) {
+        ctx->channel_id[n_out] = id[n_out];
+      }
+      n_out++;
     }
   }
+  if(n_out>1) {
+    sz += 3 + n_out; //space for null-separators and "m/<SEP>" prefix for multi-chid
+  }
+  if(ctx) {
+    ctx->channel_id_count = n_out;
+    //for(; i < NCHAN_MULTITAG_MAX; i++) {
+    //  ctx->channel_id[i] = empty_string;
+    //}
+  }
+  
+  
   
   if((id_out = ngx_palloc(r->pool, sizeof(*id_out) + sz)) == NULL) {
     ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: can't allocate space for channel id");
@@ -145,21 +192,21 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   id_out->data = (u_char *)&id_out[1];
   cur = id_out->data;
   
-  if(n > 1) {
+  if(n_out > 1) {
     cur[0]='m';
     cur[1]='/';
     cur[2]=NCHAN_MULTI_SEP_CHR;
     cur+=3;
   }
   
-  for(i = 0; i < n; i++) {
+  for(i = 0; i < n_out; i++) {
     ngx_memcpy(cur, group->data, grouplen);
     cur += grouplen;
     cur[0] = '/';
     cur++;
     ngx_memcpy(cur, id[i].data, id[i].len);
     cur += id[i].len;
-    if(n>1) {
+    if(n_out>1) {
       cur[0] = NCHAN_MULTI_SEP_CHR;
       cur++;
     }

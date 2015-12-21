@@ -169,7 +169,8 @@ typedef struct {
   ngx_int_t                       n;
 } nchan_complex_value_arr_t;
 
-struct nchan_loc_conf_s {
+struct nchan_loc_conf_s { //nchan_loc_conf_t
+  
   time_t                          buffer_timeout;
   ngx_int_t                       max_messages;
   
@@ -179,6 +180,7 @@ struct nchan_loc_conf_s {
   nchan_complex_value_arr_t       sub_chid;
   nchan_complex_value_arr_t       pubsub_chid;
   ngx_str_t                       channel_group;
+  ngx_str_t                       channel_id_split_delimiter;
   
   nchan_complex_value_arr_t       last_message_id;
   ngx_int_t                       msg_in_etag_only;
