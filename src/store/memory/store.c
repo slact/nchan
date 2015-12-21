@@ -1925,6 +1925,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
         lastid = &multi[i].sub->last_msgid;
         DBG("chan index %i last id %V", i, msgid_to_str(lastid));
         if(lastid->time == 0 
+         || lastid->time == -1
          || lastid->time > req_msgid[i].time
          || (lastid->time == req_msgid[i].time && lastid->tag.fixed[0] >= req_msgid[i].tag.fixed[0])) {
           want[i]=1;
