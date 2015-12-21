@@ -139,7 +139,7 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
   return NGX_OK;
 }
 
-static ngx_str_t  sub_name = ngx_string("memstore-redis");
+static ngx_str_t  sub_name = ngx_string("memstore-multi");
 
 subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
   static nchan_msg_id_t        latest_msgid = NCHAN_NEWEST_MSGID;
@@ -153,7 +153,7 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   if(d == NULL) {
-    ERR("couldn't allocate memstore-redis subscriber data");
+    ERR("couldn't allocate memstore-multi subscriber data");
     return NULL;
   }
   

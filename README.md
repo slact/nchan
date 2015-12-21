@@ -237,6 +237,12 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
 
+- **nchan_channel_id_split_delimiter**  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location, if  
+  > Split the channel id into several ids for multiplexing using the delimiter string provided.    
+
 - **nchan_publisher** `[ http | websocket ]`  
   arguments: 0 - 2  
   default: `http websocket`  
