@@ -258,7 +258,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   }
   else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
     //don't care, ignore
-      return NGX_OK;
+    return NGX_OK;
   }
   
   DBG("%p respond req %p status %i", self, r, status_code);
