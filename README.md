@@ -216,7 +216,9 @@ So far the examples have used static channel ids, which is not very useful in pr
 
 #### Channel Multiplexing
 
-Any subscriber location can be an endpoint for up to 4 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. This is configured by specifying multiple channel ids for the `nchan_channel_id` or `nchan_channel_subscriber_id` config directive:
+Any subscriber location can be an endpoint for up to 255 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. There are two ways to enable multiplexing. 
+
+Up to 7 channel ids can be specified for the `nchan_channel_id` or `nchan_channel_subscriber_id` config directive:
 
 ```nginx
   location ~ /multisub/(\w+)/(\w+)$ {
@@ -224,6 +226,19 @@ Any subscriber location can be an endpoint for up to 4 channels. Messages publis
     nchan_channel_id "$1" "$2" "common_channel";
     #GET /multisub/foo/bar will be subscribed to:
     # channels 'foo', 'bar', and 'common_channel',
+    #and will received messages from all of the above.
+  }
+```
+
+For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to split the `nchan_channel_id` or `nchan_channel_subscriber_id` into up to 255 individual channel ids:
+
+```nginx
+  location ~ /multisub-split/(.*)$ {
+    nchan_subscriber;
+    nchan_channel_id "$1";
+    nchan_channel_id_split_delimiter ",";
+    #GET /multisub-split/foo,bar,baz,a will be subscribed to:
+    # channels 'foo', 'bar', 'baz', and 'a'
     #and will received messages from all of the above.
   }
 ```
