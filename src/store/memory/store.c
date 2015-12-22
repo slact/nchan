@@ -1169,6 +1169,7 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
     chaninfo_copy.messages = ch->shared->stored_message_count;
     chaninfo_copy.subscribers = ch->shared->sub_count;
     chaninfo_copy.last_seen = ch->shared->last_seen;
+    chaninfo_copy.last_published_msg_id = ch->latest_msgid;
     
     nchan_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     callback(NGX_OK, &chaninfo_copy, privdata);
