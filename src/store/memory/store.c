@@ -598,7 +598,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
     if(head->shared) {
-      assert(head->status == READY || head->status == STUBBED);
+      assert(CHANHEAD_SHARED_OKAY(head));
       ngx_atomic_fetch_add(&head->shared->internal_sub_count, 1);
     }
   }
