@@ -1,3 +1,6 @@
+ feature: last mesage id in channel info response
+ feature: subscribe up to 255 channel ids using nchan_channel_id_split_delimiter
+ fix: tried connecting to redis when not needed
  change: "last requested" no longer has a -1 value for 'never requested'.
  fix: "last requested" in channel info sometimes not updated
  fix: deleting empty channels
