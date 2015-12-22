@@ -11,6 +11,7 @@ msg_gen = false
 on_response=Proc.new {}
 method=:POST
 runonce=false
+accept = nil
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
@@ -22,6 +23,7 @@ opt=OptionParser.new do |opts|
   opts.on("-M", "--method [#{method}]", "method for request to server"){|v| method= v.upcase.to_sym}
   opts.on("-m", "--message MSG", "publish this message instead of prompting"){|v| msg=v}
   opts.on("-1", "--once", "run once then exit"){runonce=true}
+  opts.on("-a", "--accept TYPE", "set Accept header"){|v| accept=v}
   opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
   opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
   opts.on("-d", "--delete", "delete channel via a DELETE request"){method = :DELETE}
@@ -44,6 +46,7 @@ puts "Publishing to #{url}."
 loopmsg=("\r"*20) + "sending message #"
 
 pub = Publisher.new url
+pub.accept=accept
 pub.nofail=true
 repeat=true
 i=1
