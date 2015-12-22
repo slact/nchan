@@ -791,6 +791,12 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     ERR("can't allocate memory for (new) chanhead");
     return NULL;
   }
+  
+  head->channel.last_published_msg_id.time=0;
+  head->channel.last_published_msg_id.tagcount=1;
+  head->channel.last_published_msg_id.tagactive=0;
+  head->channel.last_published_msg_id.tag.fixed[0]=0;
+  
   head->slot = memstore_slot();
   head->owner = owner;
   head->shutting_down = 0;
@@ -2323,12 +2329,11 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     assert(chead->msg_last == shmsg_link);
     publish_msg = shmsg_link->msg;
   }
-  
-  chead->latest_msgid = publish_msg->id;
+  nchan_copy_msg_id(&chead->latest_msgid, &publish_msg->id, NULL);
   if (chead->shared) {
     channel_copy->last_seen = chead->shared->last_seen;
   }
-  channel_copy->last_published_msg_id = chead->latest_msgid;
+  nchan_copy_msg_id(&channel_copy->last_published_msg_id, &chead->latest_msgid, NULL);
   
   //do the actual publishing
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag.fixed[0] != publish_msg->prev_id.tag.fixed[0]));

@@ -43,13 +43,15 @@ const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modifie
 const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN = ngx_string(
   "queued messages: %ui" CRLF
   "last requested: %d sec. ago" CRLF
-  "active subscribers: %ui"
+  "active subscribers: %ui" CRLF
+  "last message id: %V" 
   "\0");
 
 const ngx_str_t NCHAN_CHANNEL_INFO_JSON = ngx_string(
   "{\"messages\": %ui, "
   "\"requested\": %d, "
-  "\"subscribers\": %ui }"
+  "\"subscribers\": %ui, "
+  "\"last_message_id\": \"%V\" }"
   "\0");
 
 const ngx_str_t NCHAN_CHANNEL_INFO_XML = ngx_string(
@@ -58,6 +60,7 @@ const ngx_str_t NCHAN_CHANNEL_INFO_XML = ngx_string(
   "  <messages>%ui</messages>" CRLF
   "  <requested>%d</requested>" CRLF
   "  <subscribers>%ui</subscribers>" CRLF
+  "  <last_message_id>%V</last_message_id>" CRLF
   "</channel>"
   "\0");
 
@@ -66,5 +69,6 @@ const ngx_str_t NCHAN_CHANNEL_INFO_YAML = ngx_string(
   "messages: %ui" CRLF
   "requested: %d" CRLF
   "subscribers: %ui" CRLF
+  "last_message_id: %V" CRLF
   CRLF
   "\0");

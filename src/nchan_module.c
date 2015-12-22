@@ -649,11 +649,15 @@ static void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem
 ngx_buf_t                       channel_info_buf;
 u_char                          channel_info_buf_str[512]; //big enough
 ngx_str_t                       channel_info_content_type;
-ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, ngx_str_t **generated_content_type) {
+ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type) {
   ngx_buf_t                      *b = &channel_info_buf;
   ngx_uint_t                      len;
   const ngx_str_t                *format = &NCHAN_CHANNEL_INFO_PLAIN;
   time_t                          time_elapsed = ngx_time() - last_seen;
+  static nchan_msg_id_t           zero_msgid = NCHAN_ZERO_MSGID;
+  if(!last_msgid) {
+    last_msgid = &zero_msgid;
+  }
  
   ngx_memcpy(&channel_info_content_type, &TEXT_PLAIN, sizeof(TEXT_PLAIN));;
   
@@ -701,14 +705,14 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
     len = 512;
   }
   
-  b->last = ngx_sprintf(b->start, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers);
+  b->last = ngx_sprintf(b->start, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
   b->end = b->last;
   
   return b;
 }
 
 //print information about a channel
-static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen) {
+static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *msgid) {
   ngx_buf_t                      *b;
   ngx_str_t                      *content_type;
   ngx_str_t                      *accept_header = NULL;
@@ -717,7 +721,7 @@ static ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, 
     accept_header = &r->headers_in.accept->value;
   }
   
-  b = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, &content_type);
+  b = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, &content_type);
   
   //not sure why this is needed, but content-type directly from the request can't be reliably used in the response 
   //(it probably can, but i'm just doing it wrong)
@@ -793,10 +797,12 @@ static ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_h
   time_t             last_seen = 0;
   ngx_uint_t         subscribers = 0;
   ngx_uint_t         messages = 0;
+  nchan_msg_id_t    *msgid = NULL;
   if(channel!=NULL) {
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
     messages  = channel->messages;
+    msgid = &channel->last_published_msg_id;
     r->headers_out.status = status_code == (ngx_int_t) NULL ? NGX_HTTP_OK : status_code;
     if (status_code == NGX_HTTP_CREATED) {
       ngx_memcpy(&r->headers_out.status_line, &CREATED_LINE, sizeof(ngx_str_t));
@@ -804,7 +810,7 @@ static ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_h
     else if (status_code == NGX_HTTP_ACCEPTED) {
       ngx_memcpy(&r->headers_out.status_line, &ACCEPTED_LINE, sizeof(ngx_str_t));
     }
-    nchan_channel_info(r, messages, subscribers, last_seen);
+    nchan_channel_info(r, messages, subscribers, last_seen, msgid);
   }
   else {
     //404!

@@ -151,6 +151,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   time_t               last_seen = 0;
   ngx_uint_t           subscribers = 0;
   ngx_uint_t           messages = 0;
+  nchan_msg_id_t      *msgid = NULL;
   ngx_http_request_t  *r = fsub->sub.request;
   ngx_str_t           *accept_header = NULL;
   ngx_buf_t           *tmp_buf;
@@ -158,6 +159,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     subscribers = ch->subscribers;
     last_seen = ch->last_seen;
     messages  = ch->messages;
+    msgid = &ch->last_published_msg_id;
   }
   
   if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
@@ -177,7 +179,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       if(r->headers_in.accept) {
         accept_header = &r->headers_in.accept->value;
       }
-      tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, NULL);
+      tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, NULL);
       ngx_memcpy(&fsub->msg_buf, tmp_buf, sizeof(*tmp_buf));
       fsub->msg_buf.last_buf=1;
       
