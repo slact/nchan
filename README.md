@@ -86,8 +86,9 @@ Requests and websocket messages are responded to with information about the chan
 >  curl --request POST --data "test message" http://127.0.0.1:80/pub
 
  queued messages: 5
- last requested: 4 sec. ago (-1=never)
+ last requested: 18 sec. ago
  active subscribers: 0
+ last message id: 1450755280:0
 ```
 
 The response can be in plaintext (as above), JSON, or XML, based on the request's *`Accept`* header:
@@ -95,7 +96,7 @@ The response can be in plaintext (as above), JSON, or XML, based on the request'
 ```console
 > curl --request POST --data "test message" -H "Accept: text/json" http://127.0.0.2:80/pub
 
- {"messages": 2, "requested": 4, "subscribers": 0 }
+ {"messages": 6, "requested": 55, "subscribers": 0, "last_message_id": "1450755317:0" }
 ```
 
 Websocket publishers also receive the same responses when publishing, with the encoding determined by the *`Accept`* header present during the handshake.
@@ -111,7 +112,7 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 > curl -v --request GET -H "Accept: text/json" http://127.0.0.2:80/pub
 
-  {"messages": 1, "requested": 7, "subscribers": 0 }
+ {"messages": 1, "requested": 7, "subscribers": 0, "last_message_id": "1450755421:0" }
 ```
 
 
