@@ -147,7 +147,7 @@ typedef struct{
 
 } nchan_store_t;
 
-#define NCHAN_MULTI_SEP_CHR '|'
+#define NCHAN_MULTI_SEP_CHR '\0'
 
 typedef struct {
   unsigned                        http:1;
