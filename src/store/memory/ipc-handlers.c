@@ -487,13 +487,14 @@ static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
 typedef struct {
   ngx_str_t                 *shm_chid;
   store_channel_head_shm_t  *channel_info;
+  nchan_msg_id_t             last_msgid;
   callback_pt                callback;
   void                      *privdata;
 } channel_info_data_t;
 
 ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
   DBG("send get_channel_info to %i %V", dst, chid);
-  channel_info_data_t        data = {str_shm_copy(chid), NULL, callback, privdata};
+  channel_info_data_t        data = {str_shm_copy(chid), NULL, NCHAN_ZERO_MSGID, callback, privdata};
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_CHANNEL_INFO, &data, sizeof(data));
 }
 static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
@@ -509,6 +510,8 @@ static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
   }
   else {
     d->channel_info = head->shared;
+    assert(head->channel.last_published_msg_id.tagcount <= 1);
+    d->last_msgid = head->channel.last_published_msg_id;
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_INFO_REPLY, d, sizeof(*d));
 }
@@ -524,6 +527,7 @@ static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t
     chan.id.data = d->shm_chid->data;
     chan.id.len = d->shm_chid->len;
     chan.messages = chinfo->stored_message_count;
+    chan.last_published_msg_id = d->last_msgid;
     d->callback(NGX_OK, &chan, d->privdata);
   }
   else {
