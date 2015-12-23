@@ -35,6 +35,8 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 
+//#define DEBUG_MEMZERO(var) ngx_memzero(var, sizeof(*(var)))
+#define DEBUG_MEMZERO(var) /*nothing*/
 
 //lots of copypasta here, but it's the fastest way for me to write these IPC handlers
 //maybe TODO: simplify this stuff, but probably not as it's not a performance penalty and the code is simple
@@ -43,6 +45,8 @@
 //static ngx_int_t empty_callback() {
 //  return NGX_OK;
 //}
+
+static nchan_msg_id_t zero_msgid = NCHAN_ZERO_MSGID;
 
 static ngx_str_t *str_shm_copy(ngx_str_t *str){
   ngx_str_t *out;
@@ -73,7 +77,8 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_stor
   DBG("send subscribe to %i, %V", dst, chid);
   //origin_chanhead->use_redis
   subscribe_data_t   data; 
-  ngx_memzero(&data, sizeof(data));//debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  DEBUG_MEMZERO(&data);
+  
   data.shm_chid = str_shm_copy(chid);
   data.shared_channel_data = NULL;
   data.d.origin_chanhead = origin_chanhead;
@@ -246,7 +251,8 @@ typedef struct {
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t         ret;
   publish_data_t    data; 
-  ngx_memzero(&data, sizeof(data)); //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  DEBUG_MEMZERO(&data);
+  
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->shared == 1);
   assert(shm_msg->temp_allocd == 0);
@@ -318,8 +324,7 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   DBG("IPC: publish message generic callback");
   publish_callback_data   *cd = (publish_callback_data *)privdata;
   publish_response_data    rd; 
-  
-  //ngx_memzero(&rd, sizeof(rd)); //debug: quiet down valgrind's syscall interceptor catching irrelevant uninitialized padding bytes
+  DEBUG_MEMZERO(&rd);
   
   nchan_channel_t *ch = (nchan_channel_t *)rptr;
   rd.status = status;
@@ -494,7 +499,13 @@ typedef struct {
 
 ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
   DBG("send get_channel_info to %i %V", dst, chid);
-  channel_info_data_t        data = {str_shm_copy(chid), NULL, NCHAN_ZERO_MSGID, callback, privdata};
+  channel_info_data_t        data;
+  DEBUG_MEMZERO(&data);
+  data.shm_chid = str_shm_copy(chid);
+  data.channel_info = NULL;
+  data.last_msgid = zero_msgid;
+  data.callback = callback;
+  data.privdata = privdata;
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_CHANNEL_INFO, &data, sizeof(data));
 }
 static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
