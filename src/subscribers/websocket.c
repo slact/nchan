@@ -736,7 +736,7 @@ static ngx_flag_t is_utf8(u_char *p, size_t n) {
   return 1;
 }
 
-uint64_t htonll(uint64_t value) {
+uint64_t ws_htonll(uint64_t value) {
   int num = 42;
   if (*(char *)&num == 42) {
     uint32_t high_part = htonl((uint32_t)(value >> 32));
@@ -747,17 +747,6 @@ uint64_t htonll(uint64_t value) {
   }
 }
 
-
-uint64_t ntohll(uint64_t value) {
-  int num = 42;
-  if (*(char *)&num == 42) {
-    uint32_t high_part = ntohl((uint32_t)(value >> 32));
-    uint32_t low_part = ntohl((uint32_t)(value & 0xFFFFFFFFLL));
-    return (((uint64_t)low_part) << 32) | high_part;
-  } else {
-    return value;
-  }
-}
 
 static void init_header_buf(ngx_buf_t *buf) {
   u_char        *pos;
@@ -796,7 +785,7 @@ static ngx_int_t websocket_frame_header(ngx_buf_t *buf, const u_char opcode, off
   }
   else {
     last = ngx_copy(last, &WEBSOCKET_PAYLOAD_LEN_64_BYTE, sizeof(WEBSOCKET_PAYLOAD_LEN_64_BYTE));
-    len_net = htonll(len);
+    len_net = ws_htonll(len);
     last = ngx_copy(last, &len_net, 8);
   }
   buf->end=last;
