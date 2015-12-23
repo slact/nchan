@@ -22,7 +22,7 @@ class CfCmd #let's make a DSL!
     attr_accessor :name, :type, :set, :conf, :offset_name
     attr_accessor :contexts, :args, :legacy, :alt, :disabled
     def type_line
-      lut=OneOf.new(main: :NGX_HTTP_MAIN_CONF, srv: :NGX_HTTP_SRV_CONF, loc: :NGX_HTTP_LOC_CONF, 'if': :NGX_HTTP_LIF_CONF)
+      lut=OneOf.new(:main => :NGX_HTTP_MAIN_CONF, :srv => :NGX_HTTP_SRV_CONF, :loc => :NGX_HTTP_LOC_CONF, :if => :NGX_HTTP_LIF_CONF)
       args_lut= OneOf.new(0 => :NGX_CONF_NOARGS, false => :NGX_CONF_NOARGS)
       
       (1..7).each{|n| args_lut[n]="NGX_CONF_TAKE#{n}"}
