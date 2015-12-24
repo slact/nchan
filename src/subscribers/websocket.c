@@ -360,6 +360,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
   nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   
   ngx_sha1_t          sha1;
   
@@ -411,7 +412,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   }
   
   if(ctx->request_origin_header.len > 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &NCHAN_ANYSTRING);
+    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
   }
   
   ngx_http_send_header(r);

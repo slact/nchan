@@ -35,6 +35,7 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
   nchan_buf_and_chain_t           bc;
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_loc_conf_t               *cf;
   
   if(!fsub->data.shook_hands) {
   
@@ -50,7 +51,8 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
     //send headers
     
     if(ctx->request_origin_header.len > 0) {
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &NCHAN_ANYSTRING);
+      cf = ngx_http_get_module_loc_conf(r, nchan_module);
+      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
     }
     
     ngx_http_send_header(r);

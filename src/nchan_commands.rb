@@ -201,6 +201,16 @@ CfCmd.new do
       default: :off,
       info: "Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
   
+  nchan_access_control_allow_origin [:main, :srv, :loc], 
+      :ngx_conf_set_str_slot,
+      [:loc_conf, :allow_origin],
+      args: 1,
+      
+      group: "security",
+      value: "<string>",
+      default: "*",
+      info: "Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`."
+  
   nchan_channel_group [:srv, :loc, :if], 
       :ngx_conf_set_str_slot, 
       [:loc_conf, :channel_group],

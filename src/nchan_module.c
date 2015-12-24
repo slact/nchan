@@ -872,8 +872,14 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   ctx->start_tv = tv;
 #endif
   
-  if(origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) {
+  if((origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) != NULL) {
     ctx->request_origin_header = *origin_header;
+    if(!(cf->allow_origin.len == 1 && cf->allow_origin.data[0] == '*')) {
+      if(!(origin_header->len == cf->allow_origin.len && ngx_strnstr(origin_header->data, (char *)cf->allow_origin.data, origin_header->len) != NULL)) {
+        //CORS origin match failed! return a 403 forbidden
+        goto forbidden;
+      }
+    }
   }
   else {
     ctx->request_origin_header.len=0;
@@ -967,10 +973,10 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
       
       case NGX_HTTP_OPTIONS:
         if(cf->pub.http) {
-          nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
         }
         else if(cf->sub.poll || cf->sub.longpoll || cf->sub.eventsource || cf->sub.websocket) {
-          nchan_OPTIONS_respond(r, &NCHAN_ANYSTRING, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
+          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
         }
         else goto forbidden;
         break;
