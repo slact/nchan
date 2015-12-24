@@ -1519,15 +1519,17 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
     msglen = buf->last - msgstart;
   }
   else { //in a file
+    ngx_fd_t fd = buf->file->fd == NGX_INVALID_FILE ? nchan_fdcache_get(&buf->file->name) : buf->file->fd;
+    
     msglen = buf->file_last - buf->file_pos;
-    msgstart = mmap(NULL, msglen, PROT_READ, MAP_SHARED, buf->file->fd, 0);
+    msgstart = mmap(NULL, msglen, PROT_READ, MAP_SHARED, fd, 0);
     if (msgstart != MAP_FAILED) {
       mmapped = 1;
     }
     else {
       msgstart = NULL;
       msglen = 0;
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Couldn't mmap file");
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, ngx_errno, "Redis store: Couldn't mmap file %V", &buf->file->name);
     }
   }
   d->msglen = msglen;
