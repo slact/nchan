@@ -469,6 +469,10 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
   }
   DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
   CHANNEL_HASH_DEL(ch);
+  if(ch->redis_sub) {
+    ch->redis_sub->destroy_after_dequeue = 1;
+    ch->redis_sub->fn->dequeue(ch->redis_sub);
+  }
   if(ch->multi) {
     for(i=0; i < ch->multi_count; i++) {
       if(ch->multi[i].sub) {
