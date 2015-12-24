@@ -342,6 +342,7 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
+    nchan_free_msg_id(&sub->last_msgid);
     //debug 
     ngx_memset(fsub, 0x13, sizeof(*fsub));
     ngx_free(fsub);

@@ -104,6 +104,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
 #endif
+    nchan_free_msg_id(&sub->last_msgid);
     ngx_free(fsub);
   }
   return NGX_OK;

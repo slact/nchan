@@ -1405,7 +1405,8 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
 #endif
   
   //ERR("reap msg %p", msg);
-  
+  nchan_free_msg_id(&msg->id);
+  nchan_free_msg_id(&msg->prev_id);
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
   shm_free(shm, msg);
   return NGX_OK;
