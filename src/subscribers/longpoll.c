@@ -219,9 +219,10 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_int_t                  rc;
   char                      *err = NULL;
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  ngx_http_request_t        *r = fsub->sub.request;
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
-  DBG("%p respond req %p msg %p", self, fsub->sub.request, msg);
+  DBG("%p respond req %p msg %p", self, r, msg);
   
   assert(fsub->data.already_responded != 1);
   
@@ -236,8 +237,10 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
   
-  
-  if((rc = nchan_respond_msg(fsub->sub.request, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
+  if(ctx->request_origin_header.len > 0) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &NCHAN_ANYSTRING);
+  }
+  if((rc = nchan_respond_msg(r, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
     dequeue_maybe(self);
     return rc;
   }
@@ -250,6 +253,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   full_subscriber_t     *fsub = (full_subscriber_t *)self;
   ngx_http_request_t    *r = fsub->sub.request;
+  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   if(fsub->data.act_as_intervalpoll) {
     if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED || status_code == NGX_HTTP_NOT_FOUND ) {
@@ -267,6 +271,10 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   //disable abort handler
   ((full_subscriber_t *)self)->data.cln->handler = empty_handler;
+  
+  if(ctx->request_origin_header.len > 0) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &NCHAN_ANYSTRING);
+  }
   
   nchan_respond_status(r, status_code, status_line, 0);
 

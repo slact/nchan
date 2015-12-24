@@ -262,6 +262,7 @@ typedef struct {
   ngx_str_t                     *channel_event_name;
   ngx_str_t                      channel_id[255];
   int                            channel_id_count;
+  ngx_str_t                      request_origin_header;
 #if NCHAN_BENCHMARK
   struct timeval                 start_tv;
 #endif

@@ -856,7 +856,8 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_msg_id_t         *msg_id;
   ngx_int_t               rc = NGX_DONE;
   nchan_request_ctx_t    *ctx;
-
+  ngx_str_t              *origin_header;
+  
 #if NCHAN_BENCHMARK
   struct timeval          tv;
   ngx_gettimeofday(&tv);
@@ -870,6 +871,14 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
 #if NCHAN_BENCHMARK
   ctx->start_tv = tv;
 #endif
+  
+  if(origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) {
+    ctx->request_origin_header = *origin_header;
+  }
+  else {
+    ctx->request_origin_header.len=0;
+    ctx->request_origin_header.data=NULL;
+  }
   
   if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
     //just get the subscriber_channel_id for now. the publisher one is handled elsewhere

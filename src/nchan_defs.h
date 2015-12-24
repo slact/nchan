@@ -38,6 +38,11 @@ extern const ngx_str_t NCHAN_HEADER_VARY;
 extern const ngx_str_t NCHAN_HEADER_ALLOW;
 extern const ngx_str_t NCHAN_HEADER_CACHE_CONTROL;
 extern const ngx_str_t NCHAN_HEADER_PRAGMA;
+extern const ngx_str_t NCHAN_HEADER_ORIGIN;
+
+extern const ngx_str_t NCHAN_HEADER_ALLOW_HEADERS;
+extern const ngx_str_t NCHAN_HEADER_ALLOW_METHODS;
+extern const ngx_str_t NCHAN_HEADER_ALLOW_ORIGIN;
 
 extern const ngx_str_t NCHAN_HEADER_CONNECTION;
 extern const ngx_str_t NCHAN_HEADER_UPGRADE;

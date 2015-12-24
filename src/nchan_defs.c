@@ -9,6 +9,11 @@ const  ngx_str_t NCHAN_HEADER_VARY = ngx_string("Vary");
 const  ngx_str_t NCHAN_HEADER_ALLOW = ngx_string("Allow");
 const  ngx_str_t NCHAN_HEADER_CACHE_CONTROL = ngx_string("Cache-Control");
 const  ngx_str_t NCHAN_HEADER_PRAGMA = ngx_string("Pragma");
+const  ngx_str_t NCHAN_HEADER_ORIGIN = ngx_string("Origin");
+
+const  ngx_str_t NCHAN_HEADER_ALLOW_HEADERS = ngx_string("Access-Control-Allow-Headers");
+const  ngx_str_t NCHAN_HEADER_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
+const  ngx_str_t NCHAN_HEADER_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
 
 //websocket headers
 

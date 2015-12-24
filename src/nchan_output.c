@@ -439,13 +439,11 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
 }
 
 ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_origin, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods) {
-  static const  ngx_str_t ALLOW_HEADERS = ngx_string("Access-Control-Allow-Headers");
-  static const  ngx_str_t ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
-  static const  ngx_str_t ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
+
   
-  nchan_add_response_header(r, &ALLOW_ORIGIN,  allow_origin);
-  nchan_add_response_header(r, &ALLOW_HEADERS, allowed_headers);
-  nchan_add_response_header(r, &ALLOW_METHODS, allowed_methods);
+  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN,  allow_origin);
+  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_HEADERS, allowed_headers);
+  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_METHODS, allowed_methods);
   return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
 }
 

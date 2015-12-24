@@ -359,6 +359,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_str_t          *tmp, *ws_key;
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
+  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   ngx_sha1_t          sha1;
   
@@ -405,8 +406,12 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
 #endif
     r->headers_out.status_line = NCHAN_HTTP_STATUS_101;
     r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
-
+    
     r->keepalive=0; //apparently, websocket must not use keepalive.
+  }
+  
+  if(ctx->request_origin_header.len > 0) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &NCHAN_ANYSTRING);
   }
   
   ngx_http_send_header(r);
