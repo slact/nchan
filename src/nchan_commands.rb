@@ -42,7 +42,7 @@ CfCmd.new do
   nchan_pubsub [:srv, :loc, :if],
       :nchan_pubsub_directive,
       :loc_conf,
-      args: 0..5,
+      args: 0..6,
       
       group: "pubsub",
       value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed"],
@@ -52,7 +52,7 @@ CfCmd.new do
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
       :loc_conf,
-      args: 0..4,
+      args: 0..5,
       legacy: "push_subscriber",
       
       group: "pubsub",
