@@ -1045,18 +1045,11 @@ if (val == fail) {                                                        \
   return;                                                                 \
   }
 
-static void nchan_publisher_body_handler(ngx_http_request_t * r) {
-  ngx_str_t                      *channel_id;
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_buf_t                      *buf;
   size_t                          content_type_len;
   nchan_msg_t                    *msg;
   struct timeval                  tv;
-  
-  if((channel_id = nchan_get_channel_id(r, PUB, 1))==NULL) {
-    ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
-    return;
-  }
   
   switch(r->method) {
     case NGX_HTTP_GET:
@@ -1119,6 +1112,82 @@ static void nchan_publisher_body_handler(ngx_http_request_t * r) {
       
     default: 
       nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+  }
+  
+}
+
+typedef struct {
+  ngx_str_t       *ch_id;
+} nchan_pub_subrequest_data_t;
+
+typedef struct {
+  ngx_http_post_subrequest_t    psr;
+  nchan_pub_subrequest_data_t   psr_data;
+} nchan_pub_subrequest_stuff_t;
+
+
+static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, void *data, ngx_int_t rc) {
+  nchan_pub_subrequest_data_t  *d = data;
+  
+  if(rc == NGX_OK) {
+    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->main, nchan_module);
+    ngx_int_t            code = r->headers_out.status;
+    if(code >= 200 && code <299) {
+      //authorized. proceed as planned
+      nchan_publisher_body_handler_continued(r->main, d->ch_id, cf);
+    }
+    else { //anything else means forbidden
+      ngx_http_finalize_request(r->main, NGX_HTTP_FORBIDDEN);
+    }
+  }
+  else {
+    ngx_http_finalize_request(r->main, NGX_HTTP_INTERNAL_SERVER_ERROR);
+  }
+  return NGX_OK;
+}
+
+static void nchan_publisher_body_handler(ngx_http_request_t *r) {
+  ngx_str_t                      *channel_id;
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+
+  ngx_http_complex_value_t       *authorize_request_url_ccv = cf->authorize_request_url;
+  
+  if((channel_id = nchan_get_channel_id(r, PUB, 1))==NULL) {
+    ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
+    return;
+  }
+  
+  if(!authorize_request_url_ccv) {
+    nchan_publisher_body_handler_continued(r, channel_id, cf);
+  }
+  else {
+    nchan_pub_subrequest_stuff_t   *psr_stuff;
+    
+    if((psr_stuff = ngx_palloc(r->pool, sizeof(*psr_stuff))) == NULL) {
+      ERR("can't allocate memory for publisher auth subrequest");
+      ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
+    
+    ngx_http_post_subrequest_t    *psr = &psr_stuff->psr;
+    nchan_pub_subrequest_data_t   *psrd = &psr_stuff->psr_data;
+    ngx_http_request_t            *sr;
+    ngx_str_t                      auth_request_url;
+    
+    ngx_http_complex_value(r, authorize_request_url_ccv, &auth_request_url);
+    
+    psr->handler = nchan_publisher_body_authorize_handler;
+    psr->data = psrd;
+    
+    psrd->ch_id = channel_id;
+    
+    ngx_http_subrequest(r, &auth_request_url, NULL, &sr, psr, 0);
+    if((sr->request_body = ngx_pcalloc(r->pool, sizeof(ngx_http_request_body_t))) == NULL) {
+      ERR("can't allocate memory for publisher auth subrequest body");
+      ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
+    sr->header_only = 1;
   }
 }
 
