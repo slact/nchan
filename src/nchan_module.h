@@ -9,6 +9,8 @@
 #include <nchan_types.h>
 #include <nchan_defs.h>
 #include <util/nchan_util.h>
+#include <util/nchan_channel_id.h>
+#include <util/nchan_channel_info.h>
 #include <util/nchan_msgid.h>
 #include <util/nchan_output.h>
 
@@ -27,10 +29,6 @@ extern ngx_module_t nchan_module;
 extern nchan_store_t *nchan_store;
 
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
-
-ngx_str_t * nchan_get_header_value(ngx_http_request_t *r, ngx_str_t header_name);
-ngx_int_t nchan_subscriber_get_etag_int(ngx_http_request_t * r);
-ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard);
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type);
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_event_type_t);

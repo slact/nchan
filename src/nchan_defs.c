@@ -44,6 +44,8 @@ const  ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS= ngx_string("GET, POST,
 const  ngx_str_t NCHAN_ALLOW_GET_OPTIONS= ngx_string("GET, OPTIONS");
 const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
 
+const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");
+
 
 const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN = ngx_string(
   "queued messages: %ui" CRLF

@@ -68,6 +68,7 @@ extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS;
 extern const ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS;
 extern const ngx_str_t NCHAN_ALLOW_GET_OPTIONS;
 extern const ngx_str_t NCHAN_VARY_HEADER_VALUE;
+extern const ngx_str_t NCHAN_CONTENT_TYPE_TEXT_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_JSON;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_XML;

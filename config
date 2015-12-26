@@ -57,6 +57,8 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   $_NHPM_MEMORY_STORE_SRCS \
   ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
   ${ngx_addon_dir}/src/util/nchan_util.c \
+  ${ngx_addon_dir}/src/util/nchan_channel_id.c \
+  ${ngx_addon_dir}/src/util/nchan_channel_info.c \
   ${ngx_addon_dir}/src/util/nchan_msgid.c \
   ${ngx_addon_dir}/src/util/nchan_thingcache.c \
   ${ngx_addon_dir}/src/util/nchan_reaper.c \
