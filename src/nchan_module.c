@@ -14,9 +14,11 @@
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 #include <nchan_setup.c>
+#if FAKESHARD
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
 //#include <store/memory/store-private.h> //for debugging
+#endif
 #include <util/nchan_output.h>
 #include <nchan_websocket_publisher.h>
 
@@ -133,35 +135,28 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   return NGX_OK;
 }
 
+#if FAKESHARD 
 static void memstore_sub_debug_start() {
-#if FAKESHARD  
   #ifdef SUB_FAKE_WORKER
   memstore_fakeprocess_push(SUB_FAKE_WORKER);
   #else
   memstore_fakeprocess_push_random();
   #endif
-#endif   
 }
 static void memstore_sub_debug_end() {
-#if FAKESHARD
   memstore_fakeprocess_pop();
-#endif
 }
-
 static void memstore_pub_debug_start() {
-#if FAKESHARD
   #ifdef PUB_FAKE_WORKER
   memstore_fakeprocess_push(PUB_FAKE_WORKER);
   #else
   memstore_fakeprocess_push_random();
   #endif
-#endif
 }
 static void memstore_pub_debug_end() {
-#if FAKESHARD
   memstore_fakeprocess_pop();
-#endif
 }
+#endif
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r);
 
@@ -236,15 +231,18 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     //want websocket?
     if(cf->sub.websocket) {
       //we prefer to subscribe
+#if FAKESHARD
       memstore_sub_debug_start();
+#endif
       msg_id = nchan_subscriber_get_msg_id(r);
       if((sub = websocket_subscriber_create(r, msg_id)) == NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
       sub->fn->subscribe(sub, channel_id);
-      
+#if FAKESHARD      
       memstore_sub_debug_end();
+#endif
     }
     else if(cf->pub.websocket) {
       //no need to subscribe, but keep a connection open for publishing
@@ -282,8 +280,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         }
         
         if(sub_create) {
+#if FAKESHARD
           memstore_sub_debug_start();
-          
+#endif
           msg_id = nchan_subscriber_get_msg_id(r);
           if((sub = sub_create(r, msg_id)) == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create subscriber");
@@ -291,8 +290,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           }
           
           sub->fn->subscribe(sub, channel_id);
-          
+#if FAKESHARD
           memstore_sub_debug_end();
+#endif
         }
         
         break;
@@ -393,8 +393,9 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
     
     case NGX_HTTP_PUT:
     case NGX_HTTP_POST:
+#if FAKESHARD
       memstore_pub_debug_start();
-
+#endif
       if((msg = ngx_pcalloc(r->pool, sizeof(*msg))) == NULL) {
         ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: can't allocate msg in request pool");
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -437,8 +438,9 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
 #endif
       
       cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
-      
+#if FAKESHARD
       memstore_pub_debug_end();
+#endif
       break;
       
     case NGX_HTTP_DELETE:
