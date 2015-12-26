@@ -2,7 +2,7 @@
 #include <nchan_module.h>
 #include "nchan_output.h"
 #include <assert.h>
-#include <nchan_thingcache.h>
+#include <util/nchan_thingcache.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
