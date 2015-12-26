@@ -48,7 +48,7 @@ CORE_INCS="$CORE_INCS \
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   $_NHPM_REDIS_SRCS \
   ${ngx_addon_dir}/src/nchan_defs.c \
-  ${ngx_addon_dir}/src/nchan_output.c \
+  ${ngx_addon_dir}/src/util/nchan_output.c \
   $_NHPM_SUBSCRIBERS_SRCS \
   $_NHPM_REDIS_STORE_SRCS \
   ${ngx_addon_dir}/src/store/rbtree_util.c \

@@ -6,7 +6,7 @@
 #include <ngx_http.h>
 #include <nchan_types.h>
 #include <nchan_defs.h>
-#include <nchan_output.h>
+#include <util/nchan_output.h>
 
 //debugging config
 //#define FAKESHARD 1

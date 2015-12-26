@@ -1,6 +1,6 @@
 #include <nchan_websocket_publisher.h>
 #include <nchan_types.h>
-#include <nchan_output.h>
+#include <util/nchan_output.h>
 #include <nchan_variables.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>

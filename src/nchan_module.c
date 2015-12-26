@@ -17,7 +17,7 @@
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
 //#include <store/memory/store-private.h> //for debugging
-#include <nchan_output.h>
+#include <util/nchan_output.h>
 #include <nchan_websocket_publisher.h>
 
 ngx_int_t           nchan_worker_processes;

@@ -1,5 +1,5 @@
 #include <nchan_module.h>
-#include <nchan_output.h>
+#include <util/nchan_output.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
