@@ -9,7 +9,7 @@
 #include "store-private.h"
 #include "../spool.h"
 
-#include <nchan_reaper.h>
+#include <util/nchan_reaper.h>
 
 #include <store/redis/store.h>
 #include <subscribers/memstore_redis.h>

@@ -1,5 +1,5 @@
 #include <nchan_module.h>
-#include <nchan_reaper.h>
+#include "nchan_reaper.h"
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
