@@ -390,12 +390,11 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   alert.src_slot = memstore_slot();
   alert.time_sent = ngx_time();
-  alert.dst_slot = slot;
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
   
   //switch to destination
-  memstore_fakeprocess_push(alert.dst_slot);
+  memstore_fakeprocess_push(slot);
   ipc->handler(alert.src_slot, alert.code, alert.data);
   memstore_fakeprocess_pop();
   //switch back  
