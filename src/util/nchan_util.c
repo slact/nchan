@@ -93,41 +93,39 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
 }
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
-ngx_buf_t * nchan_request_body_to_single_buffer(ngx_http_request_t *r) {
+ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, size_t content_length) {
   ngx_buf_t *buf = NULL;
-  ngx_chain_t *chain;
   ssize_t n;
-  off_t len;
+  size_t len;
 
-  chain = r->request_body->bufs;
   if (chain->next == NULL) {
     return chain->buf;
   }
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
     if (ngx_buf_in_memory(chain->buf)) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't handle a buffer in a temp file and in memory ");
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: can't handle a buffer in a temp file and in memory ");
     }
     if (chain->next != NULL) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: error reading request body with multiple ");
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: error reading request body with multiple ");
     }
     return chain->buf;
   }
-  buf = ngx_create_temp_buf(r->pool, r->headers_in.content_length_n + 1);
+  buf = ngx_create_temp_buf(pool, content_length + 1);
   if (buf != NULL) {
-    ngx_memset(buf->start, '\0', r->headers_in.content_length_n + 1);
+    ngx_memset(buf->start, '\0', content_length + 1);
     while ((chain != NULL) && (chain->buf != NULL)) {
       len = ngx_buf_size(chain->buf);
       // if buffer is equal to content length all the content is in this buffer
-      if (len >= r->headers_in.content_length_n) {
+      if (len >= content_length) {
         buf->start = buf->pos;
         buf->last = buf->pos;
-        len = r->headers_in.content_length_n;
+        len = content_length;
       }
       if (chain->buf->in_file) {
         n = ngx_read_file(chain->buf->file, buf->start, len, 0);
         if (n == NGX_FILE_ERROR) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: cannot read file with request body");
+          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: cannot read file with request body");
           return NULL;
         }
         buf->last = buf->last + len;

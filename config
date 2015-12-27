@@ -62,6 +62,7 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   ${ngx_addon_dir}/src/util/nchan_msgid.c \
   ${ngx_addon_dir}/src/util/nchan_thingcache.c \
   ${ngx_addon_dir}/src/util/nchan_reaper.c \
+  ${ngx_addon_dir}/src/util/nchan_subrequest.c \
   ${ngx_addon_dir}/src/nchan_variables.c \
   ${ngx_addon_dir}/src/nchan_module.c \
 "

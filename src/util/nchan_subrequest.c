@@ -29,16 +29,105 @@ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+#include <nchan_module.h>
 
+ngx_str_t  nchan_content_length_header_key = ngx_string("Content-Length");
 
-static ngx_int_t ngx_http_echo_adjust_subrequest(ngx_http_request_t *sr, ngx_http_echo_subrequest_t *parsed_sr) {
-  ngx_http_core_main_conf_t  *cmcf;
+static ngx_inline ngx_uint_t nchan_hash_str(u_char *src, size_t n) {
+  ngx_uint_t  key;
+  key = 0;
+  while (n--) {
+    key = ngx_hash(key, *src);
+    src++;
+  }
+  return key;
+}
+#define nchan_hash_literal(s)                                        \
+  nchan_hash_str((u_char *) s, sizeof(s) - 1)
+
+static ngx_int_t nchan_set_content_length_header(ngx_http_request_t *r, off_t len, u_char *p) {
+  ngx_table_elt_t                 *h, *header;
+  ngx_list_part_t                 *part;
+  ngx_http_request_t              *pr;
+  ngx_uint_t                       i;
+  static ngx_uint_t                nchan_content_length_hash = 0;
+  if(nchan_content_length_hash == 0) {
+    nchan_content_length_hash = nchan_hash_literal("content-length");
+  }
+  
+  r->headers_in.content_length_n = len;
+  
+  if (ngx_list_init(&r->headers_in.headers, r->pool, 20, sizeof(ngx_table_elt_t)) != NGX_OK) {
+    return NGX_ERROR;
+  }
+
+  h = ngx_list_push(&r->headers_in.headers);
+  if (h == NULL) {
+    return NGX_ERROR;
+  }
+
+  h->key = nchan_content_length_header_key;
+  h->lowcase_key= (u_char *)"content-length";
+
+  r->headers_in.content_length = h;
+  if(p == NULL) {
+    p = ngx_palloc(r->pool, NGX_OFF_T_LEN);
+    if (p == NULL) {
+      return NGX_ERROR;
+    }
+  }
+
+  h->value.data = p;
+  h->value.len = ngx_sprintf(h->value.data, "%O", len) - h->value.data;
+
+  h->hash = nchan_content_length_hash;
+
+  pr = r->parent;
+
+  if (pr == NULL) {
+    return NGX_OK;
+  }
+
+  /* forward the parent request's all other request headers */
+
+  part = &pr->headers_in.headers.part;
+  header = part->elts;
+
+  for (i = 0; /* void */; i++) {
+    
+    if (i >= part->nelts) {
+      if (part->next == NULL) {
+        break;
+      }
+      part = part->next;
+      header = part->elts;
+      i = 0;
+    }
+    if (header[i].key.len == sizeof("Content-Length") - 1 
+        && ngx_strncasecmp(header[i].key.data, (u_char *) "Content-Length", sizeof("Content-Length") - 1) == 0) {
+      continue;
+    }
+    h = ngx_list_push(&r->headers_in.headers);
+    if (h == NULL) {
+      return NGX_ERROR;
+    }
+    *h = header[i];
+  }
+
+  /* XXX maybe we should set those built-in header slot in
+    * ngx_http_headers_in_t too? */
+
+  return NGX_OK;
+}
+
+ngx_int_t nchan_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method, ngx_str_t *method_name, ngx_http_request_body_t *request_body, size_t content_length_n, u_char *content_len_str) {
+  //ngx_http_core_main_conf_t  *cmcf;
   ngx_http_request_t         *r;
   ngx_http_request_body_t    *body;
   ngx_int_t                   rc;
 
-  sr->method = parsed_sr->method;
-  sr->method_name = *(parsed_sr->method_name);
+  sr->method = method;
+  sr->method_name = *method_name;
 
   if (sr->method == NGX_HTTP_HEAD) {
     sr->header_only = 1;
@@ -62,11 +151,10 @@ static ngx_int_t ngx_http_echo_adjust_subrequest(ngx_http_request_t *sr, ngx_htt
     return NGX_ERROR;
   }
 
-  body = parsed_sr->request_body;
-  if (body) {
+  if ((body = request_body)!=NULL) {
     sr->request_body = body;
-    
-    rc = ngx_http_echo_set_content_length_header(sr, body->buf ? ngx_buf_size(body->buf) : 0);
+
+    rc = nchan_set_content_length_header(sr, content_length_n, content_len_str);
     
     if (rc != NGX_OK) {
       return NGX_ERROR;
