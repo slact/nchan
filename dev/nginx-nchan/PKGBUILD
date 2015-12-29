@@ -123,6 +123,7 @@ build() {
     --group=${_group}
     --with-debug
     --with-http_v2_module
+    --with-http_ssl_module
     --add-module="../nchan")
 
   if [[ -z $NGINX_VERYOLDVERSION ]]; then
