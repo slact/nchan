@@ -564,18 +564,18 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
   nchan_pub_subrequest_data_t  *d = data;
   
   if(rc == NGX_OK) {
-    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->main, nchan_module);
+    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->parent, nchan_module);
     ngx_int_t            code = r->headers_out.status;
     if(code >= 200 && code <299) {
       //authorized. proceed as planned
-      nchan_publisher_body_handler_continued(r->main, d->ch_id, cf);
+      nchan_publisher_body_handler_continued(r->parent, d->ch_id, cf);
     }
     else { //anything else means forbidden
-      ngx_http_finalize_request(r->main, NGX_HTTP_FORBIDDEN);
+      ngx_http_finalize_request(r->parent, NGX_HTTP_FORBIDDEN);
     }
   }
   else {
-    ngx_http_finalize_request(r->main, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    ngx_http_finalize_request(r->parent, NGX_HTTP_INTERNAL_SERVER_ERROR);
   }
   return NGX_OK;
 }
