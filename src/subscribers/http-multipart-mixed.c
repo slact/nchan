@@ -25,18 +25,11 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
   
     clcf->chunked_transfer_encoding = 0;
     
-    r->headers_out.status=102; //fake it to fool the chunking module (mostly);
-    r->headers_out.status_line = everything_ok; //but in reality, we're returning a 200
-    
     cur = ngx_snprintf(cbuf, 100, "multipart/mixed; boundary=%V", ctx->multipart_boundary);
     r->headers_out.content_type.data = cbuf;
     r->headers_out.content_type.len = cur - cbuf;
     
-    r->headers_out.content_length_n = -1;
-    r->header_only = 1;
-    //send headers
-    
-    ngx_http_send_header(r);
+    nchan_cleverly_output_headers_only_for_later_response(r);
     
     //set preamble in the request ctx. it would be nicer to store in in the subscriber data, 
     //but that would mean not reusing longpoll's fsub directly
@@ -50,7 +43,7 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
     bc.buf.end = ngx_snprintf(cbuf, 50, ("--%V"), ctx->multipart_boundary);
     bc.buf.last = bc.buf.end;
     bc.buf.memory = 1;
-    bc.buf.last_buf = 1;
+    bc.buf.last_buf = 0;
     bc.buf.last_in_chain = 1;
     bc.buf.flush = 1;
     
@@ -141,7 +134,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   bc[3].buf.end = ngx_snprintf(boundary, 50, "\r\n--%V", ctx->multipart_boundary);
   bc[3].buf.last = bc[3].buf.end;
   bc[3].buf.memory = 1;
-  bc[3].buf.last_buf = 1;
+  bc[3].buf.last_buf = 0;
   bc[3].buf.last_in_chain = 1;
   bc[3].buf.flush = 1;
   

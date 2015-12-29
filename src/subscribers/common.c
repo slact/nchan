@@ -99,3 +99,32 @@ ngx_int_t nchan_subscriber_authorize_subscribe(subscriber_t *sub, ngx_str_t *ch_
     return NGX_OK;
   }
 }
+
+
+ngx_int_t nchan_cleverly_output_headers_only_for_later_response(ngx_http_request_t *r) {
+  ngx_int_t                rc;
+  static const ngx_str_t   everything_ok = ngx_string("200 OK");
+  
+  r->headers_out.status_line = everything_ok; //but in reality, we're returning a 200 OK
+#if (NGX_HTTP_V2)
+  if(r->stream) {
+    r->headers_out.status=NGX_HTTP_OK; //no need to fool chunking module
+    r->header_only = 0;
+  }
+  else {
+    r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);  
+    r->header_only = 1;
+  }
+#else
+  r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);  
+  r->header_only = 1;
+#endif
+
+  rc = ngx_http_send_header(r);
+  
+  if(r->headers_out.status == NGX_HTTP_OK) {
+    r->keepalive = 1;
+  }
+  
+  return rc;
+}

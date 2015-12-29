@@ -22,19 +22,12 @@ static void chunked_ensure_headers_sent(full_subscriber_t *fsub) {
   
     clcf->chunked_transfer_encoding = 0;
     
-    r->headers_out.status=102; //fake it to fool the chunking module (mostly);
-    r->headers_out.status_line = everything_ok; //but in reality, we're returning a 200
-    
     //r->headers_out.content_type.len = content_type.len;
     //r->headers_out.content_type.data = content_type.data;
     
     nchan_add_response_header(r, &transfer_encoding_header, &transfer_encoding);
     
-    r->headers_out.content_length_n = -1;
-    r->header_only = 1;
-    //send headers
-    
-    ngx_http_send_header(r);
+    nchan_cleverly_output_headers_only_for_later_response(r);
     
     fsub->data.shook_hands = 1; 
   }
@@ -83,7 +76,7 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[2].buf.end = chunk_end + 2;
   bc[2].buf.last = bc[2].buf.end;
   bc[2].buf.memory = 1;
-  bc[2].buf.last_buf = 1;
+  bc[2].buf.last_buf = 0;
   bc[2].buf.last_in_chain = 1;
   bc[2].buf.flush = 1;
   
