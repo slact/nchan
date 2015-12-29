@@ -42,11 +42,18 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
     
     r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);
     r->headers_out.status_line = everything_ok; //but in reality, we're returning a 200 OK
+    r->header_only = 1;
+    
+#if (NGX_HTTP_V2)
+    if(r->stream) {
+      r->headers_out.status=NGX_HTTP_OK; //no need to fool chunking module
+      r->header_only = 0;
+    }
+#endif
     
     r->headers_out.content_type.len = content_type.len;
     r->headers_out.content_type.data = content_type.data;
     r->headers_out.content_length_n = -1;
-    r->header_only = 1;
     //send headers
     
     if(ctx->request_origin_header.len > 0) {
@@ -55,6 +62,10 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
     }
     
     ngx_http_send_header(r);
+
+    if(r->headers_out.status == NGX_HTTP_OK) {
+      r->keepalive = 1;
+    }
     
     //send a ":hi" comment
     ngx_init_set_membuf(&bc.buf, hello.data, hello.data + hello.len);
