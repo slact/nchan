@@ -1,3 +1,6 @@
+ fix: http/2 compatibility for EventSource and multipart/mixed
+ fix: nchan_authorize_request for publisher location endpoints
+ fix: publishing long (file-backed) messages to redis-store
 0.95 (Dec. 24 2015)
  feature: configurable nchan_access_control_origin_header, default to *
  fix: recognize non-preflighted CORS requests
