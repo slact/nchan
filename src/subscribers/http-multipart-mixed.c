@@ -11,8 +11,6 @@
 #include <assert.h> 
 
 static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
-  static const ngx_str_t   everything_ok = ngx_string("200 OK");
-  
   u_char                          cbuf[100];
   u_char                         *cur;
   
