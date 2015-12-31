@@ -715,7 +715,11 @@ exit:
 
 finalize:
 
-  //TODO maybe?
+  if (temp_pool != NULL) {
+    ngx_destroy_pool(temp_pool);
+    temp_pool = NULL;
+  }
+  
   ngx_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
   
 }
