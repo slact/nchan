@@ -76,6 +76,7 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
+  "git+https://github.com/chobits/ngx_debug_pool.git"
   "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
   "bl.txt")
 
@@ -83,6 +84,7 @@ md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
+	 'SKIP'
          'SKIP'
          'SKIP')
 
@@ -101,6 +103,10 @@ build() {
     if [[ $NGX_SLAB_PATCH == 1 ]]; then
       echo "using the ngx_slab patch to fix large alloc/frees"
       patch -p1 < "${startdir}/ngx_slab.patch"
+    fi
+    if [[ $NGX_DEBUG_POOL == 1 ]]; then
+      echo "patch nginx to debug pools"
+      patch -p1 < "${srcdir}/ngx_debug_pool/debug_pool.patch"
     fi
   fi
 
@@ -126,6 +132,10 @@ build() {
     --with-http_ssl_module
     --add-module="../nchan")
 
+  if [[ $NGX_DEBUG_POOL == 1 ]]; then
+    CONFIGURE+=( "--add-module=../ngx_debug_pool" )
+  fi
+  
   if [[ -z $NGINX_VERYOLDVERSION ]]; then
     CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}/scgi_temp" )
   fi

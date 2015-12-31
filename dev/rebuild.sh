@@ -23,6 +23,8 @@ for opt in $*; do
       export CC="$_clang $clang_sanitize_addres";;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
+    debug-pool|debugpool) 
+      export NGX_DEBUG_POOL=1;;
     re|remake)
       export REMAKE="-B"
       export CONTINUE=1;;
