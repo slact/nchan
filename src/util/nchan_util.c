@@ -142,3 +142,61 @@ ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, s
   }
   return buf;
 }
+
+#if (NGX_DEBUG_POOL)
+//Copyright (C) 2015 Alibaba Group Holding Limited
+static ngx_str_t            debug_pool_str;
+ngx_str_t *ngx_http_debug_pool_str(ngx_pool_t *pool) {
+  u_char              *p, *unit;
+  size_t               s, n, cn, ln;
+  ngx_uint_t           i;
+  ngx_pool_stat_t     *stat;
+  static u_char        charbuf[512];
+  
+  debug_pool_str.len = 0;
+  debug_pool_str.data = charbuf;
+  
+#define NGX_POOL_PID_SIZE       (NGX_TIME_T_LEN + sizeof("pid:\n") - 1)     /* sizeof pid_t equals time_t */
+#define NGX_POOL_PID_FORMAT     "pid:%P\n"
+#define NGX_POOL_ENTRY_SIZE     (48 /* func */ + 12 * 4 + sizeof("size: num: cnum: lnum: \n") - 1)
+#define NGX_POOL_ENTRY_FORMAT   "size:%12z num:%12z cnum:%12z lnum:%12z %s\n"
+#define NGX_POOL_SUMMARY_SIZE   (12 * 4 + sizeof("size: num: cnum: lnum: [SUMMARY]\n") - 1)
+#define NGX_POOL_SUMMARY_FORMAT "size:%10z%2s num:%12z cnum:%12z lnum:%12z [SUMMARY]\n"
+
+  p = charbuf;
+  p = ngx_sprintf(p, NGX_POOL_PID_FORMAT, ngx_pid);
+
+  /* lines of entry */
+
+  s = n = cn = ln = 0;
+
+  for (i = 0; i < NGX_POOL_STATS_MAX; i++) {
+      for (stat = ngx_pool_stats[i]; stat != NULL; stat = stat->next) {
+          p = ngx_snprintf(p, NGX_POOL_ENTRY_SIZE, NGX_POOL_ENTRY_FORMAT,
+                            stat->size, stat->num, stat->cnum, stat->lnum,
+                            stat->func);
+          s += stat->size;
+          n += stat->num;
+          cn += stat->cnum;
+          ln += stat->lnum;
+      }
+  }
+
+  /* summary line */
+
+  unit = (u_char *) " B";
+  if (s > 1024 * 1024) {
+    s = s / (1024 * 1024);
+    unit = (u_char *) "MB";
+  } else if (s > 1024) {
+    s = s / 1024;
+    unit = (u_char *) "KB";
+  }
+
+  p = ngx_snprintf(p, NGX_POOL_SUMMARY_SIZE, NGX_POOL_SUMMARY_FORMAT, s, unit, n, cn, ln);
+
+  debug_pool_str.len = p - debug_pool_str.data;
+  
+  return &debug_pool_str;
+}
+#endif
