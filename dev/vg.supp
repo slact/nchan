@@ -26578,3 +26578,187 @@
    fun:ngx_ssl_init
    fun:main
 }
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_http_upstream_process_header
+   fun:ngx_http_upstream_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_http_upstream_create
+   fun:ngx_http_proxy_handler
+   fun:ngx_http_core_content_phase
+   fun:ngx_http_core_run_phases
+   fun:ngx_http_handler
+   fun:ngx_http_run_posted_requests
+   fun:ngx_http_request_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_list_init
+   fun:ngx_http_upstream_process_header
+   fun:ngx_http_upstream_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_http_proxy_handler
+   fun:ngx_http_core_content_phase
+   fun:ngx_http_core_run_phases
+   fun:ngx_http_handler
+   fun:ngx_http_run_posted_requests
+   fun:ngx_http_request_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_http_proxy_handler
+   fun:ngx_http_core_content_phase
+   fun:ngx_http_core_run_phases
+   fun:ngx_http_handler
+   fun:ngx_http_run_posted_requests
+   fun:ngx_http_request_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_pnalloc
+   fun:ngx_http_proxy_process_header
+   fun:ngx_http_proxy_process_status_line
+   fun:ngx_http_upstream_process_header
+   fun:ngx_http_upstream_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_pcalloc
+   fun:ngx_chain_get_free_buf
+   fun:ngx_http_proxy_non_buffered_copy_filter
+   fun:ngx_http_upstream_process_header
+   fun:ngx_http_upstream_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+   fun:main
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_malloc
+   fun:ngx_palloc
+   fun:ngx_http_proxy_create_request
+   fun:ngx_http_upstream_init_request
+   fun:ngx_http_upstream_init
+   fun:ngx_http_read_client_request_body
+   fun:ngx_http_proxy_handler
+   fun:ngx_http_core_content_phase
+   fun:ngx_http_core_run_phases
+   fun:ngx_http_handler
+   fun:ngx_http_run_posted_requests
+   fun:ngx_http_request_handler
+   fun:ngx_epoll_process_events
+   fun:ngx_process_events_and_timers
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
+}
+
+
+
