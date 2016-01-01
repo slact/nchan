@@ -1,6 +1,6 @@
 #!/bin/ruby
 require "pry"
-code = 304
+code = 200
 
 #\ -w -p 8053
 
@@ -19,8 +19,8 @@ app = proc do |env|
   when "/subauth"
     #meh
   when "/pub"
-    #resp << "WEE! + #{body}"
-    #headers["Content-Length"]=resp.join("").length.to_s
+    resp << "WEE! + #{body}"
+    headers["Content-Length"]=resp.join("").length.to_s
   end
   
   [ code, headers, resp ]
