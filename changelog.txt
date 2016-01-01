@@ -1,3 +1,4 @@
+0.96 (Jan 1. 2016)
  feature: websocket ping with nchan_websocket_ping_interval
  fix: unsafe memory access for redis publisher
  feature: nchan_publisher_upstream_request
