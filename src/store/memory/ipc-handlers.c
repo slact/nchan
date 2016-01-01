@@ -275,27 +275,41 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
 typedef struct {
   ngx_int_t        sender;
   publish_data_t  *d;
+  unsigned         allocd:1;
 } publish_callback_data;
 
 static ngx_int_t publish_message_generic_callback(ngx_int_t, void *, void *);
 
 static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
   nchan_loc_conf_t              cf;
-  publish_callback_data         cd;
+  
+  publish_callback_data         cd_data;
+  publish_callback_data        *cd;
   nchan_store_channel_head_t   *head;
-  cd.d = d;
-  cd.sender = sender;
   
   cf.buffer_timeout = d->msg_timeout;
   cf.max_messages = d->max_msgs;
   cf.use_redis = d->use_redis;
   
+  if(cf.use_redis) {
+    cd = ngx_alloc(sizeof(*cd) + sizeof(*d), ngx_cycle->log);
+    cd->allocd=1;
+    cd->d = (publish_data_t *)&cd[1];
+    *cd->d = *d;
+  }
+  else {
+    cd = &cd_data;
+    cd->d = d;
+  }
+  
+  cd->sender = sender;
+
   assert(d->shm_chid->data != NULL);
   
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
   
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
-    nchan_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, &cf, publish_message_generic_callback, &cd); //so long as callback is not evented, we're okay with that privdata
+    nchan_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, &cf, publish_message_generic_callback, cd); //so long as callback is not evented, we're okay with that privdata
     //string will be freed on publish response
   }
   else {
@@ -340,6 +354,9 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   }
   DBG("IPC: publish message reply to %i", cd->sender);
   ipc_alert(nchan_memstore_get_ipc(), cd->sender, IPC_PUBLISH_MESSAGE_REPLY, &rd, sizeof(rd));
+  if(cd->allocd) {
+    ngx_free(cd);
+  }
   return NGX_OK;
 }
 static void receive_publish_message_reply(ngx_int_t sender, publish_response_data *d) {
