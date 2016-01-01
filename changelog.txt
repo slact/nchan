@@ -1,3 +1,6 @@
+ 
+ fix: unsafe memory access for redis publisher
+ feature: nchan_publisher_upstream_request
  fix: http/2 compatibility for EventSource and multipart/mixed
  fix: nchan_authorize_request for publisher location endpoints
  fix: publishing long (file-backed) messages to redis-store
