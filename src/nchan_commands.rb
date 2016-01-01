@@ -115,6 +115,15 @@ CfCmd.new do
   #    - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.
   #    - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
   
+  nchan_websocket_ping_interval [:srv, :loc, :if],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :websocket_ping_interval],
+      
+      group: "pubsub",
+      value: "<number> (seconds)",
+      default: "0 (none)",
+      info: "Interval for sending websocket ping frames. Disabled by default."
+  
   nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
       :loc_conf,
@@ -132,7 +141,7 @@ CfCmd.new do
       legacy: "push_subscriber_timeout",
       
       group: "pubsub",
-      value: "<number>",
+      value: "<number> (seconds)",
       default: "0 (none)",
       info: "The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a push_subscriber is present in this or a child context."
   

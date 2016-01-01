@@ -68,7 +68,7 @@ static const u_char WEBSOCKET_PAYLOAD_LEN_64_BYTE = 127;
 static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
-//static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
 
 #define NCHAN_WS_UPSTREAM_TMP_POOL_SIZE (4*1024)
 
@@ -129,6 +129,8 @@ struct full_subscriber_s {
   
   ngx_str_t              *publish_channel_id;
   nchan_pub_upstream_stuff_t  *upstream_stuff;
+  
+  ngx_event_t             ping_ev;
   
   //reusable output chains and bufs
   ngx_chain_t             hdr_chain;
@@ -461,6 +463,8 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   fsub->sub.enqueued = 0;
   
+  ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
+  
   if(msg_id) {
     nchan_copy_new_msg_id(&fsub->sub.last_msgid, msg_id);
   }
@@ -538,7 +542,7 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   if(fsub->upstream_stuff && fsub->upstream_stuff->psr_data.tmp_pool) {
     ngx_destroy_pool(fsub->upstream_stuff->psr_data.tmp_pool);
   }
-  
+   
   if(sub->reserved > 0) {
     DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->awaiting_destruction = 1;
@@ -668,10 +672,26 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
   }
 }
 
+static void ping_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0);
+  ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+}
+
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_handshake(fsub);
   self->enqueued = 1;
+  
+  if(self->cf->websocket_ping_interval > 0) {
+    //add timeout timer
+    //nextsub->ev should be zeroed;
+    fsub->ping_ev.handler = ping_ev_handler;
+    fsub->ping_ev.data = fsub;
+    fsub->ping_ev.log = ngx_cycle->log;
+    ngx_add_timer(&fsub->ping_ev, self->cf->websocket_ping_interval * 1000);
+  }
+  
   return NGX_OK;
 }
 
@@ -680,6 +700,11 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
   self->enqueued = 0;
+  
+  if(fsub->ping_ev.timer_set) {
+    ngx_del_timer(&fsub->ping_ev);
+  }
+  
   if(self->destroy_after_dequeue) {
     websocket_subscriber_destroy(self);
   }

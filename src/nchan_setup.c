@@ -108,6 +108,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_timeout=NGX_CONF_UNSET;
   lcf->storage_engine=NULL;
   
+  lcf->websocket_ping_interval=NGX_CONF_UNSET;
+  
   lcf->msg_in_etag_only = NGX_CONF_UNSET;
   
   lcf->channel_events_channel_id = NULL;
@@ -176,6 +178,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
   ngx_conf_merge_value(conf->subscriber_start_at_oldest_message, prev->subscriber_start_at_oldest_message, 1);
+  
+    ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_WEBSOCKET_PING_INTERVAL);
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->subscribe_only_existing_channel, prev->subscribe_only_existing_channel, 0);

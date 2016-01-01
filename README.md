@@ -321,12 +321,18 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object.     
 
-- **nchan_subscriber_timeout** `<number>`  
+- **nchan_subscriber_timeout** `<number> (seconds)`  
   arguments: 1  
   default: `0 (none)`  
   context: http, server, location, if  
   legacy name: push_subscriber_timeout  
   > The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a push_subscriber is present in this or a child context.    
+
+- **nchan_websocket_ping_interval** `<number> (seconds)`  
+  arguments: 1  
+  default: `0 (none)`  
+  context: server, location, if  
+  > Interval for sending websocket ping frames. Disabled by default.    
 
 - **nchan_authorize_request** `<url>`  
   arguments: 1  

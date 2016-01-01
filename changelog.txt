@@ -1,4 +1,4 @@
- 
+ feature: websocket ping with nchan_websocket_ping_interval
  fix: unsafe memory access for redis publisher
  feature: nchan_publisher_upstream_request
  fix: http/2 compatibility for EventSource and multipart/mixed

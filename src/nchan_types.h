@@ -193,6 +193,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   time_t                          subscriber_timeout;
   
+  time_t                          websocket_ping_interval;
+  
   ngx_int_t                       subscriber_start_at_oldest_message;
   
   ngx_http_complex_value_t       *channel_events_channel_id;

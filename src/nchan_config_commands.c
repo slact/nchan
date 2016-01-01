@@ -94,6 +94,13 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
+  { ngx_string("nchan_websocket_ping_interval"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_sec_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, websocket_ping_interval),
+    NULL } ,
+
   { ngx_string("nchan_publisher"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2,
     nchan_publisher_directive,
