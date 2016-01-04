@@ -279,13 +279,16 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
       case NGX_HTTP_ACCEPTED:
         if(sr->upstream) {
           ngx_buf_t    *buf;
-          ngx_pool_t   *tmp_pool;
+          ngx_pool_t   *tmp_pool = NULL;
           
           content_length = sr->upstream->headers_in.content_length_n > 0 ? sr->upstream->headers_in.content_length_n : 0;
           request_chain = sr->upstream->out_bufs;
           
           if (request_chain->next != NULL) {
-            tmp_pool = ngx_create_pool(NCHAN_WS_UPSTREAM_TMP_POOL_SIZE, ngx_cycle->log);
+            if((tmp_pool = ngx_create_pool(NCHAN_WS_UPSTREAM_TMP_POOL_SIZE, ngx_cycle->log))==NULL) {
+              ERR("can't create temp upstream handler pool");
+              return NGX_ERROR;
+            }
             buf = nchan_chain_to_single_buffer(tmp_pool, request_chain, content_length);
           }
           else {
@@ -300,7 +303,7 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
           
           websocket_publish_continue(fsub, buf);
           
-          if (request_chain->next != NULL) {
+          if (tmp_pool != NULL) {
             ngx_destroy_pool(tmp_pool);
           }
         }
