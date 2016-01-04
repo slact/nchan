@@ -8,7 +8,7 @@ Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requ
 
 ## Status and History
 
-The latest Nchan release is v0.96 (January 1, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
+The latest Nchan release is v0.961 (January 4, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2015. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy, and the rest is somewhere in between.
 
