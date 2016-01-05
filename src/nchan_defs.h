@@ -18,6 +18,10 @@
 #define NGX_HTTP_CONFLICT 409
 #endif
 
+#ifndef NGX_HTTP_SWITCHING_PROTOCOLS
+#define NGX_HTTP_SWITCHING_PROTOCOLS       101
+#endif
+
 #ifndef NGX_HTTP_GONE
 #define NGX_HTTP_GONE 410
 #endif

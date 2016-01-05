@@ -6,6 +6,16 @@
 //#define NCHAN_BENCHMARK 1
 
 #include <ngx_http.h>
+
+//building for old versions
+#ifndef NGX_MAX_INT_T_VALUE
+#if (NGX_PTR_SIZE == 4)
+#define NGX_MAX_INT_T_VALUE  2147483647
+#else
+#define NGX_MAX_INT_T_VALUE  9223372036854775807
+#endif
+#endif
+
 #include <nchan_types.h>
 #include <nchan_defs.h>
 #include <util/nchan_util.h>
