@@ -34,7 +34,7 @@ Currently, Nchan's performance is limited by available memory bandwidth. This ca
 #### Packages
  - [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
- - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/): A statically compiled 64-bit [.deb package is available](https://nchan.slact.net/download/nginx-nchan-latest.deb).
+ - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/): Updated [nginx-common](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras](https://nchan.slact.net/download/nginx-extras.deb) packages are available. Download both and install them with `dpkg -i`. These packages should soon be available directly from the Debian repository.
  - The same statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
 
 
