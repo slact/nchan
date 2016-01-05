@@ -1,3 +1,7 @@
+0.97 (Jan 5 2016) 
+ fix: build issues with debian
+ fix: compatibility with nginx versions down to 1.0.15
+ fix: publishing bug introduced in 0.96
 0.961 (Jan 4 2016)
  fix: compiler warning
 0.96 (Jan 1. 2016)
