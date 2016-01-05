@@ -3,8 +3,8 @@ _nginx_ver_latest=1.9.9
 _nginx_ver_stable=1.8.0
 _nginx_ver_nopool=1.9.7
 _nginx_ver_legacy=1.6.3
-_nginx_ver_old=1.0.1
-_nginx_ver_very_old=0.8.40
+_nginx_ver_old=1.0.15
+_nginx_ver_very_old=0.8.55
 
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
