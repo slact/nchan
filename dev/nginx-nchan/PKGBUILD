@@ -2,6 +2,7 @@
 _nginx_ver_latest=1.9.9
 _nginx_ver_stable=1.8.0
 _nginx_ver_nopool=1.9.7
+_nginx_ver_legacy=1.6.3
 _nginx_ver_old=1.0.1
 _nginx_ver_very_old=0.8.40
 
@@ -13,8 +14,12 @@ fi
 
 CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs"
 
+_include_http2=0
+
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nginx_ver_nopool
+elif [[ $NGINX_LEGACYVERSION == 1 ]]; then
+  _nginx_ver=$_nginx_ver_legacy
 elif [[ $NGINX_OLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_old
 elif [[ $NGINX_VERYOLDVERSION == 1 ]]; then
@@ -23,6 +28,7 @@ elif [[ $NGINX_STABLEVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_stable
 else
   _nginx_ver=$_nginx_ver_latest
+  _include_http2=1
 fi
 
 
@@ -128,10 +134,13 @@ build() {
     --user=${_user}
     --group=${_group}
     --with-debug
-    --with-http_v2_module
     --with-http_ssl_module
     --add-module="../nchan")
-
+    
+  if [[ $_include_http2 == 1 ]]; then
+    CONFIGURE+=( "--with-http_v2_module" )
+  fi
+    
   if [[ $NGX_DEBUG_POOL == 1 ]]; then
     CONFIGURE+=( "--add-module=../ngx_debug_pool" )
   fi

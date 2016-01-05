@@ -50,6 +50,8 @@ for opt in $*; do
       ;;
     stable|stableversion)
       export NGINX_STABLEVERSION=1;;
+    legacyversion|legacy)
+      export NGINX_LEGACYVERSION=1;;
     oldversion|old)
       export NGINX_OLDVERSION=1;;
     veryoldversion|veryold)
