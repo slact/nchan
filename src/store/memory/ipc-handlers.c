@@ -299,6 +299,7 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
   }
   else {
     cd = &cd_data;
+    cd->allocd=0;
     cd->d = d;
   }
   
