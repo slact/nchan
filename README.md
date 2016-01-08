@@ -219,7 +219,7 @@ So far the examples have used static channel ids, which is not very useful in pr
 
 #### Channel Multiplexing
 
-Any subscriber location can be an endpoint for up to 255 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. There are two ways to enable multiplexing. 
+Any subscriber location can be an endpoint for up to 255 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. There are two ways to enable multiplexing:
 
 Up to 7 channel ids can be specified for the `nchan_channel_id` or `nchan_channel_subscriber_id` config directive:
 
@@ -245,6 +245,8 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
     #and will received messages from all of the above.
   }
 ```
+
+`DELETE` requests on any channel to which a multi-channel subscriber is subscribed will end the subscriber connection, just as if the subscriber was subscribed to that single channel directly.
 
 Publishing to multiple channels from one location is not supported.
 
