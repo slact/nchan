@@ -120,7 +120,7 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 ```
 
 
-**HTTP `DELETE`** requests delete a channel. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
+**HTTP `DELETE`** requests delete a channel and end all subscriber connections. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
 #### Subscriber Endpoint
 
@@ -247,7 +247,7 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
   }
 ```
 
-`DELETE` requests on any channel to which a multi-channel subscriber is subscribed will end the subscriber connection, just as if the subscriber was subscribed to that single channel directly.
+`DELETE` requests on any channel are forwarded to relevant multi-channel subscribers, and their connections are terminated.
 
 Publishing to multiple channels from one location is not supported.
 
