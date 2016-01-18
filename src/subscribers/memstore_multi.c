@@ -70,7 +70,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   //nchan_msg_id_t   *last_msgid;
   ngx_int_t         mcount;
   
-  int16_t          tags[255], prevtags[255];
+  int16_t          tags[NCHAN_MULTITAG_MAX], prevtags[NCHAN_MULTITAG_MAX];
   
   //remsg = ngx_alloc(sizeof(*remsg), ngx_cycle->log);
   //assert(remsg);
@@ -90,7 +90,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   remsg.id.tagcount = mcount;
   remsg.id.tagactive = d->n;
   
-  if(mcount > NCHAN_MULTITAG_MAX) {
+  if(mcount > NCHAN_FIXED_MULTITAG_MAX) {
     remsg.id.tag.allocd = tags;
     tags[0]=msg->id.tag.fixed[0];
     remsg.prev_id.tag.allocd = prevtags;

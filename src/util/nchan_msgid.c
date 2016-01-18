@@ -5,7 +5,7 @@
 
 void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill) {
   int16_t v, n = id->tagcount;
-  int16_t *tags = n <= NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
+  int16_t *tags = n <= NCHAN_FIXED_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
   uint8_t i;
   assert(n > in_n && n > out_n);
   v = tags[in_n];
@@ -17,7 +17,7 @@ void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out
 
 ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
   ngx_memcpy(dst, src, sizeof(*src));
-  if(src->tagcount > NCHAN_MULTITAG_MAX) {
+  if(src->tagcount > NCHAN_FIXED_MULTITAG_MAX) {
     size_t sz = sizeof(*src->tag.allocd) * src->tagcount;
     if((dst->tag.allocd = ngx_alloc(sz, ngx_cycle->log)) == NULL) {
       return NGX_ERROR;
@@ -30,15 +30,15 @@ ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *l
   uint16_t dst_n = dst->tagcount, src_n = src->tagcount;
   dst->time = src->time;
   
-  if(dst_n > NCHAN_MULTITAG_MAX && dst_n > src_n) {
+  if(dst_n > NCHAN_FIXED_MULTITAG_MAX && dst_n > src_n) {
     ngx_free(dst->tag.allocd);
-    dst_n = NCHAN_MULTITAG_MAX;
+    dst_n = NCHAN_FIXED_MULTITAG_MAX;
   }
   
   dst->tagcount = src->tagcount;
   dst->tagactive = src->tagactive;
   
-  if(src_n <= NCHAN_MULTITAG_MAX) {
+  if(src_n <= NCHAN_FIXED_MULTITAG_MAX) {
     dst->tag = src->tag;
   }
   else {
@@ -57,7 +57,7 @@ ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *l
 }
 
 ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
-  if(id->tagcount > NCHAN_MULTITAG_MAX) {
+  if(id->tagcount > NCHAN_FIXED_MULTITAG_MAX) {
     ngx_free(id->tag.allocd);
     id->tag.allocd = NULL;
   }
@@ -65,15 +65,15 @@ ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
 }
 
 static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid) {
-  int16_t  *tags1 = id1->tagcount <= NCHAN_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
-  int16_t  *tags2 = id2->tagcount <= NCHAN_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
+  int16_t  *tags1 = id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
+  int16_t  *tags2 = id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
   if(id1->time > 0 && id2->time > 0) {
     if(id1->time != id2->time) {
       //is this a missed message, or just a multi msg?
       
       if(id2->tagcount > 1) {
         int       i = -1, j, max = id2->tagcount;  
-        int16_t  *msgidtags = msgid->tagcount <= NCHAN_MULTITAG_MAX ? msgid->tag.fixed : msgid->tag.allocd;
+        int16_t  *msgidtags = msgid->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? msgid->tag.fixed : msgid->tag.allocd;
         
         for(j=0; j < max; j++) {
           if(tags2[j] != -1) {
@@ -128,11 +128,11 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
     //DBG("======= updating multi_msgid ======");
     //DBG("======= old: %V", msgid_to_str(oldid));
     //DBG("======= new: %V", msgid_to_str(newid));
-    if(newid->tagcount > NCHAN_MULTITAG_MAX && oldid->tagcount < newid->tagcount) {
+    if(newid->tagcount > NCHAN_FIXED_MULTITAG_MAX && oldid->tagcount < newid->tagcount) {
       int16_t       *oldtags, *old_largetags = NULL;
       int            i;
       size_t         sz = sizeof(*oldid->tag.allocd) * newid->tagcount;
-      if(oldid->tagcount > NCHAN_MULTITAG_MAX) {
+      if(oldid->tagcount > NCHAN_FIXED_MULTITAG_MAX) {
         old_largetags = oldid->tag.allocd;
         oldtags = old_largetags;
       }
@@ -153,8 +153,8 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
     }
     else {
       int i, max = newid->tagcount;
-      int16_t  *oldtags = oldid->tagcount <= NCHAN_MULTITAG_MAX ? oldid->tag.fixed : oldid->tag.allocd;
-      int16_t  *newtags = newid->tagcount <= NCHAN_MULTITAG_MAX ? newid->tag.fixed : newid->tag.allocd;
+      int16_t  *oldtags = oldid->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? oldid->tag.fixed : oldid->tag.allocd;
+      int16_t  *newtags = newid->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? newid->tag.fixed : newid->tag.allocd;
       
       assert(max == oldid->tagcount);
       
@@ -210,9 +210,9 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   int16_t           i = 0;
   int8_t            sign = 1;
   int16_t           val = 0;
-  static int16_t    tags[255];
+  static int16_t    tags[NCHAN_MULTITAG_MAX];
   
-  while(cur <= last && i < 255) {
+  while(cur <= last && i < NCHAN_MULTITAG_MAX) {
     if(cur == last) {
       tags[i]=(val == 0 && sign == -1) ? -1 : val * sign; //shorthand "-" for "-1";
       i++;
@@ -239,7 +239,7 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
   }
   mid->tagcount = i;
   
-  if(i <= NCHAN_MULTITAG_MAX) {
+  if(i <= NCHAN_FIXED_MULTITAG_MAX) {
     ngx_memcpy(mid->tag.fixed, tags, sizeof(mid->tag.fixed));
   }
   else {

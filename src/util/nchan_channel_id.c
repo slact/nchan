@@ -11,7 +11,7 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
 
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_complex_value_arr_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n = idcf->n, n_out = 0;
-  ngx_str_t                   id[255];
+  ngx_str_t                   id[NCHAN_MULTITAG_MAX];
   ngx_str_t                  *id_out;
   ngx_str_t                  *group = &cf->channel_group;
   size_t                      sz = 0, grouplen = group->len;
@@ -21,7 +21,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
-  for(i=0; i < n && n_out < 255; i++) {
+  for(i=0; i < n && n_out < NCHAN_MULTITAG_MAX; i++) {
     ngx_http_complex_value(r, idcf->cv[i], &id[n_out]);
     if(validate_id(r, &id[n_out], cf) != NGX_OK) {
       *ret_id = NULL;
@@ -40,7 +40,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
         id[n_out].len = cur_last - cur_first;
         cur_first = cur;
         sz += id[n_out].len + 1 + grouplen; // "group/<channel-id>"
-        if(n_out < NCHAN_MULTITAG_MAX) {
+        if(n_out < NCHAN_MULTITAG_REQUEST_CTX_MAX) {
           ctx->channel_id[n_out] = id[n_out];
         }
         n_out++;
@@ -49,7 +49,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
     }
     else {
       sz += id[n_out].len + 1 + grouplen; // "group/<channel-id>"
-      if(n_out < NCHAN_MULTITAG_MAX) {
+      if(n_out < NCHAN_MULTITAG_REQUEST_CTX_MAX) {
         ctx->channel_id[n_out] = id[n_out];
       }
       n_out++;
@@ -60,7 +60,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   }
   if(ctx) {
     ctx->channel_id_count = n_out;
-    //for(; i < NCHAN_MULTITAG_MAX; i++) {
+    //for(; i < NCHAN_MULTITAG_REQUEST_CTX_MAX; i++) {
     //  ctx->channel_id[i] = empty_string;
     //}
   }

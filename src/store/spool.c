@@ -40,7 +40,7 @@ static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   
   if(id1->time != id2->time || id1->tagcount != id2->tagcount) return 0;
   max = id1->tagcount;
-  if(max <= NCHAN_MULTITAG_MAX) {
+  if(max <= NCHAN_FIXED_MULTITAG_MAX) {
     tags1 = id1->tag.fixed;
     tags2 = id2->tag.fixed;
   }
@@ -113,7 +113,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   channel_spooler_t      *spl = spool->spooler;
   
   ngx_int_t               immortal_spool = spool->id.time == -1;
-  int16_t                 largetags[255];
+  int16_t                 largetags[NCHAN_MULTITAG_MAX];
   nchan_msg_id_t          new_id = NCHAN_ZERO_MSGID;
     
   nchan_copy_msg_id(&new_id, &spool->id, largetags);
@@ -597,8 +597,8 @@ static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *
   int16_t *tags1, *tags2;
   int16_t t1, t2;
   
-  tags1 = (id1->tagcount <= NCHAN_MULTITAG_MAX) ? id1->tag.fixed : id1->tag.allocd;
-  tags2 = (id2->tagcount <= NCHAN_MULTITAG_MAX) ? id2->tag.fixed : id2->tag.allocd;
+  tags1 = (id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id1->tag.fixed : id1->tag.allocd;
+  tags2 = (id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id2->tag.fixed : id2->tag.allocd;
   
   //debugstuff that prevents this function from getting inlined
   assert(id1->time == id2->time);
@@ -740,11 +740,11 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   
   while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
     responded_subs += spool->sub_count;
-    if(msg->id.tagcount > NCHAN_MULTITAG_MAX) {
+    if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
       assert(spool->id.tag.allocd != msg->id.tag.allocd);
     }
     spool_respond_general(spool, msg, 0, NULL);
-    if(msg->id.tagcount > NCHAN_MULTITAG_MAX) {
+    if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
       assert(spool->id.tag.allocd != msg->id.tag.allocd);
     }
     spool_nextmsg(spool, &msg->id);
@@ -876,8 +876,8 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
     uint16_t   max = max1 > max2 ? max1 : max2;
     int16_t   *tags1, *tags2;
     
-    tags1 = max1 <= NCHAN_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
-    tags2 = max2 <= NCHAN_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
+    tags1 = max1 <= NCHAN_FIXED_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
+    tags2 = max2 <= NCHAN_FIXED_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
     
     for(i=0; i < max; i++) {
       tag1 = i < max1 ? tags1[i] : -1;

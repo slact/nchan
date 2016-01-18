@@ -786,7 +786,7 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
 static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   nchan_store_channel_head_t   *head;
   ngx_int_t                     owner = memstore_channel_owner(channel_id);
-  ngx_str_t                     ids[NCHAN_MEMSTORE_MULTI_MAX];
+  ngx_str_t                     ids[NCHAN_MULTITAG_MAX];
   ngx_int_t                     i, n = 0;
   
   head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
@@ -877,7 +877,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     head->oldest_msgid.time = 0;
     head->oldest_msgid.tagcount = n;
     
-    if(n <= NCHAN_MULTITAG_MAX) {
+    if(n <= NCHAN_FIXED_MULTITAG_MAX) {
       tags_latest = head->latest_msgid.tag.fixed;
       tags_oldest = head->oldest_msgid.tag.fixed;
     }
@@ -1751,7 +1751,7 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
 }
 
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
-  static int16_t              multi_largetag[255], multi_prevlargetag[255];
+  static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
   nchan_msg_t                 retmsg;
@@ -1823,7 +1823,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       if (d->wanted_msgid.time != d->msg->id.time) {
         nchan_copy_msg_id(&retmsg.id, &d->msg->id, multi_largetag);
         
-        if(d->multi_count > NCHAN_MULTITAG_MAX) {
+        if(d->multi_count > NCHAN_FIXED_MULTITAG_MAX) {
           retmsg.id.tag.allocd = multi_largetag;
           assert(d->msg->id.tagcount == 1);
           retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
@@ -1835,7 +1835,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
         nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
       }
       
-      muhtags = (d->multi_count > NCHAN_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
+      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
       muhtags[n] = d->msg->id.tag.fixed[0];
       
       retmsg.id.tagactive = n;
@@ -1862,9 +1862,9 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   nchan_store_multi_t         *multi = NULL;
   
   ngx_int_t                    n;
-  uint8_t                      want[NCHAN_MEMSTORE_MULTI_MAX];
-  ngx_str_t                    ids[NCHAN_MEMSTORE_MULTI_MAX];
-  nchan_msg_id_t               req_msgid[NCHAN_MEMSTORE_MULTI_MAX] = {NCHAN_ZERO_MSGID};
+  uint8_t                      want[NCHAN_MULTITAG_MAX];
+  ngx_str_t                    ids[NCHAN_MULTITAG_MAX];
+  nchan_msg_id_t               req_msgid[NCHAN_MULTITAG_MAX];
   
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;
@@ -1914,7 +1914,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   else {
     //nchan_decode_msg_id_multi_tag(tag, n, decoded_tags);
     int16_t       *tags;
-    if(n <= NCHAN_MULTITAG_MAX) tags = msg_id->tag.fixed;
+    if(n <= NCHAN_FIXED_MULTITAG_MAX) tags = msg_id->tag.fixed;
     else tags = msg_id->tag.allocd;
     
     //what msgids do we want?

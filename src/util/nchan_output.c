@@ -216,7 +216,7 @@ static char msgtag_str_buf[10*255 + 30];
 size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
 
   uint8_t   max = id->tagcount;
-  int16_t  *t = max <= NCHAN_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
+  int16_t  *t = max <= NCHAN_FIXED_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;
   
   uint8_t   i;
   char     *cur;

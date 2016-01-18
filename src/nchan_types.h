@@ -25,9 +25,11 @@ typedef struct {
 #define NCHAN_ZERO_MSGID {0, {{0}}, 0, 0}
 #define NCHAN_OLDEST_MSGID {0, {{0}}, 1, 0}
 #define NCHAN_NEWEST_MSGID {-1, {{0}}, 1, 0}
-#define NCHAN_MULTITAG_MAX 4
+
+#define NCHAN_MULTITAG_MAX 255
+#define NCHAN_FIXED_MULTITAG_MAX 4
 union nchan_msg_multitag {
-  int16_t         fixed[NCHAN_MULTITAG_MAX];
+  int16_t         fixed[NCHAN_FIXED_MULTITAG_MAX];
   int16_t        *allocd;
 };
 
@@ -257,6 +259,7 @@ struct subscriber_s {
 #endif
 }; //subscriber_t
 
+#define NCHAN_MULTITAG_REQUEST_CTX_MAX 4
 typedef struct {
   subscriber_t                  *sub;
   ngx_str_t                     *subscriber_type;
@@ -265,7 +268,7 @@ typedef struct {
   ngx_str_t                     *publisher_type;
   ngx_str_t                     *multipart_boundary;
   ngx_str_t                     *channel_event_name;
-  ngx_str_t                      channel_id[255];
+  ngx_str_t                      channel_id[NCHAN_MULTITAG_REQUEST_CTX_MAX];
   int                            channel_id_count;
   ngx_str_t                      request_origin_header;
 #if NCHAN_BENCHMARK

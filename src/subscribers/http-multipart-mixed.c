@@ -52,7 +52,7 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
 }
 
 static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
-  u_char                  headerbuf[58 + 10*NCHAN_MULTITAG_MAX];
+  u_char                  headerbuf[58 + 10*NCHAN_FIXED_MULTITAG_MAX];
   u_char                  boundary[50];
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
@@ -78,7 +78,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   }
   else {
     ngx_str_t   *tmp_etag = msgid_to_str(&msg->id);
-    cur = ngx_snprintf(cur, 58 + 10*NCHAN_MULTITAG_MAX, "\r\nEtag: %V\r\n", tmp_etag);
+    cur = ngx_snprintf(cur, 58 + 10*NCHAN_FIXED_MULTITAG_MAX, "\r\nEtag: %V\r\n", tmp_etag);
   }
   
   //content-type maybe
