@@ -34,6 +34,7 @@ static void chunked_ensure_headers_sent(full_subscriber_t *fsub) {
 static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static u_char           chunk_start[15]; //that's enough
   static u_char          *chunk_end=(u_char *)"\r\n";
+  static ngx_file_t       file_copy;
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
   ngx_buf_t              *msg_buf = msg->buf;
@@ -61,6 +62,7 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[1].chain.next = &bc[2].chain;
   
   ngx_memcpy(&bc[1].buf, msg_buf, sizeof(*msg_buf));
+  nchan_msg_buf_open_fd_if_needed(&bc[2].buf, &file_copy, NULL);
   bc[1].buf.last_buf = 0;
   bc[1].buf.last_in_chain = 0;
   bc[1].buf.flush = 0;

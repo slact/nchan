@@ -65,6 +65,8 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   u_char                 *cur=headerbuf;
   nchan_buf_and_chain_t   bc[4];
   
+  static ngx_file_t       file_copy;
+  
   //generate the headers
   if(!cf->msg_in_etag_only) {
     //msgtime
@@ -118,6 +120,9 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     bc[2].chain.next = &bc[3].chain;
     
     ngx_memcpy(&bc[2].buf, msg_buf, sizeof(*msg_buf));
+    
+    nchan_msg_buf_open_fd_if_needed(&bc[2].buf, &file_copy, NULL);
+    
     bc[2].buf.last_buf = 0;
     bc[2].buf.last_in_chain = 0;
     bc[2].buf.flush = 0;

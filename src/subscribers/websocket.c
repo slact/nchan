@@ -1091,15 +1091,8 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   assert(msg->buf);
   ngx_memcpy(msg_buf, msg->buf, sizeof(*msg_buf));
   
-  if(msg_buf->in_file) {
-    //open file fd if necessary
-    ngx_memcpy(&fsub->msg_file, msg_buf->file, sizeof(fsub->msg_file));
-    if(fsub->msg_file.fd == NGX_INVALID_FILE) {
-      fsub->msg_file.fd = nchan_fdcache_get(&fsub->msg_file.name);
-    }
-    msg_buf->file = &fsub->msg_file;
-  }
-  
+  nchan_msg_buf_open_fd_if_needed(msg_buf, &fsub->msg_file, NULL);
+
   //now the header
   return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(msg_buf));
 }

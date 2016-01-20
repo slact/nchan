@@ -65,6 +65,35 @@ ngx_fd_t nchan_fdcache_get(ngx_str_t *filename) {
   return fd;
 }
 
+ngx_int_t nchan_msg_buf_open_fd_if_needed(ngx_buf_t *buf, ngx_file_t *file, ngx_http_request_t *r) {
+  if(buf->in_file) {
+    //open file fd if necessary
+    if(!file) {
+      if(r) {
+        if((file = ngx_pcalloc(r->pool, sizeof(*file))) == NULL) {
+          ERR("couldn't allocate memory for file struct while responding with msg");
+          return NGX_ERROR;
+        }
+      }
+      else {
+        //no file given, can't allocate from NULL pool
+        return NGX_ERROR;
+      }
+    }
+    
+    ngx_memcpy(file, buf->file, sizeof(*file));
+    if(file->fd == NGX_INVALID_FILE) {
+      file->fd = nchan_fdcache_get(&file->name);
+      if(file->fd == NGX_INVALID_FILE) {
+        ERR("can't create output chain, file in buffer won't open");
+        return NGX_ERROR;
+      }
+    }
+    buf->file = file;
+  }
+  return NGX_OK;
+}
+
 void nchan_output_init(void) {
   fd_cache = nchan_thingcache_init("fd_cache", fd_open, fd_close, 5);
 }
@@ -301,7 +330,6 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
   ngx_buf_t                 *rbuffer;
-  ngx_file_t                *rfile;
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
@@ -316,28 +344,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     rchain->buf = rbuffer;
     
     ngx_memcpy(rbuffer, buffer, sizeof(*buffer));
-    
-    rfile = rbuffer->file;
-    if(rfile != NULL) {
-      if((rfile = ngx_pcalloc(r->pool, sizeof(*rfile))) == NULL) {
-        if(err) *err = "couldn't allocate memory for file struct while responding with msg";
-        return NGX_ERROR;
-      }
-      ngx_memcpy(rfile, buffer->file, sizeof(*rbuffer));
-      rbuffer->file = rfile;
-    }
-    
-    if((rfile = rbuffer->file) != NULL && rfile->fd == NGX_INVALID_FILE) {
-      if(rfile->name.len == 0) {
-        if(err) *err = "longpoll subscriber given an invalid fd with no filename";
-        return NGX_ERROR;
-      }
-      rfile->fd = nchan_fdcache_get(&rfile->name);
-      if(rfile->fd == NGX_INVALID_FILE) {
-        if(err) *err = "can't create output chain, file in buffer won't open";
-        return NGX_ERROR;
-      }
-    }
+    nchan_msg_buf_open_fd_if_needed(rbuffer, NULL, r);
     
     r->headers_out.content_length_n=ngx_buf_size(rbuffer);
   }

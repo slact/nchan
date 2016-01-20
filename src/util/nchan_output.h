@@ -16,6 +16,8 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
 
 ngx_fd_t nchan_fdcache_get(ngx_str_t *filename);
 
+ngx_int_t nchan_msg_buf_open_fd_if_needed(ngx_buf_t *buf, ngx_file_t *file, ngx_http_request_t *r);
+
 ngx_str_t *msgtag_to_str(nchan_msg_id_t *id);
 ngx_str_t *msgid_to_str(nchan_msg_id_t *id);
 size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch);
