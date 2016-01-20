@@ -2,9 +2,9 @@
  *  Written by Leo Ponomarev 2009-2015
  */
 
-#include <assert.h>
 #include <nchan_module.h>
 #include <util/nchan_subrequest.h>
+#include <assert.h>
 
 #include <subscribers/longpoll.h>
 #include <subscribers/intervalpoll.h>
