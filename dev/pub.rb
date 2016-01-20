@@ -12,6 +12,7 @@ on_response=Proc.new {}
 method=:POST
 runonce=false
 accept = nil
+timeout = 3
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
@@ -28,6 +29,7 @@ opt=OptionParser.new do |opts|
   opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
   opts.on("-d", "--delete", "delete channel via a DELETE request"){method = :DELETE}
   opts.on("-p", "--put", "create channel without submitting message"){method = :PUT}
+  opts.on("-t", "--timeout SECONDS", "publishing timeout (sec). default #{timeout} sec"){|v| timeout = v.to_i}
   opts.on("-r",  "--response", 'Show response code and body') do
     on_response = Proc.new do |pub|
       puts pub.response_code
@@ -45,7 +47,7 @@ puts "Publishing to #{url}."
 
 loopmsg=("\r"*20) + "sending message #"
 
-pub = Publisher.new url
+pub = Publisher.new url, timeout: timeout
 pub.accept=accept
 pub.nofail=true
 repeat=true
