@@ -18,6 +18,7 @@ _include_http2=0
 
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nginx_ver_nopool
+  _include_http2=1
 elif [[ $NGINX_LEGACYVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_legacy
 elif [[ $NGINX_OLDVERSION == 1 ]]; then
