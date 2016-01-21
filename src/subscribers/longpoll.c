@@ -56,6 +56,13 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->sub.reserved = 0;
   fsub->sub.enqueued = 0;
   
+  if(fsub->sub.cf->longpoll_multimsg) {
+    fsub->sub.dequeue_after_response = 0;
+  }
+  
+  fsub->data.multimsg_first = NULL;
+  fsub->data.multimsg_last = NULL;
+  
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_add(&fsub->sub);
   //set debug label
@@ -215,19 +222,37 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   return NGX_ERROR;
 }
 
+static ngx_int_t longpoll_multimsg_add(full_subscriber_t *fsub, nchan_msg_t *msg, char **err) {
+  
+  nchan_longpoll_multimsg_t     *mmsg;
+  
+  if((mmsg = ngx_palloc(fsub->sub.request->pool, sizeof(*mmsg))) == NULL) {
+    *err = "can't allocate multimsg";
+    return NGX_ERROR;
+  }
+  
+  mmsg->msg = msg;
+  mmsg->next = NULL;
+  if(fsub->data.multimsg_first == NULL) {
+    fsub->data.multimsg_first = mmsg;
+  }
+  if(fsub->data.multimsg_last) {
+    fsub->data.multimsg_last->next = mmsg;
+  }
+  fsub->data.multimsg_last = mmsg;
+  
+  return NGX_OK;
+}
+
 static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ngx_int_t                  rc;
   char                      *err = NULL;
   ngx_http_request_t        *r = fsub->sub.request;
   nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  nchan_loc_conf_t          *cf;
+  nchan_loc_conf_t          *cf = fsub->sub.cf;
   
   DBG("%p respond req %p msg %p", self, r, msg);
-  
-  assert(fsub->data.already_responded != 1);
-  
-  fsub->data.already_responded = 1;
   
   ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
@@ -238,17 +263,157 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
   
-  if(ctx->request_origin_header.len > 0) {
-    cf = ngx_http_get_module_loc_conf(r, nchan_module);
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-  }
-  if((rc = nchan_respond_msg(r, msg, &self->last_msgid, 0, &err)) == NGX_OK) {
-    dequeue_maybe(self);
-    return rc;
+  if(!cf->longpoll_multimsg) {
+    assert(fsub->data.already_responded != 1);
+    fsub->data.already_responded = 1;
+    if(ctx->request_origin_header.len > 0) {
+      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
+    }
+    if((rc = nchan_respond_msg(r, msg, &self->last_msgid, 0, &err)) != NGX_OK) {
+      return abort_response(self, err);
+    }
   }
   else {
-    return abort_response(self, err);
+    if((rc = longpoll_multimsg_add(fsub, msg, &err)) != NGX_OK) {
+      return abort_response(self, err);
+    }
   }
+  dequeue_maybe(self);
+  return rc;
+}
+
+static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
+  ngx_http_request_t    *r = fsub->sub.request;
+  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_loc_conf_t      *cf = fsub->sub.cf;
+  char                  *err;
+  ngx_int_t              rc;
+  u_char                 char_boundary[50];
+  u_char                *char_boundary_last;
+  
+  ngx_int_t              i;
+  ngx_buf_t              boundary[3]; //first, mid, and last boundary
+  ngx_chain_t           *chains, *first_chain = NULL, *last_chain = NULL;
+  ngx_buf_t             *buf;
+  ngx_buf_t              double_newline_buf;
+  ngx_str_t             *content_type;
+  size_t                 size = 0;
+  
+  nchan_longpoll_multimsg_t *first, *cur;
+  
+  fsub->sub.dequeue_after_response = 1;
+  
+  if(ctx->request_origin_header.len > 0) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
+  }
+  
+  if(fsub->data.multimsg_first == fsub->data.multimsg_last) {
+    //just one message.
+    if((rc = nchan_respond_msg(r, fsub->data.multimsg_first->msg, &fsub->sub.last_msgid, 0, &err)) != NGX_OK) {
+      return abort_response(&fsub->sub, err);
+    }
+    return NGX_OK;
+  }
+  
+  //multi messages
+  nchan_request_set_content_type_multipart_boundary_header(r, ctx);
+  
+  char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
+  
+  ngx_memzero(&double_newline_buf, sizeof(double_newline_buf));
+  double_newline_buf.start = (u_char *)"\r\n\r\n";
+  double_newline_buf.end = double_newline_buf.start + 4;
+  double_newline_buf.pos = double_newline_buf.start;
+  double_newline_buf.last = double_newline_buf.end;
+  double_newline_buf.memory = 1;
+  
+  //set up the boundaries
+  for(i=0; i<3; i++) {
+    ngx_memzero(&boundary[i], sizeof(ngx_buf_t));
+    boundary[i].memory = 1;
+    if(i==0) {
+      boundary[i].start = &char_boundary[2];
+      boundary[i].end = &char_boundary_last[-4];
+    }
+    else if(i==1) {
+      boundary[i].start = &char_boundary[0];
+      boundary[i].end = &char_boundary_last[-4];
+    }
+    else if(i==2) {
+      boundary[i].start = &char_boundary[0];
+      boundary[i].end = char_boundary_last;
+      boundary[i].last_buf = 1;
+      boundary[i].last_in_chain = 1;
+      boundary[i].flush = 1;
+    }
+    boundary[i].pos = boundary[i].start;
+    boundary[i].last = boundary[i].end;
+  }
+  
+  first = fsub->data.multimsg_first;
+  
+  for(cur = first; cur != NULL; cur = cur->next) {
+    chains = ngx_palloc(r->pool, sizeof(*chains)*4);
+    
+    if(last_chain) {
+      last_chain->next = &chains[0];
+    }
+    if(!first_chain) {
+      first_chain = &chains[0];
+    }
+    chains[0].buf = cur == first ? &boundary[0] : &boundary[1];
+    chains[0].next = &chains[1];
+    
+    size += ngx_buf_size(chains[0].buf);
+    
+    content_type = &cur->msg->content_type;
+    if (content_type->data != NULL) {
+      buf = ngx_pcalloc(r->pool, sizeof(*buf) + content_type->len + 25);
+      buf->memory = 1;
+      buf->start = (u_char *)&buf[1];
+      buf->end = ngx_snprintf(buf->start, content_type->len + 25, "\r\nContent-Type: %V\r\n\r\n", content_type);
+      buf->pos = buf->start;
+      buf->last = buf->end;
+      chains[1].buf = buf;
+    }
+    else {
+      chains[1].buf = &double_newline_buf;
+    }
+    size += ngx_buf_size(chains[1].buf);
+    
+    if(ngx_buf_size(cur->msg->buf) > 0) {
+      chains[1].next = &chains[2];
+      
+      buf = ngx_palloc(r->pool, sizeof(*buf));
+      ngx_memcpy(buf, cur->msg->buf, sizeof(*buf));
+      nchan_msg_buf_open_fd_if_needed(buf, NULL, r);
+      chains[2].buf = buf;
+      size += ngx_buf_size(chains[2].buf);
+      
+      last_chain = &chains[2];
+    }
+    else {
+      last_chain = &chains[1];
+    }
+    
+    if(cur->next == NULL) {
+      last_chain->next = &chains[3];
+      
+      chains[3].buf = &boundary[2];
+      chains[3].next = NULL;
+      last_chain = &chains[3];
+      size += ngx_buf_size(chains[3].buf);
+    }
+  }
+  
+  r->headers_out.status = NGX_HTTP_OK;
+  r->headers_out.content_length_n = size-15;
+  nchan_set_msgid_http_response_headers(r, &fsub->data.multimsg_last->msg->id);
+  ngx_http_send_header(r);
+  nchan_output_filter(r, first_chain);
+  
+  
+  return NGX_OK;
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
@@ -256,7 +421,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   full_subscriber_t     *fsub = (full_subscriber_t *)self;
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  nchan_loc_conf_t      *cf;
+  nchan_loc_conf_t      *cf = fsub->sub.cf;
   
   if(fsub->data.act_as_intervalpoll) {
     if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED || status_code == NGX_HTTP_NOT_FOUND ) {
@@ -264,8 +429,17 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
     }
   }
   else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
-    //don't care, ignore
-    return NGX_OK;
+    if(cf->longpoll_multimsg) {
+      if(fsub->data.multimsg_first != NULL) {
+        longpoll_multimsg_respond(fsub);
+        dequeue_maybe(self);
+      }
+      return NGX_OK;
+    }
+    else { 
+      //don't care, ignore
+      return NGX_OK;
+    }
   }
   
   DBG("%p respond req %p status %i", self, r, status_code);
@@ -273,10 +447,9 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   nchan_set_msgid_http_response_headers(r, &self->last_msgid);
   
   //disable abort handler
-  ((full_subscriber_t *)self)->data.cln->handler = empty_handler;
+  fsub->data.cln->handler = empty_handler;
   
   if(ctx->request_origin_header.len > 0) {
-    cf = ngx_http_get_module_loc_conf(r, nchan_module);
     nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
   }
   

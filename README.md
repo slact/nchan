@@ -265,6 +265,12 @@ Publishing to multiple channels from one location is not supported.
   context: server, location, if  
   > Split the channel id into several ids for multiplexing using the delimiter string provided.    
 
+- **nchan_longpoll_multipart_response**  
+  arguments: 1  
+  default: `off`  
+  context: server, location, if  
+  > Enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server.    
+
 - **nchan_publisher** `[ http | websocket ]`  
   arguments: 0 - 2  
   default: `http websocket`  

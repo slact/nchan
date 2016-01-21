@@ -115,6 +115,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_events_channel_id = NULL;
   lcf->channel_event_string = NULL;
   
+  lcf->longpoll_multimsg=NGX_CONF_UNSET;
+  
   ngx_memzero(&lcf->pub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->sub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_complex_value_arr_t));
@@ -191,6 +193,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
   
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
+  
+  ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);
   
   if(conf->channel_events_channel_id == NULL) {
     conf->channel_events_channel_id = prev->channel_events_channel_id;

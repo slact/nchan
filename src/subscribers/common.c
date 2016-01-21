@@ -128,3 +128,52 @@ ngx_int_t nchan_cleverly_output_headers_only_for_later_response(ngx_http_request
   
   return rc;
 }
+
+
+static void nchan_generate_random_boundary(u_char *buf, int sz) {
+  //use the shitty-ass LFSR-based ngx_random. we're not looking for cryptographic randomness, 
+  //just something unlikely
+  static u_char   itoa64[] ="./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  int             i;
+  u_char         *p = buf;
+  
+  for(i=0; i < sz; i++) {
+    *p++ = itoa64[ngx_random() % 64];
+  }
+}
+
+ngx_str_t *nchan_request_multipart_boundary(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
+  if(ctx) {
+    if(!ctx->multipart_boundary) {
+      if((ctx->multipart_boundary = ngx_palloc(r->pool, sizeof(ngx_str_t) + 32)) == NULL) {
+        //unable to allocate multipart boundary;
+        return NULL;
+      }
+      ctx->multipart_boundary->data=(u_char *)&ctx->multipart_boundary[1];
+      ctx->multipart_boundary->len = 32;
+      nchan_generate_random_boundary(ctx->multipart_boundary->data, 32);
+    }
+    return ctx->multipart_boundary;
+  }
+  else {
+    return NULL;
+  }
+}
+
+ngx_int_t nchan_request_set_content_type_multipart_boundary_header(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
+  u_char                        *cur;
+  u_char                        *cbuf;
+  ngx_str_t                      val;
+  
+  if((cbuf = ngx_palloc(r->pool, sizeof(u_char)*100)) == NULL) {
+    return NGX_ERROR;
+  }
+  
+  val.data = cbuf;
+  cur = ngx_snprintf(cbuf, 100, "multipart/mixed; boundary=%V", nchan_request_multipart_boundary(r, ctx));
+  val.len = cur - cbuf;
+  
+  r->headers_out.content_type = val;
+  
+  return NGX_OK;
+}

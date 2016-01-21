@@ -12,7 +12,6 @@
 
 static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
   u_char                          cbuf[100];
-  u_char                         *cur;
   
   nchan_buf_and_chain_t           bc;
   
@@ -22,10 +21,7 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
   if(!fsub->data.shook_hands) {
   
     clcf->chunked_transfer_encoding = 0;
-    
-    cur = ngx_snprintf(cbuf, 100, "multipart/mixed; boundary=%V", ctx->multipart_boundary);
-    r->headers_out.content_type.data = cbuf;
-    r->headers_out.content_type.len = cur - cbuf;
+    nchan_request_set_content_type_multipart_boundary_header(r, ctx);
     
     nchan_cleverly_output_headers_only_for_later_response(r);
     
@@ -38,7 +34,7 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
     ngx_memzero(&bc.buf, sizeof(ngx_buf_t));
     bc.buf.start = cbuf;
     bc.buf.pos = cbuf;
-    bc.buf.end = ngx_snprintf(cbuf, 50, ("--%V"), ctx->multipart_boundary);
+    bc.buf.end = ngx_snprintf(cbuf, 50, ("--%V"), nchan_request_multipart_boundary(r, ctx));
     bc.buf.last = bc.buf.end;
     bc.buf.memory = 1;
     bc.buf.last_buf = 0;
@@ -112,7 +108,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     *cur++ = CR; *cur++ = LF;
     bc[0].buf.last = cur;
     bc[0].buf.end = cur;
-    bc[0].chain.next = ngx_buf_size(msg_buf) > 0 ? &bc[2].chain : &bc[3].chain;;
+    bc[0].chain.next = ngx_buf_size(msg_buf) > 0 ? &bc[2].chain : &bc[3].chain;
   }
   
   if(ngx_buf_size(msg_buf) > 0) {  
@@ -134,7 +130,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   ngx_memzero(&bc[3].buf, sizeof(ngx_buf_t));
   bc[3].buf.start = boundary;
   bc[3].buf.pos = boundary;
-  bc[3].buf.end = ngx_snprintf(boundary, 50, "\r\n--%V", ctx->multipart_boundary);
+  bc[3].buf.end = ngx_snprintf(boundary, 50, "\r\n--%V", nchan_request_multipart_boundary(fsub->sub.request, ctx));
   bc[3].buf.last = bc[3].buf.end;
   bc[3].buf.memory = 1;
   bc[3].buf.last_buf = 0;
@@ -217,18 +213,6 @@ static       subscriber_fn_t *multipart_fn = NULL;
 static       ngx_str_t   sub_name = ngx_string("http-multipart");
 
 
-static void generate_random_boundary(u_char *buf, int sz) {
-  //use the shitty-ass LFSR-based ngx_random. we're not looking for cryptographic randomness, 
-  //just something unlikely
-  static u_char   itoa64[] ="./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  int             i;
-  u_char         *p = buf;
-  
-  for(i=0; i < sz; i++) {
-    *p++ = itoa64[ngx_random() % 64];
-  }
-}
-
 subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub;
   full_subscriber_t    *fsub;
@@ -257,12 +241,6 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
   
   if(ctx) {
     ctx->subscriber_type = sub->name;
-    if((ctx->multipart_boundary = ngx_palloc(r->pool, sizeof(ngx_str_t) + 32)) == NULL) {
-      ERR("unable to allocate multipart boundary");
-    }
-    ctx->multipart_boundary->data=(u_char *)&ctx->multipart_boundary[1];
-    ctx->multipart_boundary->len = 32;
-    generate_random_boundary(ctx->multipart_boundary->data, 32);
   }
   
   return sub;
