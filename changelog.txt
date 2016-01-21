@@ -1,3 +1,4 @@
+0.98 (Jan 21 2016)
  feature: publish to multiple channels with one request
  feature: nchan_longpoll_multipart_response config setting
  fix: large message (in-file) handling for multipart/mixed and chunked subscribers
