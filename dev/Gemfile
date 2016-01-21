@@ -11,6 +11,8 @@ gem 'celluloid-io'
 gem 'websocket'
 gem 'websocket-native'
 gem 'http_parser.rb'
+gem 'http-2'
+
 gem 'reel', :github => "celluloid/reel"
 
 gem "memory_profiler", :github => "slact/memory_profiler"

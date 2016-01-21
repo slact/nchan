@@ -9,6 +9,7 @@ require 'celluloid/io'
 require 'websocket'
 require 'uri'
 require "http/parser"
+require "http/2"
 
 PUBLISH_TIMEOUT=3 #seconds
 
@@ -285,7 +286,6 @@ class Subscriber
     class HTTPBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
       def initialize(uri, sock, user_agent)
-        @http={}
         @rcvbuf=""
         @sndbuf=""
         @parser = Http::Parser.new
@@ -357,7 +357,7 @@ class Subscriber
         else
           raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
         end
-        bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} ##{i}")
+        bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
         @http[bundle]=true
         bundle.send_GET
         async.listen bundle
@@ -432,6 +432,154 @@ class Subscriber
     def poke
       @connected > 0 && @cooked.wait
     end
+  end
+  
+  class FastHTTP2LongPollClient < FastLongPollClient
+    class HTTP2Bundle
+      attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
+      GET_METHOD="GET"
+      def initialize(uri, sock, user_agent)
+        @done = false
+        @sock = sock
+        @head = {
+          ':method' => GET_METHOD,
+          ':path' => uri.path,
+          ':authority' => [uri.host, uri.port].join(':'),
+          'user-agent' => "#{user_agent || "HTTP2Bundle"}",
+          'accept' => '*/*'
+        }
+        
+        @client = HTTP2::Client.new
+        @client.on(:frame) do |bytes|
+          puts "Sending bytes: #{bytes.unpack("H*").first}"
+          @sock.print bytes
+          @sock.flush
+        end
+        
+        @client.on(:frame_sent) do |frame|
+          puts "Sent frame: #{frame.inspect}"
+        end
+        @client.on(:frame_received) do |frame|
+          puts "Received frame: #{frame.inspect}"
+        end
+        
+      end
+      
+      def send_GET(msg_time=nil, msg_tag=nil)
+        @time_requested=Time.now.to_f
+        if msg_time
+          @head['if-modified-since'] = msg_time.to_s
+        else
+          @head.delete @head['if-modified-since']
+        end
+        
+        if msg_tag
+          @head['if-none-match'] = msg_tag.to_s
+        else
+          @head.delete @head['if-none-match']
+        end
+        
+        @stream = @client.new_stream
+        @stream.on(:close) do
+          puts 'stream closed'
+          on_response @response_headers, @response_data
+        end
+        @stream.on(:headers) do |h|
+          puts "response headers: #{h}"
+          @response_headers = h
+        end
+        @stream.on(:data) do |d|
+          puts "response data chunk: <<#{d}>>"
+          @response_data = d
+        end
+        
+        @stream.on(:altsvc) do |f|
+          log.info "received ALTSVC #{f}"
+        end
+        
+        @stream.on(:half_close) do
+          puts 'closing client-end of the stream'
+        end
+        
+        @stream.on(:altsvc) do |f|
+          puts "received ALTSVC #{f}"
+        end
+        
+        
+        
+        @stream.headers(@head, end_stream: true)
+      end
+      
+      def read
+        @sock.readpartial(4096, @val)
+        puts "received #{@val.nil? ? "0" : @val.count} bytes"
+        begin
+          @client << @val
+        rescue => e
+          puts "Exception: #{e}, #{e.message} - closing socket."
+          @sock.close
+        end
+        return false if @done || @sock.closed?
+      end
+      
+      def on_response(h=nil, d=nil, &block)
+        if block_given?
+          @on_response = block
+        elsif @on_response
+          @on_response.call h, d
+        end
+      end
+      
+    end
+    
+    def initialize(*arg)
+      @use_http2 = true
+      super
+    end
+    
+    def new_bundle(uri, sock, useragent)
+      b=HTTP2Bundle.new(uri, sock, useragent)
+      
+      b.on_response do |headers, body|
+        # Headers and body is all parsed
+        binding.pry
+        @last_modified = headers["Last-Modified"]
+        @etag = headers["Etag"]
+        
+        b.request_time = Time.now.to_f - b.time_requested
+        
+        if prsr.status_code != 200
+          binding.pry
+          unless @subscriber.on_failure(prsr) == false
+            Celluloid.sleep @retry_delay if @retry_delay
+          else
+            @subscriber.finished+=1
+            close b
+          end
+        end
+        
+        unless @nomsg
+          msg=Message.new @body_buf, @last_modified, @etag
+          msg.content_type=prsr.headers["Content-Type"]
+        else
+          msg=@body_buf
+        end
+        
+        unless @subscriber.on_message(msg, b) == false
+          @subscriber.waiting+=1
+          Celluloid.sleep @retry_delay if @retry_delay
+          b.send_GET @last_modified, @etag
+        else
+          @subscriber.finished+=1
+          close b
+        end
+        
+      end
+      
+      b
+    end
+    
+    
   end
   
   class LongPollClient
@@ -706,6 +854,8 @@ class Subscriber
       @client_class=LongPollClient
     when :fastlongpoll, nil
       @client_class=FastLongPollClient
+    when :fastlongpoll_http2, nil
+      @client_class=FastHTTP2LongPollClient
     when :interval, :intervalpoll
       @client_class=IntervalPollClient
     when :ws, :websocket
@@ -835,7 +985,7 @@ end
 
 class Publisher
   #include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url
   def initialize(url, opt={})
     @url= url
     unless opt[:nostore]
@@ -843,6 +993,18 @@ class Publisher
       @messages.name = "pub"
     end
     @timeout = opt[:timeout]
+    @accept = opt[:accept]
+  end
+  
+  def with_url(alt_url)
+    prev_url=@url
+    @url=alt_url
+    if block_given?
+      yield
+      @url=prev_url
+    else
+      self
+    end
   end
   
   def on_complete(&block)
@@ -885,10 +1047,10 @@ class Publisher
         elsif response.timed_out?
           # aw hell no
           #puts "publisher err: timeout"
-
-          url=URI.parse(response.request.url)
-          url = "#{url.path}#{url.query ? "?#{url.query}" : nil}"
-          raise "Publisher #{response.request.options[:method]} to #{url} timed out."
+          
+          pub_url=URI.parse(response.request.url)
+          pub_url = "#{pub_url.path}#{pub_url.query ? "?#{pub_url.query}" : nil}"
+          raise "Publisher #{response.request.options[:method]} to #{pub_url} timed out."
         elsif response.code == 0
           # Could not get an http response, something's wrong.
           #puts "publisher err: #{response.return_message}"
