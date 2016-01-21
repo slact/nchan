@@ -407,7 +407,7 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   }
   
   r->headers_out.status = NGX_HTTP_OK;
-  r->headers_out.content_length_n = size-15;
+  r->headers_out.content_length_n = size;
   nchan_set_msgid_http_response_headers(r, &fsub->data.multimsg_last->msg->id);
   ngx_http_send_header(r);
   nchan_output_filter(r, first_chain);
