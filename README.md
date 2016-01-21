@@ -252,7 +252,7 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
 Publishing to multiple channels with a single request is also possible, with similar configuration:
 
 ```nginx
-  location ~ /multipub/(\w+)/(\w+)$
+  location ~ /multipub/(\w+)/(\w+)$ {
     nchan_publisher;
     nchan_channel_id "$1" "$2" "another_channel";
   }
