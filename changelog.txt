@@ -1,3 +1,8 @@
+ feature: publish to multiple channels with one request
+ feature: nchan_longpoll_multipart_response config setting
+ fix: large message (in-file) handling for multipart/mixed and chunked subscribers
+ fix: 400 Bad Request error on32-bit systems
+ fix: memory allocation error for >8 multi-channel subscribers
 0.97 (Jan 5 2016) 
  fix: build issues with debian
  fix: compatibility with nginx versions down to 1.0.15
