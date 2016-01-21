@@ -2249,6 +2249,44 @@ static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_alre
   return chmsg;
 }
 
+typedef struct {
+  uint16_t              n;
+  ngx_int_t             rc;
+  nchan_channel_t       ch;
+  callback_pt           callback;
+  void                 *privdata;
+} publish_multi_data_t;
+
+static ngx_int_t publish_multi_callback(ngx_int_t status, void *rptr, void *privdata) {
+  nchan_channel_t       *ch = rptr;
+  publish_multi_data_t  *pd = privdata;
+  static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
+  
+  if(status == NGX_HTTP_INTERNAL_SERVER_ERROR || (status == NCHAN_MESSAGE_RECEIVED && pd->rc != NGX_HTTP_INTERNAL_SERVER_ERROR)) {
+    pd->rc = status;
+  }
+  
+  if(pd->ch.last_seen < ch->last_seen) {
+    pd->ch.last_seen = ch->last_seen;
+  }
+  
+  if(pd->ch.messages < ch->messages) {
+    pd->ch.messages = ch->messages;
+  }
+  
+  pd->ch.subscribers += ch->subscribers;
+  
+  pd->n--;
+  
+  if(pd->n == 0) {
+    pd->ch.last_published_msg_id = empty_msgid;
+    pd->callback(pd->rc, &pd->ch, pd->privdata);
+    ngx_free(pd);
+  }
+  
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
 }
@@ -2256,12 +2294,41 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nchan_store_channel_head_t  *chead;
   
-  if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
-    ERR("can't get chanhead for id %V", channel_id);
-    callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-    return NGX_ERROR;
+  if(is_multi_id(channel_id)) {
+    ngx_int_t             i, n = 0;
+    ngx_str_t             ids[NCHAN_MULTITAG_MAX];
+    publish_multi_data_t *pd;
+    if((pd = ngx_alloc(sizeof(*pd), ngx_cycle->log)) == NULL) {
+      ERR("can't allocate publish multi chanhead data");
+      return NGX_ERROR;
+    }
+    
+    n = parse_multi_id(channel_id, ids);
+    
+    pd->callback = callback;
+    pd->privdata = privdata;
+    pd->n = n;
+    pd->rc = NCHAN_MESSAGE_QUEUED;
+    ngx_memzero(&pd->ch, sizeof(pd->ch));
+    
+    for(i=0; i<n; i++) {
+      if((chead = nchan_memstore_get_chanhead(&ids[i], cf)) == NULL) {
+        ERR("can't get chanhead for id %V", ids[i]);
+        callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+        return NGX_ERROR;
+      }
+      nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, publish_multi_callback, pd);
+    }
+    return NGX_OK;
   }
-  return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
+  else {
+    if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
+      ERR("can't get chanhead for id %V", channel_id);
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      return NGX_ERROR;
+    }
+    return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
+  }
 }
 
 ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {

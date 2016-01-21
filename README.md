@@ -279,7 +279,7 @@ Publishing to multiple channels from one location is not supported.
   > Defines a server or location as a publisher endpoint. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.    
 
 - **nchan_publisher_channel_id**  
-  arguments: 1  
+  arguments: 1 - 7  
   default: `(none)`  
   context: server, location, if  
   > Channel id for publisher location.    

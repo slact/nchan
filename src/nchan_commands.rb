@@ -13,7 +13,7 @@ CfCmd.new do
   nchan_publisher_channel_id [:srv, :loc, :if],
       :nchan_set_pub_channel_id,
       :loc_conf,
-      args: 1,
+      args: 1..7,
       alt: [ :nchan_pub_channel_id ],
       
       group: "pubsub",

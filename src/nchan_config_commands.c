@@ -14,13 +14,13 @@ static ngx_command_t  nchan_commands[] = {
     NULL } ,
 
   { ngx_string("nchan_publisher_channel_id"),
-    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5|NGX_CONF_TAKE6|NGX_CONF_TAKE7,
     nchan_set_pub_channel_id,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
     NULL } ,
   { ngx_string("nchan_pub_channel_id"), //alt for nchan_publisher_channel_id
-    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5|NGX_CONF_TAKE6|NGX_CONF_TAKE7,
     nchan_set_pub_channel_id,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
