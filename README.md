@@ -362,6 +362,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > Interval for sending websocket ping frames. Disabled by default.    
 
+- **nchan_access_control_allow_origin** `<string>`  
+  arguments: 1  
+  default: `*`  
+  context: http, server, location  
+  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
+
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
@@ -406,12 +412,6 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
-
-- **nchan_access_control_allow_origin** `<string>`  
-  arguments: 1  
-  default: `*`  
-  context: http, server, location  
-  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
 
 - **nchan_channel_group** `<string>`  
   arguments: 1  
