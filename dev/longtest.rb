@@ -150,6 +150,7 @@ end
 
 auth = AuthServerRunner.new
 auth.async.run
+sleep 5
 
 rig = TestRig.new
 
