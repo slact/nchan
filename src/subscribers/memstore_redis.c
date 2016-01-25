@@ -43,8 +43,11 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
   return NGX_OK;
 }
 
+ngx_int_t memstore_redis_subscriber_destroy(subscriber_t *sub) {
+  return internal_subscriber_destroy(sub);
+}
+
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  
   ngx_int_t           ret = NGX_OK;
   return ret;
 }
@@ -138,7 +141,7 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
   internal_subscriber_set_notify_handler(sub, (callback_pt )sub_notify_handler);
   
-  sub->destroy_after_dequeue = 1;
+  sub->destroy_after_dequeue = 0;
   sub->dequeue_after_response = 0;
   
   d->sub = sub;

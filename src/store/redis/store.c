@@ -852,7 +852,9 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
   sdata->chanhead = chanhead;
   sdata->generation = chanhead->generation;
   sdata->sub = sub;
-
+  
+  sub->fn->reserve(sub);
+  
   if (0 != 0) { //TODO: check the subscriber's id
     
     redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.subscriber_register, STR(&chanhead->id), 0 /*TODO: current sub's ID*/, -1, concurrency);
@@ -866,6 +868,8 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
 static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscriber_register_t *sdata= (redis_subscriber_register_t *) privdata;
   redisReply                  *reply = (redisReply *)vr;
+  
+  sdata->sub->fn->release(sdata->sub, 0);
   
   if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
     redisEchoCallback(c,reply,privdata);
@@ -1420,7 +1424,6 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->name = "get_message (subscribe)";
   
   d->sub = sub;
-  sub->fn->reserve(sub);
   
   if(sub->cf->subscribe_only_existing_channel) {
     nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
