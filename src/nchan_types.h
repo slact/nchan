@@ -65,6 +65,7 @@ struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
   ngx_str_t                       content_type;
+  ngx_str_t                       eventsource_event;
   //  ngx_str_t                   charset;
   ngx_buf_t                      *buf;
   time_t                          expires;
@@ -196,6 +197,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   time_t                          subscriber_timeout;
   
   ngx_int_t                       longpoll_multimsg;
+  ngx_str_t                       eventsource_event;
   
   time_t                          websocket_ping_interval;
   

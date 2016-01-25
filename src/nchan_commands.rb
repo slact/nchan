@@ -69,6 +69,16 @@ CfCmd.new do
       default: "off",
       info: "Enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server."
   
+  nchan_eventsource_event [:srv, :loc, :if],
+      :ngx_conf_set_str_slot,
+      [:loc_conf, :eventsource_event],
+      args: 1,
+      
+      group: "pubsub",
+      default: "(none)",
+      info: "Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value."
+      
+  
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
       :loc_conf,

@@ -2081,35 +2081,48 @@ typedef struct {
   ngx_file_t              file;
 } shmsg_memspace_t;
 
+static u_char* copy_preallocated_str_to_cur(ngx_str_t *dst, ngx_str_t *src, u_char *cur) {
+  size_t   sz = src->len;
+  dst->len = sz; 
+  if(sz > 0) {
+    dst->data = cur;
+    ngx_memcpy(dst->data, src->data, sz);
+  }
+  else {
+    dst->data = NULL;
+  }
+  return cur + sz;
+}
+
 static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   shmsg_memspace_t        *stuff;
   nchan_msg_t             *msg;
   ngx_buf_t               *mbuf = NULL, *buf=NULL;
+  u_char                  *cur;
   mbuf = m->buf;
   
-  size_t                  total_sz, buf_body_size = 0, content_type_size = 0, buf_filename_size = 0;
+  size_t                  total_sz, buf_body_size = 0, content_type_size = 0, buf_filename_size = 0, eventsource_event_size = 0;
   
+  eventsource_event_size += m->eventsource_event.len;
   content_type_size += m->content_type.len;
   if(ngx_buf_in_memory_only(mbuf)) {
     buf_body_size = ngx_buf_size(mbuf);
   }
   if(mbuf->in_file && mbuf->file != NULL) {
     buf_filename_size = mbuf->file->name.len;
-    if (buf_filename_size > 0) {
-      buf_filename_size ++; //for null-termination
-    }
   }
   
-  total_sz = sizeof(*stuff) + (buf_filename_size + content_type_size + buf_body_size);
+  total_sz = sizeof(*stuff) + (buf_filename_size + content_type_size + eventsource_event_size +  buf_body_size);
 #if NCHAN_MSG_LEAK_DEBUG
   size_t    debug_sz = m->lbl.len;
   total_sz += debug_sz;
 #endif
   
-  if((stuff = shm_calloc(shm, total_sz, "message")) == NULL) {
+  if((stuff = shm_alloc(shm, total_sz, "message")) == NULL) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
+  cur = (u_char *)&stuff[1];
   
   assert(m->id.tagcount == 1);
   
@@ -2121,35 +2134,31 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   
   msg->buf = buf;
   
-  msg->content_type.data = (u_char *)&stuff[1] + buf_filename_size;
+  cur = copy_preallocated_str_to_cur(&msg->content_type, &m->content_type, cur);
   
-  msg->content_type.len = content_type_size;
-  if(content_type_size > 0) {
-    ngx_memcpy(msg->content_type.data, m->content_type.data, content_type_size);
-  }
-  else {
-    msg->content_type.data = NULL; //mostly for debugging, this isn't really necessary for correct operation.
-  }
-  
-  if(buf_body_size > 0) {
-    buf->pos = (u_char *)&stuff[1] + buf_filename_size + content_type_size;
-    buf->last = buf->pos + buf_body_size;
-    buf->start = buf->pos;
-    buf->end = buf->last;
-    ngx_memcpy(buf->pos, mbuf->pos, buf_body_size);
-  }
+  cur = copy_preallocated_str_to_cur(&msg->eventsource_event, &m->eventsource_event, cur);
   
   if(mbuf->file!=NULL) {
     buf->file = &stuff->file;
-    ngx_memcpy(buf->file, mbuf->file, sizeof(*buf->file));
-    
+    *buf->file = *mbuf->file;
     buf->file->fd =NGX_INVALID_FILE;
     buf->file->log = ngx_cycle->log;
     
-    buf->file->name.data = (u_char *)&stuff[1];
-    
-    ngx_memcpy(buf->file->name.data, mbuf->file->name.data, buf_filename_size-1);
+    cur = copy_preallocated_str_to_cur(&buf->file->name, &mbuf->file->name, cur);
+    assert(buf->file->name.data[buf->file->name.len] == '\0');
   }
+  
+  if(buf_body_size > 0) {
+    ngx_str_t   dst_str, src_str = {buf_body_size, mbuf->pos};
+    
+    cur = copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
+    
+    buf->pos = dst_str.data;
+    buf->last = buf->pos + dst_str.len;
+    buf->start = buf->pos;
+    buf->end = buf->last;
+  }
+  
   msg->shared = 1;
   msg->temp_allocd = 0;
   

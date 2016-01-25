@@ -107,6 +107,8 @@ Websocket publishers also receive the same responses when publishing, with the e
 
 The response code for an HTTP request is *`202` Accepted* if no subscribers are present at time of publication, or *`201` Created* if at least 1 subscriber was present.
 
+Metadata can be added to a message when using an HTTP POST request for publishing. A `Content-Type` header will be associated as the message's content type (and output to Long-Poll, Interval-Poll, and multipart/mixed subscribers). A `X-EventSource-Event` header can also be used to associate an EventSource `event:` line value with a message.
+
 ##### Other Publisher Endpoint Actions
 
 **HTTP `GET`** requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:  
@@ -151,6 +153,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   To resume a closed EventSource connection from the last-received message, one *should* start the connection with the "`Last-Event-ID`" header set to the last message's `id`.  
   Unfortunately, browsers [don't support setting](http://www.w3.org/TR/2011/WD-eventsource-20111020/#concept-event-stream-last-event-id) this header for an `EventSource` object, so by default the last message id is set either from the "`Last-Event-Id`" header or the `last_event_id` url query string argument.  
   This behavior can be configured via the [`nchan_subscriber_last_message_id`](#nchan_subscriber_last_message_id) config.  
+  A message's associated `event` type, if present, will be sent to this subscriber with the `event:` line.
   
 - ##### HTTP [multipart/mixed](http://www.w3.org/Protocols/rfc1341/7_2_Multipart.html#z0)
   The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.  
@@ -272,6 +275,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `(none)`  
   context: server, location, if  
   > Split the channel id into several ids for multiplexing using the delimiter string provided.    
+
+- **nchan_eventsource_event**  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location, if  
+  > Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value.    
 
 - **nchan_longpoll_multipart_response**  
   arguments: 1  

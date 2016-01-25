@@ -15,6 +15,8 @@ const  ngx_str_t NCHAN_HEADER_ALLOW_HEADERS = ngx_string("Access-Control-Allow-H
 const  ngx_str_t NCHAN_HEADER_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
 const  ngx_str_t NCHAN_HEADER_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
 
+const  ngx_str_t NCHAN_HEADER_EVENTSOURCE_EVENT = ngx_string("X-EventSource-Event");
+
 //websocket headers
 
 const ngx_str_t NCHAN_HEADER_CONNECTION = ngx_string("Connection");

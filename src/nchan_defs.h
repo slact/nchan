@@ -50,6 +50,8 @@ extern const ngx_str_t NCHAN_HEADER_ALLOW_HEADERS;
 extern const ngx_str_t NCHAN_HEADER_ALLOW_METHODS;
 extern const ngx_str_t NCHAN_HEADER_ALLOW_ORIGIN;
 
+extern const ngx_str_t NCHAN_HEADER_EVENTSOURCE_EVENT;
+
 extern const ngx_str_t NCHAN_HEADER_CONNECTION;
 extern const ngx_str_t NCHAN_HEADER_UPGRADE;
 extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_KEY;

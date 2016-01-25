@@ -484,6 +484,12 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   }
   fwd_buf_to_str(mpb, sz, &msg->content_type);
   
+  //eventsource_event
+  if(!cmp_read_str_size(cmp, &sz)) {
+    return cmp_err(cmp);
+  }
+  fwd_buf_to_str(mpb, sz, &msg->eventsource_event);
+  
   return true;
 }
 
@@ -563,7 +569,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 7);
+            assert(array_sz == 8);
             if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
@@ -573,7 +579,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
           }
           else if(ngx_strmatch(&msg_type, "ch+msg")) {
-            assert(array_sz == 8);
+            assert(array_sz == 9);
             if(cmp_read_str_size(&cmp, &sz)) {
               fwd_buf_to_str(&mpbuf, sz, &chid);
               cmp_to_msg(&cmp, &msg, &buf);
@@ -1537,7 +1543,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->t = ngx_current_msec;
   d->name = "publish";
   
-  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %i %i", store_rds_lua_hashes.publish, STR(channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), cf->buffer_timeout, cf->max_messages);
+  redisAsyncCommand(rds_ctx(), &redisPublishCallback, (void *)d, "EVALSHA %s 0 %b %i %b %b %b %i %i", store_rds_lua_hashes.publish, STR(channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), STR(&(msg->eventsource_event)), cf->buffer_timeout, cf->max_messages);
   if(mmapped && munmap(msgstart, msglen) == -1) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "munmap was a problem");
   }

@@ -1,4 +1,4 @@
---input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size]
+--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local id=ARGV[1]
@@ -7,13 +7,14 @@ local msg={
   id=nil,
   data= ARGV[3],
   content_type=ARGV[4],
-  ttl= tonumber(ARGV[5]),
+  eventsource_event=ARGV[5],
+  ttl= tonumber(ARGV[6]),
   time= time,
   tag= 0
 }
-local store_at_most_n_messages = ARGV[6]
+local store_at_most_n_messages = ARGV[7]
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
-  return {err="Argument 6, max_msg_buf_size, can't be empty"}
+  return {err="Argument 7, max_msg_buf_size, can't be empty"}
 end
 
 local enable_debug=true
@@ -205,7 +206,8 @@ if #msg.data < 5*1024 then
     msg.prev_time or 0,
     msg.prev_tag or 0,
     msg.data or "",
-    msg.content_type or ""
+    msg.content_type or "",
+    msg.eventsource_event or ""
   }
 else
   unpacked= {

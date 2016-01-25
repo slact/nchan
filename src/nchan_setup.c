@@ -192,6 +192,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
   
+  ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");
+  
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
   
   ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);

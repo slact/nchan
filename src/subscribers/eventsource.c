@@ -107,6 +107,23 @@ static ngx_int_t create_dataline_bufchain(ngx_pool_t *pool, ngx_chain_t **first_
   return NGX_OK;
 }
 
+static void prepend_es_response_line(ngx_str_t *fmt, ngx_chain_t **first_chain, ngx_str_t *str, ngx_pool_t *pool) {
+  nchan_buf_and_chain_t  *bc;
+  size_t                  sz = fmt->len + str->len;
+  u_char                 *cur;
+  
+  if((bc = ngx_palloc(pool, sizeof(*bc) + sz)) == NULL) {
+    ERR("unable to allocate buf and chain for EventSource response line %V", fmt);
+    return;
+  }
+  cur = (u_char *)&bc[1];
+  ngx_init_set_membuf(&bc->buf, cur, ngx_snprintf(cur, sz, (char *)fmt->data, str));
+
+  bc->chain.buf = &bc->buf;
+  bc->chain.next = *first_chain;
+  *first_chain=&bc->chain;
+}
+
 static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static ngx_str_t        terminal_newlines=ngx_string("\n\n");
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
@@ -115,11 +132,14 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_buf_t               databuf;
   ngx_pool_t             *pool;
   nchan_buf_and_chain_t  *bc;
-  size_t                  len;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_file_t             *msg_file;
   ngx_int_t               rc;
-  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  
+  ngx_str_t               id_line = ngx_string("id: %V\n");
+  ngx_str_t               event_line = ngx_string("event: %V\n");
+  
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(sub->request, nchan_module);
   
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
@@ -226,21 +246,24 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     
     last_link = &bc->chain;
   }
-  //okay, this crazy data chain is finished. now how about the mesage tag?
-  len = 10 + 2*NGX_INT_T_LEN;
-  bc = ngx_palloc(pool, sizeof(*bc) + len);
-  ngx_memzero(&bc->buf, sizeof(bc->buf));
-  cur = (u_char *)&bc[1];
-  ngx_init_set_membuf(&bc->buf, cur, ngx_snprintf(cur, len, "id: %V\n", msgid_to_str(&sub->last_msgid)));
-
-  bc->chain.buf = &bc->buf;
-  bc->chain.next = first_link;
-  first_link=&bc->chain;
+  //okay, this crazy data chain is finished. 
   
+  
+  //now how about the mesage tag?
+  prepend_es_response_line(&id_line, &first_link, msgid_to_str(&sub->last_msgid), pool);
+  
+  //and maybe the event type?
+  if(sub->cf->eventsource_event.len > 0) {
+    prepend_es_response_line(&event_line, &first_link, &sub->cf->eventsource_event, pool);
+  }
+  else if(msg->eventsource_event.len > 0) {
+    prepend_es_response_line(&event_line, &first_link, &msg->eventsource_event, pool);
+  }
   
   rc = nchan_output_filter(fsub->sub.request, first_link);
   
   ngx_destroy_pool(pool);
+  
   
   return rc;
 }

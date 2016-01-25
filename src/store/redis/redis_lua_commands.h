@@ -16,13 +16,13 @@ typedef struct {
   char *find_channel;
 
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
-  //output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, channel_subscriber_count
+  //output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
   // no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
   // create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
   // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
   char *get_message;
 
-  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size]
+  //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   char *publish;
 
@@ -49,8 +49,8 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "1c8ae4fa9658ca36790227fa2f8e0e4342ca82d2",
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "f5935b801e6793759a44c9bf842812f2416dec34",
-  "a1b481b0d7398fc9aff0d14ca4f88a851d396b55",
-  "427fae06e1298bce71ceb7310f99b780f1b687db",
+  "6fcb32b2422a3560f8a328efef9df281bf50319e",
+  "10b73f12c47f55f9fbcb7473572d8b1b5a8cde07",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -206,7 +206,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
 
   //get_message
   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
-  "--output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, channel_subscriber_count\n"
+  "--output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
   "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
   "-- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.\n"
   "-- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available\n"
@@ -325,7 +325,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "        return {404, \"\", \"\", \"\", \"\", subs_count}\n"
   "      else\n"
   "        dbg((\"found msg %s:%s  after %s:%s\"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))\n"
-  "        return {200, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", tonumber(msg.prev_time) or \"\", tonumber(msg.prev_tag) or \"\", msg.data or \"\", msg.content_type or \"\", subs_count}\n"
+  "        return {200, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", tonumber(msg.prev_time) or \"\", tonumber(msg.prev_tag) or \"\", msg.data or \"\", msg.content_type or \"\", msg.eventsource_event or \"\", subs_count}\n"
   "      end\n"
   "    end\n"
   "  end\n"
@@ -351,9 +351,9 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    dbg(\"NEXT MESSAGE KEY PRESENT: \" .. msg.next)\n"
   "    key.next_message=key.next_message:format(msg.next)\n"
   "    if redis.call('EXISTS', key.next_message)~=0 then\n"
-  "      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type'))\n"
+  "      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype, neventsource_event=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event'))\n"
   "      dbg((\"found msg2 %i:%i  after %i:%i\"):format(ntime, ntag, time, tag))\n"
-  "      return {200, tonumber(ntime) or \"\", tonumber(ntag) or \"\", tonumber(prev_time) or \"\", tonumber(prev_tag) or \"\", ndata or \"\", ncontenttype or \"\", subs_count}\n"
+  "      return {200, tonumber(ntime) or \"\", tonumber(ntag) or \"\", tonumber(prev_time) or \"\", tonumber(prev_tag) or \"\", ndata or \"\", ncontenttype or \"\", neventsource_event or \"\", subs_count}\n"
   "    else\n"
   "      dbg(\"NEXT MESSAGE NOT FOUND\")\n"
   "      return {404, nil}\n"
@@ -362,7 +362,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "end",
 
   //publish
-  "--input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_msg_buf_size]\n"
+  "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
   "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
   "\n"
   "local id=ARGV[1]\n"
@@ -371,13 +371,14 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  id=nil,\n"
   "  data= ARGV[3],\n"
   "  content_type=ARGV[4],\n"
-  "  ttl= tonumber(ARGV[5]),\n"
+  "  eventsource_event=ARGV[5],\n"
+  "  ttl= tonumber(ARGV[6]),\n"
   "  time= time,\n"
   "  tag= 0\n"
   "}\n"
-  "local store_at_most_n_messages = ARGV[6]\n"
+  "local store_at_most_n_messages = ARGV[7]\n"
   "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
-  "  return {err=\"Argument 6, max_msg_buf_size, can't be empty\"}\n"
+  "  return {err=\"Argument 7, max_msg_buf_size, can't be empty\"}\n"
   "end\n"
   "\n"
   "local enable_debug=true\n"
@@ -569,7 +570,8 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    msg.prev_time or 0,\n"
   "    msg.prev_tag or 0,\n"
   "    msg.data or \"\",\n"
-  "    msg.content_type or \"\"\n"
+  "    msg.content_type or \"\",\n"
+  "    msg.eventsource_event or \"\"\n"
   "  }\n"
   "else\n"
   "  unpacked= {\n"
