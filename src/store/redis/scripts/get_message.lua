@@ -1,5 +1,5 @@
 --input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
---output: result_code, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
+--output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
 -- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
 -- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
 -- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
@@ -118,7 +118,8 @@ if msg_id==nil then
         return {404, "", "", "", "", subs_count}
       else
         dbg(("found msg %s:%s  after %s:%s"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))
-        return {200, tonumber(msg.time) or "", tonumber(msg.tag) or "", tonumber(msg.prev_time) or "", tonumber(msg.prev_tag) or "", msg.data or "", msg.content_type or "", msg.eventsource_event or "", subs_count}
+        local ttl = redis.call('TTL', msg_id)
+        return {200, ttl, tonumber(msg.time) or "", tonumber(msg.tag) or "", tonumber(msg.prev_time) or "", tonumber(msg.prev_tag) or "", msg.data or "", msg.content_type or "", msg.eventsource_event or "", subs_count}
       end
     end
   end
@@ -145,8 +146,9 @@ else
     key.next_message=key.next_message:format(msg.next)
     if redis.call('EXISTS', key.next_message)~=0 then
       local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype, neventsource_event=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event'))
+      local ttl = redis.call('TTL', key.next_message)
       dbg(("found msg2 %i:%i  after %i:%i"):format(ntime, ntag, time, tag))
-      return {200, tonumber(ntime) or "", tonumber(ntag) or "", tonumber(prev_time) or "", tonumber(prev_tag) or "", ndata or "", ncontenttype or "", neventsource_event or "", subs_count}
+      return {200, ttl, tonumber(ntime) or "", tonumber(ntag) or "", tonumber(prev_time) or "", tonumber(prev_tag) or "", ndata or "", ncontenttype or "", neventsource_event or "", subs_count}
     else
       dbg("NEXT MESSAGE NOT FOUND")
       return {404, nil}

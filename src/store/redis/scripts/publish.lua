@@ -115,7 +115,7 @@ end
 msg.id=('%i:%i'):format(msg.time, msg.tag)
 
 key.message=key.message:format(msg.id)
-if redis.call('exists', key.message) ~= 0 then
+if redis.call('EXISTS', key.message) ~= 0 then
   return {err=("Message for channel %s id %s already exists"):format(id, msg.id)}
 end
 
@@ -189,11 +189,12 @@ end
 
 
 --set expiration times for all the things
-for i, k in pairs(key) do
-  if i ~= 'last_message' then
-    redis.call('EXPIRE', k, channel.ttl)
-  end
-end
+  redis.call('EXPIRE', key.message, msg.ttl)
+  redis.call('EXPIRE', key.time_offset, channel.ttl)
+  redis.call('EXPIRE', key.channel, channel.ttl)
+  redis.call('EXPIRE', key.messages, channel.ttl)
+  redis.call('EXPIRE', key.subscribers, channel.ttl)
+  redis.call('EXPIRE', key.subscriber_id, channel.ttl)
 
 --publish message
 local unpacked
@@ -201,6 +202,7 @@ local unpacked
 if #msg.data < 5*1024 then
   unpacked= {
     "msg",
+    msg.ttl or 0,
     msg.time,
     tonumber(msg.tag) or 0,
     msg.prev_time or 0,

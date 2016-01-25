@@ -60,6 +60,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   
   cf.max_messages = d->chanhead->max_messages;
   cf.use_redis = 0;
+  cf.buffer_timeout = msg->expires - ngx_time();
   
   //update_subscriber_last_msg_id(d->sub, msg);
   

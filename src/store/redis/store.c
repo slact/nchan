@@ -441,6 +441,14 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   ngx_buf_t  *mpb = (ngx_buf_t *)cmp->buf;
   uint32_t    sz;
   uint64_t    msgtag;
+  int32_t     ttl;
+  //ttl 
+  if(!cmp_read_int(cmp, &ttl)) {
+    return cmp_err(cmp);
+  }
+  assert(ttl > 0);
+  msg->expires = ngx_time() + ttl;
+  
   //msg id
   if(!cmp_read_uinteger(cmp, (uint64_t *)&msg->id.time)) {
     return cmp_err(cmp);
@@ -569,7 +577,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 8);
+            assert(array_sz == 9);
             if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
@@ -579,7 +587,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
           }
           else if(ngx_strmatch(&msg_type, "ch+msg")) {
-            assert(array_sz == 9);
+            assert(array_sz == 10);
             if(cmp_read_str_size(&cmp, &sz)) {
               fwd_buf_to_str(&mpbuf, sz, &chid);
               cmp_to_msg(&cmp, &msg, &buf);
@@ -1198,17 +1206,18 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
   ngx_buf_t           *buf=NULL;
   redisReply         **els = r->element;
   size_t len = 0, content_type_len = 0;
-  ngx_int_t            time_int;
+  ngx_int_t            time_int, ttl;
   
   if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 6)
-   && CHECK_REPLY_INT_OR_STR(els[offset])     //id - time
-   && CHECK_REPLY_INT_OR_STR(els[offset+1])   //id - tag
-   && CHECK_REPLY_INT_OR_STR(els[offset+2])   //prev_id - time
-   && CHECK_REPLY_INT_OR_STR(els[offset+3])   //prev_id - tag
-   && CHECK_REPLY_STR(els[offset+4])   //message
-   && CHECK_REPLY_STR(els[offset+5])){ //content-type
-    len=els[offset+4]->len;
-    content_type_len=els[offset+5]->len;
+   && CHECK_REPLY_INT(els[offset])            //msg TTL
+   && CHECK_REPLY_INT_OR_STR(els[offset+1])   //id - time
+   && CHECK_REPLY_INT_OR_STR(els[offset+2])   //id - tag
+   && CHECK_REPLY_INT_OR_STR(els[offset+3])   //prev_id - time
+   && CHECK_REPLY_INT_OR_STR(els[offset+4])   //prev_id - tag
+   && CHECK_REPLY_STR(els[offset+5])   //message
+   && CHECK_REPLY_STR(els[offset+6])){ //content-type
+    len=els[offset+5]->len;
+    content_type_len=els[offset+6]->len;
     if((msg=allocator(sizeof(*msg) + sizeof(ngx_buf_t) + len + content_type_len))==NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: can't allocate memory for message from redis reply");
       return NULL;
@@ -1219,26 +1228,30 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
     buf = msg->buf;
     buf->start = buf->pos = (void *)(&buf[1]);
     buf->end = buf->last = &buf->start[len];
-    ngx_memcpy(buf->start, els[offset+4]->str, len);
+    ngx_memcpy(buf->start, els[offset+5]->str, len);
     buf->memory = 1;
     buf->last_buf = 1;
     buf->last_in_chain = 1;
     
+    redisReply_to_int(els[offset], &ttl);
+    assert(ttl > 0);
+    msg->expires = ngx_time() + ttl;
+    
     if(content_type_len>0) {
       msg->content_type.len=content_type_len;
       msg->content_type.data=buf->end;
-      ngx_memcpy(msg->content_type.data, els[offset+5]->str, content_type_len);
+      ngx_memcpy(msg->content_type.data, els[offset+6]->str, content_type_len);
     }
     
-    redisReply_to_int(els[offset+0], &time_int);
+    redisReply_to_int(els[offset+1], &time_int);
     msg->id.time = time_int;
-    redisReply_to_int(els[offset+1], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
+    redisReply_to_int(els[offset+2], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
     msg->id.tagactive = 0;
     
-    redisReply_to_int(els[offset+2], &time_int);
+    redisReply_to_int(els[offset+3], &time_int);
     msg->prev_id.time = time_int;
-    redisReply_to_int(els[offset+3], (ngx_int_t *)&msg->prev_id.tag.fixed[0]);
+    redisReply_to_int(els[offset+4], (ngx_int_t *)&msg->prev_id.tag.fixed[0]);
     msg->prev_id.tagcount = 1;
     msg->prev_id.tagactive = 0;
     

@@ -1473,7 +1473,7 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   deleted_count = 0;
   
   //is the message queue too big?
-  while(cur != NULL && ch->channel.messages > max_messages) {
+  while(cur != NULL && max_messages >= 0 && ch->channel.messages > max_messages) {
     tried_count++;
     next = cur->next;
     chanhead_delete_message(ch, cur);
