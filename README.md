@@ -134,7 +134,8 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   The tried-and-true server-push method supported by every browser out there.  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
   The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
-  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the oldest message in a channel's message queue, or waits until the next published message, depending on the value of the `nchan_subscriber_first_message` config directive.
+  Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the oldest message in a channel's message queue, or waits until the next published message, depending on the value of the `nchan_subscriber_first_message` config directive.  
+  A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
   
 - ##### Interval-Polling
   Works just like long-polling, except if the requested message is not yet available, immediately responds with a `304 Not Modified`.
@@ -159,7 +160,8 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.  
   Initiated by including an `Accept: multipart/mixed` header.  
   The response headers and the unused "preamble" portion of the response body are sent right away, with the boundary string generated randomly for each subscriber.  Each subsequent message will be sent as one part of the multipart message, and will include the message time and tag (`Last-Modified` and `Etag`) as well as the optional `Content-Type` headers.  
-  Each message is terminated with the next multipart message's boundary **without a trailing newline**. While this conforms to the multipart spec, it is unusual as multipart messages are defined as *starting*, rather than ending with a boundary.
+  Each message is terminated with the next multipart message's boundary **without a trailing newline**. While this conforms to the multipart spec, it is unusual as multipart messages are defined as *starting*, rather than ending with a boundary.  
+  A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
 
 - ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
   This subscription method uses the `chunked` `Transfer-Encoding` to receive messages.   
