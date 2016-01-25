@@ -5,6 +5,8 @@ scripts={}
 
 Dir[ "#{File.dirname(__FILE__)}/scripts/*.lua" ].each do |f|
   scripts[File.basename(f, ".lua") .to_sym]=IO.read f
+  
+  exit 1 unless system "luac5.1 -p #{f}"
 end
 
 def cquote(str)
