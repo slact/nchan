@@ -33,7 +33,7 @@ static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
-  if (ngx_process != NGX_PROCESS_WORKER) {
+  if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE) {
     //not a worker, stop initializing stuff.
     return NGX_OK;
   }
