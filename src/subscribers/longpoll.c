@@ -259,13 +259,13 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
   ctx->msg_id = self->last_msgid;
-  
-  //disable abort handler
-  fsub->data.cln->handler = empty_handler;
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
   
   if(!cf->longpoll_multimsg) {
+    //disable abort handler
+    fsub->data.cln->handler = empty_handler;
+    
     assert(fsub->data.already_responded != 1);
     fsub->data.already_responded = 1;
     if(ctx->request_origin_header.len > 0) {
@@ -303,6 +303,9 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   ngx_buf_t             *buf;
 #endif
   size_t                 size = 0;
+  
+  //disable abort handler
+  fsub->data.cln->handler = empty_handler;
   
   nchan_longpoll_multimsg_t *first, *cur;
   
