@@ -49,7 +49,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "1c8ae4fa9658ca36790227fa2f8e0e4342ca82d2",
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "f5935b801e6793759a44c9bf842812f2416dec34",
-  "a4dbff23117e79b347802c957e5e6054a05d490c",
+  "4965038f835d8a7599134b9e02f50a9b269fdeea",
   "61308a3e69a2857570da0cbc8cf28afe6d33c4fd",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
@@ -289,7 +289,6 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "local new_channel = false\n"
   "if next(channel) == nil then\n"
   "  if create_channel_ttl==0 then\n"
-  "    dbg(\"404\");\n"
   "    return {404, nil}\n"
   "  end\n"
   "  redis.call('HSET', key.channel, 'time', time)\n"
