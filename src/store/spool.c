@@ -167,11 +167,14 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
         case MSG_EXPECTED:
           spool_respond_general(newspool, NULL, NGX_HTTP_NO_CONTENT, NULL);
           break;
+        default:
+          break;
       }
     }
   }
   return NGX_OK;
 }
+
 typedef struct {
   channel_spooler_t   *spooler;
   nchan_msg_id_t       msgid;
