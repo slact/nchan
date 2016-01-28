@@ -160,8 +160,13 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     }
     
     if(newspool->sub_count > 0) {
-      if (newspool->msg_status == MSG_INVALID) {
-        spool_fetch_msg(newspool);
+      switch(newspool->msg_status) {
+        case MSG_INVALID:
+          spool_fetch_msg(newspool);
+          break;
+        case MSG_EXPECTED:
+          spool_respond_general(newspool, NULL, NGX_HTTP_NO_CONTENT, NULL);
+          break;
       }
     }
   }
