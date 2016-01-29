@@ -308,11 +308,14 @@ void memstore_fakeprocess_push_random(void) {
 static ngx_int_t is_multi_id(ngx_str_t *id);
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t       h;
+  ngx_int_t       h, workers;
   //multi is always self-owned
   if(is_multi_id(id)) {
     return memstore_slot();
   }
+  
+  //workers = shdata->max_workers;
+  workers = shdata->active_workers < shdata->max_workers ? shdata->active_workers : shdata->max_workers;
   
   h = ngx_crc32_short(id->data, id->len);
 #if FAKESHARD
@@ -324,10 +327,10 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   #endif
 #else
   ngx_int_t       i, slot;
-  i = h % shdata->max_workers;
+  i = h % workers;
   slot = shdata->procslot[i];
   if(slot == NCHAN_INVALID_SLOT) {
-    ERR("something went wrong, the channel owner is invalid. i: %i h: %i, max: %i", i, h, shdata->max_workers);
+    ERR("something went wrong, the channel owner is invalid. i: %i h: %i, workers: %i", i, h, workers);
     return NCHAN_INVALID_SLOT;
   }
   return slot;
@@ -442,6 +445,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shdata = d;
     shdata->rlch = NULL;
     shdata->max_workers = NGX_CONF_UNSET;
+    shdata->active_workers = 0;
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
@@ -562,6 +566,8 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
     DBG("update number of workers from %i to %i", shdata->max_workers, workers);
     shdata->max_workers = workers;
   }
+  
+  ngx_atomic_fetch_add(&shdata->active_workers, 1);
   
   procslot = shdata->procslot;
   for(i = 0; i < NGX_MAX_PROCESSES; i++) {
@@ -1338,6 +1344,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   }
   
   ipc_close(ipc, cycle);
+  
+  ngx_atomic_fetch_add(&shdata->active_workers, -1);
   
 #if NCHAN_MSG_LEAK_DEBUG
   msg_debug_assert_isempty();
