@@ -164,6 +164,7 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
   if(self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
     //add timeout timer
     //nextsub->ev should be zeroed;
+    fsub->timeout_ev.cancelable = 1;
     fsub->timeout_ev.handler = timeout_ev_handler;
     fsub->timeout_ev.data = fsub;
     fsub->timeout_ev.log = ngx_cycle->log;

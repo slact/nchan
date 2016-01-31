@@ -361,6 +361,7 @@ static void ipc_read_handler(ngx_event_t *ev) {
         return;
     }
     ngx_memzero(&glob->timer, sizeof(glob->timer));
+    glob->timer.cancelable = 1;
     glob->timer.handler = fake_ipc_alert_delay_handler;
     glob->timer.log = ngx_cycle->log;
     glob->timer.data = glob;

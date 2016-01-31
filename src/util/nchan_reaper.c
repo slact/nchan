@@ -20,6 +20,7 @@ ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next,
   rp->ready = ready;
   rp->reap = reap;
   ngx_memzero(&rp->timer, sizeof(rp->timer));
+  rp->timer.cancelable = 1;
   rp->timer.handler = reaper_timer_handler;
   rp->timer.log = ngx_cycle->log;
   rp->timer.data = rp;
@@ -94,7 +95,7 @@ ngx_inline void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
 
 static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
   verify_reaper_list(rp, NULL);
-  if (rp->count > 0 && !rp->timer.timer_set) {
+  if (!ngx_exiting && rp->count > 0 && !rp->timer.timer_set) {
     DBG("reap %s again later (remaining: %i)", rp->name, rp->count);
     ngx_add_timer(&rp->timer, rp->tick_usec);
   }

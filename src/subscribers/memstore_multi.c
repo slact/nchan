@@ -24,7 +24,6 @@ typedef struct {
   nchan_store_channel_head_t   *multi_chanhead;
   nchan_store_multi_t          *multi;
   ngx_int_t                     n;
-  ngx_event_t                   timeout_ev;
 } sub_data_t;
 
 /*

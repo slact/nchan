@@ -150,6 +150,7 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   d->chid = &chanhead->id;
   /*
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
+  d->timeout_ev.cancelable = 1;
   d->timeout_ev.handler = timeout_ev_handler;
   d->timeout_ev.data = d;
   d->timeout_ev.log = ngx_cycle->log;
