@@ -308,11 +308,14 @@ void memstore_fakeprocess_push_random(void) {
 static ngx_int_t is_multi_id(ngx_str_t *id);
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t       h;
+  ngx_int_t       h, workers;
   //multi is always self-owned
   if(is_multi_id(id)) {
     return memstore_slot();
   }
+  
+  //workers = shdata->max_workers;
+  workers = shdata->active_workers < shdata->max_workers ? shdata->active_workers : shdata->max_workers;
   
   h = ngx_crc32_short(id->data, id->len);
 #if FAKESHARD
@@ -324,10 +327,10 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   #endif
 #else
   ngx_int_t       i, slot;
-  i = h % shdata->max_workers;
-  slot = shdata->procslot[i];
+  i = h % workers;
+  slot = shdata->procslot[i + shdata->procslot_offset];
   if(slot == NCHAN_INVALID_SLOT) {
-    ERR("something went wrong, the channel owner is invalid. i: %i h: %i, max: %i", i, h, shdata->max_workers);
+    ERR("something went wrong, the channel owner is invalid. i: %i h: %i, workers: %i", i, h, workers);
     return NCHAN_INVALID_SLOT;
   }
   return slot;
@@ -442,6 +445,11 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shdata = d;
     shdata->rlch = NULL;
     shdata->max_workers = NGX_CONF_UNSET;
+    shdata->old_max_workers = NGX_CONF_UNSET;
+    shdata->procslot_offset = 0;
+    shdata->old_procslot_offset = 0;
+    shdata->active_workers = 0;
+    shdata->reloading = 0;
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
@@ -537,9 +545,8 @@ void reload_msgs(void) {
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
-  ngx_uint_t          workers = ccf->worker_processes;
-  ngx_uint_t          i;
-  ngx_atomic_int_t   *procslot;
+  ngx_int_t           workers = ccf->worker_processes;
+  ngx_int_t           i;
   
 #if FAKESHARD
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
@@ -558,14 +565,22 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   DBG("init memstore worker pid:%i slot:%i max workers :%i or %i", ngx_pid, memstore_slot(), shdata->max_workers, workers);
 
+  shmtx_lock(shm);
+  
   if(shdata->max_workers != workers) {
     DBG("update number of workers from %i to %i", shdata->max_workers, workers);
+    if(shdata->old_max_workers != shdata->max_workers) {
+      shdata->old_max_workers = shdata->max_workers;
+    }
     shdata->max_workers = workers;
   }
   
-  procslot = shdata->procslot;
-  for(i = 0; i < NGX_MAX_PROCESSES; i++) {
-    if(ngx_atomic_cmp_set(&procslot[i], NCHAN_INVALID_SLOT, ngx_process_slot)) {
+  ngx_atomic_fetch_add(&shdata->active_workers, 1);
+  
+  for(i = shdata->procslot_offset; i < NGX_MAX_PROCESSES - shdata->procslot_offset; i++) {
+    
+    if(shdata->procslot[i] == NCHAN_INVALID_SLOT) {
+      shdata->procslot[i] = ngx_process_slot;
       DBG("set procslot %i to %i", i, ngx_process_slot);
       break;
     }
@@ -581,6 +596,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   //reload_msgs();
   
   DBG("shm: %p, shdata: %p", shm, shdata);
+  shmtx_unlock(shm);
   return NGX_OK;
 }
 
@@ -702,7 +718,9 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(head == NULL) {
     return NGX_OK;
   }
-
+  
+  head->times_ensured_ready++;
+  
   DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
   if(head->in_gc_queue) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
@@ -731,6 +749,9 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
       DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
       head->status = WAITING;
       memstore_ipc_send_subscribe(owner, &head->id, head, &cf);
+      head->times_ipc_subscribed++;
+      head->prev_time_last_ipc_subscribed = head->time_last_ipc_subscribed;
+      head->time_last_ipc_subscribed = ngx_time();
     }
     else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
       DBG("ensure chanhead ready: subscribe request for %V from %i to %i", &head->id, memstore_slot(), owner);
@@ -919,6 +940,12 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     
     head->multi = NULL;
   }
+  
+  head->created = ngx_time();
+  head->times_ensured_ready = 0;
+  head->times_ipc_subscribed = 0;
+  head->time_last_ipc_subscribed = 0;
+  head->prev_time_last_ipc_subscribed = 0;
   
   start_chanhead_spooler(head);
 
@@ -1145,7 +1172,7 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt c
 #if FAKESHARD
       slot = i;
 #else
-      slot = shdata->procslot[i];
+      slot = shdata->procslot[i + shdata->procslot_offset];
 #endif
       if(slot == memstore_slot()) {
         nchan_memstore_force_delete_channel(channel_id, (callback_pt )delete_multi_callback_handler, d);
@@ -1218,12 +1245,13 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
 
 //initialization
 static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
-
+  ngx_int_t          i;
+  shmtx_lock(shm);
 #if FAKESHARD
 
   shdata->max_workers = MAX_FAKE_WORKERS;
   
-  ngx_int_t          i;
+  
   memstore_data_t   *cur;
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
     cur = &mdata[i];
@@ -1233,14 +1261,41 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   memstore_fakeprocess_push(0);
 
 #else
-
+  ngx_int_t           count = 0;
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   
+  
+  shdata->reloading = shdata->active_workers;
+  
+  shdata->old_max_workers = shdata->max_workers;
   shdata->max_workers = ccf->worker_processes;
+  if(shdata->old_max_workers == NCHAN_INVALID_SLOT) {
+    shdata->old_max_workers = shdata->max_workers;
+  }
+  
+  //figure out the procslot_offset
+  for(i = 0; i < NGX_MAX_PROCESSES; i++) {
+    if(shdata->procslot[i] == NCHAN_INVALID_SLOT) {
+      count++;
+    }
+    else {
+      count = 0;
+    }
+    if(count == shdata->max_workers) {
+      break;
+    }
+  }
+  if(count < shdata->max_workers) {
+    ERR("Not enough free procslots?! Don't know what to do... :'(");
+    return NGX_ERROR;
+  }
+  shdata->old_procslot_offset = shdata->procslot_offset;
+  shdata->procslot_offset = i + 1 - shdata->max_workers;
 
 #endif
-  
-  DBG("memstore init_module pid %i. ipc: %p", ngx_pid, ipc);
+
+  shmtx_unlock(shm);
+  DBG("memstore init_module pid %i. ipc: %p, procslot_offset: %i", ngx_pid, ipc, shdata->procslot_offset);
 
   //initialize our little IPC
   if(ipc == NULL) {
@@ -1269,7 +1324,7 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
-  ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT, procslot;
+  ngx_int_t                           i, offset, my_procslot_index = NCHAN_INVALID_SLOT;
     
   DBG("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
   
@@ -1311,33 +1366,33 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   }
 #endif
   
-  //are there any workers waiting in the wings?
-  //don't care if this is 'ineficient', it only happens once per worker per load
-  for(i = 0; i < NGX_MAX_PROCESSES; i++) {
-    procslot = shdata->procslot[i];
-    if(i < mpt->workers && ngx_process_slot == i) {
+  shmtx_lock(shm);
+  
+  if(shdata->old_max_workers == NGX_CONF_UNSET) {
+    shdata->old_max_workers = shdata->max_workers;
+  }
+  
+  offset = shdata->reloading > 0 ? shdata->old_procslot_offset : shdata->procslot_offset;
+  shdata->reloading--;
+  
+  //don't care if this is 'inefficient', it only happens once per worker per load
+  for(i = offset; i < offset + shdata->old_max_workers; i++) {
+    if(ngx_process_slot == shdata->procslot[i]) {
       my_procslot_index = i;
-    }
-    
-    if((unsigned )i > shdata->max_workers 
-     && my_procslot_index != NCHAN_INVALID_SLOT 
-     && procslot != NCHAN_INVALID_SLOT) { 
-      //we got a live one without a valid procslot, and we know where we are.
-      DBG("swap procslot %i and %i (ngx_process slot %i to %i)", my_procslot_index, i, ngx_process_slot, procslot); 
-      shdata->procslot[my_procslot_index] = procslot;
       shdata->procslot[i] = NCHAN_INVALID_SLOT;
-      
       break;
     }
   }
-  
-  if(my_procslot_index != NCHAN_INVALID_SLOT && shdata->procslot[my_procslot_index] == ngx_process_slot) {
-    //still our procslot. don't need it anymore
-    DBG("don't need procslot %i anymore", my_procslot_index);
-    shdata->procslot[my_procslot_index] = NCHAN_INVALID_SLOT;
+  if(my_procslot_index == NCHAN_INVALID_SLOT) {
+    ERR("my procslot not found! I don't know what to do!");
+    assert(0);
   }
   
   ipc_close(ipc, cycle);
+  
+  ngx_atomic_fetch_add(&shdata->active_workers, -1);
+  
+  shmtx_unlock(shm);
   
 #if NCHAN_MSG_LEAK_DEBUG
   msg_debug_assert_isempty();
@@ -2111,7 +2166,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf_body_size = ngx_buf_size(mbuf);
   }
   if(mbuf->in_file && mbuf->file != NULL) {
-    buf_filename_size = mbuf->file->name.len;
+    buf_filename_size = mbuf->file->name.len + 1; //+1 to ensure NUL-terminated filename string
   }
   
   total_sz = sizeof(*stuff) + (buf_filename_size + content_type_size + eventsource_event_size +  buf_body_size);
@@ -2147,7 +2202,8 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf->file->log = ngx_cycle->log;
     
     cur = copy_preallocated_str_to_cur(&buf->file->name, &mbuf->file->name, cur);
-    assert(buf->file->name.data[buf->file->name.len] == '\0');
+    //ensure last char is NUL
+    *(++cur) = '\0';
   }
   
   if(buf_body_size > 0) {

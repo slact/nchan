@@ -1,8 +1,16 @@
+ fix: SIGHUP reloading
+ fix: startup with insufficient file descriptors shouldn't crash
+ fix: longpoll-multipart failure to immediately respond
+ fix: longpoll-multipart abort handling
+ fix: redis-store cached message timeouts
+ fix: redis connection-lost handling
+ fix: startup with 'master_process off' (single-process mode)
+ feature: EventSource 'event:' line support with custom header or config
 0.98 (Jan 21 2016)
  feature: publish to multiple channels with one request
  feature: nchan_longpoll_multipart_response config setting
  fix: large message (in-file) handling for multipart/mixed and chunked subscribers
- fix: 400 Bad Request error on32-bit systems
+ fix: 400 Bad Request error on 32-bit systems
  fix: memory allocation error for >8 multi-channel subscribers
 0.97 (Jan 5 2016) 
  fix: build issues with debian

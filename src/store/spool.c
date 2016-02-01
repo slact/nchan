@@ -174,6 +174,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   }
   return NGX_OK;
 }
+
 typedef struct {
   channel_spooler_t   *spooler;
   nchan_msg_id_t       msgid;
@@ -223,9 +224,13 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       //TODO: maybe message-expired notification
       spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
       nuspool = get_spool(spool->spooler, &anymsg);
-      assert(spool != nuspool);
-      spool_transfer_subscribers(spool, nuspool, 1);
-      destroy_spool(spool);
+      if(spool != nuspool) {
+        spool_transfer_subscribers(spool, nuspool, 1);
+        destroy_spool(spool);
+      }
+      else {
+        ERR("Unexpected spool == nuspool during spool fetch_msg_callback. This is weird, please report this to the developers. findmsg_status: %i", findmsg_status);
+      }
       break;
     
     default:
