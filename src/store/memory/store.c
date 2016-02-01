@@ -2155,7 +2155,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf_body_size = ngx_buf_size(mbuf);
   }
   if(mbuf->in_file && mbuf->file != NULL) {
-    buf_filename_size = mbuf->file->name.len;
+    buf_filename_size = mbuf->file->name.len + 1; //+1 to ensure NUL-terminated filename string
   }
   
   total_sz = sizeof(*stuff) + (buf_filename_size + content_type_size + eventsource_event_size +  buf_body_size);
@@ -2191,7 +2191,8 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf->file->log = ngx_cycle->log;
     
     cur = copy_preallocated_str_to_cur(&buf->file->name, &mbuf->file->name, cur);
-    assert(buf->file->name.data[buf->file->name.len] == '\0');
+    //ensure last char is NUL
+    *(++cur) = '\0';
   }
   
   if(buf_body_size > 0) {
