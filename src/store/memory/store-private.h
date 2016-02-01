@@ -87,8 +87,11 @@ struct nchan_reloading_channel_s {
 typedef struct {
   nchan_reloading_channel_t         *rlch;
   ngx_atomic_int_t                   procslot[NGX_MAX_PROCESSES];
-  ngx_atomic_t                       max_workers;
-  ngx_atomic_t                       active_workers;
+  ngx_int_t                          procslot_offset;
+  ngx_int_t                          old_procslot_offset;
+  ngx_atomic_int_t                   max_workers;
+  ngx_atomic_int_t                   old_max_workers;
+  ngx_atomic_int_t                   active_workers;
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;
 #endif

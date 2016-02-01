@@ -76,7 +76,7 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
       s++;
     }
     
-    proc = &ipc->process[i];
+    proc = &ipc->process[s];
     
     if(!proc->active) {
       socks = proc->pipe;
@@ -406,7 +406,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   ipc_writebuf_t     *wb = &proc->wbuf;
   ipc_alert_t        *alert;
   
-  
+  assert(proc->active);
   
   if(wb->n < IPC_WRITEBUF_SIZE) {
     alert = &wb->alerts[(wb->first + wb->n++) % IPC_WRITEBUF_SIZE];
