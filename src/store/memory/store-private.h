@@ -92,6 +92,7 @@ typedef struct {
   ngx_atomic_int_t                   max_workers;
   ngx_atomic_int_t                   old_max_workers;
   ngx_atomic_int_t                   active_workers;
+  ngx_atomic_int_t                   reloading;
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;
 #endif

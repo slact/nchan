@@ -449,6 +449,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shdata->procslot_offset = 0;
     shdata->old_procslot_offset = 0;
     shdata->active_workers = 0;
+    shdata->reloading = 0;
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
@@ -1252,6 +1253,9 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   ngx_int_t           count = 0;
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   
+  
+  shdata->reloading = shdata->active_workers;
+  
   shdata->old_max_workers = shdata->max_workers;
   shdata->max_workers = ccf->worker_processes;
   if(shdata->old_max_workers == NCHAN_INVALID_SLOT) {
@@ -1309,7 +1313,7 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
-  ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT;
+  ngx_int_t                           i, offset, my_procslot_index = NCHAN_INVALID_SLOT;
     
   DBG("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
   
@@ -1357,8 +1361,11 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     shdata->old_max_workers = shdata->max_workers;
   }
   
+  offset = shdata->reloading > 0 ? shdata->old_procslot_offset : shdata->procslot_offset;
+  shdata->reloading--;
+  
   //don't care if this is 'inefficient', it only happens once per worker per load
-  for(i = shdata->old_procslot_offset; i < shdata->old_procslot_offset + shdata->old_max_workers; i++) {
+  for(i = offset; i < offset + shdata->old_max_workers; i++) {
     if(ngx_process_slot == shdata->procslot[i]) {
       my_procslot_index = i;
       shdata->procslot[i] = NCHAN_INVALID_SLOT;
