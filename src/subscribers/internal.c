@@ -72,7 +72,7 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   fsub->sub.last_msgid.tagcount = 1;
   
   fsub->sub.name= (name == NULL ? &subscriber_name : name);
-  DBG("%p create %s with privdata %p", fsub, fsub->sub.name, privdata);
+  DBG("%p create %V with privdata %p", fsub, fsub->sub.name, privdata);
   fsub->privdata = privdata;
   
   fsub->sub.cf = &dummy_config;
@@ -100,7 +100,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
     fsub->awaiting_destruction = 1;
   }
   else {
-    DBG("%p (%s) destroy", sub, fsub->sub.name);
+    DBG("%p (%V) destroy", sub, fsub->sub.name);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
 #endif
@@ -112,16 +112,16 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 
 static ngx_int_t internal_reserve(subscriber_t *self) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
-  DBG("%p ) (%s) reserve", self, fsub->sub.name);
+  DBG("%p ) (%V) reserve", self, fsub->sub.name);
   self->reserved++;
   return NGX_OK;
 }
 static ngx_int_t internal_release(subscriber_t *self, uint8_t nodestroy) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
-  DBG("%p (%s) release", self, fsub->sub.name);
+  DBG("%p (%V) release", self, fsub->sub.name);
   self->reserved--;
   if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
-    DBG("%p (%s) free", self, fsub->sub.name);
+    DBG("%p (%V) free", self, fsub->sub.name);
     ngx_free(fsub);
     return NGX_ABORT;
   }
@@ -149,7 +149,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_push(fsub->owner);
 #endif
-  DBG("%p (%s) timeout", fsub, fsub->sub.name);
+  DBG("%p (%V) timeout", fsub, fsub->sub.name);
   fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
@@ -160,7 +160,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 
 static ngx_int_t internal_enqueue(subscriber_t *self) {
   internal_subscriber_t   *fsub = (internal_subscriber_t *)self;
-  DBG("%p (%s) enqueue", self, fsub->sub.name);
+  DBG("%p (%V) enqueue", self, fsub->sub.name);
   if(self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
     //add timeout timer
     //nextsub->ev should be zeroed;
@@ -179,7 +179,7 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
   assert(!f->already_dequeued);
   f->already_dequeued = 1;
-  DBG("%p (%s) dequeue sub", self, f->sub.name);
+  DBG("%p (%V) dequeue sub", self, f->sub.name);
   f->dequeue(NGX_OK, NULL, f->privdata);
   f->dequeue_handler(self, f->dequeue_handler_data);
   if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
@@ -204,7 +204,7 @@ static ngx_int_t internal_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   
   update_subscriber_last_msg_id(self, msg);
   
-  DBG("%p (%s) respond msg %p", self, f->sub.name, msg);
+  DBG("%p (%V) respond msg %p", self, f->sub.name, msg);
   f->respond_message(NGX_OK, msg, f->privdata);
   reset_timer(f);
   return dequeue_maybe(self);
