@@ -223,7 +223,9 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   rdt.chanhead_cleanup_tail = NULL;
   
   ngx_memzero(&rdt.cleanup_timer, sizeof(rdt.cleanup_timer));
+#if nginx_version >= 1008000
   rdt.cleanup_timer.cancelable = 1;
+#endif
   rdt.cleanup_timer.data=NULL;
   rdt.cleanup_timer.handler=&nchan_store_chanhead_cleanup_timer_handler;
   rdt.cleanup_timer.log=ngx_cycle->log;
