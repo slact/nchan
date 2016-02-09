@@ -177,7 +177,9 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
 //  d->chanhead = local_chanhead;
   d->owner = memstore_slot();
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
+#if nginx_version >= 1008000
   d->timeout_ev.cancelable = 1;
+#endif
   d->timeout_ev.handler = timeout_ev_handler;
   d->timeout_ev.data = d;
   d->timeout_ev.log = ngx_cycle->log;

@@ -177,7 +177,9 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
     //nextsub->ev should be zeroed;
+#if nginx_version >= 1008000
     fsub->data.timeout_ev.cancelable = 1;
+#endif
     fsub->data.timeout_ev.handler = timeout_ev_handler;
     fsub->data.timeout_ev.data = fsub;
     fsub->data.timeout_ev.log = ngx_cycle->log;
