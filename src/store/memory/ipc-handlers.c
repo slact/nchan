@@ -29,8 +29,8 @@
 #define IPC_TEST_FLOOD                 30
 
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
@@ -74,7 +74,7 @@ typedef struct {
 } subscribe_data_t;
 
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
-  DBG("send subscribe to %i, %V", dst, chid);
+  DBG("send subscribe to %i, %V (%p)", dst, chid, origin_chanhead);
   //origin_chanhead->use_redis
   subscribe_data_t   data; 
   DEBUG_MEMZERO(&data);
@@ -94,7 +94,7 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   //ngx_memzero(&fake_conf, sizeof(fake_conf));
   fake_conf.use_redis = d->use_redis;
   
-  DBG("received subscribe request for channel %V", d->shm_chid);
+  DBG("received subscribe request for channel %V (%p)", d->shm_chid, d->d.origin_chanhead);
   head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
   
   if(head == NULL) {
@@ -109,7 +109,7 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   }
   
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
-  DBG("sent subscribe reply for channel %V to %i", d->shm_chid, sender);
+  DBG("sent subscribe reply for channel %V (%p) to %i", d->shm_chid, d->d.origin_chanhead, sender);
   
   if(ipc_sub) {
     head->spooler.fn->add(&head->spooler, ipc_sub);

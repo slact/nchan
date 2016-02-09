@@ -18,8 +18,8 @@
 #define NCHAN_CHANHEAD_EXPIRE_SEC 5
 
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #if FAKESHARD
 
@@ -718,7 +718,9 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   if(head == NULL) {
     return NGX_OK;
   }
-
+  
+  head->times_ensured_ready++;
+  
   DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
   if(head->in_gc_queue) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
@@ -747,6 +749,12 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
       DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
       head->status = WAITING;
       memstore_ipc_send_subscribe(owner, &head->id, head, &cf);
+      head->prev_time_last_ipc_subscribed = head->time_last_ipc_subscribed;
+      head->time_last_ipc_subscribed = ngx_time();
+      if(head->times_ipc_subscribed > 0) {
+        assert(head->prev_time_last_ipc_subscribed != head->time_last_ipc_subscribed);
+      }
+      head->times_ipc_subscribed++;
     }
     else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
       DBG("ensure chanhead ready: subscribe request for %V from %i to %i", &head->id, memstore_slot(), owner);
@@ -935,6 +943,12 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     
     head->multi = NULL;
   }
+  
+  head->created = ngx_time();
+  head->times_ensured_ready = 0;
+  head->times_ipc_subscribed = 0;
+  head->time_last_ipc_subscribed = 0;
+  head->prev_time_last_ipc_subscribed = 0;
   
   start_chanhead_spooler(head);
 
