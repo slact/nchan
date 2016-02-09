@@ -478,7 +478,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   }
   
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
+#if nginx_version >= 1008000  
   fsub->timeout_ev.cancelable = 1;
+#endif
   fsub->timeout_handler = empty_handler;
   fsub->timeout_handler_data = NULL;
   fsub->dequeue_handler = empty_handler;
@@ -690,7 +692,9 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
   if(self->cf->websocket_ping_interval > 0) {
     //add timeout timer
     //nextsub->ev should be zeroed;
+#if nginx_version >= 1008000
     fsub->ping_ev.cancelable = 1;
+#endif
     fsub->ping_ev.handler = ping_ev_handler;
     fsub->ping_ev.data = fsub;
     fsub->ping_ev.log = ngx_cycle->log;

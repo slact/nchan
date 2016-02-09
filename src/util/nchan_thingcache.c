@@ -108,7 +108,9 @@ void *nchan_thingcache_init(char *name, void *(*create)(ngx_str_t *), ngx_int_t(
   tc->thing_tail = NULL;
   tc->things = NULL;
   ngx_memzero(&tc->gc_timer, sizeof(tc->gc_timer));
+#if nginx_version >= 1008000
   tc->gc_timer.cancelable = 1;
+#endif
   tc->gc_timer.handler = nchan_thingcache_gc_timer_handler;
   tc->gc_timer.data = tc;
   tc->gc_timer.log=ngx_cycle->log;
