@@ -1236,14 +1236,14 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: can't allocate memory for message from redis reply");
       return NULL;
     }
+    ngx_memzero(blob, sizeof(*blob));
     msg = &blob->msg;
     buf = &blob->buf;
-    msg->buf = buf;
     
     cur = (u_char *)&blob[1];
     
-    ngx_memzero(msg, sizeof(*msg)+sizeof(ngx_buf_t));
     //set up message buffer;
+    msg->buf = buf;
     buf->start = buf->pos = cur;
     cur += len;
     buf->end = buf->last = cur;
