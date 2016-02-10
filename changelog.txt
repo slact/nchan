@@ -1,4 +1,4 @@
-0.99.2 (Feb 9 2016)
+0.99.3 (Feb 10 2016)
  fix: SIGHUP reloading
  fix: startup with insufficient file descriptors shouldn't crash
  fix: longpoll-multipart failure to immediately respond
