@@ -125,7 +125,7 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   //ngx_memzero(&fake_conf, sizeof(fake_conf));
   fake_conf.use_redis = d->use_redis;
   
-  head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
+  head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, &fake_conf);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
     assert(0);
