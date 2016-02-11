@@ -711,7 +711,7 @@ ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head) 
   return NGX_OK;
 }
 
-ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
+ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, uint8_t ipc_subscribe_if_needed) {
   ngx_int_t                      owner = head->owner;
   nchan_loc_conf_t               cf;
   ngx_int_t                      i;
@@ -744,17 +744,19 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head) {
   
   if(owner != memstore_slot()) {
     if(head->foreign_owner_ipc_sub == NULL && head->status != WAITING) {
-      cf.max_messages = head->max_messages;
-      cf.use_redis = head->use_redis;
-      DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
       head->status = WAITING;
-      memstore_ipc_send_subscribe(owner, &head->id, head, &cf);
-      head->prev_time_last_ipc_subscribed = head->time_last_ipc_subscribed;
-      head->time_last_ipc_subscribed = ngx_time();
-      if(head->times_ipc_subscribed > 0) {
-        assert(head->prev_time_last_ipc_subscribed != head->time_last_ipc_subscribed);
+      if(ipc_subscribe_if_needed) {
+        cf.max_messages = head->max_messages;
+        cf.use_redis = head->use_redis;
+        DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
+        memstore_ipc_send_subscribe(owner, &head->id, head, &cf);
+        head->prev_time_last_ipc_subscribed = head->time_last_ipc_subscribed;
+        head->time_last_ipc_subscribed = ngx_time();
+        if(head->times_ipc_subscribed > 0) {
+          assert(head->prev_time_last_ipc_subscribed != head->time_last_ipc_subscribed);
+        }
+        head->times_ipc_subscribed++;
       }
-      head->times_ipc_subscribed++;
     }
     else if(head->foreign_owner_ipc_sub != NULL && head->status == WAITING) {
       DBG("ensure chanhead ready: subscribe request for %V from %i to %i", &head->id, memstore_slot(), owner);
@@ -961,7 +963,7 @@ nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id)
   nchan_store_channel_head_t     *head = NULL;
   CHANNEL_HASH_FIND(channel_id, head);
   if(head != NULL) {
-    memstore_ensure_chanhead_is_ready(head);
+    memstore_ensure_chanhead_is_ready(head, 1);
   }
   return head;
 }
@@ -971,7 +973,20 @@ nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, n
   head = nchan_memstore_find_chanhead(channel_id);
   if(head==NULL) {
     head = chanhead_memstore_create(channel_id, cf);
-    memstore_ensure_chanhead_is_ready(head);
+    memstore_ensure_chanhead_is_ready(head, 1);
+  }
+  return head;
+}
+
+nchan_store_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
+  nchan_store_channel_head_t     *head = NULL;
+  CHANNEL_HASH_FIND(channel_id, head);
+  if(head != NULL) {
+    memstore_ensure_chanhead_is_ready(head, 0);
+  }
+  else {
+    head = chanhead_memstore_create(channel_id, cf);
+    memstore_ensure_chanhead_is_ready(head, 0);
   }
   return head;
 }

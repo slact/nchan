@@ -69,7 +69,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   assert(lastid->tagcount == 1 && lastid->tagcount == 1);
   if(lastid->time < msg->id.time || 
     (lastid->time == msg->id.time && lastid->tag.fixed[0] < msg->id.tag.fixed[0])) {
-    memstore_ensure_chanhead_is_ready(d->chanhead);
+    memstore_ensure_chanhead_is_ready(d->chanhead, 1);
     nchan_store_chanhead_publish_message_generic(d->chanhead, msg, 0, &cf, NULL, NULL);
   }
   else {
