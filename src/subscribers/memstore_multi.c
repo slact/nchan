@@ -100,7 +100,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
   nchan_expand_msg_id_multi_tag(&remsg.prev_id, 0, d->n, -1);
   nchan_expand_msg_id_multi_tag(&remsg.id, 0, d->n, -1);
   
-  memstore_ensure_chanhead_is_ready(d->multi_chanhead);
+  memstore_ensure_chanhead_is_ready(d->multi_chanhead, 1);
   
   DBG("%p respond with transformed message %p %V (%p %V %i) %V", d->multi->sub, &remsg, msgid_to_str(&remsg.id), d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   

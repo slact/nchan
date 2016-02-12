@@ -1,5 +1,5 @@
 #!/bin/zsh
-_nginx_ver=1.8.0
+_nginx_ver=1.8.1
 
 _openssl_ver=1.0.2e
 _pcre_ver=8.38
@@ -69,7 +69,7 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
   "git+https://github.com/slact/nchan.git#tag=${_nchan_tag}"
        )
 
-md5sums=('3ca4a37931e9fa301964b8ce889da8cb'
+md5sums=('2e91695074dbdfbf1bcec0ada9fda462'
 	 '8a353fe1450216b6655dfcf3561716d9'
 	 '5262bfa25b60ed9de9f28d5d52d77fc5'
 	 '44d667c142d7cda120332623eab69f40'
