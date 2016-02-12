@@ -484,6 +484,15 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, nchan_channel_t *chan, 
       chan_info->messages = chan->messages;
       chan_info->subscribers = chan->subscribers;
       chan_info->last_seen = chan->last_seen;
+      
+      if(chan->last_published_msg_id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
+        //meh, this can't be triggered... can it?...
+        nchan_msg_id_t           zeroid = NCHAN_ZERO_MSGID;
+        chan_info->last_published_msg_id = zeroid;
+      }
+      else {
+        chan_info->last_published_msg_id = chan->last_published_msg_id;
+      }
     }
   }
   else {
