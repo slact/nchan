@@ -1,3 +1,6 @@
+0.99.4 (Feb 12 2016)
+ fix: invalid memory access in channel DELETE response
+ fix: race condition in IPC during channel creation (thanks vtslothy)
 0.99.3 (Feb 10 2016)
  fix: SIGHUP reloading
  fix: startup with insufficient file descriptors shouldn't crash
