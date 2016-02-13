@@ -1,6 +1,8 @@
 #ifndef NCHAN_SRTP_H
 #define NCHAN_SRTP_H
 
+#include <nchan_types.h>
+
 typedef struct {
   ngx_int_t   (*preconfiguration)(ngx_conf_t *cf);
   ngx_int_t   (*postconfiguration)(ngx_conf_t *cf);
@@ -33,5 +35,7 @@ typedef struct {
 
   ngx_array_t               *ports;
 } nchan_srtp_core_main_conf_t;
+
+char *nchan_srtp_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 #endif //NCHAN_SRTP_H

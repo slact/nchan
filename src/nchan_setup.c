@@ -1,10 +1,10 @@
 #include <nchan_websocket_publisher.h>
 #include <nchan_types.h>
-#include <nchan_srtp.h>
 #include <util/nchan_output.h>
 #include <nchan_variables.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
+#include <nchan_srtp.h>
 
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
 
@@ -562,6 +562,9 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   
   return rc;
 }
+
+
+
 
 #include "nchan_config_commands.c" //hideous but hey, it works
 

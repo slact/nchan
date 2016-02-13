@@ -465,5 +465,9 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: http, server, location  
   > Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer.    
 
+- **srtp**  
+  arguments: 0  
+  context: http, block  
+
 ## Contribute
 Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 15dLBzRS4HLRwCCVjx4emYkxXcyAPmGxM3 . Other donation methods can be found at https://nchan.slact.net

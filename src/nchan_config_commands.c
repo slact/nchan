@@ -319,6 +319,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, storage_engine),
     NULL } ,
 
+  { ngx_string("srtp"),
+    NGX_HTTP_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
+    nchan_srtp_block,
+    NGX_HTTP_MAIN_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("push_min_message_buffer_length"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_ignore_obsolete_setting,
