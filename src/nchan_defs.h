@@ -40,6 +40,12 @@
 
 //SRTP
 #define NCHAN_SRTP_MODULE      0x50545253 // "SRTP"
+#define NCHAN_SRTP_MAIN_CONF      0x02070401
+#define NCHAN_SRTP_SRV_CONF       0x04070401
+#define NCHAN_SRTP_LOC_CONF       0x08070401
+#define NCHAN_SRTP_UPS_CONF       0x10070401
+
+
 
 extern const ngx_str_t NCHAN_HEADER_ETAG;
 extern const ngx_str_t NCHAN_HEADER_IF_NONE_MATCH;
