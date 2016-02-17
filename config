@@ -41,6 +41,8 @@ _NHPM_MEMORY_STORE_SRCS="\
 
 HTTP_MODULES="$HTTP_MODULES nchan_module"
 
+CORE_MODULES="$CORE_MODULES nchan_srtp_core_module"
+
 CORE_INCS="$CORE_INCS \
   $ngx_addon_dir/src \
 "

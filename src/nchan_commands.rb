@@ -314,10 +314,10 @@ CfCmd.new do
       default: "memory",
       info: "Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer."
   
-  srtp [:main, :block],
-    :nchan_srtp_block,
-    :main_conf,
-    args: 0
+  #srtp [:main, :block],
+  #  :nchan_srtp_block,
+  #  :main_conf,
+  #  args: 0
   
   push_min_message_buffer_length [:srv, :loc, :if],
       :nchan_ignore_obsolete_setting,
