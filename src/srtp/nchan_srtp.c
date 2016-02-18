@@ -1,5 +1,5 @@
 #include <nchan_module.h>
-#include <nchan_srtp.h>
+#include "nchan_srtp.h"
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG

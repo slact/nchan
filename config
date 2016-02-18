@@ -56,7 +56,7 @@ NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
   ${ngx_addon_dir}/src/store/rbtree_util.c \
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
-  ${ngx_addon_dir}/src/nchan_srtp.c \
+  ${ngx_addon_dir}/src/srtp/nchan_srtp.c \
   $_NHPM_MEMORY_STORE_SRCS \
   ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
   ${ngx_addon_dir}/src/util/nchan_util.c \

@@ -4,7 +4,7 @@
 #include <nchan_variables.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
-#include <nchan_srtp.h>
+#include <srtp/nchan_srtp.h>
 
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
 
