@@ -3,9 +3,12 @@ DEVDIR=`pwd`
 SRCDIR=$(readlink -m $DEVDIR/../src)
 echo $DEVDIR $SRCDIR
 
-VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--expensive-definedness-checks=yes" "--read-var-info=yes")
+VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--read-var-info=yes" )
 
 VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${DEVDIR}/vg.supp" )
+
+#expensive definedness checks (newish option)
+#VALGRIND_OPT+=( "--expensive-definedness-checks=yes" )
 
 #long stack traces
 VG_MEMCHECK_OPT+=("--num-callers=20")
