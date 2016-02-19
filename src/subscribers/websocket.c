@@ -308,7 +308,7 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
           }
         }
         else {
-          content_length = 0;
+          //content_length = 0;
           request_chain = NULL;
           ERR("upstream missing from upstream subrequest");
         }

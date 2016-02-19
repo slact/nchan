@@ -2215,7 +2215,8 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   if(buf_body_size > 0) {
     ngx_str_t   dst_str, src_str = {buf_body_size, mbuf->pos};
     
-    cur = copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
+    //cur = copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
+    copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
     
     buf->pos = dst_str.data;
     buf->last = buf->pos + dst_str.len;
