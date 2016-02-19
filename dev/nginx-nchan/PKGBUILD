@@ -87,7 +87,7 @@ source=("$_nginx_source"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "git+${_ngx_debug_pool_url_ngx_debug_pool_url}"
+  "git+${_ngx_debug_pool_url}"
   "$_no_pool_patch_source"
   "bl.txt")
 
@@ -95,7 +95,7 @@ md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
-	 'SKIP'
+         'SKIP'
          'SKIP'
          'SKIP')
 
@@ -136,10 +136,13 @@ build() {
     --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
     --http-log-path=${_access_log}
     --error-log-path=${_error_log}
-    --with-debug
     --with-http_ssl_module
     --add-module="../nchan")
 
+  if [[ -z $NO_WITH_DEBUG ]]; then
+    CONFIGURE+=( "--with-debug" )
+  fi
+  
   if [[ -z $NO_NGINX_USER ]]; then
     CONFIGURE+=( "--user=${_user}" "--group=${_group}" )
   fi

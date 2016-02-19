@@ -66,6 +66,8 @@ for opt in $*; do
   esac
 done
 
+export NO_WITH_DEBUG=1
+
 _build_nginx() {
 
     if type "makepkg" > /dev/null; then
