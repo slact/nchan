@@ -9,7 +9,7 @@ _nginx_ver_very_old=0.8.55
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
   #debug build. clear cflags
-  CFLAGS=" -ggdb -O$OPTIMIZE_LEVEL"
+  CFLAGS=" -ggdb -fvar-tracking-assignments -O$OPTIMIZE_LEVEL"
 fi
 
 CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs"
@@ -161,6 +161,7 @@ build() {
 
   if [[ $CC == *clang* ]]; then
     #not a valid clang parameter
+    CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     if [[ -z $CLANG_ANALYZER ]]; then
       CFLAGS="-ferror-limit=5 $CFLAGS"
