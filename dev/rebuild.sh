@@ -84,10 +84,13 @@ _build_nginx() {
     export startdir="$(pwd)"
     export EXPLICIT_CFLAGS=1
 
+    rm "${startdir}/pkg/" -Rf
     srcdir="${startdir}/src"
-    pkgdir="${startdir}/pkg"
-    mkdir -p "$srcdir" "$pkgdir"
+
     source ./PKGBUILD
+
+    pkgdir="${startdir}/pkg/${pkgname}"
+    mkdir -p "$srcdir" "$pkgdir"
 
     echo $_nginx_source
     echo $_no_pool_patch_source
