@@ -308,7 +308,8 @@ void memstore_fakeprocess_push_random(void) {
 static ngx_int_t is_multi_id(ngx_str_t *id);
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  ngx_int_t       h, workers;
+  uint32_t        h;
+  ngx_int_t       workers;
   //multi is always self-owned
   if(is_multi_id(id)) {
     return memstore_slot();
@@ -328,9 +329,10 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
 #else
   ngx_int_t       i, slot;
   i = h % workers;
+  assert(i >= 0);
   slot = shdata->procslot[i + shdata->procslot_offset];
   if(slot == NCHAN_INVALID_SLOT) {
-    ERR("something went wrong, the channel owner is invalid. i: %i h: %i, workers: %i", i, h, workers);
+    ERR("something went wrong, the channel owner is invalid. i: %i h: %ui, workers: %i", i, h, workers);
     return NCHAN_INVALID_SLOT;
   }
   return slot;
