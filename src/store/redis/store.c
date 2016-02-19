@@ -1490,7 +1490,7 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
 }
 
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t       *etag;
+  ngx_str_t       *etag = NULL;
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header in pool");
     return NULL;
@@ -1505,7 +1505,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
 }
 
 static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t        *content_type;
+  ngx_str_t        *content_type = NULL;
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header in pool");
     return NULL;
