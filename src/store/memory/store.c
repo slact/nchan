@@ -1282,8 +1282,9 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   ngx_int_t           count = 0;
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   
-  
-  shdata->reloading = shdata->active_workers;
+  if(shdata->active_workers > 0) {
+    shdata->reloading += shdata->max_workers;
+  }
   
   shdata->old_max_workers = shdata->max_workers;
   shdata->max_workers = ccf->worker_processes;
