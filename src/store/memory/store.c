@@ -1256,7 +1256,7 @@ static void init_shdata_procslots(int slot, int n) {
   shmtx_lock(shm);
   ngx_int_t          offset = memstore_procslot_offset + n;
   assert(shdata->procslot[offset] == NCHAN_INVALID_SLOT);
-  ERR("set shdata->procslot[%i] = %i", offset, slot);
+  DBG("set shdata->procslot[%i] = %i", offset, slot);
   shdata->procslot[offset] = slot;
   shmtx_unlock(shm);
 }
