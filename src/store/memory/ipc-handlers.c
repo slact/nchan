@@ -223,8 +223,13 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
   nchan_store_channel_head_t    *chead;
   
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
-    ERR("can't find chanhead for id %V", d->shm_chid);
-    assert(0);
+    if(ngx_exiting) {
+      ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
+    }
+    else {
+      ERR("can't find chanhead for id %V", d->shm_chid);
+      assert(0);
+    }
     return;
   }
   

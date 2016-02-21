@@ -92,6 +92,19 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
   return NULL;
 }
 
+static ngx_buf_t *ensure_last_buf(ngx_pool_t *pool, ngx_buf_t *buf) {
+  ngx_buf_t *cbuf;
+  if(buf->last_buf == 1) {
+    return buf;
+  }
+  else {
+    cbuf = ngx_create_temp_buf(pool,sizeof(*cbuf));
+    *cbuf = *buf;
+    cbuf->last_buf = 1;
+    return cbuf;
+  }
+}
+
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>
 ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, size_t content_length) {
   ngx_buf_t *buf = NULL;
@@ -99,7 +112,7 @@ ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, s
   size_t len;
 
   if (chain->next == NULL) {
-    return chain->buf;
+    return ensure_last_buf(pool, chain->buf);
   }
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
@@ -109,7 +122,7 @@ ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, s
     if (chain->next != NULL) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: error reading request body with multiple ");
     }
-    return chain->buf;
+    return ensure_last_buf(pool, chain->buf);
   }
   buf = ngx_create_temp_buf(pool, content_length + 1);
   if (buf != NULL) {

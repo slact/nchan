@@ -1,6 +1,6 @@
 #!/bin/zsh
-_nginx_ver_latest=1.9.9
-_nginx_ver_stable=1.8.0
+_nginx_ver_latest=1.9.11
+_nginx_ver_stable=1.8.1
 _nginx_ver_nopool=1.9.7
 _nginx_ver_legacy=1.6.3
 _nginx_ver_old=1.0.15
@@ -9,7 +9,7 @@ _nginx_ver_very_old=0.8.55
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
   #debug build. clear cflags
-  CFLAGS=" -ggdb -O$OPTIMIZE_LEVEL"
+  CFLAGS=" -ggdb -fvar-tracking-assignments -O$OPTIMIZE_LEVEL"
 fi
 
 CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs"
@@ -54,7 +54,7 @@ _pkgver() {
 }
 
 pkgname=nginx-nchan-dev
-pkgver=$(_pkgver)
+pkgver=0
 pkgrel=1
 pkgdesc="Nginx + Nchan dev version"
 arch=('i686' 'x86_64' 'armv7h')
@@ -79,19 +79,23 @@ backup=("${_conf_path}/conf/nginx.conf"
 _user=http
 _group=http
 
-source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
+_nginx_source="http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
+_no_pool_patch_source="https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
+_ngx_debug_pool_url="https://github.com/chobits/ngx_debug_pool.git"
+
+source=("$_nginx_source"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
-  "git+https://github.com/chobits/ngx_debug_pool.git"
-  "https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
+  "git+${_ngx_debug_pool_url}"
+  "$_no_pool_patch_source"
   "bl.txt")
 
 md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
-	 'SKIP'
+         'SKIP'
          'SKIP'
          'SKIP')
 
@@ -121,6 +125,8 @@ build() {
     export CFLAGS="$CFLAGS -fmudflap"
   fi
 
+  CFLAGS="${CFLAGS/-Werror/}" #no warning-as-error
+  
   CONFIGURE=(
     --prefix=/${_conf_path}
     --sbin-path=/usr/bin/nginx
@@ -132,11 +138,16 @@ build() {
     --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
     --http-log-path=${_access_log}
     --error-log-path=${_error_log}
-    --user=${_user}
-    --group=${_group}
-    --with-debug
     --with-http_ssl_module
     --add-module="../nchan")
+
+  if [[ -z $NO_WITH_DEBUG ]]; then
+    CONFIGURE+=( "--with-debug" )
+  fi
+  
+  if [[ -z $NO_NGINX_USER ]]; then
+    CONFIGURE+=( "--user=${_user}" "--group=${_group}" )
+  fi
     
   if [[ $_include_http2 == 1 ]]; then
     CONFIGURE+=( "--with-http_v2_module" )
@@ -153,10 +164,11 @@ build() {
   if [[ $CC == *clang* ]]; then
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
+    CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     if [[ -z $CLANG_ANALYZER ]]; then
       CFLAGS="-ferror-limit=5 $CFLAGS"
     fi
-  elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
+  elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]] && [[ -z $NO_GCC_COLOR ]]; then
     CFLAGS="-fdiagnostics-color=always $CFLAGS"
   fi
   
@@ -169,6 +181,11 @@ build() {
     make $REMAKE
   else
     ln -svf $srcdir/bl.txt
+
+    if [[ ! -z $EXPLICIT_CFLAGS ]]; then
+      CONFIGURE+=( "--with-cc-opt=${CFLAGS}" )
+    fi
+    echo "./configure ${CONFIGURE[@]}"
     ./configure ${CONFIGURE[@]}
     make
   fi

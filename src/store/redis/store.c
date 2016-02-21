@@ -594,7 +594,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             assert(array_sz == 10);
             if(cmp_read_str_size(&cmp, &sz)) {
               fwd_buf_to_str(&mpbuf, sz, &chid);
-              cmp_to_msg(&cmp, &msg, &buf);
+              if(cmp_to_msg(&cmp, &msg, &buf) == false) {
+                ERR("couldn't parse msgpacked message from redis");
+                return;
+              }
               nchan_store_publish_generic(&chid, &msg, 0, NULL);
             }
             else {
@@ -1252,7 +1255,10 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
     buf->last_buf = 1;
     buf->last_in_chain = 1;
     
-    redisReply_to_int(els[offset], &ttl);
+    if(redisReply_to_int(els[offset], &ttl) != NGX_OK) {
+      ERR("invalid ttl integer value is msg response from redis");
+      return NULL;
+    }
     assert(ttl > 0);
     msg->expires = ngx_time() + ttl;
     
@@ -1267,11 +1273,17 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
       msg->eventsource_event.len=es_event_len;
       msg->eventsource_event.data=cur;
       ngx_memcpy(msg->eventsource_event.data, els[offset+7]->str, es_event_len);
-      cur += es_event_len;
+      // cur += es_event_len;
     }
     
-    redisReply_to_int(els[offset+1], &time_int);
-    msg->id.time = time_int;
+    if(redisReply_to_int(els[offset+1], &time_int) == NGX_OK) {
+      msg->id.time = time_int;
+    }
+    else {
+      msg->id.time = 0;
+      ERR("invalid msg time from redis");
+    }
+    
     redisReply_to_int(els[offset+2], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
     msg->id.tagactive = 0;
@@ -1490,7 +1502,7 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
 }
 
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t       *etag;
+  ngx_str_t       *etag = NULL;
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header in pool");
     return NULL;
@@ -1505,7 +1517,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
 }
 
 static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t        *content_type;
+  ngx_str_t        *content_type = NULL;
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header in pool");
     return NULL;

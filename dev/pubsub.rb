@@ -11,6 +11,7 @@ require 'uri'
 require "http/parser"
 require "http/2"
 
+SUBSCRIBER_TYPES=[ :longpoll, :intervalpoll, :eventsource, :websocket ]
 PUBLISH_TIMEOUT=3 #seconds
 
 class Message
