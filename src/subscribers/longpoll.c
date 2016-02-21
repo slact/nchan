@@ -7,6 +7,8 @@
 #include <assert.h>
 #include "longpoll-private.h"
 
+// #define SEND_MULTIPART_BOUNDARIES
+
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop(void);
@@ -291,15 +293,18 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   nchan_loc_conf_t      *cf = fsub->sub.cf;
   char                  *err;
   ngx_int_t              rc;
+  
+#ifdef SEND_MULTIPART_BOUNDARIES
+  ngx_int_t              i;
+  ngx_buf_t              newline_buf;
+
+  ngx_buf_t              boundary[3];
   u_char                 char_boundary[50];
   u_char                *char_boundary_last;
-  
-  ngx_int_t              i;
-  ngx_buf_t              boundary[3]; //first, mid, and last boundary
   ngx_chain_t           *chains, *first_chain = NULL, *last_chain = NULL;
-  ngx_buf_t             *buf;
-  ngx_buf_t              double_newline_buf;
   ngx_str_t             *content_type;
+  ngx_buf_t             *buf;
+#endif
   size_t                 size = 0;
   
   //disable abort handler
@@ -321,18 +326,12 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
     return NGX_OK;
   }
   
+#ifdef SEND_MULTIPART_BOUNDARIES
   //multi messages
   nchan_request_set_content_type_multipart_boundary_header(r, ctx);
   
   char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
-  
-  ngx_memzero(&double_newline_buf, sizeof(double_newline_buf));
-  double_newline_buf.start = (u_char *)"\r\n\r\n";
-  double_newline_buf.end = double_newline_buf.start + 4;
-  double_newline_buf.pos = double_newline_buf.start;
-  double_newline_buf.last = double_newline_buf.end;
-  double_newline_buf.memory = 1;
-  
+
   //set up the boundaries
   for(i=0; i<3; i++) {
     ngx_memzero(&boundary[i], sizeof(ngx_buf_t));
@@ -355,10 +354,19 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
     boundary[i].pos = boundary[i].start;
     boundary[i].last = boundary[i].end;
   }
+
+  ngx_memzero(&newline_buf, sizeof(newline_buf));
+
+  newline_buf.start = (u_char *)"\r\n\r\n";
+  newline_buf.end = newline_buf.start + sizeof( newline_buf.start );
+  newline_buf.pos = newline_buf.start;
+  newline_buf.last = newline_buf.end;
+  newline_buf.memory = 1;
   
   first = fsub->data.multimsg_first;
   
-  for(cur = first; cur != NULL; cur = cur->next) {
+  for(cur = first; cur != NULL; cur = cur->next) 
+  {
     chains = ngx_palloc(r->pool, sizeof(*chains)*4);
     
     if(last_chain) {
@@ -382,8 +390,9 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
       buf->last = buf->end;
       chains[1].buf = buf;
     }
-    else {
-      chains[1].buf = &double_newline_buf;
+    else 
+    {
+      chains[1].buf = &newline_buf;
     }
     size += ngx_buf_size(chains[1].buf);
     
@@ -420,6 +429,34 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   
   
   return NGX_OK;
+#else
+
+	first = fsub->data.multimsg_first;
+  
+	size = 0;
+	for(cur = first; cur != NULL; cur = cur->next) 
+		size += ngx_buf_size( cur->msg->buf );
+
+	ngx_str_t str;
+	str.data = ngx_pnalloc( r->pool, size );
+	if ( !str.data )
+		return abort_response(&fsub->sub, err);
+
+	str.len = size;
+	size_t curPos = 0;
+	for(cur = first; cur != NULL; cur = cur->next) 
+	{
+		size_t curBufSize = ngx_buf_size( cur->msg->buf );
+		ngx_memcpy( &str.data[curPos], cur->msg->buf->start, curBufSize );
+		curPos += curBufSize;
+	}
+
+	if ( (rc = nchan_respond_string(r, NGX_HTTP_OK, NULL, &str, 0 ) ) != NGX_OK )
+		return abort_response(&fsub->sub, err);
+
+	return NGX_OK;
+#endif
+
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {

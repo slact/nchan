@@ -68,6 +68,13 @@ struct nchan_store_channel_head_s {
   time_t                          churn_time;
   unsigned                        in_churn_queue:1;
   
+  //debug data for https://github.com/slact/nchan/issues/128
+  time_t                          created;
+  uint64_t                        times_ensured_ready;
+  uint64_t                        times_ipc_subscribed;
+  time_t                          time_last_ipc_subscribed;
+  time_t                          prev_time_last_ipc_subscribed;
+  
   UT_hash_handle                  hh;
 };
 
