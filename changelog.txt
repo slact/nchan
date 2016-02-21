@@ -1,3 +1,4 @@
+ fix: SIGHUP reloading under load
 0.99.5 (Feb 15 2016)
  fix: publishing with client_body_in_file_only enabled
 0.99.4 (Feb 12 2016)
