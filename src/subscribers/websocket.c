@@ -1168,8 +1168,8 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   static const ngx_str_t    empty=ngx_string("");
   u_char                    msgbuf[50];
   ngx_str_t                 custom_close_msg;
-  ngx_str_t                *close_msg;
-  uint16_t                  close_code=0;
+  ngx_str_t                *close_msg = NULL;
+  uint16_t                  close_code = 0;
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
   
   if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
