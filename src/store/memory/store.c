@@ -62,13 +62,13 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg, u
       return NGX_DECLINED;
     }
     
-    if(ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
       return NGX_OK;
     }
     return NGX_DECLINED;
   }
   else {
-    if(! ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(! ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
       if(smsg->msg->refcount > 0) {
         ERR("force-reaping msg with refcount %d", smsg->msg->refcount);
       }
@@ -580,7 +580,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
     shdata->max_workers = workers;
   }
   
-  ngx_atomic_fetch_add(&shdata->active_workers, 1);
+  shdata->active_workers++;
   
   for(i = memstore_procslot_offset; i < NGX_MAX_PROCESSES - memstore_procslot_offset; i++) {
     if(shdata->procslot[i] == ngx_process_slot) {
@@ -2258,7 +2258,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
 }
 
 ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
-  ngx_atomic_fetch_add(&msg->refcount, 1);
+  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, 1);
   assert(msg->refcount >= 0);
   if(msg->refcount < 0) {
     msg->refcount = MSG_REFCOUNT_INVALID;
@@ -2315,7 +2315,7 @@ ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
   shmtx_unlock(shm);
 #endif
   assert(msg->refcount > 0);
-  ngx_atomic_fetch_add(&msg->refcount, -1);
+  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
   return NGX_OK;
 }
 
