@@ -169,7 +169,7 @@ build() {
       CFLAGS="-ferror-limit=5 $CFLAGS"
     fi
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]] && [[ -z $NO_GCC_COLOR ]]; then
-    CFLAGS="-fdiagnostics-color=always $CFLAGS"
+    CFLAGS="-fdiagnostics-color=always  -Wmaybe-uninitialized $CFLAGS"
   fi
   
   echo $CFLAGS
