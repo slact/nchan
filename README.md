@@ -386,14 +386,14 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `10`  
   context: http, server, location  
   legacy names: push_max_message_buffer_length, push_message_buffer_length  
-  > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
+  > Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
 
 - **nchan_message_timeout** `<time>`  
   arguments: 1  
   default: `1h`  
   context: http, server, location  
   legacy name: push_message_timeout  
-  > The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
+  > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
 
 - **nchan_redis_url**  
   arguments: 1  
@@ -406,7 +406,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `on`  
   context: http, server, location, if  
   legacy name: push_store_messages  
-  > Whether or not message queuing is enabled. "Off" is equivalent to the setting nchan_channel_buffer_length 0    
+  > Publisher configuration. "`off`" is equivalent to setting `nchan_channel_buffer_length 0`    
 
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  
