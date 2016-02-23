@@ -38,6 +38,13 @@
 #define NCHAN_MESSAGE_RECEIVED  9000
 #define NCHAN_MESSAGE_QUEUED    9001
 
+//SRTP
+#define NCHAN_SRTP_MODULE         0x50545253 // "SRTP"
+#define NCHAN_SRTP_MAIN_CONF      0x02000000
+#define NCHAN_SRTP_SRV_CONF       0x04000000
+
+
+
 extern const ngx_str_t NCHAN_HEADER_ETAG;
 extern const ngx_str_t NCHAN_HEADER_IF_NONE_MATCH;
 extern const ngx_str_t NCHAN_HEADER_VARY;
