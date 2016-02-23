@@ -223,7 +223,9 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   rdt.chanhead_cleanup_tail = NULL;
   
   ngx_memzero(&rdt.cleanup_timer, sizeof(rdt.cleanup_timer));
+#if nginx_version >= 1008000
   rdt.cleanup_timer.cancelable = 1;
+#endif
   rdt.cleanup_timer.data=NULL;
   rdt.cleanup_timer.handler=&nchan_store_chanhead_cleanup_timer_handler;
   rdt.cleanup_timer.log=ngx_cycle->log;
@@ -397,20 +399,20 @@ typedef struct {
   nchan_msg_id_t               *msg_id;
 } redis_get_message_from_key_data_t;
 
-static void redis_subscriber_messageHMGET_callback(redisAsyncContext *c, void *r, void *privdata) {
+static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *privdata) {
   redis_get_message_from_key_data_t *d = (redis_get_message_from_key_data_t *)privdata;
   redisReply           *reply = r;
   nchan_msg_t          *msg;
   ngx_str_t            *chid = &d->channel_id;
-  DBG("Message HMGET callback");
+  DBG("get_msg_from_msgkey_callback");
   log_redis_reply(d->name, d->t);
   
   if(chid == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "channel_id is null after HMGET");
+    ERR("get_msg_from_msgkey channel id is NULL");
     return;
   }
   if((msg = msg_from_redis_get_message_reply(reply, 0, ngx_store_alloc)) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "invalid message or message absent after HMGET");
+    ERR("invalid message or message absent after get_msg_from_key");
     return;
   }
   
@@ -521,12 +523,13 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, nchan_msg_id_t *msgi
   d->channel_id.data = (u_char *)&d[1];
   ngx_memcpy(d->channel_id.data, channel_id->data, channel_id->len);
   d->t = ngx_current_msec;
-  d->name = "HMGET message";
+  d->name = "get_message_from_key";
   
   //d->hcln = put_current_subscribers_in_limbo(head);
   //assert(d->hcln != 0);
   
-  redisAsyncCommand(rds_ctx(), &redis_subscriber_messageHMGET_callback, d, "HMGET %b time tag prev_time prev_tag data content_type", STR(msg_redis_hash_key));
+  redisAsyncCommand(rds_ctx(), &get_msg_from_msgkey_callback, d, "EVALSHA %s 1 %b", store_rds_lua_hashes.get_message_from_key, STR(msg_redis_hash_key));
+
   return NGX_OK;
 }
 
@@ -591,7 +594,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             assert(array_sz == 10);
             if(cmp_read_str_size(&cmp, &sz)) {
               fwd_buf_to_str(&mpbuf, sz, &chid);
-              cmp_to_msg(&cmp, &msg, &buf);
+              if(cmp_to_msg(&cmp, &msg, &buf) == false) {
+                ERR("couldn't parse msgpacked message from redis");
+                return;
+              }
               nchan_store_publish_generic(&chid, &msg, 0, NULL);
             }
             else {
@@ -1202,50 +1208,82 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
   return NGX_OK;
 }
 
+typedef struct {
+  nchan_msg_t   msg;
+  ngx_buf_t     buf;
+} getmessage_blob_t;
+
 static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t offset, void *(*allocator)(size_t size)) {
-  nchan_msg_t *msg=NULL;
+  
+  getmessage_blob_t   *blob;
+  nchan_msg_t         *msg=NULL;
   ngx_buf_t           *buf=NULL;
   redisReply         **els = r->element;
-  size_t len = 0, content_type_len = 0;
+  size_t               len = 0, content_type_len = 0, es_event_len = 0;
   ngx_int_t            time_int, ttl;
+  u_char              *cur;
   
-  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 6)
+  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 7)
    && CHECK_REPLY_INT(els[offset])            //msg TTL
    && CHECK_REPLY_INT_OR_STR(els[offset+1])   //id - time
    && CHECK_REPLY_INT_OR_STR(els[offset+2])   //id - tag
    && CHECK_REPLY_INT_OR_STR(els[offset+3])   //prev_id - time
    && CHECK_REPLY_INT_OR_STR(els[offset+4])   //prev_id - tag
    && CHECK_REPLY_STR(els[offset+5])   //message
-   && CHECK_REPLY_STR(els[offset+6])){ //content-type
+   && CHECK_REPLY_STR(els[offset+6])   //content-type
+   && CHECK_REPLY_STR(els[offset+7])){ //eventsource event
     len=els[offset+5]->len;
     content_type_len=els[offset+6]->len;
-    if((msg=allocator(sizeof(*msg) + sizeof(ngx_buf_t) + len + content_type_len))==NULL) {
+    es_event_len = els[offset+7]->len;
+    if((blob = allocator(sizeof(*blob) + len + content_type_len + es_event_len))==NULL) {
       ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: can't allocate memory for message from redis reply");
       return NULL;
     }
-    ngx_memzero(msg, sizeof(*msg)+sizeof(ngx_buf_t));
+    ngx_memzero(blob, sizeof(*blob));
+    msg = &blob->msg;
+    buf = &blob->buf;
+    
+    cur = (u_char *)&blob[1];
+    
     //set up message buffer;
-    msg->buf = (void *)(&msg[1]);
-    buf = msg->buf;
-    buf->start = buf->pos = (void *)(&buf[1]);
-    buf->end = buf->last = &buf->start[len];
+    msg->buf = buf;
+    buf->start = buf->pos = cur;
+    cur += len;
+    buf->end = buf->last = cur;
     ngx_memcpy(buf->start, els[offset+5]->str, len);
     buf->memory = 1;
     buf->last_buf = 1;
     buf->last_in_chain = 1;
     
-    redisReply_to_int(els[offset], &ttl);
+    if(redisReply_to_int(els[offset], &ttl) != NGX_OK) {
+      ERR("invalid ttl integer value is msg response from redis");
+      return NULL;
+    }
     assert(ttl > 0);
     msg->expires = ngx_time() + ttl;
     
-    if(content_type_len>0) {
+    if(content_type_len > 0) {
       msg->content_type.len=content_type_len;
-      msg->content_type.data=buf->end;
+      msg->content_type.data=cur;
       ngx_memcpy(msg->content_type.data, els[offset+6]->str, content_type_len);
+      cur += content_type_len;
     }
     
-    redisReply_to_int(els[offset+1], &time_int);
-    msg->id.time = time_int;
+    if(es_event_len > 0) {
+      msg->eventsource_event.len=es_event_len;
+      msg->eventsource_event.data=cur;
+      ngx_memcpy(msg->eventsource_event.data, els[offset+7]->str, es_event_len);
+      // cur += es_event_len;
+    }
+    
+    if(redisReply_to_int(els[offset+1], &time_int) == NGX_OK) {
+      msg->id.time = time_int;
+    }
+    else {
+      msg->id.time = 0;
+      ERR("invalid msg time from redis");
+    }
+    
     redisReply_to_int(els[offset+2], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
     msg->id.tagactive = 0;
@@ -1464,7 +1502,7 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
 }
 
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t       *etag;
+  ngx_str_t       *etag = NULL;
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header in pool");
     return NULL;
@@ -1479,7 +1517,7 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
 }
 
 static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
-  ngx_str_t        *content_type;
+  ngx_str_t        *content_type = NULL;
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header in pool");
     return NULL;

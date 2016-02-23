@@ -308,7 +308,7 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
           }
         }
         else {
-          content_length = 0;
+          //content_length = 0;
           request_chain = NULL;
           ERR("upstream missing from upstream subrequest");
         }
@@ -478,7 +478,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   }
   
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
+#if nginx_version >= 1008000  
   fsub->timeout_ev.cancelable = 1;
+#endif
   fsub->timeout_handler = empty_handler;
   fsub->timeout_handler_data = NULL;
   fsub->dequeue_handler = empty_handler;
@@ -690,7 +692,9 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
   if(self->cf->websocket_ping_interval > 0) {
     //add timeout timer
     //nextsub->ev should be zeroed;
+#if nginx_version >= 1008000
     fsub->ping_ev.cancelable = 1;
+#endif
     fsub->ping_ev.handler = ping_ev_handler;
     fsub->ping_ev.data = fsub;
     fsub->ping_ev.log = ngx_cycle->log;
@@ -1164,8 +1168,8 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   static const ngx_str_t    empty=ngx_string("");
   u_char                    msgbuf[50];
   ngx_str_t                 custom_close_msg;
-  ngx_str_t                *close_msg;
-  uint16_t                  close_code=0;
+  ngx_str_t                *close_msg = NULL;
+  uint16_t                  close_code = 0;
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
   
   if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {

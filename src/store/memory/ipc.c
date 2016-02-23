@@ -52,7 +52,7 @@ static void ipc_try_close_fd(ngx_socket_t *fd) {
   }
 }
 
-ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
+ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers, void (*slot_callback)(int slot, int worker)) {
 //initialize pipes for workers in advance.
   int                             i, j, s = 0;
   ngx_int_t                       last_expected_process = ngx_last_process;
@@ -76,30 +76,42 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers) {
       s++;
     }
     
-    proc = &ipc->process[s];
-    
-    if(!proc->active) {
-      socks = proc->pipe;
-      
-      assert(socks[0] == NGX_INVALID_FILE && socks[1] == NGX_INVALID_FILE);
-      
-      //make-a-pipe
-      if (pipe(socks) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "pipe() failed while initializing nchan IPC");
-        return NGX_ERROR;
-      }
-      //make both ends nonblocking
-      for(j=0; j <= 1; j++) {
-        if (ngx_nonblocking(socks[j]) == -1) {
-          ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on pipe socket %i while initializing nchan", j);
-          ipc_try_close_fd(&socks[0]);
-          ipc_try_close_fd(&socks[1]);
-          return NGX_ERROR;
-        }
-      }
-      //It's ALIIIIIVE! ... erm.. active...
-      proc->active = 1;
+    if(slot_callback) {
+      slot_callback(s, i);
     }
+    
+    proc = &ipc->process[s];
+
+    socks = proc->pipe;
+    
+    if(proc->active) {
+      // reinitialize already active pipes. This is done to prevent IPC alerts
+      // from a previous restart that were never read from being received by
+      // a newly restarted worker
+      ipc_try_close_fd(&socks[0]);
+      ipc_try_close_fd(&socks[1]);
+      proc->active = 0;
+    }
+    
+    assert(socks[0] == NGX_INVALID_FILE && socks[1] == NGX_INVALID_FILE);
+    
+    //make-a-pipe
+    if (pipe(socks) == -1) {
+      ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "pipe() failed while initializing nchan IPC");
+      return NGX_ERROR;
+    }
+    //make both ends nonblocking
+    for(j=0; j <= 1; j++) {
+      if (ngx_nonblocking(socks[j]) == -1) {
+	ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, ngx_nonblocking_n " failed on pipe socket %i while initializing nchan", j);
+	ipc_try_close_fd(&socks[0]);
+	ipc_try_close_fd(&socks[1]);
+	return NGX_ERROR;
+      }
+    }
+    //It's ALIIIIIVE! ... erm.. active...
+    proc->active = 1;
+    
     s++; //NEXT!!
   }
   
@@ -361,7 +373,9 @@ static void ipc_read_handler(ngx_event_t *ev) {
         return;
     }
     ngx_memzero(&glob->timer, sizeof(glob->timer));
+#if nginx_version >= 1008000
     glob->timer.cancelable = 1;
+#endif
     glob->timer.handler = fake_ipc_alert_delay_handler;
     glob->timer.log = ngx_cycle->log;
     glob->timer.data = glob;

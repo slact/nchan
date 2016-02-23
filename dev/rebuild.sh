@@ -66,6 +66,63 @@ for opt in $*; do
   esac
 done
 
+export NO_WITH_DEBUG=1
+
+_build_nginx() {
+
+  if type "makepkg" > /dev/null; then
+    if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
+      makepkg -f -e
+    else
+      makepkg -f
+    fi
+    return 0
+  fi
+
+  export NO_NGINX_USER=1
+  export NO_GCC_COLOR=1
+  export startdir="$(pwd)"
+  export EXPLICIT_CFLAGS=1
+
+  rm "${startdir}/pkg/" -Rf
+  srcdir="${startdir}/src"
+
+  source ./PKGBUILD
+
+  pkgdir="${startdir}/pkg/${pkgname}"
+  mkdir -p "$srcdir" "$pkgdir"
+
+  echo $_nginx_source
+  echo $_no_pool_patch_source
+  
+  wget --no-clobber $_nginx_source
+  wget --no-clobber $_no_pool_patch_source
+
+  if [[ -z $NO_EXTRACT_SOURCE ]]; then
+    pushd src
+    _nginx_src_file="${_nginx_source##*/}"
+    echo $_nginx_src_file
+    tar xf "../${_nginx_src_file}"
+    cp "../${_no_pool_patch_source##*/}" ./
+    if [[ ! -d ngx_debug_pool ]]; then
+      git clone "$_ngx_debug_pool_url"
+    else
+      pushd ngx_debug_pool
+      git pull
+      popd
+    fi
+    popd
+  fi
+
+  build
+
+  pushd "${srcdir}/nginx-${_nginx_ver}"
+  ls -alh
+  make DESTDIR="$pkgdir/" install
+  popd
+}
+
+
 export OPTIMIZE_LEVEL=$optimize_level
 
 if [[ -z $NO_MAKE ]]; then
@@ -84,11 +141,8 @@ if [[ -z $NO_MAKE ]]; then
   fi
   pushd ./nginx-nchan >/dev/null
   
-  if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
-    makepkg -f -e
-  else
-    makepkg -f
-  fi
+  _build_nginx
+  
   popd >/dev/null
 fi
 if ! [[ -z $CLANG_ANALYZER ]]; then
@@ -98,3 +152,5 @@ if ! [[ -z $CLANG_ANALYZER ]]; then
   scan-view $latest_scan 2>/dev/null
   popd >/dev/null
 fi
+
+

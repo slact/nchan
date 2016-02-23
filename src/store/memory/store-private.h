@@ -87,8 +87,6 @@ struct nchan_reloading_channel_s {
 typedef struct {
   nchan_reloading_channel_t         *rlch;
   ngx_atomic_int_t                   procslot[NGX_MAX_PROCESSES];
-  ngx_int_t                          procslot_offset;
-  ngx_int_t                          old_procslot_offset;
   ngx_atomic_int_t                   max_workers;
   ngx_atomic_int_t                   old_max_workers;
   ngx_atomic_int_t                   active_workers;
@@ -100,6 +98,7 @@ typedef struct {
 
 nchan_store_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);
 nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf);
+nchan_store_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *channel_id, nchan_loc_conf_t *cf);
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status);
 shmem_t *nchan_memstore_get_shm(void);
 ipc_t *nchan_memstore_get_ipc(void);
@@ -109,7 +108,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
 ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
-ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head);
+ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, uint8_t ipc_subscribe_if_needed);
 ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head);
 
 #if FAKESHARD

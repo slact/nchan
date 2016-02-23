@@ -80,10 +80,9 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   
   if(len > 512) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN: Channel info string too long: max: 512, is: %i", len);
-    len = 512;
   }
   
-  b->last = ngx_sprintf(b->start, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
+  b->last = ngx_snprintf(b->start, 512, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
   b->end = b->last;
   
   return b;

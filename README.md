@@ -8,7 +8,7 @@ Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requ
 
 ## Status and History
 
-The latest Nchan release is v0.98 (January 21, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
+The latest Nchan release is v0.99.6 (February 22, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy.
 
@@ -35,6 +35,7 @@ Currently, Nchan's performance is limited by available memory bandwidth. This ca
  - [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
  - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/): [nginx-common](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras](https://nchan.slact.net/download/nginx-extras.deb), compiled with Nchan. Download both and install them with `dpkg -i`. These packages should soon be available directly from the Debian repository.
+ - [Ubuntu](http://www.ubuntu.com/): For Ubuntu 'trusty' (14.04 LTS), install `nginx-common` from the repo, then download [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). This build is based on nginx 1.4, which is the version bundled with ubuntu `trusty`, and is rather outdated. You can also use the debian packages.
  - [Fedora](https://fedoraproject.org): A 64-bit binary rpm and a source rpm are available: [nginx-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-nchan.x86-64.rpm), [ngx-nchan.src.rpm](https://nchan.slact.net/download/nginx-nchan.src.rpm). 
  - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
 
@@ -385,14 +386,14 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `10`  
   context: http, server, location  
   legacy names: push_max_message_buffer_length, push_message_buffer_length  
-  > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
+  > Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
 
 - **nchan_message_timeout** `<time>`  
   arguments: 1  
   default: `1h`  
   context: http, server, location  
   legacy name: push_message_timeout  
-  > The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
+  > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
 
 - **nchan_redis_url**  
   arguments: 1  
@@ -405,7 +406,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `on`  
   context: http, server, location, if  
   legacy name: push_store_messages  
-  > Whether or not message queuing is enabled. "Off" is equivalent to the setting nchan_channel_buffer_length 0    
+  > Publisher configuration. "`off`" is equivalent to setting `nchan_channel_buffer_length 0`    
 
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  

@@ -12,6 +12,9 @@ local msg={
   time= time,
   tag= 0
 }
+if msg.ttl == 0 then
+  msg.ttl = 126144000 --4 years
+end
 local store_at_most_n_messages = ARGV[7]
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 7, max_msg_buf_size, can't be empty"}

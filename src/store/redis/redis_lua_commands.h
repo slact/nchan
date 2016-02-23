@@ -22,6 +22,10 @@ typedef struct {
   // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
   char *get_message;
 
+  //input:  keys: [message_key], values: []
+  //output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
+  char *get_message_from_key;
+
   //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   char *publish;
@@ -50,7 +54,8 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "9af42e385bc489cae6453e569ed40423a52ab397",
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "4965038f835d8a7599134b9e02f50a9b269fdeea",
-  "61308a3e69a2857570da0cbc8cf28afe6d33c4fd",
+  "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
+  "b253f6c32beb1a0cef9dd743b0281f1525bbbdd7",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -63,6 +68,7 @@ static store_redis_lua_scripts_t store_rds_lua_script_names = {
   "delete",
   "find_channel",
   "get_message",
+  "get_message_from_key",
   "publish",
   "publish_status",
   "subscriber_register",
@@ -363,6 +369,17 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  end\n"
   "end",
 
+  //get_message_from_key
+  "--input:  keys: [message_key], values: []\n"
+  "--output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
+  "\n"
+  "local key = KEYS[1]\n"
+  "\n"
+  "local ttl = redis.call('TTL', key)\n"
+  "local time, tag, prev_time, prev_tag, data, content_type, es_event = unpack(redis.call('HMGET', key, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event'))\n"
+  "\n"
+  "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n",
+
   //publish
   "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
   "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
@@ -378,6 +395,9 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  time= time,\n"
   "  tag= 0\n"
   "}\n"
+  "if msg.ttl == 0 then\n"
+  "  msg.ttl = 126144000 --4 years\n"
+  "end\n"
   "local store_at_most_n_messages = ARGV[7]\n"
   "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
   "  return {err=\"Argument 7, max_msg_buf_size, can't be empty\"}\n"
@@ -600,7 +620,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "local num_messages = redis.call('llen', key.messages)\n"
   "\n"
   "dbg(\"channel \", id, \" ttl: \",channel.ttl, \", subscribers: \", channel.subscribers, \"(fake: \", channel.fake_subscribers or \"nil\", \"), messages: \", num_messages)\n"
-  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}",
+  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}\n",
 
   //publish_status
   "--input:  keys: [], values: [channel_id, status_code]\n"

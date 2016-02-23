@@ -125,7 +125,7 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   //ngx_memzero(&fake_conf, sizeof(fake_conf));
   fake_conf.use_redis = d->use_redis;
   
-  head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
+  head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, &fake_conf);
   if(head == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
     assert(0);
@@ -223,8 +223,13 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
   nchan_store_channel_head_t    *chead;
   
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
-    ERR("can't find chanhead for id %V", d->shm_chid);
-    assert(0);
+    if(ngx_exiting) {
+      ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
+    }
+    else {
+      ERR("can't find chanhead for id %V", d->shm_chid);
+      assert(0);
+    }
     return;
   }
   
@@ -484,6 +489,15 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, nchan_channel_t *chan, 
       chan_info->messages = chan->messages;
       chan_info->subscribers = chan->subscribers;
       chan_info->last_seen = chan->last_seen;
+      
+      if(chan->last_published_msg_id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
+        //meh, this can't be triggered... can it?...
+        nchan_msg_id_t           zeroid = NCHAN_ZERO_MSGID;
+        chan_info->last_published_msg_id = zeroid;
+      }
+      else {
+        chan_info->last_published_msg_id = chan->last_published_msg_id;
+      }
     }
   }
   else {
