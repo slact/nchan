@@ -2429,6 +2429,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   nchan_msg_t                 *publish_msg;
   ngx_int_t                    owner = chead->owner;
   ngx_int_t                    rc;
+  time_t                       timeout = (cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60);
   
   if(callback == NULL) {
     callback = empty_callback;
@@ -2440,7 +2441,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   if(msg->id.time == 0) {
     msg->id.time = ngx_time();
   }
-  msg->expires = msg->id.time + cf->buffer_timeout;
+  
+  msg->expires = msg->id.time + timeout;
   
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
@@ -2448,7 +2450,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     return NGX_OK;
   }
   
-  chead->channel.expires = ngx_time() + cf->buffer_timeout;
+  chead->channel.expires = ngx_time() + timeout;
   sub_count = chead->shared->sub_count;
   
   chead->max_messages = cf->max_messages;
