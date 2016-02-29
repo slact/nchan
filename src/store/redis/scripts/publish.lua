@@ -229,7 +229,7 @@ dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
 --now publish to the efficient channel
 local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]
-if numsub > 0 then
+if tonumber(numsub) > 0 then
   msgpacked = cmsgpack.pack(unpacked)
   redis.call('PUBLISH', channel_pubsub, msgpacked)
 end
