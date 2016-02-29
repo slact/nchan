@@ -32,7 +32,7 @@ else
   _include_http2=1
 fi
 
-
+_pkgname="nginx"
 PKGEXT=".pkg.tar"
 
 _user="http"
