@@ -401,7 +401,7 @@ class PubSubTest <  Minitest::Test
     test_broadcast 20
   end
   
-  def test_multipart
+  def test_longpoll_multipart
     pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false
     
     pub.post "first", "text/x-foobar"
@@ -412,6 +412,8 @@ class PubSubTest <  Minitest::Test
     sub.wait
    
     verify pub, sub
+    sub.terminate
+  end
   end
   
   def test_broadcast(clients=400)
