@@ -189,7 +189,7 @@ class PubSubTest <  Minitest::Test
   end
   
   
-  def no_test_multi_n(n=2)
+  def test_multi_n(n=2)
     
     pubs = []
     n.times do |i|
@@ -211,6 +211,8 @@ class PubSubTest <  Minitest::Test
       pubs.each {|p| p.pub.post "hello #{i} from #{p.id}" }
     end
     
+    sleep 1
+    
     5.times do |i|
       pubs.first.pub.post "yes #{i} from #{pubs.first.id}"
     end
@@ -225,6 +227,8 @@ class PubSubTest <  Minitest::Test
     subs << latesubs
     latesubs.run
     
+    sleep 1
+    
     10.times do |i|
       pubs.each {|p| p.pub.post "hello again #{i} from #{p.id}" }
     end
@@ -233,7 +237,24 @@ class PubSubTest <  Minitest::Test
     subs.each &:wait
     sleep 1
     
-    binding.pry
+    subs.each do |sub|
+      msgs=[]
+      pubs.each { |p| msgs << p.pub.messages.messages }
+      
+      sub.messages.each do |msg|  
+        matched = false
+        for mm in msgs do
+          if mm.first == msg.message
+            matched = true
+            mm.shift
+            break
+          end
+        end
+        assert_equal matched, true, "message not matched"
+      end
+      
+      sub.terminate
+    end
     
   end
   

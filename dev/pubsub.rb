@@ -116,6 +116,10 @@ class MessageStore
     buf
   end
 
+  def [](i)
+    @msgs[i]
+  end
+  
   def each
     if @array
       @msgs.each {|msg| yield msg }
