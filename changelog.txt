@@ -1,3 +1,4 @@
+ fix: compatibility with supported Redis versions < 2.8.14
  fix: nchan_message_timeout 0 should not expire messages
 0.99.6 (Feb. 22 2016)
  fix: SIGHUP reloading under load
