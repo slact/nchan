@@ -36,6 +36,24 @@ class Message
   def to_s
     @message
   end
+  
+  def self.each_multipart_message(content_type, body)
+    content_type = content_type.last if Array === content_type 
+    matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match content_type
+    
+    if matches
+      splat = body.split(/^--#{Regexp.escape matches[:boundary]}-?-?\r?\n?/)
+      splat.shift
+      
+      splat.each do |v|
+        mm=(/(Content-Type:\s(?<content_type>.*?)\r\n)?\r\n(?<body>.*)\r\n/m).match v
+        yield mm[:content_type], mm[:body], true
+      end
+      
+    else
+      yield content_type, body
+    end
+  end
 end
 
 class MessageStore
@@ -601,18 +619,27 @@ class Subscriber
     def response_success(response, req)
       #puts "received OK response at #{req.url}"
       #parse it
-      unless @nomsg
-        msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
-        msg.content_type=response.headers["Content-Type"]
-        req.options[:headers]["If-None-Match"]=msg.etag
-        req.options[:headers]["If-Modified-Since"]=msg.last_modified
-      else
-        msg=response.body
-        req.options[:headers]["If-None-Match"] = response.headers["Etag"]
-        req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
+      req.options[:headers]["If-None-Match"] = response.headers["Etag"]
+      req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
+      
+      on_message_ret = nil
+      
+      Message.each_multipart_message(response.headers["Content-Type"], response.body) do |content_type, body, multi|
+        unless @nomsg
+          msg=Message.new body
+          msg.content_type=content_type
+          unless multi
+            msg.last_modified= response.headers["Last-Modified"]
+            msg.etag= response.headers["Etag"]
+          end
+        else
+          msg=body
+        end
+        
+        on_message_ret = @subscriber.on_message(msg, req)
       end
       
-      unless @subscriber.on_message(msg, req) == false
+      unless on_message_ret == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
         @hydra.queue new_request(old_request: req)
