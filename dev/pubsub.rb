@@ -33,6 +33,15 @@ class Message
   def id
     @id||=serverside_id
   end
+  def unique_id
+    if id.include? ","
+      time, etag = id.split ":"
+      etag = etag.split(",").map{|x| x[0] == "[" ? x : "?"}.join "," #]
+      [time, etag].join ":"
+    else
+      id
+    end
+  end
   def to_s
     @message
   end
@@ -131,12 +140,12 @@ class MessageStore
     if @array
       @msgs << msg
     else
-      if (cur_msg=@msgs[msg.id])
+      if (cur_msg=@msgs[msg.unique_id])
         puts "Different messages with same id: #{msg.id}, \"#{msg.to_s}\" then \"#{cur_msg.to_s}\"" unless cur_msg.message == msg.message
         cur_msg.times_seen+=1
         cur_msg.times_seen
       else
-        @msgs[msg.id]=msg
+        @msgs[msg.unique_id]=msg
         1
       end
     end
