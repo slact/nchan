@@ -414,7 +414,22 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
     sub.terminate
   end
+  
+  def test_multiplexed_longpoll_multipart
+    chans= [short_id, short_id, short_id]
+    pub, sub = pubsub 1, sub: "sub/multipart_multiplex/#{chans.join "/"}", pub: "pub/#{chans[1]}", channel: "", use_message_id: false
+    
+    pub.post "first", "text/x-foobar"
+    pub.post ["1", "2", "3", "4"]
+    sub.run
+    sleep 0.5
+    pub.post "FIN"
+    sub.wait
+   
+    verify pub, sub
+    sub.terminate
   end
+  
   
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
