@@ -175,9 +175,9 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def multi_sub_url(pubs)
+  def multi_sub_url(pubs, prefix="/sub/multi/", delim="/")
     ids = pubs.map{|v| v.id}.shuffle
-    "/sub/multi/#{ids.join '/'}"
+    "#{prefix}#{ids.join delim}"
   end
   
   class MultiCheck
@@ -189,18 +189,22 @@ class PubSubTest <  Minitest::Test
   end
   
   
-  def test_multi_n(n=2)
+  def test_channel_multiplexing(n=2, delimited=false)
     
     pubs = []
     n.times do |i|
       pubs << MultiCheck.new(short_id)
     end
     
-    n = 50
+    sub_url=delimited ? multi_sub_url(pubs, '/sub/split/', '_') : multi_sub_url(pubs)
+    
+    n = 15
     scrambles = 5
     subs = []
     scrambles.times do |i|
-      subs << Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1)
+      sub.on_failure { false }
+      subs << sub
     end
     
     subs.each &:run
@@ -223,7 +227,8 @@ class PubSubTest <  Minitest::Test
       end
     end
     
-    latesubs = Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+    latesubs = Subscriber.new(url(sub_url), n, quit_message: 'FIN')
+    latesubs.on_failure { false }
     subs << latesubs
     latesubs.run
     
@@ -236,8 +241,10 @@ class PubSubTest <  Minitest::Test
     pubs.first.pub.post "FIN"
     subs.each &:wait
     sleep 1
-    
-    subs.each do |sub|
+    subs.each_with_index do |sub, sub_i|
+      
+      assert_equal 0, sub.errors.count, "Subscriber encountered #{sub.errors.count} errors: #{sub.errors.join ", "}"
+      
       msgs=[]
       pubs.each { |p| msgs << p.pub.messages.messages }
       
@@ -256,6 +263,14 @@ class PubSubTest <  Minitest::Test
       sub.terminate
     end
     
+  end
+  
+  def test_channel_multiplexing_5
+    test_channel_multiplexing 5
+  end
+  
+  def test_channel_delimitered_multiplexing_15
+    test_channel_multiplexing 15, true
   end
   
   def test_message_delivery
