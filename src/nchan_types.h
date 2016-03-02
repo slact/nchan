@@ -88,6 +88,10 @@ struct nchan_msg_s {
 #endif
 }; // nchan_msg_t
 
+typedef struct {
+  nchan_msg_t       copy;
+  nchan_msg_t      *original;
+} nchan_msg_copy_t;
 
 typedef struct {
   ngx_str_t                       id;

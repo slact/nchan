@@ -1833,7 +1833,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
-  nchan_msg_t                 retmsg;
+  nchan_msg_copy_t            retmsg;
   
   /*
   switch(status) {
@@ -1891,37 +1891,38 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       int16_t      *muhtags;
       
       ngx_int_t     n = d->n;
-      ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
-      retmsg.shared = 0;
-      retmsg.temp_allocd = 0;
+      retmsg.copy = *d->msg;
+      retmsg.copy.shared = 0;
+      retmsg.copy.temp_allocd = 0;
+      retmsg.original = d->msg;
       
-      nchan_copy_msg_id(&retmsg.prev_id, &d->wanted_msgid, multi_prevlargetag);
+      nchan_copy_msg_id(&retmsg.copy.prev_id, &d->wanted_msgid, multi_prevlargetag);
       
       //TODO: some kind of missed-message check maybe?
       
       if (d->wanted_msgid.time != d->msg->id.time) {
-        nchan_copy_msg_id(&retmsg.id, &d->msg->id, multi_largetag);
+        nchan_copy_msg_id(&retmsg.copy.id, &d->msg->id, multi_largetag);
         
         if(d->multi_count > NCHAN_FIXED_MULTITAG_MAX) {
-          retmsg.id.tag.allocd = multi_largetag;
+          retmsg.copy.id.tag.allocd = multi_largetag;
           assert(d->msg->id.tagcount == 1);
-          retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
+          retmsg.copy.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
         }
-        retmsg.id.tagcount = d->multi_count;
-        nchan_expand_msg_id_multi_tag(&retmsg.id, 0, n, -1);
+        retmsg.copy.id.tagcount = d->multi_count;
+        nchan_expand_msg_id_multi_tag(&retmsg.copy.id, 0, n, -1);
       }
       else {
-        nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
+        nchan_copy_msg_id(&retmsg.copy.id, &d->wanted_msgid, multi_largetag); 
       }
       
-      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
+      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.copy.id.tag.allocd : retmsg.copy.id.tag.fixed;
       muhtags[n] = d->msg->id.tag.fixed[0];
       
-      retmsg.id.tagactive = n;
+      retmsg.copy.id.tagactive = n;
       
-      DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
+      DBG("respond msg id transformed into %p %V", &retmsg.copy, msgid_to_str(&retmsg.copy.id));
       
-      d->cb(d->msg_status, &retmsg, d->privdata);
+      d->cb(d->msg_status, &retmsg.copy, d->privdata);
       msg_release(d->msg, "get multi msg");
     }
     else {
@@ -2283,6 +2284,7 @@ ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
   }
   shmtx_unlock(shm);
 #endif
+  //DBG("msg %p reserved (%i) %s", msg, msg->refcount, lbl);
   return NGX_OK;
 }
 
@@ -2316,6 +2318,7 @@ ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
 #endif
   assert(msg->refcount > 0);
   ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
+  //DBG("msg %p released (%i) %s", msg, msg->refcount, lbl);
   return NGX_OK;
 }
 

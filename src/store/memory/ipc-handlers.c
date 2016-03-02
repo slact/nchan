@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
+#include "store.h"
 #include <assert.h>
 #include "../../subscribers/memstore_ipc.h"
 

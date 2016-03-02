@@ -7,6 +7,13 @@
 #include <assert.h>
 #include "longpoll-private.h"
 
+#include <store/memory/store.h>
+
+//a classic
+#define container_of(ptr, type, member) ({ \
+  const typeof( ((type *)0)->member ) *__mptr = (ptr); \
+  (type *)( (char *)__mptr - offsetof(type,member) );})1
+
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop(void);
@@ -230,8 +237,33 @@ static ngx_int_t longpoll_multimsg_add(full_subscriber_t *fsub, nchan_msg_t *msg
   nchan_longpoll_multimsg_t     *mmsg;
   
   if((mmsg = ngx_palloc(fsub->sub.request->pool, sizeof(*mmsg))) == NULL) {
-    *err = "can't allocate multimsg";
+    *err = "can't allocate multipart msg link";
     return NGX_ERROR;
+  }
+  
+  if(msg->shared) {
+    msg_reserve(msg, "longpoll multipart");
+  }
+  else if(msg->id.tagcount > 1) {
+    //msg from a multiplexed channel
+    assert(!msg->shared && !msg->temp_allocd);
+    nchan_msg_copy_t *cmsg;
+    if((cmsg = ngx_palloc(fsub->sub.request->pool, sizeof(*cmsg))) == NULL) {
+      *err = "can't allocate msgcopy for message from multiplexed channel";
+      return NGX_ERROR;
+      
+    }
+    //  multiplexed channel message should have been created as a nchan_msg_copy_t
+    *cmsg = *(nchan_msg_copy_t *)msg;
+    
+    cmsg->copy.temp_allocd = 1;
+    
+    assert(cmsg->original->shared);
+    msg_reserve(cmsg->original, "longpoll multipart for multiplexed channel");
+    msg = &cmsg->copy;
+  }
+  else {
+    assert(0); //this is not yet an expected scenario;
   }
   
   mmsg->msg = msg;
@@ -285,6 +317,27 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   return rc;
 }
 
+static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) {
+  nchan_longpoll_multimsg_t    *cur;
+  nchan_msg_copy_t             *cmsg;
+  for(cur = first; cur != NULL; cur = cur->next) {
+    if(cur->msg->shared) {
+      msg_release(cur->msg, "longpoll multipart");
+    }
+    else if(cur->msg->id.tagcount > 1) {
+      assert(!cur->msg->shared && cur->msg->temp_allocd);
+      // multiplexed channel message should have been created as a nchan_msg_copy_t
+      cmsg = (nchan_msg_copy_t *)cur->msg;
+      
+      assert(cmsg->original->shared);
+      msg_release(cmsg->original, "longpoll multipart for multiplexed channel");
+    }
+    else {
+      assert(0);
+    }
+  }
+}
+
 static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
@@ -301,17 +354,24 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   ngx_buf_t              double_newline_buf;
   ngx_str_t             *content_type;
   size_t                 size = 0;
+  nchan_longpoll_multimsg_t *first, *cur;
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
   
-  nchan_longpoll_multimsg_t *first, *cur;
+  first = fsub->data.multimsg_first;
+  
   
   fsub->sub.dequeue_after_response = 1;
   
   if(ctx->request_origin_header.len > 0) {
     nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
   }
+  
+  //cleanup to release msgs
+  fsub->data.cln = ngx_http_cleanup_add(fsub->sub.request, 0);
+  fsub->data.cln->data = first;
+  fsub->data.cln->handler = (ngx_http_cleanup_pt )multipart_request_cleanup_handler;
   
   if(fsub->data.multimsg_first == fsub->data.multimsg_last) {
     //just one message.
@@ -355,8 +415,6 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
     boundary[i].pos = boundary[i].start;
     boundary[i].last = boundary[i].end;
   }
-  
-  first = fsub->data.multimsg_first;
   
   for(cur = first; cur != NULL; cur = cur->next) {
     chains = ngx_palloc(r->pool, sizeof(*chains)*4);
@@ -428,6 +486,8 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
   nchan_loc_conf_t      *cf = fsub->sub.cf;
+  
+  //DBG("%p got status %i", self, status_code);
   
   if(fsub->data.act_as_intervalpoll) {
     if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED || status_code == NGX_HTTP_NOT_FOUND ) {
