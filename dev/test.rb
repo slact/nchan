@@ -432,10 +432,8 @@ class PubSubTest <  Minitest::Test
   
   def test_longpoll_multipart_extended(range=30..35)
     range.each do |i|
-      puts "#{i}"
-      pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 5000
+      pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 3
       i.times do |n|
-        puts "pub #{n+1}"
         pub.post "#{n+1}"
       end
       pub.post "FIN"
