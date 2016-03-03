@@ -430,6 +430,22 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
+  def test_longpoll_multipart_extended(range=30..35)
+    range.each do |i|
+      puts "#{i}"
+      pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 5000
+      i.times do |n|
+        puts "pub #{n+1}"
+        pub.post "#{n+1}"
+      end
+      pub.post "FIN"
+      sub.run
+      sub.wait
+      verify pub, sub
+      sleep 0.1
+    end
+  end
+  
   def test_multiplexed_longpoll_multipart
     chans= [short_id, short_id, short_id]
     pub, sub = pubsub 1, sub: "sub/multipart_multiplex/#{chans.join "/"}", pub: "pub/#{chans[1]}", channel: "", use_message_id: false

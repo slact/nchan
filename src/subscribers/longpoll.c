@@ -232,7 +232,7 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   return NGX_ERROR;
 }
 
-static ngx_int_t longpoll_multimsg_add(full_subscriber_t *fsub, nchan_msg_t *msg, char **err) {
+static ngx_int_t longpoll_multipart_add(full_subscriber_t *fsub, nchan_msg_t *msg, char **err) {
   
   nchan_longpoll_multimsg_t     *mmsg;
   
@@ -309,7 +309,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
     }
   }
   else {
-    if((rc = longpoll_multimsg_add(fsub, msg, &err)) != NGX_OK) {
+    if((rc = longpoll_multipart_add(fsub, msg, &err)) != NGX_OK) {
       return abort_response(self, err);
     }
   }
@@ -338,7 +338,7 @@ static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) 
   }
 }
 
-static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
+static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
   nchan_loc_conf_t      *cf = fsub->sub.cf;
@@ -425,7 +425,12 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
     if(!first_chain) {
       first_chain = &chains[0];
     }
-    chains[0].buf = cur == first ? &boundary[0] : &boundary[1];
+    
+    // each buffer needs to be unique for the purpose of dealing with nginx output guts
+    // (something about max. 64 iovecs per write call and counting the number of bytes already sent)
+    buf = ngx_pcalloc(r->pool, sizeof(*buf));
+    *buf = cur == first ? boundary[0] : boundary[1];
+    chains[0].buf = buf;
     chains[0].next = &chains[1];
     
     size += ngx_buf_size(chains[0].buf);
@@ -441,7 +446,10 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
       chains[1].buf = buf;
     }
     else {
-      chains[1].buf = &double_newline_buf;
+
+      buf = ngx_palloc(r->pool, sizeof(*buf));
+      chains[1].buf = buf;
+      *buf = double_newline_buf;
     }
     size += ngx_buf_size(chains[1].buf);
     
@@ -449,8 +457,9 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
       chains[1].next = &chains[2];
       
       buf = ngx_palloc(r->pool, sizeof(*buf));
-      ngx_memcpy(buf, cur->msg->buf, sizeof(*buf));
+      *buf = *cur->msg->buf;
       nchan_msg_buf_open_fd_if_needed(buf, NULL, r);
+      buf->last_buf = 0;
       chains[2].buf = buf;
       size += ngx_buf_size(chains[2].buf);
       
@@ -497,7 +506,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
     if(cf->longpoll_multimsg) {
       if(fsub->data.multimsg_first != NULL) {
-        longpoll_multimsg_respond(fsub);
+        longpoll_multipart_respond(fsub);
         dequeue_maybe(self);
       }
       return NGX_OK;
