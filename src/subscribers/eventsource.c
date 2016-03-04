@@ -32,7 +32,6 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
   ngx_http_request_t             *r = fsub->sub.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
   nchan_buf_and_chain_t           bc;
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   if(!fsub->data.shook_hands) {
   
