@@ -11,9 +11,9 @@ const  ngx_str_t NCHAN_HEADER_CACHE_CONTROL = ngx_string("Cache-Control");
 const  ngx_str_t NCHAN_HEADER_PRAGMA = ngx_string("Pragma");
 const  ngx_str_t NCHAN_HEADER_ORIGIN = ngx_string("Origin");
 
-const  ngx_str_t NCHAN_HEADER_ALLOW_HEADERS = ngx_string("Access-Control-Allow-Headers");
-const  ngx_str_t NCHAN_HEADER_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
-const  ngx_str_t NCHAN_HEADER_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
+const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS = ngx_string("Access-Control-Allow-Headers");
+const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
+const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
 
 const  ngx_str_t NCHAN_HEADER_EVENTSOURCE_EVENT = ngx_string("X-EventSource-Event");
 
@@ -40,10 +40,10 @@ const  ngx_str_t NCHAN_HTTP_STATUS_410 = ngx_string("410 Gone");
 
 //other stuff
 const  ngx_str_t NCHAN_ANYSTRING= ngx_string("*");
-const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS = ngx_string("Content-Type, Origin");
-const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS = ngx_string("If-None-Match, If-Modified-Since, Origin");
-const  ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS= ngx_string("GET, POST, PUT, DELETE, OPTIONS");
-const  ngx_str_t NCHAN_ALLOW_GET_OPTIONS= ngx_string("GET, OPTIONS");
+const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS = ngx_string("Content-Type");
+const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS = ngx_string("If-None-Match, If-Modified-Since, Content-Type, Cache-Control, X-EventSource-Event");
+const  ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
+const  ngx_str_t NCHAN_ALLOW_GET= ngx_string("GET");
 const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
 
 const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");

@@ -212,7 +212,7 @@ void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request
   }
   if(ctx->request_origin_header.data) {
     cf = ngx_http_get_module_loc_conf(r, nchan_module);
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, &cf->allow_origin);
   }
 }
 
@@ -466,11 +466,15 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
 }
 
 ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_origin, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods) {
-
+  nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
-  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN,  allow_origin);
-  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_HEADERS, allowed_headers);
-  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_METHODS, allowed_methods);
+  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, allowed_methods);
+  
+  if(ctx && ctx->request_origin_header.data) {
+    //Access-Control-Allow-Origin is included later
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS, allowed_headers);
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS, allowed_methods);
+  }
   return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
 }
 

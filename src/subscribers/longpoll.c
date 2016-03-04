@@ -489,7 +489,6 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   full_subscriber_t     *fsub = (full_subscriber_t *)self;
   ngx_http_request_t    *r = fsub->sub.request;
-  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
   nchan_loc_conf_t      *cf = fsub->sub.cf;
   
   //DBG("%p got status %i", self, status_code);
@@ -519,10 +518,6 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
-  
-  if(ctx->request_origin_header.len > 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-  }
   
   nchan_respond_status(r, status_code, status_line, 0);
 
