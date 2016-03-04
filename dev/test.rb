@@ -26,7 +26,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}")
   return pub, sub
 end
@@ -596,7 +596,7 @@ class PubSubTest <  Minitest::Test
     assert response.headers[header].include?(str), "Response header '#{header}:#{response.headers[header]}' must include \"#{str}\", but does not."
   end
   
-  def test_options
+  def test_access_control_options
     chan=SecureRandom.hex
     request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS
     resp = request.run
@@ -609,6 +609,62 @@ class PubSubTest <  Minitest::Test
     assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
     %w( GET POST DELETE OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
     %w( Content-Type Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+  end
+  
+  def generic_test_access_control(opt)
+    pub, sub = pubsub 1, extra_headers: { Origin: opt[:origin] }, pub: opt[:pub_url], sub: opt[:sub_url]
+    
+    sub.on_message do |msg, req|
+      opt[:verify_sub_response].call(req.response) if opt[:verify_sub_response]
+    end
+    
+    pub.post "FIN"
+    sub.run
+    sub.wait
+    
+    yield pub, sub if block_given?
+    
+    sub.terminate
+  end
+  
+  def test_access_control
+    
+    ver= proc{ |resp| assert_equal "*", resp.headers["Access-Control-Allow-Origin"] }
+    generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
+      verify pub, sub
+    end
+    
+    ver= proc { |resp| assert_equal "http://foo.bar", resp.headers["Access-Control-Allow-Origin"] }
+    generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
+      verify pub, sub
+    end
+    
+    #test forbidding stuff
+    pub, sub = pubsub 1, extra_headers: { "Origin": "http://forbidden.com" }, pub: "pub/from_foo.bar/", sub: "sub/from_foo.bar/", timeout: 1
+    
+    pub.extra_headers={ "Origin": "http://foo.bar" }
+    pub.post "yeah"
+    assert_match /20[12]/, pub.response_code.to_s
+    pub.extra_headers={ "Origin": "http://forbidden.com" }
+    post_failed = false
+    begin 
+      pub.post "yeah"
+    rescue Exception => e
+      post_failed = true
+      assert_match /request failed:\s+403/, e.message
+    end
+    assert post_failed
+    
+    sub.on_failure { false }
+    
+    sub.run
+    sub.wait
+    
+    sub.errors.each do |err|
+      assert_match /code 403/, err
+    end
+    sub.terminate
+    
   end
   
   def test_gzip
