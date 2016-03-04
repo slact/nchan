@@ -656,7 +656,10 @@ class PubSubTest <  Minitest::Test
       verify pub, sub
     end
     
-    ver= proc { |resp| assert_equal "http://foo.bar", resp.headers["Access-Control-Allow-Origin"] }
+    ver= proc do |resp| 
+      assert_equal "http://foo.bar", resp.headers["Access-Control-Allow-Origin"] 
+      %w( Last-Modified Etag ).each {|v| assert_header_includes resp, "Access-Control-Expose-Headers", v}
+    end
     generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
       verify pub, sub
     end

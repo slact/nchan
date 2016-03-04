@@ -311,10 +311,16 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
   return &msgtag_str;
 }
 
-ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_msg_id_t *msgid) {
+ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   
+  if(!ctx) {
+    ctx = ngx_http_get_module_ctx(r, nchan_module);
+  }
+  if(ctx && ctx->request_origin_header.data) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSGID_RESPONSE_HEADERS);
+  }
   
   if(!cf->msg_in_etag_only) {
     //last-modified
@@ -346,6 +352,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
   ngx_buf_t                 *rbuffer;
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
@@ -378,14 +385,14 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     msgid = &msg->id;
   }
   
-  if(nchan_set_msgid_http_response_headers(r, msgid) != NGX_OK) {
+  if(nchan_set_msgid_http_response_headers(r, ctx, msgid) != NGX_OK) {
     if(err) *err = "can't set msgid headers";
     return NGX_ERROR;
   }
   
   r->headers_out.status=NGX_HTTP_OK;
   
-  nchan_include_access_control_if_needed(r, NULL);
+  nchan_include_access_control_if_needed(r, ctx);
   
   //we know the entity length, and we're using just one buffer. so no chunking please.
   if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {

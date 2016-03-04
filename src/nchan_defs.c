@@ -14,6 +14,7 @@ const  ngx_str_t NCHAN_HEADER_ORIGIN = ngx_string("Origin");
 const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS = ngx_string("Access-Control-Allow-Headers");
 const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
 const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
+const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS = ngx_string("Access-Control-Expose-Headers");
 
 const  ngx_str_t NCHAN_HEADER_EVENTSOURCE_EVENT = ngx_string("X-EventSource-Event");
 
@@ -44,7 +45,9 @@ const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS = ngx_string("Co
 const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS = ngx_string("If-None-Match, If-Modified-Since, Content-Type, Cache-Control, X-EventSource-Event");
 const  ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
 const  ngx_str_t NCHAN_ALLOW_GET= ngx_string("GET");
+
 const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
+const  ngx_str_t NCHAN_MSGID_RESPONSE_HEADERS = ngx_string("Last-Modified, Etag");
 
 const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");
 

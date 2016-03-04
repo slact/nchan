@@ -476,7 +476,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   
   r->headers_out.status = NGX_HTTP_OK;
   r->headers_out.content_length_n = size;
-  nchan_set_msgid_http_response_headers(r, &fsub->data.multimsg_last->msg->id);
+  nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);
   nchan_include_access_control_if_needed(r, ctx);
   ngx_http_send_header(r);
   nchan_output_filter(r, first_chain);
@@ -514,7 +514,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   DBG("%p respond req %p status %i", self, r, status_code);
   
-  nchan_set_msgid_http_response_headers(r, &self->last_msgid);
+  nchan_set_msgid_http_response_headers(r, NULL, &self->last_msgid);
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
