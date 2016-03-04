@@ -319,7 +319,7 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
     ctx = ngx_http_get_module_ctx(r, nchan_module);
   }
   if(ctx && ctx->request_origin_header.data) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSGID_RESPONSE_HEADERS);
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
   }
   
   if(!cf->msg_in_etag_only) {
