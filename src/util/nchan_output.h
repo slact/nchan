@@ -13,6 +13,7 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_msg_id_t *msgid);
 ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_origin, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods);
 ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_id_t *msgid, ngx_int_t finalize, char **err);
+void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx);
 
 ngx_fd_t nchan_fdcache_get(ngx_str_t *filename);
 

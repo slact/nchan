@@ -577,7 +577,6 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
   nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  nchan_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   
   ngx_sha1_t          sha1;
   
@@ -616,7 +615,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     assert(ws_accept_key.len < 255);
     ngx_encode_base64(&ws_accept_key, &sha1_str);
     
-    
+    nchan_include_access_control_if_needed(r, ctx);
     nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
     nchan_add_response_header(r, &NCHAN_HEADER_UPGRADE, &NCHAN_WEBSOCKET);
 #if nginx_version < 1003013
@@ -626,10 +625,6 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
     
     r->keepalive=0; //apparently, websocket must not use keepalive.
-  }
-  
-  if(ctx->request_origin_header.len > 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
   }
   
   ngx_http_send_header(r);

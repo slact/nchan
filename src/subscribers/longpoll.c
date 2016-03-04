@@ -301,9 +301,6 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
     
     assert(fsub->data.already_responded != 1);
     fsub->data.already_responded = 1;
-    if(ctx->request_origin_header.len > 0) {
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-    }
     if((rc = nchan_respond_msg(r, msg, &self->last_msgid, 0, &err)) != NGX_OK) {
       return abort_response(self, err);
     }
@@ -341,7 +338,6 @@ static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) 
 static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  nchan_loc_conf_t      *cf = fsub->sub.cf;
   char                  *err;
   ngx_int_t              rc;
   u_char                 char_boundary[50];
@@ -363,10 +359,6 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   
   
   fsub->sub.dequeue_after_response = 1;
-  
-  if(ctx->request_origin_header.len > 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-  }
   
   //cleanup to release msgs
   fsub->data.cln = ngx_http_cleanup_add(fsub->sub.request, 0);
@@ -416,8 +408,11 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
     boundary[i].last = boundary[i].end;
   }
   
+  int n=0;
+  
   for(cur = first; cur != NULL; cur = cur->next) {
     chains = ngx_palloc(r->pool, sizeof(*chains)*4);
+    n++;
     
     if(last_chain) {
       last_chain->next = &chains[0];
@@ -463,7 +458,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
       chains[2].buf = buf;
       size += ngx_buf_size(chains[2].buf);
       
-      last_chain = &chains[2];
+      last_chain = &chains[2];  
     }
     else {
       last_chain = &chains[1];
@@ -482,6 +477,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   r->headers_out.status = NGX_HTTP_OK;
   r->headers_out.content_length_n = size;
   nchan_set_msgid_http_response_headers(r, &fsub->data.multimsg_last->msg->id);
+  nchan_include_access_control_if_needed(r, ctx);
   ngx_http_send_header(r);
   nchan_output_filter(r, first_chain);
   

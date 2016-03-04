@@ -202,6 +202,20 @@ ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
   return rc;
 }
 
+void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
+  if(!ctx) {
+    ctx = ngx_http_get_module_ctx(r, nchan_module);
+  }
+  nchan_loc_conf_t       *cf;
+  if(!ctx) {
+    return;
+  }
+  if(ctx->request_origin_header.data) {
+    cf = ngx_http_get_module_loc_conf(r, nchan_module);
+    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
+  }
+}
+
 ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize) {
   ngx_int_t    rc = NGX_OK;
   r->headers_out.status=status_code;
@@ -211,7 +225,9 @@ ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, con
   }
   r->headers_out.content_length_n = 0;
   r->header_only = 1;
-    
+  
+  nchan_include_access_control_if_needed(r, NULL);
+  
   rc= ngx_http_send_header(r);
   if(finalize) {
     ngx_http_finalize_request(r, rc);
@@ -369,6 +385,8 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   
   r->headers_out.status=NGX_HTTP_OK;
   
+  nchan_include_access_control_if_needed(r, NULL);
+  
   //we know the entity length, and we're using just one buffer. so no chunking please.
   if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
     ERR("request %p, send_header response %i", r, rc);
@@ -400,6 +418,8 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
     r->headers_out.content_type.len = content_type->len;
     r->headers_out.content_type.data = content_type->data;
   }
+  
+  nchan_include_access_control_if_needed(r, NULL);
   
   if ((!b) || (!chain)) {
     ERR("Couldn't allocate ngx buf or chain.");
