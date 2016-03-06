@@ -141,7 +141,7 @@ build() {
     --with-http_ssl_module
     --add-module="../nchan")
 
-  if [[ -z $NO_WITH_DEBUG ]]; then
+  if [[ $CONFIGURE_WITH_DEBUG == 1 ]]; then
     CONFIGURE+=( "--with-debug" )
   fi
   
