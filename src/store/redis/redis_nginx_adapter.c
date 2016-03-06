@@ -1,5 +1,6 @@
-//Copyright (c) 2014 Wandenberg Peixoto under the MIT Licence
-//edited by slact 2015
+//Copyright (c) 2014 Wandenberg Peixoto under the MIT Licence'
+//additional code from Alexander Lyalin's redis_nginx_module (New BSD licence)
+//edited by slact 2015-2016
 
 #include <ngx_event.h>
 #include <ngx_connection.h>
@@ -12,6 +13,10 @@
 #define AUTH_COMMAND "AUTH %s"
 #define SELECT_DATABASE_COMMAND "SELECT %d"
 #define PING_DATABASE_COMMAND "PING"
+
+#define EVENT_FLAGS ((ngx_event_flags & NGX_USE_CLEAR_EVENT) ?  NGX_CLEAR_EVENT : NGX_LEVEL_EVENT)
+//NGX_CLEAR_EVENT for kqueue, epoll
+//NGX_LEVEL_EVENT for select, poll, /dev/poll
 
 int redis_nginx_event_attach(redisAsyncContext *ac);
 void redis_nginx_cleanup(void *privdata);
@@ -128,10 +133,11 @@ int redis_nginx_fd_is_valid(int fd) {
 
 void redis_nginx_add_read(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
+  ngx_int_t         flags = EVENT_FLAGS;
   if (!connection->read->active && redis_nginx_fd_is_valid(connection->fd)) {
     connection->read->handler = redis_nginx_read_event;
     connection->read->log = connection->log;
-    if (ngx_add_event(connection->read, NGX_READ_EVENT, NGX_CLEAR_EVENT) == NGX_ERROR) {
+    if (ngx_add_event(connection->read, NGX_READ_EVENT, flags) == NGX_ERROR) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not add read event to redis");
     }
   }
@@ -139,19 +145,24 @@ void redis_nginx_add_read(void *privdata) {
 
 void redis_nginx_del_read(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
+  ngx_int_t         flags = EVENT_FLAGS;
   if (connection->read->active && redis_nginx_fd_is_valid(connection->fd)) {
-    if (ngx_del_event(connection->read, NGX_READ_EVENT, 0) == NGX_ERROR) {
+    if (ngx_del_event(connection->read, NGX_READ_EVENT, flags) == NGX_ERROR) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not delete read event to redis");
     }
+  }
+  else {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: didn't delete read event %p", connection->read);
   }
 }
 
 void redis_nginx_add_write(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
+  ngx_int_t         flags = EVENT_FLAGS;
   if (!connection->write->active && redis_nginx_fd_is_valid(connection->fd)) {
     connection->write->handler = redis_nginx_write_event;
     connection->write->log = connection->log;
-    if (ngx_add_event(connection->write, NGX_WRITE_EVENT, NGX_CLEAR_EVENT) == NGX_ERROR) {
+    if (ngx_add_event(connection->write, NGX_WRITE_EVENT, flags) == NGX_ERROR) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not add write event to redis");
     }
   }
@@ -159,8 +170,9 @@ void redis_nginx_add_write(void *privdata) {
 
 void redis_nginx_del_write(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
+  ngx_int_t         flags = EVENT_FLAGS;
   if (connection->write->active && redis_nginx_fd_is_valid(connection->fd)) {
-    if (ngx_del_event(connection->write, NGX_WRITE_EVENT, 0) == NGX_ERROR) {
+    if (ngx_del_event(connection->write, NGX_WRITE_EVENT, flags) == NGX_ERROR) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not delete write event to redis");
     }
   }
@@ -172,7 +184,7 @@ void redis_nginx_cleanup(void *privdata) {
     redisAsyncContext *ac = (redisAsyncContext *) connection->data;
     if (ac->err) {
       nchan_store_redis_connection_close_handler(ac);
-      //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
       /**
         * If the context had an error but the fd still valid is because another context got the same fd from OS.
         * So we clean the reference to this fd on redisAsyncContext and on ngx_connection, avoiding close a socket in use.
@@ -195,6 +207,14 @@ void redis_nginx_cleanup(void *privdata) {
   }
 }
 
+static void redis_nginx_connect_event_handler(const redisAsyncContext *ctx, int status) {
+  ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, "redis_nginx_adapter: connect event for ctx %p, status %i", ctx, status);
+}
+
+static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ctx, int status) {
+  ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, "redis_nginx_adapter: disconnect event for ctx %p, status %i", ctx, status);
+}
+
 int redis_nginx_event_attach(redisAsyncContext *ac) {
   ngx_connection_t *connection;
   redisContext *c = &(ac->c);
@@ -210,6 +230,9 @@ int redis_nginx_event_attach(redisAsyncContext *ac) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not get a connection for fd #%d", c->fd);
     return REDIS_ERR;
   }
+  
+  redisAsyncSetConnectCallback(ac, redis_nginx_connect_event_handler);
+  redisAsyncSetDisconnectCallback(ac, redis_nginx_disconnect_event_handler);
   
   /* Register functions to start/stop listening for events */
   ac->ev.addRead = redis_nginx_add_read;
