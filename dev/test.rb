@@ -649,6 +649,32 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
+  def test_invalid_etag
+    chan_id=short_id
+    pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+    
+    pub.post "heyo"
+    sleep 1
+    pub.post "what"
+    sleep 1
+    pub.post "teah"
+    sleep 1
+    pub.post "meeeep"
+    
+    n = 0
+    sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1)
+    sub.on_message do |msg, req|
+      n=n+1
+      if n == 2
+        req.options[:headers]["If-None-Match"]="null"
+      end
+    end
+    
+    sub.run
+    pub.post "FIN"
+    sub.wait
+  end
+  
   def test_access_control
     
     ver= proc{ |resp| assert_equal "*", resp.headers["Access-Control-Allow-Origin"] }
