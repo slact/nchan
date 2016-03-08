@@ -249,11 +249,13 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
 }
 
 static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
+#if nginx_version >= 1008000  
+  return &r->headers_in.if_none_match->value;
+#else
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
   ngx_table_elt_t                 *header= part->elts;
-  
-  for (i = 0; /* void */ ; i++) {
+  for (i = 0;  ; i++) {
     if (i >= part->nelts) {
       if (part->next == NULL) {
         break;
@@ -265,9 +267,10 @@ static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
     if (header[i].key.len == NCHAN_HEADER_IF_NONE_MATCH.len
       && ngx_strncasecmp(header[i].key.data, NCHAN_HEADER_IF_NONE_MATCH.data, header[i].key.len) == 0) {
       return &header[i].value;
-      }
+    }
   }
   return NULL;
+#endif
 }
 
 static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str){
