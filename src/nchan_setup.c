@@ -12,7 +12,7 @@ ngx_module_t     nchan_module;
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 ngx_flag_t       global_redis_enabled = 0;
 
-
+#define MERGE_CONF(cf, prev_cf, name) if((cf)->name == NULL) { (cf)->name = (prev_cf)->name; }
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -180,8 +180,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
   ngx_conf_merge_value(conf->subscriber_start_at_oldest_message, prev->subscriber_start_at_oldest_message, 1);
-  
-    ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_WEBSOCKET_PING_INTERVAL);
+  ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_WEBSOCKET_PING_INTERVAL);
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->subscribe_only_existing_channel, prev->subscribe_only_existing_channel, 0);
@@ -195,45 +194,35 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");
   
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
-  
   ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);
+  MERGE_CONF(conf, prev, channel_events_channel_id);
+  MERGE_CONF(conf, prev, channel_event_string);
   
-  if(conf->channel_events_channel_id == NULL) {
-    conf->channel_events_channel_id = prev->channel_events_channel_id;
-  }
-  if(conf->channel_event_string == NULL) {
-    conf->channel_event_string = prev->channel_event_string;
-  }
   if(conf->channel_event_string == NULL) { //still null? use the default string
     if(create_complex_value_from_ngx_str(cf, &conf->channel_event_string, &DEFAULT_CHANNEL_EVENT_STRING) == NGX_CONF_ERROR) {
       return NGX_CONF_ERROR;
     }
   }
+
   
   if(conf->storage_engine == NULL) {
     conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;
   }
-  
-  if(conf->authorize_request_url == NULL) {
-    conf->authorize_request_url = prev->authorize_request_url;
-  }
-  
-  if(conf->publisher_upstream_request_url == NULL) {
-    conf->publisher_upstream_request_url = prev->publisher_upstream_request_url;
-  }
+
+  MERGE_CONF(conf, prev, authorize_request_url);
+  MERGE_CONF(conf, prev, publisher_upstream_request_url);
   
   if(conf->pub_chid.n == 0) {
-    ngx_memcpy(&conf->pub_chid, &prev->pub_chid, sizeof(prev->pub_chid));
+    conf->pub_chid = prev->pub_chid;
   }
   if(conf->sub_chid.n == 0) {
-    ngx_memcpy(&conf->sub_chid, &prev->sub_chid, sizeof(prev->sub_chid));
+    conf->sub_chid = prev->sub_chid;
   }
   if(conf->pubsub_chid.n == 0) {
-    ngx_memcpy(&conf->pubsub_chid, &prev->pubsub_chid, sizeof(prev->pubsub_chid));
+    conf->pubsub_chid = prev->pubsub_chid;
   }
-  
   if(conf->last_message_id.n == 0) {
-    ngx_memcpy(&conf->last_message_id, &prev->last_message_id, sizeof(prev->last_message_id));
+    conf->last_message_id = prev->last_message_id;
   }
   if(conf->last_message_id.n == 0) { //if it's still null
     ngx_str_t      first_choice_msgid = ngx_string("$http_last_event_id");
