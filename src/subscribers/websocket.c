@@ -161,10 +161,11 @@ static ngx_int_t websocket_reserve(subscriber_t *self);
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 
 static void sudden_abort_handler(subscriber_t *sub) {
-#if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+#if FAKESHARD
   memstore_fakeprocess_push(fsub->owner);
 #endif
+  fsub->connected = 0;
   sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
