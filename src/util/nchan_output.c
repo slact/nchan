@@ -314,14 +314,13 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  int                        cross_origin;
   
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, nchan_module);
   }
-  if(ctx && ctx->request_origin_header.data) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
-  }
-  
+  cross_origin = ctx && ctx->request_origin_header.data;
+
   if(!cf->msg_in_etag_only) {
     //last-modified
     r->headers_out.last_modified_time = msgid->time;
@@ -337,8 +336,26 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
   etag->data = (u_char *)(etag+1);
   etag->len = tmp_etag->len;
   ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
-  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
-    return NGX_ERROR;
+
+  if(cf->custom_msgtag_header.len == 0) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
+    if(cross_origin) {
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
+    }
+  }
+  else {
+    nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
+    if(cross_origin) {
+      u_char        *cur = ngx_palloc(r->pool, 255);
+      if(cur == NULL) {
+        return NGX_ERROR;
+      }
+      ngx_str_t      allowed;
+      allowed.data = cur;
+      cur = ngx_snprintf(cur, 255, NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF, &cf->custom_msgtag_header);
+      allowed.len = cur - allowed.data;
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &allowed);
+     }
   }
   
   //Vary header needed for proper HTTP caching.

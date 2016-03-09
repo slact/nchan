@@ -653,16 +653,15 @@ class PubSubTest <  Minitest::Test
     chan_id=short_id
     pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
     
-    pub.post "heyo"
+    pub.post "1. one!!"
     sleep 1
-    pub.post "what"
+    pub.post "2. tooo"
+    pub.post "3. throo"
     sleep 1
-    pub.post "teah"
-    sleep 1
-    pub.post "meeeep"
-    
+    pub.post "4. fooo"
+    sleep 2
     n = 0
-    sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1)
+    sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 5)
     sub.on_message do |msg, req|
       n=n+1
       if n == 2
@@ -670,7 +669,19 @@ class PubSubTest <  Minitest::Test
       end
     end
     
+    sub.on_failure do |resp|
+      assert_equal "null", resp.request.options[:headers]["If-None-Match"]
+      assert_equal 400, resp.response_code
+      assert_match /Message ID invalid/, resp.response_body
+      false
+    end
+    
     sub.run
+    sleep 1
+    pub.post "5. faaa"
+    sleep 1
+    pub.post "6. siiii"
+    sleep 1
     pub.post "FIN"
     sub.wait
   end

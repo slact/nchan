@@ -102,6 +102,17 @@ CfCmd.new do
         Enabling this option packs the entire message id into the `Etag` header, and discards
         `Last-Modified` and `If-Modified-Since` headers.
       EOS
+      
+  nchan_subscriber_message_id_custom_etag_header [:srv, :loc, :if], 
+      :ngx_conf_set_str_slot, 
+      [:loc_conf, :custom_msgtag_header],
+      args: 1,
+      
+      group: "pubsub",
+      default: "(none)",
+      info: <<-EOS.gsub(/^ {8}/, '')
+        Use a custom header instead of the Etag header for message ID in subscriber responses. This setting is a hack, useful when behind a caching proxy such as Cloudflare that under some conditions (like using gzip encoding) swallow the Etag header."
+      EOS
   
   nchan_subscriber_last_message_id [:srv, :loc, :if], 
       :nchan_subscriber_last_message_id,

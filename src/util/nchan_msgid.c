@@ -204,7 +204,7 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
 
 
 
-static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid) {
+static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid, ngx_int_t expected_tag_count) {
   u_char           *cur = first;
   u_char            c;
   int16_t           i = 0;
@@ -237,23 +237,28 @@ static void nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t *mid
     }
     cur++;
   }
+  if(expected_tag_count > i) {
+    return NGX_ERROR;
+  }
   mid->tagcount = i;
   
   if(i <= NCHAN_FIXED_MULTITAG_MAX) {
     ngx_memcpy(mid->tag.fixed, tags, sizeof(mid->tag.fixed));
   }
   else {
-    
-    mid->tag.allocd=tags;
+    mid->tag.allocd = tags;
   }
+  return NGX_OK;
 }
 
 static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
+#if nginx_version >= 1008000
+  return r->headers_in.if_none_match ? &r->headers_in.if_none_match->value : NULL;
+#else
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
   ngx_table_elt_t                 *header= part->elts;
-  
-  for (i = 0; /* void */ ; i++) {
+  for (i = 0;  ; i++) {
     if (i >= part->nelts) {
       if (part->next == NULL) {
         break;
@@ -265,12 +270,13 @@ static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
     if (header[i].key.len == NCHAN_HEADER_IF_NONE_MATCH.len
       && ngx_strncasecmp(header[i].key.data, NCHAN_HEADER_IF_NONE_MATCH.data, header[i].key.len) == 0) {
       return &header[i].value;
-      }
+    }
   }
   return NULL;
+#endif
 }
 
-static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str){
+static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count){
   u_char       *split, *last;
   ngx_int_t     time;
   //"<msg_time>:<msg_tag>"
@@ -280,8 +286,7 @@ static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str){
     split++;
     if(time != NGX_ERROR) {
       id->time = time;
-      nchan_parse_msg_tag(split, last, id);
-      return NGX_OK;
+      return nchan_parse_msg_tag(split, last, id, expected_tag_count);
     }
     else {
       return NGX_ERROR;
@@ -294,7 +299,9 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
   ngx_str_t                      *if_none_match;
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
   int                             i;
+  ngx_int_t                       rc;
   
   if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
     id.time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
@@ -305,21 +312,27 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
       id.tagactive=0;
     }
     else {
-      nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, &id);
+      if(nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, &id, ctx->channel_id_count) == NGX_ERROR) {
+        return NULL;
+      }
     }
     return &id;
   }
   else if(cf->msg_in_etag_only && (if_none_match = nchan_subscriber_get_etag(r)) != NULL) {
-    if(nchan_parse_compound_msgid(&id, if_none_match) == NGX_OK) {
+    rc = nchan_parse_compound_msgid(&id, if_none_match, ctx->channel_id_count);
+    if(rc == NGX_OK) {
       return &id;
+    }
+    else if(rc == NGX_ERROR) {
+      return NULL;
     }
   }
   else {
     nchan_complex_value_arr_t   *alt_msgid_cv_arr = &cf->last_message_id;
     u_char                       buf[128];
     ngx_str_t                    str;
-    ngx_int_t                    rc;
     int                          n = alt_msgid_cv_arr->n;
+    ngx_int_t                    rc2;
     
     str.len = 0;
     str.data = buf;
@@ -327,8 +340,12 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
     for(i=0; i < n; i++) {
       rc = ngx_http_complex_value_noalloc(r, alt_msgid_cv_arr->cv[i], &str, 128);
       if(str.len > 0 && rc == NGX_OK) {
-        if(nchan_parse_compound_msgid(&id, &str) == NGX_OK) {
+        rc2 = nchan_parse_compound_msgid(&id, &str, ctx->channel_id_count);
+        if(rc2 == NGX_OK) {
           return &id;
+        }
+        else if(rc2 == NGX_ERROR) {
+          return NULL;
         }
       }
     }

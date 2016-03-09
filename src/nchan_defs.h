@@ -78,6 +78,7 @@ extern const ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE;
 extern const ngx_str_t NCHAN_ALLOW_GET;
 extern const ngx_str_t NCHAN_VARY_HEADER_VALUE;
 extern const ngx_str_t NCHAN_MSG_RESPONSE_ALLOWED_HEADERS;
+extern const char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF;
 extern const ngx_str_t NCHAN_CONTENT_TYPE_TEXT_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_JSON;

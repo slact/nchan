@@ -1,3 +1,8 @@
+ feature: nchan_subscriber_message_id_custom_etag_header for misbehaving proxies that eat etags
+ fix: 100% cpu after lost redis connection
+ fix: refined CORS cross-origin access control headers and logic
+ fix: longpoll subscriber in multipart mode didn't output all messages
+ fix: longpoll subscriber in multipart mode could access invalid memory
  fix: compatibility with supported Redis versions < 2.8.14
  fix: nchan_message_timeout 0 should not expire messages
 0.99.6 (Feb. 22 2016)
