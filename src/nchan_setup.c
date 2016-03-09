@@ -190,9 +190,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
-  
   ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");
-  
+  ngx_conf_merge_str_value(conf->custom_msgtag_header, prev->custom_msgtag_header, "");
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
   ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);
   MERGE_CONF(conf, prev, channel_events_channel_id);
@@ -204,7 +203,6 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     }
   }
 
-  
   if(conf->storage_engine == NULL) {
     conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;
   }

@@ -189,10 +189,11 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_complex_value_arr_t       pubsub_chid;
   ngx_str_t                       channel_group;
   ngx_str_t                       channel_id_split_delimiter;
-  
+
   ngx_str_t                       allow_origin;
   
   nchan_complex_value_arr_t       last_message_id;
+  ngx_str_t                       custom_msgtag_header;
   ngx_int_t                       msg_in_etag_only;
   
   nchan_conf_publisher_types_t    pub;

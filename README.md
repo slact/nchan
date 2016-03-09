@@ -350,6 +350,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object.     
 
+- **nchan_subscriber_message_id_custom_etag_header**  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location, if  
+  > Use a custom header instead of the Etag header for message ID in subscriber responses. This setting is a hack, useful when behind a caching proxy such as Cloudflare that under some conditions (like using gzip encoding) swallow the Etag header."    
+
 - **nchan_subscriber_timeout** `<number> (seconds)`  
   arguments: 1  
   default: `0 (none)`  

@@ -48,6 +48,7 @@ const  ngx_str_t NCHAN_ALLOW_GET= ngx_string("GET");
 
 const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
 const  ngx_str_t NCHAN_MSG_RESPONSE_ALLOWED_HEADERS = ngx_string("Last-Modified, Etag, Content-Type");
+const  char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF = "Last-Modified, %V, Content-Type";
 
 const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");
 
