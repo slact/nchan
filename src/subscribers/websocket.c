@@ -141,6 +141,7 @@ struct full_subscriber_s {
   
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
+  unsigned                connected:1;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
 };// full_subscriber_t
@@ -463,6 +464,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->finalize_request = 0;
   fsub->holding = 0;
   fsub->shook_hands = 0;
+  fsub->connected = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   fsub->sub.enqueued = 0;
   
@@ -540,6 +542,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
   nchan_request_ctx_t *ctx;
+  
   if(!fsub->awaiting_destruction) {
     ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
     ctx->sub = NULL;
@@ -647,6 +650,7 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
     ensure_request_hold(fsub);
     websocket_perform_handshake(fsub);
     fsub->shook_hands = 1;
+    fsub->connected = 1;
     return NGX_OK;
   }
   return NGX_DECLINED;
@@ -704,6 +708,11 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
   self->enqueued = 0;
+  
+  if(fsub->connected) {
+    ngx_str_t          close_msg = ngx_string("410 Gone");
+    websocket_send_close_frame(fsub, CLOSE_NORMAL, &close_msg);
+  }
   
   if(fsub->ping_ev.timer_set) {
     ngx_del_timer(&fsub->ping_ev);
@@ -916,7 +925,7 @@ static void websocket_reading(ngx_http_request_t *r) {
           
           case WEBSOCKET_OPCODE_CLOSE:
             DBG("wants to close");
-            websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
+            websocket_send_close_frame(fsub, 0, NULL);
             goto finalize;
             break; //good practice?
         }
@@ -1101,6 +1110,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
   nchan_output_filter(fsub->sub.request, websocket_close_frame_chain(fsub, code, err));
+  fsub->connected = 0;
   return NGX_OK;
 }
 
