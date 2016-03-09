@@ -252,8 +252,8 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
 }
 
 static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
-#if nginx_version >= 1008000  
-  return &r->headers_in.if_none_match->value;
+#if nginx_version >= 1008000
+  return r->headers_in.if_none_match ? &r->headers_in.if_none_match->value : NULL;
 #else
   ngx_uint_t                       i;
   ngx_list_part_t                 *part = &r->headers_in.headers.part;
