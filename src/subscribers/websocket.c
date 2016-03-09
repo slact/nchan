@@ -680,8 +680,11 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
 
 static void ping_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0);
-  ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+  if(ev->timedout) {
+    websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0); 
+    ev->timedout=0;
+    ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+  }
 }
 
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
