@@ -11,5 +11,7 @@ dev/nginx-nchan/nginx.conf
 dev/nginx-nchan/nginx.logrotate
 dev/nginx-nchan/*.tar
 dev/nginx-nchan/*.gz
-dev/src
 dev/clang-analyzer
+dev/package
+dev/src
+
