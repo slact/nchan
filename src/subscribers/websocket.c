@@ -923,12 +923,16 @@ static void websocket_reading(ngx_http_request_t *r) {
         frame->last = NULL;
         switch(frame->opcode) {
           case WEBSOCKET_OPCODE_PING:
-            ERR("got pinged");
+            DBG("%p got pinged", fsub);
             websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, 0);
             break;
-          
+            
+          case WEBSOCKET_OPCODE_PONG:
+            DBG("%p Got ponged", fsub);
+            break;
+            
           case WEBSOCKET_OPCODE_CLOSE:
-            DBG("wants to close");
+            DBG("%p wants to close", fsub);
             websocket_send_close_frame(fsub, 0, NULL);
             goto finalize;
             break; //good practice?
