@@ -354,7 +354,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   arguments: 1  
   default: `(none)`  
   context: server, location, if  
-  > Use a custom header instead of the Etag header for message ID in subscriber responses. This setting is a hack, useful when behind a caching proxy such as Cloudflare that under some conditions (like using gzip encoding) swallow the Etag header."    
+  > Use a custom header instead of the Etag header for message ID in subscriber responses. This setting is a hack, useful when behind a caching proxy such as Cloudflare that under some conditions (like using gzip encoding) swallow the Etag header.    
 
 - **nchan_subscriber_timeout** `<number> (seconds)`  
   arguments: 1  
