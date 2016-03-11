@@ -1532,7 +1532,7 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages, uint8_t preserve_last_msg) {
+static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages) {
   validate_chanhead_messages(ch);
   store_message_t   *cur = ch->msg_first;
   store_message_t   *next = NULL;
@@ -1550,9 +1550,6 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     next = cur->next;
     chanhead_delete_message(ch, cur);
     deleted_count++;        
-    if(preserve_last_msg) {
-      assert(ch->msg_last);
-    }
     cur = next;
   }
   
@@ -1561,9 +1558,6 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     tried_count++;
     next = cur->next;
     chanhead_delete_message(ch, cur);
-    if(preserve_last_msg) {
-      assert(ch->msg_last);
-    }
     cur = next;
   }
   DBG("message GC results: started with %i, walked %i, deleted %i msgs", started_count, tried_count, deleted_count);
@@ -1571,18 +1565,13 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_newmessage(nchan_store_channel_head_t *ch) {
-  //DBG("messages gc for ch %p %V", ch, &ch->id);
-  return chanhead_messages_gc_custom(ch, ch->max_messages, 1);
-}
-
 static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
-  return chanhead_messages_gc_custom(ch, ch->max_messages, 0);
+  return chanhead_messages_gc_custom(ch, ch->max_messages);
 }
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
-  chanhead_messages_gc_custom(ch, 0, 0);
+  chanhead_messages_gc_custom(ch, 0);
   return NGX_OK;
 }
 
@@ -2154,7 +2143,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   ch->msg_last = msg;
   
   //DBG("create %V %V", msgid_to_str(&msg->msg->id), chanhead_msg_to_str(msg));
-  chanhead_messages_gc_newmessage(ch);
+  chanhead_messages_gc(ch);
   if(ch->msg_last != msg) { //why does this happen?
     ERR("just-published messages is no longer the last message for some reason... This is unexpected.");
   }
