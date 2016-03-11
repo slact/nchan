@@ -1340,6 +1340,12 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
+static void exit_notice_about_remaining_things(char *thing, char *where, ngx_int_t num) {
+  if(num > 0) {
+    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, mpt->chanhead_reaper.count == 1 ? "" : "s", where == NULL ? "" : where);
+  }
+}
+
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
   ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT;
@@ -1358,21 +1364,10 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     chanhead_gc_add(cur, "exit worker");
   }
   
-  if(mpt->chanhead_reaper.count > 0) {
-    ERR("%i channels still present in reaper at exit  (slot %i)", mpt->chanhead_reaper.count, ngx_process_slot);
-  }
-  
-  if(mpt->chanhead_churner.count > 0) {
-    ERR("%i channels still present in churner at exit  (slot %i)", mpt->chanhead_churner.count, ngx_process_slot);
-  }
-  
-  if(mpt->nobuffer_msg_reaper.count > 0) {
-    ERR("%i unbuffered messages still present in reaper at exit  (slot %i)", mpt->nobuffer_msg_reaper.count, ngx_process_slot);
-  }
-  
-  if(mpt->msg_reaper.count > 0) {
-    ERR("%i messages still present in reaper at exit  (slot %i)", mpt->msg_reaper.count, ngx_process_slot);
-  }
+  exit_notice_about_remaining_things("channel", "", mpt->chanhead_reaper.count);
+  exit_notice_about_remaining_things("channel", "in churner ", mpt->chanhead_churner.count);
+  exit_notice_about_remaining_things("unbuffered message", "", mpt->nobuffer_msg_reaper.count);
+  exit_notice_about_remaining_things("message", "", mpt->msg_reaper.count);
   
   nchan_reaper_stop(&mpt->chanhead_churner);
   nchan_reaper_stop(&mpt->chanhead_reaper);
