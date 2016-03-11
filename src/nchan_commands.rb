@@ -102,6 +102,17 @@ CfCmd.new do
         Enabling this option packs the entire message id into the `Etag` header, and discards
         `Last-Modified` and `If-Modified-Since` headers.
       EOS
+      
+  nchan_subscriber_message_id_custom_etag_header [:srv, :loc, :if], 
+      :ngx_conf_set_str_slot, 
+      [:loc_conf, :custom_msgtag_header],
+      args: 1,
+      
+      group: "pubsub",
+      default: "(none)",
+      info: <<-EOS.gsub(/^ {8}/, '')
+        Use a custom header instead of the Etag header for message ID in subscriber responses. This setting is a hack, useful when behind a caching proxy such as Cloudflare that under some conditions (like using gzip encoding) swallow the Etag header.
+      EOS
   
   nchan_subscriber_last_message_id [:srv, :loc, :if], 
       :nchan_subscriber_last_message_id,
@@ -180,7 +191,7 @@ CfCmd.new do
       group: "storage",
       value: [:on, :off],
       default: :on,
-      info: "Whether or not message queuing is enabled. \"Off\" is equivalent to the setting nchan_channel_buffer_length 0"
+      info: "Publisher configuration. \"`off`\" is equivalent to setting `nchan_channel_buffer_length 0`"
     
   nchan_max_reserved_memory [:main],
       :ngx_conf_set_size_slot,
@@ -217,7 +228,7 @@ CfCmd.new do
       group: "storage",
       value: "<time>",
       default: "1h",
-      info: "The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context."
+      info: "Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context."
   
   nchan_message_buffer_length [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
@@ -228,7 +239,7 @@ CfCmd.new do
       group: "storage",
       value: "<number>",
       default: 10,
-      info: "The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
+      info: "Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
   
   nchan_subscribe_existing_channels_only [:main, :srv, :loc],
       :ngx_conf_set_flag_slot, 

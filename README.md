@@ -8,7 +8,7 @@ Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requ
 
 ## Status and History
 
-The latest Nchan release is v0.99.5 (February 15, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
+The latest Nchan release is v0.99.7 (March 10, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy.
 
@@ -350,6 +350,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object.     
 
+- **nchan_subscriber_message_id_custom_etag_header**  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location, if  
+  > Use a custom header instead of the Etag header for message ID in subscriber responses. This setting is a hack, useful when behind a caching proxy such as Cloudflare that under some conditions (like using gzip encoding) swallow the Etag header.    
+
 - **nchan_subscriber_timeout** `<number> (seconds)`  
   arguments: 1  
   default: `0 (none)`  
@@ -386,14 +392,14 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `10`  
   context: http, server, location  
   legacy names: push_max_message_buffer_length, push_message_buffer_length  
-  > The maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
+  > Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
 
 - **nchan_message_timeout** `<time>`  
   arguments: 1  
   default: `1h`  
   context: http, server, location  
   legacy name: push_message_timeout  
-  > The length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
+  > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
 
 - **nchan_redis_url**  
   arguments: 1  
@@ -406,7 +412,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `on`  
   context: http, server, location, if  
   legacy name: push_store_messages  
-  > Whether or not message queuing is enabled. "Off" is equivalent to the setting nchan_channel_buffer_length 0    
+  > Publisher configuration. "`off`" is equivalent to setting `nchan_channel_buffer_length 0`    
 
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  

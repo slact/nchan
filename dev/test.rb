@@ -26,7 +26,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}")
   return pub, sub
 end
@@ -175,9 +175,9 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def multi_sub_url(pubs)
+  def multi_sub_url(pubs, prefix="/sub/multi/", delim="/")
     ids = pubs.map{|v| v.id}.shuffle
-    "/sub/multi/#{ids.join '/'}"
+    "#{prefix}#{ids.join delim}"
   end
   
   class MultiCheck
@@ -189,18 +189,22 @@ class PubSubTest <  Minitest::Test
   end
   
   
-  def no_test_multi_n(n=2)
+  def test_channel_multiplexing(n=2, delimited=false)
     
     pubs = []
     n.times do |i|
       pubs << MultiCheck.new(short_id)
     end
     
-    n = 50
+    sub_url=delimited ? multi_sub_url(pubs, '/sub/split/', '_') : multi_sub_url(pubs)
+    
+    n = 15
     scrambles = 5
     subs = []
     scrambles.times do |i|
-      subs << Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1)
+      sub.on_failure { false }
+      subs << sub
     end
     
     subs.each &:run
@@ -210,6 +214,8 @@ class PubSubTest <  Minitest::Test
     10.times do |i|
       pubs.each {|p| p.pub.post "hello #{i} from #{p.id}" }
     end
+    
+    sleep 1
     
     5.times do |i|
       pubs.first.pub.post "yes #{i} from #{pubs.first.id}"
@@ -221,9 +227,12 @@ class PubSubTest <  Minitest::Test
       end
     end
     
-    latesubs = Subscriber.new(url(multi_sub_url(pubs)), n, quit_message: 'FIN')
+    latesubs = Subscriber.new(url(sub_url), n, quit_message: 'FIN')
+    latesubs.on_failure { false }
     subs << latesubs
     latesubs.run
+    
+    sleep 1
     
     10.times do |i|
       pubs.each {|p| p.pub.post "hello again #{i} from #{p.id}" }
@@ -232,9 +241,37 @@ class PubSubTest <  Minitest::Test
     pubs.first.pub.post "FIN"
     subs.each &:wait
     sleep 1
+    subs.each_with_index do |sub, sub_i|
+      
+      assert_equal 0, sub.errors.count, "Subscriber encountered #{sub.errors.count} errors: #{sub.errors.join ", "}"
+      
+      msgs=[]
+      pubs.each { |p| msgs << p.pub.messages.messages }
+      
+      sub.messages.each do |msg|  
+        matched = false
+        for mm in msgs do
+          if mm.first == msg.message
+            matched = true
+            mm.shift
+            break
+          end
+        end
+        #binding.pry unless matched
+        assert_equal matched, true, "message not matched"
+      end
+      
+      sub.terminate
+    end
     
-    binding.pry
-    
+  end
+  
+  def test_channel_multiplexing_5
+    test_channel_multiplexing 5
+  end
+  
+  def test_channel_delimitered_multiplexing_15
+    test_channel_multiplexing 15, true
   end
   
   def test_message_delivery
@@ -380,6 +417,50 @@ class PubSubTest <  Minitest::Test
     test_broadcast 20
   end
   
+  def test_longpoll_multipart
+    pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false
+    
+    pub.post "first", "text/x-foobar"
+    pub.post ["1", "2", "3", "4"]
+    sub.run
+    sleep 0.5
+    pub.post "FIN"
+    sub.wait
+   
+    verify pub, sub
+    sub.terminate
+  end
+  
+  def test_longpoll_multipart_extended(range=30..35)
+    range.each do |i|
+      pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 3
+      i.times do |n|
+        pub.post "#{n+1}"
+      end
+      pub.post "FIN"
+      sub.run
+      sub.wait
+      verify pub, sub
+      sleep 0.1
+    end
+  end
+  
+  def test_multiplexed_longpoll_multipart
+    chans= [short_id, short_id, short_id]
+    pub, sub = pubsub 1, sub: "sub/multipart_multiplex/#{chans.join "/"}", pub: "pub/#{chans[1]}", channel: "", use_message_id: false
+    
+    pub.post "first", "text/x-foobar"
+    pub.post ["1", "2", "3", "4"]
+    sub.run
+    sleep 0.5
+    pub.post "FIN"
+    sub.wait
+   
+    verify pub, sub
+    sub.terminate
+  end
+  
+  
   def test_broadcast(clients=400)
     pub, sub = pubsub clients
     pub.post "!!"
@@ -513,22 +594,140 @@ class PubSubTest <  Minitest::Test
   end
   
   def assert_header_includes(response, header, str)
-    assert response.headers[header].include?(str), "Response header '#{header}:#{response.headers[header]}' must include \"#{str}\", but does not."
+    assert response.headers[header].include?(str), "Response header '#{header}: #{response.headers[header]}' must contain \"#{str}\", but does not."
   end
   
-  def test_options
+  def test_access_control_options
     chan=SecureRandom.hex
+    
+    request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS, headers: { 'Origin':'example.com' }
+    resp = request.run
+    
+    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    %w( GET ).each do |v| 
+      assert_header_includes resp, "Access-Control-Allow-Methods", v
+      assert_header_includes resp, "Allow", v
+    end
+    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    
     request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS
     resp = request.run
+    %w( GET ).each do |v| 
+      assert_header_includes resp, "Allow", v
+    end
+    
+    
+    request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS, headers: { 'Origin': "example.com" }
+    resp = request.run
     assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
-    %w( GET OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
-    %w( If-None-Match If-Modified-Since Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    %w( GET POST DELETE ).each do |v| 
+      assert_header_includes resp, "Access-Control-Allow-Methods", v
+      assert_header_includes resp, "Allow", v
+    end
+    %w( Content-Type ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
     
     request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS
     resp = request.run
-    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
-    %w( GET POST DELETE OPTIONS ).each {|v| assert_header_includes resp, "Access-Control-Allow-Methods", v}
-    %w( Content-Type Origin ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    %w( GET POST DELETE ).each do |v| 
+      assert_header_includes resp, "Allow", v
+    end
+  end
+  
+  def generic_test_access_control(opt)
+    pub, sub = pubsub 1, extra_headers: { Origin: opt[:origin] }, pub: opt[:pub_url], sub: opt[:sub_url]
+    
+    sub.on_message do |msg, req|
+      opt[:verify_sub_response].call(req.response) if opt[:verify_sub_response]
+    end
+    
+    pub.post "FIN"
+    sub.run
+    sub.wait
+    
+    yield pub, sub if block_given?
+    
+    sub.terminate
+  end
+  
+  def test_invalid_etag
+    chan_id=short_id
+    pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+    
+    pub.post "1. one!!"
+    sleep 1
+    pub.post "2. tooo"
+    pub.post "3. throo"
+    sleep 1
+    pub.post "4. fooo"
+    sleep 2
+    n = 0
+    sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 5)
+    sub.on_message do |msg, req|
+      n=n+1
+      if n == 2
+        req.options[:headers]["If-None-Match"]="null"
+      end
+    end
+    
+    sub.on_failure do |resp|
+      assert_equal "null", resp.request.options[:headers]["If-None-Match"]
+      assert_equal 400, resp.response_code
+      assert_match /Message ID invalid/, resp.response_body
+      false
+    end
+    
+    sub.run
+    sleep 1
+    pub.post "5. faaa"
+    sleep 1
+    pub.post "6. siiii"
+    sleep 1
+    pub.post "FIN"
+    sub.wait
+  end
+  
+  def test_access_control
+    
+    ver= proc{ |resp| assert_equal "*", resp.headers["Access-Control-Allow-Origin"] }
+    generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
+      verify pub, sub
+    end
+    
+    ver= proc do |resp| 
+      assert_equal "http://foo.bar", resp.headers["Access-Control-Allow-Origin"] 
+      %w( Last-Modified Etag ).each {|v| assert_header_includes resp, "Access-Control-Expose-Headers", v}
+    end
+    generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
+      verify pub, sub
+    end
+    
+    #test forbidding stuff
+    pub, sub = pubsub 1, extra_headers: { "Origin": "http://forbidden.com" }, pub: "pub/from_foo.bar/", sub: "sub/from_foo.bar/", timeout: 1
+    
+    pub.extra_headers={ "Origin": "http://foo.bar" }
+    pub.post "yeah"
+    
+    assert_match /20[12]/, pub.response_code.to_s
+    pub.extra_headers={ "Origin": "http://forbidden.com" }
+    post_failed = false
+    begin 
+      pub.post "yeah"
+    rescue Exception => e
+      post_failed = true
+      assert_match /request failed:\s+403/, e.message
+    end
+    assert post_failed
+    
+    sub.on_failure { false }
+    
+    sub.run
+    sub.wait
+    
+    sub.errors.each do |err|
+      assert_match /code 403/, err
+    end
+    sub.terminate
+    
   end
   
   def test_gzip

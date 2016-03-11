@@ -119,7 +119,7 @@ ngx_int_t nchan_cleverly_output_headers_only_for_later_response(ngx_http_request
   r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);  
   r->header_only = 1;
 #endif
-
+  nchan_include_access_control_if_needed(r, NULL);
   rc = ngx_http_send_header(r);
   
   if(r->headers_out.status == NGX_HTTP_OK) {

@@ -55,7 +55,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "4965038f835d8a7599134b9e02f50a9b269fdeea",
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
-  "61308a3e69a2857570da0cbc8cf28afe6d33c4fd",
+  "03abc2994272188aceed1d806a78dfb6584e827e",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -395,6 +395,9 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  time= time,\n"
   "  tag= 0\n"
   "}\n"
+  "if msg.ttl == 0 then\n"
+  "  msg.ttl = 126144000 --4 years\n"
+  "end\n"
   "local store_at_most_n_messages = ARGV[7]\n"
   "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
   "  return {err=\"Argument 7, max_msg_buf_size, can't be empty\"}\n"
@@ -609,7 +612,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "\n"
   "--now publish to the efficient channel\n"
   "local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]\n"
-  "if numsub > 0 then\n"
+  "if tonumber(numsub) > 0 then\n"
   "  msgpacked = cmsgpack.pack(unpacked)\n"
   "  redis.call('PUBLISH', channel_pubsub, msgpacked)\n"
   "end\n"
@@ -617,7 +620,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "local num_messages = redis.call('llen', key.messages)\n"
   "\n"
   "dbg(\"channel \", id, \" ttl: \",channel.ttl, \", subscribers: \", channel.subscribers, \"(fake: \", channel.fake_subscribers or \"nil\", \"), messages: \", num_messages)\n"
-  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}",
+  "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}\n",
 
   //publish_status
   "--input:  keys: [], values: [channel_id, status_code]\n"

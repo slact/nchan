@@ -32,7 +32,7 @@ else
   _include_http2=1
 fi
 
-
+_pkgname="nginx"
 PKGEXT=".pkg.tar"
 
 _user="http"
@@ -141,7 +141,7 @@ build() {
     --with-http_ssl_module
     --add-module="../nchan")
 
-  if [[ -z $NO_WITH_DEBUG ]]; then
+  if [[ $CONFIGURE_WITH_DEBUG == 1 ]]; then
     CONFIGURE+=( "--with-debug" )
   fi
   
@@ -169,7 +169,7 @@ build() {
       CFLAGS="-ferror-limit=5 $CFLAGS"
     fi
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]] && [[ -z $NO_GCC_COLOR ]]; then
-    CFLAGS="-fdiagnostics-color=always $CFLAGS"
+    CFLAGS="-fdiagnostics-color=always  -Wmaybe-uninitialized $CFLAGS"
   fi
   
   echo $CFLAGS

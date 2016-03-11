@@ -117,9 +117,6 @@ void memstore_fakeprocess_push_random(void);
 ngx_int_t memstore_fakeprocess_pop(void);
 #endif
 
-ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl);
-ngx_int_t msg_release(nchan_msg_t *msg, char *lbl);
-
 ngx_int_t memstore_slot(void);
 ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *);
 ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead, const char *);

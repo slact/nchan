@@ -202,6 +202,20 @@ ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
   return rc;
 }
 
+void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
+  if(!ctx) {
+    ctx = ngx_http_get_module_ctx(r, nchan_module);
+  }
+  nchan_loc_conf_t       *cf;
+  if(!ctx) {
+    return;
+  }
+  if(ctx->request_origin_header.data) {
+    cf = ngx_http_get_module_loc_conf(r, nchan_module);
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, &cf->allow_origin);
+  }
+}
+
 ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize) {
   ngx_int_t    rc = NGX_OK;
   r->headers_out.status=status_code;
@@ -211,7 +225,9 @@ ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, con
   }
   r->headers_out.content_length_n = 0;
   r->header_only = 1;
-    
+  
+  nchan_include_access_control_if_needed(r, NULL);
+  
   rc= ngx_http_send_header(r);
   if(finalize) {
     ngx_http_finalize_request(r, rc);
@@ -295,11 +311,16 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
   return &msgtag_str;
 }
 
-ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_msg_id_t *msgid) {
+ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  int                        cross_origin;
   
-  
+  if(!ctx) {
+    ctx = ngx_http_get_module_ctx(r, nchan_module);
+  }
+  cross_origin = ctx && ctx->request_origin_header.data;
+
   if(!cf->msg_in_etag_only) {
     //last-modified
     r->headers_out.last_modified_time = msgid->time;
@@ -315,8 +336,26 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_msg
   etag->data = (u_char *)(etag+1);
   etag->len = tmp_etag->len;
   ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
-  if ((nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag))==NULL) {
-    return NGX_ERROR;
+
+  if(cf->custom_msgtag_header.len == 0) {
+    nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
+    if(cross_origin) {
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
+    }
+  }
+  else {
+    nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
+    if(cross_origin) {
+      u_char        *cur = ngx_palloc(r->pool, 255);
+      if(cur == NULL) {
+        return NGX_ERROR;
+      }
+      ngx_str_t      allowed;
+      allowed.data = cur;
+      cur = ngx_snprintf(cur, 255, NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF, &cf->custom_msgtag_header);
+      allowed.len = cur - allowed.data;
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &allowed);
+     }
   }
   
   //Vary header needed for proper HTTP caching.
@@ -330,6 +369,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
   ngx_buf_t                 *rbuffer;
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
@@ -362,12 +402,14 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     msgid = &msg->id;
   }
   
-  if(nchan_set_msgid_http_response_headers(r, msgid) != NGX_OK) {
+  if(nchan_set_msgid_http_response_headers(r, ctx, msgid) != NGX_OK) {
     if(err) *err = "can't set msgid headers";
     return NGX_ERROR;
   }
   
   r->headers_out.status=NGX_HTTP_OK;
+  
+  nchan_include_access_control_if_needed(r, ctx);
   
   //we know the entity length, and we're using just one buffer. so no chunking please.
   if((rc = ngx_http_send_header(r)) >= NGX_HTTP_SPECIAL_RESPONSE) {
@@ -400,6 +442,8 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
     r->headers_out.content_type.len = content_type->len;
     r->headers_out.content_type.data = content_type->data;
   }
+  
+  nchan_include_access_control_if_needed(r, NULL);
   
   if ((!b) || (!chain)) {
     ERR("Couldn't allocate ngx buf or chain.");
@@ -446,11 +490,15 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
 }
 
 ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_origin, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods) {
-
+  nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
-  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN,  allow_origin);
-  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_HEADERS, allowed_headers);
-  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_METHODS, allowed_methods);
+  nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, allowed_methods);
+  
+  if(ctx && ctx->request_origin_header.data) {
+    //Access-Control-Allow-Origin is included later
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS, allowed_headers);
+    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS, allowed_methods);
+  }
   return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
 }
 

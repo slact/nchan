@@ -62,13 +62,13 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg, u
       return NGX_DECLINED;
     }
     
-    if(ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
       return NGX_OK;
     }
     return NGX_DECLINED;
   }
   else {
-    if(! ngx_atomic_cmp_set(&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(! ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
       if(smsg->msg->refcount > 0) {
         ERR("force-reaping msg with refcount %d", smsg->msg->refcount);
       }
@@ -580,7 +580,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
     shdata->max_workers = workers;
   }
   
-  ngx_atomic_fetch_add(&shdata->active_workers, 1);
+  shdata->active_workers++;
   
   for(i = memstore_procslot_offset; i < NGX_MAX_PROCESSES - memstore_procslot_offset; i++) {
     if(shdata->procslot[i] == ngx_process_slot) {
@@ -1340,6 +1340,12 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
+static void exit_notice_about_remaining_things(char *thing, char *where, ngx_int_t num) {
+  if(num > 0) {
+    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, mpt->chanhead_reaper.count == 1 ? "" : "s", where == NULL ? "" : where);
+  }
+}
+
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t         *cur, *tmp;
   ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT;
@@ -1358,21 +1364,10 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     chanhead_gc_add(cur, "exit worker");
   }
   
-  if(mpt->chanhead_reaper.count > 0) {
-    ERR("%i channels still present in reaper at exit  (slot %i)", mpt->chanhead_reaper.count, ngx_process_slot);
-  }
-  
-  if(mpt->chanhead_churner.count > 0) {
-    ERR("%i channels still present in churner at exit  (slot %i)", mpt->chanhead_churner.count, ngx_process_slot);
-  }
-  
-  if(mpt->nobuffer_msg_reaper.count > 0) {
-    ERR("%i unbuffered messages still present in reaper at exit  (slot %i)", mpt->nobuffer_msg_reaper.count, ngx_process_slot);
-  }
-  
-  if(mpt->msg_reaper.count > 0) {
-    ERR("%i messages still present in reaper at exit  (slot %i)", mpt->msg_reaper.count, ngx_process_slot);
-  }
+  exit_notice_about_remaining_things("channel", "", mpt->chanhead_reaper.count);
+  exit_notice_about_remaining_things("channel", "in churner ", mpt->chanhead_churner.count);
+  exit_notice_about_remaining_things("unbuffered message", "", mpt->nobuffer_msg_reaper.count);
+  exit_notice_about_remaining_things("message", "", mpt->msg_reaper.count);
   
   nchan_reaper_stop(&mpt->chanhead_churner);
   nchan_reaper_stop(&mpt->chanhead_reaper);
@@ -1537,7 +1532,7 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages) {
+static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages, uint8_t preserve_last_msg) {
   validate_chanhead_messages(ch);
   store_message_t   *cur = ch->msg_first;
   store_message_t   *next = NULL;
@@ -1555,6 +1550,9 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     next = cur->next;
     chanhead_delete_message(ch, cur);
     deleted_count++;        
+    if(preserve_last_msg) {
+      assert(ch->msg_last);
+    }
     cur = next;
   }
   
@@ -1563,6 +1561,9 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     tried_count++;
     next = cur->next;
     chanhead_delete_message(ch, cur);
+    if(preserve_last_msg) {
+      assert(ch->msg_last);
+    }
     cur = next;
   }
   DBG("message GC results: started with %i, walked %i, deleted %i msgs", started_count, tried_count, deleted_count);
@@ -1570,13 +1571,18 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   return NGX_OK;
 }
 
+static ngx_int_t chanhead_messages_gc_newmessage(nchan_store_channel_head_t *ch) {
+  //DBG("messages gc for ch %p %V", ch, &ch->id);
+  return chanhead_messages_gc_custom(ch, ch->max_messages, 1);
+}
+
 static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
-  return chanhead_messages_gc_custom(ch, ch->max_messages);
+  return chanhead_messages_gc_custom(ch, ch->max_messages, 0);
 }
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
-  chanhead_messages_gc_custom(ch, 0);
+  chanhead_messages_gc_custom(ch, 0, 0);
   return NGX_OK;
 }
 
@@ -1833,7 +1839,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
-  nchan_msg_t                 retmsg;
+  nchan_msg_copy_t            retmsg;
   
   /*
   switch(status) {
@@ -1891,37 +1897,38 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       int16_t      *muhtags;
       
       ngx_int_t     n = d->n;
-      ngx_memcpy(&retmsg, d->msg, sizeof(retmsg));
-      retmsg.shared = 0;
-      retmsg.temp_allocd = 0;
+      retmsg.copy = *d->msg;
+      retmsg.copy.shared = 0;
+      retmsg.copy.temp_allocd = 0;
+      retmsg.original = d->msg;
       
-      nchan_copy_msg_id(&retmsg.prev_id, &d->wanted_msgid, multi_prevlargetag);
+      nchan_copy_msg_id(&retmsg.copy.prev_id, &d->wanted_msgid, multi_prevlargetag);
       
       //TODO: some kind of missed-message check maybe?
       
       if (d->wanted_msgid.time != d->msg->id.time) {
-        nchan_copy_msg_id(&retmsg.id, &d->msg->id, multi_largetag);
+        nchan_copy_msg_id(&retmsg.copy.id, &d->msg->id, multi_largetag);
         
         if(d->multi_count > NCHAN_FIXED_MULTITAG_MAX) {
-          retmsg.id.tag.allocd = multi_largetag;
+          retmsg.copy.id.tag.allocd = multi_largetag;
           assert(d->msg->id.tagcount == 1);
-          retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
+          retmsg.copy.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
         }
-        retmsg.id.tagcount = d->multi_count;
-        nchan_expand_msg_id_multi_tag(&retmsg.id, 0, n, -1);
+        retmsg.copy.id.tagcount = d->multi_count;
+        nchan_expand_msg_id_multi_tag(&retmsg.copy.id, 0, n, -1);
       }
       else {
-        nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
+        nchan_copy_msg_id(&retmsg.copy.id, &d->wanted_msgid, multi_largetag); 
       }
       
-      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
+      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.copy.id.tag.allocd : retmsg.copy.id.tag.fixed;
       muhtags[n] = d->msg->id.tag.fixed[0];
       
-      retmsg.id.tagactive = n;
+      retmsg.copy.id.tagactive = n;
       
-      DBG("respond msg id transformed into %p %V", &retmsg, msgid_to_str(&retmsg.id));
+      DBG("respond msg id transformed into %p %V", &retmsg.copy, msgid_to_str(&retmsg.copy.id));
       
-      d->cb(d->msg_status, &retmsg, d->privdata);
+      d->cb(d->msg_status, &retmsg.copy, d->privdata);
       msg_release(d->msg, "get multi msg");
     }
     else {
@@ -2147,7 +2154,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   ch->msg_last = msg;
   
   //DBG("create %V %V", msgid_to_str(&msg->msg->id), chanhead_msg_to_str(msg));
-  chanhead_messages_gc(ch);
+  chanhead_messages_gc_newmessage(ch);
   if(ch->msg_last != msg) { //why does this happen?
     ERR("just-published messages is no longer the last message for some reason... This is unexpected.");
   }
@@ -2258,7 +2265,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
 }
 
 ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
-  ngx_atomic_fetch_add(&msg->refcount, 1);
+  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, 1);
   assert(msg->refcount >= 0);
   if(msg->refcount < 0) {
     msg->refcount = MSG_REFCOUNT_INVALID;
@@ -2283,6 +2290,7 @@ ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
   }
   shmtx_unlock(shm);
 #endif
+  //DBG("msg %p reserved (%i) %s", msg, msg->refcount, lbl);
   return NGX_OK;
 }
 
@@ -2315,7 +2323,8 @@ ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
   shmtx_unlock(shm);
 #endif
   assert(msg->refcount > 0);
-  ngx_atomic_fetch_add(&msg->refcount, -1);
+  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
+  //DBG("msg %p released (%i) %s", msg, msg->refcount, lbl);
   return NGX_OK;
 }
 
@@ -2429,6 +2438,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   nchan_msg_t                 *publish_msg;
   ngx_int_t                    owner = chead->owner;
   ngx_int_t                    rc;
+  time_t                       timeout = (cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60);
   
   if(callback == NULL) {
     callback = empty_callback;
@@ -2440,7 +2450,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   if(msg->id.time == 0) {
     msg->id.time = ngx_time();
   }
-  msg->expires = msg->id.time + cf->buffer_timeout;
+  
+  msg->expires = msg->id.time + timeout;
   
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
@@ -2448,7 +2459,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     return NGX_OK;
   }
   
-  chead->channel.expires = ngx_time() + cf->buffer_timeout;
+  chead->channel.expires = ngx_time() + timeout;
   sub_count = chead->shared->sub_count;
   
   chead->max_messages = cf->max_messages;

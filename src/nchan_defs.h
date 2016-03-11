@@ -53,9 +53,10 @@ extern const ngx_str_t NCHAN_HEADER_CACHE_CONTROL;
 extern const ngx_str_t NCHAN_HEADER_PRAGMA;
 extern const ngx_str_t NCHAN_HEADER_ORIGIN;
 
-extern const ngx_str_t NCHAN_HEADER_ALLOW_HEADERS;
-extern const ngx_str_t NCHAN_HEADER_ALLOW_METHODS;
-extern const ngx_str_t NCHAN_HEADER_ALLOW_ORIGIN;
+extern const ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS;
+extern const ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS;
+extern const ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN;
+extern const ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS;
 
 extern const ngx_str_t NCHAN_HEADER_EVENTSOURCE_EVENT;
 
@@ -80,9 +81,11 @@ extern const ngx_str_t NCHAN_WEBSOCKET;
 extern const ngx_str_t NCHAN_ANYSTRING;
 extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS;
 extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS;
-extern const ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS;
-extern const ngx_str_t NCHAN_ALLOW_GET_OPTIONS;
+extern const ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE;
+extern const ngx_str_t NCHAN_ALLOW_GET;
 extern const ngx_str_t NCHAN_VARY_HEADER_VALUE;
+extern const ngx_str_t NCHAN_MSG_RESPONSE_ALLOWED_HEADERS;
+extern const char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF;
 extern const ngx_str_t NCHAN_CONTENT_TYPE_TEXT_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_JSON;

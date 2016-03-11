@@ -11,6 +11,8 @@ clang_sanitize_addres="-fsanitize=address,undefined -fno-omit-frame-pointer"
 
 optimize_level=0;
 
+export CONFIGURE_WITH_DEBUG=0
+
 for opt in $*; do
   case $opt in
     clang)
@@ -58,6 +60,8 @@ for opt in $*; do
       export NGINX_VERYOLDVERSION=1;;
     slabpatch|slab)
       export NGX_SLAB_PATCH=1;;
+    withdebug)
+      export CONFIGURE_WITH_DEBUG=1;;
     clang-analyzer|analyzer|scan|analyze)
       export CC="clang"
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
@@ -66,7 +70,7 @@ for opt in $*; do
   esac
 done
 
-export NO_WITH_DEBUG=1
+export NO_WITH_DEBUG=$NO_WITH_DEBUG;
 
 _build_nginx() {
 

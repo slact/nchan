@@ -237,7 +237,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
 #if FAKESHARD
       memstore_sub_debug_start();
 #endif
-      msg_id = nchan_subscriber_get_msg_id(r);
+      if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
+        goto bad_msgid;
+      }
       if((sub = websocket_subscriber_create(r, msg_id)) == NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -286,7 +288,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
 #if FAKESHARD
           memstore_sub_debug_start();
 #endif
-          msg_id = nchan_subscriber_get_msg_id(r);
+          if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
+            goto bad_msgid;
+          }
           if((sub = sub_create(r, msg_id)) == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -317,10 +321,10 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
       
       case NGX_HTTP_OPTIONS:
         if(cf->pub.http) {
-          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE_OPTIONS);
+          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE);
         }
         else if(cf->sub.poll || cf->sub.longpoll || cf->sub.eventsource || cf->sub.websocket) {
-          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET_OPTIONS);
+          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET);
         }
         else goto forbidden;
         break;
@@ -332,6 +336,11 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
 forbidden:
   nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
   return NGX_OK;
+
+bad_msgid:
+  nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Message ID invalid", 0);
+  return NGX_OK;
+  
 }
 
 static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {

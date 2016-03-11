@@ -12,6 +12,9 @@ local msg={
   time= time,
   tag= 0
 }
+if msg.ttl == 0 then
+  msg.ttl = 126144000 --4 years
+end
 local store_at_most_n_messages = ARGV[7]
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 7, max_msg_buf_size, can't be empty"}
@@ -226,7 +229,7 @@ dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
 --now publish to the efficient channel
 local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]
-if numsub > 0 then
+if tonumber(numsub) > 0 then
   msgpacked = cmsgpack.pack(unpacked)
   redis.call('PUBLISH', channel_pubsub, msgpacked)
 end

@@ -13,6 +13,7 @@ msg_count=0
 print_content_type = false
 show_id=false
 client=:longpoll
+origin = nil
 
 url = nil
 sub = nil
@@ -26,6 +27,7 @@ opt=OptionParser.new do |opts|
   opts.on("-c", "--content-type", "show received content-type"){|v| print_content_type = true}
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
+  opts.on("--origin STR", "Set Origin header if appplicable."){|v| origin = v}
   opts.on("--full-url URL", "full subscriber url") do |v|
     url = v
   end
@@ -39,7 +41,13 @@ url ||= "http://#{server}#{ARGV.last}"
 puts "Subscribing #{par} #{client} client#{par!=1 ? "s":""} to #{url}."
 puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
 
-sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg, client: client, nostore: true
+extra_headers = nil
+if client == :longpoll
+  if origin
+    extra_headers = { 'Origin': origin }
+  end
+end
+sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg, client: client, extra_headers: extra_headers, nostore: true
 
 nomsgmessage="\r"*30 + "Received message %i, len:%i"
 

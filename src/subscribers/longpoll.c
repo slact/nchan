@@ -7,6 +7,13 @@
 #include <assert.h>
 #include "longpoll-private.h"
 
+#include <store/memory/store.h>
+
+//a classic
+#define container_of(ptr, type, member) ({ \
+  const typeof( ((type *)0)->member ) *__mptr = (ptr); \
+  (type *)( (char *)__mptr - offsetof(type,member) );})1
+
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop(void);
@@ -225,13 +232,38 @@ static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   return NGX_ERROR;
 }
 
-static ngx_int_t longpoll_multimsg_add(full_subscriber_t *fsub, nchan_msg_t *msg, char **err) {
+static ngx_int_t longpoll_multipart_add(full_subscriber_t *fsub, nchan_msg_t *msg, char **err) {
   
   nchan_longpoll_multimsg_t     *mmsg;
   
   if((mmsg = ngx_palloc(fsub->sub.request->pool, sizeof(*mmsg))) == NULL) {
-    *err = "can't allocate multimsg";
+    *err = "can't allocate multipart msg link";
     return NGX_ERROR;
+  }
+  
+  if(msg->shared) {
+    msg_reserve(msg, "longpoll multipart");
+  }
+  else if(msg->id.tagcount > 1) {
+    //msg from a multiplexed channel
+    assert(!msg->shared && !msg->temp_allocd);
+    nchan_msg_copy_t *cmsg;
+    if((cmsg = ngx_palloc(fsub->sub.request->pool, sizeof(*cmsg))) == NULL) {
+      *err = "can't allocate msgcopy for message from multiplexed channel";
+      return NGX_ERROR;
+      
+    }
+    //  multiplexed channel message should have been created as a nchan_msg_copy_t
+    *cmsg = *(nchan_msg_copy_t *)msg;
+    
+    cmsg->copy.temp_allocd = 1;
+    
+    assert(cmsg->original->shared);
+    msg_reserve(cmsg->original, "longpoll multipart for multiplexed channel");
+    msg = &cmsg->copy;
+  }
+  else {
+    assert(0); //this is not yet an expected scenario;
   }
   
   mmsg->msg = msg;
@@ -269,15 +301,12 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
     
     assert(fsub->data.already_responded != 1);
     fsub->data.already_responded = 1;
-    if(ctx->request_origin_header.len > 0) {
-      nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-    }
     if((rc = nchan_respond_msg(r, msg, &self->last_msgid, 0, &err)) != NGX_OK) {
       return abort_response(self, err);
     }
   }
   else {
-    if((rc = longpoll_multimsg_add(fsub, msg, &err)) != NGX_OK) {
+    if((rc = longpoll_multipart_add(fsub, msg, &err)) != NGX_OK) {
       return abort_response(self, err);
     }
   }
@@ -285,10 +314,30 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   return rc;
 }
 
-static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
+static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) {
+  nchan_longpoll_multimsg_t    *cur;
+  nchan_msg_copy_t             *cmsg;
+  for(cur = first; cur != NULL; cur = cur->next) {
+    if(cur->msg->shared) {
+      msg_release(cur->msg, "longpoll multipart");
+    }
+    else if(cur->msg->id.tagcount > 1) {
+      assert(!cur->msg->shared && cur->msg->temp_allocd);
+      // multiplexed channel message should have been created as a nchan_msg_copy_t
+      cmsg = (nchan_msg_copy_t *)cur->msg;
+      
+      assert(cmsg->original->shared);
+      msg_release(cmsg->original, "longpoll multipart for multiplexed channel");
+    }
+    else {
+      assert(0);
+    }
+  }
+}
+
+static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  nchan_loc_conf_t      *cf = fsub->sub.cf;
   char                  *err;
   ngx_int_t              rc;
   u_char                 char_boundary[50];
@@ -301,17 +350,20 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   ngx_buf_t              double_newline_buf;
   ngx_str_t             *content_type;
   size_t                 size = 0;
+  nchan_longpoll_multimsg_t *first, *cur;
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
   
-  nchan_longpoll_multimsg_t *first, *cur;
+  first = fsub->data.multimsg_first;
+  
   
   fsub->sub.dequeue_after_response = 1;
   
-  if(ctx->request_origin_header.len > 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-  }
+  //cleanup to release msgs
+  fsub->data.cln = ngx_http_cleanup_add(fsub->sub.request, 0);
+  fsub->data.cln->data = first;
+  fsub->data.cln->handler = (ngx_http_cleanup_pt )multipart_request_cleanup_handler;
   
   if(fsub->data.multimsg_first == fsub->data.multimsg_last) {
     //just one message.
@@ -356,10 +408,11 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
     boundary[i].last = boundary[i].end;
   }
   
-  first = fsub->data.multimsg_first;
+  int n=0;
   
   for(cur = first; cur != NULL; cur = cur->next) {
     chains = ngx_palloc(r->pool, sizeof(*chains)*4);
+    n++;
     
     if(last_chain) {
       last_chain->next = &chains[0];
@@ -367,7 +420,12 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
     if(!first_chain) {
       first_chain = &chains[0];
     }
-    chains[0].buf = cur == first ? &boundary[0] : &boundary[1];
+    
+    // each buffer needs to be unique for the purpose of dealing with nginx output guts
+    // (something about max. 64 iovecs per write call and counting the number of bytes already sent)
+    buf = ngx_pcalloc(r->pool, sizeof(*buf));
+    *buf = cur == first ? boundary[0] : boundary[1];
+    chains[0].buf = buf;
     chains[0].next = &chains[1];
     
     size += ngx_buf_size(chains[0].buf);
@@ -383,7 +441,10 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
       chains[1].buf = buf;
     }
     else {
-      chains[1].buf = &double_newline_buf;
+
+      buf = ngx_palloc(r->pool, sizeof(*buf));
+      chains[1].buf = buf;
+      *buf = double_newline_buf;
     }
     size += ngx_buf_size(chains[1].buf);
     
@@ -391,12 +452,13 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
       chains[1].next = &chains[2];
       
       buf = ngx_palloc(r->pool, sizeof(*buf));
-      ngx_memcpy(buf, cur->msg->buf, sizeof(*buf));
+      *buf = *cur->msg->buf;
       nchan_msg_buf_open_fd_if_needed(buf, NULL, r);
+      buf->last_buf = 0;
       chains[2].buf = buf;
       size += ngx_buf_size(chains[2].buf);
       
-      last_chain = &chains[2];
+      last_chain = &chains[2];  
     }
     else {
       last_chain = &chains[1];
@@ -414,7 +476,8 @@ static ngx_int_t longpoll_multimsg_respond(full_subscriber_t *fsub) {
   
   r->headers_out.status = NGX_HTTP_OK;
   r->headers_out.content_length_n = size;
-  nchan_set_msgid_http_response_headers(r, &fsub->data.multimsg_last->msg->id);
+  nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);
+  nchan_include_access_control_if_needed(r, ctx);
   ngx_http_send_header(r);
   nchan_output_filter(r, first_chain);
   
@@ -426,8 +489,9 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   full_subscriber_t     *fsub = (full_subscriber_t *)self;
   ngx_http_request_t    *r = fsub->sub.request;
-  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
   nchan_loc_conf_t      *cf = fsub->sub.cf;
+  
+  //DBG("%p got status %i", self, status_code);
   
   if(fsub->data.act_as_intervalpoll) {
     if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED || status_code == NGX_HTTP_NOT_FOUND ) {
@@ -437,7 +501,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
     if(cf->longpoll_multimsg) {
       if(fsub->data.multimsg_first != NULL) {
-        longpoll_multimsg_respond(fsub);
+        longpoll_multipart_respond(fsub);
         dequeue_maybe(self);
       }
       return NGX_OK;
@@ -450,14 +514,10 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   DBG("%p respond req %p status %i", self, r, status_code);
   
-  nchan_set_msgid_http_response_headers(r, &self->last_msgid);
+  nchan_set_msgid_http_response_headers(r, NULL, &self->last_msgid);
   
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
-  
-  if(ctx->request_origin_header.len > 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ALLOW_ORIGIN, &cf->allow_origin);
-  }
   
   nchan_respond_status(r, status_code, status_line, 0);
 

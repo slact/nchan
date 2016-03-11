@@ -33,8 +33,35 @@ class Message
   def id
     @id||=serverside_id
   end
+  def unique_id
+    if id.include? ","
+      time, etag = id.split ":"
+      etag = etag.split(",").map{|x| x[0] == "[" ? x : "?"}.join "," #]
+      [time, etag].join ":"
+    else
+      id
+    end
+  end
   def to_s
     @message
+  end
+  
+  def self.each_multipart_message(content_type, body)
+    content_type = content_type.last if Array === content_type 
+    matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match content_type
+    
+    if matches
+      splat = body.split(/^--#{Regexp.escape matches[:boundary]}-?-?\r?\n?/)
+      splat.shift
+      
+      splat.each do |v|
+        mm=(/(Content-Type:\s(?<content_type>.*?)\r\n)?\r\n(?<body>.*)\r\n/m).match v
+        yield mm[:content_type], mm[:body], true
+      end
+      
+    else
+      yield content_type, body
+    end
   end
 end
 
@@ -98,6 +125,10 @@ class MessageStore
     buf
   end
 
+  def [](i)
+    @msgs[i]
+  end
+  
   def each
     if @array
       @msgs.each {|msg| yield msg }
@@ -109,12 +140,12 @@ class MessageStore
     if @array
       @msgs << msg
     else
-      if (cur_msg=@msgs[msg.id])
-        puts "Different messages with same id: #{msg.id}, \"#{msg.to_s}\" then \"#{cur_msg.to_s}\"" unless cur_msg.message == msg.message
+      if (cur_msg=@msgs[msg.unique_id])
+        #puts "Different messages with same id: #{msg.id}, \"#{msg.to_s}\" then \"#{cur_msg.to_s}\"" unless cur_msg.message == msg.message
         cur_msg.times_seen+=1
         cur_msg.times_seen
       else
-        @msgs[msg.id]=msg
+        @msgs[msg.unique_id]=msg
         1
       end
     end
@@ -596,23 +627,33 @@ class Subscriber
       @gzip=opt[:gzip]
       @retry_delay=opt[:retry_delay]
       @nomsg=opt[:nomsg]
+      @extra_headers=opt[:extra_headers]
     end
     
     def response_success(response, req)
       #puts "received OK response at #{req.url}"
       #parse it
-      unless @nomsg
-        msg=Message.new response.body, response.headers["Last-Modified"], response.headers["Etag"]
-        msg.content_type=response.headers["Content-Type"]
-        req.options[:headers]["If-None-Match"]=msg.etag
-        req.options[:headers]["If-Modified-Since"]=msg.last_modified
-      else
-        msg=response.body
-        req.options[:headers]["If-None-Match"] = response.headers["Etag"]
-        req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
+      req.options[:headers]["If-None-Match"] = response.headers["Etag"]
+      req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
+      
+      on_message_ret = nil
+      
+      Message.each_multipart_message(response.headers["Content-Type"], response.body) do |content_type, body, multi|
+        unless @nomsg
+          msg=Message.new body
+          msg.content_type=content_type
+          unless multi
+            msg.last_modified= response.headers["Last-Modified"]
+            msg.etag= response.headers["Etag"]
+          end
+        else
+          msg=body
+        end
+        
+        on_message_ret = @subscriber.on_message(msg, req)
       end
       
-      unless @subscriber.on_message(msg, req) == false
+      unless on_message_ret == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
         @hydra.queue new_request(old_request: req)
@@ -645,6 +686,10 @@ class Subscriber
     def new_request(opt = {})
       headers = {}
       headers["User-Agent"] = opt[:useragent] if opt[:useragent]
+      if @extra_headers
+        headers.merge! @extra_headers
+      end
+      
       if opt[:old_request]
         #req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
         
@@ -652,7 +697,12 @@ class Subscriber
         req = opt[:old_request]
       else
         req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
-          req.on_complete do |response|
+
+        #req.on_body do |chunk|
+        #  puts chunk
+        #end
+        
+        req.on_complete do |response|
           @subscriber.waiting-=1
           if response.success?
             response_success response, req
@@ -849,6 +899,7 @@ class Subscriber
     @quit_message=opt[:quit_message]
     @gzip=opt[:gzip]
     @retry_delay=opt[:retry_delay]
+    @extra_headers = opt[:extra_headers]
     #puts "Starting subscriber on #{url}"
     case opt[:client]
     when :longpoll, :long, nil
@@ -879,7 +930,7 @@ class Subscriber
     new_client @client_class
   end
   def new_client(client_class=LongPollClient)
-    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @nomsg)
+    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @nomsg, extra_headers: @extra_headers)
   end
   def reset
     @errors=[]
@@ -939,12 +990,13 @@ class Subscriber
   end
 
   def on_message(msg=nil, req=nil, &block)
-    #puts "received message #{msg.to_s[0..15]}"
+    #puts "received message #{msg && msg.to_s[0..15]}"
     if block_given?
       @on_message=block
     else
       @messages << msg if @messages
       if @quit_message == msg.to_s
+        @on_message.call(msg, req) if @on_message
         return false 
       end
       @on_message.call(msg, req) if @on_message
@@ -986,7 +1038,7 @@ end
 
 class Publisher
   #include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers
   def initialize(url, opt={})
     @url= url
     unless opt[:nostore]
@@ -1023,9 +1075,11 @@ class Publisher
       body.each{|b| i+=1; submit(b, method, content_type, &block)}
       return i
     end
+    headers = {:'Content-Type' => content_type, :'Accept' => accept}
+    headers.merge! @extra_headers if @extra_headers
     post = Typhoeus::Request.new(
       @url,
-      headers: {:'Content-Type' => content_type, :'Accept' => accept},
+      headers: headers,
       method: method,
       body: body,
       timeout: @timeout || PUBLISH_TIMEOUT,

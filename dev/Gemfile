@@ -12,7 +12,7 @@ gem 'celluloid-io'
 gem 'websocket'
 gem 'websocket-native'
 gem 'http_parser.rb'
-gem 'http-2'
+gem 'http-2', :github => "slact/http-2"
 
 gem 'reel', :github => "celluloid/reel"
 
