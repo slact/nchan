@@ -1343,7 +1343,7 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 
 static void exit_notice_about_remaining_things(char *thing, char *where, ngx_int_t num) {
   if(num > 0) {
-    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, mpt->chanhead_reaper.count == 1 ? "" : "s", where == NULL ? "" : where);
+    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, num == 1 ? "" : "s", where == NULL ? "" : where);
   }
 }
 
