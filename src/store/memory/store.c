@@ -780,6 +780,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, ui
       memstore_ready_chanhead_unless_stub(head);
     }
   }
+  assert(head->status != INACTIVE);
   return NGX_OK;
 }
 
@@ -1783,7 +1784,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   
   d->chanhead = chanhead;
-
+  
   if(d->reserved) {
     d->sub->fn->release(d->sub, 1);
     d->reserved = 0;
