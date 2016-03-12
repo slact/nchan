@@ -125,8 +125,6 @@ struct full_subscriber_s {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   ngx_event_t             timeout_ev;
-  subscriber_callback_pt  timeout_handler;
-  void                   *timeout_handler_data;
   ngx_event_t             closing_ev;
   ngx_int_t               owner;
   ws_frame_t              frame;
@@ -493,8 +491,6 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 #if nginx_version >= 1008000  
   fsub->timeout_ev.cancelable = 1;
 #endif
-  fsub->timeout_handler = empty_handler;
-  fsub->timeout_handler_data = NULL;
   fsub->dequeue_handler = empty_handler;
   fsub->dequeue_handler_data = NULL;
   fsub->awaiting_destruction = 0;
@@ -703,7 +699,6 @@ static void ping_ev_handler(ngx_event_t *ev) {
 
 static void timeout_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
 }
 
@@ -765,12 +760,6 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   if(self->destroy_after_dequeue) {
     websocket_subscriber_destroy(self);
   }
-  return NGX_OK;
-}
-
-static ngx_int_t websocket_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
-  //TODO
-  assert(0);
   return NGX_OK;
 }
 
@@ -1329,7 +1318,6 @@ static const subscriber_fn_t websocket_fn = {
   &websocket_dequeue,
   &websocket_respond_message,
   &websocket_respond_status,
-  &websocket_set_timeout_callback,
   &websocket_set_dequeue_callback,
   &websocket_reserve,
   &websocket_release,

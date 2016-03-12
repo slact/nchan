@@ -8,8 +8,6 @@ typedef struct {
   callback_pt             respond_status;
   callback_pt             notify;
   ngx_event_t             timeout_ev;
-  subscriber_callback_pt  timeout_handler;
-  void                   *timeout_handler_data;
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   void                   *privdata;

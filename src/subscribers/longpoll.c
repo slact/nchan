@@ -55,8 +55,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.act_as_intervalpoll = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
-  fsub->data.timeout_handler = empty_handler;
-  fsub->data.timeout_handler_data = NULL;
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_responded = 0;
@@ -167,7 +165,6 @@ static void longpoll_timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_push(fsub->data.owner);
 #endif
-  fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_HTTP_STATUS_304);
 #if FAKESHARD
@@ -531,12 +528,6 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   return NGX_OK;
 }
 
-static ngx_int_t longpoll_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  fsub->data.timeout_handler = cb;
-  fsub->data.timeout_handler_data = privdata;
-  return NGX_OK;
-}
 
 static void request_cleanup_handler(subscriber_t *sub) {
 
@@ -560,7 +551,6 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_dequeue,
   &longpoll_respond_message,
   &longpoll_respond_status,
-  &longpoll_set_timeout_callback,
   &longpoll_set_dequeue_callback,
   &longpoll_reserve,
   &longpoll_release,

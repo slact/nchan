@@ -19,7 +19,6 @@ static const subscriber_t new_internal_sub;
 static ngx_int_t empty_callback(ngx_int_t code, void *ptr, void *d) {
   return NGX_OK;
 }
-static void sub_empty_callback(){ }
 
 ngx_int_t internal_subscriber_set_enqueue_handler(subscriber_t *sub, callback_pt handler) {
   ((internal_subscriber_t *)sub)->enqueue = handler;
@@ -79,9 +78,6 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   fsub->already_dequeued = 0;
   fsub->awaiting_destruction = 0;
   
-  
-  fsub->timeout_handler = sub_empty_callback;
-  fsub->dequeue_handler = sub_empty_callback;
   fsub->dequeue_handler_data = NULL;
   
   fsub->owner = memstore_slot();
@@ -150,7 +146,6 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   memstore_fakeprocess_push(fsub->owner);
 #endif
   DBG("%p (%V) timeout", fsub, fsub->sub.name);
-  fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
   fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
 #if FAKESHARD
@@ -223,20 +218,6 @@ static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_co
   return dequeue_maybe(self);
 }
 
-static ngx_int_t internal_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
-
-  internal_subscriber_t   *f = (internal_subscriber_t *)self;
-  if(cb != NULL) {
-    DBG("%p set timeout handler to %p", self, cb);
-    f->timeout_handler = cb;
-  }
-  if(privdata != NULL) {
-    DBG("%p set timeout handler data to %p", self, privdata);
-    f->timeout_handler_data = privdata;
-  }
-  return NGX_OK;
-}
-
 static ngx_int_t internal_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
   if(cb != NULL) {
@@ -265,7 +246,6 @@ static const subscriber_fn_t internal_sub_fn = {
   &internal_dequeue,
   &internal_respond_message,
   &internal_respond_status,
-  &internal_set_timeout_callback,
   &internal_set_dequeue_callback,
   &internal_reserve,
   &internal_release,
