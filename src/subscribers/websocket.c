@@ -559,7 +559,6 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
-    nchan_free_msg_id(&fsub->sub.last_msgid);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
