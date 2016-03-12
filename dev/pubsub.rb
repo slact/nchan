@@ -242,22 +242,22 @@ class Subscriber
           raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
         end
           
-        handshake = WebSocket::Handshake::Client.new(url: @url)
-        sock << handshake.to_s
+        @handshake = WebSocket::Handshake::Client.new(url: @url)
+        sock << @handshake.to_s
         
         #handshake response
         loop do
-          handshake << sock.readline
-          if handshake.finished?
-            unless handshake.valid?
-              @subscriber.on_failure WebSocketErrorResponse.new(handshake.response_code, handshake.response_line, false)
+          @handshake << sock.readline
+          if @handshake.finished?
+            unless @handshake.valid?
+              @subscriber.on_failure WebSocketErrorResponse.new(@handshake.response_code, @handshake.response_line, false)
             end
             break
           end
         end
         
-        if handshake.valid?
-          bundle = WebSocketBundle.new(handshake, sock)
+        if @handshake.valid?
+          bundle = WebSocketBundle.new(@handshake, sock)
           @ws[bundle]=true
           async.listen bundle
         end
@@ -271,11 +271,13 @@ class Subscriber
           while msg = bundle.next do
             if on_message(msg.data, msg.type, bundle) == false
               close bundle
+              return 
             end
           end
         rescue EOFError
-          puts "*** disconnected"
-          socket.close
+          bundle.sock.close
+          close bundle
+          return
         end
       end
     end
@@ -290,9 +292,19 @@ class Subscriber
     
     def on_message(data, type, bundle)
       #puts "Received message: #{data} type: #{type}"
-      msg= @nomsg ? data : Message.new(data)
-      bundle.last_message_time=Time.now.to_f
-      @subscriber.on_message(msg, bundle)
+      if type==:close
+        close_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, type: :close)
+        bundle.sock << close_frame.to_s
+      elsif type==:ping
+        ping_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, data: data, type: :pong)
+        bundle.sock << ping_frame.to_s
+      elsif type==:text
+        msg= @nomsg ? data : Message.new(data)
+        bundle.last_message_time=Time.now.to_f
+        @subscriber.on_message(msg, bundle)
+      else
+        raise "unexpected websocket frame #{type} data #{data}"
+      end
     end
     
     
@@ -301,7 +313,6 @@ class Subscriber
       @connected -= 1
       if @connected == 0
         binding.pry unless @ws.count == 0
-        puts "the future is now!"
         #binding.pry
         @cooked.signal true
       end
