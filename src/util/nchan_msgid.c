@@ -30,7 +30,7 @@ ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *l
   uint16_t dst_n = dst->tagcount, src_n = src->tagcount;
   dst->time = src->time;
   
-  if(dst_n > NCHAN_FIXED_MULTITAG_MAX && dst_n > src_n) {
+  if(dst_n > NCHAN_FIXED_MULTITAG_MAX && dst_n != src_n) {
     ngx_free(dst->tag.allocd);
     dst_n = NCHAN_FIXED_MULTITAG_MAX;
   }
@@ -42,7 +42,7 @@ ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *l
     dst->tag = src->tag;
   }
   else {
-    if(dst_n < src_n) {
+    if(dst_n != src_n) {
       if(!largetags) {
         if((largetags = ngx_alloc(sizeof(*largetags) * src_n, ngx_cycle->log)) == NULL) {
           return NGX_ERROR;
@@ -119,7 +119,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
   return NGX_OK;
 }
 
-void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
+void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid, int16_t *largetags) {
   if(newid->tagcount == 1) {
     //nice and simple
     *oldid = *newid;
@@ -140,13 +140,17 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid) {
       else {
         oldtags = oldid->tag.fixed;
       }
-      oldid->tag.allocd = ngx_alloc(sz, ngx_cycle->log);
+      if(largetags == NULL) {
+        largetags = ngx_alloc(sz, ngx_cycle->log);
+      }
+      oldid->tag.allocd = largetags;
       for(i=0; i < newcount; i++) {
         oldid->tag.allocd[i] = (i < oldcount) ? oldtags[i] : -1;
       }
       if(old_largetags) {
         ngx_free(old_largetags);
       }
+      oldid->tagcount = newcount;
     }
     
     if(oldid->time != newid->time) {
@@ -194,7 +198,7 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
       }
     }
     
-    nchan_update_multi_msgid(&sub->last_msgid, &msg->id);
+    nchan_update_multi_msgid(&sub->last_msgid, &msg->id, NULL);
   }
   
   return NGX_OK;

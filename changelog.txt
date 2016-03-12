@@ -1,3 +1,4 @@
+ fix: memory leak for multiplexed > 4 channels
  fix: invalid memory access for aborted subscriber connection with redis
       and nchan_subscribe_existing_channels_only
  fix: accept websocket binary data frames
