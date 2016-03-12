@@ -1,5 +1,8 @@
+ fix: invalid memory access for aborted subscriber connection with redis
+      and nchan_subscribe_existing_channels_only
  fix: accept websocket binary data frames
  fix: proper handling of websocket close frames
+ fix: incorrect expire calculation for cached redis-stored messages
 0.99.7 (Mar. 10 2016)
  fix: websocket infinite ping loop after reload
  feature: nchan_subscriber_message_id_custom_etag_header for misbehaving proxies that eat etags
