@@ -1739,7 +1739,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   nchan_store_channel_head_t  *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
-  
+  ngx_int_t                      not_dead;
   ngx_int_t                      use_redis = d->sub->cf->use_redis;
   
   switch(channel_status) {
@@ -1762,8 +1762,12 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
   }
   
+  not_dead = d->sub->status != DEAD;
+  
   if (chanhead == NULL) {
-    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    if(not_dead) {
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    }
     
     if(d->reserved) {
       d->sub->fn->release(d->sub, 0);
@@ -1784,8 +1788,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     d->sub->fn->release(d->sub, 1);
     d->reserved = 0;
   }
-  
-  chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+  if(not_dead) {
+    chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+  }
 
   subscribe_data_free(d);
 

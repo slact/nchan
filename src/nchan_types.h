@@ -250,10 +250,13 @@ typedef struct {
   
 } subscriber_fn_t;
 
+typedef enum {ALIVE, DEAD, UNKNOWN, PININGFORTHEFJORDS} nchan_subscriber_status_t;
+
 struct subscriber_s {
   ngx_str_t                 *name;
   subscriber_type_t          type;
   const subscriber_fn_t     *fn;
+  nchan_subscriber_status_t  status;
   nchan_msg_id_t             last_msgid;
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;

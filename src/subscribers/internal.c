@@ -277,6 +277,7 @@ static const subscriber_t new_internal_sub = {
   &subscriber_name,
   INTERNAL,
   &internal_sub_fn,
+  UNKNOWN,
   NCHAN_ZERO_MSGID,
   NULL,
   NULL,

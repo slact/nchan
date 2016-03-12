@@ -28,6 +28,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->data.owner);
 #endif
+  sub->status = DEAD;
   sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -62,6 +63,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.awaiting_destruction = 0;
   fsub->sub.reserved = 0;
   fsub->sub.enqueued = 0;
+  fsub->sub.status = ALIVE;
   
   if(fsub->sub.cf->longpoll_multimsg) {
     fsub->sub.dequeue_after_response = 0;
@@ -118,6 +120,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
     nchan_free_msg_id(&fsub->sub.last_msgid);
+    assert(sub->status == DEAD);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
     ngx_free(sub->lbl);
@@ -211,6 +214,7 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   if(fsub->data.finalize_request) {
     DBG("finalize request %p", fsub->sub.request);
     ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    self->status = DEAD;
   }
   
   if(self->destroy_after_dequeue) {
@@ -568,6 +572,7 @@ static const subscriber_t new_longpoll_sub = {
   &sub_name,
   LONGPOLL,
   &longpoll_fn,
+  UNKNOWN,
   NCHAN_ZERO_MSGID,
   NULL,
   NULL,

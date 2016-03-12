@@ -172,6 +172,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
   memstore_fakeprocess_push(fsub->owner);
 #endif
   fsub->connected = 0;
+  sub->status = DEAD;
   sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -476,7 +477,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->closing = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   fsub->sub.enqueued = 0;
-  
+  fsub->sub.status = ALIVE;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   
   if(msg_id) {
@@ -1315,6 +1316,7 @@ static const subscriber_t new_websocket_sub = {
   &sub_name,
   WEBSOCKET,
   &websocket_fn,
+  UNKNOWN,
   NCHAN_ZERO_MSGID,
   NULL,
   NULL,
