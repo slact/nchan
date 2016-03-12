@@ -63,6 +63,11 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   
   static ngx_file_t       file_copy;
   
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+    ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
+  }
+  
   //generate the headers
   if(!cf->msg_in_etag_only) {
     //msgtime
@@ -159,7 +164,7 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
     return NGX_OK;
   }
@@ -186,7 +191,7 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   
   nchan_output_filter(fsub->sub.request, &bc.chain);
   
-  if(status_code >=400 && status_code <599) {
+  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
     fsub->data.finalize_request=1;
@@ -196,11 +201,18 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   return NGX_OK;
 }
 
+static void multipart_timeout_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
+}
+
 static ngx_int_t multipart_enqueue(subscriber_t *sub) {
   ngx_int_t           rc;
   full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
   rc = longpoll_enqueue(sub);
+  fsub->data.timeout_ev.handler = multipart_timeout_ev_handler;
   fsub->data.finalize_request = 0;
   multipart_ensure_headers_sent(fsub);
   sub->enqueued = 1;

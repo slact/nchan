@@ -361,7 +361,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `0 (none)`  
   context: http, server, location, if  
   legacy name: push_subscriber_timeout  
-  > The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a `nchan_subscriber` is present in this or a child context.    
+  > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0.    
 
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  

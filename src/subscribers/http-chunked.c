@@ -41,6 +41,11 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_int_t               rc;
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+    ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
+  }
+  
   if (ngx_buf_size(msg_buf) == 0) {
     //empty messages are skipped, because a zero-length chunk finalizes the request
     return NGX_OK;
@@ -117,12 +122,12 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   bc.buf.pos = bc.buf.start;
   bc.buf.last = bc.buf.end;
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
     return NGX_OK;
   }
   
-  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
+  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code < 600) {
     nchan_respond_status(sub->request, status_code, status_line, 1);
     return NGX_OK;
   }
@@ -131,7 +136,7 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   
   nchan_output_filter(fsub->sub.request, chain);
   
-  if(status_code >=400 && status_code <599) {
+  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
     fsub->data.finalize_request=1;
@@ -141,11 +146,18 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   return NGX_OK;
 }
 
+static void chunked_timeout_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
+}
+
 static ngx_int_t chunked_enqueue(subscriber_t *sub) {
   ngx_int_t           rc;
   full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
   rc = longpoll_enqueue(sub);
+  fsub->data.timeout_ev.handler = chunked_timeout_ev_handler;
   fsub->data.finalize_request = 0;
   chunked_ensure_headers_sent(fsub);
   sub->enqueued = 1;

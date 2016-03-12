@@ -64,12 +64,14 @@ extern const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE;
 
 //status strings
 extern const  ngx_str_t NCHAN_HTTP_STATUS_101;
+extern const  ngx_str_t NCHAN_HTTP_STATUS_304;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_409;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_410;
 
 //other stuff
 
 extern const ngx_str_t NCHAN_UPGRADE;
+extern const ngx_str_t NCHAN_SUBSCRIBER_TIMEOUT;
 extern const ngx_str_t NCHAN_WEBSOCKET;
 extern const ngx_str_t NCHAN_ANYSTRING;
 extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS;

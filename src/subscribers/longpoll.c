@@ -162,14 +162,14 @@ static ngx_int_t longpoll_release(subscriber_t *self, uint8_t nodestroy) {
   }
 }
 
-static void timeout_ev_handler(ngx_event_t *ev) {
+static void longpoll_timeout_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
 #if FAKESHARD
   memstore_fakeprocess_push(fsub->data.owner);
 #endif
   fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
   fsub->sub.dequeue_after_response = 1;
-  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_HTTP_STATUS_304);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -190,7 +190,7 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
 #if nginx_version >= 1008000
     fsub->data.timeout_ev.cancelable = 1;
 #endif
-    fsub->data.timeout_ev.handler = timeout_ev_handler;
+    fsub->data.timeout_ev.handler = longpoll_timeout_ev_handler;
     fsub->data.timeout_ev.data = fsub;
     fsub->data.timeout_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
@@ -298,7 +298,9 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   ctx->msg_id = self->last_msgid;
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
-  
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+  }
   if(!cf->longpoll_multimsg) {
     //disable abort handler
     fsub->data.cln->handler = empty_handler;
@@ -502,7 +504,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
       status_code = NGX_HTTP_NOT_MODIFIED;
     }
   }
-  else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  else if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     if(cf->longpoll_multimsg) {
       if(fsub->data.multimsg_first != NULL) {
         longpoll_multipart_respond(fsub);

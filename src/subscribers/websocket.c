@@ -701,6 +701,12 @@ static void ping_ev_handler(ngx_event_t *ev) {
   }
 }
 
+static void timeout_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  fsub->timeout_handler(&fsub->sub, fsub->timeout_handler_data);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
+}
+
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_handshake(fsub);
@@ -716,6 +722,18 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
     fsub->ping_ev.data = fsub;
     fsub->ping_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->ping_ev, self->cf->websocket_ping_interval * 1000);
+  }
+  
+  if(self->cf->subscriber_timeout > 0) {
+    //add timeout timer
+    //nextsub->ev should be zeroed;
+#if nginx_version >= 1008000
+    fsub->timeout_ev.cancelable = 1;
+#endif
+    fsub->timeout_ev.handler = timeout_ev_handler;
+    fsub->timeout_ev.data = fsub;
+    fsub->timeout_ev.log = ngx_cycle->log;
+    ngx_add_timer(&fsub->timeout_ev, self->cf->subscriber_timeout * 1000);
   }
   
   return NGX_OK;
@@ -738,6 +756,10 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   
   if(fsub->closing_ev.timer_set) {
     ngx_del_timer(&fsub->closing_ev);
+  }
+  
+  if(fsub->timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->timeout_ev);
   }
   
   if(self->destroy_after_dequeue) {
@@ -969,9 +991,9 @@ static void websocket_reading(ngx_http_request_t *r) {
           temp_pool = NULL;
         }
         return;
-
+        
         break;
-
+        
       default:
         ngx_log_debug(NGX_LOG_ERR, c->log, 0, "push stream module: unknown websocket step (%d)", frame->step);
         goto finalize;
@@ -1216,6 +1238,11 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   ensure_handshake(fsub);
   nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
+  if(fsub->timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->timeout_ev);
+    ngx_add_timer(&fsub->timeout_ev, fsub->sub.cf->subscriber_timeout * 1000);
+  }
+  
   ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
   ctx->msg_id = self->last_msgid;
@@ -1236,7 +1263,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   uint16_t                  close_code = 0;
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //don't care, ignore
     return NGX_OK;
   }
@@ -1260,7 +1287,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
       close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_500);
       break;
     default:
-      if(status_code >= 400 && status_code <=599) {
+      if((status_code >= 400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
         custom_close_msg.data=msgbuf;
         custom_close_msg.len = ngx_sprintf(msgbuf,"%i %v", status_code, (status_line ? status_line : &empty)) - msgbuf;
         close_msg = &custom_close_msg;

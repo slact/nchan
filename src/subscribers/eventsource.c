@@ -139,6 +139,11 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   update_subscriber_last_msg_id(sub, msg);
   ctx->msg_id = fsub->sub.last_msgid;
   
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+    ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
+  }
+  
   es_ensure_headers_sent(fsub);
   
   DBG("%p output msg to subscriber", sub);
@@ -270,7 +275,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   u_char                    resp_buf[256];
   nchan_buf_and_chain_t     bc;
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
     return NGX_OK;
   }
@@ -292,7 +297,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   
   nchan_output_filter(fsub->sub.request, &bc.chain);
   
-  if(status_code >=400 && status_code <599) {
+  if((status_code >=400 && status_code <599) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
     fsub->data.finalize_request=1;
@@ -302,12 +307,18 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   return NGX_OK;
 }
 
+static void es_timeout_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
+  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
+}
 
 static ngx_int_t es_enqueue(subscriber_t *sub) {
   ngx_int_t           rc;
   full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
   rc = longpoll_enqueue(sub);
+  fsub->data.timeout_ev.handler = es_timeout_ev_handler;
   fsub->data.finalize_request = 0;
   es_ensure_headers_sent(fsub);
   sub->enqueued = 1;
