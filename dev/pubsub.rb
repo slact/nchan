@@ -366,10 +366,15 @@ class Subscriber
       
       def read
         @rcvbuf.clear
+        if @done || sock.closed?
+          return false 
+        end
         sock.readpartial(4096, @rcvbuf)
         #puts "\"#{@buf}\""
         @parser << @rcvbuf
-        return false if @done || sock.closed?
+        if @done || sock.closed?
+          return false 
+        end
       end
     end
     
@@ -419,31 +424,33 @@ class Subscriber
         @etag = prsr.headers["Etag"]
         b.request_time = Time.now.to_f - b.time_requested
         if prsr.status_code != 200
-          binding.pry
-          unless @subscriber.on_failure(prsr) == false
+          if prsr.status_code == 304
+            @subscriber.on_failure(prsr)
+            close b
+            @subscriber.finished+=1
+          elsif @subscriber.on_failure(prsr) == false
+            @subscriber.finished+=1
+            Celluloid.sleep @retry_delay if @retry_delay  
+          else
+            close b
+          end
+        else
+          unless @nomsg
+            msg=Message.new @body_buf, @last_modified, @etag
+            msg.content_type=prsr.headers["Content-Type"]
+          else
+            msg=@body_buf
+          end
+          
+          unless @subscriber.on_message(msg, b) == false
+            @subscriber.waiting+=1
             Celluloid.sleep @retry_delay if @retry_delay
+            b.send_GET @last_modified, @etag
           else
             @subscriber.finished+=1
             close b
           end
         end
-        
-        unless @nomsg
-          msg=Message.new @body_buf, @last_modified, @etag
-          msg.content_type=prsr.headers["Content-Type"]
-        else
-          msg=@body_buf
-        end
-        
-        unless @subscriber.on_message(msg, b) == false
-          @subscriber.waiting+=1
-          Celluloid.sleep @retry_delay if @retry_delay
-          b.send_GET @last_modified, @etag
-        else
-          @subscriber.finished+=1
-          close b
-        end
-        
       end
       
       prsr.on_body = proc do |chunk|
@@ -455,9 +462,10 @@ class Subscriber
     def listen(bundle)
       loop do
         begin
-          return if bundle.read == false
+          return false if bundle.read == false
         rescue EOFError
           close bundle
+          return false
         end
       end
     end
@@ -745,12 +753,22 @@ class Subscriber
   
   class EventSourceClient < FastLongPollClient
     
+    class EventSourceErrorResponse
+      attr_accessor :code, :msg, :connected
+      def initialize(code, msg, connected)
+        self.code = code
+        self.msg = msg
+        self.connected = connected
+      end
+    end
+    
     include Celluloid::IO
     
     class EventSourceBundle < FastLongPollClient::HTTPBundle
-      attr_accessor :buf, :on_headers
+      attr_accessor :buf, :on_headers, :connected
       def initialize(uri, sock, user_agent)
         super
+        @connected = false
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
           Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
@@ -767,7 +785,7 @@ class Subscriber
           Last-Event-ID: %s
           
         END
-        @buf={data: "", event_id: "", comments: ""}
+        @buf={data: "", id: "", comments: ""}
         #binding.pry
         
         @parser.on_headers_complete= proc do 
@@ -781,20 +799,36 @@ class Subscriber
       end
     
       def read
+        @allbuf ||= ""
         @rcvbuf.clear
-        @rcvbuf << sock.readline
+        if @done || sock.closed?
+          return false 
+        end
+        begin
+          @rcvbuf << sock.readline
+          @allbuf << @rcvbuf
+        rescue EOFError => e
+          #connection got closed i think
+          if @buf[:comments].length > 0 || @buf[:id].length > 0 || @buf[:data].length > 0
+            @rcvbuf="\n"
+          else
+            raise e
+          end
+        end
         #puts @rcvbuf
         unless @gotheaders
           @parser << @rcvbuf
         else 
           parse_line @rcvbuf
         end
-        return false if @done || sock.closed?
+        if @done || sock.closed?
+          return false 
+        end
       end
       
       def buf_reset
         @buf[:data].clear
-        @buf[:event_id].clear
+        @buf[:id].clear
         @buf[:comments].clear
         @buf[:retry_timeout] = nil
         @buf[:event] = nil
@@ -803,7 +837,7 @@ class Subscriber
       def parse_event
         if @buf[:comments].length > 0
           @on_event.call :comment, @buf[:comments].chomp!
-        else
+        elsif @buf[:data].length > 0 || @buf[:id].length > 0 || @buf[:event] > 0
           @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
         end
         buf_reset
@@ -840,10 +874,13 @@ class Subscriber
         if parser.status_code != 200
           @subscriber.on_failure(parser)
           close b
+        else
+          b.connected = true
         end
       end
       b.on_event do |evt, data, evt_id|
-        if evt == :message
+        case evt 
+        when :message
           unless @nomsg
             msg=Message.new data
             msg.id=evt_id
@@ -854,7 +891,11 @@ class Subscriber
           if @subscriber.on_message(msg, b) == false
             close b
           end
-          
+        when :comment
+          if data.match(/^(?<code>\d+): (?<message>.*)/)
+            err = EventSourceErrorResponse.new($~[:code].to_i, $~[:message], b.connected)
+            @subscriber.on_failure err
+          end
         end
       end
       b
@@ -1033,11 +1074,11 @@ class Subscriber
             @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
           end
         end
-      when WebSocketClient
-        error = response.connected ? "Websocket connection failed: " : "Websocket handshake failed: "
+      when WebSocketClient, EventSourceClient
+        error = response.connected ? "#{client.class.name.split('::').last} connection failed: " : "#{client.class.name.split('::').last} handshake failed: "
         error << "#{response.msg} (code #{response.code})"
         @errors << error
-      when FastLongPollClient, EventSourceClient
+      when FastLongPollClient
         @errors << "HTTP request failed: (code #{response.status_code})"
       else
         binding.pry
