@@ -11,7 +11,7 @@ require 'uri'
 require "http/parser"
 require "http/2"
 
-SUBSCRIBER_TYPES=[ :longpoll, :intervalpoll, :eventsource, :websocket ]
+SUBSCRIBER_TYPES=[ :longpoll, :intervalpoll, :eventsource, :websocket, :multipart, :chunked ]
 PUBLISH_TIMEOUT=3 #seconds
 
 class Message
@@ -153,6 +153,16 @@ class MessageStore
 end
 
 class Subscriber
+  
+  class SubscriberErrorResponse
+    attr_accessor :code, :msg, :connected
+    def initialize(code, msg, connected)
+      self.code = code
+      self.msg = msg
+      self.connected = connected
+    end
+  end
+  
   class WebSocketClient
     #a little sugar for handshake errors
     
@@ -169,15 +179,6 @@ class Subscriber
       end
       def response_line
         response_code :line
-      end
-    end
-    
-    class WebSocketErrorResponse
-      attr_accessor :code, :msg, :connected
-      def initialize(code, msg, connected)
-        self.code = code
-        self.msg = msg
-        self.connected = connected
       end
     end
     
@@ -234,12 +235,18 @@ class Subscriber
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       @concurrency.times do
-        if uri.scheme == "ws"
-          sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-        elsif uri.scheme == "wss"
-          sock = Celluloid::IO::SSLSocket.new(uri.host, port)
-        else
-          raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
+        begin
+          if uri.scheme == "ws"
+            sock = Celluloid::IO::TCPSocket.new(uri.host, port)
+          elsif uri.scheme == "wss"
+            sock = Celluloid::IO::SSLSocket.new(uri.host, port)
+          else
+            raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
+          end
+        rescue SystemCallError => e
+          @subscriber.on_failure(SubscriberErrorResponse.new(0, e.to_s, 0))
+          close nil
+          return
         end
           
         @handshake = WebSocket::Handshake::Client.new(url: @url)
@@ -250,7 +257,7 @@ class Subscriber
           @handshake << sock.readline
           if @handshake.finished?
             unless @handshake.valid?
-              @subscriber.on_failure WebSocketErrorResponse.new(@handshake.response_code, @handshake.response_line, false)
+              @subscriber.on_failure SubscriberErrorResponse.new(@handshake.response_code, @handshake.response_line, false)
             end
             break
           end
@@ -285,7 +292,7 @@ class Subscriber
     def on_error(err, err2)
       puts "Received error #{err}"
       if !@connected[ws]
-        @subscriber.on_failure WebSocketErrorResponse.new(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
+        @subscriber.on_failure SubscriberErrorResponse.new(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
         try_halt
       end
     end
@@ -309,9 +316,11 @@ class Subscriber
     
     
     def close(bundle)
-      @ws.delete bundle
+      if bundle
+        @ws.delete bundle
+      end
       @connected -= 1
-      if @connected == 0
+      if @connected <= 0
         binding.pry unless @ws.count == 0
         #binding.pry
         @cooked.signal true
@@ -328,16 +337,18 @@ class Subscriber
     
     class HTTPBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
-      def initialize(uri, sock, user_agent)
+      def initialize(uri, sock, user_agent, accept="*/*", extra_headers={})
+        @accept = accept
         @rcvbuf=""
         @sndbuf=""
         @parser = Http::Parser.new
         @sock = sock
         @done = false
+        extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
           Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: */*
+          #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           
         END
@@ -345,7 +356,7 @@ class Subscriber
         @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
           Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: */*
+          #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           If-Modified-Since: %s
           If-None-Match: %s
@@ -356,8 +367,10 @@ class Subscriber
       def send_GET(msg_time=nil, msg_tag=nil)
         @sndbuf.clear
         if msg_time
+          puts sprintf(@send_withid_fmt, msg_time, msg_tag)
           @sndbuf << sprintf(@send_withid_fmt, msg_time, msg_tag)
         else
+          puts @send_noid_str
           @sndbuf << @send_noid_str
         end
         @time_requested=Time.now.to_f
@@ -398,12 +411,18 @@ class Subscriber
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       @concurrency.times do |i|
-        if uri.scheme == "http"
-          sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-        elsif uri.scheme == "https"
-          sock = Celluloid::IO::SSLSocket.new(uri.host, port)
-        else
-          raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
+        begin
+          if uri.scheme == "http"
+            sock = Celluloid::IO::TCPSocket.new(uri.host, port)
+          elsif uri.scheme == "https"
+            sock = Celluloid::IO::SSLSocket.new(uri.host, port)
+          else
+            raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
+          end
+        rescue SystemCallError => e
+          @subscriber.on_failure(SubscriberErrorResponse.new(0, e.to_s, 0))
+          close nil
+          return
         end
         bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
         @http[bundle]=true
@@ -471,11 +490,13 @@ class Subscriber
     end
     
     def close(bundle)
-      bundle.done=true
-      bundle.sock.close
-      @http.delete bundle
+      if bundle
+        bundle.done=true
+        bundle.sock.close
+        @http.delete bundle
+      end
       @connected -= 1
-      if @connected == 0
+      if @connected <= 0
         @cooked.signal true
       end
     end
@@ -681,16 +702,6 @@ class Subscriber
       end
     end
     
-    def queue_and_run(req)
-      queue_size = @hydra.queued_requests.count
-      @hydra.queue new_request(old_request: req)
-      if queue_size == 0
-        #puts "rerun"
-        #binding.pry
-        @hydra.run
-      end
-    end
-    
     def response_failure(response, req)
       #puts "received bad or no response at #{req.url}"
       unless @subscriber.on_failure(response) == false
@@ -752,16 +763,6 @@ class Subscriber
   end
   
   class EventSourceClient < FastLongPollClient
-    
-    class EventSourceErrorResponse
-      attr_accessor :code, :msg, :connected
-      def initialize(code, msg, connected)
-        self.code = code
-        self.msg = msg
-        self.connected = connected
-      end
-    end
-    
     include Celluloid::IO
     
     class EventSourceBundle < FastLongPollClient::HTTPBundle
@@ -872,7 +873,7 @@ class Subscriber
       b=EventSourceBundle.new(uri, sock, useragent)
       b.on_headers do |parser|
         if parser.status_code != 200
-          @subscriber.on_failure(parser)
+          @subscriber.on_failure SubscriberErrorResponse.new(parser.status_code, "", false)
           close b
         else
           b.connected = true
@@ -893,11 +894,136 @@ class Subscriber
           end
         when :comment
           if data.match(/^(?<code>\d+): (?<message>.*)/)
-            err = EventSourceErrorResponse.new($~[:code].to_i, $~[:message], b.connected)
-            @subscriber.on_failure err
+            err = SubscriberErrorResponse.new($~[:code].to_i, $~[:message], b.connected)
+            @subscriber.on_failure SubscriberErrorResponse.new($~[:code].to_i, $~[:message], b.connected)
           end
         end
       end
+      b
+    end
+    
+  end
+  
+  class MultipartMixedClient < FastLongPollClient
+    include Celluloid::IO
+    
+    class MultipartMixedBundle < FastLongPollClient::HTTPBundle
+      attr_accessor :buf, :preambled, :headered, :headers
+      def initialize(uri, sock, user_agent)
+        @buf=""
+        @headers={}
+        super uri, sock, user_agent, "multipart/mixed"
+      end
+    end
+    
+    def new_bundle(uri, sock, useragent)
+      b=MultipartMixedBundle.new(uri, sock, useragent)
+      prsr = b.parser
+      prsr.on_headers_complete = proc do |headers|
+        if prsr.status_code != 200
+          @subscriber.on_failure(SubscriberErrorResponse.new(prsr.status_code, "", false))
+          @subscriber.finished+=1
+          close b
+        else
+          matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match headers["Content-Type"]
+          @bound = matches[:boundary]
+          b.buf.clear
+        end
+      end
+      
+      prsr.on_body = proc do |chunk|
+        b.buf << chunk
+        next unless @bound
+        
+        if !b.preambled && b.buf.slice!(/^--#{Regexp.escape @bound}\r\n/)
+          b.preambled = true
+          b.headered = nil
+        end
+        
+        if b.preambled && b.buf.slice!(/^(.*?)\r\n\r\n/m)
+          b.headered = true
+          ($~[1]).each_line do |l|
+            if l.match(/(?<name>[^:]+):\s(?<val>[^\r\n]*)/)
+              b.headers[$~[:name]]=$~[:val]
+            end
+          end
+          b.headered = true
+        end
+        
+        if b.headered && b.buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
+          unless @nomsg
+            msg=Message.new $~[1], b.headers["Last-Modified"], b.headers["Etag"]
+            msg.content_type=b.headers["Content-Type"]
+          else
+            msg=@body_buf
+          end
+          b.headered = nil
+          b.headers.clear
+          
+          if @subscriber.on_message(msg, b) == false
+            @subscriber.finished+=1
+            close b
+          end
+        end
+        
+        if (b.preambled && !b.headered && b.buf.slice!(/^--\r\n/)) ||
+           (!b.preambled && b.buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
+          @subscriber.on_failure(SubscriberErrorResponse.new(410, "Server Closed Connection", true))
+          @subscriber.finished+=1
+          close b
+        end
+        
+      end
+      b
+    end
+  end
+  
+  
+  class HTTPChunkedClient < FastLongPollClient
+    include Celluloid::IO
+    
+    class HTTPChunkedBundle < FastLongPollClient::HTTPBundle
+      attr_accessor :ok
+      def initialize(uri, sock, user_agent)
+        super uri, sock, user_agent, "*/*", {"TE": "Chunked"}
+      end
+    end
+    
+    def new_bundle(uri, sock, useragent)
+      b=HTTPChunkedBundle.new(uri, sock, useragent)
+      prsr = b.parser
+      prsr.on_headers_complete = proc do |headers|
+        if prsr.status_code != 200
+          @subscriber.on_failure(SubscriberErrorResponse.new(prsr.status_code, "", false))
+          @subscriber.finished+=1
+          close b
+        elsif headers["Transfer-Encoding"] != "chunked"
+          @subscriber.on_failure(SubscriberErrorResponse.new(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'", false))
+          @subscriber.finished+=1
+          close b
+        else
+          b.ok=true
+        end
+      end
+      
+      prsr.on_body = proc do |chunk|
+        next unless b.ok
+        unless @nomsg
+            msg=Message.new chunk, nil, nil
+          else
+            msg=@body_buf
+          end
+          
+          if @subscriber.on_message(msg, b) == false
+            @subscriber.finished+=1
+            close b
+          end
+      end
+      
+      prsr.on_message_complete = proc do
+        @subscriber.on_failure(SubscriberErrorResponse.new(410, "Server Closed Connection", true))
+      end
+      
       b
     end
     
@@ -967,6 +1093,10 @@ class Subscriber
       @client_class=WebSocketClient
     when :es, :eventsource, :sse
       @client_class=EventSourceClient
+    when :multipart, :"multipart-mixed"
+      @client_class=MultipartMixedClient
+    when :chunked, "http-chunked"
+      @client_class=HTTPChunkedClient
     else
       raise "unknown client type #{opt[:client]}"
     end
@@ -1055,35 +1185,35 @@ class Subscriber
     end
   end
   
-  def on_failure(response=nil, &block)
+  def make_error(client, what, code, msg, failword=" failed")
+    "#{client.class.name.split('::').last} #{what}#{failword}: #{msg} (code #{code})"
+  end
+  
+  def on_failure(err=nil, &block)
     if block_given?
       @on_failure=block
     else
       case client
       when LongPollClient, IntervalPollClient
         #puts "failed with #{response.to_s}. handler is #{@on_failure.to_s}"
-        if response.timed_out?
-          # aw hell no
-          @errors << "Client response timeout."
-        elsif response.code == 0
-          # Could not get an http response, something's wrong.
-          @errors << response.return_message
+        if err.timed_out?
+          msg = "Client response timeout."
+          code = 0
         else
-          # Received a non-successful http response.
-          if response.code != 200 #eventsource can be triggered to quite with a 200, which is not an error
-            @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
-          end
+          msg = err.return_message
+          code = err.code
         end
-      when WebSocketClient, EventSourceClient
-        error = response.connected ? "#{client.class.name.split('::').last} connection failed: " : "#{client.class.name.split('::').last} handshake failed: "
-        error << "#{response.msg} (code #{response.code})"
-        @errors << error
+        @errors << make_error(client, "HTTP request", code, msg)
+      when WebSocketClient
+        @errors << make_error(client, err.connected ? "connection" : "handshake", err.code, err.msg)
+      when EventSourceClient, MultipartMixedClient, HTTPChunkedClient
+        @errors << make_error(client, err.connected ? "connection closed" : "HTTP request failed", err.code, err.msg, "")
       when FastLongPollClient
-        @errors << "HTTP request failed: (code #{response.status_code})"
+        @errors << make_error(client, "HTTP request", err.code, err.msg)
       else
         binding.pry
       end
-      @on_failure.call(response) if @on_failure.respond_to? :call
+      @on_failure.call(err) if @on_failure.respond_to? :call
     end
   end
 end
