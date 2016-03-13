@@ -46,6 +46,10 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
   }
   
+  ctx->prev_msg_id = fsub->sub.last_msgid;
+  update_subscriber_last_msg_id(sub, msg);
+  ctx->msg_id = fsub->sub.last_msgid;
+  
   if (ngx_buf_size(msg_buf) == 0) {
     //empty messages are skipped, because a zero-length chunk finalizes the request
     return NGX_OK;
@@ -84,10 +88,6 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[2].buf.last_buf = 0;
   bc[2].buf.last_in_chain = 1;
   bc[2].buf.flush = 1;
-  
-  ctx->prev_msg_id = fsub->sub.last_msgid;
-  update_subscriber_last_msg_id(sub, msg);
-  ctx->msg_id = fsub->sub.last_msgid;
   
   chunked_ensure_headers_sent(fsub);
   
