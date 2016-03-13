@@ -236,7 +236,7 @@ Up to 7 channel ids can be specified for the `nchan_channel_id` or `nchan_channe
     nchan_channel_id "$1" "$2" "common_channel";
     #GET /multisub/foo/bar will be subscribed to:
     # channels 'foo', 'bar', and 'common_channel',
-    #and will received messages from all of the above.
+    #and will receive messages from all of the above.
   }
 ```
 
@@ -249,7 +249,7 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
     nchan_channel_id_split_delimiter ",";
     #GET /multisub-split/foo,bar,baz,a will be subscribed to:
     # channels 'foo', 'bar', 'baz', and 'a'
-    #and will received messages from all of the above.
+    #and will receive messages from all of the above.
   }
 ```
 
