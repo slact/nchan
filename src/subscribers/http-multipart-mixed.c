@@ -101,8 +101,8 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     
     ngx_memzero(&bc[1].buf, sizeof(ngx_buf_t));
     bc[1].buf.memory = 1;
-    bc[1].buf.start = headerbuf;
-    bc[1].buf.pos = headerbuf;
+    bc[1].buf.start = cur;
+    bc[1].buf.pos = cur;
     bc[1].buf.last = ngx_snprintf(cur, 255, "Content-Type: %V\r\n\r\n", &msg->content_type);
     bc[1].buf.end = bc[1].buf.last;
     
