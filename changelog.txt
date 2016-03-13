@@ -1,3 +1,4 @@
+0.99.8 (Mar. 13 2916)
  fix: multipart/mixed subscriber output issues
  fix: memory leak for multiplexed > 4 channels
  fix: invalid memory access for aborted subscriber connection with redis
