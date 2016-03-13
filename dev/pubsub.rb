@@ -367,10 +367,10 @@ class Subscriber
       def send_GET(msg_time=nil, msg_tag=nil)
         @sndbuf.clear
         if msg_time
-          puts sprintf(@send_withid_fmt, msg_time, msg_tag)
+          #puts sprintf(@send_withid_fmt, msg_time, msg_tag)
           @sndbuf << sprintf(@send_withid_fmt, msg_time, msg_tag)
         else
-          puts @send_noid_str
+          #puts @send_noid_str
           @sndbuf << @send_noid_str
         end
         @time_requested=Time.now.to_f
