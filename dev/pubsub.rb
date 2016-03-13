@@ -215,6 +215,14 @@ class Subscriber
       @ws = {}
       @connected=0
       @nomsg = opt[:nomsg]
+      if @timeout
+        @timer = after(@timeout) do
+          @subscriber.on_failure SubscriberErrorResponse.new(0, "Timeout", true)
+          @ws.each do |b, v|
+            close b
+          end
+        end
+      end
     end
     
     def try_halt
@@ -276,6 +284,7 @@ class Subscriber
         begin
           bundle.read
           while msg = bundle.next do
+            @timer.reset if @timer
             if on_message(msg.data, msg.type, bundle) == false
               close bundle
               return 
@@ -314,10 +323,10 @@ class Subscriber
       end
     end
     
-    
     def close(bundle)
       if bundle
         @ws.delete bundle
+        bundle.sock.close unless bundle.sock.closed?
       end
       @connected -= 1
       if @connected <= 0
@@ -403,6 +412,14 @@ class Subscriber
       @nomsg=opt[:nomsg]
       @http={}
       @body_buf=""
+      if @timeout
+        @timer = after(@timeout) do 
+          @subscriber.on_failure SubscriberErrorResponse.new(0, "Timeout", true)
+          @http.each do |b, v|
+            close b
+          end
+        end
+      end
     end
     
     def run(was_success = nil)
@@ -454,6 +471,8 @@ class Subscriber
             close b
           end
         else
+          @timer.reset if @timer
+          
           unless @nomsg
             msg=Message.new @body_buf, @last_modified, @etag
             msg.content_type=prsr.headers["Content-Type"]
@@ -492,7 +511,7 @@ class Subscriber
     def close(bundle)
       if bundle
         bundle.done=true
-        bundle.sock.close
+        bundle.sock.close unless bundle.sock.closed?
         @http.delete bundle
       end
       @connected -= 1
@@ -882,6 +901,7 @@ class Subscriber
       b.on_event do |evt, data, evt_id|
         case evt 
         when :message
+          @timer.reset if @timer
           unless @nomsg
             msg=Message.new data
             msg.id=evt_id
@@ -951,6 +971,7 @@ class Subscriber
         end
         
         if b.headered && b.buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
+          @timer.reset if @timer
           unless @nomsg
             msg=Message.new $~[1], b.headers["Last-Modified"], b.headers["Etag"]
             msg.content_type=b.headers["Content-Type"]
@@ -1008,6 +1029,7 @@ class Subscriber
       
       prsr.on_body = proc do |chunk|
         next unless b.ok
+        @timer.reset if @timer
         unless @nomsg
             msg=Message.new chunk, nil, nil
           else
