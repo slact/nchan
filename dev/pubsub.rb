@@ -11,7 +11,6 @@ require 'uri'
 require "http/parser"
 require "http/2"
 
-SUBSCRIBER_TYPES=[ :longpoll, :intervalpoll, :eventsource, :websocket, :multipart, :chunked ]
 PUBLISH_TIMEOUT=3 #seconds
 
 class Message
@@ -154,23 +153,64 @@ end
 
 class Subscriber
   
-  class SubscriberErrorResponse
-    attr_accessor :code, :msg, :connected
-    def initialize(code, msg, connected)
-      self.code = code
-      self.msg = msg
-      self.connected = connected
+  class Client
+    class ErrorResponse
+      attr_accessor :code, :msg, :connected, :caller
+      def initialize(code, msg, connected=false, what=nil, failword=nil)
+        self.code = code
+        self.msg = msg
+        self.connected = connected
+        
+        @what = what || ["handshake", "connection"]
+        @failword = failword || " failed"
+      end
+      
+      def to_s
+        "#{(caller.class.name.split('::').last || self.class.name.split('::')[-2])} #{connected ? @what.last : @what.first}#{@failword}: #{msg} (code #{code})"
+      end  
+    
     end
+    
+    def self.inherited(subclass)
+      puts "inherited from #{subclass}"
+      @@inherited||=[]
+      @@inherited << subclass
+    end
+    
+    def self.lookup(name)
+      @@inherited.each do |klass|
+        return klass if klass.aliases.include? name
+      end
+      nil
+    end
+    def self.aliases
+      []
+    end
+      
+    def self.unique_aliases
+      uniqs=[]
+      @@inherited.each do |klass|
+        uniqs << klass.aliases.first if klass.aliases.length > 0
+      end
+      uniqs
+    end
+    
+    def error(code, msg, connected=nil)
+      err=ErrorResponse.new code, msg, connected=nil, @error_what, @error_failword
+      err.caller=self
+      err
+    end
+    
   end
   
-  class WebSocketClient
+  class WebSocketClient < Client
+    include Celluloid::IO
+    
+    def self.aliases
+      [:websocket, :ws]
+    end
+    
     #a little sugar for handshake errors
-    
-    #class WebSocket::EventMachine::Client
-    #  attr_accessor :handshake # we want this for erroring
-    #  attr_accessor :last_event_time
-    #end
-    
     class WebSocket::Handshake::Client
       attr_accessor :data
       def response_code(what=:code)
@@ -200,7 +240,6 @@ class Subscriber
       end
     end
     
-    include Celluloid::IO
     
     attr_accessor :last_modified, :etag, :timeout
     def initialize(subscr, opt={})
@@ -217,7 +256,7 @@ class Subscriber
       @nomsg = opt[:nomsg]
       if @timeout
         @timer = after(@timeout) do
-          @subscriber.on_failure SubscriberErrorResponse.new(0, "Timeout", true)
+          @subscriber.on_failure error(0, "Timeout", true)
           @ws.each do |b, v|
             close b
           end
@@ -252,7 +291,7 @@ class Subscriber
             raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
           end
         rescue SystemCallError => e
-          @subscriber.on_failure(SubscriberErrorResponse.new(0, e.to_s, 0))
+          @subscriber.on_failure(error(0, e.to_s, 0))
           close nil
           return
         end
@@ -265,7 +304,7 @@ class Subscriber
           @handshake << sock.readline
           if @handshake.finished?
             unless @handshake.valid?
-              @subscriber.on_failure SubscriberErrorResponse.new(@handshake.response_code, @handshake.response_line, false)
+              @subscriber.on_failure error(@handshake.response_code, @handshake.response_line, false)
             end
             break
           end
@@ -301,7 +340,7 @@ class Subscriber
     def on_error(err, err2)
       puts "Received error #{err}"
       if !@connected[ws]
-        @subscriber.on_failure SubscriberErrorResponse.new(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
+        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
         try_halt
       end
     end
@@ -341,8 +380,17 @@ class Subscriber
     end
   end
   
-  class FastLongPollClient
+  class FastLongPollClient < Client
     include Celluloid::IO
+    
+    def self.aliases
+      [:fastlongpoll]
+    end
+    
+    def error(*args)
+      @error_what||= ["HTTP Request"]
+      super
+    end
     
     class HTTPBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
@@ -414,7 +462,7 @@ class Subscriber
       @body_buf=""
       if @timeout
         @timer = after(@timeout) do 
-          @subscriber.on_failure SubscriberErrorResponse.new(0, "Timeout", true)
+          @subscriber.on_failure error(0, "Timeout")
           @http.each do |b, v|
             close b
           end
@@ -437,7 +485,7 @@ class Subscriber
             raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
           end
         rescue SystemCallError => e
-          @subscriber.on_failure(SubscriberErrorResponse.new(0, e.to_s, 0))
+          @subscriber.on_failure(error(0, e.to_s))
           close nil
           return
         end
@@ -526,6 +574,16 @@ class Subscriber
   end
   
   class FastHTTP2LongPollClient < FastLongPollClient
+    
+    def self.aliases
+      [:http2, :h2, :h2longpoll]
+    end
+    
+    def error(*a)
+      @error_what||=["HTTP2 Request"]
+      super
+    end
+    
     class HTTP2Bundle
       attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
       GET_METHOD="GET"
@@ -673,8 +731,18 @@ class Subscriber
     
   end
   
-  class LongPollClient
+  class LongPollClient < Client
     include Celluloid
+    
+    def self.aliases
+      [:longpoll, :http]
+    end
+    
+    def error(*a)
+      @error_what ||= ["HTTP Request"]
+      super
+    end
+    
     attr_accessor :last_modified, :etag, :hydra, :timeout
     def initialize(subscr, opt={})
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
@@ -723,7 +791,14 @@ class Subscriber
     
     def response_failure(response, req)
       #puts "received bad or no response at #{req.url}"
-      unless @subscriber.on_failure(response) == false
+      if err.timed_out?
+        msg = "Client response timeout."
+        code = 0
+      else
+        msg = err.return_message
+        code = err.code
+      end
+      unless @subscriber.on_failure(error(code, msg)) == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
         @hydra.queue  new_request(old_request: req)
@@ -783,6 +858,16 @@ class Subscriber
   
   class EventSourceClient < FastLongPollClient
     include Celluloid::IO
+    
+    def self.aliases
+      [:eventsource, :sse]
+    end
+    
+    def error(c,m,cn=nil)
+      @error_what ||= [ "HTTP Request failed", "connection closed" ]
+      @error_failword ||= ""
+      super
+    end
     
     class EventSourceBundle < FastLongPollClient::HTTPBundle
       attr_accessor :buf, :on_headers, :connected
@@ -888,11 +973,11 @@ class Subscriber
       
     end
     
-     def new_bundle(uri, sock, useragent)
+    def new_bundle(uri, sock, useragent)
       b=EventSourceBundle.new(uri, sock, useragent)
       b.on_headers do |parser|
         if parser.status_code != 200
-          @subscriber.on_failure SubscriberErrorResponse.new(parser.status_code, "", false)
+          @subscriber.on_failure error(parser.status_code, "", false)
           close b
         else
           b.connected = true
@@ -914,8 +999,7 @@ class Subscriber
           end
         when :comment
           if data.match(/^(?<code>\d+): (?<message>.*)/)
-            err = SubscriberErrorResponse.new($~[:code].to_i, $~[:message], b.connected)
-            @subscriber.on_failure SubscriberErrorResponse.new($~[:code].to_i, $~[:message], b.connected)
+            @subscriber.on_failure error($~[:code].to_i, $~[:message], b.connected)
           end
         end
       end
@@ -924,8 +1008,12 @@ class Subscriber
     
   end
   
-  class MultipartMixedClient < FastLongPollClient
+  class MultipartMixedClient < EventSourceClient
     include Celluloid::IO
+    
+    def self.aliases 
+      [:multipart, :multipartmixed, :mixed]
+    end
     
     class MultipartMixedBundle < FastLongPollClient::HTTPBundle
       attr_accessor :buf, :preambled, :headered, :headers
@@ -941,7 +1029,7 @@ class Subscriber
       prsr = b.parser
       prsr.on_headers_complete = proc do |headers|
         if prsr.status_code != 200
-          @subscriber.on_failure(SubscriberErrorResponse.new(prsr.status_code, "", false))
+          @subscriber.on_failure(error(prsr.status_code, "", false))
           @subscriber.finished+=1
           close b
         else
@@ -989,7 +1077,7 @@ class Subscriber
         
         if (b.preambled && !b.headered && b.buf.slice!(/^--\r\n/)) ||
            (!b.preambled && b.buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
-          @subscriber.on_failure(SubscriberErrorResponse.new(410, "Server Closed Connection", true))
+          @subscriber.on_failure(error(410, "Server Closed Connection", true))
           @subscriber.finished+=1
           close b
         end
@@ -999,9 +1087,12 @@ class Subscriber
     end
   end
   
-  
-  class HTTPChunkedClient < FastLongPollClient
+  class HTTPChunkedClient < EventSourceClient
     include Celluloid::IO
+    
+    def self.aliases
+      [:chunked]
+    end
     
     class HTTPChunkedBundle < FastLongPollClient::HTTPBundle
       attr_accessor :ok
@@ -1015,11 +1106,11 @@ class Subscriber
       prsr = b.parser
       prsr.on_headers_complete = proc do |headers|
         if prsr.status_code != 200
-          @subscriber.on_failure(SubscriberErrorResponse.new(prsr.status_code, "", false))
+          @subscriber.on_failure(error(prsr.status_code, "", false))
           @subscriber.finished+=1
           close b
         elsif headers["Transfer-Encoding"] != "chunked"
-          @subscriber.on_failure(SubscriberErrorResponse.new(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'", false))
+          @subscriber.on_failure(error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'", false))
           @subscriber.finished+=1
           close b
         else
@@ -1043,7 +1134,7 @@ class Subscriber
       end
       
       prsr.on_message_complete = proc do
-        @subscriber.on_failure(SubscriberErrorResponse.new(410, "Server Closed Connection", true))
+        @subscriber.on_failure(HTTPChunkedErrorResponse.new(410, "Server Closed Connection", true))
       end
       
       b
@@ -1052,6 +1143,11 @@ class Subscriber
   end
   
   class IntervalPollClient < LongPollClient
+    
+    def self.aliases
+      [:intervalpoll, :http, :interval, :poll]
+    end
+    
     def initialize(subscr, opt={})
       @last_modified=nil
       @etag=nil
@@ -1101,27 +1197,11 @@ class Subscriber
     @retry_delay=opt[:retry_delay]
     @extra_headers = opt[:extra_headers]
     #puts "Starting subscriber on #{url}"
-    case opt[:client]
-    when :longpoll, :long, nil
-      @client_class=LongPollClient
-    when :fastlongpoll, nil
-      @client_class=FastLongPollClient
-    when :fastlongpoll_http2, nil
-      @client_class=FastHTTP2LongPollClient
-    when :interval, :intervalpoll
-      @client_class=IntervalPollClient
-    when :ws, :websocket
-      @care_about_message_ids = false
-      @client_class=WebSocketClient
-    when :es, :eventsource, :sse
-      @client_class=EventSourceClient
-    when :multipart, :"multipart-mixed"
-      @client_class=MultipartMixedClient
-    when :chunked, "http-chunked"
-      @client_class=HTTPChunkedClient
-    else
+    @client_class = Client.lookup(opt[:client] || :longpoll)
+    if @client_class.nil?
       raise "unknown client type #{opt[:client]}"
     end
+    
     @nomsg=opt[:nomsg]
     @nostore=opt[:nostore]
     if !@nostore && @nomsg
@@ -1215,27 +1295,8 @@ class Subscriber
     if block_given?
       @on_failure=block
     else
-      case client
-      when LongPollClient, IntervalPollClient
-        #puts "failed with #{response.to_s}. handler is #{@on_failure.to_s}"
-        if err.timed_out?
-          msg = "Client response timeout."
-          code = 0
-        else
-          msg = err.return_message
-          code = err.code
-        end
-        @errors << make_error(client, "HTTP request", code, msg)
-      when WebSocketClient
-        @errors << make_error(client, err.connected ? "connection" : "handshake", err.code, err.msg)
-      when EventSourceClient, MultipartMixedClient, HTTPChunkedClient
-        @errors << make_error(client, err.connected ? "connection closed" : "HTTP request failed", err.code, err.msg, "")
-      when FastLongPollClient
-        @errors << make_error(client, "HTTP request", err.code, err.msg)
-      else
-        binding.pry
-      end
-      @on_failure.call(err) if @on_failure.respond_to? :call
+      @errors << err.to_s
+      @on_failure.call(@errors.last) if @on_failure.respond_to? :call
     end
   end
 end
