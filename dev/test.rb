@@ -88,7 +88,7 @@ class PubSubTest <  Minitest::Test
     
     pub.post "FIN"
     
-    sleep 2
+    sleep 1
     
     sub.run
     sub.wait

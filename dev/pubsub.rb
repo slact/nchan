@@ -66,7 +66,7 @@ end
 
 class MessageStore
   include Enumerable
-  attr_accessor :msgs, :quit_message, :name
+  attr_accessor :msgs, :name
 
   def matches? (other_msg_store)
     my_messages = messages
@@ -198,6 +198,60 @@ class Subscriber
       err=ErrorResponse.new code, msg, connected=nil, @error_what, @error_failword
       err.caller=self
       err
+    end
+    
+    class ParserBundle
+      attr_accessor :body_buf, :connected, :verbose, :parser, :subparser
+      def buffer_body!
+        @body_buf||=""
+      end
+      def connected?
+        @connected
+      end
+      def on_headers(code=nil, h=nil, &block)
+        @body_buf.clear if @body_buf
+        if block_given?
+          @on_headers = block
+        else
+          @on_headers.call(code, h) if @on_headers
+        end
+      end
+      
+      def on_chunk(ch=nil, &block)
+        if block_given?
+          @on_chunk = block
+        else
+          @body_buf << ch if @body_buf
+          @on_chunk.call(ch) if @on_chunk
+        end
+      end
+      
+      def on_response(code=nil, headers=nil, &block)
+        if block_given?
+          @on_response = block
+        else
+          @on_response.call(code, headers, @body_buf) if @on_response
+        end
+      end
+      
+      def on_error(msg=nil, e=nil, &block)
+        if block_given?
+          @on_error = block
+        else
+          @on_error.call(msg, e) if @on_error
+        end
+      end
+    end
+    
+    def handle_bundle_error(bundle, msg, err)
+      if err && !(EOFError === err)
+        @subscriber.on_failure error(0, msg, bundle.connected?)
+        puts err.backtrace
+      else 
+        @subscriber.on_failure error(0, msg, bundle.connected?)
+      end
+      @subscriber.finished+=1
+      close bundle
     end
     
   end
@@ -417,7 +471,7 @@ class Subscriber
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
-      @url = @url.gsub(/^http(s)?:/, "ws\\1:")
+      @url = @url.gsub(/^h(ttp|2)(s)?:/, "ws\\2:")
       
       @concurrency=(opt[:concurrency] || opt[:clients] || 1).to_i
       @retry_delay=opt[:retry_delay]
@@ -558,11 +612,11 @@ class Subscriber
     end
     
     def error(*args)
-      @error_what||= ["HTTP Request"]
+      @error_what||= ["#{@http2 ? "HTTP/2" : "HTTP"} Request"]
       super
     end
     
-    class HTTPBundle
+    class HTTPBundle < ParserBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
       def initialize(uri, sock, user_agent, accept="*/*", extra_headers={})
         @accept = accept
@@ -589,33 +643,159 @@ class Subscriber
           If-None-Match: %s
           
         END
+        
+        @parser.on_headers_complete = proc do |h|
+          if verbose 
+            puts h.map {|k,v| "< #{k}: #{v}"}.join "\r\n"
+          end
+          on_headers @parser.status_code, h
+        end
+        
+        @parser.on_body = proc do |chunk|
+          on_chunk chunk
+        end
+        
+        @parser.on_message_complete = proc do
+          on_response @parser.status_code, @parser.headers
+        end
+        
       end
       
       def send_GET(msg_time=nil, msg_tag=nil)
-        @sndbuf.clear
-        if msg_time
-          #puts sprintf(@send_withid_fmt, msg_time, msg_tag)
-          @sndbuf << sprintf(@send_withid_fmt, msg_time, msg_tag)
-        else
-          #puts @send_noid_str
-          @sndbuf << @send_noid_str
+        @sndbuf.clear 
+        data = msg_time ? sprintf(@send_withid_fmt, msg_time, msg_tag) : @send_noid_str
+        @sndbuf << data
+        if verbose
+          puts "", data.gsub(/^.*$/, "> \\0")
         end
+      
         @time_requested=Time.now.to_f
         @sock << @sndbuf
       end
       
       def read
         @rcvbuf.clear
-        if @done || sock.closed?
-          return false 
+        begin
+          sock.readpartial(4096, @rcvbuf)
+          @parser << @rcvbuf
+        rescue HTTP::Parser::Error => e
+          on_error "Invalid HTTP Respose - #{e}", e
+        rescue EOFError => e
+          on_error "Server closed connection...", e
+        rescue => e 
+          on_error "#{e.class}: #{e}", e
         end
-        sock.readpartial(4096, @rcvbuf)
-        #puts "\"#{@buf}\""
-        @parser << @rcvbuf
-        if @done || sock.closed?
-          return false 
-        end
+        return false if @done || sock.closed?
       end
+    end
+    
+    class HTTP2Bundle < ParserBundle
+      attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
+      GET_METHOD="GET"
+      def initialize(uri, sock, user_agent, accept="*/*", extra_headers=nil)
+        @done = false
+        @sock = sock
+        @rcvbuf=""
+        @head = {
+          ':scheme' => uri.scheme,
+          ':method' => GET_METHOD,
+          ':path' => uri.path,
+          ':authority' => [uri.host, uri.port].join(':'),
+          'user-agent' => "#{user_agent || "HTTP2Bundle"}",
+          'accept' => accept
+        }
+        if extra_headers
+          extra_headers.each do |h, v|
+            binding.pry
+          end
+        end
+        
+        @client = HTTP2::Client.new
+        @client.on(:frame) do |bytes|
+          #puts "Sending bytes: #{bytes.unpack("H*").first}"
+          @sock.print bytes
+          @sock.flush
+        end
+        
+        @client.on(:frame_sent) do |frame|
+          puts "Sent frame: #{frame.inspect}" if verbose
+        end
+        @client.on(:frame_received) do |frame|
+          puts "Received frame: #{frame.inspect}" if verbose
+        end
+        @resp_headers={}
+        @resp_code=nil
+      end
+      
+      def send_GET(msg_time=nil, msg_tag=nil)
+        @time_requested=Time.now.to_f
+        if msg_time
+          @head['if-modified-since'] = msg_time.to_s
+        else
+          @head.delete @head['if-modified-since']
+        end
+        
+        if msg_tag
+          @head['if-none-match'] = msg_tag.to_s
+        else
+          @head.delete @head['if-none-match']
+        end
+        
+        @stream = @client.new_stream
+        @resp_headers.clear
+        @resp_code=0
+        @stream.on(:close) do |k,v|
+          on_response @resp_code, @resp_headers
+        end
+        @stream.on(:headers) do |h|
+          h.each do |v|
+            puts "< #{v.join ': '}" if verbose
+            case v.first
+            when ":status"
+              @resp_code = v.last.to_i
+            when /^:/
+              @resp_headers[v.first] = v.last
+            else
+              @resp_headers[v.first.gsub(/(?<=^|\W)\w/) { |v| v.upcase }]=v.last
+            end
+          end
+          on_headers @resp_code, @resp_headers
+        end
+        @stream.on(:data) do |d|
+          puts "got data chunk #{d}"
+          on_chunk d
+        end
+        
+        @stream.on(:altsvc) do |f|
+          puts "received ALTSVC #{f}"
+        end
+        
+        @stream.on(:half_close) do
+          puts "", @head.map {|k,v| "> #{k}: #{v}"}.join("\r\n") if verbose
+        end
+        
+        @stream.headers(@head, end_stream: true)
+      end
+      
+      def read
+        return false if @done || @sock.closed?
+        begin
+          @rcv = @sock.readpartial 1024
+          @client << @rcv
+        rescue EOFError => e
+          if @rcv && @rcv[0..5]=="HTTP/1"
+            on_error @rcv.match(/^HTTP\/1.*/)[0].chomp, e
+          else
+            on_error "Server closed connection...", e
+          end
+          @sock.close
+        rescue => e
+          on_error "#{e.class}: #{e.to_s}", e
+          @sock.close
+        end
+        return false if @done || @sock.closed?
+      end
+      
     end
     
     attr_accessor :last_modified, :etag, :timeout
@@ -628,12 +808,14 @@ class Subscriber
       @gzip=opt[:gzip]
       @retry_delay=opt[:retry_delay]
       @nomsg=opt[:nomsg]
-      @http={}
+      @bundles={}
       @body_buf=""
+      @verbose=opt[:verbose]
+      @http2=opt[:http2] || opt[:h2]
       if @timeout
         @timer = after(@timeout) do 
           @subscriber.on_failure error(0, "Timeout")
-          @http.each do |b, v|
+          @bundles.each do |b, v|
             close b
           end
         end
@@ -647,9 +829,9 @@ class Subscriber
       @connected = @concurrency
       @concurrency.times do |i|
         begin
-          if uri.scheme == "http"
+          if uri.scheme == "http" || uri.scheme == "h2"
             sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-          elsif uri.scheme == "https"
+          elsif uri.scheme == "https" || uri.scheme == "h2s"
             sock = Celluloid::IO::SSLSocket.new(uri.host, port)
           else
             raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
@@ -660,45 +842,56 @@ class Subscriber
           return
         end
         bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
-        @http[bundle]=true
+        @bundles[bundle]=true
         bundle.send_GET
         async.listen bundle
       end
     end
     
-    def new_bundle(uri, sock, useragent)
-      b=HTTPBundle.new(uri, sock, useragent)
-      prsr = b.parser
-      prsr.on_headers_complete = proc do
-        @body_buf.clear
-      end
-      prsr.on_message_complete = proc do
-        # Headers and body is all parsed
-        @last_modified = prsr.headers["Last-Modified"]
-        @etag = prsr.headers["Etag"]
-        b.request_time = Time.now.to_f - b.time_requested
-        if prsr.status_code != 200
-          if prsr.status_code == 304
-            @subscriber.on_failure error(prsr.status_code, ""), prsr
-            @subscriber.finished+=1
-            close b
-          elsif @subscriber.on_failure(error(prsr.status_code, ""), prsr) == false
-            @subscriber.finished+=1
-            close b
-          else
-            Celluloid.sleep @retry_delay if @retry_delay
-            b.send_GET @last_modified, @etag
-          end
+    def request_code_ok(code, bundle=nil, etc=nil)
+      if code != 200
+        if code == 304
+          @subscriber.on_failure error(code, ""), etc
+          @subscriber.finished+=1
+          close bundle
+        elsif @subscriber.on_failure(error(code, ""), etc) == false
+          @subscriber.finished+=1
+          close bundle
         else
-          @timer.reset if @timer
-          
+          Celluloid.sleep @retry_delay if @retry_delay
+          bundle.send_GET @last_modified, @etag
+        end
+        false
+      else
+        @timer.reset if @timer
+        true
+      end
+    end
+    
+    def new_bundle(uri, sock, useragent, accept="*/*", extra_headers={})
+      b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, sock, useragent, accept, extra_headers)
+      b.on_error do |msg, err|
+        handle_bundle_error b, msg, err
+      end
+      b.verbose=@verbose
+      setup_bundle b
+      b
+    end
+    
+    def setup_bundle(b)
+      b.buffer_body!
+      b.on_response do |code, headers, body|
+        # Headers and body is all parsed
+        @last_modified = headers["Last-Modified"]
+        @etag = headers["Etag"]
+        b.request_time = Time.now.to_f - b.time_requested
+        if request_code_ok(code, b)
           unless @nomsg
-            msg=Message.new @body_buf, @last_modified, @etag
-            msg.content_type=prsr.headers["Content-Type"]
+            msg=Message.new body, @last_modified, @etag
+            msg.content_type=headers["Content-Type"]
           else
-            msg=@body_buf
+            msg=body
           end
-          
           unless @subscriber.on_message(msg, b) == false
             @subscriber.waiting+=1
             Celluloid.sleep @retry_delay if @retry_delay
@@ -710,10 +903,9 @@ class Subscriber
         end
       end
       
-      prsr.on_body = proc do |chunk|
-        @body_buf << chunk
+      b.on_error do |msg, err|
+        handle_bundle_error b, msg, err
       end
-      b
     end
     
     def listen(bundle)
@@ -721,6 +913,8 @@ class Subscriber
         begin
           return false if bundle.read == false
         rescue EOFError
+          binding.pry
+          @subscriber.on_failure(error(0, "Server Closed Connection"), bundle.connected)
           close bundle
           return false
         end
@@ -731,7 +925,7 @@ class Subscriber
       if bundle
         bundle.done=true
         bundle.sock.close unless bundle.sock.closed?
-        @http.delete bundle
+        @bundles.delete bundle
       end
       @connected -= 1
       if @connected <= 0
@@ -752,71 +946,16 @@ class Subscriber
     end
     
     def error(c,m,cn=nil)
-      @error_what ||= [ "HTTP Request failed", "connection closed" ]
+      @error_what ||= [ "#{@http2 ? 'HTTP/2' : 'HTTP'} Request failed", "connection closed" ]
       @error_failword ||= ""
       super
     end
     
-    class EventSourceBundle < FastLongPollClient::HTTPBundle
+    class EventSourceParser
       attr_accessor :buf, :on_headers, :connected
-      def initialize(uri, sock, user_agent)
-        super
-        @connected = false
-        @send_noid_str= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: text/event-stream
-          User-Agent: #{user_agent || "HTTPBundle"}
-          
-        END
-        
-        @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: text/event-stream
-          User-Agent: #{user_agent || "HTTPBundle"}
-          Last-Event-ID: %s
-          
-        END
+      def initialize
         @buf={data: "", id: "", comments: ""}
-        #binding.pry
-        
-        @parser.on_headers_complete= proc do 
-          @on_headers.call parser
-          @gotheaders = true
-        end
-      end
-      
-      def on_headers(&block)
-        @on_headers = block
-      end
-    
-      def read
-        @allbuf ||= ""
-        @rcvbuf.clear
-        if @done || sock.closed?
-          return false 
-        end
-        begin
-          @rcvbuf << sock.readline
-          @allbuf << @rcvbuf
-        rescue EOFError => e
-          #connection got closed i think
-          if @buf[:comments].length > 0 || @buf[:id].length > 0 || @buf[:data].length > 0
-            @rcvbuf="\n"
-          else
-            raise e
-          end
-        end
-        #puts @rcvbuf
-        unless @gotheaders
-          @parser << @rcvbuf
-        else 
-          parse_line @rcvbuf
-        end
-        if @done || sock.closed?
-          return false 
-        end
+        buf_reset
       end
       
       def buf_reset
@@ -827,17 +966,8 @@ class Subscriber
         @buf[:event] = nil
       end
       
-      def parse_event
-        if @buf[:comments].length > 0
-          @on_event.call :comment, @buf[:comments].chomp!
-        elsif @buf[:data].length > 0 || @buf[:id].length > 0 || @buf[:event] > 0
-          @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
-        end
-        buf_reset
-      end
-      
-      def on_event(&block)
-        @on_event=block
+      def buf_empty?
+        @buf[:comments].length == 0 && @buf[:data].length == 0
       end
       
       def parse_line(line)
@@ -859,19 +989,59 @@ class Subscriber
         ret
       end
       
+      def parse_event
+        if @buf[:comments].length > 0
+          @on_event.call :comment, @buf[:comments].chomp!
+        elsif @buf[:data].length > 0 || @buf[:id].length > 0 || !@buf[:event].nil?
+          @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
+        end
+        buf_reset
+      end
+      
+      def on_event(&block)
+        @on_event=block
+      end
+      
     end
     
-    def new_bundle(uri, sock, useragent)
-      b=EventSourceBundle.new(uri, sock, useragent)
-      b.on_headers do |parser|
-        if parser.status_code != 200
-          @subscriber.on_failure error(parser.status_code, "", false)
+    def new_bundle(uri, sock, useragent=nil)
+      super uri, sock, useragent, "text/event-stream"
+    end
+    
+    def setup_bundle(b)
+      b.on_headers do |code, headers|
+        if code != 200
+          @subscriber.on_failure error(code, "", false)
           close b
         else
           b.connected = true
         end
       end
-      b.on_event do |evt, data, evt_id|
+      b.buffer_body!
+      b.subparser=EventSourceParser.new
+      b.on_chunk do |chunk|
+        while b.body_buf.slice! /^.*\n$/ do
+          b.subparser.parse_line $~[0]
+        end
+      end
+      b.on_error do |msg, err|
+        if EOFError === err && !b.subparser.buf_empty?
+          b.subparser.parse_line "\n"
+        end
+        handle_bundle_error b, msg, err
+      end
+      
+      b.on_response do |code, headers, body|
+        if !b.subparser.buf_empty?
+          b.subparser.parse_line "\n"
+        else
+          @subscriber.on_failure error(0, "Response completed unexpectedly", bundle.connected?)
+        end
+        @subscriber.finished+=1
+        close b
+      end
+      
+      b.subparser.on_event do |evt, data, evt_id|
         case evt 
         when :message
           @timer.reset if @timer
@@ -896,82 +1066,112 @@ class Subscriber
     
   end
   
-  class MultipartMixedClient < EventSourceClient
+  class MultipartMixedClient < FastLongPollClient
     include Celluloid::IO
     
     def self.aliases 
       [:multipart, :multipartmixed, :mixed]
     end
     
-    class MultipartMixedBundle < FastLongPollClient::HTTPBundle
-      attr_accessor :buf, :preambled, :headered, :headers
-      def initialize(uri, sock, user_agent)
-        @buf=""
-        @headers={}
-        super uri, sock, user_agent, "multipart/mixed"
-      end
-    end
-    
-    def new_bundle(uri, sock, useragent)
-      b=MultipartMixedBundle.new(uri, sock, useragent)
-      prsr = b.parser
-      prsr.on_headers_complete = proc do |headers|
-        if prsr.status_code != 200
-          @subscriber.on_failure(error(prsr.status_code, "", false))
-          @subscriber.finished+=1
-          close b
-        else
-          matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match headers["Content-Type"]
-          @bound = matches[:boundary]
-          b.buf.clear
-        end
+    class MultipartMixedParser
+      attr_accessor :bound
+      def initialize(multipart_header)
+        matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match multipart_header
+        raise "malformed Content-Type multipart/mixed header" unless matches[:boundary]
+        @bound = matches[:boundary]
+        @buf = ""
+        @preambled = false
+        @headered = nil
+        @headers = {}
       end
       
-      prsr.on_body = proc do |chunk|
-        b.buf << chunk
-        next unless @bound
+      def on_part(&block)
+        @on_part = block
+      end
+      def on_finish(&block)
+        @on_finish = block
+      end
+      
+      def <<(chunk)
+        @buf << chunk
         
-        if !b.preambled && b.buf.slice!(/^--#{Regexp.escape @bound}\r\n/)
-          b.preambled = true
-          b.headered = nil
+        if !@preambled && @buf.slice!(/^--#{Regexp.escape @bound}\r\n/)
+          @preambled = true
+          @headered = nil
         end
         
-        if b.preambled && b.buf.slice!(/^(.*?)\r\n\r\n/m)
-          b.headered = true
+        if @preambled && @buf.slice!(/^(.*?)\r\n\r\n/m)
+          @headered = true
           ($~[1]).each_line do |l|
             if l.match(/(?<name>[^:]+):\s(?<val>[^\r\n]*)/)
-              b.headers[$~[:name]]=$~[:val]
+              @headers[$~[:name]]=$~[:val]
             end
           end
-          b.headered = true
+          @headered = true
         end
         
-        if b.headered && b.buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
-          @timer.reset if @timer
-          unless @nomsg
-            msg=Message.new $~[1], b.headers["Last-Modified"], b.headers["Etag"]
-            msg.content_type=b.headers["Content-Type"]
-          else
-            msg=@body_buf
-          end
-          b.headered = nil
-          b.headers.clear
+        if @headered && @buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
+          @on_part.call @headers, $~[1]
+          @headered = nil
+          @headers.clear
+        end
           
-          if @subscriber.on_message(msg, b) == false
+        
+        if (@preambled && !@headered && @buf.slice!(/^--\r\n/)) ||
+           (!@preambled && @buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
+          @on_finish.call
+        end
+        
+      end
+      
+    end
+    
+    def new_bundle(uri, sock, useragent=nil)
+      super uri, sock, useragent, "multipart/mixed"
+    end
+    
+    def setup_bundle b
+      super
+      b.on_headers do |code, headers|
+        if code != 200
+          @subscriber.on_failure error(code, "", false)
+          close b
+        else
+          b.connected = true
+          
+          b.subparser = MultipartMixedParser.new headers["Content-Type"]
+          b.subparser.on_part do |headers, message|
+            unless @nomsg
+              msg=Message.new message, headers["Last-Modified"], headers["Etag"]
+              msg.content_type=headers["Content-Type"]
+            else
+              msg=message
+            end
+            
+            if @subscriber.on_message(msg, b) == false
+              @subscriber.finished+=1
+              close b
+            end
+          end
+          
+          b.subparser.on_finish do
+            @subscriber.on_failure(error(410, "Server Closed Connection", true))
             @subscriber.finished+=1
             close b
           end
         end
-        
-        if (b.preambled && !b.headered && b.buf.slice!(/^--\r\n/)) ||
-           (!b.preambled && b.buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
-          @subscriber.on_failure(error(410, "Server Closed Connection", true))
-          @subscriber.finished+=1
-          close b
-        end
-        
       end
-      b
+      
+      b.on_chunk do |chunk|
+        b.subparser << chunk if b.subparser
+      end
+      
+      b.on_response do |code, headers, body|
+        @subscriber.on_failure error(0, "Response completed unexpectedly", bundle.connected?)
+        b.done = true
+        @subscriber.finished+=1
+        close b
+      end
     end
   end
   
@@ -1030,193 +1230,31 @@ class Subscriber
     
   end
 
-  class FastHTTP2LongPollClient < FastLongPollClient
-    
-    def self.aliases
-      [:http2, :h2, :h2longpoll]
-    end
-    
-    def error(*a)
-      @error_what||=["HTTP2 Request"]
-      super
-    end
-    
-    class HTTP2Bundle
-      attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
-      GET_METHOD="GET"
-      def initialize(uri, sock, user_agent)
-        @done = false
-        @sock = sock
-        @head = {
-          ':method' => GET_METHOD,
-          ':path' => uri.path,
-          ':authority' => [uri.host, uri.port].join(':'),
-          'user-agent' => "#{user_agent || "HTTP2Bundle"}",
-          'accept' => '*/*'
-        }
-        
-        @client = HTTP2::Client.new
-        @client.on(:frame) do |bytes|
-          puts "Sending bytes: #{bytes.unpack("H*").first}"
-          @sock.print bytes
-          @sock.flush
-        end
-        
-        @client.on(:frame_sent) do |frame|
-          puts "Sent frame: #{frame.inspect}"
-        end
-        @client.on(:frame_received) do |frame|
-          puts "Received frame: #{frame.inspect}"
-        end
-        
-      end
-      
-      def send_GET(msg_time=nil, msg_tag=nil)
-        @time_requested=Time.now.to_f
-        if msg_time
-          @head['if-modified-since'] = msg_time.to_s
-        else
-          @head.delete @head['if-modified-since']
-        end
-        
-        if msg_tag
-          @head['if-none-match'] = msg_tag.to_s
-        else
-          @head.delete @head['if-none-match']
-        end
-        
-        @stream = @client.new_stream
-        @stream.on(:close) do
-          puts 'stream closed'
-          on_response @response_headers, @response_data
-        end
-        @stream.on(:headers) do |h|
-          puts "response headers: #{h}"
-          @response_headers = h
-        end
-        @stream.on(:data) do |d|
-          puts "response data chunk: <<#{d}>>"
-          @response_data = d
-        end
-        
-        @stream.on(:altsvc) do |f|
-          log.info "received ALTSVC #{f}"
-        end
-        
-        @stream.on(:half_close) do
-          puts 'closing client-end of the stream'
-        end
-        
-        @stream.on(:altsvc) do |f|
-          puts "received ALTSVC #{f}"
-        end
-        
-        
-        
-        @stream.headers(@head, end_stream: true)
-      end
-      
-      def read
-        @sock.readpartial(4096, @val)
-        puts "received #{@val.nil? ? "0" : @val.count} bytes"
-        begin
-          @client << @val
-        rescue => e
-          puts "Exception: #{e}, #{e.message} - closing socket."
-          @sock.close
-        end
-        return false if @done || @sock.closed?
-      end
-      
-      def on_response(h=nil, d=nil, &block)
-        if block_given?
-          @on_response = block
-        elsif @on_response
-          @on_response.call h, d
-        end
-      end
-      
-    end
-    
-    def initialize(*arg)
-      @use_http2 = true
-      super
-    end
-    
-    def new_bundle(uri, sock, useragent)
-      b=HTTP2Bundle.new(uri, sock, useragent)
-      
-      b.on_response do |headers, body|
-        # Headers and body is all parsed
-        binding.pry
-        @last_modified = headers["Last-Modified"]
-        @etag = headers["Etag"]
-        
-        b.request_time = Time.now.to_f - b.time_requested
-        
-        if prsr.status_code != 200
-          binding.pry
-          unless @subscriber.on_failure(prsr) == false
-            Celluloid.sleep @retry_delay if @retry_delay
-          else
-            @subscriber.finished+=1
-            close b
-          end
-        end
-        
-        unless @nomsg
-          msg=Message.new @body_buf, @last_modified, @etag
-          msg.content_type=prsr.headers["Content-Type"]
-        else
-          msg=@body_buf
-        end
-        
-        unless @subscriber.on_message(msg, b) == false
-          @subscriber.waiting+=1
-          Celluloid.sleep @retry_delay if @retry_delay
-          b.send_GET @last_modified, @etag
-        else
-          @subscriber.finished+=1
-          close b
-        end
-        
-      end
-      
-      b
-    end
-    
-    
-  end
-    
   attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class
   def initialize(url, concurrency=1, opt={})
     @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
     @url=url
-    @timeout=opt[:timeout] || 30
-    @connect_timeout=opt[:connect_timeout] || 5
-    @quit_message=opt[:quit_message]
-    @gzip=opt[:gzip]
-    @retry_delay=opt[:retry_delay]
-    @extra_headers = opt[:extra_headers]
+    @quit_message = opt[:quit_message]
+    opt[:timeout] ||= 30
+    opt[:connect_timeout] ||= 5
     #puts "Starting subscriber on #{url}"
-    @client_class = Client.lookup(opt[:client] || :longpoll)
-    if @client_class.nil?
+    @Client_Class = Client.lookup(opt[:client] || :longpoll)
+    if @Client_Class.nil?
       raise "unknown client type #{opt[:client]}"
     end
     
-    @nomsg=opt[:nomsg]
-    @nostore=opt[:nostore]
-    if !@nostore && @nomsg
-      @nomsg = nil
+    if !opt[:nostore] && opt[:nomsg]
+      opt[:nomsg] = nil
       puts "nomsg reverted to false because nostore is false"
     end
-    @concurrency=concurrency
-    @client_class ||= opt[:client_class] || LongPollClient
+    opt[:concurrency]=concurrency
+    
+    @opt=opt
     reset
-    new_client @client_class
+    new_client
   end
-  def new_client(client_class=LongPollClient)
-    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @nomsg, extra_headers: @extra_headers)
+  def new_client
+    @client=@Client_Class.new self, @opt
   end
   def reset
     @errors=[]
@@ -1226,7 +1264,7 @@ class Subscriber
     end
     @waiting=0
     @finished=0
-    new_client(@client_class) if terminated?
+    new_client if terminated?
     self
   end
   def abort
