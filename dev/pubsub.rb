@@ -172,7 +172,6 @@ class Subscriber
     end
     
     def self.inherited(subclass)
-      puts "inherited from #{subclass}"
       @@inherited||=[]
       @@inherited << subclass
     end
@@ -203,6 +202,175 @@ class Subscriber
     
   end
   
+  class LongPollClient < Client
+    include Celluloid
+    
+    def self.aliases
+      [:longpoll, :http]
+    end
+    
+    def error(*a)
+      @error_what ||= ["HTTP Request"]
+      super
+    end
+    
+    attr_accessor :last_modified, :etag, :hydra, :timeout
+    def initialize(subscr, opt={})
+      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
+      @connect_timeout = opt[:connect_timeout]
+      @subscriber=subscr
+      @url=subscr.url
+      @concurrency=opt[:concurrency] || opt[:clients] || 1
+      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency, pipelining: opt[:pipelining])
+      @gzip=opt[:gzip]
+      @retry_delay=opt[:retry_delay]
+      @nomsg=opt[:nomsg]
+      @extra_headers=opt[:extra_headers]
+    end
+    
+    def response_success(response, req)
+      #puts "received OK response at #{req.url}"
+      #parse it
+      req.options[:headers]["If-None-Match"] = response.headers["Etag"]
+      req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
+      
+      on_message_ret = nil
+      
+      Message.each_multipart_message(response.headers["Content-Type"], response.body) do |content_type, body, multi|
+        unless @nomsg
+          msg=Message.new body
+          msg.content_type=content_type
+          unless multi
+            msg.last_modified= response.headers["Last-Modified"]
+            msg.etag= response.headers["Etag"]
+          end
+        else
+          msg=body
+        end
+        
+        on_message_ret = @subscriber.on_message(msg, req)
+      end
+      
+      unless on_message_ret == false
+        @subscriber.waiting+=1
+        Celluloid.sleep @retry_delay if @retry_delay
+        @hydra.queue new_request(old_request: req)
+      else
+        @subscriber.finished+=1
+      end
+    end
+    
+    def response_failure(response, req)
+      #puts "received bad or no response at #{req.url}"
+      if err.timed_out?
+        msg = "Client response timeout."
+        code = 0
+      else
+        msg = err.return_message
+        code = err.code
+      end
+      unless @subscriber.on_failure(error(code, msg)) == false
+        @subscriber.waiting+=1
+        Celluloid.sleep @retry_delay if @retry_delay
+        @hydra.queue  new_request(old_request: req)
+      else
+        @subscriber.finished+=1
+      end
+    end
+    
+    def new_request(opt = {})
+      headers = {}
+      headers["User-Agent"] = opt[:useragent] if opt[:useragent]
+      if @extra_headers
+        headers.merge! @extra_headers
+      end
+      
+      if opt[:old_request]
+        #req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
+        
+        #reuse request
+        req = opt[:old_request]
+      else
+        req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
+
+        #req.on_body do |chunk|
+        #  puts chunk
+        #end
+        
+        req.on_complete do |response|
+          @subscriber.waiting-=1
+          if response.success?
+            response_success response, req
+          else
+            response_failure response, req
+          end
+        end
+      end
+      
+      req
+    end
+
+    def run(was_success=nil)
+      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
+      (@concurrency - @hydra.queued_requests.count).times do |n|
+        @subscriber.waiting+=1
+        @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
+      end
+      
+      @hydra.run
+    end
+    
+    def poke
+      #while @subscriber.finished < @concurrency
+      #  Celluloid.sleep 0.1
+      #end
+    end
+  end
+
+  class IntervalPollClient < LongPollClient
+    
+    def self.aliases
+      [:intervalpoll, :http, :interval, :poll]
+    end
+    
+    def initialize(subscr, opt={})
+      @last_modified=nil
+      @etag=nil
+      super
+    end
+    
+    def store_msg_id(response, req)
+      @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
+      @etag=response.headers["Etag"] if response.headers["Etag"]
+      req.options[:headers]["If-Modified-Since"]=@last_modified
+      req.options[:headers]["If-None-Match"]=@etag
+    end
+    
+    def response_success(response, req)
+      store_msg_id(response, req)
+      super response, req
+    end
+    def response_failure(response, req)
+      if @subscriber.on_failure(response) != false
+        @subscriber.waiting+=1
+        Celluloid.sleep @retry_delay if @retry_delay
+        @hydra.queue req
+      else
+        @subscriber.finished+=1
+      end
+    end
+    
+    def run
+      super
+    end
+    
+    def poke
+      while @subscriber.finished < @concurrency do
+        Celluloid.sleep 0.3
+      end
+    end
+  end
+
   class WebSocketClient < Client
     include Celluloid::IO
     
@@ -573,289 +741,6 @@ class Subscriber
     end
   end
   
-  class FastHTTP2LongPollClient < FastLongPollClient
-    
-    def self.aliases
-      [:http2, :h2, :h2longpoll]
-    end
-    
-    def error(*a)
-      @error_what||=["HTTP2 Request"]
-      super
-    end
-    
-    class HTTP2Bundle
-      attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
-      GET_METHOD="GET"
-      def initialize(uri, sock, user_agent)
-        @done = false
-        @sock = sock
-        @head = {
-          ':method' => GET_METHOD,
-          ':path' => uri.path,
-          ':authority' => [uri.host, uri.port].join(':'),
-          'user-agent' => "#{user_agent || "HTTP2Bundle"}",
-          'accept' => '*/*'
-        }
-        
-        @client = HTTP2::Client.new
-        @client.on(:frame) do |bytes|
-          puts "Sending bytes: #{bytes.unpack("H*").first}"
-          @sock.print bytes
-          @sock.flush
-        end
-        
-        @client.on(:frame_sent) do |frame|
-          puts "Sent frame: #{frame.inspect}"
-        end
-        @client.on(:frame_received) do |frame|
-          puts "Received frame: #{frame.inspect}"
-        end
-        
-      end
-      
-      def send_GET(msg_time=nil, msg_tag=nil)
-        @time_requested=Time.now.to_f
-        if msg_time
-          @head['if-modified-since'] = msg_time.to_s
-        else
-          @head.delete @head['if-modified-since']
-        end
-        
-        if msg_tag
-          @head['if-none-match'] = msg_tag.to_s
-        else
-          @head.delete @head['if-none-match']
-        end
-        
-        @stream = @client.new_stream
-        @stream.on(:close) do
-          puts 'stream closed'
-          on_response @response_headers, @response_data
-        end
-        @stream.on(:headers) do |h|
-          puts "response headers: #{h}"
-          @response_headers = h
-        end
-        @stream.on(:data) do |d|
-          puts "response data chunk: <<#{d}>>"
-          @response_data = d
-        end
-        
-        @stream.on(:altsvc) do |f|
-          log.info "received ALTSVC #{f}"
-        end
-        
-        @stream.on(:half_close) do
-          puts 'closing client-end of the stream'
-        end
-        
-        @stream.on(:altsvc) do |f|
-          puts "received ALTSVC #{f}"
-        end
-        
-        
-        
-        @stream.headers(@head, end_stream: true)
-      end
-      
-      def read
-        @sock.readpartial(4096, @val)
-        puts "received #{@val.nil? ? "0" : @val.count} bytes"
-        begin
-          @client << @val
-        rescue => e
-          puts "Exception: #{e}, #{e.message} - closing socket."
-          @sock.close
-        end
-        return false if @done || @sock.closed?
-      end
-      
-      def on_response(h=nil, d=nil, &block)
-        if block_given?
-          @on_response = block
-        elsif @on_response
-          @on_response.call h, d
-        end
-      end
-      
-    end
-    
-    def initialize(*arg)
-      @use_http2 = true
-      super
-    end
-    
-    def new_bundle(uri, sock, useragent)
-      b=HTTP2Bundle.new(uri, sock, useragent)
-      
-      b.on_response do |headers, body|
-        # Headers and body is all parsed
-        binding.pry
-        @last_modified = headers["Last-Modified"]
-        @etag = headers["Etag"]
-        
-        b.request_time = Time.now.to_f - b.time_requested
-        
-        if prsr.status_code != 200
-          binding.pry
-          unless @subscriber.on_failure(prsr) == false
-            Celluloid.sleep @retry_delay if @retry_delay
-          else
-            @subscriber.finished+=1
-            close b
-          end
-        end
-        
-        unless @nomsg
-          msg=Message.new @body_buf, @last_modified, @etag
-          msg.content_type=prsr.headers["Content-Type"]
-        else
-          msg=@body_buf
-        end
-        
-        unless @subscriber.on_message(msg, b) == false
-          @subscriber.waiting+=1
-          Celluloid.sleep @retry_delay if @retry_delay
-          b.send_GET @last_modified, @etag
-        else
-          @subscriber.finished+=1
-          close b
-        end
-        
-      end
-      
-      b
-    end
-    
-    
-  end
-  
-  class LongPollClient < Client
-    include Celluloid
-    
-    def self.aliases
-      [:longpoll, :http]
-    end
-    
-    def error(*a)
-      @error_what ||= ["HTTP Request"]
-      super
-    end
-    
-    attr_accessor :last_modified, :etag, :hydra, :timeout
-    def initialize(subscr, opt={})
-      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
-      @connect_timeout = opt[:connect_timeout]
-      @subscriber=subscr
-      @url=subscr.url
-      @concurrency=opt[:concurrency] || opt[:clients] || 1
-      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency, pipelining: opt[:pipelining])
-      @gzip=opt[:gzip]
-      @retry_delay=opt[:retry_delay]
-      @nomsg=opt[:nomsg]
-      @extra_headers=opt[:extra_headers]
-    end
-    
-    def response_success(response, req)
-      #puts "received OK response at #{req.url}"
-      #parse it
-      req.options[:headers]["If-None-Match"] = response.headers["Etag"]
-      req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
-      
-      on_message_ret = nil
-      
-      Message.each_multipart_message(response.headers["Content-Type"], response.body) do |content_type, body, multi|
-        unless @nomsg
-          msg=Message.new body
-          msg.content_type=content_type
-          unless multi
-            msg.last_modified= response.headers["Last-Modified"]
-            msg.etag= response.headers["Etag"]
-          end
-        else
-          msg=body
-        end
-        
-        on_message_ret = @subscriber.on_message(msg, req)
-      end
-      
-      unless on_message_ret == false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue new_request(old_request: req)
-      else
-        @subscriber.finished+=1
-      end
-    end
-    
-    def response_failure(response, req)
-      #puts "received bad or no response at #{req.url}"
-      if err.timed_out?
-        msg = "Client response timeout."
-        code = 0
-      else
-        msg = err.return_message
-        code = err.code
-      end
-      unless @subscriber.on_failure(error(code, msg)) == false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue  new_request(old_request: req)
-      else
-        @subscriber.finished+=1
-      end
-    end
-    
-    def new_request(opt = {})
-      headers = {}
-      headers["User-Agent"] = opt[:useragent] if opt[:useragent]
-      if @extra_headers
-        headers.merge! @extra_headers
-      end
-      
-      if opt[:old_request]
-        #req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
-        
-        #reuse request
-        req = opt[:old_request]
-      else
-        req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
-
-        #req.on_body do |chunk|
-        #  puts chunk
-        #end
-        
-        req.on_complete do |response|
-          @subscriber.waiting-=1
-          if response.success?
-            response_success response, req
-          else
-            response_failure response, req
-          end
-        end
-      end
-      
-      req
-    end
-
-    def run(was_success=nil)
-      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
-      (@concurrency - @hydra.queued_requests.count).times do |n|
-        @subscriber.waiting+=1
-        @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
-      end
-      
-      @hydra.run
-    end
-    
-    def poke
-      #while @subscriber.finished < @concurrency
-      #  Celluloid.sleep 0.1
-      #end
-    end
-  end
-  
   class EventSourceClient < FastLongPollClient
     include Celluloid::IO
     
@@ -1141,51 +1026,165 @@ class Subscriber
     end
     
   end
-  
-  class IntervalPollClient < LongPollClient
+
+  class FastHTTP2LongPollClient < FastLongPollClient
     
     def self.aliases
-      [:intervalpoll, :http, :interval, :poll]
+      [:http2, :h2, :h2longpoll]
     end
     
-    def initialize(subscr, opt={})
-      @last_modified=nil
-      @etag=nil
+    def error(*a)
+      @error_what||=["HTTP2 Request"]
       super
     end
     
-    def store_msg_id(response, req)
-      @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
-      @etag=response.headers["Etag"] if response.headers["Etag"]
-      req.options[:headers]["If-Modified-Since"]=@last_modified
-      req.options[:headers]["If-None-Match"]=@etag
-    end
-    
-    def response_success(response, req)
-      store_msg_id(response, req)
-      super response, req
-    end
-    def response_failure(response, req)
-      if @subscriber.on_failure(response) != false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue req
-      else
-        @subscriber.finished+=1
+    class HTTP2Bundle
+      attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
+      GET_METHOD="GET"
+      def initialize(uri, sock, user_agent)
+        @done = false
+        @sock = sock
+        @head = {
+          ':method' => GET_METHOD,
+          ':path' => uri.path,
+          ':authority' => [uri.host, uri.port].join(':'),
+          'user-agent' => "#{user_agent || "HTTP2Bundle"}",
+          'accept' => '*/*'
+        }
+        
+        @client = HTTP2::Client.new
+        @client.on(:frame) do |bytes|
+          puts "Sending bytes: #{bytes.unpack("H*").first}"
+          @sock.print bytes
+          @sock.flush
+        end
+        
+        @client.on(:frame_sent) do |frame|
+          puts "Sent frame: #{frame.inspect}"
+        end
+        @client.on(:frame_received) do |frame|
+          puts "Received frame: #{frame.inspect}"
+        end
+        
       end
+      
+      def send_GET(msg_time=nil, msg_tag=nil)
+        @time_requested=Time.now.to_f
+        if msg_time
+          @head['if-modified-since'] = msg_time.to_s
+        else
+          @head.delete @head['if-modified-since']
+        end
+        
+        if msg_tag
+          @head['if-none-match'] = msg_tag.to_s
+        else
+          @head.delete @head['if-none-match']
+        end
+        
+        @stream = @client.new_stream
+        @stream.on(:close) do
+          puts 'stream closed'
+          on_response @response_headers, @response_data
+        end
+        @stream.on(:headers) do |h|
+          puts "response headers: #{h}"
+          @response_headers = h
+        end
+        @stream.on(:data) do |d|
+          puts "response data chunk: <<#{d}>>"
+          @response_data = d
+        end
+        
+        @stream.on(:altsvc) do |f|
+          log.info "received ALTSVC #{f}"
+        end
+        
+        @stream.on(:half_close) do
+          puts 'closing client-end of the stream'
+        end
+        
+        @stream.on(:altsvc) do |f|
+          puts "received ALTSVC #{f}"
+        end
+        
+        
+        
+        @stream.headers(@head, end_stream: true)
+      end
+      
+      def read
+        @sock.readpartial(4096, @val)
+        puts "received #{@val.nil? ? "0" : @val.count} bytes"
+        begin
+          @client << @val
+        rescue => e
+          puts "Exception: #{e}, #{e.message} - closing socket."
+          @sock.close
+        end
+        return false if @done || @sock.closed?
+      end
+      
+      def on_response(h=nil, d=nil, &block)
+        if block_given?
+          @on_response = block
+        elsif @on_response
+          @on_response.call h, d
+        end
+      end
+      
     end
     
-    def run
+    def initialize(*arg)
+      @use_http2 = true
       super
     end
     
-    def poke
-      while @subscriber.finished < @concurrency do
-        Celluloid.sleep 0.3
+    def new_bundle(uri, sock, useragent)
+      b=HTTP2Bundle.new(uri, sock, useragent)
+      
+      b.on_response do |headers, body|
+        # Headers and body is all parsed
+        binding.pry
+        @last_modified = headers["Last-Modified"]
+        @etag = headers["Etag"]
+        
+        b.request_time = Time.now.to_f - b.time_requested
+        
+        if prsr.status_code != 200
+          binding.pry
+          unless @subscriber.on_failure(prsr) == false
+            Celluloid.sleep @retry_delay if @retry_delay
+          else
+            @subscriber.finished+=1
+            close b
+          end
+        end
+        
+        unless @nomsg
+          msg=Message.new @body_buf, @last_modified, @etag
+          msg.content_type=prsr.headers["Content-Type"]
+        else
+          msg=@body_buf
+        end
+        
+        unless @subscriber.on_message(msg, b) == false
+          @subscriber.waiting+=1
+          Celluloid.sleep @retry_delay if @retry_delay
+          b.send_GET @last_modified, @etag
+        else
+          @subscriber.finished+=1
+          close b
+        end
+        
       end
+      
+      b
     end
+    
+    
   end
-  
+    
   attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class
   def initialize(url, concurrency=1, opt={})
     @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
