@@ -245,11 +245,9 @@ class Subscriber
     
     def handle_bundle_error(bundle, msg, err)
       if err && !(EOFError === err)
-        @subscriber.on_failure error(0, msg, bundle.connected?)
-        puts err.backtrace
-      else 
-        @subscriber.on_failure error(0, msg, bundle.connected?)
+        msg="<#{msg}>\n#{err.backtrace.join "\n"}"
       end
+      @subscriber.on_failure error(0, msg, bundle.connected?)
       @subscriber.finished+=1
       close bundle
     end
@@ -718,10 +716,10 @@ class Subscriber
         end
         
         @client.on(:frame_sent) do |frame|
-          puts "Sent frame: #{frame.inspect}" if verbose
+          #puts "Sent frame: #{frame.inspect}" if verbose
         end
         @client.on(:frame_received) do |frame|
-          puts "Received frame: #{frame.inspect}" if verbose
+          #puts "Received frame: #{frame.inspect}" if verbose
         end
         @resp_headers={}
         @resp_code=nil
@@ -762,7 +760,7 @@ class Subscriber
           on_headers @resp_code, @resp_headers
         end
         @stream.on(:data) do |d|
-          puts "got data chunk #{d}"
+          #puts "got data chunk #{d}"
           on_chunk d
         end
         
@@ -1074,7 +1072,7 @@ class Subscriber
     end
     
     class MultipartMixedParser
-      attr_accessor :bound
+      attr_accessor :bound, :finished
       def initialize(multipart_header)
         matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match multipart_header
         raise "malformed Content-Type multipart/mixed header" unless matches[:boundary]
@@ -1083,6 +1081,7 @@ class Subscriber
         @preambled = false
         @headered = nil
         @headers = {}
+        @ninished = nil
       end
       
       def on_part(&block)
@@ -1096,6 +1095,7 @@ class Subscriber
         @buf << chunk
         
         if !@preambled && @buf.slice!(/^--#{Regexp.escape @bound}\r\n/)
+          @finished = nil
           @preambled = true
           @headered = nil
         end
@@ -1155,20 +1155,26 @@ class Subscriber
           end
           
           b.subparser.on_finish do
-            @subscriber.on_failure(error(410, "Server Closed Connection", true))
-            @subscriber.finished+=1
-            close b
+            b.subparser.finished = true
           end
         end
       end
       
       b.on_chunk do |chunk|
         b.subparser << chunk if b.subparser
+        if HTTPBundle === b && b.subparser.finished
+          @subscriber.on_failure(error(410, "Server Closed Connection", true))
+          @subscriber.finished+=1
+          close b
+        end
       end
       
       b.on_response do |code, headers, body|
-        @subscriber.on_failure error(0, "Response completed unexpectedly", bundle.connected?)
-        b.done = true
+        if b.subparser.finished
+          @subscriber.on_failure(error(410, "Server Closed Connection", true))
+        else
+          @subscriber.on_failure error(0, "Response completed unexpectedly", b.connected?)        
+        end
         @subscriber.finished+=1
         close b
       end

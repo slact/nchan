@@ -84,7 +84,7 @@ end
 errors_shown=false
 sub.on_failure do |x,y|
   puts sub.errors.join "\r\n" unless errors_shown
-  errors_shown=true
+  #errors_shown=true
   false
 end
 
