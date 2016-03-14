@@ -50,8 +50,8 @@ class PubSubTest <  Minitest::Test
     pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.2
     ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
     
-    sub.on_failure do |resp|
-      assert_equal resp.code, 304 #handshake will be treated as intervalpoll client?...
+    sub.on_failure do |err|
+      assert_match /code 304/, err #handshake will be treated as intervalpoll client?...
       false
     end
     
@@ -71,8 +71,8 @@ class PubSubTest <  Minitest::Test
     pub.post ["oh now what", "is this even a thing?"]
     sleep 0.1
     
-    sub.on_failure do |resp|
-      assert_equal resp.code, 304
+    sub.on_failure do |err, resp|
+      assert_match /code 304/, err
       assert_equal resp.headers["Last-Modified"], sub.client.last_modified, "304 not ready should have the same last-modified header as last msg"
       assert_equal resp.headers["Etag"], sub.client.etag, "304 not ready should have the same Etag header as last msg"
       false
@@ -659,7 +659,6 @@ class PubSubTest <  Minitest::Test
     pub.post "3. throo"
     sleep 1
     pub.post "4. fooo"
-    sleep 2
     n = 0
     sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 5)
     sub.on_message do |msg, req|
@@ -669,19 +668,14 @@ class PubSubTest <  Minitest::Test
       end
     end
     
-    sub.on_failure do |resp|
-      assert_equal "null", resp.request.options[:headers]["If-None-Match"]
-      assert_equal 400, resp.response_code
-      assert_match /Message ID invalid/, resp.response_body
+    sub.on_failure do |err|
+      assert_match /code 400/, err
       false
     end
     
     sub.run
     sleep 1
     pub.post "5. faaa"
-    sleep 1
-    pub.post "6. siiii"
-    sleep 1
     pub.post "FIN"
     sub.wait
   end

@@ -213,6 +213,16 @@ class Subscriber
       @error_what ||= ["HTTP Request"]
       super
     end
+    def error_from_response(response)
+      if response.timed_out?
+        msg = "Client response timeout."
+        code = 0
+      else
+        msg = response.return_message
+        code = response.code
+      end
+      error code, msg
+    end
     
     attr_accessor :last_modified, :etag, :hydra, :timeout
     def initialize(subscr, opt={})
@@ -262,14 +272,7 @@ class Subscriber
     
     def response_failure(response, req)
       #puts "received bad or no response at #{req.url}"
-      if response.timed_out?
-        msg = "Client response timeout."
-        code = 0
-      else
-        msg = response.return_message
-        code = response.code
-      end
-      unless @subscriber.on_failure(error(code, msg)) == false
+      unless @subscriber.on_failure(error_from_response(response), response) == false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
         @hydra.queue  new_request(old_request: req)
@@ -350,7 +353,7 @@ class Subscriber
       super response, req
     end
     def response_failure(response, req)
-      if @subscriber.on_failure(response) != false
+      if @subscriber.on_failure(error_from_response(response), response) != false
         @subscriber.waiting+=1
         Celluloid.sleep @retry_delay if @retry_delay
         @hydra.queue req
@@ -507,7 +510,7 @@ class Subscriber
     def on_error(err, err2)
       puts "Received error #{err}"
       if !@connected[ws]
-        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
+        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line, @connected[ws]), ws
         try_halt
       end
     end
@@ -652,7 +655,7 @@ class Subscriber
             raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
           end
         rescue SystemCallError => e
-          @subscriber.on_failure(error(0, e.to_s))
+          @subscriber.on_failure error(0, e.to_s)
           close nil
           return
         end
@@ -676,14 +679,15 @@ class Subscriber
         b.request_time = Time.now.to_f - b.time_requested
         if prsr.status_code != 200
           if prsr.status_code == 304
-            @subscriber.on_failure(prsr)
+            @subscriber.on_failure error(prsr.status_code, ""), prsr
+            @subscriber.finished+=1
             close b
+          elsif @subscriber.on_failure(error(prsr.status_code, ""), prsr) == false
             @subscriber.finished+=1
-          elsif @subscriber.on_failure(prsr) == false
-            @subscriber.finished+=1
-            Celluloid.sleep @retry_delay if @retry_delay  
+            close b
           else
-            close b
+            Celluloid.sleep @retry_delay if @retry_delay
+            b.send_GET @last_modified, @etag
           end
         else
           @timer.reset if @timer
@@ -1289,12 +1293,12 @@ class Subscriber
     "#{client.class.name.split('::').last} #{what}#{failword}: #{msg} (code #{code})"
   end
   
-  def on_failure(err=nil, &block)
+  def on_failure(err=nil, etc=nil, &block)
     if block_given?
       @on_failure=block
     else
       @errors << err.to_s
-      @on_failure.call(@errors.last) if @on_failure.respond_to? :call
+      @on_failure.call(@errors.last, etc) if @on_failure.respond_to? :call
     end
   end
 end
