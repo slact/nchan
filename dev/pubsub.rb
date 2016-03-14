@@ -262,12 +262,12 @@ class Subscriber
     
     def response_failure(response, req)
       #puts "received bad or no response at #{req.url}"
-      if err.timed_out?
+      if response.timed_out?
         msg = "Client response timeout."
         code = 0
       else
-        msg = err.return_message
-        code = err.code
+        msg = response.return_message
+        code = response.code
       end
       unless @subscriber.on_failure(error(code, msg)) == false
         @subscriber.waiting+=1
@@ -316,7 +316,6 @@ class Subscriber
         @subscriber.waiting+=1
         @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
       end
-      
       @hydra.run
     end
     
