@@ -695,7 +695,7 @@ class Subscriber
         data = @last_modified ? sprintf(@send_withid_fmt, @last_modified, @etag) : @send_noid_str
         @sndbuf << data
         
-        if @headers && @headers["Connection"]=="close" && reconnect?
+        if @headers && @headers["Connection"]=="close" && [200, 201, 202, 304, 408].member?(@parser.status_code) && reconnect?
           sock.close
           open_socket
           @parser.reset!
