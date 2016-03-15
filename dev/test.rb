@@ -523,7 +523,7 @@ class PubSubTest <  Minitest::Test
   end
 
   def test_queueing
-    pub, sub = pubsub 5
+    pub, sub = pubsub 1
     pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN ), 'text/plain'
     sleep 0.3
     sub.run
@@ -636,8 +636,8 @@ class PubSubTest <  Minitest::Test
   def generic_test_access_control(opt)
     pub, sub = pubsub 1, extra_headers: { Origin: opt[:origin] }, pub: opt[:pub_url], sub: opt[:sub_url]
     
-    sub.on_message do |msg, req|
-      opt[:verify_sub_response].call(req.response) if opt[:verify_sub_response]
+    sub.on_message do |msg, bundle|
+      opt[:verify_sub_response].call(bundle) if opt[:verify_sub_response]
     end
     
     pub.post "FIN"
@@ -660,11 +660,11 @@ class PubSubTest <  Minitest::Test
     sleep 1
     pub.post "4. fooo"
     n = 0
-    sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 5)
-    sub.on_message do |msg, req|
+    sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub.on_message do |msg, bundle|
       n=n+1
       if n == 2
-        req.options[:headers]["If-None-Match"]="null"
+        bundle.etag="null"
       end
     end
     
@@ -682,14 +682,16 @@ class PubSubTest <  Minitest::Test
   
   def test_access_control
     
-    ver= proc{ |resp| assert_equal "*", resp.headers["Access-Control-Allow-Origin"] }
+    ver= proc do |bundle| 
+      assert_equal "*", bundle.headers["Access-Control-Allow-Origin"] 
+    end
     generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
       verify pub, sub
     end
     
-    ver= proc do |resp| 
-      assert_equal "http://foo.bar", resp.headers["Access-Control-Allow-Origin"] 
-      %w( Last-Modified Etag ).each {|v| assert_header_includes resp, "Access-Control-Expose-Headers", v}
+    ver= proc do |bundle| 
+      assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
+      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
     end
     generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
       verify pub, sub

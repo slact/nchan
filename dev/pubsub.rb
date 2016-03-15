@@ -154,6 +154,7 @@ end
 class Subscriber
   
   class Client
+    attr_accessor :concurrency
     class ErrorResponse
       attr_accessor :code, :msg, :connected, :caller
       def initialize(code, msg, connected=false, what=nil, failword=nil)
@@ -201,7 +202,23 @@ class Subscriber
     end
     
     class ParserBundle
-      attr_accessor :body_buf, :connected, :verbose, :parser, :subparser
+      attr_accessor :uri, :sock, :body_buf, :connected, :verbose, :parser, :subparser, :headers, :code, :last_modified, :etag
+      def initialize(uri, *arg)
+        @uri=uri
+        open_socket
+      end
+      def open_socket
+        case uri.scheme
+        when /^(ws|http|h2c)$/
+          @sock = Celluloid::IO::TCPSocket.new(uri.host, uri.port)
+        when /^(wss|https|h2)$/
+          @sock = Celluloid::IO::SSLSocket.new(uri.host, uri.port)
+        else
+          raise ArgumentError, "unexpected uri scheme #{uri.scheme}"
+        end
+        self
+      end
+      
       def buffer_body!
         @body_buf||=""
       end
@@ -232,6 +249,7 @@ class Subscriber
         else
           @on_response.call(code, headers, @body_buf) if @on_response
         end
+        
       end
       
       def on_error(msg=nil, e=nil, &block)
@@ -258,7 +276,7 @@ class Subscriber
     include Celluloid
     
     def self.aliases
-      [:longpoll, :http]
+      [:oldlongpoll]
     end
     
     def error(*a)
@@ -476,6 +494,7 @@ class Subscriber
       @ws = {}
       @connected=0
       @nomsg = opt[:nomsg]
+      @http2 = opt[:http2]
       if @timeout
         @timer = after(@timeout) do
           @subscriber.on_failure error(0, "Timeout", true)
@@ -500,18 +519,19 @@ class Subscriber
     
     def run(was_success = nil)
       uri = URI.parse(@url)
-      port = uri.port || (uri.scheme == "ws" ? 80 : 443)
+      uri.port ||= (uri.scheme == "ws" ? 80 : 443)
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
+      if @http2
+        @subscriber.on_failure error(0, "Refusing to try websocket over HTTP/2", false)
+        @connected = 0
+        @cooked.signal true
+        return
+      end
+      raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme.match /^wss?$/
       @concurrency.times do
         begin
-          if uri.scheme == "ws"
-            sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-          elsif uri.scheme == "wss"
-            sock = Celluloid::IO::SSLSocket.new(uri.host, port)
-          else
-            raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
-          end
+          sock = ParserBundle.new(uri).open_socket.sock
         rescue SystemCallError => e
           @subscriber.on_failure(error(0, e.to_s, 0))
           close nil
@@ -606,7 +626,7 @@ class Subscriber
     include Celluloid::IO
     
     def self.aliases
-      [:fastlongpoll]
+      [:longpoll]
     end
     
     def error(*args)
@@ -616,12 +636,13 @@ class Subscriber
     
     class HTTPBundle < ParserBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
-      def initialize(uri, sock, user_agent, accept="*/*", extra_headers={})
+      
+      def initialize(uri, user_agent, accept="*/*", extra_headers={})
+        super
         @accept = accept
         @rcvbuf=""
         @sndbuf=""
         @parser = Http::Parser.new
-        @sock = sock
         @done = false
         extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
@@ -644,8 +665,12 @@ class Subscriber
         
         @parser.on_headers_complete = proc do |h|
           if verbose 
-            puts h.map {|k,v| "< #{k}: #{v}"}.join "\r\n"
+            puts "< HTTP/1.1 #{@parser.status_code} [...]\r\n#{h.map {|k,v| "< #{k}: #{v}"}.join "\r\n"}"
           end
+          @headers=h
+          @last_modified = h['Last-Modified']
+          @etag = h['Etag']
+          @code=@parser.status_code
           on_headers @parser.status_code, h
         end
         
@@ -659,16 +684,28 @@ class Subscriber
         
       end
       
+      def reconnect?
+        true
+      end
+      
       def send_GET(msg_time=nil, msg_tag=nil)
+        @last_modified = msg_time.to_s if msg_time
+        @etag = msg_tag.to_s if msg_tag
         @sndbuf.clear 
-        data = msg_time ? sprintf(@send_withid_fmt, msg_time, msg_tag) : @send_noid_str
+        data = @last_modified ? sprintf(@send_withid_fmt, @last_modified, @etag) : @send_noid_str
         @sndbuf << data
+        
+        if @headers && @headers["Connection"]=="close" && reconnect?
+          sock.close
+          open_socket
+          @parser.reset!
+        end
+        
+        @time_requested=Time.now.to_f
         if verbose
           puts "", data.gsub(/^.*$/, "> \\0")
         end
-      
-        @time_requested=Time.now.to_f
-        @sock << @sndbuf
+        sock << @sndbuf
       end
       
       def read
@@ -677,10 +714,13 @@ class Subscriber
           sock.readpartial(4096, @rcvbuf)
           @parser << @rcvbuf
         rescue HTTP::Parser::Error => e
+          binding.pry
           on_error "Invalid HTTP Respose - #{e}", e
         rescue EOFError => e
+          binding.pry
           on_error "Server closed connection...", e
         rescue => e 
+          binding.pry
           on_error "#{e.class}: #{e}", e
         end
         return false if @done || sock.closed?
@@ -690,9 +730,9 @@ class Subscriber
     class HTTP2Bundle < ParserBundle
       attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
       GET_METHOD="GET"
-      def initialize(uri, sock, user_agent, accept="*/*", extra_headers=nil)
+      def initialize(uri, user_agent, accept="*/*", extra_headers=nil)
+        super
         @done = false
-        @sock = sock
         @rcvbuf=""
         @head = {
           ':scheme' => uri.scheme,
@@ -703,11 +743,8 @@ class Subscriber
           'accept' => accept
         }
         if extra_headers
-          extra_headers.each do |h, v|
-            binding.pry
-          end
+          extra_headers.each{ |h, v| @head[h.to_s.downcase]=v }
         end
-        
         @client = HTTP2::Client.new
         @client.on(:frame) do |bytes|
           #puts "Sending bytes: #{bytes.unpack("H*").first}"
@@ -725,7 +762,13 @@ class Subscriber
         @resp_code=nil
       end
       
+      def reconnect?
+        false
+      end
+      
       def send_GET(msg_time=nil, msg_tag=nil)
+        @last_modified = msg_time.to_s if msg_time
+        @etag = msg_tag.to_s if msg_tag
         @time_requested=Time.now.to_f
         if msg_time
           @head['if-modified-since'] = msg_time.to_s
@@ -757,6 +800,8 @@ class Subscriber
               @resp_headers[v.first.gsub(/(?<=^|\W)\w/) { |v| v.upcase }]=v.last
             end
           end
+          @headers = @resp_headers
+          @code = @resp_code
           on_headers @resp_code, @resp_headers
         end
         @stream.on(:data) do |d|
@@ -796,7 +841,7 @@ class Subscriber
       
     end
     
-    attr_accessor :last_modified, :etag, :timeout
+    attr_accessor :timeout
     def initialize(subscr, opt={})
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
@@ -808,6 +853,7 @@ class Subscriber
       @nomsg=opt[:nomsg]
       @bundles={}
       @body_buf=""
+      @extra_headers = opt[:extra_headers]
       @verbose=opt[:verbose]
       @http2=opt[:http2] || opt[:h2]
       if @timeout
@@ -822,26 +868,20 @@ class Subscriber
     
     def run(was_success = nil)
       uri = URI.parse(@url)
-      port = uri.port || (uri.scheme == "http" ? 80 : 443)
+      uri.port||= uri.scheme.match(/^(ws|http)$/) ? 80 : 443
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       @concurrency.times do |i|
         begin
-          if uri.scheme == "http" || uri.scheme == "h2"
-            sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-          elsif uri.scheme == "https" || uri.scheme == "h2s"
-            sock = Celluloid::IO::SSLSocket.new(uri.host, port)
-          else
-            raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
-          end
+          bundle = new_bundle(uri, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
         rescue SystemCallError => e
           @subscriber.on_failure error(0, e.to_s)
           close nil
           return
         end
-        bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
+        
         @bundles[bundle]=true
-        bundle.send_GET
+        bundle.send_GET @last_modified, @etag
         async.listen bundle
       end
     end
@@ -856,8 +896,9 @@ class Subscriber
           @subscriber.finished+=1
           close bundle
         else
+          binding.pry
           Celluloid.sleep @retry_delay if @retry_delay
-          bundle.send_GET @last_modified, @etag
+          bundle.send_GET
         end
         false
       else
@@ -866,8 +907,11 @@ class Subscriber
       end
     end
     
-    def new_bundle(uri, sock, useragent, accept="*/*", extra_headers={})
-      b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, sock, useragent, accept, extra_headers)
+    def new_bundle(uri, useragent, accept="*/*", extra_headers={})
+      if @extra_headers
+        extra_headers = extra_headers.merge @extra_headers
+      end
+      b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, useragent, accept, extra_headers)
       b.on_error do |msg, err|
         handle_bundle_error b, msg, err
       end
@@ -879,21 +923,31 @@ class Subscriber
     def setup_bundle(b)
       b.buffer_body!
       b.on_response do |code, headers, body|
+        @subscriber.waiting-=1
         # Headers and body is all parsed
-        @last_modified = headers["Last-Modified"]
-        @etag = headers["Etag"]
+        b.last_modified = headers["Last-Modified"]
+        b.etag = headers["Etag"]
         b.request_time = Time.now.to_f - b.time_requested
         if request_code_ok(code, b)
-          unless @nomsg
-            msg=Message.new body, @last_modified, @etag
-            msg.content_type=headers["Content-Type"]
-          else
-            msg=body
+          on_message_ret=nil
+          Message.each_multipart_message(headers["Content-Type"], body) do |content_type, msg_body, multi|
+            unless @nomsg
+              msg=Message.new msg_body.dup
+              msg.content_type=content_type
+              unless multi
+                msg.last_modified= headers["Last-Modified"]
+                msg.etag= headers["Etag"]
+              end
+            else
+              msg=msg_body.dup
+            end
+            
+            on_message_ret= @subscriber.on_message(msg, b)
           end
-          unless @subscriber.on_message(msg, b) == false
+          
+          unless on_message_ret == false
             @subscriber.waiting+=1
-            Celluloid.sleep @retry_delay if @retry_delay
-            b.send_GET @last_modified, @etag
+            b.send_GET
           else
             @subscriber.finished+=1
             close b
@@ -911,7 +965,6 @@ class Subscriber
         begin
           return false if bundle.read == false
         rescue EOFError
-          binding.pry
           @subscriber.on_failure(error(0, "Server Closed Connection"), bundle.connected)
           close bundle
           return false
@@ -1003,8 +1056,8 @@ class Subscriber
       
     end
     
-    def new_bundle(uri, sock, useragent=nil)
-      super uri, sock, useragent, "text/event-stream"
+    def new_bundle(uri, useragent=nil)
+      super uri, useragent, "text/event-stream"
     end
     
     def setup_bundle(b)
@@ -1045,7 +1098,7 @@ class Subscriber
         when :message
           @timer.reset if @timer
           unless @nomsg
-            msg=Message.new data
+            msg=Message.new data.dup
             msg.id=evt_id
           else
             msg=data
@@ -1065,7 +1118,7 @@ class Subscriber
     
   end
   
-  class MultipartMixedClient < FastLongPollClient
+  class MultiparMixedClient < FastLongPollClient
     include Celluloid::IO
     
     def self.aliases 
@@ -1133,8 +1186,8 @@ class Subscriber
       
     end
     
-    def new_bundle(uri, sock, useragent=nil)
-      super uri, sock, useragent, "multipart/mixed"
+    def new_bundle(uri, useragent=nil)
+      super uri, useragent, "multipart/mixed"
     end
     
     def setup_bundle b
@@ -1149,7 +1202,8 @@ class Subscriber
           b.subparser = MultipartMixedParser.new headers["Content-Type"]
           b.subparser.on_part do |headers, message|
             unless @nomsg
-              msg=Message.new message, headers["Last-Modified"], headers["Etag"]
+              @timer.reset if @timer
+              msg=Message.new message.dup, headers["Last-Modified"], headers["Etag"]
               msg.content_type=headers["Content-Type"]
             else
               msg=message
@@ -1188,54 +1242,59 @@ class Subscriber
     end
   end
   
-  class HTTPChunkedClient < EventSourceClient
+  class HTTPChunkedClient < FastLongPollClient
     include Celluloid::IO
+    
+    def run(*args)
+      if @http2
+        @subscriber.on_failure(error(0, "Chunked transfer is not allowed in HTTP/2", false))
+        @connected = 0
+        return
+      end
+      super
+    end
     
     def self.aliases
       [:chunked]
     end
     
-    class HTTPChunkedBundle < FastLongPollClient::HTTPBundle
-      attr_accessor :ok
-      def initialize(uri, sock, user_agent)
-        super uri, sock, user_agent, "*/*", {"TE": "Chunked"}
-      end
+    def new_bundle(uri, user_agent)
+      super uri, user_agent, "*/*", {"TE": "Chunked"}
     end
     
-    def new_bundle(uri, sock, useragent)
-      b=HTTPChunkedBundle.new(uri, sock, useragent)
-      prsr = b.parser
-      prsr.on_headers_complete = proc do |headers|
-        if prsr.status_code != 200
-          @subscriber.on_failure(error(prsr.status_code, "", false))
-          @subscriber.finished+=1
+    def setup_bundle(b)
+      super
+      b.body_buf = nil
+      b.on_headers do |code, headers|
+        if code != 200
+          @subscriber.on_failure(error(code, "", false))
           close b
         elsif headers["Transfer-Encoding"] != "chunked"
-          @subscriber.on_failure(error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'", false))
-          @subscriber.finished+=1
+          @subscriber.on_failure(error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'.", false))
           close b
         else
-          b.ok=true
+          b.connected= true
         end
       end
       
-      prsr.on_body = proc do |chunk|
-        next unless b.ok
+      b.on_chunk do |chunk|
+        next unless b.connected
         @timer.reset if @timer
         unless @nomsg
-            msg=Message.new chunk, nil, nil
-          else
-            msg=@body_buf
-          end
-          
-          if @subscriber.on_message(msg, b) == false
-            @subscriber.finished+=1
-            close b
-          end
+          msg=Message.new chunk, nil, nil
+        else
+          msg=@body_buf
+        end
+        
+        if @subscriber.on_message(msg, b) == false
+          @subscriber.finished+=1
+          close b
+        end
       end
       
-      prsr.on_message_complete = proc do
-        @subscriber.on_failure(HTTPChunkedErrorResponse.new(410, "Server Closed Connection", true))
+      b.on_response do |code, headers, body|
+        @subscriber.on_failure(error(410, "Server Closed Connection", true))
+        close b
       end
       
       b
@@ -1261,7 +1320,7 @@ class Subscriber
       puts "nomsg reverted to false because nostore is false"
     end
     opt[:concurrency]=concurrency
-    
+    @concurrency = opt[:concurrency]
     @opt=opt
     reset
     new_client
