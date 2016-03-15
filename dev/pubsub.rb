@@ -988,6 +988,7 @@ class Subscriber
       end
       
       def parse_event
+        
         if @buf[:comments].length > 0
           @on_event.call :comment, @buf[:comments].chomp!
         elsif @buf[:data].length > 0 || @buf[:id].length > 0 || !@buf[:event].nil?
@@ -1018,7 +1019,7 @@ class Subscriber
       b.buffer_body!
       b.subparser=EventSourceParser.new
       b.on_chunk do |chunk|
-        while b.body_buf.slice! /^.*\n$/ do
+        while b.body_buf.slice! /^.*\n/ do
           b.subparser.parse_line $~[0]
         end
       end
@@ -1072,7 +1073,7 @@ class Subscriber
     end
     
     class MultipartMixedParser
-      attr_accessor :bound, :finished
+      attr_accessor :bound, :finished, :buf
       def initialize(multipart_header)
         matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match multipart_header
         raise "malformed Content-Type multipart/mixed header" unless matches[:boundary]
@@ -1093,35 +1094,41 @@ class Subscriber
       
       def <<(chunk)
         @buf << chunk
-        
-        if !@preambled && @buf.slice!(/^--#{Regexp.escape @bound}\r\n/)
-          @finished = nil
-          @preambled = true
-          @headered = nil
-        end
-        
-        if @preambled && @buf.slice!(/^(.*?)\r\n\r\n/m)
-          @headered = true
-          ($~[1]).each_line do |l|
-            if l.match(/(?<name>[^:]+):\s(?<val>[^\r\n]*)/)
-              @headers[$~[:name]]=$~[:val]
-            end
+        repeat = true
+        while repeat do
+          if !@preambled && @buf.slice!(/^--#{Regexp.escape @bound}/)
+            @finished = nil
+            @preambled = true
+            @headered = nil
           end
-          @headered = true
-        end
-        
-        if @headered && @buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
-          @on_part.call @headers, $~[1]
-          @headered = nil
-          @headers.clear
-        end
           
-        
-        if (@preambled && !@headered && @buf.slice!(/^--\r\n/)) ||
-           (!@preambled && @buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
-          @on_finish.call
+          if @preambled && @buf.slice!(/^(\r\n(.*?))?\r\n\r\n/m)
+            @headered = true
+            
+            ($~[2]).each_line do |l|
+              if l.match(/(?<name>[^:]+):\s(?<val>[^\r\n]*)/)
+                @headers[$~[:name]]=$~[:val]
+              end
+            end
+            @headered = true
+          else
+            repeat = false
+          end
+          
+          if @headered && @buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
+            @on_part.call @headers, $~[1]
+            @headered = nil
+            @headers.clear
+          else
+            repeat = false
+          end
+          
+          if (@preambled && !@headered && @buf.slice!(/^--\r\n/)) ||
+            (!@preambled && @buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
+            @on_finish.call
+            repeat = false
+          end
         end
-        
       end
       
     end
