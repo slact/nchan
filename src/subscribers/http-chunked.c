@@ -34,12 +34,14 @@ static void chunked_ensure_headers_sent(full_subscriber_t *fsub) {
 static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static u_char           chunk_start[15]; //that's enough
   static u_char          *chunk_end=(u_char *)"\r\n";
-  static ngx_file_t       file_copy = {0};
+  static ngx_file_t       file_copy;
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
   ngx_buf_t              *msg_buf = msg->buf;
   ngx_int_t               rc;
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  
+  file_copy.fd = NGX_INVALID_FILE;
   
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
