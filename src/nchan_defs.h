@@ -14,6 +14,10 @@
 
 #define NCHAN_MAX_CHANNEL_ID_LENGTH 1024 //bytes
 
+#ifndef NGX_HTTP_REQUEST_TIMEOUT
+#define NGX_HTTP_REQUEST_TIMEOUT 408
+#endif
+
 #ifndef NGX_HTTP_CONFLICT
 #define NGX_HTTP_CONFLICT 409
 #endif
@@ -65,6 +69,7 @@ extern const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE;
 //status strings
 extern const  ngx_str_t NCHAN_HTTP_STATUS_101;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_304;
+extern const  ngx_str_t NCHAN_HTTP_STATUS_408;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_409;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_410;
 
