@@ -26,7 +26,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers], verbose: opt[:verbose]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}")
   return pub, sub
 end
@@ -47,23 +47,20 @@ class PubSubTest <  Minitest::Test
   end
   
   def test_interval_poll
-    pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.2
+    pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.5
     ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
-    
-    sub.on_failure do |resp|
-      assert_equal resp.code, 304 #handshake will be treated as intervalpoll client?...
-      false
+
+    got_304s=0
+    sub.on_failure do |msg|
+      got_304s += 1
+      assert_match /code 304/, msg #handshake will be treated as intervalpoll client?...
     end
     
     ws_sub.run
     sub.run
-    sub.wait
-
-    sub.abort
-    sub.reset
 
     sleep 0.4
-    assert ws_sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
+    assert ws_sub.match_errors(/code 403/), "expected 403 for all non-intervalpoll subscribers, got #{sub.errors.pretty_inspect}"
     ws_sub.terminate
     
     pub.post ["hello this", "is a thing"]
@@ -71,30 +68,16 @@ class PubSubTest <  Minitest::Test
     pub.post ["oh now what", "is this even a thing?"]
     sleep 0.1
     
-    sub.on_failure do |resp|
-      assert_equal resp.code, 304
-      assert_equal resp.headers["Last-Modified"], sub.client.last_modified, "304 not ready should have the same last-modified header as last msg"
-      assert_equal resp.headers["Etag"], sub.client.etag, "304 not ready should have the same Etag header as last msg"
-      false
-    end
+    sleep 1.5
     
-    sub.run
-    sub.wait
-    
-    #should get a 304 at this point
-    
-    sub.abort
-    sub.reset
-    
+    pub.post "yoo"
     pub.post "FIN"
     
-    sleep 2
-    
-    sub.run
     sub.wait
 
     verify pub, sub
     sub.terminate
+    assert got_304s > 0, "Expected at least one 304 response"
   end
   
   def test_channel_info
@@ -105,10 +88,12 @@ class PubSubTest <  Minitest::Test
     subs=20
     
     chan=SecureRandom.hex
-    pub, sub = pubsub(subs, channel: chan)
+    pub, sub = pubsub(subs, channel: chan, client: :eventsource)
     pub.nofail=true
     pub.get
     assert_equal 404, pub.response_code
+
+    puts "yeaaah"
     
     pub.post ["hello", "what is this i don't even"]
     assert_equal 202, pub.response_code
@@ -126,7 +111,7 @@ class PubSubTest <  Minitest::Test
 
     
     sub.run
-    sleep 1
+    sub.wait :ready
     pub.get "text/json"
 
     info_json=JSON.parse pub.response_body
@@ -202,7 +187,7 @@ class PubSubTest <  Minitest::Test
     scrambles = 5
     subs = []
     scrambles.times do |i|
-      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1)
+      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1, timeout: 20)
       sub.on_failure { false }
       subs << sub
     end
@@ -257,7 +242,6 @@ class PubSubTest <  Minitest::Test
             break
           end
         end
-        #binding.pry unless matched
         assert_equal matched, true, "message not matched"
       end
       
@@ -523,7 +507,7 @@ class PubSubTest <  Minitest::Test
   end
 
   def test_queueing
-    pub, sub = pubsub 5
+    pub, sub = pubsub 1
     pub.post %w( what is this_thing andnow 555555555555555555555 eleven FIN ), 'text/plain'
     sleep 0.3
     sub.run
@@ -589,7 +573,7 @@ class PubSubTest <  Minitest::Test
     pub.post "hello"
     sub.wait
     verify pub, sub, false
-    assert sub.match_errors(/code 304/)
+    assert sub.match_errors(/code 408/)
     sub.terminate
   end
   
@@ -636,8 +620,8 @@ class PubSubTest <  Minitest::Test
   def generic_test_access_control(opt)
     pub, sub = pubsub 1, extra_headers: { Origin: opt[:origin] }, pub: opt[:pub_url], sub: opt[:sub_url]
     
-    sub.on_message do |msg, req|
-      opt[:verify_sub_response].call(req.response) if opt[:verify_sub_response]
+    sub.on_message do |msg, bundle|
+      opt[:verify_sub_response].call(bundle) if opt[:verify_sub_response]
     end
     
     pub.post "FIN"
@@ -659,43 +643,39 @@ class PubSubTest <  Minitest::Test
     pub.post "3. throo"
     sleep 1
     pub.post "4. fooo"
-    sleep 2
     n = 0
-    sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 5)
-    sub.on_message do |msg, req|
+    sub = Subscriber.new(url("/sub/multipart_multiplex/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub.on_message do |msg, bundle|
       n=n+1
       if n == 2
-        req.options[:headers]["If-None-Match"]="null"
+        bundle.etag="null"
       end
     end
     
-    sub.on_failure do |resp|
-      assert_equal "null", resp.request.options[:headers]["If-None-Match"]
-      assert_equal 400, resp.response_code
-      assert_match /Message ID invalid/, resp.response_body
+    sub.on_failure do |err|
+      assert_match /code 400/, err
       false
     end
     
     sub.run
     sleep 1
     pub.post "5. faaa"
-    sleep 1
-    pub.post "6. siiii"
-    sleep 1
     pub.post "FIN"
     sub.wait
   end
   
   def test_access_control
     
-    ver= proc{ |resp| assert_equal "*", resp.headers["Access-Control-Allow-Origin"] }
+    ver= proc do |bundle| 
+      assert_equal "*", bundle.headers["Access-Control-Allow-Origin"] 
+    end
     generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
       verify pub, sub
     end
     
-    ver= proc do |resp| 
-      assert_equal "http://foo.bar", resp.headers["Access-Control-Allow-Origin"] 
-      %w( Last-Modified Etag ).each {|v| assert_header_includes resp, "Access-Control-Expose-Headers", v}
+    ver= proc do |bundle| 
+      assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
+      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
     end
     generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
       verify pub, sub
@@ -738,8 +718,11 @@ class PubSubTest <  Minitest::Test
     pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]
     sleep 1
     pub.post "foobar"
+    msg = ""
+    200.times { msg << SecureRandom.hex }
+    pub.post msg
     pub.post "FIN"
-    sleep 1
+    sub.wait
     verify pub, sub
   end
 end

@@ -41,6 +41,17 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_int_t               rc;
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
+  file_copy.fd = NGX_INVALID_FILE;
+  
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+    ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
+  }
+  
+  ctx->prev_msg_id = fsub->sub.last_msgid;
+  update_subscriber_last_msg_id(sub, msg);
+  ctx->msg_id = fsub->sub.last_msgid;
+  
   if (ngx_buf_size(msg_buf) == 0) {
     //empty messages are skipped, because a zero-length chunk finalizes the request
     return NGX_OK;
@@ -62,7 +73,7 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[1].chain.next = &bc[2].chain;
   
   ngx_memcpy(&bc[1].buf, msg_buf, sizeof(*msg_buf));
-  nchan_msg_buf_open_fd_if_needed(&bc[2].buf, &file_copy, NULL);
+  nchan_msg_buf_open_fd_if_needed(&bc[1].buf, &file_copy, NULL);
   bc[1].buf.last_buf = 0;
   bc[1].buf.last_in_chain = 0;
   bc[1].buf.flush = 0;
@@ -79,10 +90,6 @@ static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   bc[2].buf.last_buf = 0;
   bc[2].buf.last_in_chain = 1;
   bc[2].buf.flush = 1;
-  
-  ctx->prev_msg_id = fsub->sub.last_msgid;
-  update_subscriber_last_msg_id(sub, msg);
-  ctx->msg_id = fsub->sub.last_msgid;
   
   chunked_ensure_headers_sent(fsub);
   
@@ -117,12 +124,12 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   bc.buf.pos = bc.buf.start;
   bc.buf.last = bc.buf.end;
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
     return NGX_OK;
   }
   
-  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
+  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code < 600) {
     nchan_respond_status(sub->request, status_code, status_line, 1);
     return NGX_OK;
   }
@@ -131,7 +138,7 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   
   nchan_output_filter(fsub->sub.request, chain);
   
-  if(status_code >=400 && status_code <599) {
+  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
     fsub->data.finalize_request=1;

@@ -6,24 +6,32 @@ require "optparse"
 
 server= "localhost:8082"
 par=1
-quit_msg='FIN'
+
+opt = {
+  timeout:      60,
+  quit_message: 'FIN',
+  client:       :longpoll,
+  extra_headers: nil,
+  nostore:       true,
+  http2:         false
+}
+
 no_message=false
-max_wait=60
-msg_count=0
 print_content_type = false
 show_id=false
-client=:longpoll
 origin = nil
 
 url = nil
 sub = nil
 
-opt=OptionParser.new do |opts|
+opt_parser=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
   opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
-  opts.on("-t", "--timeout SEC (#{max_wait})", "Long-poll timeout"){|v| max_wait = v}
-  opts.on("-q", "--quit STRING (#{quit_msg})", "Quit message"){|v| quit_msg = v}
-  opts.on("-l", "--client STRING (#{client})", "sub client (one of #{SUBSCRIBER_TYPES.join ', '})"){|v| client = v.to_sym}
+  opts.on("-t", "--timeout SEC (#{opt[:timeout]})", "Long-poll timeout"){|v| opt[:timeout] = v}
+  opts.on("-q", "--quit STRING (#{opt[:quit_message]})", "Quit message"){|v| opt[:quit_message] = v}
+  opts.on("-l", "--client STRING (#{opt[:client]})", "sub client (one of #{Subscriber::Client.unique_aliases.join ', '})") do |v|
+    opt[:client] = v.to_sym
+  end
   opts.on("-c", "--content-type", "show received content-type"){|v| print_content_type = true}
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
@@ -31,32 +39,37 @@ opt=OptionParser.new do |opts|
   opts.on("--full-url URL", "full subscriber url") do |v|
     url = v
   end
-  opts.on("-v", "--verbose", "somewhat rather extraneously wordful output"){Typhoeus::Config.verbose=true}
-end
-opt.banner="Usage: sub.rb [options] url"
-opt.parse!
-
-url ||= "http://#{server}#{ARGV.last}"
-
-puts "Subscribing #{par} #{client} client#{par!=1 ? "s":""} to #{url}."
-puts "Timeout: #{max_wait}sec, quit msg: #{quit_msg}"
-
-extra_headers = nil
-if client == :longpoll
-  if origin
-    extra_headers = { 'Origin': origin }
+  opts.on("--http2", "use HTTP/2"){opt[:http2] = true}
+  opts.on("-v", "--verbose", "somewhat rather extraneously wordful output") do
+    opt[:verbose] = true
+    Typhoeus::Config.verbose=true
   end
 end
-sub = Subscriber.new url, par, timeout: max_wait, quit_message: quit_msg, client: client, extra_headers: extra_headers, nostore: true
+opt_parser.banner="Usage: sub.rb [options] url"
+opt_parser.parse!
+
+url ||= "#{opt[:http2] ? 'h2' : 'http'}://#{server}#{ARGV.last}"
+
+puts "Subscribing #{par} #{opt[:client]} client#{par!=1 ? "s":""} to #{url}."
+puts "Timeout: #{opt[:timeout]}sec, quit msg: #{opt[:quit_message]}"
+
+if origin
+  opt[:extra_headers] ||= {}
+  opt[:extra_headers]['Origin'] = origin
+end
+
+sub = Subscriber.new url, par, opt
 
 nomsgmessage="\r"*30 + "Received message %i, len:%i"
 
+
+msg_count=0
 sub.on_message do |msg|
   if no_message
     msg_count+=1
     printf nomsgmessage, msg_count, msg.message.length
   else
-    if print_content_type
+    if msg.content_type
       out = "(#{msg.content_type}) #{msg}"
     else
       out = msg.to_s
@@ -68,13 +81,23 @@ sub.on_message do |msg|
   end
 end
 
-errors_shown=false
-sub.on_failure do |x,y|
-  puts sub.errors.join "\r\n" unless errors_shown
-  errors_shown=true
-  false
+sub.on_failure do |err_msg|
+  if Subscriber::FastIntervalPollClient === sub.client
+    unless err_msg.match(/\(code 304\)/)
+      false
+    end 
+  else
+    false
+  end
 end
-
 
 sub.run
 sub.wait
+
+if sub.errors.count > 1
+  puts "Errors:"
+  sub.errors.each do |err|
+    puts err
+  end
+  exit 1
+end

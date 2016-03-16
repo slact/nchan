@@ -173,7 +173,7 @@ CfCmd.new do
       group: "pubsub",
       value: "<number> (seconds)",
       default: "0 (none)",
-      info: "The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a `nchan_subscriber` is present in this or a child context."
+      info: "Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0."
   
   nchan_authorize_request [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,

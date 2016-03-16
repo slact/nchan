@@ -63,6 +63,11 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   
   static ngx_file_t       file_copy;
   
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+    ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
+  }
+  
   //generate the headers
   if(!cf->msg_in_etag_only) {
     //msgtime
@@ -96,8 +101,8 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     
     ngx_memzero(&bc[1].buf, sizeof(ngx_buf_t));
     bc[1].buf.memory = 1;
-    bc[1].buf.start = headerbuf;
-    bc[1].buf.pos = headerbuf;
+    bc[1].buf.start = cur;
+    bc[1].buf.pos = cur;
     bc[1].buf.last = ngx_snprintf(cur, 255, "Content-Type: %V\r\n\r\n", &msg->content_type);
     bc[1].buf.end = bc[1].buf.last;
     
@@ -159,7 +164,7 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
     return NGX_OK;
   }
@@ -186,7 +191,7 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   
   nchan_output_filter(fsub->sub.request, &bc.chain);
   
-  if(status_code >=400 && status_code <599) {
+  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
     fsub->data.finalize_request=1;

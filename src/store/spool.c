@@ -117,7 +117,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   nchan_msg_id_t          new_id = NCHAN_ZERO_MSGID;
     
   nchan_copy_msg_id(&new_id, &spool->id, largetags);
-  nchan_update_multi_msgid(&new_id, new_last_id);
+  nchan_update_multi_msgid(&new_id, new_last_id, largetags);
   
   //ERR("spool %p nextmsg (%V) --", spool, msgid_to_str(&spool->id));
   //ERR(" --  update with               (%V) --", msgid_to_str(new_last_id));
@@ -140,7 +140,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
       assert(!immortal_spool);
       node = rbtree_node_from_data(spool);
       rbtree_remove_node(&spl->spoolseed, node);
-      nchan_copy_new_msg_id(&spool->id, &new_id);
+      nchan_copy_msg_id(&spool->id, &new_id, NULL);
       rbtree_insert_node(&spl->spoolseed, node);
       spool->msg_status = MSG_INVALID;
       spool->msg = NULL;
@@ -1002,7 +1002,7 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool) {
   DBG("remove spool node %p", node);
   
   assert(spool->spooler->running);
-  
+  nchan_free_msg_id(&spool->id);
   rbtree_remove_node(&spl->spoolseed, rbtree_node_from_data(spool));
 
   //assert((node = rbtree_find_node(&spl->spoolseed, &spool->id)) == NULL);
@@ -1028,8 +1028,6 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   }
   assert(spool->sub_count == 0);
   assert(spool->first == NULL);
-  
-  nchan_free_msg_id(&spool->id);
   
   ngx_memset(spool, 0x42, sizeof(*spool)); //debug
   
@@ -1072,6 +1070,7 @@ ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
   assert(seed->active_nodes == 0);
   assert(seed->allocd_nodes == 0);
 #endif
+  nchan_free_msg_id(&spl->prev_msg_id);
   spl->running = 0;
   return NGX_OK;
 }

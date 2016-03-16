@@ -241,7 +241,6 @@ typedef struct {
   ngx_int_t              (*dequeue)(struct subscriber_s *);
   ngx_int_t              (*respond_message)(struct subscriber_s *, nchan_msg_t *);
   ngx_int_t              (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
-  ngx_int_t              (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
@@ -250,10 +249,13 @@ typedef struct {
   
 } subscriber_fn_t;
 
+typedef enum {ALIVE, DEAD, UNKNOWN, PININGFORTHEFJORDS} nchan_subscriber_status_t;
+
 struct subscriber_s {
   ngx_str_t                 *name;
   subscriber_type_t          type;
   const subscriber_fn_t     *fn;
+  nchan_subscriber_status_t  status;
   nchan_msg_id_t             last_msgid;
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
@@ -261,6 +263,9 @@ struct subscriber_s {
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
   unsigned                   enqueued:1;
+#if FAKESHARD
+  ngx_int_t                  owner;
+#endif
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   u_char                    *lbl;
   subscriber_t              *dbg_prev;

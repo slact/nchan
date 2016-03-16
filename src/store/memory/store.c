@@ -780,6 +780,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, ui
       memstore_ready_chanhead_unless_stub(head);
     }
   }
+  assert(head->status != INACTIVE);
   return NGX_OK;
 }
 
@@ -1342,7 +1343,7 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 
 static void exit_notice_about_remaining_things(char *thing, char *where, ngx_int_t num) {
   if(num > 0) {
-    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, mpt->chanhead_reaper.count == 1 ? "" : "s", where == NULL ? "" : where);
+    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, num == 1 ? "" : "s", where == NULL ? "" : where);
   }
 }
 
@@ -1532,7 +1533,7 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages, uint8_t preserve_last_msg) {
+static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages) {
   validate_chanhead_messages(ch);
   store_message_t   *cur = ch->msg_first;
   store_message_t   *next = NULL;
@@ -1550,9 +1551,6 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     next = cur->next;
     chanhead_delete_message(ch, cur);
     deleted_count++;        
-    if(preserve_last_msg) {
-      assert(ch->msg_last);
-    }
     cur = next;
   }
   
@@ -1561,9 +1559,6 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
     tried_count++;
     next = cur->next;
     chanhead_delete_message(ch, cur);
-    if(preserve_last_msg) {
-      assert(ch->msg_last);
-    }
     cur = next;
   }
   DBG("message GC results: started with %i, walked %i, deleted %i msgs", started_count, tried_count, deleted_count);
@@ -1571,18 +1566,13 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_newmessage(nchan_store_channel_head_t *ch) {
-  //DBG("messages gc for ch %p %V", ch, &ch->id);
-  return chanhead_messages_gc_custom(ch, ch->max_messages, 1);
-}
-
 static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
-  return chanhead_messages_gc_custom(ch, ch->max_messages, 0);
+  return chanhead_messages_gc_custom(ch, ch->max_messages);
 }
 
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
-  chanhead_messages_gc_custom(ch, 0, 0);
+  chanhead_messages_gc_custom(ch, 0);
   return NGX_OK;
 }
 
@@ -1750,7 +1740,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   nchan_store_channel_head_t  *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
-  
+  ngx_int_t                      not_dead;
   ngx_int_t                      use_redis = d->sub->cf->use_redis;
   
   switch(channel_status) {
@@ -1773,8 +1763,12 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
   }
   
+  not_dead = d->sub->status != DEAD;
+  
   if (chanhead == NULL) {
-    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    if(not_dead) {
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    }
     
     if(d->reserved) {
       d->sub->fn->release(d->sub, 0);
@@ -1790,13 +1784,14 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   
   d->chanhead = chanhead;
-
+  
   if(d->reserved) {
     d->sub->fn->release(d->sub, 1);
     d->reserved = 0;
   }
-  
-  chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+  if(not_dead) {
+    chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+  }
 
   subscribe_data_free(d);
 
@@ -2154,7 +2149,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   ch->msg_last = msg;
   
   //DBG("create %V %V", msgid_to_str(&msg->msg->id), chanhead_msg_to_str(msg));
-  chanhead_messages_gc_newmessage(ch);
+  chanhead_messages_gc(ch);
   if(ch->msg_last != msg) { //why does this happen?
     ERR("just-published messages is no longer the last message for some reason... This is unexpected.");
   }
@@ -2438,7 +2433,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   nchan_msg_t                 *publish_msg;
   ngx_int_t                    owner = chead->owner;
   ngx_int_t                    rc;
-  time_t                       timeout = (cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60);
+  time_t                       chan_expire, timeout = (cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60);
   
   if(callback == NULL) {
     callback = empty_callback;
@@ -2450,8 +2445,9 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   if(msg->id.time == 0) {
     msg->id.time = ngx_time();
   }
-  
-  msg->expires = msg->id.time + timeout;
+  if(msg->expires == 0) {
+    msg->expires = msg->id.time + timeout;
+  }
   
   if(memstore_slot() != owner) {
     publish_msg = create_shm_msg(msg);
@@ -2459,7 +2455,11 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
     return NGX_OK;
   }
   
-  chead->channel.expires = ngx_time() + timeout;
+  chan_expire = ngx_time() + timeout;
+  chead->channel.expires = chan_expire > msg->expires + 5 ? chan_expire : msg->expires + 5;
+  if( chan_expire > chead->channel.expires) {
+    chead->channel.expires = chan_expire;
+  }
   sub_count = chead->shared->sub_count;
   
   chead->max_messages = cf->max_messages;

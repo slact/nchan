@@ -36,10 +36,13 @@ const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 
 //status strings
 const  ngx_str_t NCHAN_HTTP_STATUS_101 = ngx_string("101 Switching Protocols");
+const  ngx_str_t NCHAN_HTTP_STATUS_304 = ngx_string("304 Not Modified");
+const  ngx_str_t NCHAN_HTTP_STATUS_408 = ngx_string("408 Request Timeout");
 const  ngx_str_t NCHAN_HTTP_STATUS_409 = ngx_string("409 Conflict");
 const  ngx_str_t NCHAN_HTTP_STATUS_410 = ngx_string("410 Gone");
 
 //other stuff
+const  ngx_str_t NCHAN_SUBSCRIBER_TIMEOUT= ngx_string("Subscriber Timeout");
 const  ngx_str_t NCHAN_ANYSTRING= ngx_string("*");
 const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS = ngx_string("Content-Type");
 const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS = ngx_string("If-None-Match, If-Modified-Since, Content-Type, Cache-Control, X-EventSource-Event");

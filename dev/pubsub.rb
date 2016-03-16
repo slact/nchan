@@ -11,7 +11,6 @@ require 'uri'
 require "http/parser"
 require "http/2"
 
-SUBSCRIBER_TYPES=[ :longpoll, :intervalpoll, :eventsource, :websocket ]
 PUBLISH_TIMEOUT=3 #seconds
 
 class Message
@@ -67,7 +66,7 @@ end
 
 class MessageStore
   include Enumerable
-  attr_accessor :msgs, :quit_message, :name
+  attr_accessor :msgs, :name
 
   def matches? (other_msg_store)
     my_messages = messages
@@ -153,14 +152,153 @@ class MessageStore
 end
 
 class Subscriber
-  class WebSocketClient
+  
+  class Client
+    attr_accessor :concurrency
+    class ErrorResponse
+      attr_accessor :code, :msg, :connected, :caller, :bundle
+      def initialize(code, msg, bundle=nil, what=nil, failword=nil)
+        self.code = code
+        self.msg = msg
+        if Subscriber::Client::ParserBundle === bundle
+          self.bundle=bundle
+          self.connected = bundle.connected?
+        else
+          self.connected = bundle
+        end
+        self.connected = connected
+        
+        @what = what || ["handshake", "connection"]
+        @failword = failword || " failed"
+      end
+      
+      def to_s
+        "#{(caller.class.name.split('::').last || self.class.name.split('::')[-2])} #{connected ? @what.last : @what.first}#{@failword}: #{msg} (code #{code})"
+      end  
+    
+    end
+    
+    def self.inherited(subclass)
+      @@inherited||=[]
+      @@inherited << subclass
+    end
+    
+    def self.lookup(name)
+      @@inherited.each do |klass|
+        return klass if klass.aliases.include? name
+      end
+      nil
+    end
+    def self.aliases
+      []
+    end
+      
+    def self.unique_aliases
+      uniqs=[]
+      @@inherited.each do |klass|
+        uniqs << klass.aliases.first if klass.aliases.length > 0
+      end
+      uniqs
+    end
+    
+    def error(code, msg, bundle=nil)
+      err=ErrorResponse.new code, msg, bundle, @error_what, @error_failword
+      err.caller=self
+      err
+    end
+    
+    class ParserBundle
+      attr_accessor :uri, :sock, :body_buf, :connected, :verbose, :parser, :subparser, :headers, :code, :last_modified, :etag
+      def initialize(uri, *arg)
+        @uri=uri
+        open_socket
+      end
+      def open_socket
+        case uri.scheme
+        when /^(ws|http|h2c)$/
+          @sock = Celluloid::IO::TCPSocket.new(uri.host, uri.port)
+        when /^(wss|https|h2)$/
+          @sock = Celluloid::IO::SSLSocket.new(uri.host, uri.port)
+        else
+          raise ArgumentError, "unexpected uri scheme #{uri.scheme}"
+        end
+        self
+      end
+      
+      def buffer_body!
+        @body_buf||=""
+      end
+      def connected?
+        @connected
+      end
+      def on_headers(code=nil, h=nil, &block)
+        @body_buf.clear if @body_buf
+        if block_given?
+          @on_headers = block
+        else
+          @on_headers.call(code, h) if @on_headers
+        end
+      end
+      
+      def on_chunk(ch=nil, &block)
+        if block_given?
+          @on_chunk = block
+        else
+          @body_buf << ch if @body_buf
+          @on_chunk.call(ch) if @on_chunk
+        end
+      end
+      
+      def on_response(code=nil, headers=nil, &block)
+        if block_given?
+          @on_response = block
+        else
+          @on_response.call(code, headers, @body_buf) if @on_response
+        end
+        
+      end
+      
+      def on_error(msg=nil, e=nil, &block)
+        if block_given?
+          @on_error = block
+        else
+          @on_error.call(msg, e) if @on_error
+        end
+      end
+    end
+    
+    def handle_bundle_error(bundle, msg, err)
+      if err && !(EOFError === err)
+        msg="<#{msg}>\n#{err.backtrace.join "\n"}"
+      end
+      @subscriber.on_failure error(0, msg, bundle)
+      @subscriber.finished+=1
+      close bundle
+    end
+    
+    def poke(what=nil)
+      if what == :ready
+        (@notready.nil? || @notready > 0) && @cooked_ready.wait
+      else
+        @connected > 0 && @cooked.wait
+      end
+    end
+    
+    def initialize(*arg)
+      @notready = 9000
+      @cooked_ready=Celluloid::Condition.new
+    end
+    
+  end
+  
+  class WebSocketClient < Client
+    include Celluloid::IO
+    
+    def self.aliases
+      [:websocket, :ws]
+    end
+    
     #a little sugar for handshake errors
-    
-    #class WebSocket::EventMachine::Client
-    #  attr_accessor :handshake # we want this for erroring
-    #  attr_accessor :last_event_time
-    #end
-    
     class WebSocket::Handshake::Client
       attr_accessor :data
       def response_code(what=:code)
@@ -169,15 +307,6 @@ class Subscriber
       end
       def response_line
         response_code :line
-      end
-    end
-    
-    class WebSocketErrorResponse
-      attr_accessor :code, :msg, :connected
-      def initialize(code, msg, connected)
-        self.code = code
-        self.msg = msg
-        self.connected = connected
       end
     end
     
@@ -199,21 +328,31 @@ class Subscriber
       end
     end
     
-    include Celluloid::IO
     
     attr_accessor :last_modified, :etag, :timeout
     def initialize(subscr, opt={})
+      super
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
-      @url = @url.gsub(/^http(s)?:/, "ws\\1:")
+      @url = @url.gsub(/^h(ttp|2)(s)?:/, "ws\\2:")
       
       @concurrency=(opt[:concurrency] || opt[:clients] || 1).to_i
       @retry_delay=opt[:retry_delay]
       @ws = {}
       @connected=0
+      @notready=@concurrency
       @nomsg = opt[:nomsg]
+      @http2 = opt[:http2]
+      if @timeout
+        @timer = after(@timeout) do
+          @subscriber.on_failure error(0, "Timeout", b)
+          @ws.each do |b, v|
+            close b
+          end
+        end
+      end
     end
     
     def try_halt
@@ -230,36 +369,47 @@ class Subscriber
     
     def run(was_success = nil)
       uri = URI.parse(@url)
-      port = uri.port || (uri.scheme == "ws" ? 80 : 443)
+      uri.port ||= (uri.scheme == "ws" ? 80 : 443)
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
+      if @http2
+        @subscriber.on_failure error(0, "Refusing to try websocket over HTTP/2")
+        @connected = 0
+        @notready = 0
+        @cooked_ready.signal false
+        @cooked.signal true
+        return
+      end
+      raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme.match /^wss?$/
       @concurrency.times do
-        if uri.scheme == "ws"
-          sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-        elsif uri.scheme == "wss"
-          sock = Celluloid::IO::SSLSocket.new(uri.host, port)
-        else
-          raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}"
+        begin
+          sock = ParserBundle.new(uri).open_socket.sock
+        rescue SystemCallError => e
+          @subscriber.on_failure error(0, e.to_s)
+          close nil
+          return
         end
           
-        handshake = WebSocket::Handshake::Client.new(url: @url)
-        sock << handshake.to_s
+        @handshake = WebSocket::Handshake::Client.new(url: @url)
+        sock << @handshake.to_s
         
         #handshake response
         loop do
-          handshake << sock.readline
-          if handshake.finished?
-            unless handshake.valid?
-              @subscriber.on_failure WebSocketErrorResponse.new(handshake.response_code, handshake.response_line, false)
+          @handshake << sock.readline
+          if @handshake.finished?
+            unless @handshake.valid?
+              @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
             end
             break
           end
         end
         
-        if handshake.valid?
-          bundle = WebSocketBundle.new(handshake, sock)
+        if @handshake.valid?
+          bundle = WebSocketBundle.new(@handshake, sock)
           @ws[bundle]=true
           async.listen bundle
+          @notready=-1
+          @cooked_ready.signal true if @notready == 0
         end
       end
     end
@@ -269,64 +419,89 @@ class Subscriber
         begin
           bundle.read
           while msg = bundle.next do
+            @timer.reset if @timer
             if on_message(msg.data, msg.type, bundle) == false
               close bundle
+              return 
             end
           end
         rescue EOFError
-          puts "*** disconnected"
-          socket.close
+          bundle.sock.close
+          close bundle
+          return
         end
       end
     end
     
-    def on_error(err, err2)
-      puts "Received error #{err}"
+    def on_error
       if !@connected[ws]
-        @subscriber.on_failure WebSocketErrorResponse.new(ws.handshake.response_code, ws.handshake.response_line, @connected[ws])
+        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line)
         try_halt
       end
     end
     
     def on_message(data, type, bundle)
       #puts "Received message: #{data} type: #{type}"
-      msg= @nomsg ? data : Message.new(data)
-      bundle.last_message_time=Time.now.to_f
-      @subscriber.on_message(msg, bundle)
+      if type==:close
+        close_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, type: :close)
+        bundle.sock << close_frame.to_s
+        #server should close the connection, just reply
+        data.match(/(\d+)\s(.*)/)
+        @subscriber.on_failure error(($~[1] || 0).to_i, $~[2] || "", true)
+      elsif type==:ping
+        ping_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, data: data, type: :pong)
+        bundle.sock << ping_frame.to_s
+      elsif type==:text
+        msg= @nomsg ? data : Message.new(data)
+        bundle.last_message_time=Time.now.to_f
+        @subscriber.on_message(msg, bundle)
+      else
+        raise "unexpected websocket frame #{type} data #{data}"
+      end
     end
     
-    
     def close(bundle)
-      @ws.delete bundle
+      if bundle
+        @ws.delete bundle
+        bundle.sock.close unless bundle.sock.closed?
+      end
       @connected -= 1
-      if @connected == 0
+      if @connected <= 0
         binding.pry unless @ws.count == 0
-        puts "the future is now!"
         #binding.pry
         @cooked.signal true
       end
     end
     
-    def poke
-      @connected > 0 && @cooked.wait
-    end
   end
   
-  class FastLongPollClient
+  class LongPollClient < Client
     include Celluloid::IO
     
-    class HTTPBundle
+    def self.aliases
+      [:longpoll]
+    end
+    
+    def error(*args)
+      @error_what||= ["#{@http2 ? "HTTP/2" : "HTTP"} Request"]
+      super
+    end
+    
+    class HTTPBundle < ParserBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
-      def initialize(uri, sock, user_agent)
+      
+      def initialize(uri, user_agent, accept="*/*", extra_headers={})
+        super
+        @accept = accept
         @rcvbuf=""
         @sndbuf=""
         @parser = Http::Parser.new
-        @sock = sock
         @done = false
+        extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
           Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: */*
+          #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           
         END
@@ -334,170 +509,123 @@ class Subscriber
         @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
           Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: */*
+          #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           If-Modified-Since: %s
           If-None-Match: %s
           
         END
+        
+        @parser.on_headers_complete = proc do |h|
+          if verbose 
+            puts "< HTTP/1.1 #{@parser.status_code} [...]\r\n#{h.map {|k,v| "< #{k}: #{v}"}.join "\r\n"}"
+          end
+          @headers=h
+          @last_modified = h['Last-Modified']
+          @etag = h['Etag']
+          @chunky = h['Transfer-Encoding']=='chunked'
+          @gzipped = h['Content-Encoding']=='gzip'
+          @code=@parser.status_code
+          on_headers @parser.status_code, h
+        end
+        
+        @parser.on_body = proc do |chunk|
+          if @gzipped 
+            chunk = Zlib::GzipReader.new(StringIO.new(chunk)).read
+          end
+          on_chunk chunk
+        end
+        
+        @parser.on_message_complete = proc do
+          @chunky = nil
+          @gzipped = nil
+          on_response @parser.status_code, @parser.headers
+        end
+        
+      end
+      
+      def reconnect?
+        true
       end
       
       def send_GET(msg_time=nil, msg_tag=nil)
-        @sndbuf.clear
-        if msg_time
-          @sndbuf << sprintf(@send_withid_fmt, msg_time, msg_tag)
-        else
-          @sndbuf << @send_noid_str
+        @last_modified = msg_time.to_s if msg_time
+        @etag = msg_tag.to_s if msg_tag
+        @sndbuf.clear 
+        data = @last_modified ? sprintf(@send_withid_fmt, @last_modified, @etag) : @send_noid_str
+        @sndbuf << data
+        
+        if @headers && @headers["Connection"]=="close" && [200, 201, 202, 304, 408].member?(@parser.status_code) && reconnect?
+          sock.close
+          open_socket
+          @parser.reset!
         end
+        
         @time_requested=Time.now.to_f
-        @sock << @sndbuf
+        if verbose
+          puts "", data.gsub(/^.*$/, "> \\0")
+        end
+        sock << @sndbuf
       end
       
       def read
         @rcvbuf.clear
-        sock.readpartial(4096, @rcvbuf)
-        #puts "\"#{@buf}\""
-        @parser << @rcvbuf
+        begin
+          sock.readpartial(4096, @rcvbuf)
+          @parser << @rcvbuf
+        rescue HTTP::Parser::Error => e
+          on_error "Invalid HTTP Respose - #{e}", e
+        rescue EOFError => e
+          on_error "Server closed connection...", e
+        rescue => e 
+          on_error "#{e.class}: #{e}", e
+        end
         return false if @done || sock.closed?
       end
     end
     
-    attr_accessor :last_modified, :etag, :timeout
-    def initialize(subscr, opt={})
-      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
-      @connect_timeout = opt[:connect_timeout]
-      @subscriber=subscr
-      @url=subscr.url
-      @concurrency=opt[:concurrency] || opt[:clients] || 1
-      @gzip=opt[:gzip]
-      @retry_delay=opt[:retry_delay]
-      @nomsg=opt[:nomsg]
-      @http={}
-      @body_buf=""
-    end
-    
-    def run(was_success = nil)
-      uri = URI.parse(@url)
-      port = uri.port || (uri.scheme == "http" ? 80 : 443)
-      @cooked=Celluloid::Condition.new
-      @connected = @concurrency
-      @concurrency.times do |i|
-        if uri.scheme == "http"
-          sock = Celluloid::IO::TCPSocket.new(uri.host, port)
-        elsif uri.scheme == "https"
-          sock = Celluloid::IO::SSLSocket.new(uri.host, port)
-        else
-          raise ArgumentError, "invalid HTTP scheme #{uri.scheme} in #{@url}"
-        end
-        bundle = new_bundle(uri, sock, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
-        @http[bundle]=true
-        bundle.send_GET
-        async.listen bundle
-      end
-    end
-    
-    def new_bundle(uri, sock, useragent)
-      b=HTTPBundle.new(uri, sock, useragent)
-      prsr = b.parser
-      prsr.on_headers_complete = proc do
-        @body_buf.clear
-      end
-      prsr.on_message_complete = proc do
-        # Headers and body is all parsed
-        @last_modified = prsr.headers["Last-Modified"]
-        @etag = prsr.headers["Etag"]
-        b.request_time = Time.now.to_f - b.time_requested
-        if prsr.status_code != 200
-          binding.pry
-          unless @subscriber.on_failure(prsr) == false
-            Celluloid.sleep @retry_delay if @retry_delay
-          else
-            @subscriber.finished+=1
-            close b
-          end
-        end
-        
-        unless @nomsg
-          msg=Message.new @body_buf, @last_modified, @etag
-          msg.content_type=prsr.headers["Content-Type"]
-        else
-          msg=@body_buf
-        end
-        
-        unless @subscriber.on_message(msg, b) == false
-          @subscriber.waiting+=1
-          Celluloid.sleep @retry_delay if @retry_delay
-          b.send_GET @last_modified, @etag
-        else
-          @subscriber.finished+=1
-          close b
-        end
-        
-      end
-      
-      prsr.on_body = proc do |chunk|
-        @body_buf << chunk
-      end
-      b
-    end
-    
-    def listen(bundle)
-      loop do
-        begin
-          return if bundle.read == false
-        rescue EOFError
-          close bundle
-        end
-      end
-    end
-    
-    def close(bundle)
-      bundle.done=true
-      bundle.sock.close
-      @http.delete bundle
-      @connected -= 1
-      if @connected == 0
-        @cooked.signal true
-      end
-    end
-    
-    def poke
-      @connected > 0 && @cooked.wait
-    end
-  end
-  
-  class FastHTTP2LongPollClient < FastLongPollClient
-    class HTTP2Bundle
+    class HTTP2Bundle < ParserBundle
       attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
       GET_METHOD="GET"
-      def initialize(uri, sock, user_agent)
+      def initialize(uri, user_agent, accept="*/*", extra_headers=nil)
+        super
         @done = false
-        @sock = sock
+        @rcvbuf=""
         @head = {
+          ':scheme' => uri.scheme,
           ':method' => GET_METHOD,
           ':path' => uri.path,
           ':authority' => [uri.host, uri.port].join(':'),
           'user-agent' => "#{user_agent || "HTTP2Bundle"}",
-          'accept' => '*/*'
+          'accept' => accept
         }
-        
+        if extra_headers
+          extra_headers.each{ |h, v| @head[h.to_s.downcase]=v }
+        end
         @client = HTTP2::Client.new
         @client.on(:frame) do |bytes|
-          puts "Sending bytes: #{bytes.unpack("H*").first}"
+          #puts "Sending bytes: #{bytes.unpack("H*").first}"
           @sock.print bytes
           @sock.flush
         end
         
         @client.on(:frame_sent) do |frame|
-          puts "Sent frame: #{frame.inspect}"
+          #puts "Sent frame: #{frame.inspect}" if verbose
         end
         @client.on(:frame_received) do |frame|
-          puts "Received frame: #{frame.inspect}"
+          #puts "Received frame: #{frame.inspect}" if verbose
         end
-        
+        @resp_headers={}
+        @resp_code=nil
+      end
+      
+      def reconnect?
+        false
       end
       
       def send_GET(msg_time=nil, msg_tag=nil)
+        @last_modified = msg_time.to_s if msg_time
+        @etag = msg_tag.to_s if msg_tag
         @time_requested=Time.now.to_f
         if msg_time
           @head['if-modified-since'] = msg_time.to_s
@@ -512,294 +640,265 @@ class Subscriber
         end
         
         @stream = @client.new_stream
-        @stream.on(:close) do
-          puts 'stream closed'
-          on_response @response_headers, @response_data
+        @resp_headers.clear
+        @resp_code=0
+        @stream.on(:close) do |k,v|
+          on_response @resp_code, @resp_headers
         end
         @stream.on(:headers) do |h|
-          puts "response headers: #{h}"
-          @response_headers = h
+          h.each do |v|
+            puts "< #{v.join ': '}" if verbose
+            case v.first
+            when ":status"
+              @resp_code = v.last.to_i
+            when /^:/
+              @resp_headers[v.first] = v.last
+            else
+              @resp_headers[v.first.gsub(/(?<=^|\W)\w/) { |v| v.upcase }]=v.last
+            end
+          end
+          @headers = @resp_headers
+          @code = @resp_code
+          on_headers @resp_code, @resp_headers
         end
         @stream.on(:data) do |d|
-          puts "response data chunk: <<#{d}>>"
-          @response_data = d
-        end
-        
-        @stream.on(:altsvc) do |f|
-          log.info "received ALTSVC #{f}"
-        end
-        
-        @stream.on(:half_close) do
-          puts 'closing client-end of the stream'
+          #puts "got data chunk #{d}"
+          on_chunk d
         end
         
         @stream.on(:altsvc) do |f|
           puts "received ALTSVC #{f}"
         end
         
-        
+        @stream.on(:half_close) do
+          puts "", @head.map {|k,v| "> #{k}: #{v}"}.join("\r\n") if verbose
+        end
         
         @stream.headers(@head, end_stream: true)
       end
       
       def read
-        @sock.readpartial(4096, @val)
-        puts "received #{@val.nil? ? "0" : @val.count} bytes"
+        return false if @done || @sock.closed?
         begin
-          @client << @val
+          @rcv = @sock.readpartial 1024
+          @client << @rcv
+        rescue EOFError => e
+          if @rcv && @rcv[0..5]=="HTTP/1"
+            on_error @rcv.match(/^HTTP\/1.*/)[0].chomp, e
+          else
+            on_error "Server closed connection...", e
+          end
+          @sock.close
         rescue => e
-          puts "Exception: #{e}, #{e.message} - closing socket."
+          on_error "#{e.class}: #{e.to_s}", e
           @sock.close
         end
         return false if @done || @sock.closed?
       end
       
-      def on_response(h=nil, d=nil, &block)
-        if block_given?
-          @on_response = block
-        elsif @on_response
-          @on_response.call h, d
-        end
-      end
-      
     end
     
-    def initialize(*arg)
-      @use_http2 = true
-      super
-    end
-    
-    def new_bundle(uri, sock, useragent)
-      b=HTTP2Bundle.new(uri, sock, useragent)
-      
-      b.on_response do |headers, body|
-        # Headers and body is all parsed
-        binding.pry
-        @last_modified = headers["Last-Modified"]
-        @etag = headers["Etag"]
-        
-        b.request_time = Time.now.to_f - b.time_requested
-        
-        if prsr.status_code != 200
-          binding.pry
-          unless @subscriber.on_failure(prsr) == false
-            Celluloid.sleep @retry_delay if @retry_delay
-          else
-            @subscriber.finished+=1
-            close b
-          end
-        end
-        
-        unless @nomsg
-          msg=Message.new @body_buf, @last_modified, @etag
-          msg.content_type=prsr.headers["Content-Type"]
-        else
-          msg=@body_buf
-        end
-        
-        unless @subscriber.on_message(msg, b) == false
-          @subscriber.waiting+=1
-          Celluloid.sleep @retry_delay if @retry_delay
-          b.send_GET @last_modified, @etag
-        else
-          @subscriber.finished+=1
-          close b
-        end
-        
-      end
-      
-      b
-    end
-    
-    
-  end
-  
-  class LongPollClient
-    include Celluloid
-    attr_accessor :last_modified, :etag, :hydra, :timeout
+    attr_accessor :timeout
     def initialize(subscr, opt={})
+      super
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
       @url=subscr.url
       @concurrency=opt[:concurrency] || opt[:clients] || 1
-      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency, pipelining: opt[:pipelining])
       @gzip=opt[:gzip]
       @retry_delay=opt[:retry_delay]
       @nomsg=opt[:nomsg]
-      @extra_headers=opt[:extra_headers]
+      @bundles={}
+      @body_buf=""
+      @extra_headers = opt[:extra_headers]
+      @verbose=opt[:verbose]
+      @http2=opt[:http2] || opt[:h2]
+      if @timeout
+        @timer = after(@timeout) do 
+          @subscriber.on_failure error(0, "Timeout")
+          @bundles.each do |b, v|
+            close b
+          end
+        end
+      end
     end
     
-    def response_success(response, req)
-      #puts "received OK response at #{req.url}"
-      #parse it
-      req.options[:headers]["If-None-Match"] = response.headers["Etag"]
-      req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
-      
-      on_message_ret = nil
-      
-      Message.each_multipart_message(response.headers["Content-Type"], response.body) do |content_type, body, multi|
-        unless @nomsg
-          msg=Message.new body
-          msg.content_type=content_type
-          unless multi
-            msg.last_modified= response.headers["Last-Modified"]
-            msg.etag= response.headers["Etag"]
-          end
+    def run(was_success = nil)
+      uri = URI.parse(@url)
+      uri.port||= uri.scheme.match(/^(ws|http)$/) ? 80 : 443
+      @cooked=Celluloid::Condition.new
+      @connected = @concurrency
+      @notready = @concurrency
+      @concurrency.times do |i|
+        begin
+          bundle = new_bundle(uri, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
+        rescue SystemCallError => e
+          @subscriber.on_failure error(0, e.to_s)
+          close nil
+          return
+        end
+        
+        @bundles[bundle]=true
+        bundle.send_GET @last_modified, @etag
+        async.listen bundle
+      end
+    end
+    
+    def request_code_ok(code, bundle)
+      if code != 200
+        if code == 304 || code == 408
+          @subscriber.on_failure error(code, "", bundle)
+          @subscriber.finished+=1
+          close bundle
+        elsif @subscriber.on_failure(error(code, "", bundle)) == false
+          @subscriber.finished+=1
+          close bundle
         else
-          msg=body
+          binding.pry
+          Celluloid.sleep @retry_delay if @retry_delay
+          bundle.send_GET
         end
-        
-        on_message_ret = @subscriber.on_message(msg, req)
-      end
-      
-      unless on_message_ret == false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue new_request(old_request: req)
+        false
       else
-        @subscriber.finished+=1
+        @timer.reset if @timer
+        true
       end
     end
     
-    def queue_and_run(req)
-      queue_size = @hydra.queued_requests.count
-      @hydra.queue new_request(old_request: req)
-      if queue_size == 0
-        #puts "rerun"
-        #binding.pry
-        @hydra.run
-      end
-    end
-    
-    def response_failure(response, req)
-      #puts "received bad or no response at #{req.url}"
-      unless @subscriber.on_failure(response) == false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue  new_request(old_request: req)
-      else
-        @subscriber.finished+=1
-      end
-    end
-    
-    def new_request(opt = {})
-      headers = {}
-      headers["User-Agent"] = opt[:useragent] if opt[:useragent]
+    def new_bundle(uri, useragent, accept="*/*", extra_headers={})
       if @extra_headers
-        headers.merge! @extra_headers
+        extra_headers = extra_headers.merge @extra_headers
       end
-      
-      if opt[:old_request]
-        #req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
-        
-        #reuse request
-        req = opt[:old_request]
-      else
-        req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
-
-        #req.on_body do |chunk|
-        #  puts chunk
-        #end
-        
-        req.on_complete do |response|
-          @subscriber.waiting-=1
-          if response.success?
-            response_success response, req
+      if @gzip
+        extra_headers = extra_headers.merge({ "Accept-Encoding" => "gzip, deflate"})
+      end
+      b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, useragent, accept, extra_headers)
+      b.on_error do |msg, err|
+        handle_bundle_error b, msg, err
+      end
+      b.verbose=@verbose
+      setup_bundle b
+      b
+    end
+    
+    def setup_bundle(b)
+      b.buffer_body!
+      b.on_response do |code, headers, body|
+        @subscriber.waiting-=1
+        # Headers and body is all parsed
+        b.last_modified = headers["Last-Modified"]
+        b.etag = headers["Etag"]
+        b.request_time = Time.now.to_f - b.time_requested
+        if request_code_ok(code, b)
+          on_message_ret=nil
+          Message.each_multipart_message(headers["Content-Type"], body) do |content_type, msg_body, multi|
+            unless @nomsg
+              msg=Message.new msg_body.dup
+              msg.content_type=content_type
+              unless multi
+                msg.last_modified= headers["Last-Modified"]
+                msg.etag= headers["Etag"]
+              end
+            else
+              msg=msg_body.dup
+            end
+            
+            on_message_ret= @subscriber.on_message(msg, b)
+          end
+          
+          unless on_message_ret == false
+            @subscriber.waiting+=1
+            b.send_GET
           else
-            response_failure response, req
+            @subscriber.finished+=1
+            close b
           end
         end
       end
       
-      req
-    end
-
-    def run(was_success=nil)
-      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
-      (@concurrency - @hydra.queued_requests.count).times do |n|
-        @subscriber.waiting+=1
-        @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
+      b.on_error do |msg, err|
+        handle_bundle_error b, msg, err
       end
-      
-      @hydra.run
     end
     
-    def poke
-      #while @subscriber.finished < @concurrency
-      #  Celluloid.sleep 0.1
-      #end
+    def listen(bundle)
+      loop do
+        begin
+          return false if bundle.read == false
+        rescue EOFError
+          @subscriber.on_failure error(0, "Server Closed Connection"), bundle
+          close bundle
+          return false
+        end
+      end
+    end
+    
+    def close(bundle)
+      if bundle
+        bundle.done=true
+        bundle.sock.close unless bundle.sock.closed?
+        @bundles.delete bundle
+      end
+      @connected -= 1
+      if @connected <= 0
+        @cooked.signal true
+      end
+    end
+    
+  end
+  
+  class IntervalPollClient < LongPollClient
+    def self.aliases
+      [:intervalpoll, :http, :interval, :poll]
+    end
+    
+    def request_code_ok(code, bundle)
+      if code == 304
+        if @subscriber.on_failure(error(code, "", bundle), true) == false
+          @subscriber.finished+=1
+          close bundle
+        else
+          Celluloid.sleep(@retry_delay || 1)
+          bundle.send_GET
+          false
+        end
+      else
+        super
+      end
     end
   end
   
-  class EventSourceClient < FastLongPollClient
-    
+  class EventSourceClient < LongPollClient
     include Celluloid::IO
     
-    class EventSourceBundle < FastLongPollClient::HTTPBundle
-      attr_accessor :buf, :on_headers
-      def initialize(uri, sock, user_agent)
-        super
-        @send_noid_str= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: text/event-stream
-          User-Agent: #{user_agent || "HTTPBundle"}
-          
-        END
-        
-        @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
-          Accept: text/event-stream
-          User-Agent: #{user_agent || "HTTPBundle"}
-          Last-Event-ID: %s
-          
-        END
-        @buf={data: "", event_id: "", comments: ""}
-        #binding.pry
-        
-        @parser.on_headers_complete= proc do 
-          @on_headers.call parser
-          @gotheaders = true
-        end
-      end
-      
-      def on_headers(&block)
-        @on_headers = block
-      end
+    def self.aliases
+      [:eventsource, :sse]
+    end
     
-      def read
-        @rcvbuf.clear
-        @rcvbuf << sock.readline
-        #puts @rcvbuf
-        unless @gotheaders
-          @parser << @rcvbuf
-        else 
-          parse_line @rcvbuf
-        end
-        return false if @done || sock.closed?
+    def error(c,m,cn=nil)
+      @error_what ||= [ "#{@http2 ? 'HTTP/2' : 'HTTP'} Request failed", "connection closed" ]
+      @error_failword ||= ""
+      super
+    end
+    
+    class EventSourceParser
+      attr_accessor :buf, :on_headers, :connected
+      def initialize
+        @buf={data: "", id: "", comments: ""}
+        buf_reset
       end
       
       def buf_reset
         @buf[:data].clear
-        @buf[:event_id].clear
+        @buf[:id].clear
         @buf[:comments].clear
         @buf[:retry_timeout] = nil
         @buf[:event] = nil
       end
       
-      def parse_event
-        if @buf[:comments].length > 0
-          @on_event.call :comment, @buf[:comments].chomp!
-        else
-          @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
-        end
-        buf_reset
-      end
-      
-      def on_event(&block)
-        @on_event=block
+      def buf_empty?
+        @buf[:comments].length == 0 && @buf[:data].length == 0
       end
       
       def parse_line(line)
@@ -821,29 +920,82 @@ class Subscriber
         ret
       end
       
+      def parse_event
+        
+        if @buf[:comments].length > 0
+          @on_event.call :comment, @buf[:comments].chomp!
+        elsif @buf[:data].length > 0 || @buf[:id].length > 0 || !@buf[:event].nil?
+          @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
+        end
+        buf_reset
+      end
+      
+      def on_event(&block)
+        @on_event=block
+      end
+      
     end
     
-     def new_bundle(uri, sock, useragent)
-      b=EventSourceBundle.new(uri, sock, useragent)
-      b.on_headers do |parser|
-        if parser.status_code != 200
-          @subscriber.on_failure(parser)
+    def new_bundle(uri, useragent=nil)
+      super uri, useragent, "text/event-stream"
+    end
+    
+    def setup_bundle(b)
+      b.on_headers do |code, headers|
+        if code != 200
+          @subscriber.on_failure error(code, "")
           close b
+        else
+          @notready-=1
+          @cooked_ready.signal true if @notready == 0
+          b.connected = true
         end
       end
-      b.on_event do |evt, data, evt_id|
-        if evt == :message
+      b.buffer_body!
+      b.subparser=EventSourceParser.new
+      b.on_chunk do |chunk|
+        while b.body_buf.slice! /^.*\n/ do
+          b.subparser.parse_line $~[0]
+        end
+      end
+      b.on_error do |msg, err|
+        if EOFError === err && !b.subparser.buf_empty?
+          b.subparser.parse_line "\n"
+        end
+        handle_bundle_error b, msg, err
+      end
+      
+      b.on_response do |code, headers, body|
+        if !b.subparser.buf_empty?
+          b.subparser.parse_line "\n"
+        else
+          @subscriber.on_failure error(0, "Response completed unexpectedly", bundle)
+        end
+        @subscriber.finished+=1
+        close b
+      end
+      
+      b.subparser.on_event do |evt, data, evt_id|
+        case evt 
+        when :message
+          @timer.reset if @timer
           unless @nomsg
-            msg=Message.new data
+            msg=Message.new data.dup
             msg.id=evt_id
           else
             msg=data
           end
           
           if @subscriber.on_message(msg, b) == false
+            @subscriber.finished+=1
             close b
           end
-          
+        when :comment
+          if data.match(/^(?<code>\d+): (?<message>.*)/)
+            @subscriber.on_failure error($~[:code].to_i, $~[:message], b)
+            @subscriber.finished+=1
+            close b
+          end
         end
       end
       b
@@ -851,86 +1003,218 @@ class Subscriber
     
   end
   
-  class IntervalPollClient < LongPollClient
-    def initialize(subscr, opt={})
-      @last_modified=nil
-      @etag=nil
-      super
+  class MultiparMixedClient < LongPollClient
+    include Celluloid::IO
+    
+    def self.aliases 
+      [:multipart, :multipartmixed, :mixed]
     end
     
-    def store_msg_id(response, req)
-      @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
-      @etag=response.headers["Etag"] if response.headers["Etag"]
-      req.options[:headers]["If-Modified-Since"]=@last_modified
-      req.options[:headers]["If-None-Match"]=@etag
-    end
-    
-    def response_success(response, req)
-      store_msg_id(response, req)
-      super response, req
-    end
-    def response_failure(response, req)
-      if @subscriber.on_failure(response) != false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue req
-      else
-        @subscriber.finished+=1
+    class MultipartMixedParser
+      attr_accessor :bound, :finished, :buf
+      def initialize(multipart_header)
+        matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match multipart_header
+        raise "malformed Content-Type multipart/mixed header" unless matches[:boundary]
+        @bound = matches[:boundary]
+        @buf = ""
+        @preambled = false
+        @headered = nil
+        @headers = {}
+        @ninished = nil
       end
+      
+      def on_part(&block)
+        @on_part = block
+      end
+      def on_finish(&block)
+        @on_finish = block
+      end
+      
+      def <<(chunk)
+        @buf << chunk
+        repeat = true
+        while repeat do
+          if !@preambled && @buf.slice!(/^--#{Regexp.escape @bound}/)
+            @finished = nil
+            @preambled = true
+            @headered = nil
+          end
+          
+          if @preambled && @buf.slice!(/^(\r\n(.*?))?\r\n\r\n/m)
+            @headered = true
+            
+            ($~[2]).each_line do |l|
+              if l.match(/(?<name>[^:]+):\s(?<val>[^\r\n]*)/)
+                @headers[$~[:name]]=$~[:val]
+              end
+            end
+            @headered = true
+          else
+            repeat = false
+          end
+          
+          if @headered && @buf.slice!(/^(.*?)\r\n--#{Regexp.escape @bound}/m)
+            @on_part.call @headers, $~[1]
+            @headered = nil
+            @headers.clear
+          else
+            repeat = false
+          end
+          
+          if (@preambled && !@headered && @buf.slice!(/^--\r\n/)) ||
+            (!@preambled && @buf.slice!(/^--#{Regexp.escape @bound}--\r\n/))
+            @on_finish.call
+            repeat = false
+          end
+        end
+      end
+      
     end
     
-    def run
+    def new_bundle(uri, useragent=nil)
+      super uri, useragent, "multipart/mixed"
+    end
+    
+    def setup_bundle b
       super
-    end
-    
-    def poke
-      while @subscriber.finished < @concurrency do
-        Celluloid.sleep 0.3
+      b.on_headers do |code, headers|
+        if code != 200
+          @subscriber.on_failure error(code, "", b)
+          close b
+        else
+          b.connected = true
+          @notready -= 1
+          @cooked_ready.signal true if @notready == 0
+          b.subparser = MultipartMixedParser.new headers["Content-Type"]
+          b.subparser.on_part do |headers, message|
+            unless @nomsg
+              @timer.reset if @timer
+              msg=Message.new message.dup, headers["Last-Modified"], headers["Etag"]
+              msg.content_type=headers["Content-Type"]
+            else
+              msg=message
+            end
+            
+            if @subscriber.on_message(msg, b) == false
+              @subscriber.finished+=1
+              close b
+            end
+          end
+          
+          b.subparser.on_finish do
+            b.subparser.finished = true
+          end
+        end
+      end
+      
+      b.on_chunk do |chunk|
+        b.subparser << chunk if b.subparser
+        if HTTPBundle === b && b.subparser.finished
+          @subscriber.on_failure error(410, "Server Closed Connection", b)
+          @subscriber.finished+=1
+          close b
+        end
+      end
+      
+      b.on_response do |code, headers, body|
+        if b.subparser.finished
+          @subscriber.on_failure error(410, "Server Closed Connection", b)
+        else
+          @subscriber.on_failure error(0, "Response completed unexpectedly", b)
+        end
+        @subscriber.finished+=1
+        close b
       end
     end
   end
   
+  class HTTPChunkedClient < LongPollClient
+    include Celluloid::IO
+    
+    def run(*args)
+      if @http2
+        @subscriber.on_failure error(0, "Chunked transfer is not allowed in HTTP/2")
+        @connected = 0
+        return
+      end
+      super
+    end
+    
+    def self.aliases
+      [:chunked]
+    end
+    
+    def new_bundle(uri, user_agent)
+      super uri, user_agent, "*/*", {"TE": "Chunked"}
+    end
+    
+    def setup_bundle(b)
+      super
+      b.body_buf = nil
+      b.on_headers do |code, headers|
+        if code != 200
+          @subscriber.on_failure(error(code, "", b))
+          close b
+        elsif headers["Transfer-Encoding"] != "chunked"
+          @subscriber.on_failure error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'.", b)
+          close b
+        else
+          @notready -= 1
+          @cooked_ready.signal true if @notready == 0
+          b.connected= true
+        end
+      end
+      
+      b.on_chunk do |chunk|
+        next unless b.connected
+        @timer.reset if @timer
+        unless @nomsg
+          msg=Message.new chunk, nil, nil
+        else
+          msg=@body_buf
+        end
+        
+        if @subscriber.on_message(msg, b) == false
+          @subscriber.finished+=1
+          close b
+        end
+      end
+      
+      b.on_response do |code, headers, body|
+        @subscriber.on_failure error(410, "Server Closed Connection", b)
+        close b
+      end
+      
+      b
+    end
+    
+  end
+
   attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class
   def initialize(url, concurrency=1, opt={})
     @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
     @url=url
-    @timeout=opt[:timeout] || 30
-    @connect_timeout=opt[:connect_timeout] || 5
-    @quit_message=opt[:quit_message]
-    @gzip=opt[:gzip]
-    @retry_delay=opt[:retry_delay]
-    @extra_headers = opt[:extra_headers]
+    @quit_message = opt[:quit_message]
+    opt[:timeout] ||= 30
+    opt[:connect_timeout] ||= 5
     #puts "Starting subscriber on #{url}"
-    case opt[:client]
-    when :longpoll, :long, nil
-      @client_class=LongPollClient
-    when :fastlongpoll, nil
-      @client_class=FastLongPollClient
-    when :fastlongpoll_http2, nil
-      @client_class=FastHTTP2LongPollClient
-    when :interval, :intervalpoll
-      @client_class=IntervalPollClient
-    when :ws, :websocket
-      @care_about_message_ids = false
-      @client_class=WebSocketClient
-    when :es, :eventsource, :sse
-      @client_class=EventSourceClient
-    else
+    @Client_Class = Client.lookup(opt[:client] || :longpoll)
+    if @Client_Class.nil?
       raise "unknown client type #{opt[:client]}"
     end
-    @nomsg=opt[:nomsg]
-    @nostore=opt[:nostore]
-    if !@nostore && @nomsg
-      @nomsg = nil
+    
+    if !opt[:nostore] && opt[:nomsg]
+      opt[:nomsg] = nil
       puts "nomsg reverted to false because nostore is false"
     end
-    @concurrency=concurrency
-    @client_class ||= opt[:client_class] || LongPollClient
+    opt[:concurrency]=concurrency
+    @concurrency = opt[:concurrency]
+    @opt=opt
     reset
-    new_client @client_class
+    new_client
   end
-  def new_client(client_class=LongPollClient)
-    @client=client_class.new(self, concurrency: @concurrency, timeout: @timeout, connect_timeout: @connect_timeout, gzip: @gzip, retry_delay: @retry_delay, nomsg: @nomsg, extra_headers: @extra_headers)
+  def new_client
+    @client=@Client_Class.new self, @opt
   end
   def reset
     @errors=[]
@@ -940,7 +1224,7 @@ class Subscriber
     end
     @waiting=0
     @finished=0
-    new_client(@client_class) if terminated?
+    new_client if terminated?
     self
   end
   def abort
@@ -985,8 +1269,8 @@ class Subscriber
     end
     false
   end
-  def wait
-    @client.poke
+  def wait(until_what=nil)
+    @client.poke until_what
   end
 
   def on_message(msg=nil, req=nil, &block)
@@ -1003,35 +1287,16 @@ class Subscriber
     end
   end
   
-  def on_failure(response=nil, &block)
+  def make_error(client, what, code, msg, failword=" failed")
+    "#{client.class.name.split('::').last} #{what}#{failword}: #{msg} (code #{code})"
+  end
+  
+  def on_failure(err=nil, nostore=false, &block)
     if block_given?
       @on_failure=block
     else
-      case client
-      when LongPollClient, IntervalPollClient
-        #puts "failed with #{response.to_s}. handler is #{@on_failure.to_s}"
-        if response.timed_out?
-          # aw hell no
-          @errors << "Client response timeout."
-        elsif response.code == 0
-          # Could not get an http response, something's wrong.
-          @errors << response.return_message
-        else
-          # Received a non-successful http response.
-          if response.code != 200 #eventsource can be triggered to quite with a 200, which is not an error
-            @errors << "HTTP request failed: #{response.return_message} (code #{response.code})"
-          end
-        end
-      when WebSocketClient
-        error = response.connected ? "Websocket connection failed: " : "Websocket handshake failed: "
-        error << "#{response.msg} (code #{response.code})"
-        @errors << error
-      when FastLongPollClient, EventSourceClient
-        @errors << "HTTP request failed: (code #{response.status_code})"
-      else
-        binding.pry
-      end
-      @on_failure.call(response) if @on_failure.respond_to? :call
+      @errors << err.to_s unless nostore
+      @on_failure.call(err.to_s, err.bundle) if @on_failure.respond_to? :call
     end
   end
 end

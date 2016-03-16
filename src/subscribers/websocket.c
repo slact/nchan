@@ -15,6 +15,7 @@
 #define WEBSOCKET_LAST_FRAME                0x8
 
 #define WEBSOCKET_OPCODE_TEXT               0x1
+#define WEBSOCKET_OPCODE_BINARY             0x2
 #define WEBSOCKET_OPCODE_CLOSE              0x8
 #define WEBSOCKET_OPCODE_PING               0x9
 #define WEBSOCKET_OPCODE_PONG               0xA
@@ -26,6 +27,8 @@
 
 
 #define WEBSOCKET_FRAME_HEADER_MAX_LENGTH   146 //144 + 2 for possible close status code
+
+#define WEBSOCKET_CLOSING_TIMEOUT           250 //ms
 
 /**
  * here's what a websocket frame looks like
@@ -122,8 +125,7 @@ struct full_subscriber_s {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   ngx_event_t             timeout_ev;
-  subscriber_callback_pt  timeout_handler;
-  void                   *timeout_handler_data;
+  ngx_event_t             closing_ev;
   ngx_int_t               owner;
   ws_frame_t              frame;
   
@@ -142,6 +144,8 @@ struct full_subscriber_s {
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                connected:1;
+  unsigned                pinging:1;
+  unsigned                closing:1;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
 };// full_subscriber_t
@@ -166,6 +170,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
   memstore_fakeprocess_push(fsub->owner);
 #endif
   fsub->connected = 0;
+  sub->status = DEAD;
   sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -466,9 +471,11 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->holding = 0;
   fsub->shook_hands = 0;
   fsub->connected = 0;
+  fsub->pinging = 0;
+  fsub->closing = 0;
   fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
   fsub->sub.enqueued = 0;
-  
+  fsub->sub.status = ALIVE;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   
   if(msg_id) {
@@ -484,11 +491,15 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 #if nginx_version >= 1008000  
   fsub->timeout_ev.cancelable = 1;
 #endif
-  fsub->timeout_handler = empty_handler;
-  fsub->timeout_handler_data = NULL;
   fsub->dequeue_handler = empty_handler;
   fsub->dequeue_handler_data = NULL;
   fsub->awaiting_destruction = 0;
+  
+  ngx_memzero(&fsub->closing_ev, sizeof(fsub->closing_ev));
+#if nginx_version >= 1008000  
+  fsub->closing_ev.cancelable = 1;
+#endif
+  
   
   //initialize reusable chains and bufs
   ngx_memzero(&fsub->hdr_buf, sizeof(fsub->hdr_buf));
@@ -559,7 +570,6 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
-    nchan_free_msg_id(&fsub->sub.last_msgid);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
@@ -704,6 +714,18 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
     ngx_add_timer(&fsub->ping_ev, self->cf->websocket_ping_interval * 1000);
   }
   
+  if(self->cf->subscriber_timeout > 0) {
+    //add timeout timer
+    //nextsub->ev should be zeroed;
+#if nginx_version >= 1008000
+    fsub->timeout_ev.cancelable = 1;
+#endif
+    fsub->timeout_ev.handler = nchan_subscriber_timeout_ev_handler;
+    fsub->timeout_ev.data = fsub;
+    fsub->timeout_ev.log = ngx_cycle->log;
+    ngx_add_timer(&fsub->timeout_ev, self->cf->subscriber_timeout * 1000);
+  }
+  
   return NGX_OK;
 }
 
@@ -722,15 +744,17 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
     ngx_del_timer(&fsub->ping_ev);
   }
   
+  if(fsub->closing_ev.timer_set) {
+    ngx_del_timer(&fsub->closing_ev);
+  }
+  
+  if(fsub->timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->timeout_ev);
+  }
+  
   if(self->destroy_after_dequeue) {
     websocket_subscriber_destroy(self);
   }
-  return NGX_OK;
-}
-
-static ngx_int_t websocket_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
-  //TODO
-  assert(0);
   return NGX_OK;
 }
 
@@ -797,6 +821,9 @@ static void websocket_reading(ngx_http_request_t *r) {
   uint64_t                    i;
   ngx_buf_t                   buf;
   ngx_pool_t                 *temp_pool = NULL;
+  ngx_buf_t                   msgbuf;
+  int                         close_code;
+  ngx_str_t                   close_reason;
   
   set_buffer(&buf, frame->header, frame->last, 8);
 
@@ -895,13 +922,16 @@ static void websocket_reading(ngx_http_request_t *r) {
               frame->payload[i] = frame->payload[i] ^ frame->mask_key[i % 4];
             }
           }
-          
-          if (!is_utf8(frame->payload, frame->payload_len)) {
-            goto finalize;
-          }
-          
-          if (frame->opcode == WEBSOCKET_OPCODE_TEXT) {
-            ngx_buf_t     msgbuf;
+        }
+        frame->step = WEBSOCKET_READ_START_STEP;
+        frame->last = NULL;
+        switch(frame->opcode) {
+          case WEBSOCKET_OPCODE_TEXT:
+            if (!is_utf8(frame->payload, frame->payload_len)) {
+              goto finalize;
+            }
+            //intentional fall-through
+          case WEBSOCKET_OPCODE_BINARY:
             init_msg_buf(&msgbuf);
             
             msgbuf.start = frame->payload;
@@ -912,16 +942,8 @@ static void websocket_reading(ngx_http_request_t *r) {
             //DBG("we got data %V", &msg_in_str);
             
             websocket_publish(fsub, &msgbuf);
-          }
+            break;
           
-          if (temp_pool != NULL) {
-            ngx_destroy_pool(temp_pool);
-            temp_pool = NULL;
-          }
-        }
-        frame->step = WEBSOCKET_READ_START_STEP;
-        frame->last = NULL;
-        switch(frame->opcode) {
           case WEBSOCKET_OPCODE_PING:
             DBG("%p got pinged", fsub);
             websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, 0);
@@ -932,15 +954,30 @@ static void websocket_reading(ngx_http_request_t *r) {
             break;
             
           case WEBSOCKET_OPCODE_CLOSE:
-            DBG("%p wants to close", fsub);
+            if(frame->payload_len >= 2) {
+              ngx_memcpy(&close_code, frame->payload, 2);
+              close_code = ntohs(close_code);
+              close_reason.data = frame->payload + 2;
+              close_reason.len = frame->payload_len - 2;
+            }
+            else {
+              close_code = 0;
+              close_reason.data = (u_char *)"";
+              close_reason.len = 0;
+            }
+            DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
             websocket_send_close_frame(fsub, 0, NULL);
             goto finalize;
             break; //good practice?
         }
+        if (temp_pool != NULL) {
+          ngx_destroy_pool(temp_pool);
+          temp_pool = NULL;
+        }
         return;
-
+        
         break;
-
+        
       default:
         ngx_log_debug(NGX_LOG_ERR, c->log, 0, "push stream module: unknown websocket step (%d)", frame->step);
         goto finalize;
@@ -951,6 +988,11 @@ static void websocket_reading(ngx_http_request_t *r) {
   }
 
 exit:
+  
+  if (temp_pool != NULL) {
+    ngx_destroy_pool(temp_pool);
+    temp_pool = NULL;
+  }
   if (rc == NGX_AGAIN) {
     frame->last = buf.last;
     if (!c->read->ready) {
@@ -1115,10 +1157,26 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(msg_buf));
 }
 
+static void closing_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  DBG("%p closing timeout", fsub);
+  ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+}
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
   nchan_output_filter(fsub->sub.request, websocket_close_frame_chain(fsub, code, err));
   fsub->connected = 0;
+  if(fsub->closing == 1) {
+    DBG("%p already sent close frame");
+    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+  }
+  else {
+    fsub->closing = 1;
+    fsub->closing_ev.handler = closing_ev_handler;
+    fsub->closing_ev.data = fsub;
+    fsub->closing_ev.log = ngx_cycle->log;
+    ngx_add_timer(&fsub->closing_ev, WEBSOCKET_CLOSING_TIMEOUT);
+  }
   return NGX_OK;
 }
 
@@ -1165,6 +1223,11 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   ensure_handshake(fsub);
   nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
+  if(fsub->timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->timeout_ev);
+    ngx_add_timer(&fsub->timeout_ev, fsub->sub.cf->subscriber_timeout * 1000);
+  }
+  
   ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
   ctx->msg_id = self->last_msgid;
@@ -1185,7 +1248,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   uint16_t                  close_code = 0;
   full_subscriber_t        *fsub = (full_subscriber_t *)self;
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //don't care, ignore
     return NGX_OK;
   }
@@ -1209,7 +1272,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
       close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_500);
       break;
     default:
-      if(status_code >= 400 && status_code <=599) {
+      if((status_code >= 400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
         custom_close_msg.data=msgbuf;
         custom_close_msg.len = ngx_sprintf(msgbuf,"%i %v", status_code, (status_line ? status_line : &empty)) - msgbuf;
         close_msg = &custom_close_msg;
@@ -1251,7 +1314,6 @@ static const subscriber_fn_t websocket_fn = {
   &websocket_dequeue,
   &websocket_respond_message,
   &websocket_respond_status,
-  &websocket_set_timeout_callback,
   &websocket_set_dequeue_callback,
   &websocket_reserve,
   &websocket_release,
@@ -1265,6 +1327,7 @@ static const subscriber_t new_websocket_sub = {
   &sub_name,
   WEBSOCKET,
   &websocket_fn,
+  UNKNOWN,
   NCHAN_ZERO_MSGID,
   NULL,
   NULL,

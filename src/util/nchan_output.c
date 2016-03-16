@@ -314,7 +314,7 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  int                        cross_origin;
+  int8_t                     output_etag = 1, cross_origin;
   
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, nchan_module);
@@ -323,7 +323,12 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
 
   if(!cf->msg_in_etag_only) {
     //last-modified
-    r->headers_out.last_modified_time = msgid->time;
+    if(msgid->time > 0) {
+      r->headers_out.last_modified_time = msgid->time;
+    }
+    else {
+      output_etag = 0;
+    }
     tmp_etag = msgtag_to_str(msgid);
   }
   else {
@@ -338,13 +343,17 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
   ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
 
   if(cf->custom_msgtag_header.len == 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
+    if(output_etag) {
+      nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
+    }
     if(cross_origin) {
       nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
     }
   }
   else {
-    nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
+    if(output_etag) {
+      nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
+    }
     if(cross_origin) {
       u_char        *cur = ngx_palloc(r->pool, 255);
       if(cur == NULL) {
