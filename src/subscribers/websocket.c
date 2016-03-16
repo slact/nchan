@@ -965,7 +965,7 @@ static void websocket_reading(ngx_http_request_t *r) {
               close_reason.data = (u_char *)"";
               close_reason.len = 0;
             }
-            ERR("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
+            DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
             websocket_send_close_frame(fsub, 0, NULL);
             goto finalize;
             break; //good practice?
@@ -1167,7 +1167,8 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
   nchan_output_filter(fsub->sub.request, websocket_close_frame_chain(fsub, code, err));
   fsub->connected = 0;
   if(fsub->closing == 1) {
-    ERR("%p already sent close frame");
+    DBG("%p already sent close frame");
+    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
   }
   else {
     fsub->closing = 1;
