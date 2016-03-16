@@ -9,7 +9,6 @@ typedef struct {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   ngx_event_t             timeout_ev;
-  ngx_int_t               owner;
   
   nchan_longpoll_multimsg_t *multimsg_first;
   nchan_longpoll_multimsg_t *multimsg_last;

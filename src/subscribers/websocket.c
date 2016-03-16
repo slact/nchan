@@ -697,11 +697,6 @@ static void ping_ev_handler(ngx_event_t *ev) {
   }
 }
 
-static void timeout_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
-}
-
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_handshake(fsub);
@@ -725,7 +720,7 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
 #if nginx_version >= 1008000
     fsub->timeout_ev.cancelable = 1;
 #endif
-    fsub->timeout_ev.handler = timeout_ev_handler;
+    fsub->timeout_ev.handler = nchan_subscriber_timeout_ev_handler;
     fsub->timeout_ev.data = fsub;
     fsub->timeout_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->timeout_ev, self->cf->subscriber_timeout * 1000);

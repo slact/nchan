@@ -263,6 +263,9 @@ struct subscriber_s {
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
   unsigned                   enqueued:1;
+#if FAKESHARD
+  ngx_int_t                  owner;
+#endif
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   u_char                    *lbl;
   subscriber_t              *dbg_prev;

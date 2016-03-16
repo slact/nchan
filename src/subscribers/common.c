@@ -1,6 +1,10 @@
 #include <nchan_module.h>
 #include <assert.h>
 
+#if FAKESHARD
+#include <store/memory/store.h>
+#endif
+
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   return sub->cf->storage_engine->subscribe(ch_id, sub);
 }
@@ -176,4 +180,46 @@ ngx_int_t nchan_request_set_content_type_multipart_boundary_header(ngx_http_requ
   r->headers_out.content_type = val;
   
   return NGX_OK;
+}
+
+void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev) {
+  subscriber_t *sub = (subscriber_t *)ev->data;
+#if FAKESHARD
+  memstore_fakeprocess_push(sub->owner);
+#endif
+  sub->dequeue_after_response = 1;
+  sub->fn->respond_status(sub, NGX_HTTP_REQUEST_TIMEOUT, &NCHAN_HTTP_STATUS_408);
+#if FAKESHARD
+  memstore_fakeprocess_pop();
+#endif
+}
+
+void nchan_subscriber_init(subscriber_t *sub, subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid) {
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  *sub = *tmpl;
+  sub->request = r;
+  sub->cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  sub->reserved = 0;
+  sub->enqueued = 0;
+  sub->status = ALIVE;
+  
+  if(msgid) {
+    nchan_copy_new_msg_id(&sub->last_msgid, msgid);
+  }
+  else {
+    sub->last_msgid.time = 0;
+    sub->last_msgid.tag.fixed[0] = 0;
+    sub->last_msgid.tagcount = 1;
+  }
+  
+  if(ctx) {
+    ctx->prev_msg_id = sub->last_msgid;
+    ctx->sub = sub;
+    ctx->subscriber_type = sub->name;
+  }
+  
+#if FAKESHARD
+  sub->owner = memstore_slot();
+#endif
+  
 }

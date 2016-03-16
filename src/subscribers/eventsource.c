@@ -291,7 +291,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   
   bc.chain.buf = &bc.buf;
   bc.chain.next = NULL;
-  ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V\n", status_code, status_line ? status_line : &empty_line));
+  ngx_init_set_membuf(&bc.buf, resp_buf, ngx_snprintf(resp_buf, 256, ":%i: %V\n\n", status_code, status_line ? status_line : &empty_line));
   bc.buf.flush = 1;
   bc.buf.last_buf = 1;
   
@@ -307,17 +307,11 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   return NGX_OK;
 }
 
-static void es_timeout_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
-}
-
 static ngx_int_t es_enqueue(subscriber_t *sub) {
   ngx_int_t           rc;
   full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
   rc = longpoll_enqueue(sub);
-  fsub->data.timeout_ev.handler = es_timeout_ev_handler;
   fsub->data.finalize_request = 0;
   es_ensure_headers_sent(fsub);
   sub->enqueued = 1;

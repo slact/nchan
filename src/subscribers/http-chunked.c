@@ -146,17 +146,11 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   return NGX_OK;
 }
 
-static void chunked_timeout_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, &NCHAN_SUBSCRIBER_TIMEOUT);
-}
-
 static ngx_int_t chunked_enqueue(subscriber_t *sub) {
   ngx_int_t           rc;
   full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
   rc = longpoll_enqueue(sub);
-  fsub->data.timeout_ev.handler = chunked_timeout_ev_handler;
   fsub->data.finalize_request = 0;
   chunked_ensure_headers_sent(fsub);
   sub->enqueued = 1;

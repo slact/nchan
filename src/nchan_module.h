@@ -5,6 +5,15 @@
 //#define NCHAN_MSG_LEAK_DEBUG 1
 //#define NCHAN_BENCHMARK 1
 
+//debugging config
+//#define FAKESHARD 1
+#if FAKESHARD
+//#define PUB_FAKE_WORKER 0
+//#define SUB_FAKE_WORKER 1
+//#define ONE_FAKE_CHANNEL_OWNER 2
+#define MAX_FAKE_WORKERS 5
+#endif
+
 #include <ngx_http.h>
 
 //building for old versions
@@ -23,15 +32,6 @@
 #include <util/nchan_channel_info.h>
 #include <util/nchan_msgid.h>
 #include <util/nchan_output.h>
-
-//debugging config
-//#define FAKESHARD 1
-#if FAKESHARD
-//#define PUB_FAKE_WORKER 0
-//#define SUB_FAKE_WORKER 1
-//#define ONE_FAKE_CHANNEL_OWNER 2
-#define MAX_FAKE_WORKERS 5
-#endif
 
 extern ngx_pool_t *nchan_pool;
 extern ngx_int_t nchan_worker_processes;
