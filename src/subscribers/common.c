@@ -194,11 +194,24 @@ void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev) {
 #endif
 }
 
-void nchan_subscriber_init(subscriber_t *sub, subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid) {
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+
+void nchan_subscriber_init_timeout_timer(subscriber_t *sub, ngx_event_t *ev) {
+  ngx_memzero(ev, sizeof(*ev));
+  #if nginx_version >= 1008000
+  ev->cancelable = 1;
+#endif
+  ev->handler = nchan_subscriber_timeout_ev_handler;
+  ev->data = sub;
+  ev->log = ngx_cycle->log; 
+}
+void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid) {
+  nchan_request_ctx_t  *ctx = NULL;
   *sub = *tmpl;
   sub->request = r;
-  sub->cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  if(r) {
+    ctx = ngx_http_get_module_ctx(r, nchan_module);
+    sub->cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  }
   sub->reserved = 0;
   sub->enqueued = 0;
   sub->status = ALIVE;

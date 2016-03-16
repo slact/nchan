@@ -76,11 +76,13 @@ static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (
 #define NCHAN_WS_UPSTREAM_TMP_POOL_SIZE (4*1024)
 
 
+#if FAKESHARD
 //debugstuff
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop();
 ngx_int_t memstore_slot();
+#endif
 
 static const subscriber_t new_websocket_sub;
 
@@ -126,7 +128,6 @@ struct full_subscriber_s {
   void                   *dequeue_handler_data;
   ngx_event_t             timeout_ev;
   ngx_event_t             closing_ev;
-  ngx_int_t               owner;
   ws_frame_t              frame;
   
   ngx_str_t              *publish_channel_id;
@@ -167,7 +168,7 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 static void sudden_abort_handler(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
 #if FAKESHARD
-  memstore_fakeprocess_push(fsub->owner);
+  memstore_fakeprocess_push(fsub->sub.owner);
 #endif
   fsub->connected = 0;
   sub->status = DEAD;
@@ -455,7 +456,6 @@ static void websocket_init_frame(ws_frame_t *frame) {
 
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   ngx_buf_t            *b;
-  nchan_loc_conf_t     *cf = ngx_http_get_module_loc_conf(r, nchan_module);
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   DBG("create for req %p", r);
@@ -464,8 +464,8 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
     ERR("Unable to allocate");
     return NULL;
   }
-  ngx_memcpy(&fsub->sub, &new_websocket_sub, sizeof(new_websocket_sub));
-  fsub->sub.request = r;
+  
+  nchan_subscriber_init(&fsub->sub, &new_websocket_sub, r, msg_id);
   fsub->cln = NULL;
   fsub->finalize_request = 0;
   fsub->holding = 0;
@@ -473,24 +473,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->connected = 0;
   fsub->pinging = 0;
   fsub->closing = 0;
-  fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  fsub->sub.enqueued = 0;
-  fsub->sub.status = ALIVE;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
-  
-  if(msg_id) {
-    nchan_copy_new_msg_id(&fsub->sub.last_msgid, msg_id);
-  }
-  else {
-    fsub->sub.last_msgid.time = 0;
-    fsub->sub.last_msgid.tag.fixed[0] = 0;
-    fsub->sub.last_msgid.tagcount = 1;
-  }
-  
+  nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
   ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
-#if nginx_version >= 1008000  
-  fsub->timeout_ev.cancelable = 1;
-#endif
   fsub->dequeue_handler = empty_handler;
   fsub->dequeue_handler_data = NULL;
   fsub->awaiting_destruction = 0;
@@ -521,15 +506,13 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   b->memory = 1;
   b->temporary = 0;
 
-  if(cf->pub.websocket) {
+  if(fsub->sub.cf->pub.websocket) {
     fsub->publish_channel_id = nchan_get_channel_id(r, PUB, 0);
   }
   
   fsub->upstream_stuff = NULL;
   
   websocket_init_frame(&fsub->frame);
-  
-  fsub->owner = memstore_slot();
   
   //http request sudden close cleanup
   if((fsub->cln = ngx_http_cleanup_add(r, 0)) == NULL) {
@@ -716,13 +699,6 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
   
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
-    //nextsub->ev should be zeroed;
-#if nginx_version >= 1008000
-    fsub->timeout_ev.cancelable = 1;
-#endif
-    fsub->timeout_ev.handler = nchan_subscriber_timeout_ev_handler;
-    fsub->timeout_ev.data = fsub;
-    fsub->timeout_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->timeout_ev, self->cf->subscriber_timeout * 1000);
   }
   

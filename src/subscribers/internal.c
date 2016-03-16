@@ -9,11 +9,6 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:INTERNAL:" fmt, ##arg)
 
-void memstore_fakeprocess_push(ngx_int_t slot);
-void memstore_fakeprocess_push_random(void);
-void memstore_fakeprocess_pop();
-ngx_int_t memstore_slot();
-
 static const subscriber_t new_internal_sub;
 
 static ngx_int_t empty_callback(ngx_int_t code, void *ptr, void *d) {
@@ -59,28 +54,24 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
     return NULL;
   }
   
+  nchan_subscriber_init(&fsub->sub, &new_internal_sub, NULL, NULL);
+  nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
+  fsub->sub.cf = &dummy_config;
+  fsub->sub.name= (name == NULL ? &subscriber_name : name);
+  
   fsub->enqueue = empty_callback;
   fsub->dequeue = empty_callback;
   fsub->respond_message = empty_callback;
   fsub->respond_status = empty_callback;
   fsub->notify = empty_callback;
-  ngx_memcpy(&fsub->sub, &new_internal_sub, sizeof(new_internal_sub));
-  fsub->sub.reserved = 0;
   
-  ngx_memzero(&fsub->sub.last_msgid, sizeof(fsub->sub.last_msgid));
-  fsub->sub.last_msgid.tagcount = 1;
-  
-  fsub->sub.name= (name == NULL ? &subscriber_name : name);
   DBG("%p create %V with privdata %p", fsub, fsub->sub.name, privdata);
   fsub->privdata = privdata;
   
-  fsub->sub.cf = &dummy_config;
   fsub->already_dequeued = 0;
   fsub->awaiting_destruction = 0;
   
   fsub->dequeue_handler_data = NULL;
-  
-  fsub->owner = memstore_slot();
   
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_add(&fsub->sub);
@@ -140,31 +131,11 @@ static void reset_timer(internal_subscriber_t *f) {
   }
 }
 
-static void timeout_ev_handler(ngx_event_t *ev) {
-  internal_subscriber_t *fsub = (internal_subscriber_t *)ev->data;
-#if FAKESHARD
-  memstore_fakeprocess_push(fsub->owner);
-#endif
-  DBG("%p (%V) timeout", fsub, fsub->sub.name);
-  fsub->sub.dequeue_after_response = 1;
-  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
-#if FAKESHARD
-  memstore_fakeprocess_pop();
-#endif
-}
-
 static ngx_int_t internal_enqueue(subscriber_t *self) {
   internal_subscriber_t   *fsub = (internal_subscriber_t *)self;
   DBG("%p (%V) enqueue", self, fsub->sub.name);
   if(self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
     //add timeout timer
-    //nextsub->ev should be zeroed;
-#if nginx_version >= 1008000
-    fsub->timeout_ev.cancelable = 1;
-#endif
-    fsub->timeout_ev.handler = timeout_ev_handler;
-    fsub->timeout_ev.data = fsub;
-    fsub->timeout_ev.log = ngx_cycle->log;
     reset_timer(fsub);
   }
   fsub->enqueue(fsub->sub.cf->buffer_timeout, NULL, fsub->privdata);

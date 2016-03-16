@@ -10,3 +10,4 @@ ngx_int_t nchan_request_set_content_type_multipart_boundary_header(ngx_http_requ
 
 void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev);
 void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid);
+void nchan_subscriber_init_timeout_timer(subscriber_t *sub, ngx_event_t *ev);

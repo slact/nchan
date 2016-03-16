@@ -49,7 +49,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.holding = 0;
   fsub->data.act_as_intervalpoll = 0;
   
-  ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
+  nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->data.timeout_ev);
   
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
@@ -147,13 +147,6 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   ensure_request_hold(fsub);
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
-    //nextsub->ev should be zeroed;
-#if nginx_version >= 1008000
-    fsub->data.timeout_ev.cancelable = 1;
-#endif
-    fsub->data.timeout_ev.handler = nchan_subscriber_timeout_ev_handler;
-    fsub->data.timeout_ev.data = fsub;
-    fsub->data.timeout_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
   
@@ -537,91 +530,3 @@ static const subscriber_t new_longpoll_sub = {
   1, //destroy after dequeue
   0, //enqueued
 };
-
-
-
-
-
-
-/*
-#include <store/rbtree_util.h>
-#include <execinfo.h>
-
-typedef struct {
-  ngx_str_t    id;
-  nchan_msg_t  msg;
-  ngx_str_t    smallmsg;
-  subscriber_t sub;
-  
-} uniq_response_t;
-
-static rbtree_seed_t  uniq_rsp_seed;
-static rbtree_seed_t *urs = NULL;
-
-void *urs_node_id(void *data) {
-  return &((uniq_response_t *)data)->id;
-}
-
-
-void verify_unique_response(ngx_str_t *uri, nchan_msg_id_t *msgid, nchan_msg_t *msg, subscriber_t *sub) {
-  
-  ngx_rbtree_node_t  *node;
-  uniq_response_t    *urnode;
-  
-  u_char              idbuf[1024];
-  ngx_str_t           id; //response id
-  
-  id.data = idbuf;
-  id.len = ngx_sprintf(idbuf, "%V | %V", uri, msgid_to_str(msgid)) - idbuf;
-  
-  if(urs == NULL) {
-    urs = &uniq_rsp_seed;
-    rbtree_init(urs, "unique response verifier", urs_node_id, NULL, NULL);
-  }
-  
-  int msglen = 0;
-  if(!msg->buf->in_file) {
-    msglen = msg->buf->end - msg->buf->start;
-  }
-  
-  if((node = rbtree_find_node(urs, &id)) != NULL) {
-    urnode = rbtree_data_from_node(node);
-    
-    assert(msg->buf == urnode->msg.buf);
-    assert(urnode->smallmsg.len == msglen);
-    assert(ngx_strncmp(urnode->smallmsg.data, msg->buf->start, msglen) == 0);
-    
-    urnode->msg = *msg;
-    urnode->sub = *sub;
-  }
-  else {
-    
-    node = rbtree_create_node(urs, sizeof(*urnode) + id.len + msglen);
-    urnode = rbtree_data_from_node(node);
-    urnode->id.data = (u_char *)&urnode[1];
-    urnode->id.len = id.len;
-    ngx_memcpy(urnode->id.data, id.data, id.len);
-    
-    if(!msg->buf->in_file) {
-      urnode->smallmsg.len = msglen;
-      urnode->smallmsg.data = urnode->id.data + id.len;
-      ngx_memcpy(urnode->smallmsg.data, msg->buf->start, msglen);
-      urnode->smallmsg.len = msglen;
-    }
-    else {
-      urnode->smallmsg.len = 0;
-      urnode->smallmsg.data = NULL;
-    }
-    
-    urnode->msg = *msg;
-    urnode->sub = *sub;
-    
-    rbtree_insert_node(urs, node);
-  }
-  
-}
-*/
-
-
-
-
