@@ -26,7 +26,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers], verbose: opt[:verbose]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}")
   return pub, sub
 end
@@ -47,23 +47,20 @@ class PubSubTest <  Minitest::Test
   end
   
   def test_interval_poll
-    pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.2
+    pub, sub=pubsub 1, sub: "/sub/intervalpoll/", client: :intervalpoll, quit_message: 'FIN', retry_delay: 0.5
     ws_sub=Subscriber.new(sub.url, 1, client: :websocket, quit_message: 'FIN')
-    
-    sub.on_failure do |err|
-      assert_match /code 304/, err #handshake will be treated as intervalpoll client?...
-      false
+
+    got_304s=0
+    sub.on_failure do |msg|
+      got_304s += 1
+      assert_match /code 304/, msg #handshake will be treated as intervalpoll client?...
     end
     
     ws_sub.run
     sub.run
-    sub.wait
-
-    sub.abort
-    sub.reset
 
     sleep 0.4
-    assert ws_sub.match_errors(/code 403/), "expected 403 for all subscribers, got #{sub.errors.pretty_inspect}"
+    assert ws_sub.match_errors(/code 403/), "expected 403 for all non-intervalpoll subscribers, got #{sub.errors.pretty_inspect}"
     ws_sub.terminate
     
     pub.post ["hello this", "is a thing"]
@@ -71,30 +68,16 @@ class PubSubTest <  Minitest::Test
     pub.post ["oh now what", "is this even a thing?"]
     sleep 0.1
     
-    sub.on_failure do |err, resp|
-      assert_match /code 304/, err
-      assert_equal resp.headers["Last-Modified"], sub.client.last_modified, "304 not ready should have the same last-modified header as last msg"
-      assert_equal resp.headers["Etag"], sub.client.etag, "304 not ready should have the same Etag header as last msg"
-      false
-    end
+    sleep 1.5
     
-    sub.run
-    sub.wait
-    
-    #should get a 304 at this point
-    
-    sub.abort
-    sub.reset
-    
+    pub.post "yoo"
     pub.post "FIN"
     
-    sleep 1
-    
-    sub.run
     sub.wait
 
     verify pub, sub
     sub.terminate
+    assert got_304s > 0, "Expected at least one 304 response"
   end
   
   def test_channel_info
@@ -105,10 +88,12 @@ class PubSubTest <  Minitest::Test
     subs=20
     
     chan=SecureRandom.hex
-    pub, sub = pubsub(subs, channel: chan)
+    pub, sub = pubsub(subs, channel: chan, client: :eventsource)
     pub.nofail=true
     pub.get
     assert_equal 404, pub.response_code
+
+    puts "yeaaah"
     
     pub.post ["hello", "what is this i don't even"]
     assert_equal 202, pub.response_code
@@ -126,7 +111,7 @@ class PubSubTest <  Minitest::Test
 
     
     sub.run
-    sleep 1
+    sub.wait :ready
     pub.get "text/json"
 
     info_json=JSON.parse pub.response_body
@@ -257,7 +242,7 @@ class PubSubTest <  Minitest::Test
             break
           end
         end
-        #binding.pry unless matched
+        binding.pry unless matched
         assert_equal matched, true, "message not matched"
       end
       
@@ -589,7 +574,7 @@ class PubSubTest <  Minitest::Test
     pub.post "hello"
     sub.wait
     verify pub, sub, false
-    assert sub.match_errors(/code 304/)
+    assert sub.match_errors(/code 408/)
     sub.terminate
   end
   

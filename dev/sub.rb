@@ -81,13 +81,23 @@ sub.on_message do |msg|
   end
 end
 
-errors_shown=false
-sub.on_failure do |x,y|
-  puts sub.errors.join "\r\n" unless errors_shown
-  #errors_shown=true
-  false
+sub.on_failure do |err_msg|
+  if Subscriber::FastIntervalPollClient === sub.client
+    unless err_msg.match(/\(code 304\)/)
+      false
+    end 
+  else
+    false
+  end
 end
-
 
 sub.run
 sub.wait
+
+if sub.errors.count > 1
+  puts "Errors:"
+  sub.errors.each do |err|
+    puts err
+  end
+  exit 1
+end

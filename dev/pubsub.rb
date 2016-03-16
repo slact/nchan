@@ -156,10 +156,16 @@ class Subscriber
   class Client
     attr_accessor :concurrency
     class ErrorResponse
-      attr_accessor :code, :msg, :connected, :caller
-      def initialize(code, msg, connected=false, what=nil, failword=nil)
+      attr_accessor :code, :msg, :connected, :caller, :bundle
+      def initialize(code, msg, bundle=nil, what=nil, failword=nil)
         self.code = code
         self.msg = msg
+        if Subscriber::Client::ParserBundle === bundle
+          self.bundle=bundle
+          self.connected = bundle.connected?
+        else
+          self.connected = bundle
+        end
         self.connected = connected
         
         @what = what || ["handshake", "connection"]
@@ -195,8 +201,8 @@ class Subscriber
       uniqs
     end
     
-    def error(code, msg, connected=nil)
-      err=ErrorResponse.new code, msg, connected=nil, @error_what, @error_failword
+    def error(code, msg, bundle=nil)
+      err=ErrorResponse.new code, msg, bundle, @error_what, @error_failword
       err.caller=self
       err
     end
@@ -265,184 +271,26 @@ class Subscriber
       if err && !(EOFError === err)
         msg="<#{msg}>\n#{err.backtrace.join "\n"}"
       end
-      @subscriber.on_failure error(0, msg, bundle.connected?)
+      @subscriber.on_failure error(0, msg, bundle)
       @subscriber.finished+=1
       close bundle
     end
     
+    def poke(what=nil)
+      if what == :ready
+        (@notready.nil? || @notready > 0) && @cooked_ready.wait
+      else
+        @connected > 0 && @cooked.wait
+      end
+    end
+    
+    def initialize(*arg)
+      @notready = 9000
+      @cooked_ready=Celluloid::Condition.new
+    end
+    
   end
   
-  class LongPollClient < Client
-    include Celluloid
-    
-    def self.aliases
-      [:oldlongpoll]
-    end
-    
-    def error(*a)
-      @error_what ||= ["HTTP Request"]
-      super
-    end
-    def error_from_response(response)
-      if response.timed_out?
-        msg = "Client response timeout."
-        code = 0
-      else
-        msg = response.return_message
-        code = response.code
-      end
-      error code, msg
-    end
-    
-    attr_accessor :last_modified, :etag, :hydra, :timeout
-    def initialize(subscr, opt={})
-      @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
-      @connect_timeout = opt[:connect_timeout]
-      @subscriber=subscr
-      @url=subscr.url
-      @concurrency=opt[:concurrency] || opt[:clients] || 1
-      @hydra= Typhoeus::Hydra.new( max_concurrency: @concurrency, pipelining: opt[:pipelining])
-      @gzip=opt[:gzip]
-      @retry_delay=opt[:retry_delay]
-      @nomsg=opt[:nomsg]
-      @extra_headers=opt[:extra_headers]
-    end
-    
-    def response_success(response, req)
-      #puts "received OK response at #{req.url}"
-      #parse it
-      req.options[:headers]["If-None-Match"] = response.headers["Etag"]
-      req.options[:headers]["If-Modified-Since"] = response.headers["Last-Modified"]
-      
-      on_message_ret = nil
-      
-      Message.each_multipart_message(response.headers["Content-Type"], response.body) do |content_type, body, multi|
-        unless @nomsg
-          msg=Message.new body
-          msg.content_type=content_type
-          unless multi
-            msg.last_modified= response.headers["Last-Modified"]
-            msg.etag= response.headers["Etag"]
-          end
-        else
-          msg=body
-        end
-        
-        on_message_ret = @subscriber.on_message(msg, req)
-      end
-      
-      unless on_message_ret == false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue new_request(old_request: req)
-      else
-        @subscriber.finished+=1
-      end
-    end
-    
-    def response_failure(response, req)
-      #puts "received bad or no response at #{req.url}"
-      unless @subscriber.on_failure(error_from_response(response), response) == false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue  new_request(old_request: req)
-      else
-        @subscriber.finished+=1
-      end
-    end
-    
-    def new_request(opt = {})
-      headers = {}
-      headers["User-Agent"] = opt[:useragent] if opt[:useragent]
-      if @extra_headers
-        headers.merge! @extra_headers
-      end
-      
-      if opt[:old_request]
-        #req = Typhoeus::Request.new(opt[:old_request].url, opt[:old_request].options)
-        
-        #reuse request
-        req = opt[:old_request]
-      else
-        req = Typhoeus::Request.new(@url, timeout: @timeout, connecttimeout: @connect_timeout, accept_encoding: (@gzip ? "gzip" : nil), headers: headers )
-
-        #req.on_body do |chunk|
-        #  puts chunk
-        #end
-        
-        req.on_complete do |response|
-          @subscriber.waiting-=1
-          if response.success?
-            response_success response, req
-          else
-            response_failure response, req
-          end
-        end
-      end
-      
-      req
-    end
-
-    def run(was_success=nil)
-      #puts "running #{self.class.name} hydra with #{@hydra.queued_requests.count} requests."
-      (@concurrency - @hydra.queued_requests.count).times do |n|
-        @subscriber.waiting+=1
-        @hydra.queue new_request(useragent: "pubsub.rb #{self.class.name} ##{n}")
-      end
-      @hydra.run
-    end
-    
-    def poke
-      #while @subscriber.finished < @concurrency
-      #  Celluloid.sleep 0.1
-      #end
-    end
-  end
-
-  class IntervalPollClient < LongPollClient
-    
-    def self.aliases
-      [:intervalpoll, :http, :interval, :poll]
-    end
-    
-    def initialize(subscr, opt={})
-      @last_modified=nil
-      @etag=nil
-      super
-    end
-    
-    def store_msg_id(response, req)
-      @last_modified=response.headers["Last-Modified"] if response.headers["Last-Modified"]
-      @etag=response.headers["Etag"] if response.headers["Etag"]
-      req.options[:headers]["If-Modified-Since"]=@last_modified
-      req.options[:headers]["If-None-Match"]=@etag
-    end
-    
-    def response_success(response, req)
-      store_msg_id(response, req)
-      super response, req
-    end
-    def response_failure(response, req)
-      if @subscriber.on_failure(error_from_response(response), response) != false
-        @subscriber.waiting+=1
-        Celluloid.sleep @retry_delay if @retry_delay
-        @hydra.queue req
-      else
-        @subscriber.finished+=1
-      end
-    end
-    
-    def run
-      super
-    end
-    
-    def poke
-      while @subscriber.finished < @concurrency do
-        Celluloid.sleep 0.3
-      end
-    end
-  end
-
   class WebSocketClient < Client
     include Celluloid::IO
     
@@ -483,6 +331,7 @@ class Subscriber
     
     attr_accessor :last_modified, :etag, :timeout
     def initialize(subscr, opt={})
+      super
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
@@ -493,11 +342,12 @@ class Subscriber
       @retry_delay=opt[:retry_delay]
       @ws = {}
       @connected=0
+      @notready=@concurrency
       @nomsg = opt[:nomsg]
       @http2 = opt[:http2]
       if @timeout
         @timer = after(@timeout) do
-          @subscriber.on_failure error(0, "Timeout", true)
+          @subscriber.on_failure error(0, "Timeout", b)
           @ws.each do |b, v|
             close b
           end
@@ -523,8 +373,10 @@ class Subscriber
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       if @http2
-        @subscriber.on_failure error(0, "Refusing to try websocket over HTTP/2", false)
+        @subscriber.on_failure error(0, "Refusing to try websocket over HTTP/2")
         @connected = 0
+        @notready = 0
+        @cooked_ready.signal false
         @cooked.signal true
         return
       end
@@ -533,7 +385,7 @@ class Subscriber
         begin
           sock = ParserBundle.new(uri).open_socket.sock
         rescue SystemCallError => e
-          @subscriber.on_failure(error(0, e.to_s, 0))
+          @subscriber.on_failure error(0, e.to_s)
           close nil
           return
         end
@@ -546,7 +398,7 @@ class Subscriber
           @handshake << sock.readline
           if @handshake.finished?
             unless @handshake.valid?
-              @subscriber.on_failure error(@handshake.response_code, @handshake.response_line, false)
+              @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
             end
             break
           end
@@ -556,6 +408,8 @@ class Subscriber
           bundle = WebSocketBundle.new(@handshake, sock)
           @ws[bundle]=true
           async.listen bundle
+          @notready=-1
+          @cooked_ready.signal true if @notready == 0
         end
       end
     end
@@ -579,10 +433,9 @@ class Subscriber
       end
     end
     
-    def on_error(err, err2)
-      puts "Received error #{err}"
+    def on_error
       if !@connected[ws]
-        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line, @connected[ws]), ws
+        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line)
         try_halt
       end
     end
@@ -592,6 +445,9 @@ class Subscriber
       if type==:close
         close_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, type: :close)
         bundle.sock << close_frame.to_s
+        #server should close the connection, just reply
+        data.match(/(\d+)\s(.*)/)
+        @subscriber.on_failure error(($~[1] || 0).to_i, $~[2] || "", true)
       elsif type==:ping
         ping_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, data: data, type: :pong)
         bundle.sock << ping_frame.to_s
@@ -617,12 +473,9 @@ class Subscriber
       end
     end
     
-    def poke
-      @connected > 0 && @cooked.wait
-    end
   end
   
-  class FastLongPollClient < Client
+  class LongPollClient < Client
     include Celluloid::IO
     
     def self.aliases
@@ -714,13 +567,10 @@ class Subscriber
           sock.readpartial(4096, @rcvbuf)
           @parser << @rcvbuf
         rescue HTTP::Parser::Error => e
-          binding.pry
           on_error "Invalid HTTP Respose - #{e}", e
         rescue EOFError => e
-          binding.pry
           on_error "Server closed connection...", e
         rescue => e 
-          binding.pry
           on_error "#{e.class}: #{e}", e
         end
         return false if @done || sock.closed?
@@ -843,6 +693,7 @@ class Subscriber
     
     attr_accessor :timeout
     def initialize(subscr, opt={})
+      super
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
@@ -871,6 +722,7 @@ class Subscriber
       uri.port||= uri.scheme.match(/^(ws|http)$/) ? 80 : 443
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
+      @notready = @concurrency
       @concurrency.times do |i|
         begin
           bundle = new_bundle(uri, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
@@ -886,13 +738,13 @@ class Subscriber
       end
     end
     
-    def request_code_ok(code, bundle=nil, etc=nil)
+    def request_code_ok(code, bundle)
       if code != 200
-        if code == 304
-          @subscriber.on_failure error(code, ""), etc
+        if code == 304 || code == 408
+          @subscriber.on_failure error(code, "", bundle)
           @subscriber.finished+=1
           close bundle
-        elsif @subscriber.on_failure(error(code, ""), etc) == false
+        elsif @subscriber.on_failure(error(code, "", bundle)) == false
           @subscriber.finished+=1
           close bundle
         else
@@ -965,7 +817,7 @@ class Subscriber
         begin
           return false if bundle.read == false
         rescue EOFError
-          @subscriber.on_failure(error(0, "Server Closed Connection"), bundle.connected)
+          @subscriber.on_failure error(0, "Server Closed Connection"), bundle
           close bundle
           return false
         end
@@ -984,12 +836,30 @@ class Subscriber
       end
     end
     
-    def poke
-      @connected > 0 && @cooked.wait
+  end
+  
+  class IntervalPollClient < LongPollClient
+    def self.aliases
+      [:intervalpoll, :http, :interval, :poll]
+    end
+    
+    def request_code_ok(code, bundle)
+      if code == 304
+        if @subscriber.on_failure(error(code, "", bundle), true) == false
+          @subscriber.finished+=1
+          close bundle
+        else
+          Celluloid.sleep(@retry_delay || 1)
+          bundle.send_GET
+          false
+        end
+      else
+        super
+      end
     end
   end
   
-  class EventSourceClient < FastLongPollClient
+  class EventSourceClient < LongPollClient
     include Celluloid::IO
     
     def self.aliases
@@ -1063,9 +933,11 @@ class Subscriber
     def setup_bundle(b)
       b.on_headers do |code, headers|
         if code != 200
-          @subscriber.on_failure error(code, "", false)
+          @subscriber.on_failure error(code, "")
           close b
         else
+          @notready-=1
+          @cooked_ready.signal true if @notready == 0
           b.connected = true
         end
       end
@@ -1087,7 +959,7 @@ class Subscriber
         if !b.subparser.buf_empty?
           b.subparser.parse_line "\n"
         else
-          @subscriber.on_failure error(0, "Response completed unexpectedly", bundle.connected?)
+          @subscriber.on_failure error(0, "Response completed unexpectedly", bundle)
         end
         @subscriber.finished+=1
         close b
@@ -1105,11 +977,14 @@ class Subscriber
           end
           
           if @subscriber.on_message(msg, b) == false
+            @subscriber.finished+=1
             close b
           end
         when :comment
           if data.match(/^(?<code>\d+): (?<message>.*)/)
-            @subscriber.on_failure error($~[:code].to_i, $~[:message], b.connected)
+            @subscriber.on_failure error($~[:code].to_i, $~[:message], b)
+            @subscriber.finished+=1
+            close b
           end
         end
       end
@@ -1118,7 +993,7 @@ class Subscriber
     
   end
   
-  class MultiparMixedClient < FastLongPollClient
+  class MultiparMixedClient < LongPollClient
     include Celluloid::IO
     
     def self.aliases 
@@ -1194,11 +1069,12 @@ class Subscriber
       super
       b.on_headers do |code, headers|
         if code != 200
-          @subscriber.on_failure error(code, "", false)
+          @subscriber.on_failure error(code, "", b)
           close b
         else
           b.connected = true
-          
+          @notready -= 1
+          @cooked_ready.signal true if @notready == 0
           b.subparser = MultipartMixedParser.new headers["Content-Type"]
           b.subparser.on_part do |headers, message|
             unless @nomsg
@@ -1224,7 +1100,7 @@ class Subscriber
       b.on_chunk do |chunk|
         b.subparser << chunk if b.subparser
         if HTTPBundle === b && b.subparser.finished
-          @subscriber.on_failure(error(410, "Server Closed Connection", true))
+          @subscriber.on_failure error(410, "Server Closed Connection", b)
           @subscriber.finished+=1
           close b
         end
@@ -1232,9 +1108,9 @@ class Subscriber
       
       b.on_response do |code, headers, body|
         if b.subparser.finished
-          @subscriber.on_failure(error(410, "Server Closed Connection", true))
+          @subscriber.on_failure error(410, "Server Closed Connection", b)
         else
-          @subscriber.on_failure error(0, "Response completed unexpectedly", b.connected?)        
+          @subscriber.on_failure error(0, "Response completed unexpectedly", b)
         end
         @subscriber.finished+=1
         close b
@@ -1242,12 +1118,12 @@ class Subscriber
     end
   end
   
-  class HTTPChunkedClient < FastLongPollClient
+  class HTTPChunkedClient < LongPollClient
     include Celluloid::IO
     
     def run(*args)
       if @http2
-        @subscriber.on_failure(error(0, "Chunked transfer is not allowed in HTTP/2", false))
+        @subscriber.on_failure error(0, "Chunked transfer is not allowed in HTTP/2")
         @connected = 0
         return
       end
@@ -1267,12 +1143,14 @@ class Subscriber
       b.body_buf = nil
       b.on_headers do |code, headers|
         if code != 200
-          @subscriber.on_failure(error(code, "", false))
+          @subscriber.on_failure(error(code, "", b))
           close b
         elsif headers["Transfer-Encoding"] != "chunked"
-          @subscriber.on_failure(error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'.", false))
+          @subscriber.on_failure error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'.", b)
           close b
         else
+          @notready -= 1
+          @cooked_ready.signal true if @notready == 0
           b.connected= true
         end
       end
@@ -1293,7 +1171,7 @@ class Subscriber
       end
       
       b.on_response do |code, headers, body|
-        @subscriber.on_failure(error(410, "Server Closed Connection", true))
+        @subscriber.on_failure error(410, "Server Closed Connection", b)
         close b
       end
       
@@ -1381,8 +1259,8 @@ class Subscriber
     end
     false
   end
-  def wait
-    @client.poke
+  def wait(until_what=nil)
+    @client.poke until_what
   end
 
   def on_message(msg=nil, req=nil, &block)
@@ -1403,12 +1281,12 @@ class Subscriber
     "#{client.class.name.split('::').last} #{what}#{failword}: #{msg} (code #{code})"
   end
   
-  def on_failure(err=nil, etc=nil, &block)
+  def on_failure(err=nil, nostore=false, &block)
     if block_given?
       @on_failure=block
     else
-      @errors << err.to_s
-      @on_failure.call(@errors.last, etc) if @on_failure.respond_to? :call
+      @errors << err.to_s unless nostore
+      @on_failure.call(err.to_s, err.bundle) if @on_failure.respond_to? :call
     end
   end
 end
