@@ -1,3 +1,4 @@
+ change: 408 Request Timeout instead of 304 No Content status code for timed out subscribers
 0.99.8 (Mar. 13 2016)
  fix: multipart/mixed subscriber output issues
  fix: memory leak for multiplexed > 4 channels
