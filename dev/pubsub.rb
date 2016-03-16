@@ -523,15 +523,22 @@ class Subscriber
           @headers=h
           @last_modified = h['Last-Modified']
           @etag = h['Etag']
+          @chunky = h['Transfer-Encoding']=='chunked'
+          @gzipped = h['Content-Encoding']=='gzip'
           @code=@parser.status_code
           on_headers @parser.status_code, h
         end
         
         @parser.on_body = proc do |chunk|
+          if @gzipped 
+            chunk = Zlib::GzipReader.new(StringIO.new(chunk)).read
+          end
           on_chunk chunk
         end
         
         @parser.on_message_complete = proc do
+          @chunky = nil
+          @gzipped = nil
           on_response @parser.status_code, @parser.headers
         end
         
@@ -762,6 +769,9 @@ class Subscriber
     def new_bundle(uri, useragent, accept="*/*", extra_headers={})
       if @extra_headers
         extra_headers = extra_headers.merge @extra_headers
+      end
+      if @gzip
+        extra_headers = extra_headers.merge({ "Accept-Encoding" => "gzip, deflate"})
       end
       b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, useragent, accept, extra_headers)
       b.on_error do |msg, err|

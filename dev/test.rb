@@ -718,8 +718,11 @@ class PubSubTest <  Minitest::Test
     pub.post ["2", "123456789A", "alsdjklsdhflsajkfhl", "boq"]
     sleep 1
     pub.post "foobar"
+    msg = ""
+    200.times { msg << SecureRandom.hex }
+    pub.post msg
     pub.post "FIN"
-    sleep 1
+    sub.wait
     verify pub, sub
   end
 end
