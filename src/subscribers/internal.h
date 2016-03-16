@@ -11,7 +11,6 @@ typedef struct {
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   void                   *privdata;
-  ngx_int_t               owner;
   unsigned                already_dequeued:1;
   unsigned                awaiting_destruction:1;
 } internal_subscriber_t;
