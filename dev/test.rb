@@ -187,7 +187,7 @@ class PubSubTest <  Minitest::Test
     scrambles = 5
     subs = []
     scrambles.times do |i|
-      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1)
+      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1, timeout: 20)
       sub.on_failure { false }
       subs << sub
     end
@@ -242,7 +242,6 @@ class PubSubTest <  Minitest::Test
             break
           end
         end
-        binding.pry unless matched
         assert_equal matched, true, "message not matched"
       end
       
