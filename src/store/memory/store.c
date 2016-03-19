@@ -780,7 +780,6 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, ui
       memstore_ready_chanhead_unless_stub(head);
     }
   }
-  assert(head->status != INACTIVE);
   return NGX_OK;
 }
 
