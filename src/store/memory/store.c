@@ -712,6 +712,9 @@ ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head) 
   else {
     head->status = READY;
     head->spooler.fn->handle_channel_status_change(&head->spooler);
+    if(head->status == INACTIVE) {
+      chanhead_gc_withdraw(head, "rare weird condition after handle_channel_status_change");
+    }
   }
   return NGX_OK;
 }
