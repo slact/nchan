@@ -187,8 +187,13 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   anymsg.tagcount = 1;
   
   subscriber_pool_t    *spool, *nuspool;
+  channel_spooler_t    *spl = data->spooler;
   
-  if((spool = find_spool(data->spooler, &data->msgid)) == NULL) {
+  if(spl->handlers->get_message_finish) {
+    spl->handlers->get_message_finish(spl, spl->handlers_privdata);
+  }
+  
+  if((spool = find_spool(spl, &data->msgid)) == NULL) {
     DBG("spool for msgid %V not found. discarding getmsg callback response.", msgid_to_str(&data->msgid));
     nchan_free_msg_id(&data->msgid);
     ngx_free(data);
@@ -244,12 +249,13 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
 
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   fetchmsg_data_t        *data;
-  if(*spool->spooler->channel_status != READY) {
-    DBG("%p wanted to fetch msg %V, but channel %V not ready", spool, msgid_to_str(&spool->id), spool->spooler->chid);
+  channel_spooler_t      *spl = spool->spooler;
+  if(*spl->channel_status != READY) {
+    DBG("%p wanted to fetch msg %V, but channel %V not ready", spool, msgid_to_str(&spool->id), spl->chid);
     spool->msg_status = MSG_CHANNEL_NOTREADY;
     return NGX_DECLINED;
   }
-  DBG("%p fetch msg %V for channel %V", spool, msgid_to_str(&spool->id), spool->spooler->chid);
+  DBG("%p fetch msg %V for channel %V", spool, msgid_to_str(&spool->id), spl->chid);
   data = ngx_alloc(sizeof(*data), ngx_cycle->log); //correctness over efficiency (at first).
   //TODO: optimize this alloc away
   
@@ -261,6 +267,9 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   assert(spool->msg == NULL);
   assert(spool->msg_status == MSG_INVALID);
   spool->msg_status = MSG_PENDING;
+  if(spl->handlers->get_message_start) {
+    spl->handlers->get_message_start(spl, spl->handlers_privdata);
+  }
   spool->spooler->store->get_message(spool->spooler->chid, &spool->id, (callback_pt )spool_fetch_msg_callback, data);
   return NGX_OK;
 }

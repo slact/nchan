@@ -19,6 +19,7 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                   generation; //subscriber pool generation.
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
+  ngx_int_t                    fetching_message_count;
   ngx_uint_t                   internal_sub_count;
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
@@ -805,8 +806,8 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
     redis_subscriber_unregister(&head->id, sub);
   }
   
-  if(head->sub_count == 0) {
-    chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
+  if(head->sub_count == 0 && head->fetching_message_count == 0) {
+    chanhead_gc_add(head, "sub count == 0 and fetching_message_count == 0 after spooler dequeue");
   }
   
 }
@@ -815,14 +816,23 @@ static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, v
   //nothing. 
 }
 
+void spooler_get_message_start_handler(channel_spooler_t *spl, void *pd) {
+  ((nchan_store_channel_head_t *)pd)->fetching_message_count++;
+}
+
+void spooler_get_message_finish_handler(channel_spooler_t *spl, void *pd) {
+  ((nchan_store_channel_head_t *)pd)->fetching_message_count--;
+  assert(((nchan_store_channel_head_t *)pd)->fetching_message_count >= 0);
+}
+
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
     spooler_add_handler,
     spooler_dequeue_handler,
     NULL,
     spooler_bulk_post_subscribe_handler,
-    NULL,
-    NULL
+    spooler_get_message_start_handler,
+    spooler_get_message_finish_handler
   };
   start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis, &handlers, head);
   return NGX_OK;
@@ -932,6 +942,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
   head->sub_count=0;
+  head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
   head->status = NOTREADY;
   head->generation = 0;
@@ -1084,7 +1095,7 @@ static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
     if(force_delete || ngx_time() - cur->time > NCHAN_CHANHEAD_EXPIRE_SEC) {
       ch = (nchan_store_channel_head_t *)cur->data;
       
-      if (ch->sub_count == 0) { //still no subscribers here
+      if (ch->sub_count == 0 && ch->fetching_message_count == 0) { //still no subscribers here and no messages being fetched
 
         //unsubscribe now
         DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
