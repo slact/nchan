@@ -818,7 +818,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   ngx_str_t                     ids[NCHAN_MULTITAG_MAX];
   ngx_int_t                     i, n = 0;
   
-  head=ngx_alloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+  head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   
   if(head == NULL) {
     ERR("can't allocate memory for (new) chanhead");
@@ -897,7 +897,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
     nchan_store_multi_t          *multi;
     int16_t                      *tags_latest, *tags_oldest;
     
-    if((multi = ngx_alloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
+    if((multi = ngx_calloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
       ERR("can't allocate multi array for multi-channel %p", head);
     }
     
