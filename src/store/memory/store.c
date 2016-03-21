@@ -694,14 +694,22 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
   }
 }
 
+
+
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory);
+  static channel_spooler_handlers_t handlers = {
+    spooler_add_handler,
+    NULL,
+    spooler_bulk_dequeue_handler,
+    spooler_bulk_post_subscribe_handler,
+    NULL,
+    NULL
+  };
+  
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
-  head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.fn->set_bulk_dequeue_handler(&head->spooler, spooler_bulk_dequeue_handler, head);
-  head->spooler.fn->set_bulk_post_subscribe_handler(&head->spooler, spooler_bulk_post_subscribe_handler, head);
   return NGX_OK;
 }
 

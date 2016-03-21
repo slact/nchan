@@ -816,10 +816,15 @@ static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, v
 }
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis);
-  head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.fn->set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
-  head->spooler.fn->set_bulk_post_subscribe_handler(&head->spooler, spooler_bulk_post_subscribe_handler, NULL);
+  static channel_spooler_handlers_t handlers = {
+    spooler_add_handler,
+    spooler_dequeue_handler,
+    NULL,
+    spooler_bulk_post_subscribe_handler,
+    NULL,
+    NULL
+  };
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis, &handlers, head);
   return NGX_OK;
 }
 

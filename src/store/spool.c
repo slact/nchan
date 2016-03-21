@@ -155,8 +155,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     }
 
     
-    if(newspool->non_internal_sub_count > 0 && spl->bulk_post_subscribe_handler != NULL) {
-      spl->bulk_post_subscribe_handler(spl, newspool->non_internal_sub_count, spl->bulk_post_subscribe_privdata);
+    if(newspool->non_internal_sub_count > 0 && spl->handlers->bulk_post_subscribe != NULL) {
+      spl->handlers->bulk_post_subscribe(spl, newspool->non_internal_sub_count, spl->handlers_privdata);
     }
     
     if(newspool->sub_count > 0) {
@@ -230,6 +230,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       }
       else {
         ERR("Unexpected spool == nuspool during spool fetch_msg_callback. This is weird, please report this to the developers. findmsg_status: %i", findmsg_status);
+        assert(0);
       }
       break;
     
@@ -277,29 +278,6 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
   if(sub->type != INTERNAL && spool->spooler->publish_events) {
     nchan_maybe_send_channel_event_message(sub->request, SUB_DEQUEUE);
   }
-  
-/*
-  if(spool->bulk_dequeue_handler) {
-    void         *pd = spool->bulk_dequeue_handler_privdata;
-    if(spool->type == SHORTLIVED) {
-      if(spool->generation == 0) {
-        //just some random aborted subscriber
-        spool->bulk_dequeue_handler(spool, sub->type, 1, pd);
-      }
-      else {
-        //first response. pretend to dequeue everything right away
-        if(spool->responded_shortlived_subs == 1) {
-          //assumes all SHORTLIVED subs are the same type. This is okay for now, but may lead to bugs.
-          spool->bulk_dequeue_handler(spool, sub->type, spool->shortlived_sub_count + 1, pd);
-        }
-      }
-    }
-    else {
-      spool->bulk_dequeue_handler(spool, sub->type, 1, pd);
-    }
-  }
-*/
-
 }
 
 static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub, uint8_t enqueue) {
@@ -436,11 +414,12 @@ channel_spooler_t *create_spooler() {
 
 static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, channel_spooler_t *spl) {
   //bubble on up, yeah
-  if(spl->dequeue_handler) {
-    spl->dequeue_handler(spl, sub, spl->dequeue_handler_privdata);
+  channel_spooler_handlers_t *h = spl->handlers;
+  if(h->dequeue) {
+    h->dequeue(spl, sub, spl->handlers_privdata);
   }
-  else if (spl->bulk_dequeue_handler){
-    spl->bulk_dequeue_handler(spl, sub->type, 1, spl->bulk_dequeue_handler_privdata);
+  else if (h->bulk_dequeue){
+    h->bulk_dequeue(spl, sub->type, 1, spl->handlers_privdata);
   }
   else {
     ERR("Neither dequeue_handler not bulk_dequeue_handler present in spooler for spool sub dequeue");
@@ -450,8 +429,8 @@ static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_
 /*
 static void spool_bubbleup_bulk_dequeue_handler(subscriber_pool_t *spool, subscriber_type_t type, ngx_int_t count, channel_spooler_t *spl) {
   //bubble on up, yeah
-  if(spl->bulk_dequeue_handler) {
-    spl->bulk_dequeue_handler(spl, type, count, spl->bulk_dequeue_handler_privdata);
+  if(spl->handlers->bulk_dequeue) {
+    spl->handlers->bulk_dequeue(spl, type, count, spl->handlers_privdata);
   }
 }
 */
@@ -482,12 +461,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
     return NGX_ERROR;
   }
   
-  if(self->add_handler != NULL) {
-    self->add_handler(self, sub, self->add_handler_privdata);
-  }
-  else {
-    ERR("SPOOLER %p has no add_handler, couldn't add subscriber %p", self, sub);
-  }
+  self->handlers->add(self, sub, self->handlers_privdata);
   
   switch(spool->msg_status) {
     case MSG_FOUND:
@@ -516,8 +490,8 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
       assert(0);
   }
   
-  if(self->bulk_post_subscribe_handler != NULL && subtype != INTERNAL) {
-    self->bulk_post_subscribe_handler(self, 1, self->bulk_post_subscribe_privdata);
+  if(self->handlers->bulk_post_subscribe != NULL && subtype != INTERNAL) {
+    self->handlers->bulk_post_subscribe(self, 1, self->handlers_privdata);
   }
   
   return NGX_OK;
@@ -804,46 +778,6 @@ static ngx_int_t spooler_respond_status(channel_spooler_t *self, ngx_int_t code,
   return spooler_respond_generic(self, NULL, code, line);
 }
 
-static ngx_int_t spooler_set_dequeue_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, subscriber_t *, void*), void *privdata) {
-  if(handler != NULL) {
-    self->dequeue_handler = handler;
-  }
-  if(privdata != NULL) {
-    self->dequeue_handler_privdata = privdata;
-  }
-  return NGX_OK;
-}
-
-static ngx_int_t spooler_set_bulk_post_subscribe_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, int, void *), void *privdata) {
-  if(handler != NULL) {
-    self->bulk_post_subscribe_handler = handler;
-  }
-  if(privdata != NULL) {
-    self->bulk_post_subscribe_privdata = privdata;
-  }
-  return NGX_OK;
-}
-
-static ngx_int_t spooler_set_bulk_dequeue_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *), void *privdata) {
-  if(handler != NULL) {
-    self->bulk_dequeue_handler = handler;
-  }
-  if(privdata != NULL) {
-    self->bulk_dequeue_handler_privdata = privdata;
-  }
-  return NGX_OK;
-}
-
-static ngx_int_t spooler_set_add_handler(channel_spooler_t *self, void (*handler)(channel_spooler_t *, subscriber_t *, void *), void *privdata) {
-  if(handler != NULL) {
-    self->add_handler = handler;
-  }
-  if(privdata != NULL) {
-    self->add_handler_privdata = privdata;
-  }
-  return NGX_OK;
-}
-
 static ngx_int_t spooler_spool_dequeue_all(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
   spooled_subscriber_t *cur;
   
@@ -945,14 +879,10 @@ static channel_spooler_fn_t  spooler_fn = {
   spooler_channel_status_changed,
   spooler_respond_message,
   spooler_respond_status,
-  spooler_prepare_to_stop,
-  spooler_set_add_handler,
-  spooler_set_dequeue_handler,
-  spooler_set_bulk_dequeue_handler,
-  spooler_set_bulk_post_subscribe_handler
+  spooler_prepare_to_stop
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store) {
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
   if(!spl->running) {
     ngx_memzero(spl, sizeof(*spl));
     rbtree_init(&spl->spoolseed, "spooler msg_id tree", spool_rbtree_node_id, spool_rbtree_bucketer, spool_rbtree_compare);
@@ -975,24 +905,16 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     init_spool(spl, &spl->current_msg_spool, &latest_msg_id);
     spl->current_msg_spool.msg_status = MSG_EXPECTED;
     
+    spl->handlers = handlers;
+    spl->handlers_privdata = handlers_privdata;
+    
     return spl;
   }
   else {
-    ERR("looks like spooler is already running. make sure spooler->running=0 befire starting.");
+    ERR("looks like spooler is already running. make sure spooler->running=0 before starting.");
     assert(0);
     return NULL;
   }
-  
-  
-  /*
-  nchan_msg_id_t        id = {0,0};
-  subscriber_pool_t     *spl;
-  
-  spl = get_spool(spl, &id);
-  
-  */
-  
-  
 }
 
 static ngx_int_t remove_spool(subscriber_pool_t *spool) {
