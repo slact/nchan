@@ -147,23 +147,13 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   sub_data_t                  *d;
   nchan_store_channel_head_t  *target_ch;
   ngx_int_t                    multi_subs;
-  
-  nchan_loc_conf_t cf;
+  subscriber_t                *sub;
+  nchan_loc_conf_t             cf;
   
   cf.use_redis = chanhead->use_redis;
   
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  if(d == NULL) {
-    ERR("couldn't allocate memstore-multi subscriber data");
-    return NULL;
-  }
-  
-  subscriber_t *sub = internal_subscriber_create(&sub_name, d);
-  internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
-  internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
-  internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
-  internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
-  internal_subscriber_set_notify_handler(sub, (callback_pt )sub_notify_handler);
+  sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler);
   
   sub->last_msgid = latest_msgid;
   

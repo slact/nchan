@@ -80,6 +80,28 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   return &fsub->sub;
 }
 
+subscriber_t *internal_subscriber_create_init(ngx_str_t *sub_name, void *privdata, callback_pt enqueue, callback_pt dequeue, callback_pt respond_message, callback_pt respond_status, callback_pt notify_handler) {
+  subscriber_t          *sub;
+  
+  if(privdata == NULL) {
+    ERR("couldn't allocate %V subscriber data", sub_name);
+    return NULL;
+  }
+  
+  sub = internal_subscriber_create(sub_name, privdata);
+  if(enqueue)
+    internal_subscriber_set_enqueue_handler(sub, enqueue);
+  if(dequeue)
+    internal_subscriber_set_dequeue_handler(sub, dequeue);
+  if(respond_message)
+    internal_subscriber_set_respond_message_handler(sub, respond_message);
+  if(respond_status)
+    internal_subscriber_set_respond_status_handler(sub, respond_status);
+  if(notify_handler)
+    internal_subscriber_set_notify_handler(sub, notify_handler);
+  return sub;
+}
+
 ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)sub;
   if(sub->reserved > 0) {
