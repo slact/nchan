@@ -155,8 +155,6 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   return rc;
 }
 
-static void empty_handler(void) {}
-
 static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
   nchan_buf_and_chain_t     bc;
   static u_char            *end_boundary=(u_char *)"--\r\n";
@@ -191,12 +189,7 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   
   nchan_output_filter(fsub->sub.request, &bc.chain);
   
-  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
-    fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
-    fsub->sub.request->keepalive=0;
-    fsub->data.finalize_request=1;
-    sub->fn->dequeue(sub);
-  }
+  subscriber_maybe_dequeue_after_status_response(fsub, status_code);
 
   return NGX_OK;
 }

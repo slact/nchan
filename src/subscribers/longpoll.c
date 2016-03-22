@@ -485,6 +485,14 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   return NGX_OK;
 }
 
+void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx_int_t status_code) {
+  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
+    fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
+    fsub->sub.request->keepalive=0;
+    fsub->data.finalize_request=1;
+    fsub->sub.fn->dequeue(&fsub->sub);
+  }
+}
 
 static void request_cleanup_handler(subscriber_t *sub) {
 
