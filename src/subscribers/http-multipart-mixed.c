@@ -219,10 +219,7 @@ static       ngx_str_t   sub_name = ngx_string("http-multipart");
 
 
 subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
-  subscriber_t         *sub;
-  full_subscriber_t    *fsub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  sub = longpoll_subscriber_create(r, msg_id);
+  subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
   
   if(multipart_fn == NULL) {
     multipart_fn = &multipart_fn_data;
@@ -232,22 +229,9 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
     multipart_fn->respond_status = multipart_respond_status;
   }
   
-  fsub = (full_subscriber_t *)sub;
+  ((full_subscriber_t *)sub)->data.shook_hands = 0;
   
-  sub->fn = multipart_fn;
-  sub->name = &sub_name;
-  sub->type = HTTP_MULTIPART;
-  
-  sub->dequeue_after_response = 0;
-  
-  fsub->data.shook_hands = 0;
-  
-  DBG("%p create subscriber", sub);
-  
-  if(ctx) {
-    ctx->subscriber_type = sub->name;
-  }
-  
+  nchan_subscriber_common_setup(sub, HTTP_MULTIPART, &sub_name, multipart_fn, 0);
   return sub;
 }
 
