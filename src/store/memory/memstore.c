@@ -255,16 +255,6 @@ ipc_t *nchan_memstore_get_ipc(void){
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, mpt->hash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( mpt->hash, chanhead)
 
-#undef uthash_malloc
-#undef uthash_free
-#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
-#define uthash_free(ptr,sz) ngx_free(ptr)
-
-#define STR(buf) (buf)->data, (buf)->len
-#define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
-
-#define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
-#define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 #define NCHAN_NOBUFFER_MSG_EXPIRE_SEC 10
 
 

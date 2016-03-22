@@ -65,19 +65,8 @@ static rdstore_data_t        rdt;
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, rdt.subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( rdt.subhash, chanhead)
 
-#undef uthash_malloc
-#undef uthash_free
-#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
-#define uthash_free(ptr,sz) ngx_free(ptr)
-
 #include <stdbool.h>
 #include "cmp.h"
-
-#define STR(buf) (buf)->data, (buf)->len
-#define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
-
-#define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
-#define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
