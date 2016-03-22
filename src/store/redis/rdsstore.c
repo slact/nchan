@@ -6,6 +6,7 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 #include <util/nchan_reaper.h>
+#include <store/store_common.h>
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 1
 
@@ -1387,12 +1388,6 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
-static void exit_notice_about_remaining_things(char *thing, char *where, ngx_int_t num) {
-  if(num > 0) {
-    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: %i %s%s remain %sat exit", num, thing, num == 1 ? "" : "s", where == NULL ? "" : where);
-  }
-}
-
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t *cur, *tmp;
   redisAsyncContext *ctx;
@@ -1402,7 +1397,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     chanhead_gc_add(cur, "exit worker");
   }
   
-  exit_notice_about_remaining_things("redis channel", "", rdt.chanhead_reaper.count);
+  nchan_exit_notice_about_remaining_things("redis channel", "", rdt.chanhead_reaper.count);
   nchan_reaper_stop(&rdt.chanhead_reaper);
   
   if((ctx=rds_ctx())!=NULL)
