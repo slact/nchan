@@ -48,8 +48,8 @@ ngx_int_t memstore_redis_subscriber_destroy(subscriber_t *sub) {
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  ngx_int_t           ret = NGX_OK;
-  return ret;
+  ngx_free(d);
+  return NGX_OK;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
