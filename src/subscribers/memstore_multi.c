@@ -1,12 +1,12 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
-#include "../store/memory/shmem.h"
-#include "../store/memory/ipc.h"
-#include "../store/memory/store-private.h"
-#include "../store/memory/ipc-handlers.h"
+#include <store/memory/shmem.h>
+#include <store/memory/ipc.h>
+#include <store/memory/store-private.h>
+#include <store/memory/ipc-handlers.h>
 
-#include "../store/memory/store.h"
-#include "../store/redis/store.h"
+#include <store/memory/store.h>
+#include <store/redis/store.h>
 
 #include "internal.h"
 #include "memstore_multi.h"
