@@ -158,6 +158,6 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   d->timeout_ev.log = ngx_cycle->log;
   reset_timer(d);
   */
-  DBG("%p created memstore-redis subscriber created with privdata %p", d->sub, d);
+  DBG("%p created memstore-redis subscriber with privdata %p", d->sub, d);
   return sub;
 }
