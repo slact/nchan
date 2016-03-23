@@ -201,6 +201,10 @@ class Subscriber
       uniqs
     end
     
+    def provides_msgid?
+      true
+    end
+    
     def error(code, msg, bundle=nil)
       err=ErrorResponse.new code, msg, bundle, @error_what, @error_failword
       err.caller=self
@@ -328,6 +332,9 @@ class Subscriber
       end
     end
     
+    def provides_msgid?
+      false
+    end
     
     attr_accessor :last_modified, :etag, :timeout
     def initialize(subscr, opt={})
@@ -408,7 +415,7 @@ class Subscriber
           bundle = WebSocketBundle.new(@handshake, sock)
           @ws[bundle]=true
           async.listen bundle
-          @notready=-1
+          @notready-=1
           @cooked_ready.signal true if @notready == 0
         end
       end
@@ -1032,6 +1039,7 @@ class Subscriber
       
       def <<(chunk)
         @buf << chunk
+        #puts @buf
         repeat = true
         while repeat do
           if !@preambled && @buf.slice!(/^--#{Regexp.escape @bound}/)
@@ -1040,15 +1048,14 @@ class Subscriber
             @headered = nil
           end
           
+          bbuf = @buf.dup
           if @preambled && @buf.slice!(/^(\r\n(.*?))?\r\n\r\n/m)
             @headered = true
-            
             ($~[2]).each_line do |l|
               if l.match(/(?<name>[^:]+):\s(?<val>[^\r\n]*)/)
                 @headers[$~[:name]]=$~[:val]
               end
             end
-            @headered = true
           else
             repeat = false
           end
@@ -1057,6 +1064,7 @@ class Subscriber
             @on_part.call @headers, $~[1]
             @headered = nil
             @headers.clear
+            repeat = true
           else
             repeat = false
           end
@@ -1130,6 +1138,10 @@ class Subscriber
   
   class HTTPChunkedClient < LongPollClient
     include Celluloid::IO
+    
+    def provides_msgid?
+      false
+    end
     
     def run(*args)
       if @http2
@@ -1210,8 +1222,8 @@ class Subscriber
     opt[:concurrency]=concurrency
     @concurrency = opt[:concurrency]
     @opt=opt
-    reset
     new_client
+    reset
   end
   def new_client
     @client=@Client_Class.new self, @opt
@@ -1219,7 +1231,7 @@ class Subscriber
   def reset
     @errors=[]
     unless @nostore
-      @messages=MessageStore.new :noid => !@care_about_message_ids
+      @messages=MessageStore.new :noid => !(client.provides_msgid? && @care_about_message_ids)
       @messages.name="sub"
     end
     @waiting=0
