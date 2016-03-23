@@ -1,3 +1,12 @@
+ update: hiredis updated to v0.13.3
+ fix: redis publishing and subscribing memory leaks
+ optimize: per-channel redis subscriber counts batched into 100-ms intervals
+    to prevent redis roundtrip floods
+ fix: redis subscriber memory leak
+ refactor: extracted shared subscriber and message store logic
+ fix: use-after-free error for redis channels without subscribers
+ fix: channel readying logic sometimes got confused and tripped up assert()s
+ fix: even more proper handling of websocket close frames
  change: 408 Request Timeout instead of 304 No Content status code for timed out subscribers
 0.99.8 (Mar. 13 2016)
  fix: multipart/mixed subscriber output issues
