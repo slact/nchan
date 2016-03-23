@@ -23,6 +23,7 @@ _NHPM_SUBSCRIBERS_SRCS="\
 
 _NHPM_REDIS_SRCS="\
   ${ngx_addon_dir}/src/hiredis/hiredis.c \
+  ${ngx_addon_dir}/src/hiredis/read.c \
   ${ngx_addon_dir}/src/hiredis/async.c \
   ${ngx_addon_dir}/src/hiredis/sds.c \
   ${ngx_addon_dir}/src/hiredis/net.c \

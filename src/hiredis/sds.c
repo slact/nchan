@@ -103,7 +103,7 @@ void sdsfree(sds s) {
  * the output will be "6" as the string was modified but the logical length
  * remains 6 bytes. */
 void sdsupdatelen(sds s) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
     int reallen = strlen(s);
     sh->free += (sh->len-reallen);
     sh->len = reallen;
@@ -114,7 +114,7 @@ void sdsupdatelen(sds s) {
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
 void sdsclear(sds s) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
     sh->free += sh->len;
     sh->len = 0;
     sh->buf[0] = '\0';
@@ -123,7 +123,7 @@ void sdsclear(sds s) {
 /* Enlarge the free space at the end of the sds string so that the caller
  * is sure that after calling this function can overwrite up to addlen
  * bytes after the end of the string, plus one more byte for nul term.
- * 
+ *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
@@ -133,7 +133,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 
     if (free >= addlen) return s;
     len = sdslen(s);
-    sh = (void*) (s-sizeof *sh);;
+    sh = (void*) (s-sizeof *sh);
     newlen = (len+addlen);
     if (newlen < SDS_MAX_PREALLOC)
         newlen *= 2;
@@ -155,7 +155,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 sds sdsRemoveFreeSpace(sds s) {
     struct sdshdr *sh;
 
-    sh = (void*) (s-sizeof *sh);;
+    sh = (void*) (s-sizeof *sh);
     sh = realloc(sh, sizeof *sh+sh->len+1);
     sh->free = 0;
     return sh->buf;
@@ -169,7 +169,7 @@ sds sdsRemoveFreeSpace(sds s) {
  * 4) The implicit null term.
  */
 size_t sdsAllocSize(sds s) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
 
     return sizeof(*sh)+sh->len+sh->free+1;
 }
@@ -198,7 +198,7 @@ size_t sdsAllocSize(sds s) {
  * sdsIncrLen(s, nread);
  */
 void sdsIncrLen(sds s, int incr) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
 
     assert(sh->free >= incr);
     sh->len += incr;
@@ -240,7 +240,7 @@ sds sdscatlen(sds s, const void *t, size_t len) {
 
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
-    sh = (void*) (s-sizeof *sh);;
+    sh = (void*) (s-sizeof *sh);
     memcpy(s+curlen, t, len);
     sh->len = curlen+len;
     sh->free = sh->free-len;
@@ -267,13 +267,13 @@ sds sdscatsds(sds s, const sds t) {
 /* Destructively modify the sds string 's' to hold the specified binary
  * safe string pointed by 't' of length 'len' bytes. */
 sds sdscpylen(sds s, const char *t, size_t len) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
     size_t totlen = sh->free+sh->len;
 
     if (totlen < len) {
         s = sdsMakeRoomFor(s,len-sh->len);
         if (s == NULL) return NULL;
-        sh = (void*) (s-sizeof *sh);;
+        sh = (void*) (s-sizeof *sh);
         totlen = sh->free+sh->len;
     }
     memcpy(s, t, len);
@@ -287,6 +287,73 @@ sds sdscpylen(sds s, const char *t, size_t len) {
  * of the string is obtained with strlen(). */
 sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
+}
+
+/* Helper for sdscatlonglong() doing the actual number -> string
+ * conversion. 's' must point to a string with room for at least
+ * SDS_LLSTR_SIZE bytes.
+ *
+ * The function returns the length of the null-terminated string
+ * representation stored at 's'. */
+#define SDS_LLSTR_SIZE 21
+int sdsll2str(char *s, long long value) {
+    char *p, aux;
+    unsigned long long v;
+    size_t l;
+
+    /* Generate the string representation, this method produces
+     * an reversed string. */
+    v = (value < 0) ? -value : value;
+    p = s;
+    do {
+        *p++ = '0'+(v%10);
+        v /= 10;
+    } while(v);
+    if (value < 0) *p++ = '-';
+
+    /* Compute length and add null term. */
+    l = p-s;
+    *p = '\0';
+
+    /* Reverse the string. */
+    p--;
+    while(s < p) {
+        aux = *s;
+        *s = *p;
+        *p = aux;
+        s++;
+        p--;
+    }
+    return l;
+}
+
+/* Identical sdsll2str(), but for unsigned long long type. */
+int sdsull2str(char *s, unsigned long long v) {
+    char *p, aux;
+    size_t l;
+
+    /* Generate the string representation, this method produces
+     * an reversed string. */
+    p = s;
+    do {
+        *p++ = '0'+(v%10);
+        v /= 10;
+    } while(v);
+
+    /* Compute length and add null term. */
+    l = p-s;
+    *p = '\0';
+
+    /* Reverse the string. */
+    p--;
+    while(s < p) {
+        aux = *s;
+        *s = *p;
+        *p = aux;
+        s++;
+        p--;
+    }
+    return l;
 }
 
 /* Like sdscatpritf() but gets va_list instead of being variadic. */
@@ -321,8 +388,8 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
  *
  * Example:
  *
- * s = sdsempty("Sum is: ");
- * s = sdscatprintf(s,"%d+%d = %d",a,b,a+b).
+ * s = sdsnew("Sum is: ");
+ * s = sdscatprintf(s,"%d+%d = %d",a,b,a+b);
  *
  * Often you need to create a string from scratch with the printf-alike
  * format. When this is the need, just use sdsempty() as the target string:
@@ -337,6 +404,127 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
     va_end(ap);
     return t;
 }
+
+/* This function is similar to sdscatprintf, but much faster as it does
+ * not rely on sprintf() family functions implemented by the libc that
+ * are often very slow. Moreover directly handling the sds string as
+ * new data is concatenated provides a performance improvement.
+ *
+ * However this function only handles an incompatible subset of printf-alike
+ * format specifiers:
+ *
+ * %s - C String
+ * %S - SDS string
+ * %i - signed int
+ * %I - 64 bit signed integer (long long, int64_t)
+ * %u - unsigned int
+ * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
+ * %T - A size_t variable.
+ * %% - Verbatim "%" character.
+ */
+sds sdscatfmt(sds s, char const *fmt, ...) {
+    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
+    size_t initlen = sdslen(s);
+    const char *f = fmt;
+    int i;
+    va_list ap;
+
+    va_start(ap,fmt);
+    f = fmt;    /* Next format specifier byte to process. */
+    i = initlen; /* Position of the next byte to write to dest str. */
+    while(*f) {
+        char next, *str;
+        int l;
+        long long num;
+        unsigned long long unum;
+
+        /* Make sure there is always space for at least 1 char. */
+        if (sh->free == 0) {
+            s = sdsMakeRoomFor(s,1);
+            sh = (void*) (s-(sizeof(struct sdshdr)));
+        }
+
+        switch(*f) {
+        case '%':
+            next = *(f+1);
+            f++;
+            switch(next) {
+            case 's':
+            case 'S':
+                str = va_arg(ap,char*);
+                l = (next == 's') ? strlen(str) : sdslen(str);
+                if (sh->free < l) {
+                    s = sdsMakeRoomFor(s,l);
+                    sh = (void*) (s-(sizeof(struct sdshdr)));
+                }
+                memcpy(s+i,str,l);
+                sh->len += l;
+                sh->free -= l;
+                i += l;
+                break;
+            case 'i':
+            case 'I':
+                if (next == 'i')
+                    num = va_arg(ap,int);
+                else
+                    num = va_arg(ap,long long);
+                {
+                    char buf[SDS_LLSTR_SIZE];
+                    l = sdsll2str(buf,num);
+                    if (sh->free < l) {
+                        s = sdsMakeRoomFor(s,l);
+                        sh = (void*) (s-(sizeof(struct sdshdr)));
+                    }
+                    memcpy(s+i,buf,l);
+                    sh->len += l;
+                    sh->free -= l;
+                    i += l;
+                }
+                break;
+            case 'u':
+            case 'U':
+            case 'T':
+                if (next == 'u')
+                    unum = va_arg(ap,unsigned int);
+                else if(next == 'U')
+                    unum = va_arg(ap,unsigned long long);
+                else
+                    unum = (unsigned long long)va_arg(ap,size_t);
+                {
+                    char buf[SDS_LLSTR_SIZE];
+                    l = sdsull2str(buf,unum);
+                    if (sh->free < l) {
+                        s = sdsMakeRoomFor(s,l);
+                        sh = (void*) (s-(sizeof(struct sdshdr)));
+                    }
+                    memcpy(s+i,buf,l);
+                    sh->len += l;
+                    sh->free -= l;
+                    i += l;
+                }
+                break;
+            default: /* Handle %% and generally %<unknown>. */
+                s[i++] = next;
+                sh->len += 1;
+                sh->free -= 1;
+                break;
+            }
+            break;
+        default:
+            s[i++] = *f;
+            sh->len += 1;
+            sh->free -= 1;
+            break;
+        }
+        f++;
+    }
+    va_end(ap);
+
+    /* Add null-term */
+    s[i] = '\0';
+    return s;
+}
+
 
 /* Remove the part of the string from left and from right composed just of
  * contiguous characters found in 'cset', that is a null terminted C string.
@@ -353,7 +541,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * Output will be just "Hello World".
  */
 void sdstrim(sds s, const char *cset) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
     char *start, *end, *sp, *ep;
     size_t len;
 
@@ -385,7 +573,7 @@ void sdstrim(sds s, const char *cset) {
  * sdsrange(s,1,-1); => "ello World"
  */
 void sdsrange(sds s, int start, int end) {
-    struct sdshdr *sh = (void*) (s-sizeof *sh);;
+    struct sdshdr *sh = (void*) (s-sizeof *sh);
     size_t newlen, len = sdslen(s);
 
     if (len == 0) return;
