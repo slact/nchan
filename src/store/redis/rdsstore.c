@@ -984,7 +984,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->shutting_down = 0;
   
   head->in_gc_queue = 0;
-  
+
   if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
     head->meta = 1;
   }

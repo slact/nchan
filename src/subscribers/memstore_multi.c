@@ -39,7 +39,7 @@ static void change_sub_count(nchan_store_channel_head_t *ch, ngx_int_t n) {
     ngx_atomic_fetch_add(&ch->shared->sub_count, n);
   }
   if(ch->use_redis) {
-    nchan_store_redis_fakesub_add(&ch->id, n);
+    memstore_fakesub_add(ch, n);
   }
 }
 

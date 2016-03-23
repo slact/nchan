@@ -18,6 +18,7 @@
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 5
 
+#define REDIS_FAKESUB_TIMER_INTERVAL 100
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -457,6 +458,14 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   return NGX_OK;
 }
 
+static int send_redis_fakesub_delta(nchan_store_channel_head_t *head) {
+  if(head->delta_fakesubs != 0) {
+    nchan_store_redis_fakesub_add(&head->id, head->delta_fakesubs);
+    head->delta_fakesubs = 0;
+    return 1;
+  }
+  return 0;
+}
 
 static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
   int       i;
@@ -467,7 +476,12 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
     ch->spooler.fn->respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
-  
+  if(ch->use_redis) {
+    send_redis_fakesub_delta(ch);
+    if(ch->delta_fakesubs_timer_ev.timer_set) {
+      ngx_del_timer(&ch->delta_fakesubs_timer_ev);
+    }
+  }
   if(ch->owner == memstore_slot() && ch->shared) {
     shm_free(shm, ch->shared);
   }
@@ -598,6 +612,19 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 
 #define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (head->use_redis == 1 && head->status == WAITING && head->owner == head->slot)
 
+void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
+  if(REDIS_FAKESUB_TIMER_INTERVAL == 0) {
+    nchan_store_redis_fakesub_add(&head->id, n);
+  }
+  else {
+    head->delta_fakesubs += n;
+    if(!head->delta_fakesubs_timer_ev.timer_set && !head->shutting_down && !ngx_exiting) {
+      //ERR("%V start fakesub timer", &head->id);
+      ngx_add_timer(&head->delta_fakesubs_timer_ev, REDIS_FAKESUB_TIMER_INTERVAL);
+    }
+  }
+}
+
 static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
   nchan_store_channel_head_t  *head = d;
   time_t t = ngx_time();
@@ -626,7 +653,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
     if(head->use_redis) {
-      nchan_store_redis_fakesub_add(&head->id, 1);
+      memstore_fakesub_add(head, 1);
     }
     
     if(head->multi) {
@@ -662,7 +689,7 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
     }
     */
     if(head->use_redis) {
-      nchan_store_redis_fakesub_add(&head->id, -count);
+      memstore_fakesub_add(head, -count);
     }
     
     if(head->multi) {
@@ -811,6 +838,14 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
   return 0;
 }
 
+static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
+  nchan_store_channel_head_t *head = (nchan_store_channel_head_t *)ev->data;
+  if(send_redis_fakesub_delta(head) && !ngx_exiting && ev->timedout) {
+    ev->timedout = 0;
+    ngx_add_timer(ev, REDIS_FAKESUB_TIMER_INTERVAL);
+  }
+}
+
 static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   nchan_store_channel_head_t   *head;
   ngx_int_t                     owner = memstore_channel_owner(channel_id);
@@ -842,6 +877,16 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   }
   else {
     head->stub = 1;
+  }
+  
+  if(head->use_redis) {
+    head->delta_fakesubs = 0;
+#if nginx_version >= 1008000
+    head->delta_fakesubs_timer_ev.cancelable = 1;
+#endif
+    head->delta_fakesubs_timer_ev.handler = delta_fakesubs_timer_handler;
+    head->delta_fakesubs_timer_ev.data = head;
+    head->delta_fakesubs_timer_ev.log=ngx_cycle->log;
   }
   
   if(head->slot == owner) {
