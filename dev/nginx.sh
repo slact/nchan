@@ -165,8 +165,14 @@ fi
 #start redis
 if [[ -z $no_redis ]]; then
   if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
-    redis-server $REDIS_CONF --port $REDIS_PORT &
-    redis_pid=$!
+    if [[ -z $persist_redis ]]; then
+      redis-server $REDIS_CONF --port $REDIS_PORT &
+      redis_pid=$!
+    else
+      redis-server $REDIS_CONF --port $REDIS_PORT --daemonize yes
+      sleep 1
+      redis_pid=$(cat /tmp/redis-pushmodule.pid)
+    fi
     echo "started redis on port $REDIS_PORT with pid $redis_pid"
   else
     echo "redis already running on port $REDIS_PORT with pid $old_redis_pid"
