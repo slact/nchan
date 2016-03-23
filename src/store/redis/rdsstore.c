@@ -1403,11 +1403,9 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
 }
 
 typedef struct {
-  ngx_msec_t                   t;
-  char                        *name;
   ngx_str_t                   *channel_id;
   subscriber_t                *sub;
-  nchan_store_channel_head_t  *chanhead;
+  unsigned                     allocd:1;
 } redis_subscribe_data_t;
 
 static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d);
@@ -1423,36 +1421,38 @@ static ngx_int_t subscribe_existing_channel_callback(ngx_int_t status, void *ch,
   else {
     nchan_store_subscribe_continued(d);
   }
+  assert(data->allocd);
+  ngx_free(data);
   
   return NGX_OK;
 }
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub) {
+  redis_subscribe_data_t        d_data;
   redis_subscribe_data_t       *d = NULL;
 
   assert(sub->last_msgid.tagcount == 1);
   
-  if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
-    return NGX_ERROR;
-  }
-  
-  d->channel_id=(ngx_str_t *)&d[1];
-  d->channel_id->len = channel_id->len;
-  d->channel_id->data = (u_char *)&(d->channel_id)[1];
-  ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
-
-  d->t = ngx_current_msec;
-  d->name = "get_message (subscribe)";
-  
-  d->sub = sub;
-  
-  if(sub->cf->subscribe_only_existing_channel) {
-    nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
+  if(!sub->cf->subscribe_only_existing_channel) {
+    d_data.allocd = 0;
+    d_data.channel_id = channel_id;
+    d_data.sub = sub;
+    nchan_store_subscribe_continued(&d_data);
   }
   else {
-    nchan_store_subscribe_continued(d);
+    if((d=ngx_alloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
+      return NGX_ERROR;
+    }
+    d->allocd = 1;
+    d->channel_id=(ngx_str_t *)&d[1];
+    d->channel_id->len = channel_id->len;
+    d->channel_id->data = (u_char *)&(d->channel_id)[1];
+    ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
+    d->sub = sub;
+    nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
   }
+
   return NGX_OK;
 }
 
@@ -1466,7 +1466,6 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   assert(ch != NULL);
   
   ch->spooler.fn->add(&ch->spooler, d->sub);
-  
   //redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag[0], "FILO", create_channel_ttl);
   return NGX_OK;
 }
