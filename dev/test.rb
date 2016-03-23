@@ -92,8 +92,6 @@ class PubSubTest <  Minitest::Test
     pub.nofail=true
     pub.get
     assert_equal 404, pub.response_code
-
-    puts "yeaaah"
     
     pub.post ["hello", "what is this i don't even"]
     assert_equal 202, pub.response_code
@@ -112,6 +110,7 @@ class PubSubTest <  Minitest::Test
     
     sub.run
     sub.wait :ready
+    sleep 0.15
     pub.get "text/json"
 
     info_json=JSON.parse pub.response_body
