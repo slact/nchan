@@ -107,7 +107,7 @@ static void nchan_thingcache_gc_timer_handler(ngx_event_t *ev) {
         if(tc->thing_head == cur) {
           tc->thing_head = cur->next;
         }
-        if(tc->thing_tail) {
+        if(tc->thing_tail == cur) {
           tc->thing_tail = cur->prev;
         }
         THING_HASH_DEL(tc, thing);
