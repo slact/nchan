@@ -1,5 +1,6 @@
 #ifndef NCHAN_TYPES_H
 #define NCHAN_TYPES_H
+#include <util/nchan_reuse_queue.h>
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
@@ -276,6 +277,8 @@ struct subscriber_s {
 #define NCHAN_MULTITAG_REQUEST_CTX_MAX 4
 typedef struct {
   subscriber_t                  *sub;
+  nchan_reuse_queue_t           *output_queue;
+  
   ngx_str_t                     *subscriber_type;
   nchan_msg_id_t                 msg_id;
   nchan_msg_id_t                 prev_msg_id;
@@ -285,6 +288,7 @@ typedef struct {
   ngx_str_t                      channel_id[NCHAN_MULTITAG_REQUEST_CTX_MAX];
   int                            channel_id_count;
   ngx_str_t                      request_origin_header;
+  
 #if NCHAN_BENCHMARK
   struct timeval                 start_tv;
 #endif

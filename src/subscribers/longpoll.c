@@ -44,6 +44,7 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   }
   
   nchan_subscriber_init(&fsub->sub, &new_longpoll_sub, r, msg_id);
+  fsub->privdata = NULL;
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 1;
   fsub->data.holding = 0;

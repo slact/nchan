@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
   subscriber_t       sub;
   subscriber_data_t  data;
+  void              *privdata;
 } full_subscriber_t;
 
 ngx_int_t longpoll_enqueue(subscriber_t *self);

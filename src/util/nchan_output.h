@@ -5,6 +5,12 @@ void nchan_output_init(void);
 void nchan_output_shutdown(void);
 
 ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in);
+ngx_int_t nchan_output_bufchainpooled_filter(ngx_http_request_t *r, ngx_chain_t *in, callback_pt cleanup, void *cleanup_pd);
+ngx_int_t nchan_output_cleanup_filter(ngx_http_request_t *r, ngx_chain_t *in, callback_pt cleanup, void *cleanup_pd);
+
+nchan_buf_and_chain_t *nchan_bufchain_pool_reserve(ngx_int_t count, ngx_file_t **file);
+ngx_int_t nchan_bufchain_pool_release(nchan_buf_and_chain_t *first);
+
 ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize);
 ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, const ngx_str_t *body, ngx_int_t finalize);
 ngx_int_t nchan_respond_cstring(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, char *body, ngx_int_t finalize);
