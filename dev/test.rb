@@ -27,7 +27,7 @@ def pubsub(concurrent_clients=1, opt={})
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
   sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers], verbose: opt[:verbose]
-  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}")
+  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}"), timeout: timeout
   return pub, sub
 end
 def verify(pub, sub, check_errors=true)
@@ -559,6 +559,32 @@ class PubSubTest <  Minitest::Test
     pub.post %w( what is this even FIN )
     sub.wait
     verify pub, sub
+    sub.terminate
+  end
+  
+  def test_long_buffed_messages
+    kb=10000
+    #kb=2
+    pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: :eventsource, channel: :foo
+    #pub, sub = pubsub 1, sub: "/sub/websocket_only/", client: :websocket
+    #sub.on_message do |msg|
+    #  puts ">>>>>>>message: #{msg.message[0...10]}...|#{msg.message.length}|"
+    #end
+    sub.run
+    sleep 1
+    m1="#{"q"*((kb * 1024)-3)}end"
+    m2="#{"r"*((kb * 1024)-3)}end"
+    i=0
+    15.times do
+      i+=1
+      pub.post "#{i}#{m1}"
+      i+=1
+      pub.post "#{i}#{m2}"
+    end
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    pub.delete
     sub.terminate
   end
   
