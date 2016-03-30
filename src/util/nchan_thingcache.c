@@ -163,7 +163,7 @@ ngx_int_t nchan_thingcache_shutdown(void *tcv) {
     next = cur->next;
     tc->destroy(&thing->id, cur->data);
     THING_HASH_DEL(tc, thing);
-    ngx_free(cur);
+    ngx_free(thing);
     cur = next;
   }
   

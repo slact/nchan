@@ -24,7 +24,7 @@ typedef struct {
 } headerbuf_t;
 
 static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
-  nchan_buf_and_chain_t          *bc = nchan_bufchain_pool_reserve(1, NULL);
+  nchan_buf_and_chain_t          *bc;
   
   ngx_http_request_t             *r = fsub->sub.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
@@ -41,8 +41,11 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
     //set preamble in the request ctx. it would be nicer to store in in the subscriber data, 
     //but that would mean not reusing longpoll's fsub directly
     
-    bc->chain.buf = &bc->buf;
-    bc->chain.next = NULL;
+    if((bc = nchan_bufchain_pool_reserve(1, NULL)) == NULL) {
+      ERR("can't reserve bufchain for multipart headers");
+      nchan_respond_status(fsub->sub.request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+      return;
+    }
     
     ngx_memzero(&bc->buf, sizeof(ngx_buf_t));
     bc->buf.start = multipart_data->boundary + 2;
@@ -182,21 +185,16 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   
   DBG("%p output msg to subscriber", sub);
   
-  rc = nchan_output_bufchainpooled_filter(fsub->sub.request, &bc[0].chain, headerbuf_pop, fsub);
+  rc = nchan_output_msg_bufchainpooled_filter(fsub->sub.request, msg, &bc[0].chain, headerbuf_pop, fsub);
   
   return rc;
 }
 
 static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
-  nchan_buf_and_chain_t    *bc = nchan_bufchain_pool_reserve(1, NULL);
+  nchan_buf_and_chain_t    *bc;
   static u_char            *end_boundary=(u_char *)"--\r\n";
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
-  
-  if(bc == NULL) {
-    nchan_respond_status(sub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
-    return NGX_ERROR;
-  }
   
   if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
@@ -209,6 +207,11 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   }
   
   multipart_ensure_headers_sent(fsub);
+  
+  if((bc = nchan_bufchain_pool_reserve(1, NULL)) == NULL) {
+    nchan_respond_status(sub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+    return NGX_ERROR;
+  }
   bc->chain.buf = &bc->buf;
   bc->chain.next = NULL;
   
