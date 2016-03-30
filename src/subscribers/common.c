@@ -1,5 +1,6 @@
 #include <nchan_module.h>
 #include <assert.h>
+#include "common.h"
 
 #if FAKESHARD
 #include <store/memory/store.h>

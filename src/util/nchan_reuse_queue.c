@@ -50,6 +50,22 @@ static void check_queue(nchan_reuse_queue_t *rq) {
 }
 */
 
+ngx_int_t nchan_reuse_queue_clear(nchan_reuse_queue_t *rq) {
+  void *pd = rq->pd;
+  void *thing, *next;
+  ngx_int_t     i=0;
+  next = rq->first;
+  while((thing = next) != NULL) {
+    i++;
+    next = thing_next(rq, thing);
+    if(rq->free) rq->free(pd, thing);
+  }
+  rq->first = NULL;
+  rq->last = NULL;
+  rq->reserve = rq->first;
+  return i;
+}
+
 ngx_int_t nchan_reuse_queue_shutdown(nchan_reuse_queue_t *rq) {
   if(rq->free) {
     void *pd = rq->pd;
@@ -65,9 +81,16 @@ ngx_int_t nchan_reuse_queue_shutdown(nchan_reuse_queue_t *rq) {
       rq->free(pd, thing);
     }
   }
+  
+  if(rq->last) {
+    *thing_next_ptr(rq, rq->last) = rq->reserve;
+  }
   rq->first = NULL;
   rq->last = NULL;
-  rq->reserve = NULL;
+  
+  if(rq->first) {
+    rq->reserve = rq->first;
+  }
   return NGX_OK;
 }
 
