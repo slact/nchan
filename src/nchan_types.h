@@ -1,6 +1,7 @@
 #ifndef NCHAN_TYPES_H
 #define NCHAN_TYPES_H
 #include <util/nchan_reuse_queue.h>
+#include <util/nchan_bufchainpool.h>
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
@@ -40,13 +41,6 @@ typedef struct {
   unsigned                        tagactive:16;
   unsigned                        tagcount:16;
 } nchan_msg_id_t;
-
-typedef struct {
-  ngx_chain_t     chain;
-  ngx_buf_t       buf;
-} nchan_buf_and_chain_t;
-
-
 
 //message queue
 
@@ -277,8 +271,9 @@ struct subscriber_s {
 #define NCHAN_MULTITAG_REQUEST_CTX_MAX 4
 typedef struct {
   subscriber_t                  *sub;
-  nchan_reuse_queue_t           *output_queue;
+  nchan_reuse_queue_t           *output_str_queue;
   nchan_reuse_queue_t           *reserved_msg_queue;
+  nchan_bufchain_pool_t         *bcp; //bufchainpool maybe?
   
   ngx_str_t                     *subscriber_type;
   nchan_msg_id_t                 msg_id;
