@@ -19,7 +19,7 @@
 #define WEBSOCKET_OPCODE_CLOSE              0x8
 #define WEBSOCKET_OPCODE_PING               0x9
 #define WEBSOCKET_OPCODE_PONG               0xA
-
+  
 #define WEBSOCKET_READ_START_STEP           0
 #define WEBSOCKET_READ_GET_REAL_SIZE_STEP   1
 #define WEBSOCKET_READ_GET_MASK_KEY_STEP    2
@@ -76,6 +76,14 @@ static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (
 #define NCHAN_WS_UPSTREAM_TMP_POOL_SIZE (4*1024)
 
 
+typedef struct framebuf_s framebuf_t;
+struct framebuf_s {
+  u_char        chr[WEBSOCKET_FRAME_HEADER_MAX_LENGTH + 10]; // +10 for the reservoir tip. just to be safe.
+  framebuf_t   *prev;
+  framebuf_t   *next;
+};
+
+
 #if FAKESHARD
 //debugstuff
 void memstore_fakeprocess_push(ngx_int_t slot);
@@ -110,9 +118,9 @@ typedef struct {
   ngx_http_cleanup_t          *cln;
   full_subscriber_t           *fsub;
   ngx_buf_t                    buf;
-  //ngx_http_request_t          *sr;
-  //ngx_http_posted_request_t   *pr;
-  //ngx_chain_t                  link;
+  //ngx_http_request_t        *sr;
+  //ngx_http_posted_request_t *pr;
+  //ngx_chain_t                link;
   ngx_str_t                    upstream_request_url;
 } nchan_pub_upstream_data_t;
 
@@ -124,6 +132,7 @@ typedef struct {
 struct full_subscriber_s {
   subscriber_t            sub;
   ngx_http_cleanup_t     *cln;
+  nchan_request_ctx_t    *ctx;
   subscriber_callback_pt  dequeue_handler;
   void                   *dequeue_handler_data;
   ngx_event_t             timeout_ev;
@@ -135,12 +144,6 @@ struct full_subscriber_s {
   
   ngx_event_t             ping_ev;
   
-  //reusable output chains and bufs
-  ngx_chain_t             hdr_chain;
-  ngx_chain_t             msg_chain;
-  ngx_buf_t               hdr_buf;
-  ngx_buf_t               msg_buf; //assumes single-buffer messages
-  ngx_file_t              msg_file;
   
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
@@ -152,9 +155,9 @@ struct full_subscriber_s {
 };// full_subscriber_t
 
 
-static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len);
+static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *chain);
 static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str);
-static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len);
+static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *chain);
 static ngx_flag_t is_utf8(u_char *, size_t);
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
@@ -188,13 +191,14 @@ static void init_msg_buf(ngx_buf_t *buf);
 
 
 static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *ch, full_subscriber_t *fsub) {
-  time_t               last_seen = 0;
-  ngx_uint_t           subscribers = 0;
-  ngx_uint_t           messages = 0;
-  nchan_msg_id_t      *msgid = NULL;
-  ngx_http_request_t  *r = fsub->sub.request;
-  ngx_str_t           *accept_header = NULL;
-  ngx_buf_t           *tmp_buf;
+  time_t                 last_seen = 0;
+  ngx_uint_t             subscribers = 0;
+  ngx_uint_t             messages = 0;
+  nchan_msg_id_t        *msgid = NULL;
+  ngx_http_request_t    *r = fsub->sub.request;
+  ngx_str_t             *accept_header = NULL;
+  ngx_buf_t             *tmp_buf;
+  nchan_buf_and_chain_t *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
   if(ch) {
     subscribers = ch->subscribers;
     last_seen = ch->last_seen;
@@ -220,10 +224,10 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
         accept_header = &r->headers_in.accept->value;
       }
       tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, NULL);
-      ngx_memcpy(&fsub->msg_buf, tmp_buf, sizeof(*tmp_buf));
-      fsub->msg_buf.last_buf=1;
+      ngx_memcpy(&bc->buf, tmp_buf, sizeof(*tmp_buf));
+      bc->buf.last_buf=1;
       
-      nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&fsub->msg_buf))));
+      nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&bc->buf)), &bc->chain));
       break;
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
@@ -454,8 +458,11 @@ static void websocket_init_frame(ws_frame_t *frame) {
   frame->payload = NULL;
 }
 
+static void *framebuf_alloc(void *pd) {
+  return ngx_palloc((ngx_pool_t *)pd, sizeof(framebuf_t));
+}
+
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
-  ngx_buf_t            *b;
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   DBG("create for req %p", r);
@@ -467,6 +474,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
   nchan_subscriber_init(&fsub->sub, &new_websocket_sub, r, msg_id);
   fsub->cln = NULL;
+  fsub->ctx = ctx;
   fsub->finalize_request = 0;
   fsub->holding = 0;
   fsub->shook_hands = 0;
@@ -475,7 +483,6 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->closing = 0;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
-  ngx_memzero(&fsub->timeout_ev, sizeof(fsub->timeout_ev));
   fsub->dequeue_handler = empty_handler;
   fsub->dequeue_handler_data = NULL;
   fsub->awaiting_destruction = 0;
@@ -485,27 +492,17 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->closing_ev.cancelable = 1;
 #endif
   
-  
-  //initialize reusable chains and bufs
-  ngx_memzero(&fsub->hdr_buf, sizeof(fsub->hdr_buf));
-  ngx_memzero(&fsub->msg_buf, sizeof(fsub->msg_buf));
-  //space for frame header
-  fsub->hdr_buf.start = ngx_pcalloc(r->pool, WEBSOCKET_FRAME_HEADER_MAX_LENGTH);
-  
-  fsub->hdr_chain.buf = &fsub->hdr_buf;
-  fsub->hdr_chain.next = &fsub->msg_chain;
-  
-  fsub->msg_chain.buf = &fsub->msg_buf;
-  fsub->msg_chain.next = NULL;
-  
   //what should the buffers look like?
-  b = &fsub->msg_buf;
+  
+  /*
+  //mesage buf
   b->last_buf = 1;
   b->last_in_chain = 1;
   b->flush = 1;
   b->memory = 1;
   b->temporary = 0;
-
+  */
+  
   if(fsub->sub.cf->pub.websocket) {
     fsub->publish_channel_id = nchan_get_channel_id(r, PUB, 0);
   }
@@ -530,17 +527,23 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_add(&fsub->sub);
   #endif
+
+  //send-frame buffer
+  ctx->output_str_queue = ngx_palloc(r->pool, sizeof(*ctx->output_str_queue));
+  nchan_reuse_queue_init(ctx->output_str_queue, offsetof(framebuf_t, prev), offsetof(framebuf_t, next), framebuf_alloc, NULL, r->pool);
+  
+  //bufchain pool
+  ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
+  nchan_bufchain_pool_init(ctx->bcp, r->pool);
   
   return &fsub->sub;
 }
 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
-  nchan_request_ctx_t *ctx;
   
   if(!fsub->awaiting_destruction) {
-    ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
-    ctx->sub = NULL;
+    fsub->ctx->sub = NULL;
   }
   
   if(fsub->upstream_stuff && fsub->upstream_stuff->psr_data.tmp_pool) {
@@ -564,7 +567,6 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
-
 static void websocket_perform_handshake(full_subscriber_t *fsub) {
   static ngx_str_t    magic = ngx_string("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
   ngx_str_t           ws_accept_key, sha1_str;
@@ -573,7 +575,6 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_str_t          *tmp, *ws_key;
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
-  nchan_request_ctx_t *ctx = ngx_http_get_module_ctx(r, nchan_module);
   
   ngx_sha1_t          sha1;
   
@@ -612,7 +613,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     assert(ws_accept_key.len < 255);
     ngx_encode_base64(&ws_accept_key, &sha1_str);
     
-    nchan_include_access_control_if_needed(r, ctx);
+    nchan_include_access_control_if_needed(r, fsub->ctx);
     nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
     nchan_add_response_header(r, &NCHAN_HEADER_UPGRADE, &NCHAN_WEBSOCKET);
 #if nginx_version < 1003013
@@ -674,7 +675,7 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
 static void ping_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
   if(ev->timedout) {
-    websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0); 
+    websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0, NULL); 
     ev->timedout=0;
     ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
   }
@@ -868,7 +869,7 @@ static void websocket_reading(ngx_http_request_t *r) {
       
       case WEBSOCKET_READ_GET_PAYLOAD_STEP:
         if ((frame->opcode != WEBSOCKET_OPCODE_TEXT) && (frame->opcode != WEBSOCKET_OPCODE_CLOSE) && (frame->opcode != WEBSOCKET_OPCODE_PING) && (frame->opcode != WEBSOCKET_OPCODE_PONG)) {
-          websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
+          websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0, NULL);
           goto finalize;
         }
         
@@ -922,7 +923,7 @@ static void websocket_reading(ngx_http_request_t *r) {
           
           case WEBSOCKET_OPCODE_PING:
             DBG("%p got pinged", fsub);
-            websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, 0);
+            websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, 0, NULL);
             break;
             
           case WEBSOCKET_OPCODE_PONG:
@@ -1035,14 +1036,8 @@ uint64_t ws_htonll(uint64_t value) {
 
 
 static void init_header_buf(ngx_buf_t *buf) {
-  u_char        *pos;
-  buf->flush = 1;
+  ngx_memzero(buf, sizeof(*buf));
   buf->memory = 1;
-  buf->temporary = 0;
-  pos = buf->start;
-  buf->end=pos;
-  buf->pos=pos;
-  buf->last=pos; 
 }
 
 static void init_msg_buf(ngx_buf_t *buf) {
@@ -1053,10 +1048,13 @@ static void init_msg_buf(ngx_buf_t *buf) {
   buf->memory = 1;
 }
 
-static ngx_int_t websocket_frame_header(ngx_buf_t *buf, const u_char opcode, off_t len) {
-  u_char               *last = buf->start;
+static ngx_int_t websocket_frame_header(full_subscriber_t *fsub, ngx_buf_t *buf, const u_char opcode, off_t len) {
+  
+  framebuf_t           *framebuf = nchan_reuse_queue_push(fsub->ctx->output_str_queue);
+  u_char               *last = framebuf->chr;
   uint64_t              len_net;
   init_header_buf(buf);
+  buf->start = last;
   *last = opcode;
   last++;
   
@@ -1093,49 +1091,46 @@ static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str) {
   buf->last = buf->end;
 }
 
-static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len) {
-  ngx_chain_t   *hdr_chain = &fsub->hdr_chain;
+static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *msg_chain) {
   
-  ngx_buf_t     *hdr_buf = &fsub->hdr_buf;
-  //ngx_buf_t     *msg_buf = &fsub->msg_buf;
+  nchan_buf_and_chain_t   *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+
+  init_header_buf(&bc->buf);
   
-  websocket_frame_header(hdr_buf, opcode, len);
+  websocket_frame_header(fsub, &bc->buf, opcode, len);
   
   if(len == 0) {
-    hdr_buf->last_buf=1;
-    hdr_chain->next=NULL;
+    bc->buf.last_buf=1;
   }
   else {
-    hdr_buf->last_buf=0;
-    hdr_chain->next = &fsub->msg_chain;
+    bc->buf.last_buf=0;
+    assert(msg_chain != NULL);
+    bc->chain.next = msg_chain;
   }
-  hdr_buf->pos=hdr_buf->start;
+  bc->buf.pos=bc->buf.start;
 
-  return hdr_chain;
+  return &bc->chain;
 }
 
-static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len) {
-  return nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, opcode, len));
+static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *msg_chain) {
+  return nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, opcode, len, msg_chain));
 }
 
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
-  //ngx_chain_t   *hdr_chain = fsub->hdr_chain;
-  //ngx_chain_t   *msg_chain = fsub->msg_chain;
-  
-  ngx_buf_t     *msg_buf = &fsub->msg_buf;
+  nchan_buf_and_chain_t *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
   //message first
   assert(msg->buf);
-  ngx_memcpy(msg_buf, msg->buf, sizeof(*msg_buf));
-  
-  nchan_msg_buf_open_fd_if_needed(msg_buf, &fsub->msg_file, NULL);
+  bc->buf = *msg->buf;
+  if(msg->buf->file) {
+    nchan_msg_buf_open_fd_if_needed(&bc->buf, nchan_bufchain_pool_reserve_file(fsub->ctx->bcp), NULL);
+  }
 
   //now the header
-  return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size(msg_buf));
+  return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&bc->buf)), &bc->chain);
 }
 
 static void closing_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  DBG("%p closing timeout", fsub);
   ngx_http_finalize_request(fsub->sub.request, NGX_OK);
 }
 
@@ -1157,9 +1152,10 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
 }
 
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  ngx_chain_t   *hdr_chain = &fsub->hdr_chain;
-  ngx_buf_t     *hdr_buf = &fsub->hdr_buf;
-  ngx_buf_t     *msg_buf = &fsub->msg_buf;
+  nchan_buf_and_chain_t *bc; 
+  ngx_chain_t   *hdr_chain;
+  ngx_buf_t     *hdr_buf;
+  ngx_buf_t     *msg_buf;
   ngx_str_t      alt_err;
   uint16_t       code_net;
   
@@ -1174,22 +1170,25 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   err = &alt_err;
   
   if(code == 0) {
-    return websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0);
+    return websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0, NULL);
   }
   
   if(code < 1000 || code > 1011) {
     ERR("invalid websocket close status code %i", code);
     code=CLOSE_NORMAL;
   }
-  websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, err->len + 2);
-  
+  bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+  msg_buf = &bc->buf;
+  init_msg_buf(msg_buf);
+  set_buf_to_str(msg_buf, err);
+  hdr_chain = websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, err->len + 2, &bc->chain);
+  hdr_buf = hdr_chain->buf;
   //there's definitely enough space at the end for 2 more bytes
   code_net=htons(code);
   hdr_buf->last = ngx_copy(hdr_buf->last, &code_net, 2);
   hdr_buf->end = hdr_buf->last;
   
-  init_msg_buf(msg_buf);
-  set_buf_to_str(msg_buf, err);
+
   return hdr_chain;
 }
 
@@ -1197,18 +1196,17 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   ngx_int_t        rc;
   full_subscriber_t         *fsub = (full_subscriber_t *)self;
   ensure_handshake(fsub);
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   if(fsub->timeout_ev.timer_set) {
     ngx_del_timer(&fsub->timeout_ev);
     ngx_add_timer(&fsub->timeout_ev, fsub->sub.cf->subscriber_timeout * 1000);
   }
   
-  ctx->prev_msg_id = self->last_msgid;
+  fsub->ctx->prev_msg_id = self->last_msgid;
   update_subscriber_last_msg_id(self, msg);
-  ctx->msg_id = self->last_msgid;
+  fsub->ctx->msg_id = self->last_msgid;
   
-  rc = nchan_output_filter(fsub->sub.request, websocket_msg_frame_chain(fsub, msg));
+  rc = nchan_output_msg_filter(fsub->sub.request, msg, websocket_msg_frame_chain(fsub, msg));
   
   return rc;
 }
