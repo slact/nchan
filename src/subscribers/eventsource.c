@@ -197,7 +197,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
       databuf.file_last = flast;
       
       //getc that shit
-      for(;;) {
+      /*for(;;) {
         chr_int = getc(stream);
         if(chr_int == EOF) {
           break;
@@ -207,6 +207,13 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
           break;
         }
         fcur++;
+      }*/
+      
+      if(fscanf(stream,"%*[^\n]\n") != EOF) {
+        fcur = ftell(stream);
+      }
+      else {
+        fcur = flast;
       }
       
       databuf.file_last = fcur;
@@ -232,7 +239,6 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     last_link = &bc->chain;
   }
   //okay, this crazy data chain is finished. 
-  
     
   //now how about the mesage tag?
   
