@@ -246,24 +246,10 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
   ngx_event_t                            *wev;
   ngx_connection_t                       *c;
   nchan_request_ctx_t                    *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  int                                     old_chains;
   
   c = r->connection;
   wev = c->write;
-  old_chains = r->out != NULL;
-  if(old_chains) {
-    if(ctx->refresh_out_chain_files) {
-      ngx_chain_t  *cur;
-      ngx_file_t   *file;
-      for(cur = r->out; cur != NULL; cur = cur->next) {
-        file = cur->buf->file;
-        if(file) {
-          file->fd = nchan_fdcache_get(&file->name);
-        }
-      }
-    }
-  }
-  
+
   if(ctx->bcp) {
     nchan_bufchain_pool_refresh_files(ctx->bcp);
   }
