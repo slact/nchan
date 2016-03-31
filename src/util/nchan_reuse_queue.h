@@ -15,7 +15,7 @@ typedef struct {
 
 ngx_int_t nchan_reuse_queue_init(nchan_reuse_queue_t *rq, int prev, int next, void *(*alloc)(void *), ngx_int_t (*free)(void *, void*), void *privdata);
 ngx_int_t nchan_reuse_queue_shutdown(nchan_reuse_queue_t *rq);
-ngx_int_t nchan_reuse_queue_clear(nchan_reuse_queue_t *rq);
+ngx_int_t nchan_reuse_queue_flush(nchan_reuse_queue_t *rq);
 void nchan_reuse_queue_each(nchan_reuse_queue_t *rq, void (*calback)(void *));
 void *nchan_reuse_queue_first(nchan_reuse_queue_t *rq);
 void *nchan_reuse_queue_push(nchan_reuse_queue_t *rq);

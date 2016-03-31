@@ -50,7 +50,7 @@ static void check_queue(nchan_reuse_queue_t *rq) {
 }
 */
 
-ngx_int_t nchan_reuse_queue_clear(nchan_reuse_queue_t *rq) {
+ngx_int_t nchan_reuse_queue_flush(nchan_reuse_queue_t *rq) {
   void *pd = rq->pd;
   void *thing, *next;
   ngx_int_t     i=0;

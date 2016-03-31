@@ -2,6 +2,7 @@
 #include <nchan_module.h>
 #include "nchan_output.h"
 #include <util/nchan_thingcache.h>
+#include <util/nchan_bufchainpool.h>
 #include <store/memory/store.h>
 #include <assert.h>
 
@@ -97,162 +98,14 @@ ngx_int_t nchan_msg_buf_open_fd_if_needed(ngx_buf_t *buf, ngx_file_t *file, ngx_
   return NGX_OK;
 }
 
-#define NCHAN_BUFCHAIN_POOL_COUNT 255
-
-typedef struct {
-  ngx_int_t               count;
-  ngx_file_t              file;
-  nchan_buf_and_chain_t   bc;
-} nchan_allocd_bufchain_t;
-
-typedef struct {
-  ngx_int_t                  reserved_count;
-  ngx_int_t                  allocd_count;
-  uint32_t                   n;
-  nchan_buf_and_chain_t      bc[NCHAN_BUFCHAIN_POOL_COUNT];
-  ngx_file_t                 file[NCHAN_BUFCHAIN_POOL_COUNT];
-  ngx_int_t                  bc_reserved[NCHAN_BUFCHAIN_POOL_COUNT];
-} nchan_bufchain_pool_t;
-
-static nchan_bufchain_pool_t bufchain_pool;
-
-static void link_bufchain_range(nchan_buf_and_chain_t *bc, ngx_int_t range) {
-  ngx_int_t i;
-  for(i=0; i<range-1; i++) {
-    bc[i].chain.buf = &bc[i].buf;
-    bc[i].chain.next = &bc[i+1].chain;
-    bc[i].buf.last_buf = 0;
-    bc[i].buf.last_in_chain = 0;
-  }
-  bc[i].chain.buf = &bc[i].buf;
-  bc[i].chain.next = NULL;
-  bc[i].buf.last_buf = 1;
-  bc[i].buf.last_in_chain = 0;
-}
-
-
-static nchan_buf_and_chain_t *try_reserve_range(ngx_int_t range) {
-  ngx_int_t              i, n = bufchain_pool.n, min, max;
-  ngx_int_t              sum = n + range;
-  
-  if(sum < 0 || sum >= NCHAN_BUFCHAIN_POOL_COUNT) {
-    return NULL;
-  }
-  min = n < sum ? n : sum;
-  max = n > sum ? n : sum;
-  for(i = min; i < max; i++) {
-    if(bufchain_pool.bc_reserved[i] >= 0) {
-      return NULL;
-    }
-  }
-  for(i = min; i < max; i++) {
-    bufchain_pool.bc_reserved[i] = max - i - 1;
-  }
-  bufchain_pool.reserved_count += max - min;
-  bufchain_pool.n = max;
-  return &bufchain_pool.bc[min];
-}
-
-nchan_buf_and_chain_t *nchan_bufchain_pool_reserve(ngx_int_t count, ngx_file_t **file) {
-  nchan_buf_and_chain_t      *bc;
-  nchan_allocd_bufchain_t    *bc_allocd;
-  //strategy: look to the left, (-count)
-  //then look to the right (+count)
-  //then try from n = 0
-  //then use alloc
-  
-  if((bc = try_reserve_range(-count))) {
-    link_bufchain_range(bc, count);
-    if(file) {
-      *file = &bufchain_pool.file[bufchain_pool.n - count];
-    }
-    return bc;
-  }
-  else if((bc = try_reserve_range(count))) {
-    link_bufchain_range(bc, count);
-    if(file) {
-      *file = &bufchain_pool.file[bufchain_pool.n];
-    }
-    return bc;
-  }
-  else if(bufchain_pool.n != 0) {
-    bufchain_pool.n = 0;
-    return nchan_bufchain_pool_reserve(count, file);
-  }
-  else {
-    if((bc_allocd = ngx_alloc(sizeof(*bc_allocd) + (count-1) * sizeof(*bc), ngx_cycle->log)) == NULL) {
-      ERR("Failed to allocate bufchain in common bufchain pool");
-      return NULL;
-    }
-    bc_allocd->count = count;
-    bufchain_pool.allocd_count++;
-    link_bufchain_range(&bc_allocd->bc, count);
-    if(file) {
-      *file = &bc_allocd->file;
-    }
-    return &bc_allocd->bc;
-  }
-}
-
-static ngx_inline nchan_buf_and_chain_t *next_bufchain(nchan_buf_and_chain_t *cur) {
-  return container_of((cur->chain.next), nchan_buf_and_chain_t, chain);
-}
-
-ngx_int_t nchan_bufchain_pool_release(nchan_buf_and_chain_t *first) {
-
-  nchan_buf_and_chain_t   *cur, *next;
-  nchan_buf_and_chain_t   *pool_first = &bufchain_pool.bc[0], *pool_last = &bufchain_pool.bc[NCHAN_BUFCHAIN_POOL_COUNT];
-  ngx_int_t                i;
-  
-  for(cur = first; cur != NULL; cur = next) {
-    if(cur >= pool_first && cur < pool_last) {
-      i = (cur - pool_first); //aww year pointer magic
-      assert(bufchain_pool.bc_reserved[i] >= 0);
-      next = bufchain_pool.bc_reserved[i] == 0 ? NULL : next_bufchain(cur);
-      bufchain_pool.bc_reserved[i]=-1;
-      bufchain_pool.reserved_count--;
-    }
-    else {
-      //must have been alloc'd
-      nchan_allocd_bufchain_t     *bc_allocd;
-      
-      bc_allocd = container_of(cur, nchan_allocd_bufchain_t, bc);
-      for(i=0; i< bc_allocd->count; i++) {
-        cur = next_bufchain(cur);
-      }
-      next = cur;
-      bufchain_pool.allocd_count--;
-      ngx_free(bc_allocd);
-    }
-  }
-  return NGX_OK;
-}
-
-static void nchan_bufchain_pool_init(void) {
-  ngx_int_t      i;
-  bufchain_pool.reserved_count = 0;
-  bufchain_pool.allocd_count = 0;
-  bufchain_pool.n = 0;
-  for(i=0; i<NCHAN_BUFCHAIN_POOL_COUNT; i++) {
-    ngx_memzero(&bufchain_pool.bc[i], sizeof(nchan_buf_and_chain_t));
-    ngx_memzero(&bufchain_pool.file[i], sizeof(ngx_file_t));
-    bufchain_pool.bc_reserved[i]=-1;
-  }
-}
-
-static void nchan_bufchain_pool_shutdown(void) {
-  
-}
 
 void nchan_output_init(void) {
   fd_cache = nchan_thingcache_init("fd_cache", fd_open, fd_close, 5);
-  nchan_bufchain_pool_init();
   
 }
 
 void nchan_output_shutdown(void) {
   nchan_thingcache_shutdown(fd_cache);
-  nchan_bufchain_pool_shutdown();
 }
 
 typedef struct rsvmsg_queue_s rsvmsg_queue_t;
@@ -273,7 +126,7 @@ static ngx_int_t rsvmsg_queue_release(void *pd, void *thing) {
 
 static void nchan_push_release_entire_message_queue(nchan_request_ctx_t *ctx) {
   if(ctx->reserved_msg_queue) {
-    nchan_reuse_queue_clear(ctx->reserved_msg_queue);
+    nchan_reuse_queue_flush(ctx->reserved_msg_queue);
   }
 }
 
@@ -306,130 +159,6 @@ static void nchan_output_reserve_message_queue(ngx_http_request_t *r, nchan_msg_
   msg_reserve(msg, "output reservation");
 }
 
-
-typedef struct bufchain_queue_s bufchain_queue_t;
-struct bufchain_queue_s {
-  ngx_chain_t                  *chain;
-  ngx_file_t                   *file;
-  callback_pt                   cleanup;
-  void                         *pd;
-  bufchain_queue_t             *prev;
-  bufchain_queue_t             *next;
-};
-
-static void* bufchain_queue_palloc(void *pd) {
-  return ngx_palloc(((ngx_http_request_t *)pd)->pool, sizeof(bufchain_queue_t));
-}
-
-static void nchan_empty_bufchainpool_queue_ctx(nchan_request_ctx_t *ctx);
-
-static void nchan_bufchainpool_cleanup(void *pd) {
-  nchan_empty_bufchainpool_queue_ctx((nchan_request_ctx_t *)pd);
-}
-
-void nchan_push_bufchainpool_queue(ngx_http_request_t *r, ngx_chain_t *first, callback_pt cleanup, void *pd) {
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  ngx_chain_t          *cur;
-  ngx_file_t           *file;
-  ngx_http_cleanup_t   *cln;
-  if(!ctx->output_queue) {
-    if((ctx->output_queue = ngx_palloc(r->pool, sizeof(*ctx->output_queue))) == NULL) {
-      ERR("Coudln't palloc output_queue for bufchainpool");
-      return;
-    }
-    nchan_reuse_queue_init(ctx->output_queue, offsetof(bufchain_queue_t, prev), offsetof(bufchain_queue_t, next), bufchain_queue_palloc, NULL, r);
-    
-    if((cln = ngx_http_cleanup_add(r, 0)) == NULL) {
-      ERR("Unable to add request cleanup for bufchainpool queue");
-      assert(0);
-      return;
-    }
-    
-    cln->data = ctx;
-    cln->handler = nchan_bufchainpool_cleanup;
-  }
-  
-  bufchain_queue_t   *q = nchan_reuse_queue_push(ctx->output_queue);
-  assert(q != NULL && (first != NULL || cleanup != NULL));
-  q->chain = first;
-  q->cleanup = cleanup;
-  q->pd = pd;
-  q->file = NULL;
-  for(cur = first; cur != NULL; cur= cur->next) {
-    file = cur->buf->file;
-    if(file) {
-      //q->file=file;
-      //break;
-      
-      //debugging -- make sure there's only one file reference
-      if(!q->file) {
-        q->file = file;
-      }
-      else {
-        assert(q->file == file);
-      }
-      
-    }
-    
-  }
-}
-
-static void bufchain_each_file_ready(void *data) {
-  bufchain_queue_t           *q = (bufchain_queue_t *)data;
-  if(q->file && q->file->name.len > 0) {
-    q->file->fd = nchan_fdcache_get(&q->file->name);
-  }
-}
-
-static void nchan_ensure_file_ready_bufchainpool_queue(ngx_http_request_t *r/*, ngx_chain_t *in*/) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  /*
-  bufchain_queue_t           *q;
-  ngx_chain_t                *cur;
-  ngx_fd_t                    old_fd;
-  for(cur=in; cur != NULL; cur = cur->next) {
-    if(cur->buf->file) {
-      old_fd = cur->buf->file->fd;
-      cur->buf->file->fd = nchan_fdcache_get(&cur->buf->file->name);
-      break;
-    }
-  }
-  for(cur=r->out; cur != NULL; cur = cur->next) {
-   if(cur->buf->file) {
-      old_fd = cur->buf->file->fd;
-      cur->buf->file->fd = nchan_fdcache_get(&cur->buf->file->name);
-    }
-  }
-  */
-  if(ctx->output_queue) {
-    nchan_reuse_queue_each(ctx->output_queue, bufchain_each_file_ready);
-  }
-}
-
-static void nchan_empty_bufchainpool_queue_ctx(nchan_request_ctx_t *ctx) {
-  bufchain_queue_t           *q;
-  if(ctx->output_queue == NULL) {
-    return;
-  }
-  while((q = nchan_reuse_queue_first(ctx->output_queue)) != NULL) {
-    if(q->chain) {
-      nchan_bufchain_pool_release(container_of(q->chain, nchan_buf_and_chain_t, chain));
-    }
-    nchan_reuse_queue_pop(ctx->output_queue);
-    if(q->cleanup) {
-      q->cleanup(NGX_OK, ctx->sub, q->pd);
-    }
-    q->chain = NULL;
-    q->cleanup = NULL;
-    q->pd = NULL;
-  }
-}
-
-static void nchan_empty_bufchainpool_queue(ngx_http_request_t *r) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  nchan_empty_bufchainpool_queue_ctx(ctx);
-}
-
 //general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
 static void nchan_flush_pending_output(ngx_http_request_t *r) {
@@ -450,7 +179,6 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
       ngx_log_error(NGX_LOG_INFO, c->log, NGX_ETIMEDOUT, "request timed out");
       c->timedout = 1;
       ngx_http_finalize_request(r, NGX_HTTP_REQUEST_TIME_OUT);
-      nchan_empty_bufchainpool_queue(r);
       return;
     }
     wev->timedout = 0;
@@ -461,7 +189,6 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
       if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
         ngx_http_finalize_request(r, 0);
       }
-      nchan_empty_bufchainpool_queue(r);
       return;
     }
   }
@@ -471,7 +198,6 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
     if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
       ngx_http_finalize_request(r, 0);
     }
-    nchan_empty_bufchainpool_queue(r);
     return;
   }
   
@@ -481,7 +207,6 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
 
   if (rc == NGX_ERROR) {
     ngx_http_finalize_request(r, rc);
-    nchan_empty_bufchainpool_queue(r);
     return;
   }
 
@@ -491,18 +216,26 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
     }
     if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
       ngx_http_finalize_request(r, 0);
-      nchan_empty_bufchainpool_queue(r);
       return;
     }
   }
   //ngx_log_debug2(NGX_LOG_DEBUG_HTTP, wev->log, 0, "http writer done: \"%V?%V\"", &r->uri, &r->args);
   if(r->out == NULL) {
     r->write_event_handler = ngx_http_request_empty_handler;
-    nchan_empty_bufchainpool_queue(r);
   }
 }
 
-static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in, uint8_t stack_chains, callback_pt cleanup, void *cleanup_pd) {
+static void flush_all_the_reserved_things(nchan_request_ctx_t *ctx) {
+  nchan_push_release_entire_message_queue(ctx);
+  if(ctx->bcp) {
+    nchan_bufchain_pool_flush(ctx->bcp);
+  }
+  if(ctx->output_str_queue) {
+    nchan_reuse_queue_flush(ctx->output_str_queue);
+  }
+}
+
+static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in) {
 /* from push stream module, written by
  * Wandenberg Peixoto <wandenberg@gmail.com>, Rogério Carvalho Schneider <stockrt@gmail.com>
  * thanks, guys!
@@ -531,20 +264,17 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
     }
   }
   
-  nchan_ensure_file_ready_bufchainpool_queue(r);
-  rc = ngx_http_output_filter(r, in);
-  //ERR("outpuit filter plz");
-  if(r->out) {
-    //ERR("Still need to output stuff!!!!!!!!!!");
+  if(ctx->bcp) {
+    nchan_bufchain_pool_refresh_files(ctx->bcp);
   }
   
+  rc = ngx_http_output_filter(r, in);
+  //ERR("outpuit filter plz");
+
   if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
     ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
     clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
     r->write_event_handler = nchan_flush_pending_output;
-    if(in && (stack_chains || cleanup)) {
-      nchan_push_bufchainpool_queue(r, stack_chains ? in : NULL, cleanup, cleanup_pd);
-    }
     if(msg) {
       nchan_output_reserve_message_queue(r, msg);
     }
@@ -553,6 +283,7 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
       ngx_add_timer(wev, clcf->send_timeout);
     }
     if ((ngx_handle_write_event(wev, clcf->send_lowat)) != NGX_OK) {
+      flush_all_the_reserved_things(ctx);
       return NGX_ERROR;
     }
     return NGX_OK;
@@ -562,35 +293,20 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
       //ERR("nevermind timer");
       ngx_del_timer(wev);
     }
-    
-    if(stack_chains) {
-      nchan_bufchain_pool_release(container_of(in, nchan_buf_and_chain_t, chain));
-    }
-    if(cleanup) {
-      cleanup(NGX_OK, ctx->sub, cleanup_pd);
-    }
-    nchan_push_release_entire_message_queue(ctx);
-    if((old_chains && r->out == NULL) || ctx->output_queue) {
-      nchan_empty_bufchainpool_queue(r);
-    }
   }
+  
+  if(r->out == NULL) {
+    flush_all_the_reserved_things(ctx);
+  }
+  
   return rc;
 }
 
 ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
-  return nchan_output_filter_generic(r, NULL, in, 0, NULL, NULL);
+  return nchan_output_filter_generic(r, NULL, in);
 }
 ngx_int_t nchan_output_msg_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in) {
-  return nchan_output_filter_generic(r, msg, in, 0, NULL, NULL);
-}
-ngx_int_t nchan_output_bufchainpooled_filter(ngx_http_request_t *r, ngx_chain_t *in, callback_pt cleanup, void *cleanup_pd) {
-  return nchan_output_filter_generic(r, NULL, in, 1, cleanup, cleanup_pd);
-}
-ngx_int_t nchan_output_msg_bufchainpooled_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in, callback_pt cleanup, void *cleanup_pd) {
-  return nchan_output_filter_generic(r, msg, in, 1, cleanup, cleanup_pd);
-}
-ngx_int_t nchan_output_msg_cleanup_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in, callback_pt cleanup, void *cleanup_pd) {
-  return nchan_output_filter_generic(r, msg, in, 0, cleanup, cleanup_pd);
+  return nchan_output_filter_generic(r, msg, in);
 }
 
 void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
