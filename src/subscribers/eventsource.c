@@ -1,5 +1,6 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
+#include <util/nchan_bufchainpool.h>
 #include "longpoll.h"
 #include "longpoll-private.h"
 
@@ -10,10 +11,16 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:EVENTSOURCE:" fmt, ##arg)
 #include <assert.h> 
 
-void memstore_fakeprocess_push(ngx_int_t slot);
-void memstore_fakeprocess_push_random(void);
-void memstore_fakeprocess_pop();
-ngx_int_t memstore_slot();
+#define MSGID_BUF_LEN (10*255)
+typedef struct {
+  ngx_str_t   msgid;
+  u_char      msgid_buf[MSGID_BUF_LEN];
+} es_privdata_t;
+
+static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  return ctx->bcp;
+}
 
 static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
   ngx_memzero(buf, sizeof(*buf));
@@ -39,11 +46,10 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
   ngx_http_request_t             *r = fsub->sub.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
   
-  nchan_buf_and_chain_t          *bc = nchan_bufchain_pool_reserve(1, NULL);
-  nchan_push_bufchainpool_queue(fsub->sub.request, &bc[0].chain, NULL, NULL);
+  nchan_buf_and_chain_t          *bc;
   
   if(!fsub->data.shook_hands) {
-  
+    bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 1);
     clcf->chunked_transfer_encoding = 0;
     
     r->headers_out.content_type.len = content_type.len;
@@ -67,48 +73,45 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
 
 static ngx_int_t create_dataline_bufchain(full_subscriber_t *fsub, ngx_chain_t **first_chain, ngx_chain_t **last_chain, ngx_buf_t *databuf) {
   static ngx_str_t        data_prefix=ngx_string("data: ");
-  ngx_file_t             *file;
-  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(ngx_buf_size(databuf) == 0 ? 1 : 2, &file);
-  nchan_push_bufchainpool_queue(fsub->sub.request, &bc[0].chain, NULL, NULL);
+  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), ngx_buf_size(databuf) == 0 ? 1 : 2);
+  ngx_chain_t            *chain = &bc->chain;
   
   if(*last_chain) {
-    (*last_chain)->next = &bc[0].chain;
+    (*last_chain)->next = chain;
   }
   
-  ngx_init_set_membuf(&bc[0].buf, data_prefix.data, data_prefix.data + data_prefix.len);
+  ngx_init_set_membuf(chain->buf, data_prefix.data, data_prefix.data + data_prefix.len);
   
   if(*first_chain == NULL) {
-    *first_chain = &bc[0].chain;
+    *first_chain = chain;
   }
   
   if(ngx_buf_size(databuf) > 0) {
-    ngx_memcpy(&bc[1].buf, databuf, sizeof(*databuf));
-    if(databuf->file) {
-      *file = *databuf->file;
-      bc[1].buf.file = file;
-    }
-    bc[1].buf.last_buf = 0;
-    bc[1].buf.last_in_chain = 0;
-    *last_chain = &bc[1].chain;
+    chain = chain->next;
+    *chain->buf = *databuf;
+    chain->buf->last_buf = 0;
+    chain->buf->last_in_chain = 0;
   }
-  else {
-    *last_chain = &bc[0].chain;
-  }
-  
+  *last_chain = chain;
+
   return NGX_OK;
 }
 
 static void prepend_es_response_line(full_subscriber_t *fsub, ngx_str_t *lbl, ngx_chain_t **first_chain, ngx_str_t *str) {
   static ngx_str_t        nl = ngx_string("\n");
-  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(3, NULL);
-  nchan_push_bufchainpool_queue(fsub->sub.request, &bc[0].chain, NULL, NULL);
+  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 3);
+  ngx_chain_t            *chain;
 
-  ngx_init_set_membuf(&bc[0].buf, lbl->data, lbl->data + lbl->len);
-  ngx_init_set_membuf(&bc[1].buf, str->data, str->data + str->len);
-  ngx_init_set_membuf(&bc[2].buf, nl.data, nl.data + 1);
+  chain = &bc->chain;
+  ngx_init_set_membuf(chain->buf, lbl->data, lbl->data + lbl->len);
+  chain = chain->next;
+  ngx_init_set_membuf(chain->buf, str->data, str->data + str->len);
+  chain = chain->next;
+  ngx_init_set_membuf(chain->buf, nl.data, nl.data + 1);
   
-  bc[2].chain.next = *first_chain;
-  *first_chain=&bc[0].chain;
+  assert(chain->next == NULL);
+  chain->next = *first_chain;
+  *first_chain = &bc->chain;
 }
 
 static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
@@ -119,10 +122,10 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   ngx_buf_t               databuf;
   nchan_buf_and_chain_t  *bc;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
+  es_privdata_t          *es_privdata = fsub->privdata;
   
   ngx_str_t               id_line = ngx_string("id: ");
   ngx_str_t               event_line = ngx_string("event: ");
-  
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(sub->request, nchan_module);
   
   
@@ -173,10 +176,12 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     //great, we've gotta scan this whole damn file for line breaks.
     //EventStream really isn't designed for large chunks of data
     off_t       fcur, flast;
-    int         chr_int;
+    //int         chr_int;
     FILE       *stream;
-    ngx_file_t *msgfile = databuf.file;
-    ctx->refresh_out_chain_files = 1;
+    ngx_file_t *msgfile =  nchan_bufchain_pool_reserve_file(ctx->bcp);
+    
+    nchan_msg_buf_open_fd_if_needed(&databuf, msgfile, NULL);
+
     if(msgfile->fd == NGX_INVALID_FILE) {
       msgfile->fd = nchan_fdcache_get(&msgfile->name);
     }
@@ -214,8 +219,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   
   //now 2 newlines at the end
   if(last_link) {
-    bc = nchan_bufchain_pool_reserve(1, NULL);
-    nchan_push_bufchainpool_queue(fsub->sub.request, &bc[0].chain, NULL, NULL);
+    bc = nchan_bufchain_pool_reserve(ctx->bcp, 1);
     last_link->next=&bc->chain;
     ngx_init_set_membuf(&bc->buf, terminal_newlines.data, terminal_newlines.data + terminal_newlines.len);
     
@@ -229,9 +233,11 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   }
   //okay, this crazy data chain is finished. 
   
-  
+    
   //now how about the mesage tag?
-  prepend_es_response_line(fsub, &id_line, &first_link, msgid_to_str(&sub->last_msgid));
+  
+  nchan_strcpy(&es_privdata->msgid, msgid_to_str(&sub->last_msgid), MSGID_BUF_LEN);
+  prepend_es_response_line(fsub, &id_line, &first_link, &es_privdata->msgid);
   
   //and maybe the event type?
   if(sub->cf->eventsource_event.len > 0) {
@@ -303,6 +309,9 @@ static       ngx_str_t   sub_name = ngx_string("eventsource");
 
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
+  full_subscriber_t    *fsub = (full_subscriber_t *)sub;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  es_privdata_t        *es_privdata;
   
   if(eventsource_fn == NULL) {
     eventsource_fn = &eventsource_fn_data;
@@ -312,7 +321,15 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
     eventsource_fn->respond_status = es_respond_status;
   }
   
-  ((full_subscriber_t *)sub)->data.shook_hands = 0;
+  fsub->data.shook_hands = 0;
+  
+  ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
+  nchan_bufchain_pool_init(ctx->bcp, r->pool);
+  
+  fsub->privdata = ngx_palloc(r->pool, sizeof(*es_privdata));
+  es_privdata = fsub->privdata;
+  es_privdata->msgid.data = (u_char *)&es_privdata->msgid_buf;
+  es_privdata->msgid.len = 0;
   
   nchan_subscriber_common_setup(sub, EVENTSOURCE, &sub_name, eventsource_fn, 0);
   return sub;
