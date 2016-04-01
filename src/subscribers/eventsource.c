@@ -246,7 +246,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   //now how about the mesage tag?
   
   msgidbuf = nchan_reuse_queue_push(ctx->output_str_queue);
-  msgid.data = (u_char *)&msgidbuf->chr;
+  msgid.data = &msgidbuf->chr[0];
   
   nchan_strcpy(&msgid, msgid_to_str(&sub->last_msgid), MSGID_BUF_LEN);
   prepend_es_response_line(fsub, &id_line, &first_link, &msgid);
