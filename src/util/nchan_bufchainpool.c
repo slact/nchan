@@ -35,6 +35,9 @@ nchan_buf_and_chain_t *nchan_bufchain_pool_reserve(nchan_bufchain_pool_t *bcp, n
   nchan_bufchain_link_t      *cur = NULL, *last = NULL, *first = NULL;
   nchan_bufchain_link_t      **rhead = &bcp->bc_recycle_head;
   //validate_stuff(bcp);
+  if(count <= 0) {
+    return NULL;
+  }
   while(count > 0) {
     if(*rhead) {
       cur = *rhead;
