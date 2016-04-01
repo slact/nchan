@@ -495,7 +495,7 @@ class Subscriber
     end
     
     class HTTPBundle < ParserBundle
-      attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time
+      attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time, :stop_after_headers
       
       def initialize(uri, user_agent, accept="*/*", extra_headers={})
         super
@@ -534,13 +534,14 @@ class Subscriber
           @gzipped = h['Content-Encoding']=='gzip'
           @code=@parser.status_code
           on_headers @parser.status_code, h
+          if @stop_after_headers
+            @bypass_parser = true
+            :stop
+          end
         end
         
         @parser.on_body = proc do |chunk|
-          if @gzipped 
-            chunk = Zlib::GzipReader.new(StringIO.new(chunk)).read
-          end
-          on_chunk chunk
+          handle_chunk chunk
         end
         
         @parser.on_message_complete = proc do
@@ -550,6 +551,13 @@ class Subscriber
         end
         
       end
+      
+
+      def handle_chunk(chunk)
+        chunk = Zlib::GzipReader.new(StringIO.new(chunk)).read if @gzipped 
+        on_chunk chunk
+      end
+      private :handle_chunk
       
       def reconnect?
         true
@@ -578,8 +586,12 @@ class Subscriber
       def read
         @rcvbuf.clear
         begin
-          sock.readpartial(4096, @rcvbuf)
-          @parser << @rcvbuf
+          sock.readpartial(1024*10000, @rcvbuf)
+          unless @bypass_parser
+            @parser << @rcvbuf
+          else
+            handle_chunk @rcvbuf
+          end
         rescue HTTP::Parser::Error => e
           on_error "Invalid HTTP Respose - #{e}", e
         rescue EOFError => e
@@ -1047,8 +1059,6 @@ class Subscriber
             @preambled = true
             @headered = nil
           end
-          
-          bbuf = @buf.dup
           if @preambled && @buf.slice!(/^(\r\n(.*?))?\r\n\r\n/m)
             @headered = true
             ($~[2]).each_line do |l|
@@ -1177,18 +1187,41 @@ class Subscriber
         end
       end
       
+      b.stop_after_headers = true
+      @inchunk = false
+      @chunksize = 0
+      @repeat = true
+      @chunkbuf = ""
       b.on_chunk do |chunk|
-        next unless b.connected
-        @timer.reset if @timer
-        unless @nomsg
-          msg=Message.new chunk, nil, nil
-        else
-          msg=@body_buf
-        end
-        
-        if @subscriber.on_message(msg, b) == false
-          @subscriber.finished+=1
-          close b
+        #puts "yeah"
+        @chunkbuf << chunk
+        @repeat = true
+        while @repeat
+          @repeat = false
+          if !@inchunk && @chunkbuf.slice!(/^([a-fA-F0-9]+)\r\n/m)
+            @chunksize = $~[1].to_i(16)
+            @inchunk = true
+          end
+          
+          if @inchunk
+            if @chunkbuf.length >= @chunksize + 2
+              msgbody = @chunkbuf.slice!(0...@chunksize)
+              @chunkbuf.slice!(/^\r\n/m)
+              @timer.reset if @timer
+              unless @nomsg
+                msg=Message.new msgbody, nil, nil
+              else
+                msg=msgbody
+              end
+              if @subscriber.on_message(msg, b) == false
+                @subscriber.finished+=1
+                close b
+              end
+              @repeat = true if @chunkbuf.length > 0
+              @inchunk = false
+              @chunksize = 0
+            end
+          end
         end
       end
       
