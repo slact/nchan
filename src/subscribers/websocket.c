@@ -144,7 +144,6 @@ struct full_subscriber_s {
   
   ngx_event_t             ping_ev;
   
-  
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                connected:1;
