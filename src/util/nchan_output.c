@@ -120,6 +120,7 @@ static void *rsvmsg_queue_palloc(void *pd) {
 }
 
 static ngx_int_t rsvmsg_queue_release(void *pd, void *thing) {
+  //ERR("release msg %p", ((rsvmsg_queue_t *)thing)->msg);
   msg_release(((rsvmsg_queue_t *)thing)->msg, "output reservation");
   return NGX_OK;
 }
@@ -258,7 +259,7 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
   //ERR("outpuit filter plz");
 
   if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
-    ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
+    //ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
     clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
     r->write_event_handler = nchan_flush_pending_output;
     if(msg) {
