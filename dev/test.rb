@@ -565,7 +565,7 @@ class PubSubTest <  Minitest::Test
   def test_long_buffed_messages
     kb=10000
     #kb=2
-    pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: :eventsource, channel: :foo
+    pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: :eventsource
     #pub, sub = pubsub 1, sub: "/sub/websocket_only/", client: :websocket
     #sub.on_message do |msg|
     #  puts ">>>>>>>message: #{msg.message[0...10]}...|#{msg.message.length}|"
