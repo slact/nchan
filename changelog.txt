@@ -1,3 +1,4 @@
+ fix: buffering and output issues for large messages
  update: hiredis updated to v0.13.3
  fix: redis publishing and subscribing memory leaks
  optimize: per-channel redis subscriber counts batched into 100-ms intervals
