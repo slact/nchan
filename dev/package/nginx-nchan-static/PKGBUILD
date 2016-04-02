@@ -1,7 +1,7 @@
 #!/bin/zsh
 _nginx_ver=1.8.1
 
-_openssl_ver=1.0.2e
+_openssl_ver=1.0.2g
 _pcre_ver=8.38
 _zlib_ver=1.2.8
 
@@ -71,7 +71,7 @@ source=("http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
 
 md5sums=('2e91695074dbdfbf1bcec0ada9fda462'
 	 '8a353fe1450216b6655dfcf3561716d9'
-	 '5262bfa25b60ed9de9f28d5d52d77fc5'
+	 'f3c710c045cdee5fd114feb69feba7aa'
 	 '44d667c142d7cda120332623eab69f40'
 	 '845cab784b50f1666bbf89d7435ac7af'
 	 '79031b58828462dec53a9faed9ddb36a'

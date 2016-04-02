@@ -92,6 +92,12 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
   return NULL;
 }
 
+void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen) {
+  size_t len = src->len > maxlen ? maxlen : src->len;
+  ngx_memcpy(dst->data, src->data, len);
+  dst->len = len;
+}
+
 static ngx_buf_t *ensure_last_buf(ngx_pool_t *pool, ngx_buf_t *buf) {
   ngx_buf_t *cbuf;
   if(buf->last_buf == 1) {

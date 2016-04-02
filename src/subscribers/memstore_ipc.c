@@ -153,21 +153,13 @@ static ngx_str_t  sub_name = ngx_string("memstore-ipc");
 subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, uint8_t use_redis, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
   static  nchan_msg_id_t      newest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                 *d;
-  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  if(d == NULL) {
-    ERR("couldn't allocate memstore subscriber data");
-    return NULL;
-  }
+  subscriber_t               *sub;
   
   assert(originator_slot != memstore_slot());
-  subscriber_t *sub = internal_subscriber_create(&sub_name, d);
+  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, NULL);
   
   sub->last_msgid = newest_msgid;
-  
-  internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
-  internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
-  internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
-  internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
   sub->destroy_after_dequeue = 1;
   d->sub = sub;
   d->chid = chid;

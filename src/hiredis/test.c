@@ -11,6 +11,7 @@
 #include <limits.h>
 
 #include "hiredis.h"
+#include "net.h"
 
 enum connection_type {
     CONN_TCP,
@@ -42,6 +43,13 @@ static long long usec(void) {
     gettimeofday(&tv,NULL);
     return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
 }
+
+/* The assert() calls below have side effects, so we need assert()
+ * even if we are compiling without asserts (-DNDEBUG). */
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 static redisContext *select_database(redisContext *c) {
     redisReply *reply;
@@ -107,6 +115,7 @@ static redisContext *connect(struct config config) {
         exit(1);
     } else if (c->err) {
         printf("Connection error: %s\n", c->errstr);
+        redisFree(c);
         exit(1);
     }
 
@@ -335,12 +344,14 @@ static void test_blocking_connection_errors(void) {
     redisContext *c;
 
     test("Returns error when host cannot be resolved: ");
-    c = redisConnect((char*)"idontexist.local", 6379);
+    c = redisConnect((char*)"idontexist.test", 6379);
     test_cond(c->err == REDIS_ERR_OTHER &&
         (strcmp(c->errstr,"Name or service not known") == 0 ||
-         strcmp(c->errstr,"Can't resolve: idontexist.local") == 0 ||
+         strcmp(c->errstr,"Can't resolve: idontexist.test") == 0 ||
          strcmp(c->errstr,"nodename nor servname provided, or not known") == 0 ||
          strcmp(c->errstr,"No address associated with hostname") == 0 ||
+         strcmp(c->errstr,"Temporary failure in name resolution") == 0 ||
+         strcmp(c->errstr,"hostname nor servname provided, or not known") == 0 ||
          strcmp(c->errstr,"no address associated with name") == 0));
     redisFree(c);
 
@@ -434,6 +445,52 @@ static void test_blocking_connection(struct config config) {
     disconnect(c, 0);
 }
 
+static void test_blocking_connection_timeouts(struct config config) {
+    redisContext *c;
+    redisReply *reply;
+    ssize_t s;
+    const char *cmd = "DEBUG SLEEP 3\r\n";
+    struct timeval tv;
+
+    c = connect(config);
+    test("Successfully completes a command when the timeout is not exceeded: ");
+    reply = redisCommand(c,"SET foo fast");
+    freeReplyObject(reply);
+    tv.tv_sec = 0;
+    tv.tv_usec = 10000;
+    redisSetTimeout(c, tv);
+    reply = redisCommand(c, "GET foo");
+    test_cond(reply != NULL && reply->type == REDIS_REPLY_STRING && memcmp(reply->str, "fast", 4) == 0);
+    freeReplyObject(reply);
+    disconnect(c, 0);
+
+    c = connect(config);
+    test("Does not return a reply when the command times out: ");
+    s = write(c->fd, cmd, strlen(cmd));
+    tv.tv_sec = 0;
+    tv.tv_usec = 10000;
+    redisSetTimeout(c, tv);
+    reply = redisCommand(c, "GET foo");
+    test_cond(s > 0 && reply == NULL && c->err == REDIS_ERR_IO && strcmp(c->errstr, "Resource temporarily unavailable") == 0);
+    freeReplyObject(reply);
+
+    test("Reconnect properly reconnects after a timeout: ");
+    redisReconnect(c);
+    reply = redisCommand(c, "PING");
+    test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && strcmp(reply->str, "PONG") == 0);
+    freeReplyObject(reply);
+
+    test("Reconnect properly uses owned parameters: ");
+    config.tcp.host = "foo";
+    config.unix.path = "foo";
+    redisReconnect(c);
+    reply = redisCommand(c, "PING");
+    test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && strcmp(reply->str, "PONG") == 0);
+    freeReplyObject(reply);
+
+    disconnect(c, 0);
+}
+
 static void test_blocking_io_errors(struct config config) {
     redisContext *c;
     redisReply *reply;
@@ -457,7 +514,7 @@ static void test_blocking_io_errors(struct config config) {
 
     test("Returns I/O error when the connection is lost: ");
     reply = redisCommand(c,"QUIT");
-    if (major >= 2 && minor > 0) {
+    if (major > 2 || (major == 2 && minor > 0)) {
         /* > 2.0 returns OK on QUIT and read() should be issued once more
          * to know the descriptor is at EOF. */
         test_cond(strcasecmp(reply->str,"OK") == 0 &&
@@ -496,6 +553,7 @@ static void test_invalid_timeout_errors(struct config config) {
     c = redisConnectWithTimeout(config.tcp.host, config.tcp.port, config.tcp.timeout);
 
     test_cond(c->err == REDIS_ERR_IO);
+    redisFree(c);
 
     test("Set error when an invalid timeout sec value is given to redisConnectWithTimeout: ");
 
@@ -505,7 +563,6 @@ static void test_invalid_timeout_errors(struct config config) {
     c = redisConnectWithTimeout(config.tcp.host, config.tcp.port, config.tcp.timeout);
 
     test_cond(c->err == REDIS_ERR_IO);
-
     redisFree(c);
 }
 
@@ -720,6 +777,7 @@ int main(int argc, char **argv) {
     printf("\nTesting against TCP connection (%s:%d):\n", cfg.tcp.host, cfg.tcp.port);
     cfg.type = CONN_TCP;
     test_blocking_connection(cfg);
+    test_blocking_connection_timeouts(cfg);
     test_blocking_io_errors(cfg);
     test_invalid_timeout_errors(cfg);
     test_append_formatted_commands(cfg);
@@ -728,6 +786,7 @@ int main(int argc, char **argv) {
     printf("\nTesting against Unix socket connection (%s):\n", cfg.unix.path);
     cfg.type = CONN_UNIX;
     test_blocking_connection(cfg);
+    test_blocking_connection_timeouts(cfg);
     test_blocking_io_errors(cfg);
     if (throughput) test_throughput(cfg);
 

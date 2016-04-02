@@ -15,10 +15,14 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
 
+#define container_of(ptr, type, member) ({                      \
+        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+        (type *)( (char *)__mptr - offsetof(type,member) );})
+
 typedef struct {
-  ngx_str_t          id;
-  void              *data;
-  UT_hash_handle     hh;
+  ngx_str_t            id;
+  nchan_llist_timed_t  ll;
+  UT_hash_handle       hh;
 } thing_t;
 
 typedef struct {
@@ -32,8 +36,33 @@ typedef struct {
   ngx_event_t            gc_timer;
 } nchan_thing_cache_t;
 
+/*
+static ngx_int_t walk_tc(nchan_thing_cache_t *tc) {
+  nchan_llist_timed_t    *cur;
+  int                     head_to_tail = 0, tail_to_head = 0;
+  for(cur = tc->thing_head; cur != NULL; cur = cur->next) {
+    head_to_tail++;
+  }
+  for(cur = tc->thing_tail; cur != NULL; cur = cur->prev) {
+    tail_to_head++;
+  }
+  
+  assert(head_to_tail == tail_to_head);
+  return tail_to_head;
+}
+
+static void verify_tc(nchan_thing_cache_t *tc) {
+  thing_t                *thing, *ttmp;
+  int                    hash = 0;
+  HASH_ITER(hh, (tc->things), thing, ttmp) {  
+    hash++;
+  }
+  assert(walk_tc(tc) == hash);
+}
+*/
 
 static void enqueue_llist_thing(nchan_thing_cache_t *tc, nchan_llist_timed_t *cur) {
+  //verify_tc(tc);
   if(tc->thing_head == NULL) {
     cur->prev = NULL;
     tc->thing_head = cur;
@@ -50,15 +79,17 @@ static void enqueue_llist_thing(nchan_thing_cache_t *tc, nchan_llist_timed_t *cu
   if(! tc->gc_timer.timer_set) {
     ngx_add_timer(&tc->gc_timer, tc->ttl * 1000);
   }
+  //walk_tc(tc);
 }
 
 static void nchan_thingcache_gc_timer_handler(ngx_event_t *ev) {
   nchan_llist_timed_t    *cur, *next;
   nchan_thing_cache_t    *tc = (nchan_thing_cache_t *)ev->data;
-  time_t                 time = ngx_time();
+  time_t                  time = ngx_time();
+  thing_t                *thing;
   cur = tc->thing_head;
-  DBG("timer for %s %p", tc->name, tc);
   while(cur != NULL) {
+    //verify_tc(tc);
     next = cur->next;
     if(cur->time <= time) {
       if(cur->prev) {
@@ -67,7 +98,8 @@ static void nchan_thingcache_gc_timer_handler(ngx_event_t *ev) {
       if(next) {
         next->prev = cur->prev;
       }
-      if(!tc->destroy(&((thing_t *)cur->data)->id, ((thing_t *)cur->data)->data)) {
+      thing = container_of(cur, thing_t, ll);
+      if(!tc->destroy(&thing->id, thing->ll.data)) {
         //time extended!
         enqueue_llist_thing(tc, cur);
       }
@@ -75,11 +107,12 @@ static void nchan_thingcache_gc_timer_handler(ngx_event_t *ev) {
         if(tc->thing_head == cur) {
           tc->thing_head = cur->next;
         }
-        if(tc->thing_tail) {
+        if(tc->thing_tail == cur) {
           tc->thing_tail = cur->prev;
         }
-        THING_HASH_DEL(tc, (thing_t *)cur->data);
-        ngx_free(cur);
+        THING_HASH_DEL(tc, thing);
+        //verify_tc(tc);
+        ngx_free(thing);
       }
     }
     else {
@@ -91,6 +124,7 @@ static void nchan_thingcache_gc_timer_handler(ngx_event_t *ev) {
   if(tc->thing_head != NULL) {
     ngx_add_timer(&tc->gc_timer, tc->ttl * 1000);
   }
+  //verify_tc(tc);
 }
 
 void *nchan_thingcache_init(char *name, void *(*create)(ngx_str_t *), ngx_int_t(*destroy)(ngx_str_t *, void *), ngx_uint_t ttl) {
@@ -120,14 +154,16 @@ void *nchan_thingcache_init(char *name, void *(*create)(ngx_str_t *), ngx_int_t(
 ngx_int_t nchan_thingcache_shutdown(void *tcv) {
   nchan_thing_cache_t   *tc = (nchan_thing_cache_t *)tcv;
   nchan_llist_timed_t   *cur = tc->thing_head;
+  thing_t               *thing;
   nchan_llist_timed_t   *next; 
   DBG("shutdown %s %p", tc->name, tc);
   
   while(cur != NULL) {
+    thing = container_of(cur, thing_t, ll);
     next = cur->next;
-    tc->destroy(&((thing_t *)cur->data)->id, ((thing_t *)cur->data)->data);
-    THING_HASH_DEL(tc, (thing_t *)cur->data);
-    ngx_free(cur);
+    tc->destroy(&thing->id, cur->data);
+    THING_HASH_DEL(tc, thing);
+    ngx_free(thing);
     cur = next;
   }
   
@@ -139,18 +175,13 @@ ngx_int_t nchan_thingcache_shutdown(void *tcv) {
   return NGX_OK;
 }
 
-typedef struct {
-  nchan_llist_timed_t  ll;
-  thing_t              t;
-} whole_thing_t;
-
-
 void *nchan_thingcache_find(void *tcv, ngx_str_t *id) {
   nchan_thing_cache_t   *tc = (nchan_thing_cache_t *)tcv;
   thing_t               *thing;
   
+  //verify_tc(tc);
   THING_HASH_FIND(tc, id, thing);
-  return thing ? thing->data : NULL;
+  return thing ? thing->ll.data : NULL;
 }
 
 void *nchan_thingcache_get(void *tcv, ngx_str_t *id) {
@@ -158,31 +189,29 @@ void *nchan_thingcache_get(void *tcv, ngx_str_t *id) {
   nchan_llist_timed_t   *cur;
   thing_t               *thing;
   
+  //verify_tc(tc);
+  
   THING_HASH_FIND(tc, id, thing);
   if(thing == NULL) {
-    whole_thing_t   *whole;
-    
     DBG("not found in %s %p", tc->name, tc);
     
-    if((whole = ngx_alloc(sizeof(*whole) + id->len, ngx_cycle->log)) == NULL) {
+    if((thing = ngx_alloc(sizeof(*thing) + id->len, ngx_cycle->log)) == NULL) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan thingcache %p: can't allocate memory for thing with id %V", tc, id);
       return NULL;
     }
-    cur = &whole->ll;
-    thing = &whole->t;
-    cur->data = (void *) thing;
+    cur = &thing->ll;
+    cur->data = thing;
     thing->id.len = id->len;
-    thing->id.data = (u_char *)(&whole[1]);
+    thing->id.data = (u_char *)(&thing[1]);
     ngx_memcpy(thing->id.data, id->data, id->len);
     
-    thing->data = tc->create(id);
+    thing->ll.data = tc->create(id);
     
     enqueue_llist_thing(tc, cur);
     THING_HASH_ADD(tc, thing);
   }
-  else {
-    DBG("thing %p found in %s %p", thing->data, tc->name, tc);
-  }
   
-  return thing->data;
+  //verify_tc(tc);
+  
+  return thing->ll.data;
 }

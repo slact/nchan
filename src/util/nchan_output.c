@@ -1,8 +1,10 @@
 #include <ngx_http.h>
 #include <nchan_module.h>
 #include "nchan_output.h"
-#include <assert.h>
 #include <util/nchan_thingcache.h>
+#include <util/nchan_bufchainpool.h>
+#include <store/memory/store.h>
+#include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -13,7 +15,9 @@
 #define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
 #define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
 
-
+#define container_of(ptr, type, member) ({                      \
+        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+        (type *)( (char *)__mptr - offsetof(type,member) );})
 
 
 //file descriptor cache
@@ -94,14 +98,67 @@ ngx_int_t nchan_msg_buf_open_fd_if_needed(ngx_buf_t *buf, ngx_file_t *file, ngx_
   return NGX_OK;
 }
 
+
 void nchan_output_init(void) {
   fd_cache = nchan_thingcache_init("fd_cache", fd_open, fd_close, 5);
+  
 }
 
 void nchan_output_shutdown(void) {
   nchan_thingcache_shutdown(fd_cache);
 }
 
+typedef struct rsvmsg_queue_s rsvmsg_queue_t;
+struct rsvmsg_queue_s {
+  nchan_msg_t                  *msg;
+  rsvmsg_queue_t               *prev;
+  rsvmsg_queue_t               *next;
+};
+
+static void *rsvmsg_queue_palloc(void *pd) {
+  return ngx_palloc(((ngx_http_request_t *)pd)->pool, sizeof(rsvmsg_queue_t));
+}
+
+static ngx_int_t rsvmsg_queue_release(void *pd, void *thing) {
+  //ERR("release msg %p", ((rsvmsg_queue_t *)thing)->msg);
+  msg_release(((rsvmsg_queue_t *)thing)->msg, "output reservation");
+  return NGX_OK;
+}
+
+static void nchan_push_release_entire_message_queue(nchan_request_ctx_t *ctx) {
+  if(ctx->reserved_msg_queue) {
+    nchan_reuse_queue_flush(ctx->reserved_msg_queue);
+  }
+}
+
+static void nchan_reserve_msg_cleanup(void *pd) {
+  nchan_push_release_entire_message_queue((nchan_request_ctx_t *)pd);
+}
+
+static void nchan_output_reserve_message_queue(ngx_http_request_t *r, nchan_msg_t *msg) {
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  ngx_http_cleanup_t   *cln;
+  if(!ctx->reserved_msg_queue) {
+    if((ctx->reserved_msg_queue = ngx_palloc(r->pool, sizeof(*ctx->reserved_msg_queue))) == NULL) {
+      ERR("Coudln't palloc reserved_msg_queue");
+      return;
+    }
+    nchan_reuse_queue_init(ctx->reserved_msg_queue, offsetof(rsvmsg_queue_t, prev), offsetof(rsvmsg_queue_t, next), rsvmsg_queue_palloc, rsvmsg_queue_release, r);
+    
+    if((cln = ngx_http_cleanup_add(r, 0)) == NULL) {
+      ERR("Unable to add request cleanup for reserved_msg_queue queue");
+      assert(0);
+      return;
+    }
+    
+    cln->data = ctx;
+    cln->handler = nchan_reserve_msg_cleanup;
+  }
+  
+  rsvmsg_queue_t   *qmsg = nchan_reuse_queue_push(ctx->reserved_msg_queue);
+  qmsg->msg = msg;
+  msg_reserve(msg, "output reservation");
+}
 
 //general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
@@ -160,46 +217,83 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
     }
     if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
       ngx_http_finalize_request(r, 0);
+      return;
     }
-    return;
   }
   //ngx_log_debug2(NGX_LOG_DEBUG_HTTP, wev->log, 0, "http writer done: \"%V?%V\"", &r->uri, &r->args);
-  r->write_event_handler = ngx_http_request_empty_handler;
+  if(r->out == NULL) {
+    r->write_event_handler = ngx_http_request_empty_handler;
+  }
 }
 
-ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
+static void flush_all_the_reserved_things(nchan_request_ctx_t *ctx) {
+  nchan_push_release_entire_message_queue(ctx);
+  if(ctx->bcp) {
+    nchan_bufchain_pool_flush(ctx->bcp);
+  }
+  if(ctx->output_str_queue) {
+    nchan_reuse_queue_flush(ctx->output_str_queue);
+  }
+}
+
+static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in) {
 /* from push stream module, written by
  * Wandenberg Peixoto <wandenberg@gmail.com>, Rogério Carvalho Schneider <stockrt@gmail.com>
  * thanks, guys!
+ * modified to fit the needs of websockets and eventsources and multipartses and so on
 */
   ngx_http_core_loc_conf_t               *clcf;
   ngx_int_t                               rc;
   ngx_event_t                            *wev;
   ngx_connection_t                       *c;
-
+  nchan_request_ctx_t                    *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  
   c = r->connection;
   wev = c->write;
+
+  if(ctx->bcp) {
+    nchan_bufchain_pool_refresh_files(ctx->bcp);
+  }
   
   rc = ngx_http_output_filter(r, in);
+  //ERR("outpuit filter plz");
 
   if (c->buffered & NGX_HTTP_LOWLEVEL_BUFFERED) {
-    ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
+    //ERR("what's the deal with this NGX_HTTP_LOWLEVEL_BUFFERED thing?");
     clcf = ngx_http_get_module_loc_conf(r->main, ngx_http_core_module);
     r->write_event_handler = nchan_flush_pending_output;
+    if(msg) {
+      nchan_output_reserve_message_queue(r, msg);
+    }
     if (!wev->delayed) {
+      //ERR("delay output by %ims", clcf->send_timeout);
       ngx_add_timer(wev, clcf->send_timeout);
     }
-    if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
+    if ((ngx_handle_write_event(wev, clcf->send_lowat)) != NGX_OK) {
+      flush_all_the_reserved_things(ctx);
       return NGX_ERROR;
     }
     return NGX_OK;
   } 
   else {
     if (wev->timer_set) {
+      //ERR("nevermind timer");
       ngx_del_timer(wev);
     }
   }
+  
+  if(r->out == NULL) {
+    flush_all_the_reserved_things(ctx);
+  }
+  
   return rc;
+}
+
+ngx_int_t nchan_output_filter(ngx_http_request_t *r, ngx_chain_t *in) {
+  return nchan_output_filter_generic(r, NULL, in);
+}
+ngx_int_t nchan_output_msg_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_chain_t *in) {
+  return nchan_output_filter_generic(r, msg, in);
 }
 
 void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
@@ -314,7 +408,7 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  int                        cross_origin;
+  int8_t                     output_etag = 1, cross_origin;
   
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, nchan_module);
@@ -323,7 +417,12 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
 
   if(!cf->msg_in_etag_only) {
     //last-modified
-    r->headers_out.last_modified_time = msgid->time;
+    if(msgid->time > 0) {
+      r->headers_out.last_modified_time = msgid->time;
+    }
+    else {
+      output_etag = 0;
+    }
     tmp_etag = msgtag_to_str(msgid);
   }
   else {
@@ -338,13 +437,17 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
   ngx_memcpy(etag->data, tmp_etag->data, tmp_etag->len);
 
   if(cf->custom_msgtag_header.len == 0) {
-    nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
+    if(output_etag) {
+      nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
+    }
     if(cross_origin) {
       nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
     }
   }
   else {
-    nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
+    if(output_etag) {
+      nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
+    }
     if(cross_origin) {
       u_char        *cur = ngx_palloc(r->pool, 255);
       if(cur == NULL) {

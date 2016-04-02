@@ -97,16 +97,6 @@ void redis_nginx_force_close_context(redisAsyncContext **context) {
   }
 }
 
-void redis_nginx_close_context(redisAsyncContext **context) {
-  if ((context != NULL) && (*context != NULL)) {
-    redisAsyncContext *ac = *context;
-    if (!ac->err) {
-      redisAsyncCommand(ac, redis_nginx_ping_callback, NULL, PING_DATABASE_COMMAND);
-    }
-    *context = NULL;
-  }
-}
-
 void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   void *data = ac->data;
   void (*callback) (void *) = privdata;

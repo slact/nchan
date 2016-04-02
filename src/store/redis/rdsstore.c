@@ -5,7 +5,10 @@
 
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
+#include <util/nchan_reaper.h>
+#include <store/store_common.h>
 
+#define NCHAN_CHANHEAD_EXPIRE_SEC 1
 
 static ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
 
@@ -19,10 +22,16 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                   generation; //subscriber pool generation.
   chanhead_pubsub_status_t     status;
   ngx_uint_t                   sub_count;
+  ngx_int_t                    fetching_message_count;
   ngx_uint_t                   internal_sub_count;
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
-  nchan_llist_timed_t          cleanlink;
+  
+  nchan_store_channel_head_t  *gc_prev;
+  nchan_store_channel_head_t  *gc_next;
+  time_t                       gc_time;
+  unsigned                     in_gc_queue:1;
+  
   unsigned                     meta:1;
   unsigned                     shutting_down:1;
   UT_hash_handle               hh;
@@ -47,11 +56,7 @@ typedef struct {
   redisAsyncContext               *sub_ctx;
   unsigned                         connected:1;
   
-  ngx_event_t                      cleanup_timer;
-  //garbage collection for channel heads
-  nchan_llist_timed_t             *chanhead_cleanup_head;
-  nchan_llist_timed_t             *chanhead_cleanup_tail;
-  
+  nchan_reaper_t                  chanhead_reaper;
 } rdstore_data_t;
 
 static rdstore_data_t        rdt;
@@ -60,20 +65,8 @@ static rdstore_data_t        rdt;
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, rdt.subhash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( rdt.subhash, chanhead)
 
-#undef uthash_malloc
-#undef uthash_free
-#define uthash_malloc(sz) ngx_alloc(sz, ngx_cycle->log)
-#define uthash_free(ptr,sz) ngx_free(ptr)
-
 #include <stdbool.h>
 #include "cmp.h"
-
-#define STR(buf) (buf)->data, (buf)->len
-#define BUF(buf) (buf)->pos, ((buf)->last - (buf)->pos)
-
-#define NCHAN_DEFAULT_SUBSCRIBER_POOL_SIZE (5 * 1024)
-#define NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL 1000
-#define NCHAN_CHANHEAD_EXPIRE_SEC 1
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -88,7 +81,6 @@ static redisAsyncContext * rds_ctx(void);
 static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason);
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead);
 
-static void nchan_store_chanhead_cleanup_timer_handler(ngx_event_t *);
 static ngx_int_t nchan_store_publish_generic(ngx_str_t *, nchan_msg_t *, ngx_int_t, const ngx_str_t *);
 static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *, ngx_pool_t *);
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
@@ -208,6 +200,47 @@ static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
   return params;
 }
 
+static void redis_store_reap_chanhead(nchan_store_channel_head_t *ch) {
+  assert(ch->sub_count == 0 && ch->fetching_message_count == 0);
+  
+  DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
+  redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
+  DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+  stop_spooler(&ch->spooler, 1);
+  CHANNEL_HASH_DEL(ch);
+  ngx_free(ch);
+}
+
+static ngx_int_t nchan_redis_chanhead_ready_to_reap(nchan_store_channel_head_t *ch, uint8_t force) {
+  if(!force) {
+    if(ch->status != INACTIVE) {
+      return NGX_DECLINED;
+    }
+    
+    if(ch->gc_time - ngx_time() > 0) {
+      DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
+      return NGX_DECLINED;
+    }
+    
+    if (ch->sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+      return NGX_DECLINED;
+    }
+    
+    if (ch->fetching_message_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, fetching %i messages", &ch->id, ch->fetching_message_count);
+      return NGX_DECLINED;
+    }
+    
+    //DBG("ok to delete channel %V", &ch->id);
+    return NGX_OK;
+  }
+  else {
+    //force delete is always ok
+    return NGX_OK;
+  }
+}
+
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   rdt.subhash = NULL;
@@ -219,16 +252,15 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_memzero(&rdt.subscriber_channel, sizeof(rdt.subscriber_channel));
   
   redis_nginx_init();
-  rdt.chanhead_cleanup_head = NULL;
-  rdt.chanhead_cleanup_tail = NULL;
   
-  ngx_memzero(&rdt.cleanup_timer, sizeof(rdt.cleanup_timer));
-#if nginx_version >= 1008000
-  rdt.cleanup_timer.cancelable = 1;
-#endif
-  rdt.cleanup_timer.data=NULL;
-  rdt.cleanup_timer.handler=&nchan_store_chanhead_cleanup_timer_handler;
-  rdt.cleanup_timer.log=ngx_cycle->log;
+  nchan_reaper_start(&rdt.chanhead_reaper, 
+                    "redis chanhead", 
+                    offsetof(nchan_store_channel_head_t, gc_prev), 
+                    offsetof(nchan_store_channel_head_t, gc_next), 
+    (ngx_int_t (*)(void *, uint8_t)) nchan_redis_chanhead_ready_to_reap,
+        (void (*)(void *)) redis_store_reap_chanhead,
+                    4
+  );
   
   rds_ctx();
   rds_sub_ctx();
@@ -354,11 +386,7 @@ static redisAsyncContext * rds_ctx(void){
 }
 
 
-
-static void * ngx_store_alloc(size_t size) {
-  return ngx_alloc(size, ngx_cycle->log);
-}
-static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t offset, void *(*allocator)(size_t size));
+static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_buf_t *buf, redisReply *r, uint16_t offset);
 
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
 #define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
@@ -402,7 +430,8 @@ typedef struct {
 static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *privdata) {
   redis_get_message_from_key_data_t *d = (redis_get_message_from_key_data_t *)privdata;
   redisReply           *reply = r;
-  nchan_msg_t          *msg;
+  nchan_msg_t           msg;
+  ngx_buf_t             msgbuf;
   ngx_str_t            *chid = &d->channel_id;
   DBG("get_msg_from_msgkey_callback");
   log_redis_reply(d->name, d->t);
@@ -411,13 +440,12 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *pr
     ERR("get_msg_from_msgkey channel id is NULL");
     return;
   }
-  if((msg = msg_from_redis_get_message_reply(reply, 0, ngx_store_alloc)) == NULL) {
+  if(msg_from_redis_get_message_reply(&msg, &msgbuf, reply, 0) != NGX_OK) {
     ERR("invalid message or message absent after get_msg_from_key");
     return;
   }
   
-  nchan_store_publish_generic(chid, msg, 0, NULL);
-  ngx_free(msg);
+  nchan_store_publish_generic(chid, &msg, 0, NULL);
   ngx_free(d);
 }
 
@@ -805,8 +833,8 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
     redis_subscriber_unregister(&head->id, sub);
   }
   
-  if(head->sub_count == 0) {
-    chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
+  if(head->sub_count == 0 && head->fetching_message_count == 0) {
+    chanhead_gc_add(head, "sub count == 0 and fetching_message_count == 0 after spooler dequeue");
   }
   
 }
@@ -815,11 +843,25 @@ static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, v
   //nothing. 
 }
 
+void spooler_get_message_start_handler(channel_spooler_t *spl, void *pd) {
+  ((nchan_store_channel_head_t *)pd)->fetching_message_count++;
+}
+
+void spooler_get_message_finish_handler(channel_spooler_t *spl, void *pd) {
+  ((nchan_store_channel_head_t *)pd)->fetching_message_count--;
+  assert(((nchan_store_channel_head_t *)pd)->fetching_message_count >= 0);
+}
+
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
-  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis);
-  head->spooler.fn->set_add_handler(&head->spooler, spooler_add_handler, head);
-  head->spooler.fn->set_dequeue_handler(&head->spooler, spooler_dequeue_handler, head);
-  head->spooler.fn->set_bulk_post_subscribe_handler(&head->spooler, spooler_bulk_post_subscribe_handler, NULL);
+  static channel_spooler_handlers_t handlers = {
+    spooler_add_handler,
+    spooler_dequeue_handler,
+    NULL,
+    spooler_bulk_post_subscribe_handler,
+    spooler_get_message_start_handler,
+    spooler_get_message_finish_handler
+  };
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_redis, &handlers, head);
   return NGX_OK;
 }
 
@@ -927,6 +969,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
   head->sub_count=0;
+  head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
   head->status = NOTREADY;
   head->generation = 0;
@@ -936,6 +979,8 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
   
+  head->in_gc_queue = 0;
+
   if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
     head->meta = 1;
   }
@@ -982,60 +1027,35 @@ static nchan_store_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_
 }
 
 static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason) {
-  nchan_llist_timed_t         *chanhead_cleanlink;
   
   DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
   
-  if(head->status != INACTIVE) {
-    chanhead_cleanlink = &head->cleanlink;
-    
-    chanhead_cleanlink->data=(void *)head;
-    chanhead_cleanlink->time=ngx_time();
-    chanhead_cleanlink->prev=rdt.chanhead_cleanup_tail;
-    if(rdt.chanhead_cleanup_tail != NULL) {
-      rdt.chanhead_cleanup_tail->next=chanhead_cleanlink;
-    }
-    chanhead_cleanlink->next=NULL;
-    rdt.chanhead_cleanup_tail=chanhead_cleanlink;
-    if(rdt.chanhead_cleanup_head==NULL) {
-      rdt.chanhead_cleanup_head = chanhead_cleanlink;
-    }
-    
+  if(head->in_gc_queue != 1) {
+    assert(head->status != INACTIVE);
     head->status = INACTIVE;
-    
+    head->gc_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
+    head->in_gc_queue = 1;
+    nchan_reaper_add(&rdt.chanhead_reaper, head);
     DBG("gc_add chanhead %V", &head->id);
   }
   else {
     ERR("gc_add chanhead %V: already added", &head->id);
   }
 
-  //initialize cleanup timer
-  if(!rdt.cleanup_timer.timer_set) {
-    ngx_add_timer(&rdt.cleanup_timer, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
-  }
   return NGX_OK;
 }
 
 
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead) {
   //remove from cleanup list if we're there
-  nchan_llist_timed_t    *cl;
   DBG("gc_withdraw chanhead %V", &chanhead->id);
-  if(chanhead->status == INACTIVE) {
-    cl=&chanhead->cleanlink;
-    if(cl->prev!=NULL)
-      cl->prev->next=cl->next;
-    if(cl->next!=NULL)
-      cl->next->prev=cl->prev;
-    if(rdt.chanhead_cleanup_head==cl)
-      rdt.chanhead_cleanup_head=cl->next;
-    if(rdt.chanhead_cleanup_tail==cl)
-      rdt.chanhead_cleanup_tail=cl->prev;
-
-    cl->prev = cl->next = NULL;
+  if(chanhead->in_gc_queue == 1) {
+    assert(chanhead->status == INACTIVE);
+    nchan_reaper_withdraw(&rdt.chanhead_reaper, chanhead);
+    chanhead->in_gc_queue = 0;
   }
   else {
-    DBG("gc_withdraw chanhead %p (%V), but already inactive", chanhead, &chanhead->id);
+    DBG("gc_withdraw chanhead %p (%V), but already not in gc reaper", chanhead, &chanhead->id);
   }
   return NGX_OK;
 }
@@ -1066,54 +1086,6 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
     ret= NCHAN_MESSAGE_QUEUED;
   }
   return ret;
-}
-
-static void handle_chanhead_gc_queue(ngx_int_t force_delete) {
-  nchan_llist_timed_t    *cur, *next;
-  nchan_store_channel_head_t   *ch = NULL;
-  
-  DBG("handle_chanhead_gc_queue");
-  
-  for(cur=rdt.chanhead_cleanup_head; cur != NULL; cur=next) {
-    next=cur->next;
-    if(force_delete || ngx_time() - cur->time > NCHAN_CHANHEAD_EXPIRE_SEC) {
-      ch = (nchan_store_channel_head_t *)cur->data;
-      
-      if (ch->sub_count == 0) { //still no subscribers here
-
-        //unsubscribe now
-        DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
-        redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
-        DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
-        stop_spooler(&ch->spooler, 1);
-        CHANNEL_HASH_DEL(ch);
-        ngx_free(ch);
-      }
-      else {
-        ERR("chanhead %p (%V) is still in use.", ch, &ch->id);
-      }
-    }
-    else {
-      break;
-    }
-  }
-  rdt.chanhead_cleanup_head=cur;
-  if (cur==NULL) { //we went all the way to the end
-    rdt.chanhead_cleanup_tail=NULL;
-  }
-  else {
-    cur->prev=NULL;
-  }
-}
-
-static void nchan_store_chanhead_cleanup_timer_handler(ngx_event_t *ev) {
-  handle_chanhead_gc_queue(0);
-  if (!(ngx_quit || ngx_terminate || ngx_exiting || rdt.chanhead_cleanup_head==NULL)) {
-    ngx_add_timer(ev, NCHAN_DEFAULT_CHANHEAD_CLEANUP_INTERVAL);
-  }
-  else if(rdt.chanhead_cleanup_head==NULL) {
-    DBG("chanhead gc queue looks empty, stop gc_queue handler");
-  }
 }
 
 static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
@@ -1213,15 +1185,11 @@ typedef struct {
   ngx_buf_t     buf;
 } getmessage_blob_t;
 
-static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t offset, void *(*allocator)(size_t size)) {
+static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_buf_t *buf, redisReply *r, uint16_t offset) {
   
-  getmessage_blob_t   *blob;
-  nchan_msg_t         *msg=NULL;
-  ngx_buf_t           *buf=NULL;
   redisReply         **els = r->element;
-  size_t               len = 0, content_type_len = 0, es_event_len = 0;
+  size_t               content_type_len = 0, es_event_len = 0;
   ngx_int_t            time_int, ttl;
-  u_char              *cur;
   
   if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 7)
    && CHECK_REPLY_INT(els[offset])            //msg TTL
@@ -1232,48 +1200,36 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
    && CHECK_REPLY_STR(els[offset+5])   //message
    && CHECK_REPLY_STR(els[offset+6])   //content-type
    && CHECK_REPLY_STR(els[offset+7])){ //eventsource event
-    len=els[offset+5]->len;
+     
     content_type_len=els[offset+6]->len;
     es_event_len = els[offset+7]->len;
-    if((blob = allocator(sizeof(*blob) + len + content_type_len + es_event_len))==NULL) {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: can't allocate memory for message from redis reply");
-      return NULL;
-    }
-    ngx_memzero(blob, sizeof(*blob));
-    msg = &blob->msg;
-    buf = &blob->buf;
     
-    cur = (u_char *)&blob[1];
-    
+    ngx_memzero(msg, sizeof(*msg));
+    ngx_memzero(buf, sizeof(*buf));
     //set up message buffer;
     msg->buf = buf;
-    buf->start = buf->pos = cur;
-    cur += len;
-    buf->end = buf->last = cur;
-    ngx_memcpy(buf->start, els[offset+5]->str, len);
+    
+    buf->start = buf->pos = (u_char *)els[offset+5]->str;
+    buf->end = buf->last = buf->start + els[offset+5]->len;
     buf->memory = 1;
     buf->last_buf = 1;
     buf->last_in_chain = 1;
     
     if(redisReply_to_int(els[offset], &ttl) != NGX_OK) {
       ERR("invalid ttl integer value is msg response from redis");
-      return NULL;
+      return NGX_ERROR;
     }
     assert(ttl > 0);
     msg->expires = ngx_time() + ttl;
     
     if(content_type_len > 0) {
       msg->content_type.len=content_type_len;
-      msg->content_type.data=cur;
-      ngx_memcpy(msg->content_type.data, els[offset+6]->str, content_type_len);
-      cur += content_type_len;
+      msg->content_type.data=(u_char *)els[offset+6]->str;
     }
     
     if(es_event_len > 0) {
       msg->eventsource_event.len=es_event_len;
-      msg->eventsource_event.data=cur;
-      ngx_memcpy(msg->eventsource_event.data, els[offset+7]->str, es_event_len);
-      // cur += es_event_len;
+      msg->eventsource_event.data=(u_char *)els[offset+7]->str;
     }
     
     if(redisReply_to_int(els[offset+1], &time_int) == NGX_OK) {
@@ -1294,11 +1250,11 @@ static nchan_msg_t * msg_from_redis_get_message_reply(redisReply *r, uint16_t of
     msg->prev_id.tagcount = 1;
     msg->prev_id.tagactive = 0;
     
-    return msg;
+    return NGX_OK;
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: invalid message redis reply");
-    return NULL;
+    ERR("nchan: invalid message redis reply");
+    return NGX_ERROR;
   }
 }
 
@@ -1314,7 +1270,8 @@ typedef struct {
 static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply                *reply= r;
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
-  nchan_msg_t       *msg=NULL;
+  nchan_msg_t                msg;
+  ngx_buf_t                  msgbuf;
   
   if(d == NULL) {
     ERR("redis_get_mesage_callback has NULL userdata");
@@ -1334,8 +1291,8 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   
   switch(reply->element[0]->integer) {
     case 200: //ok
-      if((msg=msg_from_redis_get_message_reply(reply, 1, &ngx_store_alloc))) {
-        d->callback(MSG_FOUND, msg, d->privdata);
+      if(msg_from_redis_get_message_reply(&msg, &msgbuf, reply, 1) == NGX_OK) {
+        d->callback(MSG_FOUND, &msg, d->privdata);
       }
       break;
     case 403: //channel not found
@@ -1404,25 +1361,19 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t *cur, *tmp;
   redisAsyncContext *ctx;
-
-  handle_chanhead_gc_queue(1);
+  
+  HASH_ITER(hh, rdt.subhash, cur, tmp) {
+    cur->shutting_down = 1;
+    chanhead_gc_add(cur, "exit worker");
+  }
+  
+  nchan_exit_notice_about_remaining_things("redis channel", "", rdt.chanhead_reaper.count);
+  nchan_reaper_stop(&rdt.chanhead_reaper);
   
   if((ctx=rds_ctx())!=NULL)
     redis_nginx_force_close_context(&ctx);
   if((ctx=rds_sub_ctx())!=NULL)
     redis_nginx_force_close_context(&ctx);
-  
-  HASH_ITER(hh, rdt.subhash, cur, tmp) {
-    //any subscribers?
-    //TODO: respond to all subscribers
-    cur->shutting_down = 1;
-    chanhead_gc_add(cur, "exit worker");
-  }
-  handle_chanhead_gc_queue(1);
-
-  if(rdt.cleanup_timer.timer_set) {
-    ngx_del_timer(&rdt.cleanup_timer);
-  }
   
   ngx_free(rdt.connect_params);
 }
@@ -1433,11 +1384,9 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
 }
 
 typedef struct {
-  ngx_msec_t                   t;
-  char                        *name;
   ngx_str_t                   *channel_id;
   subscriber_t                *sub;
-  nchan_store_channel_head_t  *chanhead;
+  unsigned                     allocd:1;
 } redis_subscribe_data_t;
 
 static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d);
@@ -1453,36 +1402,38 @@ static ngx_int_t subscribe_existing_channel_callback(ngx_int_t status, void *ch,
   else {
     nchan_store_subscribe_continued(d);
   }
+  assert(data->allocd);
+  ngx_free(data);
   
   return NGX_OK;
 }
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub) {
+  redis_subscribe_data_t        d_data;
   redis_subscribe_data_t       *d = NULL;
 
   assert(sub->last_msgid.tagcount == 1);
   
-  if((d=ngx_calloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
-    return NGX_ERROR;
-  }
-  
-  d->channel_id=(ngx_str_t *)&d[1];
-  d->channel_id->len = channel_id->len;
-  d->channel_id->data = (u_char *)&(d->channel_id)[1];
-  ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
-
-  d->t = ngx_current_msec;
-  d->name = "get_message (subscribe)";
-  
-  d->sub = sub;
-  
-  if(sub->cf->subscribe_only_existing_channel) {
-    nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
+  if(!sub->cf->subscribe_only_existing_channel) {
+    d_data.allocd = 0;
+    d_data.channel_id = channel_id;
+    d_data.sub = sub;
+    nchan_store_subscribe_continued(&d_data);
   }
   else {
-    nchan_store_subscribe_continued(d);
+    if((d=ngx_alloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
+      return NGX_ERROR;
+    }
+    d->allocd = 1;
+    d->channel_id=(ngx_str_t *)&d[1];
+    d->channel_id->len = channel_id->len;
+    d->channel_id->data = (u_char *)&(d->channel_id)[1];
+    ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
+    d->sub = sub;
+    nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
   }
+
   return NGX_OK;
 }
 
@@ -1496,7 +1447,6 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   assert(ch != NULL);
   
   ch->spooler.fn->add(&ch->spooler, d->sub);
-  
   //redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", store_rds_lua_hashes.get_message, STR(d->channel_id), d->msg_id->time, d->msg_id->tag[0], "FILO", create_channel_ttl);
   return NGX_OK;
 }
@@ -1661,9 +1611,9 @@ ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
     cur->spooler.fn->respond_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     chanhead_gc_add(cur, "redis connection gone");
   }
-  handle_chanhead_gc_queue(1);
+  nchan_reaper_flush(&rdt.chanhead_reaper);
   
-  ERR("%s connection to redis for %V closed: %s", ctx_type, rdt.connect_url, ctx_type, ac->errstr);
+  ERR("%s connection to redis for %V closed: %s", ctx_type, rdt.connect_url, ac->errstr);
   
   return NGX_OK;
 }

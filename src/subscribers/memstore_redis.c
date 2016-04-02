@@ -1,12 +1,12 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
-#include "../store/memory/shmem.h"
-#include "../store/memory/ipc.h"
-#include "../store/memory/store-private.h"
-#include "../store/memory/ipc-handlers.h"
+#include <store/memory/shmem.h>
+#include <store/memory/ipc.h>
+#include <store/memory/store-private.h>
+#include <store/memory/ipc-handlers.h>
 
-#include "../store/memory/store.h"
-#include "../store/redis/store.h"
+#include <store/memory/store.h>
+#include <store/redis/store.h>
 
 #include "internal.h"
 #include "memstore_redis.h"
@@ -48,8 +48,8 @@ ngx_int_t memstore_redis_subscriber_destroy(subscriber_t *sub) {
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  ngx_int_t           ret = NGX_OK;
-  return ret;
+  ngx_free(d);
+  return NGX_OK;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
@@ -127,20 +127,10 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 static ngx_str_t   sub_name = ngx_string("memstore-redis");
 
 subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
-  
+  subscriber_t               *sub;
   sub_data_t                 *d;
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  if(d == NULL) {
-    ERR("couldn't allocate memstore-redis subscriber data");
-    return NULL;
-  }
-  
-  subscriber_t *sub = internal_subscriber_create(&sub_name, d);
-  internal_subscriber_set_enqueue_handler(sub, (callback_pt )sub_enqueue);
-  internal_subscriber_set_dequeue_handler(sub, (callback_pt )sub_dequeue);
-  internal_subscriber_set_respond_message_handler(sub, (callback_pt )sub_respond_message);
-  internal_subscriber_set_respond_status_handler(sub, (callback_pt )sub_respond_status);
-  internal_subscriber_set_notify_handler(sub, (callback_pt )sub_notify_handler);
+  sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler);
   
   sub->destroy_after_dequeue = 0;
   sub->dequeue_after_response = 0;
@@ -158,6 +148,6 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   d->timeout_ev.log = ngx_cycle->log;
   reset_timer(d);
   */
-  DBG("%p created memstore-redis subscriber created with privdata %p", d->sub, d);
+  DBG("%p created memstore-redis subscriber with privdata %p", d->sub, d);
   return sub;
 }

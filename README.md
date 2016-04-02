@@ -8,7 +8,7 @@ Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requ
 
 ## Status and History
 
-The latest Nchan release is v0.99.7 (March 10, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
+The latest Nchan release is v0.99.8 (March 13, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy.
 
@@ -236,7 +236,7 @@ Up to 7 channel ids can be specified for the `nchan_channel_id` or `nchan_channe
     nchan_channel_id "$1" "$2" "common_channel";
     #GET /multisub/foo/bar will be subscribed to:
     # channels 'foo', 'bar', and 'common_channel',
-    #and will received messages from all of the above.
+    #and will receive messages from all of the above.
   }
 ```
 
@@ -249,7 +249,7 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
     nchan_channel_id_split_delimiter ",";
     #GET /multisub-split/foo,bar,baz,a will be subscribed to:
     # channels 'foo', 'bar', 'baz', and 'a'
-    #and will received messages from all of the above.
+    #and will receive messages from all of the above.
   }
 ```
 
@@ -361,7 +361,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `0 (none)`  
   context: http, server, location, if  
   legacy name: push_subscriber_timeout  
-  > The length of time a subscriber's long-polling connection can last before it's timed out. If you don't want subscriber's connection to timeout, set this to 0. Applicable only if a `nchan_subscriber` is present in this or a child context.    
+  > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.
 
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  

@@ -1,5 +1,6 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
+#include <util/nchan_bufchainpool.h>
 #include "longpoll.h"
 #include "longpoll-private.h"
 
@@ -10,16 +11,31 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:MULTIPART:" fmt, ##arg)
 #include <assert.h> 
 
+typedef struct {
+  u_char                 boundary[50];
+  u_char                *boundary_end;
+} multipart_privdata_t;
+
+typedef struct {
+  u_char       charbuf[58 + 10*NCHAN_FIXED_MULTITAG_MAX];
+  void        *prev;
+  void        *next;
+} headerbuf_t;
+
+static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  return ctx->bcp;
+}
+
 static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
-  u_char                          cbuf[100];
-  
-  nchan_buf_and_chain_t           bc;
+  nchan_buf_and_chain_t          *bc;
   
   ngx_http_request_t             *r = fsub->sub.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  if(!fsub->data.shook_hands) {
+  multipart_privdata_t           *mpd = (multipart_privdata_t *)fsub->privdata;
   
+  if(!fsub->data.shook_hands) {
     clcf->chunked_transfer_encoding = 0;
     nchan_request_set_content_type_multipart_boundary_header(r, ctx);
     
@@ -28,40 +44,51 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
     //set preamble in the request ctx. it would be nicer to store in in the subscriber data, 
     //but that would mean not reusing longpoll's fsub directly
     
-    bc.chain.buf = &bc.buf;
-    bc.chain.next = NULL;
+    if((bc = nchan_bufchain_pool_reserve(ctx->bcp, 1)) == NULL) {
+      ERR("can't reserve bufchain for multipart headers");
+      nchan_respond_status(fsub->sub.request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+      return;
+    }
     
-    ngx_memzero(&bc.buf, sizeof(ngx_buf_t));
-    bc.buf.start = cbuf;
-    bc.buf.pos = cbuf;
-    bc.buf.end = ngx_snprintf(cbuf, 50, ("--%V"), nchan_request_multipart_boundary(r, ctx));
-    bc.buf.last = bc.buf.end;
-    bc.buf.memory = 1;
-    bc.buf.last_buf = 0;
-    bc.buf.last_in_chain = 1;
-    bc.buf.flush = 1;
+    ngx_memzero(&bc->buf, sizeof(ngx_buf_t));
+    bc->buf.start = mpd->boundary + 2;
+    bc->buf.pos = bc->buf.start;
+    bc->buf.end = mpd->boundary_end;
+    bc->buf.last = bc->buf.end;
+    bc->buf.memory = 1;
+    bc->buf.last_buf = 0;
+    bc->buf.last_in_chain = 1;
+    bc->buf.flush = 1;
     
-    nchan_output_filter(r, &bc.chain);
+    nchan_output_filter(r, &bc->chain);
     
     fsub->data.shook_hands = 1; 
   }
 }
+static void *headerbuf_alloc(void *pd) {
+  return ngx_palloc((ngx_pool_t *)pd, sizeof(headerbuf_t));
+}
 
 static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
-  u_char                  headerbuf[58 + 10*NCHAN_FIXED_MULTITAG_MAX];
-  u_char                  boundary[50];
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
-  ngx_buf_t              *msg_buf = msg->buf;
+  ngx_buf_t              *buf, *msg_buf = msg->buf, *msgid_buf;
   ngx_int_t               rc;
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, nchan_module);
-  
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  ngx_int_t               n;
+  nchan_buf_and_chain_t  *bc;
+  ngx_chain_t            *chain;
+  ngx_file_t             *file_copy;
+  multipart_privdata_t   *mpd = (multipart_privdata_t *)fsub->privdata;
   
-  u_char                 *cur=headerbuf;
-  nchan_buf_and_chain_t   bc[4];
+  headerbuf_t            *headerbuf = nchan_reuse_queue_push(ctx->output_str_queue);
+  u_char                 *cur = headerbuf->charbuf;
   
-  static ngx_file_t       file_copy;
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+    ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
+  }
   
   //generate the headers
   if(!cf->msg_in_etag_only) {
@@ -79,63 +106,75 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     cur = ngx_snprintf(cur, 58 + 10*NCHAN_FIXED_MULTITAG_MAX, "\r\nEtag: %V\r\n", tmp_etag);
   }
   
-  //content-type maybe
-  bc[0].chain.buf = &bc[0].buf;
+  n=4;
+  if(msg->content_type.len == 0) {
+    //don't need content_type buf'n'chain
+    n--;
+  }
+  if(ngx_buf_size(msg_buf) == 0) {
+    //don't need msgbuf
+    n --;
+  }
+  if((bc = nchan_bufchain_pool_reserve(ctx->bcp, n)) == NULL) {
+    ERR("cant allocate buf-and-chains for multipart/mixed client output");
+    return NGX_ERROR;
+  }
   
-  ngx_memzero(&bc[0].buf, sizeof(ngx_buf_t));
-  bc[0].buf.memory = 1;
-  bc[0].buf.start = headerbuf;
-  bc[0].buf.pos = headerbuf;
-  bc[0].buf.last = cur;
-  bc[0].buf.end = cur;
-
+  chain = &bc->chain;
+  msgid_buf = chain->buf;
+  
+  //message id
+  ngx_memzero(chain->buf, sizeof(ngx_buf_t));
+  chain->buf->memory = 1;
+  chain->buf->start = headerbuf->charbuf;
+  chain->buf->pos = headerbuf->charbuf;
+  
+  //content_type maybe
   if(msg->content_type.len > 0) {
-    bc[0].buf.last = cur;
-    bc[0].buf.end = cur;
-    bc[0].chain.next = &bc[1].chain;
+    chain = chain->next;
+    buf = chain->buf;
     
-    ngx_memzero(&bc[1].buf, sizeof(ngx_buf_t));
-    bc[1].buf.memory = 1;
-    bc[1].buf.start = headerbuf;
-    bc[1].buf.pos = headerbuf;
-    bc[1].buf.last = ngx_snprintf(cur, 255, "Content-Type: %V\r\n\r\n", &msg->content_type);
-    bc[1].buf.end = bc[1].buf.last;
+    msgid_buf->last = cur;
+    msgid_buf->end = cur;
     
-    bc[1].chain.buf = &bc[1].buf;
-    bc[1].chain.next = ngx_buf_size(msg_buf) > 0 ? &bc[2].chain : &bc[3].chain;
+    ngx_memzero(buf, sizeof(ngx_buf_t));
+    buf->memory = 1;
+    buf->start = cur;
+    buf->pos = cur;
+    buf->last = ngx_snprintf(cur, 255, "Content-Type: %V\r\n\r\n", &msg->content_type);
+    buf->end = buf->last;
   }
   else {
     *cur++ = CR; *cur++ = LF;
-    bc[0].buf.last = cur;
-    bc[0].buf.end = cur;
-    bc[0].chain.next = ngx_buf_size(msg_buf) > 0 ? &bc[2].chain : &bc[3].chain;
+    msgid_buf->last = cur;
+    msgid_buf->end = cur;
   }
   
-  if(ngx_buf_size(msg_buf) > 0) {  
-    bc[2].chain.buf = &bc[2].buf;
-    bc[2].chain.next = &bc[3].chain;
-    
-    ngx_memcpy(&bc[2].buf, msg_buf, sizeof(*msg_buf));
-    
-    nchan_msg_buf_open_fd_if_needed(&bc[2].buf, &file_copy, NULL);
-    
-    bc[2].buf.last_buf = 0;
-    bc[2].buf.last_in_chain = 0;
-    bc[2].buf.flush = 0;
+  chain = chain->next;
+  buf = chain->buf;
+  //msgbuf
+  if(ngx_buf_size(msg_buf) > 0) {
+    ngx_memcpy(buf, msg_buf, sizeof(*msg_buf));
+    if(msg_buf->file) {
+      file_copy = nchan_bufchain_pool_reserve_file(ctx->bcp);
+      nchan_msg_buf_open_fd_if_needed(buf, file_copy, NULL);
+    }
+    buf->last_buf = 0;
+    buf->last_in_chain = 0;
+    buf->flush = 0;
   }
   
-  bc[3].chain.buf = &bc[3].buf;
-  bc[3].chain.next = NULL;
-  
-  ngx_memzero(&bc[3].buf, sizeof(ngx_buf_t));
-  bc[3].buf.start = boundary;
-  bc[3].buf.pos = boundary;
-  bc[3].buf.end = ngx_snprintf(boundary, 50, "\r\n--%V", nchan_request_multipart_boundary(fsub->sub.request, ctx));
-  bc[3].buf.last = bc[3].buf.end;
-  bc[3].buf.memory = 1;
-  bc[3].buf.last_buf = 0;
-  bc[3].buf.last_in_chain = 1;
-  bc[3].buf.flush = 1;
+  chain = chain->next;
+  buf = chain->buf;
+  ngx_memzero(buf, sizeof(ngx_buf_t));
+  buf->start = &mpd->boundary[0];
+  buf->pos = buf->start;
+  buf->end = mpd->boundary_end;
+  buf->last = buf->end;
+  buf->memory = 1;
+  buf->last_buf = 0;
+  buf->last_in_chain = 1;
+  buf->flush = 1;
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
   update_subscriber_last_msg_id(sub, msg);
@@ -145,21 +184,18 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   
   DBG("%p output msg to subscriber", sub);
   
-  rc = nchan_output_filter(fsub->sub.request, &bc[0].chain);
+  rc = nchan_output_msg_filter(fsub->sub.request, msg, &bc->chain);
   
   return rc;
 }
 
-static void empty_handler(void) {}
-
 static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
-  nchan_buf_and_chain_t     bc;
+  nchan_buf_and_chain_t    *bc;
   static u_char            *end_boundary=(u_char *)"--\r\n";
-  
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
-  if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
     return NGX_OK;
   }
@@ -170,28 +206,25 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   }
   
   multipart_ensure_headers_sent(fsub);
-  bc.chain.buf = &bc.buf;
-  bc.chain.next = NULL;
   
-  
-  ngx_memzero(&bc.buf, sizeof(ngx_buf_t));
-  bc.buf.memory = 1;
-  bc.buf.last_buf = 1;
-  bc.buf.last_in_chain = 1;
-  bc.buf.flush = 1;
-  bc.buf.start = end_boundary;
-  bc.buf.pos = end_boundary;
-  bc.buf.end = end_boundary + 4;
-  bc.buf.last = bc.buf.end;
-  
-  nchan_output_filter(fsub->sub.request, &bc.chain);
-  
-  if(status_code >=400 && status_code <599) {
-    fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
-    fsub->sub.request->keepalive=0;
-    fsub->data.finalize_request=1;
-    sub->fn->dequeue(sub);
+  if((bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 1)) == NULL) {
+    nchan_respond_status(sub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+    return NGX_ERROR;
   }
+  
+  ngx_memzero(&bc->buf, sizeof(ngx_buf_t));
+  bc->buf.memory = 1;
+  bc->buf.last_buf = 1;
+  bc->buf.last_in_chain = 1;
+  bc->buf.flush = 1;
+  bc->buf.start = end_boundary;
+  bc->buf.pos = end_boundary;
+  bc->buf.end = end_boundary + 4;
+  bc->buf.last = bc->buf.end;
+  
+  nchan_output_filter(fsub->sub.request, &bc->chain);
+  
+  subscriber_maybe_dequeue_after_status_response(fsub, status_code);
 
   return NGX_OK;
 }
@@ -214,10 +247,10 @@ static       ngx_str_t   sub_name = ngx_string("http-multipart");
 
 
 subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
-  subscriber_t         *sub;
-  full_subscriber_t    *fsub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
-  sub = longpoll_subscriber_create(r, msg_id);
+  subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
+  full_subscriber_t    *fsub = (full_subscriber_t *)sub;
+  multipart_privdata_t *multipart_data;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
   
   if(multipart_fn == NULL) {
     multipart_fn = &multipart_fn_data;
@@ -227,26 +260,22 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
     multipart_fn->respond_status = multipart_respond_status;
   }
   
-  fsub = (full_subscriber_t *)sub;
-  
-  sub->fn = multipart_fn;
-  sub->name = &sub_name;
-  sub->type = HTTP_MULTIPART;
-  
-  sub->dequeue_after_response = 0;
-  
   fsub->data.shook_hands = 0;
   
-  DBG("%p create subscriber", sub);
+  fsub->privdata = ngx_palloc(sub->request->pool, sizeof(multipart_privdata_t));
+  multipart_data = (multipart_privdata_t *)fsub->privdata;
+  multipart_data->boundary_end = ngx_snprintf(multipart_data->boundary, 50, "\r\n--%V", nchan_request_multipart_boundary(fsub->sub.request, ctx));
   
-  if(ctx) {
-    ctx->subscriber_type = sub->name;
-  }
+  //header bufs -- unique per response
+  ctx->output_str_queue = ngx_palloc(r->pool, sizeof(*ctx->output_str_queue));
+  nchan_reuse_queue_init(ctx->output_str_queue, offsetof(headerbuf_t, prev), offsetof(headerbuf_t, next), headerbuf_alloc, NULL, sub->request->pool);
   
+  ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
+  nchan_bufchain_pool_init(ctx->bcp, r->pool);
+  
+  nchan_subscriber_common_setup(sub, HTTP_MULTIPART, &sub_name, multipart_fn, 0);
   return sub;
 }
-
-
 
 ngx_int_t nchan_detect_multipart_subscriber_request(ngx_http_request_t *r) {
   ngx_str_t       *accept_header;

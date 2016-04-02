@@ -1,3 +1,24 @@
+0.99.9 (Apr. 2 2016)
+ fix: buffering and output issues for large messages
+ update: hiredis updated to v0.13.3
+ fix: redis publishing and subscribing memory leaks
+ optimize: per-channel redis subscriber counts batched into 100-ms intervals
+    to prevent redis roundtrip floods
+ fix: redis subscriber memory leak
+ refactor: extracted shared subscriber and message store logic
+ fix: use-after-free error for redis channels without subscribers
+ fix: channel readying logic sometimes got confused and tripped up assert()s
+ fix: even more proper handling of websocket close frames
+ change: 408 Request Timeout instead of 304 No Content status code for timed out subscribers
+0.99.8 (Mar. 13 2016)
+ fix: multipart/mixed subscriber output issues
+ fix: memory leak for multiplexed > 4 channels
+ fix: invalid memory access for aborted subscriber connection with redis
+      and nchan_subscribe_existing_channels_only
+ fix: accept websocket binary data frames
+ fix: proper handling of websocket close frames
+ fix: incorrect expire calculation for cached redis-stored messages
+ fix: double free for multiplexed >4 websocket subs
 0.99.7 (Mar. 10 2016)
  fix: websocket infinite ping loop after reload
  feature: nchan_subscriber_message_id_custom_etag_header for misbehaving proxies that eat etags

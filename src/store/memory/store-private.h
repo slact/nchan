@@ -57,6 +57,8 @@ struct nchan_store_channel_head_s {
   unsigned                        meta:1;
 
   subscriber_t                   *redis_sub;
+  ngx_int_t                       delta_fakesubs;
+  ngx_event_t                     delta_fakesubs_timer_ev;
   
   nchan_store_channel_head_t     *gc_prev;
   nchan_store_channel_head_t     *gc_next;
@@ -110,6 +112,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, uint8_t ipc_subscribe_if_needed);
 ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head);
+void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n);
 
 #if FAKESHARD
 void memstore_fakeprocess_push(ngx_int_t slot);

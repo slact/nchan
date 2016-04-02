@@ -1,5 +1,7 @@
 #ifndef NCHAN_TYPES_H
 #define NCHAN_TYPES_H
+#include <util/nchan_reuse_queue.h>
+#include <util/nchan_bufchainpool.h>
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
@@ -39,13 +41,6 @@ typedef struct {
   unsigned                        tagactive:16;
   unsigned                        tagcount:16;
 } nchan_msg_id_t;
-
-typedef struct {
-  ngx_chain_t     chain;
-  ngx_buf_t       buf;
-} nchan_buf_and_chain_t;
-
-
 
 //message queue
 
@@ -241,7 +236,6 @@ typedef struct {
   ngx_int_t              (*dequeue)(struct subscriber_s *);
   ngx_int_t              (*respond_message)(struct subscriber_s *, nchan_msg_t *);
   ngx_int_t              (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *);
-  ngx_int_t              (*set_timeout_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
@@ -250,10 +244,13 @@ typedef struct {
   
 } subscriber_fn_t;
 
+typedef enum {ALIVE, DEAD, UNKNOWN, PININGFORTHEFJORDS} nchan_subscriber_status_t;
+
 struct subscriber_s {
   ngx_str_t                 *name;
   subscriber_type_t          type;
   const subscriber_fn_t     *fn;
+  nchan_subscriber_status_t  status;
   nchan_msg_id_t             last_msgid;
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
@@ -261,6 +258,9 @@ struct subscriber_s {
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
   unsigned                   enqueued:1;
+#if FAKESHARD
+  ngx_int_t                  owner;
+#endif
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   u_char                    *lbl;
   subscriber_t              *dbg_prev;
@@ -271,6 +271,10 @@ struct subscriber_s {
 #define NCHAN_MULTITAG_REQUEST_CTX_MAX 4
 typedef struct {
   subscriber_t                  *sub;
+  nchan_reuse_queue_t           *output_str_queue;
+  nchan_reuse_queue_t           *reserved_msg_queue;
+  nchan_bufchain_pool_t         *bcp; //bufchainpool maybe?
+  
   ngx_str_t                     *subscriber_type;
   nchan_msg_id_t                 msg_id;
   nchan_msg_id_t                 prev_msg_id;

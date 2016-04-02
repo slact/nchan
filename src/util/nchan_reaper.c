@@ -38,8 +38,13 @@ ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next,
 
 static void its_reaping_time(nchan_reaper_t *rp, uint8_t force);
 
-ngx_int_t nchan_reaper_stop(nchan_reaper_t *rp) {
+ngx_int_t nchan_reaper_flush(nchan_reaper_t *rp) {
   its_reaping_time(rp, 1);
+  return NGX_OK;
+}
+
+ngx_int_t nchan_reaper_stop(nchan_reaper_t *rp) {
+  nchan_reaper_flush(rp);
   if(rp->timer.timer_set) {
     ngx_del_timer(&rp->timer);
   }

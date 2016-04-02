@@ -9,11 +9,6 @@
 
 #include <store/memory/store.h>
 
-//a classic
-#define container_of(ptr, type, member) ({ \
-  const typeof( ((type *)0)->member ) *__mptr = (ptr); \
-  (type *)( (char *)__mptr - offsetof(type,member) );})1
-
 void memstore_fakeprocess_push(ngx_int_t slot);
 void memstore_fakeprocess_push_random(void);
 void memstore_fakeprocess_pop(void);
@@ -26,8 +21,9 @@ static void empty_handler() { }
 static void sudden_abort_handler(subscriber_t *sub) {
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
-  memstore_fakeprocess_push(fsub->data.owner);
+  memstore_fakeprocess_push(fsub->sub.owner);
 #endif
+  sub->status = DEAD;
   sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -39,29 +35,27 @@ static void sudden_abort_handler(subscriber_t *sub) {
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   DBG("create for req %p", r);
   full_subscriber_t      *fsub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+
   //TODO: allocate from pool (but not the request's pool)
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
     assert(0);
     return NULL;
   }
-  ngx_memcpy(&fsub->sub, &new_longpoll_sub, sizeof(new_longpoll_sub));
-  fsub->sub.request = r;
+  
+  nchan_subscriber_init(&fsub->sub, &new_longpoll_sub, r, msg_id);
+  fsub->privdata = NULL;
   fsub->data.cln = NULL;
   fsub->data.finalize_request = 1;
   fsub->data.holding = 0;
   fsub->data.act_as_intervalpoll = 0;
-  fsub->sub.cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  ngx_memzero(&fsub->data.timeout_ev, sizeof(fsub->data.timeout_ev));
-  fsub->data.timeout_handler = empty_handler;
-  fsub->data.timeout_handler_data = NULL;
+  
+  nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->data.timeout_ev);
+  
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
   fsub->data.already_responded = 0;
   fsub->data.awaiting_destruction = 0;
-  fsub->sub.reserved = 0;
-  fsub->sub.enqueued = 0;
   
   if(fsub->sub.cf->longpoll_multimsg) {
     fsub->sub.dequeue_after_response = 0;
@@ -77,19 +71,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   ngx_memcpy(fsub->sub.lbl, r->uri.data, r->uri.len);
 #endif
   
-  if(msg_id) {
-    nchan_copy_new_msg_id(&fsub->sub.last_msgid, msg_id);
-  }
-  else {
-    fsub->sub.last_msgid.time = 0;
-    fsub->sub.last_msgid.tag.fixed[0] = 0;
-    fsub->sub.last_msgid.tagcount = 1;
-  }
-  
-  ctx->prev_msg_id = fsub->sub.last_msgid;
-  
-  fsub->data.owner = memstore_slot();
-  
   //http request sudden close cleanup
   if((fsub->data.cln = ngx_http_cleanup_add(r, 0)) == NULL) {
     ERR("Unable to add request cleanup for longpoll subscriber");
@@ -100,10 +81,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.cln->handler = (ngx_http_cleanup_pt )sudden_abort_handler;
   DBG("%p created for request %p", &fsub->sub, r);
   
-  if(ctx) {
-    ctx->sub = &fsub->sub;
-    ctx->subscriber_type = fsub->sub.name;
-  }
   
   return &fsub->sub;
 }
@@ -118,6 +95,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
     nchan_free_msg_id(&fsub->sub.last_msgid);
+    assert(sub->status == DEAD);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
     ngx_free(sub->lbl);
@@ -159,19 +137,6 @@ static ngx_int_t longpoll_release(subscriber_t *self, uint8_t nodestroy) {
   }
 }
 
-static void timeout_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-#if FAKESHARD
-  memstore_fakeprocess_push(fsub->data.owner);
-#endif
-  fsub->data.timeout_handler(&fsub->sub, fsub->data.timeout_handler_data);
-  fsub->sub.dequeue_after_response = 1;
-  fsub->sub.fn->respond_status(&fsub->sub, NGX_HTTP_NOT_MODIFIED, NULL);
-#if FAKESHARD
-  memstore_fakeprocess_pop();
-#endif
-}
-
 ngx_int_t longpoll_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(fsub->sub.enqueued == 0);
@@ -183,13 +148,6 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   ensure_request_hold(fsub);
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
-    //nextsub->ev should be zeroed;
-#if nginx_version >= 1008000
-    fsub->data.timeout_ev.cancelable = 1;
-#endif
-    fsub->data.timeout_ev.handler = timeout_ev_handler;
-    fsub->data.timeout_ev.data = fsub;
-    fsub->data.timeout_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
   
@@ -211,6 +169,7 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   if(fsub->data.finalize_request) {
     DBG("finalize request %p", fsub->sub.request);
     ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    self->status = DEAD;
   }
   
   if(self->destroy_after_dequeue) {
@@ -294,7 +253,9 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   ctx->msg_id = self->last_msgid;
 
   //verify_unique_response(&fsub->data.request->uri, &self->last_msgid, msg, self);
-  
+  if(fsub->data.timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->data.timeout_ev);
+  }
   if(!cf->longpoll_multimsg) {
     //disable abort handler
     fsub->data.cln->handler = empty_handler;
@@ -498,7 +459,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
       status_code = NGX_HTTP_NOT_MODIFIED;
     }
   }
-  else if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED) {
+  else if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     if(cf->longpoll_multimsg) {
       if(fsub->data.multimsg_first != NULL) {
         longpoll_multipart_respond(fsub);
@@ -525,11 +486,13 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   return NGX_OK;
 }
 
-static ngx_int_t longpoll_set_timeout_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  fsub->data.timeout_handler = cb;
-  fsub->data.timeout_handler_data = privdata;
-  return NGX_OK;
+void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx_int_t status_code) {
+  if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
+    fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
+    fsub->sub.request->keepalive=0;
+    fsub->data.finalize_request=1;
+    fsub->sub.fn->dequeue(&fsub->sub);
+  }
 }
 
 static void request_cleanup_handler(subscriber_t *sub) {
@@ -554,7 +517,6 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_dequeue,
   &longpoll_respond_message,
   &longpoll_respond_status,
-  &longpoll_set_timeout_callback,
   &longpoll_set_dequeue_callback,
   &longpoll_reserve,
   &longpoll_release,
@@ -568,6 +530,7 @@ static const subscriber_t new_longpoll_sub = {
   &sub_name,
   LONGPOLL,
   &longpoll_fn,
+  UNKNOWN,
   NCHAN_ZERO_MSGID,
   NULL,
   NULL,
@@ -576,91 +539,3 @@ static const subscriber_t new_longpoll_sub = {
   1, //destroy after dequeue
   0, //enqueued
 };
-
-
-
-
-
-
-/*
-#include <store/rbtree_util.h>
-#include <execinfo.h>
-
-typedef struct {
-  ngx_str_t    id;
-  nchan_msg_t  msg;
-  ngx_str_t    smallmsg;
-  subscriber_t sub;
-  
-} uniq_response_t;
-
-static rbtree_seed_t  uniq_rsp_seed;
-static rbtree_seed_t *urs = NULL;
-
-void *urs_node_id(void *data) {
-  return &((uniq_response_t *)data)->id;
-}
-
-
-void verify_unique_response(ngx_str_t *uri, nchan_msg_id_t *msgid, nchan_msg_t *msg, subscriber_t *sub) {
-  
-  ngx_rbtree_node_t  *node;
-  uniq_response_t    *urnode;
-  
-  u_char              idbuf[1024];
-  ngx_str_t           id; //response id
-  
-  id.data = idbuf;
-  id.len = ngx_sprintf(idbuf, "%V | %V", uri, msgid_to_str(msgid)) - idbuf;
-  
-  if(urs == NULL) {
-    urs = &uniq_rsp_seed;
-    rbtree_init(urs, "unique response verifier", urs_node_id, NULL, NULL);
-  }
-  
-  int msglen = 0;
-  if(!msg->buf->in_file) {
-    msglen = msg->buf->end - msg->buf->start;
-  }
-  
-  if((node = rbtree_find_node(urs, &id)) != NULL) {
-    urnode = rbtree_data_from_node(node);
-    
-    assert(msg->buf == urnode->msg.buf);
-    assert(urnode->smallmsg.len == msglen);
-    assert(ngx_strncmp(urnode->smallmsg.data, msg->buf->start, msglen) == 0);
-    
-    urnode->msg = *msg;
-    urnode->sub = *sub;
-  }
-  else {
-    
-    node = rbtree_create_node(urs, sizeof(*urnode) + id.len + msglen);
-    urnode = rbtree_data_from_node(node);
-    urnode->id.data = (u_char *)&urnode[1];
-    urnode->id.len = id.len;
-    ngx_memcpy(urnode->id.data, id.data, id.len);
-    
-    if(!msg->buf->in_file) {
-      urnode->smallmsg.len = msglen;
-      urnode->smallmsg.data = urnode->id.data + id.len;
-      ngx_memcpy(urnode->smallmsg.data, msg->buf->start, msglen);
-      urnode->smallmsg.len = msglen;
-    }
-    else {
-      urnode->smallmsg.len = 0;
-      urnode->smallmsg.data = NULL;
-    }
-    
-    urnode->msg = *msg;
-    urnode->sub = *sub;
-    
-    rbtree_insert_node(urs, node);
-  }
-  
-}
-*/
-
-
-
-
