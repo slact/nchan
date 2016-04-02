@@ -1,6 +1,5 @@
-
+0.99.10 (Apr. 2 2016)
  fix: messages not freed until expired after being deleted from channel
-0.99.9 (Apr. 2 2016)
  fix: buffering and output issues for large messages
  update: hiredis updated to v0.13.3
  fix: redis publishing and subscribing memory leaks
