@@ -562,10 +562,10 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def test_long_buffed_messages
-    kb=10000
+  def generic_test_long_buffed_messages(client=:longpoll)
+    kb=5000
     #kb=2
-    pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: :eventsource
+    pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: client
     #pub, sub = pubsub 1, sub: "/sub/websocket_only/", client: :websocket
     #sub.on_message do |msg|
     #  puts ">>>>>>>message: #{msg.message[0...10]}...|#{msg.message.length}|"
@@ -587,7 +587,13 @@ class PubSubTest <  Minitest::Test
     pub.delete
     sub.terminate
   end
-  
+
+  [:longpoll, :multipart, :eventsource, :websocket, :chunked].each do |client|
+    define_method "test_long_buffed_messages_#{client}" do
+      generic_test_long_buffed_messages client
+    end
+  end
+    
   def test_subscriber_timeout
     chan=SecureRandom.hex
     sub=Subscriber.new(url("sub/timeout/#{chan}"), 5, timeout: 10)
