@@ -563,7 +563,7 @@ class PubSubTest <  Minitest::Test
   end
   
   def generic_test_long_buffed_messages(client=:longpoll)
-    kb=5000
+    kb=2000
     #kb=2
     pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: client
     #pub, sub = pubsub 1, sub: "/sub/websocket_only/", client: :websocket
