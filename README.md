@@ -361,7 +361,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `0 (none)`  
   context: http, server, location, if  
   legacy name: push_subscriber_timeout  
-  > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0.    
+  > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.
 
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  
