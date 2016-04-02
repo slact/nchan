@@ -173,7 +173,7 @@ CfCmd.new do
       group: "pubsub",
       value: "<number> (seconds)",
       default: "0 (none)",
-      info: "Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0."
+      info: "Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected."
   
   nchan_authorize_request [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
