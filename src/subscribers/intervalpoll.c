@@ -15,7 +15,7 @@ static       ngx_str_t   sub_name = ngx_string("intervalpoll");
 subscriber_t *intervalpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub;
   full_subscriber_t    *fsub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
   sub = longpoll_subscriber_create(r, msg_id);
   
   fsub = (full_subscriber_t *)sub;

@@ -35,7 +35,7 @@
 
 extern ngx_pool_t *nchan_pool;
 extern ngx_int_t nchan_worker_processes;
-extern ngx_module_t nchan_module;
+extern ngx_module_t nchan_http_module;
 extern nchan_store_t *nchan_store;
 
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);

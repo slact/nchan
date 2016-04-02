@@ -23,7 +23,7 @@ typedef struct {
 } headerbuf_t;
 
 static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
   return ctx->bcp;
 }
 
@@ -32,7 +32,7 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
   
   ngx_http_request_t             *r = fsub->sub.request;
   ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
   multipart_privdata_t           *mpd = (multipart_privdata_t *)fsub->privdata;
   
   if(!fsub->data.shook_hands) {
@@ -74,8 +74,8 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
   ngx_buf_t              *buf, *msg_buf = msg->buf, *msgid_buf;
   ngx_int_t               rc;
-  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, nchan_module);
-  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, nchan_http_module);
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
   ngx_int_t               n;
   nchan_buf_and_chain_t  *bc;
   ngx_chain_t            *chain;
@@ -193,7 +193,7 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   nchan_buf_and_chain_t    *bc;
   static u_char            *end_boundary=(u_char *)"--\r\n";
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
-  //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
   
   if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     //ignore
@@ -250,7 +250,7 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
   subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
   full_subscriber_t    *fsub = (full_subscriber_t *)sub;
   multipart_privdata_t *multipart_data;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
   
   if(multipart_fn == NULL) {
     multipart_fn = &multipart_fn_data;

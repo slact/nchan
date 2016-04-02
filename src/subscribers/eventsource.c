@@ -21,7 +21,7 @@ struct msgidbuf_s {
 };
 
 static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
   return ctx->bcp;
 }
 
@@ -129,7 +129,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   msgidbuf_t             *msgidbuf;
   ngx_str_t               id_line = ngx_string("id: ");
   ngx_str_t               event_line = ngx_string("event: ");
-  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(sub->request, nchan_module);
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(sub->request, nchan_http_module);
   
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
@@ -326,7 +326,7 @@ static void *msgidbuf_alloc(void *pd) {
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
   full_subscriber_t    *fsub = (full_subscriber_t *)sub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
   
   if(eventsource_fn == NULL) {
     eventsource_fn = &eventsource_fn_data;

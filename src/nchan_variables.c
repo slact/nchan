@@ -18,7 +18,7 @@ static nchan_request_ctx_t *get_main_request_ctx(ngx_http_request_t *r){
   
   //if this is an subrequest, get nearest parent existing ctx
   for(rcur = r; rcur != NULL; rcur = rcur->parent) {
-    ctx = ngx_http_get_module_ctx(rcur, nchan_module);
+    ctx = ngx_http_get_module_ctx(rcur, nchan_http_module);
     if(ctx) return ctx;
   }
   

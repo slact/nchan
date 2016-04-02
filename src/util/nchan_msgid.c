@@ -303,8 +303,8 @@ static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, 
 nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
   ngx_str_t                      *if_none_match;
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
   int                             i;
   ngx_int_t                       rc;
   
