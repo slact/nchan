@@ -19,7 +19,7 @@ class CfCmd #let's make a DSL!
     end
   end
   class Cmd
-    attr_accessor :name, :type, :set, :conf, :offset_name
+    attr_accessor :name, :type, :set, :conf, :offset_name, :min_nginx_version
     attr_accessor :contexts, :args, :legacy, :alt, :disabled
     def type_line
       lut=OneOf.new(:main => :NGX_HTTP_MAIN_CONF, :srv => :NGX_HTTP_SRV_CONF, :loc => :NGX_HTTP_LOC_CONF, :if => :NGX_HTTP_LIF_CONF, :block => :NGX_CONF_BLOCK)
@@ -77,6 +77,14 @@ class CfCmd #let's make a DSL!
         str.unshift "/* DISABLED\r\n"
         str.push "  */\r\n"
       end
+      if min_nginx_version
+        min_nginx_version.match /^(\d+)\.(\d+)\.(\d+)/
+        nginxver  = $~[1].to_i * 1000000
+        nginxver += $~[2].to_i * 1000
+        nginxver += $~[3].to_i
+        str.unshift "#if nginx_version >= #{nginxver}\r\n"
+        str << "#endif\r\n"
+      end
       str << "\r\n"
       str.join
     end
@@ -101,6 +109,7 @@ class CfCmd #let's make a DSL!
     cmd.legacy=opt[:legacy]
     cmd.alt=opt[:alt]
     cmd.disabled=opt[:disabled]
+    cmd.min_nginx_version = opt[:min_nginx_version]
     @cmds << cmd
   end
   
