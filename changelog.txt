@@ -1,3 +1,5 @@
+0.99.11 (Apr. 3 2016)
+ feature: nchan can be built as a dynamic module (for nginx >= 1.9.11)
 0.99.10 (Apr. 2 2016)
  fix: messages not freed until expired after being deleted from channel
  fix: buffering and output issues for large messages
