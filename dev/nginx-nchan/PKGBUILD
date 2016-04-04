@@ -139,7 +139,13 @@ build() {
     --http-log-path=${_access_log}
     --error-log-path=${_error_log}
     --with-http_ssl_module
-    --add-module="../nchan")
+  )
+
+  if [[ $DYNAMIC == 1 ]]; then
+    CONFIGURE+=( --add-dynamic-module=../nchan )
+  else
+    CONFIGURE+=( --add-module=../nchan )
+  fi
 
   if [[ $CONFIGURE_WITH_DEBUG == 1 ]]; then
     CONFIGURE+=( "--with-debug" )
