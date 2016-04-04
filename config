@@ -1,13 +1,6 @@
-ngx_feature="nchan"
 ngx_addon_name=nchan
-ngx_feature_name=
-ngx_feature_run=no
-ngx_feature_incs=
-ngx_feature_path=
-ngx_feature_libs=
-ngx_feature_test=
 
-_NHPM_SUBSCRIBERS_SRCS="\
+_NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/common.c \
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
   ${ngx_addon_dir}/src/subscribers/intervalpoll.c \
@@ -15,66 +8,79 @@ _NHPM_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/http-chunked.c \
   ${ngx_addon_dir}/src/subscribers/http-multipart-mixed.c \
   ${ngx_addon_dir}/src/subscribers/websocket.c \
+  ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
   ${ngx_addon_dir}/src/subscribers/internal.c \
   ${ngx_addon_dir}/src/subscribers/memstore_ipc.c \
   ${ngx_addon_dir}/src/subscribers/memstore_multi.c \
   ${ngx_addon_dir}/src/subscribers/memstore_redis.c \
 "
 
-_NHPM_REDIS_SRCS="\
+_NCHAN_REDIS_STORE_SRCS="\
   ${ngx_addon_dir}/src/hiredis/hiredis.c \
   ${ngx_addon_dir}/src/hiredis/read.c \
   ${ngx_addon_dir}/src/hiredis/async.c \
   ${ngx_addon_dir}/src/hiredis/sds.c \
   ${ngx_addon_dir}/src/hiredis/net.c \
-"
-_NHPM_REDIS_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/redis/cmp.c \
   ${ngx_addon_dir}/src/store/redis/rdsstore.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
 "
-_NHPM_MEMORY_STORE_SRCS="\
+_NCHAN_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/ipc.c \
   ${ngx_addon_dir}/src/store/memory/shmem.c \
   ${ngx_addon_dir}/src/store/memory/ipc-handlers.c \
   ${ngx_addon_dir}/src/store/memory/memstore.c \
 "
 
-HTTP_MODULES="$HTTP_MODULES nchan_http_module"
-
-CORE_MODULES="$CORE_MODULES"
-
-CORE_INCS="$CORE_INCS \
-  $ngx_addon_dir/src \
+_nchan_util_dir="${ngx_addon_dir}/src/util"
+_NCHAN_UTIL_SRCS=" \
+  $_nchan_util_dir/nchan_reuse_queue.c \
+  $_nchan_util_dir/nchan_output.c \
+  $_nchan_util_dir/nchan_util.c \
+  $_nchan_util_dir/nchan_bufchainpool.c \
+  $_nchan_util_dir/nchan_channel_id.c \
+  $_nchan_util_dir/nchan_channel_info.c \
+  $_nchan_util_dir/nchan_msgid.c \
+  $_nchan_util_dir/nchan_thingcache.c \
+  $_nchan_util_dir/nchan_reaper.c \
+  $_nchan_util_dir/nchan_subrequest.c \
 "
 
-NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
-  $_NHPM_REDIS_SRCS \
-  ${ngx_addon_dir}/src/nchan_defs.c \
-  ${ngx_addon_dir}/src/util/nchan_reuse_queue.c \
-  ${ngx_addon_dir}/src/util/nchan_output.c \
-  $_NHPM_SUBSCRIBERS_SRCS \
+_NCHAN_STORE_SRCS="  
   ${ngx_addon_dir}/src/store/rbtree_util.c \
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
   ${ngx_addon_dir}/src/store/store_common.c \
-  $_NHPM_REDIS_STORE_SRCS \
-  $_NHPM_MEMORY_STORE_SRCS \
-  ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
-  ${ngx_addon_dir}/src/util/nchan_util.c \
-  ${ngx_addon_dir}/src/util/nchan_bufchainpool.c \
-  ${ngx_addon_dir}/src/util/nchan_channel_id.c \
-  ${ngx_addon_dir}/src/util/nchan_channel_info.c \
-  ${ngx_addon_dir}/src/util/nchan_msgid.c \
-  ${ngx_addon_dir}/src/util/nchan_thingcache.c \
-  ${ngx_addon_dir}/src/util/nchan_reaper.c \
-  ${ngx_addon_dir}/src/util/nchan_subrequest.c \
+  $_NCHAN_REDIS_STORE_SRCS \
+  $_NCHAN_MEMORY_STORE_SRCS \
+"
+
+_NCHAN_SRCS="\
+  $_NCHAN_UTIL_SRCS \
+  $_NCHAN_SUBSCRIBERS_SRCS \
+  $_NCHAN_STORE_SRCS \
+  ${ngx_addon_dir}/src/nchan_defs.c \
   ${ngx_addon_dir}/src/nchan_variables.c \
   ${ngx_addon_dir}/src/nchan_module.c \
 "
 
-have=NGX_HTTP_HEADERS . auto/have
-. auto/feature
 
-CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
-CORE_INCS="$CORE_INCS $ngx_feature_incs"
+ngx_module_incs=$ngx_addon_dir/src
+
+have=NGX_HTTP_HEADERS . auto/have
+
+if [ $ngx_module_link = DYNAMIC ] ; then
+  ngx_module_type=HTTP
+  ngx_module_name=nchan_http_module
+  ngx_module_srcs="$_NCHAN_SRCS"
+  . auto/module
+elif [ $ngx_module_link = ADDON ] ; then
+  ngx_module_type=HTTP
+  ngx_module_name=nchan_http_module
+  ngx_module_srcs="$_NCHAN_SRCS"
+  . auto/module
+else
+  NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_NCHAN_SRCS"
+  CORE_INCS="$CORE_INCS $ngx_module_incs"
+  HTTP_MODULES="$HTTP_MODULES nchan_http_module"
+fi

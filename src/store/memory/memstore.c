@@ -57,9 +57,9 @@ typedef struct {
 ngx_int_t                         memstore_procslot_offset = 0;
 
 
-static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg, uint8_t force) {
+static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t *smsg, uint8_t respect_expire, uint8_t force) {
   if(!force) {
-    if(smsg->msg->expires > ngx_time()) {
+    if(respect_expire && smsg->msg->expires > ngx_time()) {
       //not time yet
       return NGX_DECLINED;
     }
@@ -78,6 +78,14 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg, u
     }
     return NGX_OK;
   }
+}
+
+static ngx_int_t nchan_memstore_store_msg_ready_to_reap(store_message_t *smsg, uint8_t force) {
+  return nchan_memstore_store_msg_ready_to_reap_generic(smsg, 0, force);
+}
+
+static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_message_t *smsg, uint8_t force) {
+  return nchan_memstore_store_msg_ready_to_reap_generic(smsg, 1, force);
 }
 
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
@@ -187,7 +195,7 @@ static void init_mpt(memstore_data_t *m) {
                      "memstore nobuffer message", 
                      offsetof(store_message_t, prev), 
                      offsetof(store_message_t, next), 
-    (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_store_msg_ready_to_reap,
+    (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_store_msg_ready_to_reap_wait_util_expired,
          (void (*)(void *)) memstore_reap_store_message,
                      2
   );

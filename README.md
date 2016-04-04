@@ -10,7 +10,7 @@ Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requ
 
 The latest Nchan release is v0.99.9 (April 2, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
 
-The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *redis storage and channel events are still experimental* and may be a bit buggy.
+The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *channel events* is still experimental and may be a bit buggy.
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
@@ -34,8 +34,8 @@ Currently, Nchan's performance is limited by available memory bandwidth. This ca
 #### Packages
  - [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
- - [Debian](https://www.debian.org/) and [Ubuntu](http://www.ubuntu.com/): [nginx-common](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras](https://nchan.slact.net/download/nginx-extras.deb), compiled with Nchan. Download both and install them with `dpkg -i`. These packages should soon be available directly from the Debian repository.
- - [Ubuntu](http://www.ubuntu.com/): For Ubuntu 'trusty' (14.04 LTS), install `nginx-common` from the repo, then download [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). This build is based on nginx 1.4, which is the version bundled with ubuntu `trusty`, and is rather outdated. You can also use the debian packages.
+ - [Debian](https://www.debian.org/): [nginx-common.deb](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.slact.net/download/nginx-extras.deb). Download both and install them with `dpkg -i`. These packages should soon be available directly from the Debian repository.
+ - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.slact.net/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`. Who knows when Ubuntu will add them to their repository?...
  - [Fedora](https://fedoraproject.org): A 64-bit binary rpm and a source rpm are available: [nginx-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-nchan.x86-64.rpm), [ngx-nchan.src.rpm](https://nchan.slact.net/download/nginx-nchan.src.rpm). 
  - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
 
@@ -45,6 +45,9 @@ Grab the latest copy of Nginx from [nginx.org](http://nginx.org). Grab the lates
 ```
 ./configure --add-module=path/to/nchan ...
 ```
+
+If you're using Nginx  > 1.9.11, you can build Nchan as a [dynamic module](https://www.nginx.com/blog/dynamic-modules-nginx-1-9-11/) with `--add-dynamic-module=path/to/nchan`
+
 Run `make`, `make install`, and enjoy. (Caution, contents may be hot.)
 
 ## Conceptual Overview

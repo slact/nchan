@@ -40,8 +40,10 @@ DEBUGGER_CMD="kdbg -p %s $SRCDIR/nginx"
 REDIS_CONF="$DEVDIR/redis.conf"
 REDIS_PORT=8537
 
+_pkgdir="${DEVDIR}/nginx-nchan/pkg/nginx-nchan-dev"
+_dynamic_module="$_pkgdir/etc/nginx/modules/nchan_module.so"
+
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
-echo $cacheconf
 
 NGINX_CONF_FILE="nginx.conf"
 
@@ -153,6 +155,10 @@ if [[ ! -z $CACHE ]]; then
   tmpdir=`pwd`"/.tmp"
   mkdir $tmpdir 2>/dev/null
   sed "s|_CACHEDIR_|\"$tmpdir\"|g" $NGINX_TEMP_CONFIG -i
+fi
+
+if [[ -f "$_dynamic_module" ]]; then
+  sed "s|^\s*#load_module.*|load_module \"${_dynamic_module}\";|g" $NGINX_TEMP_CONFIG -i
 fi
 
 #shutdown old redis
