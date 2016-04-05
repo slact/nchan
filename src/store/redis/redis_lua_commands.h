@@ -54,13 +54,13 @@ typedef struct {
 
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "1c8ae4fa9658ca36790227fa2f8e0e4342ca82d2",
-  "44ddfad69ad3f2b57e937b4387dd9cecfb067dfa",
+  "9af42e385bc489cae6453e569ed40423a52ab397",
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "4965038f835d8a7599134b9e02f50a9b269fdeea",
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
   "0d9e380ac91a073e39b9265c5b029f903b2fa2ac",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
-  "5c2067d260f0da9a1a194be02b6c379923557796",
+  "6b64d07004ebedcc85d53b8114c1ee1a4d5979de",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
 };
@@ -182,7 +182,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  redis.call('PUBLISH', pubsub, del_msgpack)\n"
   "end\n"
   "\n"
-  "return nearly_departed\n",
+  "return nearly_departed",
 
   //find_channel
   "--input: keys: [],  values: [ channel_id ]\n"
@@ -683,6 +683,14 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  table.insert(errors, msg)\n"
   "end\n"
   "\n"
+  "local tp=function(t)\n"
+  "  local tt={}\n"
+  "  for i, v in pairs(t) do\n"
+  "    table.insert(tt, tostring(i) .. \": \" .. tostring(v))\n"
+  "  end\n"
+  "  return \"{\" .. table.concat(tt, \", \") .. \"}\"\n"
+  "end\n"
+  "\n"
   "local tohash=function(arr)\n"
   "  if type(arr)~=\"table\" then\n"
   "    return nil\n"
@@ -721,9 +729,9 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  local _, t = type_is(msgkey, {\"hash\", \"none\"})\n"
   "  local msg = tohash(redis.call('HGETALL', msgkey))\n"
   "  local ttl = tonumber(redis.call('TTL', msgkey))\n"
-  "  local tt = redis.call(\"HLEN\", msgkey)\n"
-  "  if t == \"hash\" and tonumber(redis.call(\"HLEN\", msgkey)) == 1 and msg.next then\n"
-  "    err(\"message\", msgkey, \"is nothing but a 'next' field\")\n"
+  "  local n = tonumber(redis.call(\"HLEN\", msgkey))\n"
+  "  if n > 0 and (msg.data == nil or msg.id == nil or msg.time == nil or msg.tag == nil)then\n"
+  "    err(\"incomplete message (ttl \"..ttl..\")\", msgkey, tp(msg))\n"
   "    return false\n"
   "  end\n"
   "  if t == \"hash\" and tonumber(ttl) < 0 then\n"
@@ -745,16 +753,26 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    msgs = \"channel:messages:\" .. id,\n"
   "    next_sub_id= \"channel:next_subscriber_id:\" .. id\n"
   "  }\n"
-  "  local _, t = type_is(key.ch, \"hash\")\n"
+  "  if not type_is(key.ch, \"hash\") then\n"
+  "    return false\n"
+  "  end\n"
   "  type_is(key.msgs,{\"list\", \"none\"})\n"
   "  type_is(key.next_sub_id, \"string\")\n"
   "  \n"
-  "  local msgids = redis.call('LRANGE', key.msgs, 0, -1)\n"
-  "  for i, msgid in ipairs(msgids) do\n"
-  "    check_msg(id, msgid, msgids[i-1], msgids[i+1])\n"
+  "  local ch = tohash(redis.call('HGETALL', key.ch))\n"
+  "  local len = tonumber(redis.call(\"HLEN\", key.ch))\n"
+  "  local ttl = tonumber(redis.call('TTL',  key.ch))\n"
+  "  if len == 2 then\n"
+  "    err(\"incomplete channel (ttl \" .. ttl ..\")\", key.ch, tp(ch))\n"
+  "    return false\n"
   "  end\n"
   "  \n"
-  "  local ch = tohash(redis.call('HGETALL', key.ch))\n"
+  "  local msgids = redis.call('LRANGE', key.msgs, 0, -1)\n"
+  "  for i, msgid in ipairs(msgids) do\n"
+  "    check_msg(id, msgid, msgids[i+1], msgids[i-1])\n"
+  "  end\n"
+  "  \n"
+  "  \n"
   "  if ch.prev_message then\n"
   "    check_msg(id, ch.prev_message, false, ch.current_message)\n"
   "  end\n"

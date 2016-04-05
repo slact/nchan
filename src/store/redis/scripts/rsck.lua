@@ -17,6 +17,14 @@ local err = function(...)
   table.insert(errors, msg)
 end
 
+local tp=function(t)
+  local tt={}
+  for i, v in pairs(t) do
+    table.insert(tt, tostring(i) .. ": " .. tostring(v))
+  end
+  return "{" .. table.concat(tt, ", ") .. "}"
+end
+
 local tohash=function(arr)
   if type(arr)~="table" then
     return nil
@@ -55,9 +63,9 @@ local check_msg = function(chid, msgid, prev_msgid, next_msgid)
   local _, t = type_is(msgkey, {"hash", "none"})
   local msg = tohash(redis.call('HGETALL', msgkey))
   local ttl = tonumber(redis.call('TTL', msgkey))
-  local tt = redis.call("HLEN", msgkey)
-  if t == "hash" and tonumber(redis.call("HLEN", msgkey)) == 1 and msg.next then
-    err("message", msgkey, "is nothing but a 'next' field")
+  local n = tonumber(redis.call("HLEN", msgkey))
+  if n > 0 and (msg.data == nil or msg.id == nil or msg.time == nil or msg.tag == nil)then
+    err("incomplete message (ttl "..ttl..")", msgkey, tp(msg))
     return false
   end
   if t == "hash" and tonumber(ttl) < 0 then
@@ -79,16 +87,26 @@ local check_channel = function(id)
     msgs = "channel:messages:" .. id,
     next_sub_id= "channel:next_subscriber_id:" .. id
   }
-  local _, t = type_is(key.ch, "hash")
+  if not type_is(key.ch, "hash") then
+    return false
+  end
   type_is(key.msgs,{"list", "none"})
   type_is(key.next_sub_id, "string")
+  
+  local ch = tohash(redis.call('HGETALL', key.ch))
+  local len = tonumber(redis.call("HLEN", key.ch))
+  local ttl = tonumber(redis.call('TTL',  key.ch))
+  if len == 2 then
+    err("incomplete channel (ttl " .. ttl ..")", key.ch, tp(ch))
+    return false
+  end
   
   local msgids = redis.call('LRANGE', key.msgs, 0, -1)
   for i, msgid in ipairs(msgids) do
     check_msg(id, msgid, msgids[i+1], msgids[i-1])
   end
   
-  local ch = tohash(redis.call('HGETALL', key.ch))
+  
   if ch.prev_message then
     check_msg(id, ch.prev_message, false, ch.current_message)
   end
