@@ -85,7 +85,7 @@ local check_channel = function(id)
   
   local msgids = redis.call('LRANGE', key.msgs, 0, -1)
   for i, msgid in ipairs(msgids) do
-    check_msg(id, msgid, msgids[i-1], msgids[i+1])
+    check_msg(id, msgid, msgids[i+1], msgids[i-1])
   end
   
   local ch = tohash(redis.call('HGETALL', key.ch))
