@@ -55,7 +55,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "4965038f835d8a7599134b9e02f50a9b269fdeea",
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
-  "03abc2994272188aceed1d806a78dfb6584e827e",
+  "0d9e380ac91a073e39b9265c5b029f903b2fa2ac",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
@@ -506,7 +506,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "end\n"
   "\n"
   "msg.prev=channel.current_message\n"
-  "if key.last_message then\n"
+  "if key.last_message and redis.call('exists', key.last_message) == 1 then\n"
   "  redis.call('HSET', key.last_message, 'next', msg.id)\n"
   "end\n"
   "\n"
