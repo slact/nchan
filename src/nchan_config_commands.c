@@ -67,6 +67,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, longpoll_multimsg),
     NULL } ,
 
+  { ngx_string("nchan_longpoll_multipart_omit_separator"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, longpoll_omit_multipart_separators),
+    NULL } ,
+
   { ngx_string("nchan_eventsource_event"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,

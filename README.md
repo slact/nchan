@@ -288,6 +288,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value.    
 
+- **nchan_longpoll_multipart_omit_separator**  
+  arguments: 1  
+  default: `off`  
+  context: server, location, if  
+  > A hack to omit the multipart separator in longpoll-multipart responses.    
+
 - **nchan_longpoll_multipart_response**  
   arguments: 1  
   default: `off`  

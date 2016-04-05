@@ -69,6 +69,15 @@ CfCmd.new do
       default: "off",
       info: "Enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server."
   
+  nchan_longpoll_multipart_omit_separator [:srv, :loc, :if],
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :longpoll_omit_multipart_separators],
+      args: 1,
+      
+      group: "pubsub",
+      default: "off",
+      info: "A hack to omit the multipart separator in longpoll-multipart responses."
+  
   nchan_eventsource_event [:srv, :loc, :if],
       :ngx_conf_set_str_slot,
       [:loc_conf, :eventsource_event],
