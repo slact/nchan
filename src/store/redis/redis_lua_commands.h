@@ -34,6 +34,9 @@ typedef struct {
   //output: current_subscribers
   char *publish_status;
 
+  //redis-store consistency check
+  char *rsck;
+
   //input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
   //  'subscriber_id' can be '-' for new id, or an existing id
   //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
@@ -51,12 +54,13 @@ typedef struct {
 
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "1c8ae4fa9658ca36790227fa2f8e0e4342ca82d2",
-  "9af42e385bc489cae6453e569ed40423a52ab397",
+  "44ddfad69ad3f2b57e937b4387dd9cecfb067dfa",
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "4965038f835d8a7599134b9e02f50a9b269fdeea",
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
   "0d9e380ac91a073e39b9265c5b029f903b2fa2ac",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
+  "5c2067d260f0da9a1a194be02b6c379923557796",
   "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
 };
@@ -71,6 +75,7 @@ static store_redis_lua_scripts_t store_rds_lua_script_names = {
   "get_message_from_key",
   "publish",
   "publish_status",
+  "rsck",
   "subscriber_register",
   "subscriber_unregister",
 };
@@ -177,7 +182,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  redis.call('PUBLISH', pubsub, del_msgpack)\n"
   "end\n"
   "\n"
-  "return nearly_departed",
+  "return nearly_departed\n",
 
   //find_channel
   "--input: keys: [],  values: [ channel_id ]\n"
@@ -657,6 +662,130 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "--now publish to the efficient channel\n"
   "redis.call('PUBLISH', channel_pubsub, pubmsg)\n"
   "return redis.call('HGET', chan_key, 'subscribers') or 0",
+
+  //rsck
+  "--redis-store consistency check\n"
+  "\n"
+  "local concat = function(...)\n"
+  "  local arg = {...}\n"
+  "  for i = 1, #arg do\n"
+  "    arg[i]=tostring(arg[i])\n"
+  "  end\n"
+  "  return table.concat(arg, \" \")\n"
+  "end\n"
+  "local dbg =function(...) \n"
+  "  redis.call('echo', concat(...))\n"
+  "end\n"
+  "local errors={}\n"
+  "local err = function(...)\n"
+  "  local msg = concat(...)\n"
+  "  dbg(msg)\n"
+  "  table.insert(errors, msg)\n"
+  "end\n"
+  "\n"
+  "local tohash=function(arr)\n"
+  "  if type(arr)~=\"table\" then\n"
+  "    return nil\n"
+  "  end\n"
+  "  local h = {}\n"
+  "  local k=nil\n"
+  "  for i, v in ipairs(arr) do\n"
+  "    if k == nil then\n"
+  "      k=v\n"
+  "    else\n"
+  "      h[k]=v; k=nil\n"
+  "    end\n"
+  "  end\n"
+  "  return h\n"
+  "end\n"
+  "local type_is = function(key, _type)\n"
+  "  local t = redis.call(\"TYPE\", key)['ok']\n"
+  "  local type_ok = true\n"
+  "  if type(_type) == \"table\" then\n"
+  "    type_ok = false\n"
+  "    for i, v in pairs(_type) do\n"
+  "      if v == _type then\n"
+  "        type_ok = true\n"
+  "        break\n"
+  "      end\n"
+  "    end\n"
+  "  elseif t ~= _type then\n"
+  "    err(key, \" should be type\", type, \", is\", t)\n"
+  "    type_ok = false\n"
+  "  end\n"
+  "  return type_ok, t\n"
+  "end\n"
+  "\n"
+  "local check_msg = function(chid, msgid, prev_msgid, next_msgid)\n"
+  "  local msgkey = \"channel:msg:\"..msgid..\":\"..chid\n"
+  "  local _, t = type_is(msgkey, {\"hash\", \"none\"})\n"
+  "  local msg = tohash(redis.call('HGETALL', msgkey))\n"
+  "  local ttl = tonumber(redis.call('TTL', msgkey))\n"
+  "  local tt = redis.call(\"HLEN\", msgkey)\n"
+  "  if t == \"hash\" and tonumber(redis.call(\"HLEN\", msgkey)) == 1 and msg.next then\n"
+  "    err(\"message\", msgkey, \"is nothing but a 'next' field\")\n"
+  "    return false\n"
+  "  end\n"
+  "  if t == \"hash\" and tonumber(ttl) < 0 then\n"
+  "    err(\"message\", msgkey, \"ttl =\", ttl)\n"
+  "  end\n"
+  "  if ttl ~= -2 then\n"
+  "    if prev_msgid ~= false and msg.prev ~= prev_msgid then\n"
+  "      err(\"msg\", chid, msgid, \"prev_message wrong. expected\", prev_msgid, \"got\", msg.prev)\n"
+  "    end\n"
+  "    if next_msgid ~= false and msg.next ~= next_msgid then\n"
+  "      err(\"msg\", chid, msgid, \"next_message wrong. expected\", next_msgid, \"got\", msg.next)\n"
+  "    end\n"
+  "  end\n"
+  "end\n"
+  "\n"
+  "local check_channel = function(id)\n"
+  "  local key={\n"
+  "    ch = \"channel:\"..id,\n"
+  "    msgs = \"channel:messages:\" .. id,\n"
+  "    next_sub_id= \"channel:next_subscriber_id:\" .. id\n"
+  "  }\n"
+  "  local _, t = type_is(key.ch, \"hash\")\n"
+  "  type_is(key.msgs,{\"list\", \"none\"})\n"
+  "  type_is(key.next_sub_id, \"string\")\n"
+  "  \n"
+  "  local msgids = redis.call('LRANGE', key.msgs, 0, -1)\n"
+  "  for i, msgid in ipairs(msgids) do\n"
+  "    check_msg(id, msgid, msgids[i-1], msgids[i+1])\n"
+  "  end\n"
+  "  \n"
+  "  local ch = tohash(redis.call('HGETALL', key.ch))\n"
+  "  if ch.prev_message then\n"
+  "    check_msg(id, ch.prev_message, false, ch.current_message)\n"
+  "  end\n"
+  "  if ch.current_message then\n"
+  "    check_msg(id, ch.current_message, ch.prev_message, false)\n"
+  "  end\n"
+  "  \n"
+  "end\n"
+  "\n"
+  "local channel_ids = {}\n"
+  "\n"
+  "for i, chkey in ipairs(redis.call(\"KEYS\", \"channel:*\")) do\n"
+  "  if not chkey:match(\"^channel:messages:\") and\n"
+  "     not chkey:match(\"^channel:msg:\") and \n"
+  "     not chkey:match(\"^channel:next_subscriber_id:\") then\n"
+  "    table.insert(channel_ids, chkey);\n"
+  "  end\n"
+  "end\n"
+  "\n"
+  "dbg(\"found\", #channel_ids, \"channels\")\n"
+  "for i, chkey in ipairs(channel_ids) do\n"
+  "  local chid = chkey:match(\"^channel:(.*)\")\n"
+  "  check_channel(chid)\n"
+  "end\n"
+  "\n"
+  "if errors then\n"
+  "  table.insert(errors, 1, concat(#channel_ids, \"channels, found\", #errors, \"problems\"))\n"
+  "  return errors\n"
+  "else\n"
+  "  return concat(#channel_ids, \"channels, all ok\")\n"
+  "end\n",
 
   //subscriber_register
   "--input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]\n"
