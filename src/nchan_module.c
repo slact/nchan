@@ -26,7 +26,6 @@
 #include <nchan_websocket_publisher.h>
 
 ngx_int_t           nchan_worker_processes;
-ngx_pool_t         *nchan_pool;
 ngx_module_t        nchan_http_module;
 
 //#define DEBUG_LEVEL NGX_LOG_WARN

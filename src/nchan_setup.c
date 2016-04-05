@@ -8,8 +8,6 @@
 
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
 
-ngx_module_t     nchan_module;
-
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 ngx_flag_t       global_redis_enabled = 0;
 
@@ -566,7 +564,7 @@ static ngx_http_module_t  nchan_module_ctx = {
     nchan_merge_loc_conf,          /* merge location configuration */
 };
 
-ngx_module_t  nchan_module = {
+ngx_module_t  nchan_http_module = {
     NGX_MODULE_V1,
     &nchan_module_ctx,             /* module context */
     nchan_commands,                /* module directives */
