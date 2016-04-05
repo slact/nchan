@@ -123,7 +123,7 @@ if redis.call('EXISTS', key.message) ~= 0 then
 end
 
 msg.prev=channel.current_message
-if key.last_message then
+if key.last_message and redis.call('exists', key.last_message) == 1 then
   redis.call('HSET', key.last_message, 'next', msg.id)
 end
 
