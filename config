@@ -1,5 +1,27 @@
 ngx_addon_name=nchan
 
+#do we have hiredis on the platform?
+ngx_feature="hiredis"
+ngx_feature_run=yes
+ngx_feature_incs="#include <hiredis/hiredis.h>"
+ngx_feature_test="if(HIREDIS_SONAME < 0.13) { return 1; }"
+ngx_feature_libs="-lhiredis"
+. auto/feature
+if [ $ngx_found = no ]; then
+  _NCHAN_HIREDIS_SRCS="\
+    ${ngx_addon_dir}/src/hiredis/hiredis.c \
+    ${ngx_addon_dir}/src/hiredis/read.c \
+    ${ngx_addon_dir}/src/hiredis/async.c \
+    ${ngx_addon_dir}/src/hiredis/sds.c \
+    ${ngx_addon_dir}/src/hiredis/net.c \
+  "
+  ngx_feature_libs=""
+else
+  _NCHAN_HIREDIS_SRCS=""
+  CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+fi
+
+
 _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/common.c \
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
@@ -16,11 +38,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
 "
 
 _NCHAN_REDIS_STORE_SRCS="\
-  ${ngx_addon_dir}/src/hiredis/hiredis.c \
-  ${ngx_addon_dir}/src/hiredis/read.c \
-  ${ngx_addon_dir}/src/hiredis/async.c \
-  ${ngx_addon_dir}/src/hiredis/sds.c \
-  ${ngx_addon_dir}/src/hiredis/net.c \
+  ${_NCHAN_HIREDIS_SRCS}
   ${ngx_addon_dir}/src/store/redis/cmp.c \
   ${ngx_addon_dir}/src/store/redis/rdsstore.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
