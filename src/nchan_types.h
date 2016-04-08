@@ -42,6 +42,11 @@ typedef struct {
   unsigned                        tagcount:16;
 } nchan_msg_id_t;
 
+typedef struct {
+  time_t                          time;
+  int16_t                         tag;
+} nchan_msg_tiny_id_t;
+
 //message queue
 
 #if NCHAN_MSG_RESERVE_DEBUG

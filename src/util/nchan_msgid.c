@@ -15,6 +15,19 @@ void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out
   }
 }
 
+void nchan_expand_tiny_msgid(nchan_msg_tiny_id_t *tinyid, nchan_msg_id_t *id) {
+  id->time = tinyid->time;
+  id->tag.fixed[0]=tinyid->tag;
+  id->tagcount = 1;
+  id->tagactive = 1;
+}
+
+void nchan_shrink_normal_msgid(nchan_msg_id_t *id, nchan_msg_tiny_id_t *tinyid) {
+  assert(id->tagcount <= 1);
+  tinyid->time = id->time;
+  tinyid->tag = id->tag.fixed[0];
+}
+
 ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
   ngx_memcpy(dst, src, sizeof(*src));
   if(src->tagcount > NCHAN_FIXED_MULTITAG_MAX) {
@@ -365,4 +378,65 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
 }
 
 
+int8_t nchan_compare_msgid_tags(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  uint8_t active = id2->tagactive;
+  int16_t *tags1, *tags2;
+  int16_t t1, t2;
+  
+  tags1 = (id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id1->tag.fixed : id1->tag.allocd;
+  tags2 = (id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id2->tag.fixed : id2->tag.allocd;
+  
+  //debugstuff that prevents this function from getting inlined
+  assert(id1->time == id2->time);
+  int i, nonnegs = 0;
+  for (i=0; i < id2->tagcount; i++) {
+    if(tags2[i] >= 0) nonnegs++;
+  }
+  assert(nonnegs == 1);
+  
+  if(id1->time == 0 && id2->time == 0) return 0; //always equal on zero-time
+  
+  t1 = (active < id1->tagcount) ? tags1[active] : -1;
+  t2 = tags2[active];
+  
+  //ERR("Comparing msgids: id1: %V --", msgid_to_str(id1));
+  //ERR("  --- id2: %V --", msgid_to_str(id2));
+  
+  if(t1 < t2){ 
+    //ERR("id1 is smaller. -1");
+    return -1;
+  }
+  if(t1 > t2){
+    //ERR("id1 is larger. 1");
+    return  1;
+  }
+  //ERR("id1 equals id2. 0");
+  return 0;
+}
 
+int8_t nchan_compare_msgids(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  assert(id1->tagcount == id2->tagcount);
+  if(id1->time < id2->time) {
+    return -1;
+  }
+  else if(id1->time > id2->time) {
+    return 1;
+  }
+  else {
+    assert(id1->tagcount == id2->tagcount);
+    if(id1->tagcount == 1) {
+      if(id1->tag.fixed[0] < id2->tag.fixed[0]) {
+        return -1;
+      }
+      else if(id1->tag.fixed[0] > id2->tag.fixed[0]) {
+        return 1;
+      }
+      else {
+        return 0;
+      }
+    }
+    else {
+      return nchan_compare_msgid_tags(id1, id2);
+    }
+  }
+}
