@@ -416,12 +416,11 @@ typedef struct {
 } getmessage_data_rsub_pd_t;
 
 static void ipc_handler_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status, void *pd) {
-  if(status == MSG_EXPECTED) {
-    getmessage_data_rsub_pd_t *gd = (getmessage_data_rsub_pd_t *)pd;
-    gd->data.d.resp.getmsg_code = MSG_EXPECTED;
-    gd->data.d.resp.shm_msg = NULL;
-    ipc_alert(nchan_memstore_get_ipc(), gd->sender, IPC_GET_MESSAGE_REPLY, &gd->data, sizeof(gd->data));
-  }
+  assert(status == MSG_EXPECTED || status == MSG_NORESPONSE);
+  getmessage_data_rsub_pd_t *gd = (getmessage_data_rsub_pd_t *)pd;
+  gd->data.d.resp.getmsg_code = status;
+  gd->data.d.resp.shm_msg = NULL;
+  ipc_alert(nchan_memstore_get_ipc(), gd->sender, IPC_GET_MESSAGE_REPLY, &gd->data, sizeof(gd->data));
 }
 
 static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
