@@ -201,7 +201,9 @@ static redis_connect_params_t *parse_redis_url(ngx_str_t *url) {
 }
 
 static void redis_store_reap_chanhead(nchan_store_channel_head_t *ch) {
-  assert(ch->sub_count == 0 && ch->fetching_message_count == 0);
+  if(!ch->shutting_down) {
+    assert(ch->sub_count == 0 && ch->fetching_message_count == 0);
+  }
   
   DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
   redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
@@ -1364,7 +1366,9 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   
   HASH_ITER(hh, rdt.subhash, cur, tmp) {
     cur->shutting_down = 1;
-    chanhead_gc_add(cur, "exit worker");
+    if(cur->in_gc_queue != 1) {
+      chanhead_gc_add(cur, "exit worker");
+    }
   }
   
   nchan_exit_notice_about_remaining_things("redis channel", "", rdt.chanhead_reaper.count);
