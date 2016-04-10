@@ -1078,7 +1078,7 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, nchan_msg_t 
       head->spooler.fn->respond_message(&head->spooler, msg);
     }
     else {
-      head->spooler.fn->respond_status(&head->spooler, status_code, status_line);
+      head->spooler.fn->broadcast_status(&head->spooler, status_code, status_line);
     }
     ret= NGX_OK;
   }
@@ -1608,7 +1608,7 @@ ngx_int_t nchan_store_redis_connection_close_handler(redisAsyncContext *ac) {
   rds_ctx_teardown(ac);
   
   HASH_ITER(hh, rdt.subhash, cur, tmp) {
-    cur->spooler.fn->respond_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+    cur->spooler.fn->broadcast_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
     chanhead_gc_add(cur, "redis connection gone");
   }
   nchan_reaper_flush(&rdt.chanhead_reaper);

@@ -36,6 +36,7 @@ const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 
 //status strings
 const  ngx_str_t NCHAN_HTTP_STATUS_101 = ngx_string("101 Switching Protocols");
+const  ngx_str_t NCHAN_HTTP_STATUS_204 = ngx_string("204 No Content");
 const  ngx_str_t NCHAN_HTTP_STATUS_304 = ngx_string("304 Not Modified");
 const  ngx_str_t NCHAN_HTTP_STATUS_408 = ngx_string("408 Request Timeout");
 const  ngx_str_t NCHAN_HTTP_STATUS_409 = ngx_string("409 Conflict");

@@ -6,7 +6,9 @@
 #include "store-private.h"
 #include "store.h"
 #include <assert.h>
-#include "../../subscribers/memstore_ipc.h"
+#include <subscribers/memstore_ipc.h>
+#include <subscribers/memstore_redis.h>
+#include <util/nchan_msgid.h>
 
 #define IPC_SUBSCRIBE               1
 #define IPC_SUBSCRIBE_REPLY         2
@@ -217,8 +219,6 @@ ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_i
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
 }
 
-
-
 static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
   static ngx_str_t               nullstring = ngx_null_string;
   nchan_store_channel_head_t    *chead;
@@ -408,10 +408,26 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
   DBG("IPC: send get message from %i ch %V", dst, chid);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
 }
+
+
+typedef struct {
+  ngx_int_t            sender;
+  getmessage_data_t    data;
+} getmessage_data_rsub_pd_t;
+
+static void ipc_handler_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status, void *pd) {
+  if(status == MSG_EXPECTED) {
+    getmessage_data_rsub_pd_t *gd = (getmessage_data_rsub_pd_t *)pd;
+    gd->data.d.resp.getmsg_code = MSG_EXPECTED;
+    gd->data.d.resp.shm_msg = NULL;
+    ipc_alert(nchan_memstore_get_ipc(), gd->sender, IPC_GET_MESSAGE_REPLY, &gd->data, sizeof(gd->data));
+  }
+}
+
 static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
   nchan_store_channel_head_t  *head;
   store_message_t             *msg = NULL;
-  nchan_msg_status_t           status;
+  
   
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
@@ -424,14 +440,25 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
     d->d.resp.shm_msg = NULL;
   }
   else {
+    nchan_msg_status_t           status;
     msg = chanhead_find_next_message(head, &d->d.req.msgid, &status);
+    
+    if(msg == NULL && head->use_redis) {
+      //messages from redis are not requested explicitly, but are delivered from oldest to newest
+      //by the memmstore-redis subscriber. 
+      getmessage_data_rsub_pd_t  rdata = {sender, *d};
+      
+      nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(head->redis_sub, &d->d.req.msgid, ipc_handler_notify_on_MSG_EXPECTED_callback, sizeof(rdata), &rdata);
+      return;
+    }
+    
     d->d.resp.getmsg_code = status;
     d->d.resp.shm_msg = msg == NULL ? NULL : msg->msg;
   }
-  DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   if(d->d.resp.shm_msg) {
     assert(msg_reserve(d->d.resp.shm_msg, "get_message_reply") == NGX_OK);
   }
+  DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, d, sizeof(*d));
 }
 

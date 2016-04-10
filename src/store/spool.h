@@ -40,9 +40,19 @@ typedef struct {
   ngx_int_t            (*add)(channel_spooler_t *self, subscriber_t *sub);
   ngx_int_t            (*handle_channel_status_change)(channel_spooler_t *self);
   ngx_int_t            (*respond_message)(channel_spooler_t *self, nchan_msg_t *msg);
-  ngx_int_t            (*respond_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
+  ngx_int_t            (*respond_status)(channel_spooler_t *self, nchan_msg_id_t *id, ngx_int_t status_code, ngx_str_t *status_line);
+  ngx_int_t            (*broadcast_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
   ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
 } channel_spooler_fn_t;
+
+
+typedef struct fetchmsg_data_s fetchmsg_data_t;
+struct fetchmsg_data_s {
+  channel_spooler_t   *spooler;
+  nchan_msg_id_t       msgid;
+  fetchmsg_data_t     *next;
+  fetchmsg_data_t     *prev;
+};
 
 struct channel_spooler_s {
   rbtree_seed_t               spoolseed;
@@ -55,6 +65,7 @@ struct channel_spooler_s {
   channel_spooler_fn_t       *fn;
   channel_spooler_handlers_t *handlers;
   void                       *handlers_privdata;
+  fetchmsg_data_t            *fetchmsg_cb_data_list;
 #if NCHAN_BENCHMARK
   ngx_int_t                   last_responded_subscriber_count;
 #endif  
