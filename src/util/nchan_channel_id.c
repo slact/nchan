@@ -19,7 +19,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   
   //static ngx_str_t            empty_string = ngx_string("");
   
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   for(i=0; i < n && n_out < NCHAN_MULTITAG_MAX; i++) {
     ngx_http_complex_value(r, idcf->cv[i], &id[n_out]);
@@ -106,7 +106,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   ngx_str_t                  *id;
   size_t                      sz;
   u_char                     *cur;
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   ctx->channel_id_count = 0;
   
@@ -150,7 +150,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
 
 ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
   static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_int_t                       rc;
   ngx_str_t                      *id = NULL;
   nchan_complex_value_arr_t          *chid_conf;

@@ -156,7 +156,7 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
 
 static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   full_subscriber_t    *fsub = (full_subscriber_t  *)self;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
@@ -243,7 +243,7 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   ngx_int_t                  rc;
   char                      *err = NULL;
   ngx_http_request_t        *r = fsub->sub.request;
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   nchan_loc_conf_t          *cf = fsub->sub.cf;
   
   DBG("%p respond req %p msg %p", self, r, msg);
@@ -298,7 +298,7 @@ static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) 
 
 static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   ngx_http_request_t    *r = fsub->sub.request;
-  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   char                  *err;
   ngx_int_t              rc;
   u_char                 char_boundary[50];

@@ -27,7 +27,6 @@
 
 ngx_int_t           nchan_worker_processes;
 ngx_pool_t         *nchan_pool;
-ngx_module_t        nchan_module;
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -50,14 +49,14 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
 
   struct timeval             tv;
   
-  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_http_complex_value_t  *cv = cf->channel_events_channel_id;
   if(cv==NULL) {
     //nothing to send
     return NGX_OK;
   }
   
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   ngx_str_t                  tmpid;
   size_t                     sz;
   ngx_str_t                 *id;
@@ -165,7 +164,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r);
 
 static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   ngx_int_t                       rc;
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   static ngx_str_t                publisher_name = ngx_string("http");
   
@@ -189,7 +188,7 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
 }
 
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
-  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_str_t              *channel_id;
   subscriber_t           *sub;
   nchan_msg_id_t         *msg_id;
@@ -205,7 +204,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
-  ngx_http_set_ctx(r, ctx, nchan_module);
+  ngx_http_set_ctx(r, ctx, ngx_nchan_module);
 
 #if NCHAN_BENCHMARK
   ctx->start_tv = tv;
@@ -350,7 +349,7 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_re
 
 static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
   nchan_channel_t       *ch = rptr;
-  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
   //DBG("publish_callback %V owner %i status %i", ch_id, memstore_channel_owner(ch_id), status);
   switch(status) {
@@ -443,7 +442,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   msg->lbl = r->uri;
 #endif
 #if NCHAN_BENCHMARK
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
   
@@ -468,7 +467,7 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
   
   //switch(r->headers_out
   if(rc == NGX_OK) {
-    nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+    nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
     ngx_int_t                 code = sr->headers_out.status;
     ngx_str_t                *content_type;
     ngx_int_t                 content_length;
@@ -582,7 +581,7 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
   nchan_pub_subrequest_data_t  *d = data;
   
   if(rc == NGX_OK) {
-    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->parent, nchan_module);
+    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->parent, ngx_nchan_module);
     ngx_int_t            code = r->headers_out.status;
     if(code >= 200 && code <299) {
       //authorized. proceed as planned
@@ -600,7 +599,7 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_module);
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
 
   ngx_http_complex_value_t       *authorize_request_url_ccv = cf->authorize_request_url;
   

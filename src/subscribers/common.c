@@ -219,8 +219,8 @@ void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http
   *sub = *tmpl;
   sub->request = r;
   if(r) {
-    ctx = ngx_http_get_module_ctx(r, nchan_module);
-    sub->cf = ngx_http_get_module_loc_conf(r, nchan_module);
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+    sub->cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   }
   sub->reserved = 0;
   sub->enqueued = 0;
@@ -248,7 +248,7 @@ void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http
 }
 
 void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ngx_str_t *name, subscriber_fn_t *fn, ngx_int_t dequeue_after_response) {
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   sub->type = type;
   sub->name = name;
   sub->fn = fn;

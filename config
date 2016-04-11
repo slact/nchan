@@ -1,4 +1,4 @@
-ngx_addon_name=nchan
+ngx_addon_name=ngx_nchan_module
 
 #do we have hiredis on the platform?
 ngx_feature="hiredis"
@@ -88,13 +88,13 @@ have=NGX_HTTP_HEADERS . auto/have
 
 if [ $ngx_module_link = DYNAMIC ] ; then
   ngx_module_type=HTTP
-  ngx_module_name=nchan_module
+  ngx_module_name=$ngx_addon_name
   ngx_module_srcs="$_NCHAN_SRCS"
   ngx_module_libs=$ngx_feature_libs
   . auto/module
 elif [ $ngx_module_link = ADDON ] ; then
   ngx_module_type=HTTP
-  ngx_module_name=nchan_module
+  ngx_module_name=$ngx_addon_name
   ngx_module_libs=$ngx_feature_libs
   ngx_module_srcs="$_NCHAN_SRCS"
   . auto/module
@@ -102,5 +102,5 @@ else
   NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_NCHAN_SRCS"
   CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
   CORE_INCS="$CORE_INCS $ngx_module_incs"
-  HTTP_MODULES="$HTTP_MODULES nchan_module"
+  HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"
 fi
