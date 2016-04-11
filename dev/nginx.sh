@@ -41,7 +41,7 @@ REDIS_CONF="$DEVDIR/redis.conf"
 REDIS_PORT=8537
 
 _pkgdir="${DEVDIR}/nginx-nchan/pkg/nginx-nchan-dev"
-_dynamic_module="$_pkgdir/etc/nginx/modules/nchan_module.so"
+_dynamic_module="$_pkgdir/etc/nginx/modules/ngx_nchan_module.so"
 
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
 

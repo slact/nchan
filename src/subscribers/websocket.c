@@ -462,7 +462,7 @@ static void *framebuf_alloc(void *pd) {
 }
 
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   DBG("create for req %p", r);
   full_subscriber_t  *fsub;
@@ -788,7 +788,7 @@ static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len)
  * thanks, guys!
 */
 static void websocket_reading(ngx_http_request_t *r) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_module);
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
   ws_frame_t                 *frame = &fsub->frame;
   ngx_int_t                   rc = NGX_OK;
