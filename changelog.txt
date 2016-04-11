@@ -1,3 +1,4 @@
+0.99.12 (Apr. 10 2016)
  fix: SPDY compatibility with EventSource and multipart/mixed subscribers
  fix: warnings when shutting down redis storage
  feature: use system's hiredis library if present
