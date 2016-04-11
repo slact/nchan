@@ -120,6 +120,15 @@ ngx_int_t nchan_cleverly_output_headers_only_for_later_response(ngx_http_request
     r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);  
     r->header_only = 1;
   }
+#elif (NGX_HTTP_SPDY)
+   if(r->spdy_stream) {
+    r->headers_out.status=NGX_HTTP_OK; //no need to fool chunking module
+    r->header_only = 0;
+  }
+  else {
+    r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);  
+    r->header_only = 1;
+  }
 #else
   r->headers_out.status=NGX_HTTP_NO_CONTENT; //fake it to fool the chunking module (mostly);  
   r->header_only = 1;
