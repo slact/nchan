@@ -86,17 +86,11 @@ ngx_module_incs=$ngx_addon_dir/src
 
 have=NGX_HTTP_HEADERS . auto/have
 
-if [ $ngx_module_link = DYNAMIC ] ; then
+if test -n "$ngx_module_link"; then
   ngx_module_type=HTTP
   ngx_module_name=$ngx_addon_name
   ngx_module_srcs="$_NCHAN_SRCS"
   ngx_module_libs=$ngx_feature_libs
-  . auto/module
-elif [ $ngx_module_link = ADDON ] ; then
-  ngx_module_type=HTTP
-  ngx_module_name=$ngx_addon_name
-  ngx_module_libs=$ngx_feature_libs
-  ngx_module_srcs="$_NCHAN_SRCS"
   . auto/module
 else
   NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_NCHAN_SRCS"
