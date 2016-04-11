@@ -15,12 +15,6 @@ ngx_flag_t       global_redis_enabled = 0;
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
-  //initialize subscriber queues
-  //pool, please
-  if((nchan_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, cycle->log))==NULL) {
-  //I trust the cycle pool size to be a well-tuned one.
-    return NGX_ERROR; 
-  }
   
   //initialize storage engines
   nchan_store_memory.init_module(cycle);
@@ -423,7 +417,6 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
     nchan_store_redis.exit_worker(cycle);
   }
   nchan_output_shutdown();
-  ngx_destroy_pool(nchan_pool); // just for this worker
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_assert_isempty();
 #endif
@@ -434,7 +427,6 @@ static void nchan_exit_master(ngx_cycle_t *cycle) {
   if(global_redis_enabled) {
     nchan_store_redis.exit_master(cycle);
   }
-  ngx_destroy_pool(nchan_pool);
 }
 
 static char *nchan_set_complex_value_array(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_complex_value_arr_t *chid) {
