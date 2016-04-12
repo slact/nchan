@@ -58,10 +58,10 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "f5935b801e6793759a44c9bf842812f2416dec34",
   "4965038f835d8a7599134b9e02f50a9b269fdeea",
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
-  "0d9e380ac91a073e39b9265c5b029f903b2fa2ac",
+  "7dd72cc5e6c5d031ed7752f4f677d349222832e0",
   "12ed3f03a385412690792c4544e4bbb393c2674f",
-  "6b64d07004ebedcc85d53b8114c1ee1a4d5979de",
-  "5657fcddff1bf91ec96053ba2d4ba31c88d0cc71",
+  "ffde94bb590905199f99f609202451f9c2b8931c",
+  "5cad1255246608c9e343e9391cc547e2d9c2b30d",
   "255a859f9c67c3b7d6cb22f0a7e2141e1874ab48"
 };
 
@@ -403,9 +403,12 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "if msg.ttl == 0 then\n"
   "  msg.ttl = 126144000 --4 years\n"
   "end\n"
-  "local store_at_most_n_messages = ARGV[7]\n"
+  "local store_at_most_n_messages = tonumber(ARGV[7])\n"
   "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
   "  return {err=\"Argument 7, max_msg_buf_size, can't be empty\"}\n"
+  "end\n"
+  "if store_at_most_n_messages == 0 then\n"
+  "  msg.unbuffered = 1\n"
   "end\n"
   "\n"
   "local enable_debug=true\n"
@@ -683,10 +686,14 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  table.insert(errors, msg)\n"
   "end\n"
   "\n"
-  "local tp=function(t)\n"
+  "local tp=function(t, max_n)\n"
   "  local tt={}\n"
   "  for i, v in pairs(t) do\n"
-  "    table.insert(tt, tostring(i) .. \": \" .. tostring(v))\n"
+  "    local val = tostring(v)\n"
+  "    if max_n and #val > max_n then\n"
+  "      val = val:sub(1, max_n) .. \"[...]\"\n"
+  "    end\n"
+  "    table.insert(tt, tostring(i) .. \": \" .. val)\n"
   "  end\n"
   "  return \"{\" .. table.concat(tt, \", \") .. \"}\"\n"
   "end\n"
@@ -718,14 +725,22 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "      end\n"
   "    end\n"
   "  elseif t ~= _type then\n"
-  "    err(key, \" should be type\", type, \", is\", t)\n"
+  "    err(key, \"should be type \" .. _type .. \", is\", t)\n"
   "    type_ok = false\n"
   "  end\n"
   "  return type_ok, t\n"
   "end\n"
   "\n"
+  "local known_msgs_count=0\n"
+  "local known_msgkeys = {}\n"
+  "local known_channel_keys = {}\n"
+  "\n"
   "local check_msg = function(chid, msgid, prev_msgid, next_msgid)\n"
   "  local msgkey = \"channel:msg:\"..msgid..\":\"..chid\n"
+  "  if not known_msgkeys[msgkey] then\n"
+  "    known_msgs_count = known_msgs_count + 1\n"
+  "  end\n"
+  "  known_msgkeys[msgkey]=true\n"
   "  local _, t = type_is(msgkey, {\"hash\", \"none\"})\n"
   "  local msg = tohash(redis.call('HGETALL', msgkey))\n"
   "  local ttl = tonumber(redis.call('TTL', msgkey))\n"
@@ -745,6 +760,10 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "      err(\"msg\", chid, msgid, \"next_message wrong. expected\", next_msgid, \"got\", msg.next)\n"
   "    end\n"
   "  end\n"
+  "end\n"
+  "\n"
+  "local check_orphan_msg = function()\n"
+  "\n"
   "end\n"
   "\n"
   "local check_channel = function(id)\n"
@@ -789,6 +808,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "     not chkey:match(\"^channel:msg:\") and \n"
   "     not chkey:match(\"^channel:next_subscriber_id:\") then\n"
   "    table.insert(channel_ids, chkey);\n"
+  "    known_channel_keys[chkey] = true\n"
   "  end\n"
   "end\n"
   "\n"
@@ -798,11 +818,24 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  check_channel(chid)\n"
   "end\n"
   "\n"
+  "for i, msgkey in ipairs(redis.call(\"KEYS\", \"channel:msg:*\")) do\n"
+  "  if not known_msgkeys[msgkey] then\n"
+  "    local ok, t = type_is(msgkey, \"hash\")\n"
+  "    if ok then\n"
+  "      if not redis.call('HGET', msgkey, 'unbuffered') then\n"
+  "        err(\"orphan message\", msgkey, \"(ttl: \" .. redis.call('TTL', msgkey) .. \")\", tp(tohash(redis.call('HGETALL', msgkey)), 15))\n"
+  "      end\n"
+  "    else\n"
+  "      err(\"orphan message\", msgkey, \"wrong type\", t) \n"
+  "    end\n"
+  "  end\n"
+  "end\n"
+  "\n"
   "if errors then\n"
-  "  table.insert(errors, 1, concat(#channel_ids, \"channels, found\", #errors, \"problems\"))\n"
+  "  table.insert(errors, 1, concat(#channel_ids, \"channels,\",known_msgs_count,\"messages found\", #errors, \"problems\"))\n"
   "  return errors\n"
   "else\n"
-  "  return concat(#channel_ids, \"channels, all ok\")\n"
+  "  return concat(#channel_ids, \"channels,\", known_msgs_count, \"messages, all ok\")\n"
   "end\n",
 
   //subscriber_register
@@ -866,7 +899,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "\n"
   "dbg(\"id= \", tostring(sub_id), \"count= \", tostring(sub_count))\n"
   "\n"
-  "return {sub_id, sub_count}",
+  "return {sub_id, sub_count}\n",
 
   //subscriber_unregister
   "--input: keys: [], values: [channel_id, subscriber_id, empty_ttl]\n"

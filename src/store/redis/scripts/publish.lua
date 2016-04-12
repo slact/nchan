@@ -15,9 +15,12 @@ local msg={
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
 end
-local store_at_most_n_messages = ARGV[7]
+local store_at_most_n_messages = tonumber(ARGV[7])
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 7, max_msg_buf_size, can't be empty"}
+end
+if store_at_most_n_messages == 0 then
+  msg.unbuffered = 1
 end
 
 local enable_debug=true
