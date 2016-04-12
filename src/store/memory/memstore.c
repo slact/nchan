@@ -1900,7 +1900,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       assert(0);
   }
   */
-  
+  assert(status != MSG_NORESPONSE);
   d->getting--;
   
   if(d->msg_status == MSG_PENDING) {
