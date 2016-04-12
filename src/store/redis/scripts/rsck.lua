@@ -17,10 +17,14 @@ local err = function(...)
   table.insert(errors, msg)
 end
 
-local tp=function(t)
+local tp=function(t, max_n)
   local tt={}
   for i, v in pairs(t) do
-    table.insert(tt, tostring(i) .. ": " .. tostring(v))
+    local val = tostring(v)
+    if max_n and #val > max_n then
+      val = val:sub(1, max_n) .. "[...]"
+    end
+    table.insert(tt, tostring(i) .. ": " .. val)
   end
   return "{" .. table.concat(tt, ", ") .. "}"
 end
@@ -52,14 +56,22 @@ local type_is = function(key, _type)
       end
     end
   elseif t ~= _type then
-    err(key, " should be type", type, ", is", t)
+    err(key, "should be type " .. _type .. ", is", t)
     type_ok = false
   end
   return type_ok, t
 end
 
+local known_msgs_count=0
+local known_msgkeys = {}
+local known_channel_keys = {}
+
 local check_msg = function(chid, msgid, prev_msgid, next_msgid)
   local msgkey = "channel:msg:"..msgid..":"..chid
+  if not known_msgkeys[msgkey] then
+    known_msgs_count = known_msgs_count + 1
+  end
+  known_msgkeys[msgkey]=true
   local _, t = type_is(msgkey, {"hash", "none"})
   local msg = tohash(redis.call('HGETALL', msgkey))
   local ttl = tonumber(redis.call('TTL', msgkey))
@@ -79,6 +91,10 @@ local check_msg = function(chid, msgid, prev_msgid, next_msgid)
       err("msg", chid, msgid, "next_message wrong. expected", next_msgid, "got", msg.next)
     end
   end
+end
+
+local check_orphan_msg = function()
+
 end
 
 local check_channel = function(id)
@@ -123,6 +139,7 @@ for i, chkey in ipairs(redis.call("KEYS", "channel:*")) do
      not chkey:match("^channel:msg:") and 
      not chkey:match("^channel:next_subscriber_id:") then
     table.insert(channel_ids, chkey);
+    known_channel_keys[chkey] = true
   end
 end
 
@@ -132,9 +149,22 @@ for i, chkey in ipairs(channel_ids) do
   check_channel(chid)
 end
 
+for i, msgkey in ipairs(redis.call("KEYS", "channel:msg:*")) do
+  if not known_msgkeys[msgkey] then
+    local ok, t = type_is(msgkey, "hash")
+    if ok then
+      if not redis.call('HGET', msgkey, 'unbuffered') then
+        err("orphan message", msgkey, "(ttl: " .. redis.call('TTL', msgkey) .. ")", tp(tohash(redis.call('HGETALL', msgkey)), 15))
+      end
+    else
+      err("orphan message", msgkey, "wrong type", t) 
+    end
+  end
+end
+
 if errors then
-  table.insert(errors, 1, concat(#channel_ids, "channels, found", #errors, "problems"))
+  table.insert(errors, 1, concat(#channel_ids, "channels,",known_msgs_count,"messages found", #errors, "problems"))
   return errors
 else
-  return concat(#channel_ids, "channels, all ok")
+  return concat(#channel_ids, "channels,", known_msgs_count, "messages, all ok")
 end
