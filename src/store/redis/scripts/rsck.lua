@@ -42,7 +42,7 @@ local tohash=function(arr)
   end
   return h
 end
-local type_is = function(key, _type)
+local type_is = function(key, _type, description)
   local t = redis.call("TYPE", key)['ok']
   local type_ok = true
   if type(_type) == "table" then
@@ -54,7 +54,7 @@ local type_is = function(key, _type)
       end
     end
   elseif t ~= _type then
-    err(key, "should be type " .. _type .. ", is", t)
+    err((description or ""), key, "should be type " .. _type .. ", is", t)
     type_ok = false
   end
   return type_ok, t
@@ -64,18 +64,19 @@ local known_msgs_count=0
 local known_msgkeys = {}
 local known_channel_keys = {}
 
-local check_msg = function(chid, msgid, prev_msgid, next_msgid)
+local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)
+  description = description and "msg (" .. description ..")" or "msg"
   local msgkey = "channel:msg:"..msgid..":"..chid
   if not known_msgkeys[msgkey] then
     known_msgs_count = known_msgs_count + 1
   end
   known_msgkeys[msgkey]=true
-  local _, t = type_is(msgkey, {"hash", "none"})
+  local _, t = type_is(msgkey, {"hash", "none"}, "message hash")
   local msg = tohash(redis.call('HGETALL', msgkey))
   local ttl = tonumber(redis.call('TTL', msgkey))
   local n = tonumber(redis.call("HLEN", msgkey))
   if n > 0 and (msg.data == nil or msg.id == nil or msg.time == nil or msg.tag == nil)then
-    err("incomplete message (ttl "..ttl..")", msgkey, tp(msg))
+    err("incomplete " .. description .."(ttl "..ttl..")", msgkey, tp(msg))
     return false
   end
   if t == "hash" and tonumber(ttl) < 0 then
@@ -83,10 +84,10 @@ local check_msg = function(chid, msgid, prev_msgid, next_msgid)
   end
   if ttl ~= -2 then
     if prev_msgid ~= false and msg.prev ~= prev_msgid then
-      err("msg", chid, msgid, "prev_message wrong. expected", prev_msgid, "got", msg.prev)
+      err(description, chid, msgid, "prev_message wrong. expected", prev_msgid, "got", msg.prev)
     end
     if next_msgid ~= false and msg.next ~= next_msgid then
-      err("msg", chid, msgid, "next_message wrong. expected", next_msgid, "got", msg.next)
+      err(description, chid, msgid, "next_message wrong. expected", next_msgid, "got", msg.next)
     end
   end
 end
@@ -100,30 +101,43 @@ local check_channel = function(id)
     ch = "channel:"..id,
     msgs = "channel:messages:" .. id
   }
-  if not type_is(key.ch, "hash") then
+  
+  local ok, chkey_type = type_is(key.ch, "hash", "channel hash")
+  if not ok then
+    if chkey_type ~= "none" then
+      err("unecpected channel key", key.ch, "type:", chkey_type);
+    end
     return false
   end
-  type_is(key.msgs,{"list", "none"})
+  local _, msgs_list_type = type_is(key.msgs, {"list", "none"}, "channel messages list")
   
   local ch = tohash(redis.call('HGETALL', key.ch))
   local len = tonumber(redis.call("HLEN", key.ch))
   local ttl = tonumber(redis.call('TTL',  key.ch))
-  if len == 2 then
-    err("incomplete channel (ttl " .. ttl ..")", key.ch, tp(ch))
-    return false
+  if not ch.current_message or not ch.time then
+    if msgs_list_type == "list" then
+      err("incomplete channel (ttl " .. ttl ..")", key.ch, tp(ch))
+    end  
+  elseif (ch.current_message or ch.prev_message) and msgs_list_type ~= "list" then
+    err("channel", key.ch, "has a current_message but no message list")
   end
   
   local msgids = redis.call('LRANGE', key.msgs, 0, -1)
   for i, msgid in ipairs(msgids) do
-    check_msg(id, msgid, msgids[i+1], msgids[i-1])
+    check_msg(id, msgid, msgids[i+1], msgids[i-1], "msglist")
   end
-  
   
   if ch.prev_message then
-    check_msg(id, ch.prev_message, false, ch.current_message)
+    if redis.call('LINDEX', key.msgs, 1) ~= ch.prev_message then
+      err("channel", key.ch, "prev_message doesn't correspond to", key.msgs, "second list element")
+    end
+    check_msg(id, ch.prev_message, false, ch.current_message, "channel prev_message")
   end
   if ch.current_message then
-    check_msg(id, ch.current_message, ch.prev_message, false)
+    if redis.call('LINDEX', key.msgs, 0) ~= ch.current_message then
+      err("channel", key.ch, "current_message doesn't correspond to", key.msgs, "first list element")
+    end
+    check_msg(id, ch.current_message, ch.prev_message, false, "channel current_message")
   end
   
 end
@@ -131,8 +145,10 @@ end
 local channel_ids = {}
 
 for i, chkey in ipairs(redis.call("KEYS", "channel:*")) do
-  if not chkey:match("^channel:messages:") and
-     not chkey:match("^channel:msg:") then
+  local msgs_chid_match = chkey:match("^channel:messages:(.*)")
+  if msgs_chid_match then
+    type_is("channel:" .. msgs_chid_match, "hash", "channel messages' corresponding hash key")
+  elseif not chkey:match("^channel:msg:") then
     table.insert(channel_ids, chkey);
     known_channel_keys[chkey] = true
   end

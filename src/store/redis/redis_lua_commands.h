@@ -65,7 +65,7 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
   "b0fd2d7467ec704e1144360b0f04f30771a0f6b1",
   "d5d78200ad5cdc84538f4672e81fce7919c88616",
-  "6cb1fdcbfa17f7565eb71728833016441c158d15",
+  "041bf41cf87021b3323f2f632a72cac667d1b525",
   "4f8568521a7bca4ef4c6d591b878953b3aad77b9",
   "a199de4c5df64050328dea509707a48ef10d00d8"
 };
@@ -807,11 +807,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "for i, chkey in ipairs(redis.call(\"KEYS\", \"channel:*\")) do\n"
   "  local msgs_chid_match = chkey:match(\"^channel:messages:(.*)\")\n"
   "  if msgs_chid_match then\n"
-  "    local ok, chtype = type_is(\"channel:\" .. msgs_chid_match, \"hash\")\n"
-  "    if not ok then\n"
-  "      \n"
-  "    end\n"
-  "    \n"
+  "    type_is(\"channel:\" .. msgs_chid_match, \"hash\", \"channel messages' corresponding hash key\")\n"
   "  elseif not chkey:match(\"^channel:msg:\") then\n"
   "    table.insert(channel_ids, chkey);\n"
   "    known_channel_keys[chkey] = true\n"
