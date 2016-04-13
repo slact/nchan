@@ -1,24 +1,18 @@
---input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
+--input: keys: [], values: [channel_id, subscriber_id, active_ttl]
 --  'subscriber_id' can be '-' for new id, or an existing id
 --  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
---  'concurrency' can be 'FIFO', 'FILO', or 'broadcast'
---output: subscriber_id, num_current_subscribers
+--output: subscriber_id, num_current_subscribers, next_keepalive_time
 
 local id, sub_id, active_ttl, concurrency = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20, ARGV[4]
 
-local enable_debug=true
-local dbg = (function(on)
-if on then return function(...) redis.call('echo', table.concat({...})); end
-  else return function(...) return; end end
-end)(enable_debug)
+local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 dbg(' ######## SUBSCRIBER REGISTER SCRIPT ####### ')
 
 local keys = {
   channel =     'channel:'..id,
   messages =    'channel:messages:'..id,
-  subscribers = 'channel:subscribers:'..id,
-  subscriber_id='channel:next_subscriber_id:'..id --integer
+  subscribers = 'channel:subscribers:'..id
 }
 
 local setkeyttl=function(ttl)
@@ -31,31 +25,26 @@ local setkeyttl=function(ttl)
   end
 end
 
---[[
-local check_concurrency_in = function(i, id)
-  if concurrency == "FIFO" then
-    return i==1 and id or "DENY"
-  end
-  return id
+local random_safe_next_ttl = function(ttl)
+  return math.floor(ttl/2 + ttl/2.1 * math.random())
 end
-
-if concurrency == "FILO" then
-  --kick out old subscribers
-  
-  
-end
-]]
 
 local sub_count
 
 if sub_id == "-" then
-  sub_id =tonumber(redis.call('INCR', keys.subscriber_id))
-  sub_count=redis.call('hincrby', keys.channel, 'subscribers', 1)
+  sub_id = tonumber(redis.call('HINCRBY', keys.channel, "last_subscriber_id", 1))
+  sub_count=tonumber(redis.call('hincrby', keys.channel, 'subscribers', 1))
 else
-  sub_count=redis.call('hget', keys.channel, 'subscribers')
+  sub_count=tonumber(redis.call('hget', keys.channel, 'subscribers'))
 end
-setkeyttl(active_ttl)
 
-dbg("id= ", tostring(sub_id), "count= ", tostring(sub_count))
+local next_keepalive 
+local actual_ttl = tonumber(redis.call('ttl', keys.channel))
+if actual_ttl < active_ttl then
+  setkeyttl(active_ttl)
+  next_keepalive = random_safe_next_ttl(active_ttl)
+else
+  next_keepalive = random_safe_next_ttl(actual_ttl)
+end
 
-return {sub_id, sub_count}
+return {sub_id, sub_count, next_keepalive}

@@ -1,17 +1,6 @@
 --input:  keys: [], values: [channel_id, status_code]
 --output: current_subscribers
-local enable_debug=true
-local dbg = (function(on)
-if on then
-  return function(...)
-  redis.call('echo', table.concat({...}))
-end
-  else
-    return function(...)
-    return
-    end
-  end
-end)(enable_debug)
+local dbg = function(...) redis.call('echo', table.concat({...})); end
 dbg(' ####### PUBLISH STATUS ####### ')
 local id=ARGV[1]
 local code=tonumber(ARGV[2])

@@ -8,7 +8,7 @@ require_relative 'pubsub.rb'
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 PORT=ENV["PUSHMODULE_PORT"] || "8082"
 DEFAULT_CLIENT=:longpoll
-
+OMIT_LONGMSG=ENV["OMIT_LONGMSG"]
 #Typhoeus::Config.verbose = true
 def short_id
   SecureRandom.hex.to_i(16).to_s(36)[0..5]
@@ -515,7 +515,7 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def test_long_message(kb=1)
+  def test_long_message(kb=0.5)
     pub, sub = pubsub 10, timeout: 10
     sub.run
     sleep 0.2
@@ -525,27 +525,62 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  #[5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
-  [5, 10, 20, 200, 900].each do |n|
-    define_method "test_long_message_#{n}Kb" do 
-      test_long_message n
+  unless OMIT_LONGMSG
+    #[5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
+    [5, 10, 20, 200, 900].each do |n|
+      define_method "test_long_message_#{n}Kb" do 
+        test_long_message n
+      end
     end
-  end
-  
-  def test_message_length_range
-    pub, sub = pubsub 2, timeout: 15
-    sub.run
     
-    n=5
-    while n <= 10000 do
-      pub.post "T" * n
-      n=(n*1.01) + 1
-      sleep 0.001
+    def test_message_length_range
+      pub, sub = pubsub 2, timeout: 15
+      sub.run
+      
+      n=5
+      while n <= 10000 do
+        pub.post "T" * n
+        n=(n*1.01) + 1
+        sleep 0.001
+      end
+      pub.post "FIN"
+      sub.wait
+      verify pub, sub
+      sub.terminate
     end
-    pub.post "FIN"
-    sub.wait
-    verify pub, sub
-    sub.terminate
+    
+    def generic_test_long_buffed_messages(client=:longpoll)
+      kb=2000
+      #kb=2
+      pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 10, client: client
+      #pub, sub = pubsub 1, sub: "/sub/websocket_only/", client: :websocket
+      #sub.on_message do |msg|
+      #  puts ">>>>>>>message: #{msg.message[0...10]}...|#{msg.message.length}|"
+      #end
+      sub.run
+      sleep 1
+      m1="#{"q"*((kb * 1024)-3)}end"
+      m2="#{"r"*((kb * 1024)-3)}end"
+      i=0
+      15.times do
+        i+=1
+        pub.post "#{i}#{m1}"
+        i+=1
+        pub.post "#{i}#{m2}"
+      end
+      pub.post "FIN"
+      sub.wait
+      verify pub, sub
+      pub.delete
+      sub.terminate
+    end
+
+    [:longpoll, :multipart, :eventsource, :websocket, :chunked].each do |client|
+      define_method "test_long_buffed_messages_#{client}" do
+        generic_test_long_buffed_messages client
+      end
+    end
+    
   end
   
   def test_message_timeout
@@ -560,38 +595,6 @@ class PubSubTest <  Minitest::Test
     sub.wait
     verify pub, sub
     sub.terminate
-  end
-  
-  def generic_test_long_buffed_messages(client=:longpoll)
-    kb=2000
-    #kb=2
-    pub, sub = pubsub 1, sub: "/sub/broadcast/", timeout: 1000, client: client
-    #pub, sub = pubsub 1, sub: "/sub/websocket_only/", client: :websocket
-    #sub.on_message do |msg|
-    #  puts ">>>>>>>message: #{msg.message[0...10]}...|#{msg.message.length}|"
-    #end
-    sub.run
-    sleep 1
-    m1="#{"q"*((kb * 1024)-3)}end"
-    m2="#{"r"*((kb * 1024)-3)}end"
-    i=0
-    15.times do
-      i+=1
-      pub.post "#{i}#{m1}"
-      i+=1
-      pub.post "#{i}#{m2}"
-    end
-    pub.post "FIN"
-    sub.wait
-    verify pub, sub
-    pub.delete
-    sub.terminate
-  end
-
-  [:longpoll, :multipart, :eventsource, :websocket, :chunked].each do |client|
-    define_method "test_long_buffed_messages_#{client}" do
-      generic_test_long_buffed_messages client
-    end
   end
     
   def test_subscriber_timeout
@@ -694,6 +697,22 @@ class PubSubTest <  Minitest::Test
     pub.post "FIN"
     sub.wait
   end
+  
+  #def test_expired_messages_with_subscribers
+  #  chan = short_id
+  #  pub, sub = pubsub 1, pub: "/pub/2_sec_message_timeout/", sub: "/sub/intervalpoll/", client: :intervalpoll, timeout: 9000, channel: short_id
+  #  sub.on_failure do |err|
+  #    puts "retry?!!"
+  #    true
+  #  end
+  #  sub.run
+  #  pub.post ["foo", "bar"]
+  #  
+  #  sleep 5
+  #  
+  #  pub.post ["yeah", "what", "the"]
+  #  sub.wait
+  #end
   
   def test_access_control
     
