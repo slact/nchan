@@ -6,7 +6,8 @@ typedef struct {
   char *add_fakesub;
 
   //input:  keys: [], values: [channel_id, ttl]
-  //output: current_fake_subscribers
+  // ttl is for when there are no messages but at least 1 subscriber.
+  //output: seconds until next keepalive is expected, or -1 for "let it disappear"
   char *channel_keepalive;
 
   //input: keys: [],  values: [ channel_id ]
@@ -44,7 +45,7 @@ typedef struct {
   //input: keys: [], values: [channel_id, subscriber_id, active_ttl]
   //  'subscriber_id' can be '-' for new id, or an existing id
   //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
-  //output: subscriber_id, num_current_subscribers
+  //output: subscriber_id, num_current_subscribers, next_keepalive_time
   char *subscriber_register;
 
   //input: keys: [], values: [channel_id, subscriber_id, empty_ttl]
@@ -57,15 +58,15 @@ typedef struct {
 
 static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "f33207af23f0efab740207e8faf45a29acbb4c0a",
-  "a2993e39c81dafedb87f38c2cffd65815ca11f87",
+  "10e94d78fbc53ac62171eb118e27bf444c38bb07",
   "4c4337c33f0d3d2172a6caa039fd3d059082f536",
-  "f5935b801e6793759a44c9bf842812f2416dec34",
+  "943cf0946ceac8f3701dc33e9754bbf2bc406ce7",
   "c4e3c2367116f8983649da7a850e2260a5244aea",
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
   "b0fd2d7467ec704e1144360b0f04f30771a0f6b1",
   "d5d78200ad5cdc84538f4672e81fce7919c88616",
-  "fc70178aa899e867f2cff6f118b27868a3eb8577",
-  "7d826a682b342d5b6d0f78acc65b9bf04c00532b",
+  "6cb1fdcbfa17f7565eb71728833016441c158d15",
+  "4f8568521a7bca4ef4c6d591b878953b3aad77b9",
   "a199de4c5df64050328dea509707a48ef10d00d8"
 };
 
@@ -116,7 +117,8 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
 
   //channel_keepalive
   "--input:  keys: [], values: [channel_id, ttl]\n"
-  "--output: current_fake_subscribers\n"
+  "-- ttl is for when there are no messages but at least 1 subscriber.\n"
+  "--output: seconds until next keepalive is expected, or -1 for \"let it disappear\"\n"
   "local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
   "dbg(' ####### CHANNEL KEEPALIVE ####### ')\n"
   "local id=ARGV[1]\n"
@@ -125,10 +127,30 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  return {err=\"Invalid channel keepalive TTL (2nd arg)\"}\n"
   "end\n"
   "\n"
-  "local chan_key = 'channel:'..id\n"
-  "local exists = redis.call('EXISTS', chan_key) == 1\n"
+  "local random_safe_next_ttl = function(ttl)\n"
+  "  return math.floor(ttl/2 + ttl/2.1 * math.random())\n"
+  "end\n"
   "\n"
-  "--keepalive stuff\n",
+  "local key={\n"
+  "  channel=      'channel:'..id, --hash\n"
+  "  messages=     'channel:messages:'..id, --list\n"
+  "}\n"
+  "  \n"
+  "local subs_count = tonumber(redis.call('HGET', key.channel, \"subscribers\")) or 0\n"
+  "local msgs_count = tonumber(redis.call('LLEN', key.messages)) or 0\n"
+  "local actual_ttl = tonumber(redis.call('TTL',  key.channel))\n"
+  "\n"
+  "if subs_count > 0 then\n"
+  "  if msgs_count > 0 and actual_ttl > ttl then\n"
+  "    return random_safe_next_ttl(actual_ttl)\n"
+  "  end\n"
+  "  --refresh ttl\n"
+  "  redis.call('expire', key.channel, ttl);\n"
+  "  redis.call('expire', key.messages, ttl);\n"
+  "  return random_safe_next_ttl(ttl)\n"
+  "else\n"
+  "  return -1\n"
+  "end\n",
 
   //delete
   "--input: keys: [],  values: [ channel_id ]\n"
@@ -190,13 +212,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "local id = ARGV[1]\n"
   "local key_channel='channel:'..id\n"
   "\n"
-  "local enable_debug=true\n"
-  "local dbg = (function(on)\n"
-  "  if on then return function(...) redis.call('echo', table.concat({...})); end\n"
-  "  else return function(...) return; end end\n"
-  "end)(enable_debug)\n"
-  "\n"
-  "dbg(' #######  FIND_CHANNEL ######## ')\n"
+  "redis.call('echo', ' #######  FIND_CHANNEL ######## ')\n"
   "\n"
   "if redis.call('EXISTS', key_channel) ~= 0 then\n"
   "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers')\n"
@@ -212,7 +228,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  return ch\n"
   "else\n"
   "  return nil\n"
-  "end",
+  "end\n",
 
   //get_message
   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
@@ -686,7 +702,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  end\n"
   "  return h\n"
   "end\n"
-  "local type_is = function(key, _type)\n"
+  "local type_is = function(key, _type, description)\n"
   "  local t = redis.call(\"TYPE\", key)['ok']\n"
   "  local type_ok = true\n"
   "  if type(_type) == \"table\" then\n"
@@ -698,7 +714,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "      end\n"
   "    end\n"
   "  elseif t ~= _type then\n"
-  "    err(key, \"should be type \" .. _type .. \", is\", t)\n"
+  "    err((description or \"\"), key, \"should be type \" .. _type .. \", is\", t)\n"
   "    type_ok = false\n"
   "  end\n"
   "  return type_ok, t\n"
@@ -708,18 +724,19 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "local known_msgkeys = {}\n"
   "local known_channel_keys = {}\n"
   "\n"
-  "local check_msg = function(chid, msgid, prev_msgid, next_msgid)\n"
+  "local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)\n"
+  "  description = description and \"msg (\" .. description ..\")\" or \"msg\"\n"
   "  local msgkey = \"channel:msg:\"..msgid..\":\"..chid\n"
   "  if not known_msgkeys[msgkey] then\n"
   "    known_msgs_count = known_msgs_count + 1\n"
   "  end\n"
   "  known_msgkeys[msgkey]=true\n"
-  "  local _, t = type_is(msgkey, {\"hash\", \"none\"})\n"
+  "  local _, t = type_is(msgkey, {\"hash\", \"none\"}, \"message hash\")\n"
   "  local msg = tohash(redis.call('HGETALL', msgkey))\n"
   "  local ttl = tonumber(redis.call('TTL', msgkey))\n"
   "  local n = tonumber(redis.call(\"HLEN\", msgkey))\n"
   "  if n > 0 and (msg.data == nil or msg.id == nil or msg.time == nil or msg.tag == nil)then\n"
-  "    err(\"incomplete message (ttl \"..ttl..\")\", msgkey, tp(msg))\n"
+  "    err(\"incomplete \" .. description ..\"(ttl \"..ttl..\")\", msgkey, tp(msg))\n"
   "    return false\n"
   "  end\n"
   "  if t == \"hash\" and tonumber(ttl) < 0 then\n"
@@ -727,10 +744,10 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  end\n"
   "  if ttl ~= -2 then\n"
   "    if prev_msgid ~= false and msg.prev ~= prev_msgid then\n"
-  "      err(\"msg\", chid, msgid, \"prev_message wrong. expected\", prev_msgid, \"got\", msg.prev)\n"
+  "      err(description, chid, msgid, \"prev_message wrong. expected\", prev_msgid, \"got\", msg.prev)\n"
   "    end\n"
   "    if next_msgid ~= false and msg.next ~= next_msgid then\n"
-  "      err(\"msg\", chid, msgid, \"next_message wrong. expected\", next_msgid, \"got\", msg.next)\n"
+  "      err(description, chid, msgid, \"next_message wrong. expected\", next_msgid, \"got\", msg.next)\n"
   "    end\n"
   "  end\n"
   "end\n"
@@ -744,30 +761,43 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    ch = \"channel:\"..id,\n"
   "    msgs = \"channel:messages:\" .. id\n"
   "  }\n"
-  "  if not type_is(key.ch, \"hash\") then\n"
+  "  \n"
+  "  local ok, chkey_type = type_is(key.ch, \"hash\", \"channel hash\")\n"
+  "  if not ok then\n"
+  "    if chkey_type ~= \"none\" then\n"
+  "      err(\"unecpected channel key\", key.ch, \"type:\", chkey_type);\n"
+  "    end\n"
   "    return false\n"
   "  end\n"
-  "  type_is(key.msgs,{\"list\", \"none\"})\n"
+  "  local _, msgs_list_type = type_is(key.msgs, {\"list\", \"none\"}, \"channel messages list\")\n"
   "  \n"
   "  local ch = tohash(redis.call('HGETALL', key.ch))\n"
   "  local len = tonumber(redis.call(\"HLEN\", key.ch))\n"
   "  local ttl = tonumber(redis.call('TTL',  key.ch))\n"
-  "  if len == 2 then\n"
-  "    err(\"incomplete channel (ttl \" .. ttl ..\")\", key.ch, tp(ch))\n"
-  "    return false\n"
+  "  if not ch.current_message or not ch.time then\n"
+  "    if msgs_list_type == \"list\" then\n"
+  "      err(\"incomplete channel (ttl \" .. ttl ..\")\", key.ch, tp(ch))\n"
+  "    end  \n"
+  "  elseif (ch.current_message or ch.prev_message) and msgs_list_type ~= \"list\" then\n"
+  "    err(\"channel\", key.ch, \"has a current_message but no message list\")\n"
   "  end\n"
   "  \n"
   "  local msgids = redis.call('LRANGE', key.msgs, 0, -1)\n"
   "  for i, msgid in ipairs(msgids) do\n"
-  "    check_msg(id, msgid, msgids[i+1], msgids[i-1])\n"
+  "    check_msg(id, msgid, msgids[i+1], msgids[i-1], \"msglist\")\n"
   "  end\n"
-  "  \n"
   "  \n"
   "  if ch.prev_message then\n"
-  "    check_msg(id, ch.prev_message, false, ch.current_message)\n"
+  "    if redis.call('LINDEX', key.msgs, 1) ~= ch.prev_message then\n"
+  "      err(\"channel\", key.ch, \"prev_message doesn't correspond to\", key.msgs, \"second list element\")\n"
+  "    end\n"
+  "    check_msg(id, ch.prev_message, false, ch.current_message, \"channel prev_message\")\n"
   "  end\n"
   "  if ch.current_message then\n"
-  "    check_msg(id, ch.current_message, ch.prev_message, false)\n"
+  "    if redis.call('LINDEX', key.msgs, 0) ~= ch.current_message then\n"
+  "      err(\"channel\", key.ch, \"current_message doesn't correspond to\", key.msgs, \"first list element\")\n"
+  "    end\n"
+  "    check_msg(id, ch.current_message, ch.prev_message, false, \"channel current_message\")\n"
   "  end\n"
   "  \n"
   "end\n"
@@ -775,8 +805,14 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "local channel_ids = {}\n"
   "\n"
   "for i, chkey in ipairs(redis.call(\"KEYS\", \"channel:*\")) do\n"
-  "  if not chkey:match(\"^channel:messages:\") and\n"
-  "     not chkey:match(\"^channel:msg:\") then\n"
+  "  local msgs_chid_match = chkey:match(\"^channel:messages:(.*)\")\n"
+  "  if msgs_chid_match then\n"
+  "    local ok, chtype = type_is(\"channel:\" .. msgs_chid_match, \"hash\")\n"
+  "    if not ok then\n"
+  "      \n"
+  "    end\n"
+  "    \n"
+  "  elseif not chkey:match(\"^channel:msg:\") then\n"
   "    table.insert(channel_ids, chkey);\n"
   "    known_channel_keys[chkey] = true\n"
   "  end\n"
@@ -812,7 +848,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "--input: keys: [], values: [channel_id, subscriber_id, active_ttl]\n"
   "--  'subscriber_id' can be '-' for new id, or an existing id\n"
   "--  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec\n"
-  "--output: subscriber_id, num_current_subscribers\n"
+  "--output: subscriber_id, num_current_subscribers, next_keepalive_time\n"
   "\n"
   "local id, sub_id, active_ttl, concurrency = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20, ARGV[4]\n"
   "\n"
@@ -836,19 +872,29 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "  end\n"
   "end\n"
   "\n"
+  "local random_safe_next_ttl = function(ttl)\n"
+  "  return math.floor(ttl/2 + ttl/2.1 * math.random())\n"
+  "end\n"
+  "\n"
   "local sub_count\n"
   "\n"
   "if sub_id == \"-\" then\n"
   "  sub_id = tonumber(redis.call('HINCRBY', keys.channel, \"last_subscriber_id\", 1))\n"
-  "  sub_count=redis.call('hincrby', keys.channel, 'subscribers', 1)\n"
+  "  sub_count=tonumber(redis.call('hincrby', keys.channel, 'subscribers', 1))\n"
   "else\n"
-  "  sub_count=redis.call('hget', keys.channel, 'subscribers')\n"
+  "  sub_count=tonumber(redis.call('hget', keys.channel, 'subscribers'))\n"
   "end\n"
-  "setkeyttl(active_ttl)\n"
   "\n"
-  "dbg(\"id= \", tostring(sub_id), \"count= \", tostring(sub_count))\n"
+  "local next_keepalive \n"
+  "local actual_ttl = tonumber(redis.call('ttl', keys.channel))\n"
+  "if actual_ttl < active_ttl then\n"
+  "  setkeyttl(active_ttl)\n"
+  "  next_keepalive = random_safe_next_ttl(active_ttl)\n"
+  "else\n"
+  "  next_keepalive = random_safe_next_ttl(actual_ttl)\n"
+  "end\n"
   "\n"
-  "return {sub_id, sub_count}\n",
+  "return {sub_id, sub_count, next_keepalive}\n",
 
   //subscriber_unregister
   "--input: keys: [], values: [channel_id, subscriber_id, empty_ttl]\n"

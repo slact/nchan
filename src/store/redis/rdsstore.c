@@ -9,6 +9,7 @@
 #include <store/store_common.h>
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 1
+#define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL 300
 
 static ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
 
@@ -24,6 +25,7 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                   sub_count;
   ngx_int_t                    fetching_message_count;
   ngx_uint_t                   internal_sub_count;
+  ngx_event_t                  keepalive_timer;
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
   
@@ -208,6 +210,9 @@ static void redis_store_reap_chanhead(nchan_store_channel_head_t *ch) {
   DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
   redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
+  if(ch->keepalive_timer.timer_set) {
+    ngx_del_timer(&ch->keepalive_timer);
+  }
   stop_spooler(&ch->spooler, 1);
   CHANNEL_HASH_DEL(ch);
   ngx_free(ch);
@@ -878,12 +883,6 @@ typedef struct {
 static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead, subscriber_t *sub) {
   redis_subscriber_register_t *sdata=NULL;
   
-  //input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
-  //  'subscriber_id' can be '-' for new id, or an existing id
-  //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
-  //  'concurrency' can be 'FIFO', 'FILO', or 'broadcast'
-  //output: subscriber_id, num_current_subscribers
-  
   if((sdata = ngx_alloc(sizeof(*sdata), ngx_cycle->log)) == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "No memory for sdata. Part IV, subparagraph 12 of the Cryptic Error Series.");
     return NGX_ERROR;
@@ -894,7 +893,11 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
   
   sub->fn->reserve(sub);
   
-  redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b - %i", store_rds_lua_hashes.subscriber_register, STR(&chanhead->id), -1);
+  //input: keys: [], values: [channel_id, subscriber_id, active_ttl]
+  //  'subscriber_id' can be '-' for new id, or an existing id
+  //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
+  //output: subscriber_id, num_current_subscribers, next_keepalive_time
+  redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b - %i", store_rds_lua_hashes.subscriber_register, STR(&chanhead->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
   
   return NGX_OK;
 }
@@ -902,7 +905,7 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
 static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscriber_register_t *sdata= (redis_subscriber_register_t *) privdata;
   redisReply                  *reply = (redisReply *)vr;
-  
+  int                          keepalive_ttl;
   sdata->sub->fn->release(sdata->sub, 0);
   
   if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
@@ -910,7 +913,7 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
     return;
   }
   
-  if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2) || !CHECK_REPLY_INT(reply->element[1]) ) {
+  if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3) || !CHECK_REPLY_INT(reply->element[1]) || !CHECK_REPLY_INT(reply->element[2])) {
     //no good
     redisEchoCallback(c,reply,privdata);
     return;
@@ -919,6 +922,10 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
     //is the subscriber     
     //TODO: set subscriber id
     //sdata->sub->id = reply->element[1]->integer;
+  }
+  keepalive_ttl = reply->element[2]->integer;
+  if(keepalive_ttl > 0) {
+    ngx_add_timer(&sdata->chanhead->keepalive_timer, keepalive_ttl * 1000);
   }
   ngx_free(sdata);
 }
@@ -932,6 +939,24 @@ static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t
   //output: subscriber_id, num_current_subscribers
   redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i %i", store_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
   return NGX_OK;
+}
+
+static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *privdata) {
+  nchan_store_channel_head_t  *head = (nchan_store_channel_head_t *)privdata;
+  redisReply                  *reply = (redisReply *)vr;
+  
+  redisCheckErrorCallback(c, vr, NULL);
+  assert(CHECK_REPLY_INT(reply));
+  
+  ngx_add_timer(&head->keepalive_timer, reply->integer * 1000);
+}
+
+static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
+  nchan_store_channel_head_t   *head = ev->data;
+  if(ev->timedout) {
+    ev->timedout=0;
+    redisAsyncCommand(rds_ctx(), &redisChannelKeepaliveCallback, head, "EVALSHA %s 0 %b %i", store_rds_lua_hashes.channel_keepalive, STR(&head->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
+  }
 }
 
 static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) {
@@ -971,6 +996,14 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
     head->spooler.publish_events = 0;
   }
 
+  ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
+#if nginx_version >= 1008000
+  head->keepalive_timer.cancelable = 1;
+#endif
+  head->keepalive_timer.handler = redis_channel_keepalive_timer_handler;
+  head->keepalive_timer.log = ngx_cycle->log;
+  head->keepalive_timer.data = head;
+  
   DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
   redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
   CHANNEL_HASH_ADD(head);
