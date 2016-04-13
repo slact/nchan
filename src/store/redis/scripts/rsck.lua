@@ -7,9 +7,7 @@ local concat = function(...)
   end
   return table.concat(arg, " ")
 end
-local dbg =function(...) 
-  redis.call('echo', concat(...))
-end
+local dbg =function(...) redis.call('echo', concat(...)); end
 local errors={}
 local err = function(...)
   local msg = concat(...)
@@ -100,14 +98,12 @@ end
 local check_channel = function(id)
   local key={
     ch = "channel:"..id,
-    msgs = "channel:messages:" .. id,
-    next_sub_id= "channel:next_subscriber_id:" .. id
+    msgs = "channel:messages:" .. id
   }
   if not type_is(key.ch, "hash") then
     return false
   end
   type_is(key.msgs,{"list", "none"})
-  type_is(key.next_sub_id, "string")
   
   local ch = tohash(redis.call('HGETALL', key.ch))
   local len = tonumber(redis.call("HLEN", key.ch))
@@ -136,8 +132,7 @@ local channel_ids = {}
 
 for i, chkey in ipairs(redis.call("KEYS", "channel:*")) do
   if not chkey:match("^channel:messages:") and
-     not chkey:match("^channel:msg:") and 
-     not chkey:match("^channel:next_subscriber_id:") then
+     not chkey:match("^channel:msg:") then
     table.insert(channel_ids, chkey);
     known_channel_keys[chkey] = true
   end

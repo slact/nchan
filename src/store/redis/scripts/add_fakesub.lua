@@ -1,18 +1,7 @@
 --input:  keys: [], values: [channel_id, number]
 --output: current_fake_subscribers
-local enable_debug=true
-local dbg = (function(on)
-if on then
-  return function(...)
-  redis.call('echo', table.concat({...}))
-end
-  else
-    return function(...)
-      return
-    end
-  end
-end)(enable_debug)
-dbg(' ####### FAKESUBS ####### ')
+  
+redis.call('echo', ' ####### FAKESUBS ####### ')
 local id=ARGV[1]
 local num=tonumber(ARGV[2])
 if num==nil then
@@ -30,7 +19,7 @@ local cur = 0
 if exists or (not exists and num > 0) then
   cur = redis.call('HINCRBY', chan_key, 'fake_subscribers', num)
   if not exists then
-    redis.call('EXPIRE', chan_key, 5) --something small thing
+    redis.call('EXPIRE', chan_key, 5) --something small
   end
 end
 

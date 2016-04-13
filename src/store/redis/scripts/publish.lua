@@ -23,18 +23,13 @@ if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
-local enable_debug=true
-local dbg = (function(on)
-  if on then return function(...) 
-    local arg, cur = {...}, nil
-    for i = 1, #arg do
-      arg[i]=tostring(arg[i])
-    end
-    redis.call('echo', table.concat(arg))
-  end; else
-    return function(...) return; end
+local dbg = function(...) 
+  local arg = {...}
+  for i = 1, #arg do
+    arg[i]=tostring(arg[i])
   end
-end)(enable_debug)
+  redis.call('echo', table.concat(arg))
+end
 
 if type(msg.content_type)=='string' and msg.content_type:find(':') then
   return {err='Message content-type cannot contain ":" character.'}
@@ -75,8 +70,7 @@ local key={
   message=      'channel:msg:%s:'..id, --not finished yet
   channel=      'channel:'..id,
   messages=     'channel:messages:'..id,
-  subscribers=  'channel:subscribers:'..id,
-  subscriber_id='channel:next_subscriber_id:'..id, --integer
+  subscribers=  'channel:subscribers:'..id
 }
 
 local channel_pubsub = 'channel:pubsub:'..id
@@ -135,8 +129,8 @@ redis.call('HSET', key.channel, 'current_message', msg.id)
 if msg.prev then
   redis.call('HSET', key.channel, 'prev_message', msg.prev)
 end
-if msg.time then
-  redis.call('HSET', key.channel, 'time', msg.time)
+if time then
+  redis.call('HSET', key.channel, 'time', time)
 end
 if not channel.ttl then
   channel.ttl=msg.ttl
@@ -200,7 +194,6 @@ end
   redis.call('EXPIRE', key.channel, channel.ttl)
   redis.call('EXPIRE', key.messages, channel.ttl)
   redis.call('EXPIRE', key.subscribers, channel.ttl)
-  redis.call('EXPIRE', key.subscriber_id, channel.ttl)
 
 --publish message
 local unpacked

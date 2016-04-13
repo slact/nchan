@@ -23,15 +23,9 @@ local key={
   channel=      'channel:'..id, --hash
   messages=     'channel:messages:'..id, --list
 --  pubsub=       'channel:subscribers:'..id, --set
-  subscriber_id='channel:next_subscriber_id:'..id, --integer
-
 }
 
-local enable_debug=true
-local dbg = (function(on)
-  if on then return function(...) redis.call('echo', table.concat({...})); end
-  else return function(...) return; end end
-end)(enable_debug)
+local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 dbg(' #######  GET_MESSAGE ######## ')
 

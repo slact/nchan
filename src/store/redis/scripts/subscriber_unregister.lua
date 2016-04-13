@@ -5,11 +5,7 @@
 
 local id, sub_id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20
 
-local enable_debug=true
-local dbg = (function(on)
-if on then return function(...) redis.call('echo', table.concat({...})); end
-  else return function(...) return; end end
-end)(enable_debug)
+local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 dbg(' ######## SUBSCRIBER UNREGISTER SCRIPT ####### ')
 
@@ -17,7 +13,6 @@ local keys = {
   channel =     'channel:'..id,
   messages =    'channel:messages:'..id,
   subscribers = 'channel:subscribers:'..id,
-  subscriber_id='channel:next_subscriber_id:'..id --integer
 }
 
 local setkeyttl=function(ttl)

@@ -8,18 +8,7 @@ local messages=   'channel:messages:'..id
 local subscribers='channel:subscribers:'..id
 local pubsub=     'channel:pubsub:'..id
 
-local enable_debug=true
-local dbg = (function(on)
-if on then return function(...) 
-local arg, cur = {...}, nil
-for i = 1, #arg do
-  arg[i]=tostring(arg[i])
-end
-redis.call('echo', table.concat(arg))
-  end; else
-    return function(...) return; end
-  end
-end)(enable_debug)
+local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 dbg(' ####### DELETE #######')
 local num_messages = 0

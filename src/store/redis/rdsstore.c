@@ -876,27 +876,7 @@ typedef struct {
 } redis_subscriber_register_t;
 
 static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead, subscriber_t *sub) {
-  char                      *concurrency = NULL;
   redis_subscriber_register_t *sdata=NULL;
-  
-  
-  concurrency = "broadcast";
-  
-  /*
-  switch (subscriber_concurrency) {
-    case NCHAN_SUBSCRIBER_CONCURRENCY_BROADCAST:
-      concurrency = "broadcast";
-      break;
-    case NCHAN_SUBSCRIBER_CONCURRENCY_LASTIN:
-      concurrency = "FIFO";
-      break;
-    case NCHAN_SUBSCRIBER_CONCURRENCY_FIRSTIN:
-      concurrency = "FILO";
-      break;
-    default:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "unknown concurrency setting");
-  }
-  */
   
   //input: keys: [], values: [channel_id, subscriber_id, channel_empty_ttl, active_ttl, concurrency]
   //  'subscriber_id' can be '-' for new id, or an existing id
@@ -914,13 +894,8 @@ static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead,
   
   sub->fn->reserve(sub);
   
-  if (0 != 0) { //TODO: check the subscriber's id
-    
-    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b %i %i %s", store_rds_lua_hashes.subscriber_register, STR(&chanhead->id), 0 /*TODO: current sub's ID*/, -1, concurrency);
-  }
-  else {
-    redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b - %i %s", store_rds_lua_hashes.subscriber_register, STR(&chanhead->id), -1, concurrency);
-  }
+  redisAsyncCommand(rds_ctx(), &redis_subscriber_register_callback, sdata, "EVALSHA %s 0 %b - %i", store_rds_lua_hashes.subscriber_register, STR(&chanhead->id), -1);
+  
   return NGX_OK;
 }
 
