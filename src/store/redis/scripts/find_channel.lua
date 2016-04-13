@@ -4,13 +4,7 @@
 local id = ARGV[1]
 local key_channel='channel:'..id
 
-local enable_debug=true
-local dbg = (function(on)
-  if on then return function(...) redis.call('echo', table.concat({...})); end
-  else return function(...) return; end end
-end)(enable_debug)
-
-dbg(' #######  FIND_CHANNEL ######## ')
+redis.call('echo', ' #######  FIND_CHANNEL ######## ')
 
 if redis.call('EXISTS', key_channel) ~= 0 then
   local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers')
