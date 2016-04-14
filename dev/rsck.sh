@@ -47,8 +47,9 @@ if [[ $logfile ]]; then
   echo "logging to $logfile"
 fi
 
-sleeptime=`echo "$interval * 60" | bc`
-
+if [[ $interval ]]; then
+  sleeptime=$(echo "$interval * 60" | bc)
+fi
 while true; do
   ret=$(redis-cli -p 8537 --eval $dir/../src/store/redis/scripts/rsck.lua --raw)
   echo $ret
