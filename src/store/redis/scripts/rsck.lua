@@ -71,7 +71,29 @@ local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)
     known_msgs_count = known_msgs_count + 1
   end
   known_msgkeys[msgkey]=true
-  local _, t = type_is(msgkey, {"hash", "none"}, "message hash")
+  local ok, t = type_is(msgkey, {"hash", "none"}, "message hash")
+  if t == "none" then
+    --message is missing, but maybe it expired under normal circumstances. 
+    --check if any earlier messages are present
+    local msgids = redis.call('LRANGE', "channel:messages:" .. chid, 0, -1)
+    local founds = 0
+    for i=#msgids, 1, -1 do
+      if msgids[i] == msgid then 
+        break
+      end
+      local thismsgkey = "channel:msg:".. msgids[i]..":"..chid
+      local ttt = redis.call('type', thismsgkey)['ok']
+      redis.breakpoint()
+      if ttt == "hash" then
+        founds = founds + 1
+      end
+    end
+    
+    if founds > 0 then
+      err("message", msgkey, "missing, with", founds, "prev. msgs in msg list")
+    end
+    
+  end
   local msg = tohash(redis.call('HGETALL', msgkey))
   local ttl = tonumber(redis.call('TTL', msgkey))
   local n = tonumber(redis.call("HLEN", msgkey))
@@ -90,10 +112,6 @@ local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)
       err(description, chid, msgid, "next_message wrong. expected", next_msgid, "got", msg.next)
     end
   end
-end
-
-local check_orphan_msg = function()
-
 end
 
 local check_channel = function(id)
