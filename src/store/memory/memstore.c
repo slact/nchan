@@ -1725,7 +1725,7 @@ static void subscribe_data_free(subscribe_data_t *d) {
 #define SUB_CHANNEL_AUTHORIZED 1
 #define SUB_CHANNEL_NOTSURE 2
 
-static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t nchan_store_subscribe_sub_auth_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub) {
@@ -1741,11 +1741,11 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->reserved = 0;
   d->msg_id = sub->last_msgid;
   
-  if(sub->cf->subscribe_only_existing_channel) {
+  if(sub->cf->subscribe_only_existing_channel || sub->cf->max_channel_subscribers > 0) {
     sub->fn->reserve(sub);
     d->reserved = 1;
     if(memstore_slot() != owner) {
-      memstore_ipc_send_does_channel_exist(owner, channel_id, (callback_pt )nchan_store_subscribe_sub_reserved_check, d);
+      memstore_ipc_send_channel_auth_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_sub_auth_check_callback, d);
     }
     else {
       nchan_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
@@ -1758,7 +1758,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
+static ngx_int_t nchan_store_subscribe_sub_auth_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     d->reserved = 0;
     return nchan_store_subscribe_continued(channel_status, _, d);
@@ -1773,9 +1773,18 @@ static ngx_int_t nchan_store_subscribe_sub_reserved_check(ngx_int_t channel_stat
 static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, void *ch, void *d) {
   nchan_channel_t    *channel = (nchan_channel_t *)ch;
   subscribe_data_t   *data = (subscribe_data_t *)d;
+  nchan_loc_conf_t   *cf = data->sub->cf;
   ngx_int_t           channel_status;
   if(status == NGX_OK) {
-    channel_status = channel == NULL ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+    if(channel == NULL) {
+      channel_status = cf->subscribe_only_existing_channel ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+    }
+    else if(cf->max_channel_subscribers == 0) {
+      channel_status = SUB_CHANNEL_AUTHORIZED;
+    }
+    else {
+      channel_status = channel->subscribers >= cf->max_channel_subscribers ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+    }
     nchan_store_subscribe_continued(channel_status, NULL, data);
   }
   else {
@@ -1791,10 +1800,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   //nchan_msg_status_t           findmsg_status;
   ngx_int_t                      not_dead;
   ngx_int_t                      use_redis = d->sub->cf->use_redis;
+  nchan_loc_conf_t              *cf = d->sub->cf;
   
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
-      chanhead = nchan_memstore_get_chanhead(d->channel_id, d->sub->cf);
+      chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
       break;
     
     case SUB_CHANNEL_UNAUTHORIZED:
@@ -1802,19 +1812,26 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
     
     case SUB_CHANNEL_NOTSURE:
-      chanhead = nchan_memstore_find_chanhead(d->channel_id);
-      if(chanhead == NULL) {
-        if(use_redis) {
-          nchan_store_redis.find_channel(d->channel_id, redis_subscribe_channel_authcheck_callback, d);
-          return NGX_OK;
+      if(use_redis) {
+        if(cf->subscribe_only_existing_channel && cf->max_channel_subscribers == 0) {
+          if((chanhead = nchan_memstore_find_chanhead(d->channel_id)) != NULL) {
+            break;
+          }
         }
+        nchan_store_redis.find_channel(d->channel_id, redis_subscribe_channel_authcheck_callback, d);
+        return NGX_OK;
+      }
+      else {
+        chanhead = nchan_memstore_find_chanhead(d->channel_id);
       }
       break;
   }
   
   not_dead = d->sub->status != DEAD;
-  
-  if (chanhead == NULL) {
+
+  if ((channel_status == SUB_CHANNEL_UNAUTHORIZED) || 
+      (!chanhead && cf->subscribe_only_existing_channel) ||
+      (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= cf->max_channel_subscribers)) {
     if(not_dead) {
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     }
@@ -1830,6 +1847,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     //d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
     subscribe_data_free(d);
     return NGX_OK;
+  }
+  else if(!chanhead) {
+    chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
   }
   
   d->chanhead = chanhead;

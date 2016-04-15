@@ -6,6 +6,7 @@
 #include "store-private.h"
 #include "store.h"
 #include <assert.h>
+#include <store/redis/store.h>
 #include "../../subscribers/memstore_ipc.h"
 
 #define IPC_SUBSCRIBE               1
@@ -15,15 +16,15 @@
 #define IPC_PUBLISH_MESSAGE         5
 #define IPC_PUBLISH_MESSAGE_REPLY   6
 #define IPC_PUBLISH_STATUS          7
-#define IPC_PUBLISH_STATUS_reply    8
+#define IPC_PUBLISH_STATUS_REPLY    8
 #define IPC_GET_MESSAGE             9
 #define IPC_GET_MESSAGE_REPLY       10
 #define IPC_DELETE                  11
 #define IPC_DELETE_REPLY            12
 #define IPC_GET_CHANNEL_INFO        13
 #define IPC_GET_CHANNEL_INFO_REPLY  14
-#define IPC_DOES_CHANNEL_EXIST      15
-#define IPC_DOES_CHANNEL_EXIST_REPLY 16
+#define IPC_GET_CHANNEL_AUTHCHECK   15
+#define IPC_GET_CHANNEL_AUTHCHECK_REPLY 16
 #define IPC_SUBSCRIBER_KEEPALIVE    17
 #define IPC_SUBSCRIBER_KEEPALIVE_REPLY 18
 
@@ -580,36 +581,84 @@ static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t
 }
 
 
-////////// DOES CHANNEL EXIST? ////////////////
+////////// CHANNEL AUTHORIZATION DATA ////////////////
 typedef struct {
   ngx_str_t               *shm_chid;
-  ngx_int_t                channel_exists;
+  unsigned                 auth_ok:1;
+  unsigned                 channel_must_exist:1;
+  unsigned                 use_redis:1;
+  uint32_t                 max_subscribers;
   callback_pt              callback;
   void                    *privdata;
-} channel_existence_data_t;
+} channel_authcheck_data_t;
 
-ngx_int_t memstore_ipc_send_does_channel_exist(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
-  DBG("send does_channel_exist to %i %V", dst, chid);
-  channel_existence_data_t        data = {str_shm_copy(chid), 0, callback, privdata};
+ngx_int_t memstore_ipc_send_channel_auth_check(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
+  DBG("send channel_auth_check to %i %V", dst, chid);
+  channel_authcheck_data_t        data;
+  data.shm_chid = str_shm_copy(chid);
+  data.auth_ok = 0;
+  data.channel_must_exist = cf->subscribe_only_existing_channel;
+  data.use_redis = cf->use_redis;
+  data.max_subscribers = cf->max_channel_subscribers;
+  data.callback = callback;
+  data.privdata = privdata;
   
-  return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_DOES_CHANNEL_EXIST, &data, sizeof(data));
+  return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_CHANNEL_AUTHCHECK, &data, sizeof(data));
 }
 
-static void receive_does_channel_exist(ngx_int_t sender, channel_existence_data_t *d) {
+typedef struct {
+  ngx_int_t                 sender;
+  channel_authcheck_data_t  d;
+} channel_authcheck_data_callback_t;
+
+static ngx_int_t redis_receive_channel_auth_check_callback(ngx_int_t status, void *ch, void *d) {
+  nchan_channel_t                     *channel = (nchan_channel_t *)ch;
+  channel_authcheck_data_callback_t   *data = (channel_authcheck_data_callback_t *)d;
+  assert(status == NGX_OK);
+  if(channel == NULL) {
+    data->d.auth_ok = !data->d.channel_must_exist;
+  }
+  else if(data->d.max_subscribers == 0) {
+    data->d.auth_ok = 1;
+  }
+  else {
+    data->d.auth_ok = channel->subscribers < data->d.max_subscribers;
+  }
+  ipc_alert(nchan_memstore_get_ipc(), data->sender, IPC_GET_CHANNEL_AUTHCHECK_REPLY, &data->d, sizeof(data->d));
+  ngx_free(d);
+  return NGX_OK;
+}
+
+static void receive_channel_auth_check(ngx_int_t sender, channel_authcheck_data_t *d) {
   nchan_store_channel_head_t    *head;
   
-  DBG("received does_channel_exist request for channel %V privdata %p", d->shm_chid, d->privdata);
-  
-  head = nchan_memstore_find_chanhead(d->shm_chid);
+  DBG("received channel_auth_check request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
-  
-  d->channel_exists = (head != NULL);
-  ipc_alert(nchan_memstore_get_ipc(), sender, IPC_DOES_CHANNEL_EXIST_REPLY, d, sizeof(*d));
+  if(!d->use_redis) {
+    head = nchan_memstore_find_chanhead(d->shm_chid);
+    if(head == NULL) {
+      d->auth_ok = !d->channel_must_exist;
+    }
+    else if (d->max_subscribers == 0) {
+      d->auth_ok = 1;
+    }
+    else {
+      assert(head->shared);
+      d->auth_ok = head->shared->sub_count < d->max_subscribers;
+    }
+    ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_AUTHCHECK_REPLY, d, sizeof(*d));
+  }
+  else {
+    channel_authcheck_data_callback_t    *dd = ngx_alloc(sizeof(*dd), ngx_cycle->log);
+    dd->d = *d;
+    dd->sender = sender;
+    nchan_store_redis.find_channel(d->shm_chid, redis_receive_channel_auth_check_callback, dd);
+  }
 }
 
-static void receive_does_channel_exist_reply(ngx_int_t sender, channel_existence_data_t *d) {
-  d->callback(d->channel_exists, NULL, d->privdata);
+static void receive_channel_auth_check_reply(ngx_int_t sender, channel_authcheck_data_t *d) {
+  d->callback(d->auth_ok, NULL, d->privdata);
   str_shm_free(d->shm_chid);
 }
 
@@ -698,8 +747,8 @@ static ipc_handler_pt ipc_alert_handler[] = {
   [IPC_DELETE_REPLY] =                (ipc_handler_pt )receive_delete_reply,
   [IPC_GET_CHANNEL_INFO] =            (ipc_handler_pt )receive_get_channel_info,
   [IPC_GET_CHANNEL_INFO_REPLY]=       (ipc_handler_pt )receive_get_channel_info_reply,
-  [IPC_DOES_CHANNEL_EXIST] =          (ipc_handler_pt )receive_does_channel_exist,
-  [IPC_DOES_CHANNEL_EXIST_REPLY]=     (ipc_handler_pt )receive_does_channel_exist_reply,
+  [IPC_GET_CHANNEL_AUTHCHECK] =       (ipc_handler_pt )receive_channel_auth_check,
+  [IPC_GET_CHANNEL_AUTHCHECK_REPLY]=  (ipc_handler_pt )receive_channel_auth_check_reply,
   [IPC_SUBSCRIBER_KEEPALIVE] =        (ipc_handler_pt )receive_subscriber_keepalive,
   [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  (ipc_handler_pt )receive_subscriber_keepalive_reply,
   [IPC_TEST_FLOOD]                 =  (ipc_handler_pt )receive_flood_test
