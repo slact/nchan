@@ -65,9 +65,9 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
   "b0fd2d7467ec704e1144360b0f04f30771a0f6b1",
   "d5d78200ad5cdc84538f4672e81fce7919c88616",
-  "041bf41cf87021b3323f2f632a72cac667d1b525",
+  "ffd48a84120fc73a7076e435a4fae421c4119738",
   "4f8568521a7bca4ef4c6d591b878953b3aad77b9",
-  "a199de4c5df64050328dea509707a48ef10d00d8"
+  "c7b579fc03326aac8245b170d7d00848a51337b2"
 };
 
 #define REDIS_LUA_HASH_LENGTH 40
@@ -731,7 +731,29 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "    known_msgs_count = known_msgs_count + 1\n"
   "  end\n"
   "  known_msgkeys[msgkey]=true\n"
-  "  local _, t = type_is(msgkey, {\"hash\", \"none\"}, \"message hash\")\n"
+  "  local ok, t = type_is(msgkey, {\"hash\", \"none\"}, \"message hash\")\n"
+  "  if t == \"none\" then\n"
+  "    --message is missing, but maybe it expired under normal circumstances. \n"
+  "    --check if any earlier messages are present\n"
+  "    local msgids = redis.call('LRANGE', \"channel:messages:\" .. chid, 0, -1)\n"
+  "    local founds = 0\n"
+  "    for i=#msgids, 1, -1 do\n"
+  "      if msgids[i] == msgid then \n"
+  "        break\n"
+  "      end\n"
+  "      local thismsgkey = \"channel:msg:\".. msgids[i]..\":\"..chid\n"
+  "      local ttt = redis.call('type', thismsgkey)['ok']\n"
+  "      redis.breakpoint()\n"
+  "      if ttt == \"hash\" then\n"
+  "        founds = founds + 1\n"
+  "      end\n"
+  "    end\n"
+  "    \n"
+  "    if founds > 0 then\n"
+  "      err(\"message\", msgkey, \"missing, with\", founds, \"prev. msgs in msg list\")\n"
+  "    end\n"
+  "    \n"
+  "  end\n"
   "  local msg = tohash(redis.call('HGETALL', msgkey))\n"
   "  local ttl = tonumber(redis.call('TTL', msgkey))\n"
   "  local n = tonumber(redis.call(\"HLEN\", msgkey))\n"
@@ -750,10 +772,6 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "      err(description, chid, msgid, \"next_message wrong. expected\", next_msgid, \"got\", msg.next)\n"
   "    end\n"
   "  end\n"
-  "end\n"
-  "\n"
-  "local check_orphan_msg = function()\n"
-  "\n"
   "end\n"
   "\n"
   "local check_channel = function(id)\n"
@@ -926,7 +944,7 @@ static store_redis_lua_scripts_t store_rds_lua_scripts = {
   "if redis.call('EXISTS', keys.channel) ~= 0 then\n"
   "   sub_count = redis.call('hincrby', keys.channel, 'subscribers', -1)\n"
   "\n"
-  "  if sub_count == 0 then\n"
+  "  if sub_count == 0 and tonumber(redis.call('LLEN', keys.messages)) == 0 then\n"
   "    setkeyttl(empty_ttl)\n"
   "  elseif sub_count < 0 then\n"
   "    return {err=\"Subscriber count for channel \" .. id .. \" less than zero: \" .. sub_count}\n"

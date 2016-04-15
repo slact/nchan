@@ -31,7 +31,7 @@ local sub_count = 0
 if redis.call('EXISTS', keys.channel) ~= 0 then
    sub_count = redis.call('hincrby', keys.channel, 'subscribers', -1)
 
-  if sub_count == 0 then
+  if sub_count == 0 and tonumber(redis.call('LLEN', keys.messages)) == 0 then
     setkeyttl(empty_ttl)
   elseif sub_count < 0 then
     return {err="Subscriber count for channel " .. id .. " less than zero: " .. sub_count}
