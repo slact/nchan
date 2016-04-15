@@ -415,21 +415,26 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
     //ERR("request %p tmp pool %p", r, r->pool);
     
     fakebody = ngx_pcalloc(r->pool, sizeof(*fakebody));
-    fakebody_chain = ngx_palloc(r->pool, sizeof(*fakebody_chain));
-    fakebody_buf = ngx_palloc(r->pool, sizeof(*fakebody_buf));
-    fakebody->bufs = fakebody_chain;
-    fakebody_chain->next = NULL;
-    fakebody_chain->buf = fakebody_buf;
-    init_msg_buf(fakebody_buf);
-    
-    //just copy the buffer contents. it's inefficient but I don't care at the moment.
-    //this can and should be optimized later
-    sz = ngx_buf_size(buf);
-    fakebody_buf->start = ngx_palloc(r->pool, sz); //huuh?
-    ngx_memcpy(fakebody_buf->start, buf->start, sz);
-    fakebody_buf->end = fakebody_buf->start + sz;
-    fakebody_buf->pos = fakebody_buf->start;
-    fakebody_buf->last = fakebody_buf->end;
+    if(ngx_buf_size(buf) > 0) {
+      fakebody_chain = ngx_palloc(r->pool, sizeof(*fakebody_chain));
+      fakebody_buf = ngx_palloc(r->pool, sizeof(*fakebody_buf));
+      fakebody->bufs = fakebody_chain;
+      fakebody_chain->next = NULL;
+      fakebody_chain->buf = fakebody_buf;
+      init_msg_buf(fakebody_buf);
+      
+      //just copy the buffer contents. it's inefficient but I don't care at the moment.
+      //this can and should be optimized later
+      sz = ngx_buf_size(buf);
+      fakebody_buf->start = ngx_palloc(r->pool, sz); //huuh?
+      ngx_memcpy(fakebody_buf->start, buf->start, sz);
+      fakebody_buf->end = fakebody_buf->start + sz;
+      fakebody_buf->pos = fakebody_buf->start;
+      fakebody_buf->last = fakebody_buf->end;
+    }
+    else {
+      sz = 0;
+    }
     
     ngx_http_subrequest(r, &psrd->upstream_request_url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
     nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, fakebody, sz, NULL);
