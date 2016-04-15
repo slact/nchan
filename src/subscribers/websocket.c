@@ -264,6 +264,8 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
   nchan_pub_upstream_data_t  *d = (nchan_pub_upstream_data_t *)data;
   full_subscriber_t          *fsub = d->fsub;
   
+  r->main->subrequests++; //avoid tripping up subrequest loop detection
+  
   if(r->connection->data == sr) {
     r->connection->data = r;
   }
