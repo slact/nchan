@@ -10,6 +10,8 @@
 #include <nchan_module.h>
 #include <store/redis/store.h>
 
+#include <assert.h>
+
 #define AUTH_COMMAND "AUTH %s"
 #define SELECT_DATABASE_COMMAND "SELECT %d"
 #define PING_DATABASE_COMMAND "PING"
@@ -84,6 +86,40 @@ redisAsyncContext *redis_nginx_open_context(u_char *host, int port, int database
   }
 
   return ac;
+}
+
+
+
+
+redisContext *redis_nginx_open_sync_context(u_char *host, int port, int database, u_char *password, redisContext **context) {
+  redisContext *c = NULL;
+  
+  if ((context == NULL) || (*context == NULL) || (*context)->err) {
+    c = redisConnect((const char *)host, port);
+    if (c == NULL) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis sync context for %s:%d", host, port);
+      return NULL;
+    }
+    
+    if (c->err) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis sync context for %s:%d - %s", host, port, c->errstr);
+      redisFree(c);
+      return NULL;
+    }
+    
+    if (context != NULL) {
+      *context = c;
+    }
+    if(password) {
+      redisCommand(c, AUTH_COMMAND, password);
+    }
+    redisCommand(c, SELECT_DATABASE_COMMAND, database);
+  }
+  else {
+    c = *context;
+  }
+
+  return c;
 }
 
 

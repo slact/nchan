@@ -7,6 +7,7 @@
 
 void redis_nginx_init(void);
 redisAsyncContext *redis_nginx_open_context(u_char *host, int port, int database, u_char *password, redisAsyncContext **context);
+redisContext *redis_nginx_open_sync_context(u_char *host, int port, int database, u_char *password, redisContext **context);
 void redis_nginx_force_close_context(redisAsyncContext **context);
 void redis_nginx_close_context(redisAsyncContext **context);
 void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata);

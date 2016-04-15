@@ -468,7 +468,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 static int send_redis_fakesub_delta(nchan_store_channel_head_t *head) {
   if(head->delta_fakesubs != 0) {
-    nchan_store_redis_fakesub_add(&head->id, head->delta_fakesubs);
+    nchan_store_redis_fakesub_add(&head->id, head->delta_fakesubs, head->shutting_down);
     head->delta_fakesubs = 0;
     return 1;
   }
@@ -622,7 +622,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 
 void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
   if(REDIS_FAKESUB_TIMER_INTERVAL == 0) {
-    nchan_store_redis_fakesub_add(&head->id, n);
+    nchan_store_redis_fakesub_add(&head->id, n, head->shutting_down);
   }
   else {
     head->delta_fakesubs += n;

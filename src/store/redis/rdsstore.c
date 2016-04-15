@@ -56,9 +56,10 @@ typedef struct {
   
   redisAsyncContext               *ctx;
   redisAsyncContext               *sub_ctx;
+  redisContext                    *sync_ctx;
   unsigned                         connected:1;
   
-  nchan_reaper_t                  chanhead_reaper;
+  nchan_reaper_t                   chanhead_reaper;
 } rdstore_data_t;
 
 static rdstore_data_t        rdt;
@@ -79,6 +80,7 @@ static rdstore_data_t        rdt;
 
 static redisAsyncContext * rds_sub_ctx(void);
 static redisAsyncContext * rds_ctx(void);
+static redisContext * rds_sync_ctx(void);
 
 static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason);
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead);
@@ -271,6 +273,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   rds_ctx();
   rds_sub_ctx();
+  rds_sync_ctx();
   
   return NGX_OK;
 }
@@ -384,11 +387,24 @@ static redisAsyncContext * rds_ctx(void){
     redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisInitScripts(c);
     rdt.ctx = c;
-    if(rdt.ctx && rdt.sub_ctx) {
+    if(rdt.ctx && rdt.sub_ctx && rdt.sync_ctx) {
       rdt.connected = 1;
     }
   }
   rds_sub_ctx();
+  return c;
+}
+
+static redisContext * rds_sync_ctx(void){
+  redisContext *c = rdt.sync_ctx;
+  if(c==NULL) {
+    //init redis
+    redis_nginx_open_sync_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
+    rdt.sync_ctx = c;
+    if(rdt.ctx && rdt.sub_ctx && rdt.sync_ctx) {
+      rdt.connected = 1;
+    }
+  }
   return c;
 }
 
@@ -808,7 +824,7 @@ static redisAsyncContext * rds_sub_ctx(void) {
     redis_nginx_open_context(rdt.connect_params->host, rdt.connect_params->port, rdt.connect_params->db, rdt.connect_params->password, &c);
     redisAsyncCommand(c, redis_subscriber_callback, NULL, "SUBSCRIBE %s", rdt.subscriber_channel);
     rdt.sub_ctx = c;
-    if(rdt.ctx && rdt.sub_ctx) {
+    if(rdt.ctx && rdt.sub_ctx && rdt.sync_ctx) {
       rdt.connected = 1;
     }
   }
@@ -816,7 +832,7 @@ static redisAsyncContext * rds_sub_ctx(void) {
 }
 
 static ngx_int_t redis_subscriber_register(nchan_store_channel_head_t *chanhead, subscriber_t *sub);
-static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub);
+static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub, uint8_t shutting_down);
 static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nchan_store_channel_head_t *head = (nchan_store_channel_head_t *)privdata;
   head->sub_count++;
@@ -837,7 +853,7 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
   }
   
   if(rdt.connected) {
-    redis_subscriber_unregister(&head->id, sub);
+    redis_subscriber_unregister(&head->id, sub, head->shutting_down);
   }
   
   if(head->sub_count == 0 && head->fetching_message_count == 0) {
@@ -931,13 +947,20 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
 }
 
 
-static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub) {
+static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t *sub, uint8_t shutting_down) {
   nchan_loc_conf_t  *cf = sub->cf;
   //input: keys: [], values: [channel_id, subscriber_id, empty_ttl]
   // 'subscriber_id' is an existing id
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
   //output: subscriber_id, num_current_subscribers
-  redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i %i", store_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
+  
+  if(!shutting_down) {
+    redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i %i", store_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
+  }
+  else {
+    ERR("SYNC subscriber_unregister command");
+    redisCommand(rds_sync_ctx(), "EVALSHA %s 0 %b %i %i", store_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
+  }
   return NGX_OK;
 }
 
@@ -1368,6 +1391,13 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
 }
 
+void redis_store_prepare_to_exit_worker() {
+  nchan_store_channel_head_t *cur, *tmp;
+  HASH_ITER(hh, rdt.subhash, cur, tmp) {
+    cur->shutting_down = 1;
+  }
+}
+
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t *cur, *tmp;
   redisAsyncContext *ctx;
@@ -1386,6 +1416,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     redis_nginx_force_close_context(&ctx);
   if((ctx=rds_sub_ctx())!=NULL)
     redis_nginx_force_close_context(&ctx);
+  if(rds_sync_ctx())
+    redisFree(rds_sync_ctx());
   
   ngx_free(rdt.connect_params);
 }
@@ -1602,8 +1634,14 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   ngx_free(d);
 }
 
-ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count) {
-  redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i", store_rds_lua_hashes.add_fakesub, STR(channel_id), count);
+ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count, uint8_t shutting_down) {
+  if(!shutting_down) {
+    redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i", store_rds_lua_hashes.add_fakesub, STR(channel_id), count);
+  }
+  else {
+    ERR("SYNC add_fakesub command");
+    redisCommand(rds_sync_ctx(), "EVALSHA %s 0 %b %i", store_rds_lua_hashes.add_fakesub, STR(channel_id), count);
+  }
   return NGX_OK;
 }
 

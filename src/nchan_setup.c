@@ -412,6 +412,9 @@ static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_comman
 }
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
+  if(global_redis_enabled) {
+    redis_store_prepare_to_exit_worker();
+  }
   nchan_store_memory.exit_worker(cycle);
   if(global_redis_enabled) {
     nchan_store_redis.exit_worker(cycle);
