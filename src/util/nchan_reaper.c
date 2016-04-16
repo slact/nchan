@@ -66,6 +66,12 @@ static ngx_inline void *thing_prev(nchan_reaper_t *rp, void *thing) {
   return *thing_prev_ptr(rp, thing);
 }
 
+void nchan_reaper_each(nchan_reaper_t *rp, void (*cb)(void *thing, void *pd), void *pd) {
+  void                *cur;
+  for(cur = rp->first; cur != NULL; cur = thing_next(rp, cur)) {
+    cb(cur, pd);
+  }
+}
 
 ngx_inline void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
   /*
