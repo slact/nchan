@@ -134,17 +134,26 @@ export OPTIMIZE_LEVEL=$optimize_level
 if [[ -z $NO_MAKE ]]; then
   
   ./redocument.rb
-  
+
   ./gen_config_commands.rb nchan_config_commands.c
   if ! [ $? -eq 0 ]; then; 
     echo "failed generating nginx directives"; 
     exit 1
   fi
-  ../src/store/redis/genlua.rb file
-  if ! [ $? -eq 0 ]; then; 
-    echo "failed generating redis lua scripts"; 
+
+  rdstore_dir=../src/store/redis
+  bundle exec hsss \
+	 --struct store_redis_lua_scripts_t \
+	 --hashes store_rds_lua_hashes \
+	 --scripts store_rds_lua_scripts \
+	 --names store_rds_lua_script_names \
+	 --no-count \
+	 ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
+  if ! [ $? -eq 0 ]; then;
+    echo "failed generating redis lua scripts";
     exit 1
-  fi
+  fi  
+
   pushd ./nginx-nchan >/dev/null
   
   _build_nginx

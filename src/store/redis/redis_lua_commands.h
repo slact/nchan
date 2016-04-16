@@ -70,8 +70,6 @@ static store_redis_lua_scripts_t store_rds_lua_hashes = {
   "c7b579fc03326aac8245b170d7d00848a51337b2"
 };
 
-#define REDIS_LUA_HASH_LENGTH 40
-
 static store_redis_lua_scripts_t store_rds_lua_script_names = {
   "add_fakesub",
   "channel_keepalive",

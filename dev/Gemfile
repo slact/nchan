@@ -23,3 +23,5 @@ gem 'minitest-reporters'
 
 
 gem 'fpm', :github => "slact/fpm"
+
+gem 'hsss'
