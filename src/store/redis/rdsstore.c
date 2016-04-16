@@ -342,26 +342,7 @@ static void redisEchoCallback(redisAsyncContext *c, void *r, void *privdata) {
   //redisAsyncCommand(rds_sub_ctx(), NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
 }
 
-static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
-  char* (*hashes)[]=(char* (*)[])&store_rds_lua_hashes;
-  //char* (*scripts)[]=(char* (*)[])&store_rds_lua_scripts;
-  char* (*names)[]=(char* (*)[])&store_rds_lua_script_names;
-  uintptr_t i=(uintptr_t) privdata;
-  char *hash=(*hashes)[i];
 
-  redisReply *reply = r;
-  if (reply == NULL) return;
-  switch(reply->type) {
-    case REDIS_REPLY_ERROR:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: Failed loading redis lua scripts %s :%s", (*names)[i], reply->str);
-      break;
-    case REDIS_REPLY_STRING:
-      if(ngx_strncmp(reply->str, hash, REDIS_LUA_HASH_LENGTH)!=0) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan Redis lua script %s has unexpected hash %s (expected %s)", (*names)[i], reply->str, hash);
-      }
-      break;
-  }
-}
 
 void rds_ctx_teardown(redisAsyncContext *ac) {
   if(rdt.ctx == ac) {
@@ -373,11 +354,37 @@ void rds_ctx_teardown(redisAsyncContext *ac) {
   rdt.connected = 0;
 }
 
+typedef struct {
+  char      *name;
+  char      *hash;
+} script_hash_and_name_t;
+
+static void redis_load_script_callback(redisAsyncContext *c, void *r, void *privdata) {
+  script_hash_and_name_t *hn = privdata;
+
+  redisReply *reply = r;
+  if (reply == NULL) return;
+  switch(reply->type) {
+    case REDIS_REPLY_ERROR:
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: Failed loading redis lua script %s :%s", hn->name, reply->str);
+      break;
+    case REDIS_REPLY_STRING:
+      if(ngx_strncmp(reply->str, hn->hash, REDIS_LUA_HASH_LENGTH)!=0) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan Redis lua script %s has unexpected hash %s (expected %s)", hn->name, reply->str, hn->hash);
+      }
+      break;
+  }
+  ngx_free(hn);
+}
+
 static void redisInitScripts(redisAsyncContext *c){
-  uintptr_t i;
-  char* (*scripts)[]=(char* (*)[])&store_rds_lua_scripts;
-  for(i=0; i<sizeof(store_rds_lua_scripts)/sizeof(char*); i++) {
-    redisAsyncCommand(c, &redis_load_script_callback, (void *)i, "SCRIPT LOAD %s", (*scripts)[i]);
+  char **script, **script_name, **script_hash;
+
+  REDIS_LUA_SCRIPTS_EACH(script, script_name, script_hash) {
+    script_hash_and_name_t *hn = ngx_alloc(sizeof(*hn), ngx_cycle->log);
+    hn->name=*script_name;
+    hn->hash=*script_hash;
+    redisAsyncCommand(c, &redis_load_script_callback, hn, "SCRIPT LOAD %s", *script);
   }
 }
 
