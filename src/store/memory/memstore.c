@@ -1831,7 +1831,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
 
   if ((channel_status == SUB_CHANNEL_UNAUTHORIZED) || 
       (!chanhead && cf->subscribe_only_existing_channel) ||
-      (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= cf->max_channel_subscribers)) {
+      (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= (ngx_uint_t )cf->max_channel_subscribers)) {
     if(not_dead) {
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     }
