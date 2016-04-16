@@ -25,9 +25,9 @@ local key={
 --  pubsub=       'channel:subscribers:'..id, --set
 }
 
-local dbg = function(...) redis.call('echo', table.concat({...})); end
+--local dbg = function(...) redis.call('echo', table.concat({...})); end
 
-dbg(' #######  GET_MESSAGE ######## ')
+redis.call('echo', ' #######  GET_MESSAGE ######## ')
 
 local oldestmsg=function(list_key, old_fmt)
   local old, oldkey
@@ -45,7 +45,7 @@ local oldestmsg=function(list_key, old_fmt)
         del=del+1
       end 
     else
-      dbg(list_key, " is empty")
+      --dbg(list_key, " is empty")
       break
     end
   end
@@ -89,16 +89,16 @@ local subs_count = tonumber(channel.subscribers)
 local found_msg_id
 if msg_id==nil then
   if new_channel then
-    dbg("new channel")
+    --dbg("new channel")
     return {418, "", "", "", "", subs_count}
   else
-    dbg("no msg id given, ord="..no_msgid_order)
+    --dbg("no msg id given, ord="..no_msgid_order)
     
     if no_msgid_order == 'FIFO' then --most recent message
-      dbg("get most recent")
+      --dbg("get most recent")
       found_msg_id=channel.current_message
     elseif no_msgid_order == 'FILO' then --oldest message
-      dbg("get oldest")
+      --dbg("get oldest")
       
       found_msg_id=oldestmsg(key.messages, ('channel:msg:%s:'..id))
     end
@@ -111,7 +111,7 @@ if msg_id==nil then
       if not next(msg) then --empty
         return {404, "", "", "", "", subs_count}
       else
-        dbg(("found msg %s:%s  after %s:%s"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))
+        --dbg(("found msg %s:%s  after %s:%s"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))
         local ttl = redis.call('TTL', msg_id)
         return {200, ttl, tonumber(msg.time) or "", tonumber(msg.tag) or "", tonumber(msg.prev_time) or "", tonumber(msg.prev_tag) or "", msg.data or "", msg.content_type or "", msg.eventsource_event or "", subs_count}
       end
@@ -127,24 +127,24 @@ else
   local msg=tohash(redis.call('HGETALL', key.message))
 
   if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there
-    dbg("MESSAGE NOT FOUND")
+    --dbg("MESSAGE NOT FOUND")
     return {404, nil}
   end
 
   local next_msg, next_msgtime, next_msgtag
   if not msg.next then --this should have been taken care of by the channel.current_message check
-    dbg("NEXT MESSAGE KEY NOT PRESENT. ERROR, ERROR!")
+    --dbg("NEXT MESSAGE KEY NOT PRESENT. ERROR, ERROR!")
     return {404, nil}
   else
-    dbg("NEXT MESSAGE KEY PRESENT: " .. msg.next)
+    --dbg("NEXT MESSAGE KEY PRESENT: " .. msg.next)
     key.next_message=key.next_message:format(msg.next)
     if redis.call('EXISTS', key.next_message)~=0 then
       local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype, neventsource_event=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event'))
       local ttl = redis.call('TTL', key.next_message)
-      dbg(("found msg2 %i:%i  after %i:%i"):format(ntime, ntag, time, tag))
+      --dbg(("found msg2 %i:%i  after %i:%i"):format(ntime, ntag, time, tag))
       return {200, ttl, tonumber(ntime) or "", tonumber(ntag) or "", tonumber(prev_time) or "", tonumber(prev_tag) or "", ndata or "", ncontenttype or "", neventsource_event or "", subs_count}
     else
-      dbg("NEXT MESSAGE NOT FOUND")
+      --dbg("NEXT MESSAGE NOT FOUND")
       return {404, nil}
     end
   end

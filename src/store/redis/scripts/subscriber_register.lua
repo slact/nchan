@@ -5,9 +5,9 @@
 
 local id, sub_id, active_ttl, concurrency = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20, ARGV[4]
 
-local dbg = function(...) redis.call('echo', table.concat({...})); end
+--local dbg = function(...) redis.call('echo', table.concat({...})); end
 
-dbg(' ######## SUBSCRIBER REGISTER SCRIPT ####### ')
+redis.call('echo', ' ######## SUBSCRIBER REGISTER SCRIPT ####### ')
 
 local keys = {
   channel =     'channel:'..id,

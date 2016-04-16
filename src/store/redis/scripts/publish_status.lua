@@ -1,7 +1,8 @@
 --input:  keys: [], values: [channel_id, status_code]
 --output: current_subscribers
-local dbg = function(...) redis.call('echo', table.concat({...})); end
-dbg(' ####### PUBLISH STATUS ####### ')
+
+redis.call('echo', ' ####### PUBLISH STATUS ####### ')
+--local dbg = function(...) redis.call('echo', table.concat({...})); end
 local id=ARGV[1]
 local code=tonumber(ARGV[2])
 if code==nil then

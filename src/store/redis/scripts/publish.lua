@@ -23,19 +23,19 @@ if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
-local dbg = function(...) 
+--[[local dbg = function(...) 
   local arg = {...}
   for i = 1, #arg do
     arg[i]=tostring(arg[i])
   end
   redis.call('echo', table.concat(arg))
 end
-
+]]
 if type(msg.content_type)=='string' and msg.content_type:find(':') then
   return {err='Message content-type cannot contain ":" character.'}
 end
 
-dbg(' #######  PUBLISH   ######## ')
+redis.call('echo', ' #######  PUBLISH   ######## ')
 
 -- sets all fields for a hash from a dictionary
 local hmset = function (key, dict)
@@ -82,17 +82,17 @@ if redis.call('EXISTS', key.channel) ~= 0 then
 end
 
 if channel~=nil then
-  dbg("channel present")
+  --dbg("channel present")
   if channel.current_message ~= nil then
-    dbg("channel current_message present")
+    --dbg("channel current_message present")
     key.last_message=('channel:msg:%s:%s'):format(channel.current_message, id)
   else
-    dbg("channel current_message absent")
+    --dbg("channel current_message absent")
     key.last_message=nil
   end
   new_channel=false
 else
-  dbg("channel missing")
+  --dbg("channel missing")
   channel={}
   new_channel=true
   key.last_message=nil
@@ -102,7 +102,7 @@ end
 if key.last_message then
   local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
   local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
-  dbg("New message id: last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
+  --dbg("New message id: last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
@@ -140,10 +140,10 @@ end
 if not channel.max_stored_messages then
   channel.max_stored_messages = store_at_most_n_messages
   redis.call('HSET', key.channel, 'max_stored_messages', store_at_most_n_messages)
-  dbg("channel.max_stored_messages was not set, but is now ", store_at_most_n_messages)
+  --dbg("channel.max_stored_messages was not set, but is now ", store_at_most_n_messages)
 else
   channel.max_stored_messages =tonumber(channel.max_stored_messages)
-  dbg("channel.mas_stored_messages == " , channel.max_stored_messages)
+  --dbg("channel.mas_stored_messages == " , channel.max_stored_messages)
 end
 
 --write message
@@ -221,7 +221,7 @@ end
 
 local msgpacked
 
-dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
+--dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
 --now publish to the efficient channel
 local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]
@@ -232,5 +232,5 @@ end
 
 local num_messages = redis.call('llen', key.messages)
 
-dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, "(fake: ", channel.fake_subscribers or "nil", "), messages: ", num_messages)
+--dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, "(fake: ", channel.fake_subscribers or "nil", "), messages: ", num_messages)
 return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}

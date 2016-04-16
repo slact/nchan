@@ -5,9 +5,9 @@
 
 local id, sub_id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20
 
-local dbg = function(...) redis.call('echo', table.concat({...})); end
+--local dbg = function(...) redis.call('echo', table.concat({...})); end
 
-dbg(' ######## SUBSCRIBER UNREGISTER SCRIPT ####### ')
+redis.call('echo', ' ######## SUBSCRIBER UNREGISTER SCRIPT ####### ')
 
 local keys = {
   channel =     'channel:'..id,
@@ -37,7 +37,7 @@ if redis.call('EXISTS', keys.channel) ~= 0 then
     return {err="Subscriber count for channel " .. id .. " less than zero: " .. sub_count}
   end
 else
-  dbg("channel ", id, " already gone")
+  --dbg("channel ", id, " already gone")
 end
 
 return {sub_id, sub_count}

@@ -8,9 +8,7 @@ local messages=   'channel:messages:'..id
 local subscribers='channel:subscribers:'..id
 local pubsub=     'channel:pubsub:'..id
 
-local dbg = function(...) redis.call('echo', table.concat({...})); end
-
-dbg(' ####### DELETE #######')
+redis.call('echo', ' ####### DELETE #######')
 local num_messages = 0
 --delete all the messages right now mister!
 local msg

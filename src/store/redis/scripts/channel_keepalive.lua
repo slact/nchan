@@ -1,8 +1,7 @@
 --input:  keys: [], values: [channel_id, ttl]
 -- ttl is for when there are no messages but at least 1 subscriber.
 --output: seconds until next keepalive is expected, or -1 for "let it disappear"
-local dbg = function(...) redis.call('echo', table.concat({...})); end
-dbg(' ####### CHANNEL KEEPALIVE ####### ')
+redis.call('ECHO', ' ####### CHANNEL KEEPALIVE ####### ')
 local id=ARGV[1]
 local ttl=tonumber(ARGV[2])
 if not ttl then
