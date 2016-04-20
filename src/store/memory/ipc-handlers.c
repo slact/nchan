@@ -407,6 +407,7 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
   data.d.req.msgid = *msgid;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
+  assert(data.shm_chid->len>1);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
 }
 static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
