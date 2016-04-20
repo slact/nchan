@@ -599,7 +599,7 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
 static void nchan_publisher_body_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
-
+  ngx_table_elt_t                *content_length_elt;
   ngx_http_complex_value_t       *authorize_request_url_ccv = cf->authorize_request_url;
   
   if((channel_id = nchan_get_channel_id(r, PUB, 1))==NULL) {
@@ -638,6 +638,16 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
       ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
+    if((content_length_elt = ngx_palloc(r->pool, sizeof(*content_length_elt))) == NULL) {
+      ERR("can't allocate memory for publisher auth subrequest content-length header");
+      ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
+    *content_length_elt = *sr->headers_in.content_length;
+    content_length_elt->value.len=1;
+    content_length_elt->value.data=(u_char *)"0";
+    sr->headers_in.content_length = content_length_elt;
+    sr->headers_in.content_length_n = 0;
     sr->header_only = 1;
   }
 }
