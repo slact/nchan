@@ -1,3 +1,10 @@
+0.99.13 (Apr. 20 2016)
+ fix: invalid content-length for nchan_authorize_request publisher requests
+ fix: "subrequests cycle" error after 200 websocket publish requests
+ fix: zero-size buf warning when publishing empty messages via websocket
+ fix: nchan_max_channel_subscribers was ignored
+ fix: use a blocking redis connection for commands during shutdown to ensure commands are sent
+ fix: better TTL handling for redis keys
 0.99.12 (Apr. 10 2016)
  fix: SPDY compatibility with EventSource and multipart/mixed subscribers
  fix: warnings when shutting down redis storage
