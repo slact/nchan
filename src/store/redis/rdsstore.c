@@ -966,7 +966,6 @@ static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t
     redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i %i", store_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
   }
   else {
-    ERR("SYNC subscriber_unregister command");
     redisCommand(rds_sync_ctx(), "EVALSHA %s 0 %b %i %i", store_rds_lua_hashes.subscriber_unregister, STR(channel_id), 0/*TODO: sub->id*/, cf->channel_timeout);
   }
   return NGX_OK;
