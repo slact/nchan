@@ -141,19 +141,15 @@ if [[ -z $NO_MAKE ]]; then
     exit 1
   fi
 
-  rdstore_dir=../src/store/redis
+  rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \
-	 --struct store_redis_lua_scripts_t \
-	 --hashes store_rds_lua_hashes \
-	 --scripts store_rds_lua_scripts \
-	 --names store_rds_lua_script_names \
-	 --no-count \
-	 ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
+     --format whole \
+     --no-count \
+     ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
   if ! [ $? -eq 0 ]; then;
     echo "failed generating redis lua scripts";
     exit 1
   fi  
-
   pushd ./nginx-nchan >/dev/null
   
   _build_nginx
