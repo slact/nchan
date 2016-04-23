@@ -4,7 +4,7 @@ require "redis"
 require 'open3'
 require 'minitest'
 require 'minitest/reporters'
-Minitest::Reporters.use! Minitest::Reporters::DefaultReporter.new(color: true)
+Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require "minitest/autorun"
 require 'securerandom'
 require "pry"
@@ -67,7 +67,7 @@ class PubSubTest < Minitest::Test
   def hashes; @@hashes; end
 
   class Msg
-    attr_accessor :data, :chid, :time, :tag, :id, :content_type, :channel_info, :ttl
+    attr_accessor :data, :chid, :time, :tag, :id, :content_type, :channel_info, :ttl, :max_buf_size, :eventsource_event
     def _empty_is_nil(v)
       v == "" ? nil : v
     end
@@ -81,6 +81,8 @@ class PubSubTest < Minitest::Test
         @time=Time.now.utc.to_i
       end
       @ttl=_empty_is_nil arg[:ttl]
+      @eventsource_event = _empty_is_nil arg[:eventsource_event]
+      @max_buf_size = _empty_is_nil arg[:max_buf_size] || 100
       @content_type=_empty_is_nil arg[:content_type]
     end
     def ==(m)
@@ -119,7 +121,7 @@ class PubSubTest < Minitest::Test
     end
 
     msg.time= Time.now.utc.to_i unless msg.time
-    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.ttl, 100]
+    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.eventsource_event, msg.ttl, msg.max_buf_size]
     msg.tag=msg_tag
     msg.channel_info=channel_info
     return msg
@@ -142,15 +144,15 @@ class PubSubTest < Minitest::Test
       msg_id=msg
     end
     traverse_order=((Hash === opt) && opt[:getfirst]) ? 'FIFO' : 'FILO'
-    sub_channel = (Hash === opt) ? (opt[:subscribe] || opt[:sub]) : nil
     msg_tag=0 if msg_time && msg_tag.nil?
-    status, msg_time, msg_tag, msg_data, msg_content_type, subscriber_count = redis.evalsha hashes[:get_message], [], [ch_id, msg_time, msg_tag, traverse_order, 15, sub_channel ]
+    #binding.pry
+    status, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, msg_data, msg_content_type, msg_eventsource_event, subscriber_count = redis.evalsha hashes[:get_message], [], [ch_id, msg_time || 0, msg_tag || 0, traverse_order, 15 ]
     if status == 404
       return nil
     elsif status == 418 #not ready
       return false
     elsif status == 200
-      return Msg.new ch_id, time: msg_time, tag: msg_tag, data: msg_data, content_type: msg_content_type
+      return Msg.new ch_id, time: msg_time, tag: msg_tag, data: msg_data, content_type: msg_content_type, eventsource_event: msg_eventsource_event, ttl: msg_ttl
     end
   end
 

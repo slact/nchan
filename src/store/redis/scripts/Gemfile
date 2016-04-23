@@ -1,3 +1,11 @@
 #!/usr/bin/ruby
 source 'https://rubygems.org'
-gem 'redis'
+gem 'pry'
+gem 'pry-debundle'
+gem 'pry-rescue'
+
+gem 'minitest'
+gem 'minitest-reporters'
+
+gem "redis"
+gem "hsss"
