@@ -648,6 +648,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
     content_length_elt->value.data=(u_char *)"0";
     sr->headers_in.content_length = content_length_elt;
     sr->headers_in.content_length_n = 0;
+    sr->args = r->args;
     sr->header_only = 1;
   }
 }
