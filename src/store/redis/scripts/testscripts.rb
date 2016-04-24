@@ -236,6 +236,13 @@ class PubSubTest < Minitest::Test
     #nice!
   end
   
+  def test_largemsg
+    id=randid
+    sent= publish(Msg.new id, data: "0" * 100000 * 1024, ttl: 20)
+    cur = getmsg id, ""
+    assert_equal cur, sent
+  end
+  
   def test_delete
     id=randid
     sent=[]
