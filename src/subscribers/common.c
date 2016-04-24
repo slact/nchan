@@ -101,6 +101,8 @@ ngx_int_t nchan_subscriber_authorize_subscribe(subscriber_t *sub, ngx_str_t *ch_
     
     sr->header_only = 1;
     
+    sr->args = sub->request->args;
+    
     return NGX_OK;
   }
 }
