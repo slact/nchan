@@ -209,6 +209,12 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   ctx->start_tv = tv;
 #endif
   
+  //X-Accel-Redirected requests get their method mangled to GET. De-mangle it if necessary
+  if(r->upstream && r->upstream->headers_in.x_accel_redirect) {
+    //yep, we got x-accel-redirected. what was the original method?...
+    nchan_recover_x_accel_redirected_request_method(r);
+  }
+  
   if((origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) != NULL) {
     ctx->request_origin_header = *origin_header;
     if(!(cf->allow_origin.len == 1 && cf->allow_origin.data[0] == '*')) {
