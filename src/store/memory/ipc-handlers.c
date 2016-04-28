@@ -108,6 +108,7 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
     ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, head->use_redis, d->d.origin_chanhead);
     d->d.subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
+    assert(d->shared_channel_data);
   }
   
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
