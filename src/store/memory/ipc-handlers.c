@@ -588,7 +588,7 @@ typedef struct {
   unsigned                 auth_ok:1;
   unsigned                 channel_must_exist:1;
   unsigned                 use_redis:1;
-  uint32_t                 max_subscribers;
+  ngx_int_t                max_subscribers;
   callback_pt              callback;
   void                    *privdata;
 } channel_authcheck_data_t;
