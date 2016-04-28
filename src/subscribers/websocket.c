@@ -143,7 +143,7 @@ struct full_subscriber_s {
   nchan_pub_upstream_stuff_t  *upstream_stuff;
   
   ngx_event_t             ping_ev;
-  
+  unsigned                ws_meta_subprotocol:1;
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                connected:1;
@@ -481,6 +481,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   nchan_subscriber_init(&fsub->sub, &new_websocket_sub, r, msg_id);
   fsub->cln = NULL;
   fsub->ctx = ctx;
+  fsub->ws_meta_subprotocol = 0;
   fsub->finalize_request = 0;
   fsub->holding = 0;
   fsub->shook_hands = 0;
@@ -578,7 +579,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_str_t           ws_accept_key, sha1_str;
   u_char              buf_sha1[21];
   u_char              buf[255];
-  ngx_str_t          *tmp, *ws_key;
+  ngx_str_t          *tmp, *ws_key, *subprotocols;
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
   
@@ -604,6 +605,20 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   if((ws_key = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
     r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
+  }
+  
+  if((subprotocols = nchan_get_header_value(r, NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL)) != NULL) {
+    static ngx_str_t     ws_meta = ngx_string("ws+meta.nchan");
+    if(subprotocols->len >= ws_meta.len && ngx_strncmp(subprotocols->data, ws_meta.data, ws_meta.len) == 0) {
+      fsub->ws_meta_subprotocol = 1;
+      nchan_add_response_header(r, &NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL, &ws_meta);
+      
+      //init meta headers str reuse queue
+      nchan_subscriber_init_msgid_reusepool(fsub->ctx, r->pool);
+    }
+    else {
+      nchan_add_response_header(r, &NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL, NULL);
+    }
   }
   
   if(r->headers_out.status != NGX_HTTP_BAD_REQUEST) {
@@ -1122,17 +1137,71 @@ static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opco
   return nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, opcode, len, msg_chain));
 }
 
+static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
+  ngx_memzero(buf, sizeof(*buf));
+  buf->start = start;
+  buf->pos = start;
+  buf->end = end;
+  buf->last = end;
+  buf->memory = 1;
+}
+
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
-  nchan_buf_and_chain_t *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
-  //message first
-  assert(msg->buf);
-  bc->buf = *msg->buf;
+  nchan_buf_and_chain_t *bc;
+  size_t                 sz = ngx_buf_size((msg->buf));
+  if(fsub->ws_meta_subprotocol) {
+    static ngx_str_t          id_line = ngx_string("id: ");
+    static ngx_str_t          content_type_line = ngx_string("\ncontent-type: ");
+    static ngx_str_t          two_newlines = ngx_string("\n\n");
+    ngx_chain_t              *cur;
+    ngx_str_t                 msgid;
+    bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 4 + (msg->content_type.len > 0 ? 2 : 0));
+    cur = &bc->chain;
+    
+    // id: 
+    ngx_init_set_membuf(cur->buf, id_line.data, id_line.data + id_line.len);
+    sz += id_line.len;
+    cur = cur->next;
+    
+    //msgid value
+    msgid = nchan_subscriber_set_recyclable_msgid_str(fsub->ctx, &fsub->sub.last_msgid);
+    ngx_init_set_membuf(cur->buf, msgid.data, msgid.data + msgid.len);
+    sz += msgid.len;
+    cur = cur->next;
+    
+    if(msg->content_type.len > 0) {
+      // content-type: 
+      ngx_init_set_membuf(cur->buf, content_type_line.data, content_type_line.data + content_type_line.len);
+      sz += content_type_line.len;
+      cur = cur->next;
+      
+      //content-type value
+      ngx_init_set_membuf(cur->buf, msg->content_type.data, msg->content_type.data + msg->content_type.len);
+      sz += msg->content_type.len;
+      cur = cur->next;
+    }
+    
+    // \n\n
+    ngx_init_set_membuf(cur->buf, two_newlines.data, two_newlines.data + two_newlines.len);
+    sz += two_newlines.len;
+    cur = cur->next;
+    
+    //now the message
+    *cur->buf = *msg->buf;
+    assert(cur->next == NULL);
+  }
+  else {
+    bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+    //message first
+    bc->buf = *msg->buf;
+  }
+  
   if(msg->buf->file) {
     nchan_msg_buf_open_fd_if_needed(&bc->buf, nchan_bufchain_pool_reserve_file(fsub->ctx->bcp), NULL);
   }
-
+  
   //now the header
-  return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&bc->buf)), &bc->chain);
+  return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, sz, &bc->chain);
 }
 
 static void closing_ev_handler(ngx_event_t *ev) {

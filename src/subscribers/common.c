@@ -260,3 +260,34 @@ void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ng
     ctx->subscriber_type = sub->name;
   }
 }
+
+
+#define MSGID_BUF_LEN (10*255)
+typedef struct msgidbuf_s msgidbuf_t;
+struct msgidbuf_s {
+  u_char       chr[MSGID_BUF_LEN];
+  msgidbuf_t  *prev;
+  msgidbuf_t  *next;
+};
+
+static void *msgidbuf_alloc(void *pd) {
+  return ngx_palloc((ngx_pool_t *)pd, sizeof(msgidbuf_t));
+}
+
+ngx_int_t nchan_subscriber_init_msgid_reusepool(nchan_request_ctx_t *ctx, ngx_pool_t *request_pool) {
+  ctx->output_str_queue = ngx_palloc(request_pool, sizeof(*ctx->output_str_queue));
+  nchan_reuse_queue_init(ctx->output_str_queue, offsetof(msgidbuf_t, prev), offsetof(msgidbuf_t, next), msgidbuf_alloc, NULL, request_pool);
+  return NGX_OK;
+}
+
+ngx_str_t nchan_subscriber_set_recyclable_msgid_str(nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
+  ngx_str_t               ret;
+  msgidbuf_t             *msgidbuf;
+  
+  msgidbuf = nchan_reuse_queue_push(ctx->output_str_queue);
+  ret.data = &msgidbuf->chr[0];
+  
+  nchan_strcpy(&ret, msgid_to_str(msgid), MSGID_BUF_LEN);
+  
+  return ret;
+}

@@ -587,8 +587,14 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
   h->hash = 1;
   h->key.len = header_name->len;
   h->key.data = header_name->data;
-  h->value.len = header_value->len;
-  h->value.data = header_value->data;
+  if(header_value) {
+    h->value.len = header_value->len;
+    h->value.data = header_value->data;
+  }
+  else {
+    h->value.len = 0;
+    h->value.data = NULL;
+  }
   return h;
 }
 

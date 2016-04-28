@@ -62,6 +62,7 @@ extern const ngx_str_t NCHAN_HEADER_UPGRADE;
 extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_KEY;
 extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT;
 extern const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_VERSION;
+extern const ngx_str_t NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL;
 
 //header values
 extern const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE;
