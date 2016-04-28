@@ -44,6 +44,8 @@ typedef struct {
   ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
 } channel_spooler_fn_t;
 
+typedef enum {FETCH, FETCH_IGNORE_MSG_NOTFOUND, NO_FETCH} spooler_fetching_strategy_t;
+
 struct channel_spooler_s {
   rbtree_seed_t               spoolseed;
   subscriber_pool_t           current_msg_spool;
@@ -58,9 +60,11 @@ struct channel_spooler_s {
 #if NCHAN_BENCHMARK
   ngx_int_t                   last_responded_subscriber_count;
 #endif  
+  spooler_fetching_strategy_t fetching_strategy;
   unsigned                    publish_events:1;
   unsigned                    running:1;
   unsigned                    want_to_stop:1;
+  
 };
 
 struct channel_spooler_handlers_s {
@@ -72,7 +76,7 @@ struct channel_spooler_handlers_s {
   void                        (*get_message_finish)(channel_spooler_t *, void *);
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, channel_spooler_handlers_t *handlers, void *handlers_privdata);
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store,  spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers);
 
 

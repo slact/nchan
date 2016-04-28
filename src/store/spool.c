@@ -185,7 +185,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   anymsg.time = 0;
   anymsg.tag.fixed[0] = 0;
   anymsg.tagcount = 1;
-  
+  nchan_msg_status_t    prev_status;
   subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;
   
@@ -203,6 +203,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_free_msg_id(&data->msgid);
   ngx_free(data);
   
+  prev_status = spool->msg_status;
   spool->msg_status = findmsg_status;
   
   switch(findmsg_status) {
@@ -224,6 +225,10 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       break;
     
     case MSG_NOTFOUND:
+      if(spl->fetching_strategy == FETCH_IGNORE_MSG_NOTFOUND) {
+        spool->msg_status = prev_status;
+        break;
+      }
     case MSG_EXPIRED:
       //is this right?
       //TODO: maybe message-expired notification
@@ -270,7 +275,15 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   if(spl->handlers->get_message_start) {
     spl->handlers->get_message_start(spl, spl->handlers_privdata);
   }
-  spool->spooler->store->get_message(spool->spooler->chid, &spool->id, (callback_pt )spool_fetch_msg_callback, data);
+  switch(spl->fetching_strategy) {
+    case FETCH:
+    case FETCH_IGNORE_MSG_NOTFOUND:
+      spool->spooler->store->get_message(spool->spooler->chid, &spool->id, (callback_pt )spool_fetch_msg_callback, data);
+      break;
+    case NO_FETCH:
+      //do nothing
+      break;
+  }
   return NGX_OK;
 }
 
@@ -891,7 +904,7 @@ static channel_spooler_fn_t  spooler_fn = {
   spooler_prepare_to_stop
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store,  spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
   if(!spl->running) {
     ngx_memzero(spl, sizeof(*spl));
     rbtree_init(&spl->spoolseed, "spooler msg_id tree", spool_rbtree_node_id, spool_rbtree_bucketer, spool_rbtree_compare);
@@ -910,6 +923,7 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     spl->running = 1;
     //spl->want_to_stop = 0;
     spl->publish_events = 1;
+    spl->fetching_strategy = fetching_strategy;
     
     init_spool(spl, &spl->current_msg_spool, &latest_msg_id);
     spl->current_msg_spool.msg_status = MSG_EXPECTED;
