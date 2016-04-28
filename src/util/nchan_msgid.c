@@ -316,9 +316,10 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   int                             i;
   ngx_int_t                       rc;
   
+  if_none_match = nchan_subscriber_get_etag(r);
+  
   if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
     id.time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-    if_none_match = nchan_subscriber_get_etag(r);
     
     if(if_none_match==NULL) {
       id.tagcount=1;
@@ -331,7 +332,7 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
     }
     return &id;
   }
-  else if(cf->msg_in_etag_only && (if_none_match = nchan_subscriber_get_etag(r)) != NULL) {
+  else if((cf->msg_in_etag_only || r->headers_in.if_modified_since == NULL) && if_none_match) {
     rc = nchan_parse_compound_msgid(&id, if_none_match, ctx->channel_id_count);
     if(rc == NGX_OK) {
       return &id;
