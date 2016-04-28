@@ -669,7 +669,9 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
       subscriber_t  *msub;
       for(i = 0; i < max; i++) {
         msub = head->multi[i].sub;
-        msub->fn->notify(msub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)1);
+        if(msub) {
+          msub->fn->notify(msub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)1);
+        }
       }
     }
     
@@ -705,7 +707,9 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
       subscriber_t *sub;
       for(i = 0; i < max; i++) {
         sub = head->multi[i].sub;
-        sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)-count);
+        if(sub) {
+          sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)-count);
+        }
       }
     }
   }
