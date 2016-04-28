@@ -646,7 +646,7 @@ static void receive_channel_auth_check(ngx_int_t sender, channel_authcheck_data_
     }
     else {
       assert(head->shared);
-      d->auth_ok = head->shared->sub_count < d->max_subscribers;
+      d->auth_ok = head->shared->sub_count < (ngx_uint_t )d->max_subscribers;
     }
     ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_AUTHCHECK_REPLY, d, sizeof(*d));
   }
