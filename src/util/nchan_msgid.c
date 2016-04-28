@@ -284,11 +284,19 @@ static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
 static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count){
   u_char       *split, *last;
   ngx_int_t     time;
+  uint8_t       len;
   //"<msg_time>:<msg_tag>"
   last = str->data + str->len;
   if((split = ngx_strlchr(str->data, last, ':')) != NULL) {
+    len = 1;
+  }
+  else if( (str->len > 3 && (split = ngx_strnstr(str->data, "%3A", str->len)) != NULL)
+        || (str->len > 3 && (split = ngx_strnstr(str->data, "%3a", str->len)) != NULL)) {
+    len = 3;
+  }
+  if(split) {
     time = ngx_atoi(str->data, split - str->data);
-    split++;
+    split += len;
     if(time != NGX_ERROR) {
       id->time = time;
       return nchan_parse_msg_tag(split, last, id, expected_tag_count);
