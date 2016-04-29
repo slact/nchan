@@ -91,8 +91,10 @@ typedef struct {
   ngx_atomic_int_t                   procslot[NGX_MAX_PROCESSES];
   ngx_atomic_int_t                   max_workers;
   ngx_atomic_int_t                   old_max_workers;
-  ngx_atomic_int_t                   active_workers;
+  ngx_atomic_int_t                   total_active_workers;
+  ngx_atomic_int_t                   current_active_workers;
   ngx_atomic_int_t                   reloading;
+  ngx_atomic_int_t                   generation;
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;
 #endif
@@ -121,7 +123,8 @@ ngx_int_t memstore_fakeprocess_pop(void);
 #endif
 
 ngx_int_t memstore_slot(void);
+int memstore_ready(void);
 ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *);
 ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead, const char *);
 
-#endif
+#endif /*MEMSTORE_PRIVATE_HEADER*/

@@ -4,10 +4,8 @@
 #include <assert.h>
 #include "ipc.h"
 
-#if FAKESHARD
 #include "shmem.h"
 #include "store-private.h"
-#endif
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -182,6 +180,17 @@ static void ipc_write_handler(ngx_event_t *ev) {
   uint8_t                  write_aborted = 0;
   
   //DBG("%i alerts to write, with %i in overflow", proc->wbuf.n, proc->wbuf.overflow_n);
+  
+  if(!memstore_ready()) {
+#if nginx_version >= 1008000
+    ev->cancelable = 1;
+#endif
+    ngx_add_timer(ev, 1000);
+    return;
+  }
+  else {
+    ev->cancelable = 0;
+  }
   
   for(i = first; i < last; i++) {
     //ERR("send alert at %i", i % IPC_WRITEBUF_SIZE );
@@ -391,6 +400,7 @@ static void ipc_read_handler(ngx_event_t *ev) {
   }
 }
 
+
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
   
@@ -398,7 +408,6 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     ERR("IPC_DATA_SIZE too small. wanted %i, have %i", data_size, IPC_DATA_SIZE);
     assert(0);
   }
-  
 #if (FAKESHARD)
   
   ipc_alert_t         alert = {0};
