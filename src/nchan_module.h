@@ -25,6 +25,7 @@
 #endif
 #endif
 
+#include <nginx.h>
 #include <nchan_types.h>
 #include <nchan_defs.h>
 #include <util/nchan_util.h>
