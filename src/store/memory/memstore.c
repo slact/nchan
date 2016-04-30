@@ -1304,12 +1304,14 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   nchan_store_channel_head_t  *ch;
   nchan_channel_t              chaninfo;
-  
-  if(memstore_slot() == owner) {
+  if(cf->use_redis) {
+    return nchan_store_redis.find_channel(channel_id, cf, callback, privdata);
+  }
+  else if(memstore_slot() == owner) {
     ch = nchan_memstore_find_chanhead(channel_id);
     if(ch == NULL) {
       callback(NGX_OK, NULL, privdata);
@@ -1319,6 +1321,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt cal
       if(ch->shared) {
         chaninfo.last_seen = ch->shared->last_seen;
       }
+      chaninfo.last_published_msg_id = ch->latest_msgid;
       callback(NGX_OK, &chaninfo, privdata);
     }
     
@@ -1840,7 +1843,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
             break;
           }
         }
-        nchan_store_redis.find_channel(d->channel_id, redis_subscribe_channel_authcheck_callback, d);
+        nchan_store_redis.find_channel(d->channel_id, cf, redis_subscribe_channel_authcheck_callback, d);
         return NGX_OK;
       }
       else {

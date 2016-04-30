@@ -281,7 +281,7 @@ static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
 #endif
 }
 
-static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count){
+ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count) {
   u_char       *split, *last;
   ngx_int_t     time;
   uint8_t       len;

@@ -523,7 +523,7 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
   
   switch(r->method) {
     case NGX_HTTP_GET:
-      cf->storage_engine->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      cf->storage_engine->find_channel(channel_id, cf, (callback_pt) &channel_info_callback, (void *)r);
       break;
     
     case NGX_HTTP_PUT:

@@ -556,8 +556,8 @@ static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
   }
   else {
     d->channel_info = head->shared;
-    assert(head->channel.last_published_msg_id.tagcount <= 1);
-    d->last_msgid = head->channel.last_published_msg_id;
+    assert(head->latest_msgid.tagcount <= 1);
+    d->last_msgid = head->latest_msgid;
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_INFO_REPLY, d, sizeof(*d));
 }
@@ -652,10 +652,13 @@ static void receive_channel_auth_check(ngx_int_t sender, channel_authcheck_data_
     ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_AUTHCHECK_REPLY, d, sizeof(*d));
   }
   else {
+    nchan_loc_conf_t              cf;
+    ngx_memzero(&cf, sizeof(cf));
+    cf.use_redis = 1;
     channel_authcheck_data_callback_t    *dd = ngx_alloc(sizeof(*dd), ngx_cycle->log);
     dd->d = *d;
     dd->sender = sender;
-    nchan_store_redis.find_channel(d->shm_chid, redis_receive_channel_auth_check_callback, dd);
+    nchan_store_redis.find_channel(d->shm_chid, &cf, redis_receive_channel_auth_check_callback, dd);
   }
 }
 

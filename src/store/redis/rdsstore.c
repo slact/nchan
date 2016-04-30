@@ -1132,6 +1132,19 @@ static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
     ch->id.len=0;
     ch->id.data=NULL;
     
+    //last message id
+    if( CHECK_REPLY_ARRAY_MIN_SIZE(r, 5)
+      && CHECK_REPLY_STR(r->element[4])) {
+      
+      ngx_str_t      msgid;
+      msgid.data = (u_char *)r->element[4]->str;
+      msgid.len = r->element[4]->len;
+      
+      if(nchan_parse_compound_msgid(&ch->last_published_msg_id, &msgid, 1) != NGX_OK) {
+        ERR("failed to parse last-msgid %V from redis", &msgid);
+      }
+    }
+    
     return NGX_OK;
   }
   else if(CHECK_REPLY_NIL(r)) {
@@ -1191,7 +1204,7 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt c
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_channel_callback_data_t *d;
   if((d=ngx_alloc(sizeof(*d), ngx_cycle->log))==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Failed to allocate memory for some callback data");
@@ -1470,7 +1483,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
     d->channel_id->data = (u_char *)&(d->channel_id)[1];
     ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
     d->sub = sub;
-    nchan_store_find_channel(channel_id, subscribe_existing_channel_callback, d);
+    nchan_store_find_channel(channel_id, sub->cf, subscribe_existing_channel_callback, d);
   }
 
   return NGX_OK;

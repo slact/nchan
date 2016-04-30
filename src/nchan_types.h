@@ -134,12 +134,12 @@ typedef struct{
   //async-friendly functions with callbacks
   ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
   ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *);
-  ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, struct nchan_loc_conf_s *, callback_pt, void *);
+  ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, nchan_loc_conf_t *, callback_pt, void *);
   
   ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
   
   //channel actions
-  ngx_int_t (*find_channel)(ngx_str_t *, callback_pt, void*);
+  ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
   
   
   

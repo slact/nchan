@@ -179,7 +179,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return nearly_departed\n"},
 
-  {"find_channel", "943cf0946ceac8f3701dc33e9754bbf2bc406ce7",
+  {"find_channel", "4d1f62785e420996a9265153b3fc5b27f3606c26",
    "--input: keys: [],  values: [ channel_id ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
    "-- finds and return the info hash of a channel, or nil of channel not found\n"
@@ -189,16 +189,18 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "redis.call('echo', ' #######  FIND_CHANNEL ######## ')\n"
    "\n"
    "if redis.call('EXISTS', key_channel) ~= 0 then\n"
-   "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers')\n"
+   "  local ch = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers', 'current_message')\n"
    "  if(ch[4]) then\n"
    "    --replace subscribers count with fake_subscribers\n"
    "    ch[3]=ch[4]\n"
    "    table.remove(ch, 4)\n"
    "  end\n"
-   "  for i = 1, #ch do\n"
+   "  for i = 1, 4 do\n"
    "    ch[i]=tonumber(ch[i]) or 0\n"
    "  end\n"
-   "  table.insert(ch, redis.call('llen', \"channel:messages:\"..id))\n"
+   "  if type(ch[5]) ~= \"string\" then\n"
+   "    ch[5]=\"\"\n"
+   "  end\n"
    "  return ch\n"
    "else\n"
    "  return nil\n"
