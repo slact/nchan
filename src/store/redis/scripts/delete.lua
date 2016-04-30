@@ -29,9 +29,17 @@ end
 
 local nearly_departed = nil
 if redis.call('EXISTS', key_channel) ~= 0 then
-  nearly_departed = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')
-  for i = 1, #nearly_departed do
+  nearly_departed = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers', 'current_message')
+  if(nearly_departed[4]) then
+    --replace subscribers count with fake_subscribers
+    nearly_departed[3]=nearly_departed[4]
+    table.remove(nearly_departed, 4)
+  end
+  for i = 1, 4 do
     nearly_departed[i]=tonumber(nearly_departed[i]) or 0
+  end
+  if type(nearly_departed[5]) ~= "string" then
+    nearly_departed[5]=""
   end
   
   --leave some crumbs behind showing this channel was just deleted

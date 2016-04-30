@@ -128,7 +128,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return -1\n"
    "end\n"},
 
-  {"delete", "bbff52e618cbf071e01d8cd5b8ca6f8cbd9f0524",
+  {"delete", "f90c86e4b29bbfccf990ea8bce11a8c3fede6b6b",
    "--input: keys: [],  values: [ channel_id ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
    "-- delete this channel and all its messages\n"
@@ -160,9 +160,17 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "local nearly_departed = nil\n"
    "if redis.call('EXISTS', key_channel) ~= 0 then\n"
-   "  nearly_departed = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers')\n"
-   "  for i = 1, #nearly_departed do\n"
+   "  nearly_departed = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers', 'current_message')\n"
+   "  if(nearly_departed[4]) then\n"
+   "    --replace subscribers count with fake_subscribers\n"
+   "    nearly_departed[3]=nearly_departed[4]\n"
+   "    table.remove(nearly_departed, 4)\n"
+   "  end\n"
+   "  for i = 1, 4 do\n"
    "    nearly_departed[i]=tonumber(nearly_departed[i]) or 0\n"
+   "  end\n"
+   "  if type(nearly_departed[5]) ~= \"string\" then\n"
+   "    nearly_departed[5]=\"\"\n"
    "  end\n"
    "  \n"
    "  --leave some crumbs behind showing this channel was just deleted\n"
