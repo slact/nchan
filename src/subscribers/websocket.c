@@ -73,7 +73,7 @@ static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
 
-#define NCHAN_WS_UPSTREAM_TMP_POOL_SIZE (4*1024)
+#define NCHAN_WS_TMP_POOL_SIZE (4*1024)
 
 
 typedef struct framebuf_s framebuf_t;
@@ -115,6 +115,7 @@ typedef struct {
   ngx_pool_t                  *original_pool;
   ngx_http_cleanup_t          *original_cleanup;
   ngx_pool_t                  *tmp_pool;
+  ngx_pool_t                  *framebuf_pool;
   ngx_http_cleanup_t          *cln;
   full_subscriber_t           *fsub;
   ngx_buf_t                    buf;
@@ -162,7 +163,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
 
-static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf);
+static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, ngx_pool_t *frame_pool);
 
 static ngx_int_t websocket_reserve(subscriber_t *self);
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
@@ -292,17 +293,12 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
       case NGX_HTTP_ACCEPTED:
         if(sr->upstream) {
           ngx_buf_t    *buf;
-          ngx_pool_t   *tmp_pool = NULL;
           
           content_length = sr->upstream->headers_in.content_length_n > 0 ? sr->upstream->headers_in.content_length_n : 0;
           request_chain = sr->upstream->out_bufs;
           
           if (request_chain->next != NULL) {
-            if((tmp_pool = ngx_create_pool(NCHAN_WS_UPSTREAM_TMP_POOL_SIZE, ngx_cycle->log))==NULL) {
-              ERR("can't create temp upstream handler pool");
-              return NGX_ERROR;
-            }
-            buf = nchan_chain_to_single_buffer(tmp_pool, request_chain, content_length);
+            buf = nchan_chain_to_single_buffer(d->framebuf_pool, request_chain, content_length);
           }
           else {
             buf = request_chain->buf;
@@ -315,10 +311,6 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
           }
           
           websocket_publish_continue(fsub, buf);
-          
-          if (tmp_pool != NULL) {
-            ngx_destroy_pool(tmp_pool);
-          }
         }
         else {
           //content_length = 0;
@@ -346,10 +338,13 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
     websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
   }
   
+  ngx_destroy_pool(d->framebuf_pool);
+  d->framebuf_pool = NULL;
+  
   return NGX_OK;
 }
 
-static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
+static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, ngx_pool_t *fb_pool) {
   static ngx_str_t         nopublishing = ngx_string("Publishing not allowed.");
   static ngx_str_t         POST_REQUEST_STRING = {4, (u_char *)"POST "};
   
@@ -406,12 +401,14 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
       psrd->tmp_pool = NULL;
     }
     
+    psrd->framebuf_pool = fb_pool;
+    
     psrd->buf = *buf;
     psrd->original_pool = r->pool;
     psrd->original_cleanup = r->cleanup;
     r->cleanup = NULL;
     
-    psrd->tmp_pool = ngx_create_pool(NCHAN_WS_UPSTREAM_TMP_POOL_SIZE, r->connection->log);
+    psrd->tmp_pool = ngx_create_pool(NCHAN_WS_TMP_POOL_SIZE, r->connection->log);
     
     r->pool = psrd->tmp_pool;
     //ERR("request %p tmp pool %p", r, r->pool);
@@ -555,6 +552,12 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   
   if(fsub->upstream_stuff && fsub->upstream_stuff->psr_data.tmp_pool) {
     ngx_destroy_pool(fsub->upstream_stuff->psr_data.tmp_pool);
+    fsub->upstream_stuff->psr_data.tmp_pool = NULL;
+  }
+  
+  if(fsub->upstream_stuff && fsub->upstream_stuff->psr_data.framebuf_pool) {
+    ngx_destroy_pool(fsub->upstream_stuff->psr_data.framebuf_pool);
+    fsub->upstream_stuff->psr_data.framebuf_pool = NULL;
   }
    
   if(sub->reserved > 0) {
@@ -819,6 +822,7 @@ static void websocket_reading(ngx_http_request_t *r) {
   uint64_t                    i;
   ngx_buf_t                   buf;
   ngx_pool_t                 *temp_pool = NULL;
+  int                         free_temp_pool = 1;
   ngx_buf_t                   msgbuf;
   int                         close_code;
   ngx_str_t                   close_reason;
@@ -897,7 +901,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         if (frame->payload_len > 0) {
           //create a temporary pool to allocate temporary elements
           if (temp_pool == NULL) {
-            if ((temp_pool = ngx_create_pool(4096, r->connection->log)) == NULL) {
+            if ((temp_pool = ngx_create_pool(NCHAN_WS_TMP_POOL_SIZE, r->connection->log)) == NULL) {
               ERR("unable to allocate memory for temporary pool");
               goto finalize;
             }
@@ -939,7 +943,10 @@ static void websocket_reading(ngx_http_request_t *r) {
             
             //DBG("we got data %V", &msg_in_str);
             
-            websocket_publish(fsub, &msgbuf);
+            websocket_publish(fsub, &msgbuf, temp_pool);
+            if(fsub->upstream_stuff) {
+              free_temp_pool = 0;
+            }
             break;
           
           case WEBSOCKET_OPCODE_PING:
@@ -968,7 +975,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             goto finalize;
             break; //good practice?
         }
-        if (temp_pool != NULL) {
+        if(free_temp_pool && temp_pool != NULL) {
           ngx_destroy_pool(temp_pool);
           temp_pool = NULL;
         }
