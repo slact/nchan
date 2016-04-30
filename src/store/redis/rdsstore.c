@@ -6,6 +6,7 @@
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
 #include <util/nchan_reaper.h>
+#include <util/nchan_msgid.h>
 #include <store/store_common.h>
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 1
@@ -1143,6 +1144,13 @@ static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
       if(nchan_parse_compound_msgid(&ch->last_published_msg_id, &msgid, 1) != NGX_OK) {
         ERR("failed to parse last-msgid %V from redis", &msgid);
       }
+    }
+    
+    //queued messages
+    if( CHECK_REPLY_ARRAY_MIN_SIZE(r, 6)
+      && CHECK_REPLY_INT(r->element[5])) {
+      
+      ch->messages = r->element[5]->integer;
     }
     
     return NGX_OK;
