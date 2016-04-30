@@ -294,6 +294,9 @@ ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int
         || (str->len > 3 && (split = ngx_strnstr(str->data, "%3a", str->len)) != NULL)) {
     len = 3;
   }
+  else {
+    len = 0; //placate dumb GCC warning
+  }
   if(split) {
     time = ngx_atoi(str->data, split - str->data);
     split += len;
