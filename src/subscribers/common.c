@@ -209,13 +209,9 @@ void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev) {
 
 void nchan_subscriber_init_timeout_timer(subscriber_t *sub, ngx_event_t *ev) {
   ngx_memzero(ev, sizeof(*ev));
-  #if nginx_version >= 1008000
-  ev->cancelable = 1;
-#endif
-  ev->handler = nchan_subscriber_timeout_ev_handler;
-  ev->data = sub;
-  ev->log = ngx_cycle->log; 
+  nchan_init_timer(ev, nchan_subscriber_timeout_ev_handler, sub);
 }
+
 void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid) {
   nchan_request_ctx_t  *ctx = NULL;
   *sub = *tmpl;

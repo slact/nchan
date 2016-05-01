@@ -1016,12 +1016,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   }
 
   ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
-#if nginx_version >= 1008000
-  head->keepalive_timer.cancelable = 1;
-#endif
-  head->keepalive_timer.handler = redis_channel_keepalive_timer_handler;
-  head->keepalive_timer.log = ngx_cycle->log;
-  head->keepalive_timer.data = head;
+  nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
   
   DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
   redisAsyncCommand(rds_sub_ctx(), redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));

@@ -166,15 +166,12 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   d->originator = originator_slot;
   assert(foreign_chanhead != NULL);
   d->foreign_chanhead = foreign_chanhead;
-//  d->chanhead = local_chanhead;
+  //d->chanhead = local_chanhead;
   d->owner = memstore_slot();
+
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
-#if nginx_version >= 1008000
-  d->timeout_ev.cancelable = 1;
-#endif
-  d->timeout_ev.handler = timeout_ev_handler;
-  d->timeout_ev.data = d;
-  d->timeout_ev.log = ngx_cycle->log;
+  nchan_init_timer(&d->timeout_ev, timeout_ev_handler, d);
+
   d->use_redis = use_redis;
   reset_timer(d);
   DBG("%p (%V) memstore-ipc subscriber created with privdata %p", d->sub, d->chid, d);

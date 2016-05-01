@@ -162,6 +162,16 @@ ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, s
   return buf;
 }
 
+ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd) {
+#if nginx_version >= 1008000
+  ev->cancelable = 1;
+#endif
+  ev->handler = cb;
+  ev->data = pd;
+  ev->log = ngx_cycle->log;
+  return NGX_OK;
+}
+
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited
 static ngx_str_t            debug_pool_str;

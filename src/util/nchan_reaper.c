@@ -20,12 +20,8 @@ ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next,
   rp->ready = ready;
   rp->reap = reap;
   ngx_memzero(&rp->timer, sizeof(rp->timer));
-#if nginx_version >= 1008000
-  rp->timer.cancelable = 1;
-#endif
-  rp->timer.handler = reaper_timer_handler;
-  rp->timer.log = ngx_cycle->log;
-  rp->timer.data = rp;
+  nchan_init_timer(&rp->timer, reaper_timer_handler, rp);
+  
   rp->tick_usec = tick_sec * 1000;
   rp->strategy = RESCAN;
   rp->max_notready_ratio = 0; //disabled

@@ -188,9 +188,11 @@ static void ipc_write_handler(ngx_event_t *ev) {
     ngx_add_timer(ev, 1000);
     return;
   }
+#if nginx_version >= 1008000
   else {
     ev->cancelable = 0;
   }
+#endif
   
   for(i = first; i < last; i++) {
     //ERR("send alert at %i", i % IPC_WRITEBUF_SIZE );
@@ -382,12 +384,8 @@ static void ipc_read_handler(ngx_event_t *ev) {
         return;
     }
     ngx_memzero(&glob->timer, sizeof(glob->timer));
-#if nginx_version >= 1008000
-    glob->timer.cancelable = 1;
-#endif
-    glob->timer.handler = fake_ipc_alert_delay_handler;
-    glob->timer.log = ngx_cycle->log;
-    glob->timer.data = glob;
+    nchan_init_timer(&glob->timer, fake_ipc_alert_delay_handler, glob);
+    
     glob->alert = alert;
     glob->ipc = (ipc_t *)c->data;
     ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);

@@ -496,6 +496,11 @@ static void *framebuf_alloc(void *pd) {
   return ngx_palloc((ngx_pool_t *)pd, sizeof(framebuf_t));
 }
 
+static void closing_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+}
+
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
@@ -523,9 +528,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->awaiting_destruction = 0;
   
   ngx_memzero(&fsub->closing_ev, sizeof(fsub->closing_ev));
-#if nginx_version >= 1008000  
-  fsub->closing_ev.cancelable = 1;
-#endif
+  nchan_init_timer(&fsub->closing_ev, closing_ev_handler, fsub);
   
   //what should the buffers look like?
   
@@ -746,12 +749,7 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
   if(self->cf->websocket_ping_interval > 0) {
     //add timeout timer
     //nextsub->ev should be zeroed;
-#if nginx_version >= 1008000
-    fsub->ping_ev.cancelable = 1;
-#endif
-    fsub->ping_ev.handler = ping_ev_handler;
-    fsub->ping_ev.data = fsub;
-    fsub->ping_ev.log = ngx_cycle->log;
+    nchan_init_timer(&fsub->ping_ev, ping_ev_handler, fsub);
     ngx_add_timer(&fsub->ping_ev, self->cf->websocket_ping_interval * 1000);
   }
   
@@ -1244,11 +1242,6 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, sz, &bc->chain);
 }
 
-static void closing_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  ngx_http_finalize_request(fsub->sub.request, NGX_OK);
-}
-
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
   nchan_output_filter(fsub->sub.request, websocket_close_frame_chain(fsub, code, err));
   fsub->connected = 0;
@@ -1258,9 +1251,6 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
   }
   else {
     fsub->closing = 1;
-    fsub->closing_ev.handler = closing_ev_handler;
-    fsub->closing_ev.data = fsub;
-    fsub->closing_ev.log = ngx_cycle->log;
     ngx_add_timer(&fsub->closing_ev, WEBSOCKET_CLOSING_TIMEOUT);
   }
   return NGX_OK;

@@ -910,12 +910,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   
   if(head->use_redis) {
     head->delta_fakesubs = 0;
-#if nginx_version >= 1008000
-    head->delta_fakesubs_timer_ev.cancelable = 1;
-#endif
-    head->delta_fakesubs_timer_ev.handler = delta_fakesubs_timer_handler;
-    head->delta_fakesubs_timer_ev.data = head;
-    head->delta_fakesubs_timer_ev.log=ngx_cycle->log;
+    nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
   }
   
   if(head->slot == owner) {
