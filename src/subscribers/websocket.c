@@ -125,10 +125,13 @@ typedef struct {
   ngx_str_t                    upstream_request_url;
 } nchan_pub_upstream_data_t;
 
-typedef struct {
+typedef struct nchan_pub_upstream_stuff_s nchan_pub_upstream_stuff_t;
+struct nchan_pub_upstream_stuff_s {
   ngx_http_post_subrequest_t  psr;
   nchan_pub_upstream_data_t   psr_data;
-} nchan_pub_upstream_stuff_t;
+  nchan_pub_upstream_stuff_t *prev;
+  nchan_pub_upstream_stuff_t *next;
+};
 
 struct full_subscriber_s {
   subscriber_t            sub;
@@ -260,10 +263,17 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   
 }
 
+static void clean_upstream_sr_tmp_pools(nchan_pub_upstream_data_t *d) {
+  ngx_destroy_pool(d->tmp_pool);
+  ngx_destroy_pool(d->framebuf_pool);
+}
+
 static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, void *data, ngx_int_t rc) {
   ngx_http_request_t         *r = sr->parent;
-  nchan_pub_upstream_data_t  *d = (nchan_pub_upstream_data_t *)data;
+  nchan_pub_upstream_stuff_t *stuff = (nchan_pub_upstream_stuff_t *)data;
+  nchan_pub_upstream_data_t  *d = &stuff->psr_data;
   full_subscriber_t          *fsub = d->fsub;
+  ngx_http_cleanup_t         *cln;
   
   r->main->subrequests++; //avoid tripping up subrequest loop detection
   
@@ -338,8 +348,22 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
     websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
   }
   
-  ngx_destroy_pool(d->framebuf_pool);
-  d->framebuf_pool = NULL;
+  if(fsub->upstream_stuff == stuff) {
+    fsub->upstream_stuff = stuff->next;
+  }
+  if(stuff->next) {
+    stuff->next->prev = stuff->prev;
+  }  
+  if(stuff->prev) {
+    stuff->prev->next = stuff->next;
+  }
+
+  if((cln = ngx_http_cleanup_add(sr, 0)) == NULL) {
+    ERR("Unable to add post-request cleanup for websocket upstream request");
+    return NGX_ERROR;
+  }
+  cln->data = d;
+  cln->handler = (ngx_http_cleanup_pt )clean_upstream_sr_tmp_pools;
   
   return NGX_OK;
 }
@@ -373,24 +397,31 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, ngx_
     ngx_buf_t                     *fakebody_buf;
     size_t                         sz;
     
-    if(!fsub->upstream_stuff) {
-      
-      if((psr_stuff = ngx_palloc(r->pool, sizeof(*psr_stuff))) == NULL) {
-        ERR("can't allocate memory for publisher auth subrequest");
-        websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
-        return NGX_ERROR;
-      }
-      
-      fsub->upstream_stuff = psr_stuff;
-      psr = &psr_stuff->psr;
-      psr->data = &psr_stuff->psr_data;
-      psr->handler = websocket_publisher_upstream_handler;
-      psr_stuff->psr_data.fsub = fsub;
-      
-      psr_stuff->psr_data.tmp_pool = NULL;
-      
-      ngx_http_complex_value(r, publisher_upstream_request_url_ccv, &psr_stuff->psr_data.upstream_request_url); 
+    if(!fb_pool) {
+      fb_pool = ngx_create_pool(1024, r->connection->log);
     }
+    
+    if((psr_stuff = ngx_palloc(fb_pool, sizeof(*psr_stuff))) == NULL) {
+      ERR("can't allocate memory for publisher auth subrequest");
+      websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+      return NGX_ERROR;
+    }
+    
+    if(fsub->upstream_stuff) {
+     fsub->upstream_stuff->prev = psr_stuff;
+    }
+    psr_stuff->next = fsub->upstream_stuff;
+    psr_stuff->prev = NULL;
+    fsub->upstream_stuff = psr_stuff;
+    
+    psr = &psr_stuff->psr;
+    psr->data = psr_stuff;
+    psr->handler = websocket_publisher_upstream_handler;
+    psr_stuff->psr_data.fsub = fsub;
+    
+    psr_stuff->psr_data.tmp_pool = NULL;
+    
+    ngx_http_complex_value(r, publisher_upstream_request_url_ccv, &psr_stuff->psr_data.upstream_request_url); 
     
     psrd = &fsub->upstream_stuff->psr_data;
     psr = &fsub->upstream_stuff->psr;
@@ -544,20 +575,22 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
 }
 
 ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
-  full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
+  full_subscriber_t            *fsub = (full_subscriber_t  *)sub;
+  nchan_pub_upstream_stuff_t   *up_cur, *up_next;
   
   if(!fsub->awaiting_destruction) {
     fsub->ctx->sub = NULL;
   }
   
-  if(fsub->upstream_stuff && fsub->upstream_stuff->psr_data.tmp_pool) {
-    ngx_destroy_pool(fsub->upstream_stuff->psr_data.tmp_pool);
-    fsub->upstream_stuff->psr_data.tmp_pool = NULL;
-  }
-  
-  if(fsub->upstream_stuff && fsub->upstream_stuff->psr_data.framebuf_pool) {
-    ngx_destroy_pool(fsub->upstream_stuff->psr_data.framebuf_pool);
-    fsub->upstream_stuff->psr_data.framebuf_pool = NULL;
+  for(up_cur = fsub->upstream_stuff; up_cur != NULL; up_cur = up_next) {
+    up_next = up_cur->next;
+    if(up_cur->psr_data.tmp_pool) {
+      ngx_destroy_pool(up_cur->psr_data.tmp_pool);
+    }
+    
+    if(up_cur->psr_data.framebuf_pool) {
+      ngx_destroy_pool(up_cur->psr_data.framebuf_pool);
+    }
   }
    
   if(sub->reserved > 0) {
