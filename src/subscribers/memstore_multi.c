@@ -152,6 +152,10 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   
   cf.use_redis = chanhead->use_redis;
   
+  if((target_ch = nchan_memstore_get_chanhead(&chanhead->multi[n].id, &cf))==NULL) {
+    return NULL;
+  }
+  
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
   sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler);
   
@@ -164,10 +168,8 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   d->multi->sub = sub;
   d->multi_chanhead = chanhead;
   d->n = n;
-  chanhead->multi_waiting++;
-  
-  target_ch = nchan_memstore_get_chanhead(&d->multi->id, &cf);
-  assert(target_ch);
+  chanhead->multi_waiting++;  
+
   target_ch->spooler.fn->add(&target_ch->spooler, sub);
   
   multi_subs = chanhead->shared->sub_count;

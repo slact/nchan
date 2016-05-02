@@ -109,9 +109,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
     default:
       ERR("unknown status %i", status);
   }
-  memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
-  
-  return NGX_OK;
+  return memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
 }
 static void reset_timer(sub_data_t *data) {
   if(data->timeout_ev.timer_set) {
