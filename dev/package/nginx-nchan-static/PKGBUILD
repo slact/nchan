@@ -1,5 +1,5 @@
 #!/bin/zsh
-_nginx_ver=1.8.1
+_nginx_ver=1.10.0
 
 _openssl_ver=1.0.2g
 _pcre_ver=8.38
@@ -126,7 +126,7 @@ build() {
     --with-mail
     --with-mail_ssl_module
     --with-file-aio
-    --with-http_spdy_module
+    --with-http_v2_module
     --with-ipv6
     --with-debug
     --with-ld-opt="-static-libgcc" #totally statically link everything
