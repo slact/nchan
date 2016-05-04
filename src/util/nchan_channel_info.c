@@ -17,7 +17,7 @@ void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_cha
         *format = subtypes[i].format;
         *priority = start;
         content_type->data=cur;
-        content_type->len= off + 1 + subtypes[i].len;
+        content_type->len= off + subtypes[i].len;
       }
     }
   }
