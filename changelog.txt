@@ -1,3 +1,13 @@
+ fix: invalid memory access when using nchan_publisher_upstream_request with websocket 
+ fix: incorrect stored messages count when using redis store
+ fix: incorrect last_message_id on publisher GETs (memstore and redis)
+ fix: incorrect behavior when subscribing right after startup before all workers are ready
+ fix: some internal event loop timers were not being canceled, leading to slow shutdown
+ fix: resuming some subscribers with valid message ids didn't work when using redis store
+ fix: possible invalid memory access when restarting Nginx after using multiplexed channels
+ fix: accept url-encoded message ids
+ feature: add ws+meta.nchan websocket subprotocol that include message metadata
+ fix: all requests after X-Accel-Redirect from upstream were treated as GETs
 0.99.13 (Apr. 20 2016)
  fix: invalid content-length for nchan_authorize_request publisher requests
  fix: "subrequests cycle" error after 200 websocket publish requests
