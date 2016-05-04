@@ -1,4 +1,6 @@
 0.99.14 (May 4 2016)
+ fix: trailing NULL character in Publisher response content-type for json, xml, and yaml
+ fix: don't crash when out of shared memory
  fix: invalid memory access when using nchan_publisher_upstream_request with websocket 
  fix: incorrect stored messages count when using redis store
  fix: incorrect last_message_id on publisher GETs (memstore and redis)
