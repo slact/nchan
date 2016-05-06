@@ -156,10 +156,8 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   content-type: <optional message content-type>
   
   <message data>
-  ```
+  ```   
   The `content-type:` line may be omitted.
-  
-  
 - ##### EventSource
   Also known as [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events) or SSE, it predates Websockets in the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html), and is a [very simple protocol](http://www.w3.org/TR/eventsource/#event-stream-interpretation).  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header.    
