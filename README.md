@@ -6,7 +6,7 @@ Nchan is a scalable, flexible pub/sub server for the modern web, built as a modu
 
 Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or websockets, and [subscribed](#subscriber-endpoint) also through websockets, [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipart-mixed). Each subscriber can listen to [up to 255 channels](#channel-multiplexing) per connection, and can be optionally [authenticated](https://nchan.slact.net/details#authenticate-with-nchan_authorize_request) via a custom application url. An [events](#nchan_channel_event_string) [meta channel](#nchan_channel_events_channel_id) is also available for debugging.
 
-For use in a web browser, you can try the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) javascript client wrapper. It supports Long-Polling, EventSource, and resumable Websockets -- or you can build your own.
+For use in a web browser, you can try the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets -- or you can build your own.
 
 ## Status and History
 
