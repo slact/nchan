@@ -154,7 +154,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   ```
   id: <message_id>
   content-type: <optional message content-type>
-  
+  </n>
   <message data>
   ```   
   The `content-type:` line may be omitted.
