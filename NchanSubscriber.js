@@ -112,11 +112,11 @@ function NchanSubscriber(url, opt) {
   
   this.on("message", function msg(msg, meta) {
     this.lastMessageId=meta.id;
-    console.log(msg, meta);
+    //console.log(msg, meta);
   });
   this.on("error", function fail(code, text) {
     stopHandler(code, text);
-    console.log("failure", code, text);
+    //console.log("failure", code, text);
   });
   this.on("connect", function() {
     this.connected = true;
@@ -125,7 +125,7 @@ function NchanSubscriber(url, opt) {
     this.connected = false;
     this.emit("disconnect", code, text);
     stopHandler(code, text);
-    console.log("__disconnect", code, text);
+    //console.log("__disconnect", code, text);
   });
   
   /*
@@ -202,7 +202,7 @@ NchanSubscriber.prototype.SubscriberClass = {
           this.req = nanoajax.ajax({url: this.url, headers: this.headers}, requestCallback);
         }
         else if((code == 0 && response_text == "Error" && req.readyState == 4) || (code === null && response_text != "Abort")) {
-          console.log("abort!!!");
+          //console.log("abort!!!");
           this.emit("__disconnect", code || 0, response_text);
           delete this.req;
         }
@@ -215,7 +215,7 @@ NchanSubscriber.prototype.SubscriberClass = {
           //don't care about abortions 
           delete this.req;
           this.emit("__disconnect");
-          console.log("abort!");
+          //console.log("abort!");
         }
       }, this);
       
@@ -297,19 +297,19 @@ NchanSubscriber.prototype.SubscriberClass = {
       this.listener = new EventSource(url);
       var l = this.listener;
       l.onmessage = ughbind(function(evt){
-        console.log("message", evt);
+        //console.log("message", evt);
         this.emit('message', evt.data, {id: evt.lastEventId});
       }, this);
       
       l.onopen = ughbind(function(evt) {
         this.reconnecting = false;
-        console.log("connect", evt);
+        //console.log("connect", evt);
         this.emit('connect', evt);
       }, this);
       
       l.onerror = ughbind(function(evt) {
         //EventSource will try to reconnect by itself
-        console.log("onerror", this.listener.readyState, evt);
+        //console.log("onerror", this.listener.readyState, evt);
         if(this.listener.readyState == EventSource.CONNECTING && !this.reconnecting) {
           if(!this.reconnecting) {
             this.reconnecting = true;
@@ -318,7 +318,7 @@ NchanSubscriber.prototype.SubscriberClass = {
         }
         else {
           this.emit('__disconnect', evt);
-          console.log('other __disconnect', evt);
+          //console.log('other __disconnect', evt);
         }
       }, this);
     };
@@ -381,7 +381,7 @@ NchanSubscriber.prototype.SubscriberClass = {
     WSWrapper.prototype.listen = function(url, msgid) {
       url = this.websocketizeURL(url);
       url = addLastMsgIdToQueryString(url, msgid);
-      console.log(url);
+      //console.log(url);
       if(this.listener) {
         throw "websocket already listening";
       }
@@ -394,11 +394,11 @@ NchanSubscriber.prototype.SubscriberClass = {
       
       l.onopen = ughbind(function(evt) {
         this.emit('connect', evt);
-        console.log("connect", evt);
+        //console.log("connect", evt);
       }, this);
       
       l.onerror = ughbind(function(evt) {
-        console.log("error", evt);
+        //console.log("error", evt);
         this.emit('error', evt, l);
         delete this.listener;
       }, this);
