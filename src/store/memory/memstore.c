@@ -55,7 +55,6 @@ typedef struct {
 
 
 ngx_int_t                         memstore_procslot_offset = 0;
-ngx_int_t                         run_generation;
 
 static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t *smsg, uint8_t respect_expire, uint8_t force) {
   if(!force) {
@@ -253,10 +252,10 @@ ngx_int_t memstore_slot(void) {
 }
 
 int memstore_ready(void) {
-  if(run_generation == shdata->generation && shdata->max_workers == shdata->current_active_workers) {
+  if(memstore_worker_generation == shdata->generation && shdata->max_workers == shdata->current_active_workers) {
     return 1;
   }
-  else if(run_generation < shdata->generation) {
+  else if(memstore_worker_generation < shdata->generation) {
     return 1;
   }
   return 0;
@@ -1396,7 +1395,7 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   memstore_procslot_offset = i + 1 - shdata->max_workers;
 
 #endif
-  run_generation = shdata->generation;
+  memstore_worker_generation = shdata->generation;
   shmtx_unlock(shm);
   DBG("memstore init_module pid %i. ipc: %p, procslot_offset: %i", ngx_pid, ipc, memstore_procslot_offset);
 

@@ -376,25 +376,30 @@ static void ipc_read_handler(ngx_event_t *ev) {
     //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "nchan: channel command: %d", ch.command);
     
     assert(n == sizeof(alert));
-    
+    if(alert.worker_generation < memstore_worker_generation) {
+      ERR("Got IPC alert for previous generation's worker. discarding.");
+    }
+    else 
+    {
 #if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
-    delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
-    if (NULL == glob) {
-        ERR("Couldn't allocate memory for alert glob data.");
-        return;
-    }
-    ngx_memzero(&glob->timer, sizeof(glob->timer));
-    nchan_init_timer(&glob->timer, fake_ipc_alert_delay_handler, glob);
-    
-    glob->alert = alert;
-    glob->ipc = (ipc_t *)c->data;
-    ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);
+      delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
+      if (NULL == glob) {
+          ERR("Couldn't allocate memory for alert glob data.");
+          return;
+      }
+      ngx_memzero(&glob->timer, sizeof(glob->timer));
+      nchan_init_timer(&glob->timer, fake_ipc_alert_delay_handler, glob);
+      
+      glob->alert = alert;
+      glob->ipc = (ipc_t *)c->data;
+      ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);
 #else
-    if(ngx_time() - alert.time_sent >= 2) {
-      ERR("got IPC alert delayed by %i sec", ngx_time() - alert.time_sent);
-    }
-    ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
+      if(ngx_time() - alert.time_sent >= 2) {
+        ERR("got IPC alert delayed by %i sec", ngx_time() - alert.time_sent);
+      }
+      ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 #endif
+    }
   }
 }
 
@@ -412,6 +417,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   alert.src_slot = memstore_slot();
   alert.time_sent = ngx_time();
+  alert.worker_generation = memstore_worker_generation;
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
   
@@ -456,6 +462,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert->src_slot = ngx_process_slot;
   alert->time_sent = ngx_time();
   alert->code = code;
+  alert->worker_generation = memstore_worker_generation;
   ngx_memcpy(&alert->data, data, data_size);
   
   ipc_write_handler(proc->c->write);
