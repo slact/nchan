@@ -55,7 +55,6 @@ typedef struct {
 
 
 ngx_int_t                         memstore_procslot_offset = 0;
-ngx_int_t                         run_generation;
 
 static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t *smsg, uint8_t respect_expire, uint8_t force) {
   if(!force) {
@@ -253,10 +252,10 @@ ngx_int_t memstore_slot(void) {
 }
 
 int memstore_ready(void) {
-  if(run_generation == shdata->generation && shdata->max_workers == shdata->current_active_workers) {
+  if(memstore_worker_generation == shdata->generation && shdata->max_workers == shdata->current_active_workers) {
     return 1;
   }
-  else if(run_generation < shdata->generation) {
+  else if(memstore_worker_generation < shdata->generation) {
     return 1;
   }
   return 0;
@@ -451,7 +450,10 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     zone->data = data;
     d = zone->data;
     DBG("reattached shm data at %p", data);
+    shmtx_lock(shm);
     d->generation ++;
+    d->current_active_workers = 0;
+    shmtx_unlock(shm);
   }
   else {
     shm_init(shm);
@@ -639,7 +641,7 @@ void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
   }
   else {
     head->delta_fakesubs += n;
-    if(!head->delta_fakesubs_timer_ev.timer_set && !head->shutting_down && !ngx_exiting) {
+    if(!head->delta_fakesubs_timer_ev.timer_set && !head->shutting_down && !ngx_exiting && !ngx_quit) {
       //ERR("%V start fakesub timer", &head->id);
       ngx_add_timer(&head->delta_fakesubs_timer_ev, REDIS_FAKESUB_TIMER_INTERVAL);
     }
@@ -871,7 +873,7 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
 
 static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
   nchan_store_channel_head_t *head = (nchan_store_channel_head_t *)ev->data;
-  if(send_redis_fakesub_delta(head) && !ngx_exiting && ev->timedout) {
+  if(send_redis_fakesub_delta(head) && !ngx_exiting && !ngx_quit && ev->timedout) {
     ev->timedout = 0;
     ngx_add_timer(ev, REDIS_FAKESUB_TIMER_INTERVAL);
   }
@@ -1075,7 +1077,7 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   if(ch->slot != ch->owner) {
     ch->shared = NULL;
   }
-  if(ch->status == WAITING && !ch->use_redis) {
+  if(ch->status == WAITING && !ch->use_redis && !(ngx_exiting || ngx_quit)) {
     ERR("tried adding WAITING chanhead %p %V to chanhead_gc. why?", ch, &ch->id);
     //don't gc it just yet.
     return NGX_OK;
@@ -1396,7 +1398,7 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   memstore_procslot_offset = i + 1 - shdata->max_workers;
 
 #endif
-  run_generation = shdata->generation;
+  memstore_worker_generation = shdata->generation;
   shmtx_unlock(shm);
   DBG("memstore init_module pid %i. ipc: %p, procslot_offset: %i", ngx_pid, ipc, memstore_procslot_offset);
 
@@ -1486,7 +1488,6 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     }
   }
 
-  shdata->current_active_workers--;
   shdata->total_active_workers--;
   
   shmtx_unlock(shm);
