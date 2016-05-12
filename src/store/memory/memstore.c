@@ -452,7 +452,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     DBG("reattached shm data at %p", data);
     shmtx_lock(shm);
     d->generation ++;
-    d->total_active_workers = 0;
+    d->current_active_workers = 0;
     shmtx_unlock(shm);
   }
   else {
