@@ -638,7 +638,7 @@ void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
   }
   else {
     head->delta_fakesubs += n;
-    if(!head->delta_fakesubs_timer_ev.timer_set && !head->shutting_down && !ngx_exiting) {
+    if(!head->delta_fakesubs_timer_ev.timer_set && !head->shutting_down && !ngx_exiting && !ngx_quit) {
       //ERR("%V start fakesub timer", &head->id);
       ngx_add_timer(&head->delta_fakesubs_timer_ev, REDIS_FAKESUB_TIMER_INTERVAL);
     }
@@ -870,7 +870,7 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
 
 static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
   nchan_store_channel_head_t *head = (nchan_store_channel_head_t *)ev->data;
-  if(send_redis_fakesub_delta(head) && !ngx_exiting && ev->timedout) {
+  if(send_redis_fakesub_delta(head) && !ngx_exiting && !ngx_quit && ev->timedout) {
     ev->timedout = 0;
     ngx_add_timer(ev, REDIS_FAKESUB_TIMER_INTERVAL);
   }
@@ -1074,7 +1074,7 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   if(ch->slot != ch->owner) {
     ch->shared = NULL;
   }
-  if(ch->status == WAITING && !ch->use_redis) {
+  if(ch->status == WAITING && !ch->use_redis && !(ngx_exiting || ngx_quit)) {
     ERR("tried adding WAITING chanhead %p %V to chanhead_gc. why?", ch, &ch->id);
     //don't gc it just yet.
     return NGX_OK;

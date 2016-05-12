@@ -379,8 +379,7 @@ static void ipc_read_handler(ngx_event_t *ev) {
     if(alert.worker_generation < memstore_worker_generation) {
       ERR("Got IPC alert for previous generation's worker. discarding.");
     }
-    else 
-    {
+    else {
 #if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
       delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
       if (NULL == glob) {

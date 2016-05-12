@@ -241,7 +241,7 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
   nchan_store_channel_head_t    *chead;
   
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
-    if(ngx_exiting) {
+    if(ngx_exiting || ngx_quit) {
       ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
     }
     else {
