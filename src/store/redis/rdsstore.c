@@ -1650,7 +1650,6 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count, 
     redisAsyncCommand(rds_ctx(), &redisCheckErrorCallback, NULL, "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
   }
   else {
-    ERR("SYNC add_fakesub command");
     redisCommand(rds_sync_ctx(), "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
   }
   return NGX_OK;
