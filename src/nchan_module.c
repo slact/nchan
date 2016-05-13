@@ -11,6 +11,7 @@
 #include <subscribers/eventsource.h>
 #include <subscribers/http-chunked.h>
 #include <subscribers/http-multipart-mixed.h>
+#include <subscribers/http-raw-stream.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
@@ -277,6 +278,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         }
         else if(cf->sub.poll) {
           sub_create = intervalpoll_subscriber_create;
+        }
+        else if(cf->sub.http_raw_stream) {
+          sub_create = http_raw_stream_subscriber_create;
         }
         else if(cf->sub.longpoll) {
           sub_create = longpoll_subscriber_create;

@@ -28,6 +28,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/eventsource.c \
   ${ngx_addon_dir}/src/subscribers/http-chunked.c \
   ${ngx_addon_dir}/src/subscribers/http-multipart-mixed.c \
+  ${ngx_addon_dir}/src/subscribers/http-raw-stream.c \
   ${ngx_addon_dir}/src/subscribers/websocket.c \
   ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
   ${ngx_addon_dir}/src/subscribers/internal.c \

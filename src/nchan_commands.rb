@@ -56,9 +56,10 @@ CfCmd.new do
       args: 0..6,
       
       group: "pubsub",
-      value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed"],
+      value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed", "http-raw-stream"],
       default: ["http", "websocket", "eventsource", "longpoll", "chunked", "multipart-mixed"],
       info: "Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server."
+  
   
   nchan_longpoll_multipart_response [:srv, :loc, :if],
       :ngx_conf_set_flag_slot,
@@ -86,7 +87,7 @@ CfCmd.new do
       legacy: "push_subscriber",
       
       group: "pubsub",
-      value: ["websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed"],
+      value: ["websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed", "http-raw-stream"],
       default: ["websocket", "eventsource", "longpoll", "chunked", "multipart-mixed"],
       info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." 
   
@@ -123,6 +124,16 @@ CfCmd.new do
       default: ["$http_last_event_id", "$arg_last_event_id"],
       info: "If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object. "
   
+  nchan_subscriber_http_raw_stream_separator [:srv, :loc, :if],
+      :ngx_conf_set_str_slot,
+      [:loc_conf, :subscriber_http_raw_stream_separator],
+      args: 1,
+      
+      group: "pubsub",
+      value: "<string>",
+      default: "\n",
+      info: "Message separator string for the http-raw-stream subscriber"
+  
   nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,
       :loc_conf,
@@ -132,6 +143,7 @@ CfCmd.new do
       value: ["oldest", "newest"],
       default: "oldest",
       info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives."
+  
   
   #nchan_subscriber_concurrency [:main, :srv, :loc, :if],
   #    :nchan_set_subscriber_concurrency,

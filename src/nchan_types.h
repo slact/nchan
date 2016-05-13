@@ -158,6 +158,7 @@ typedef struct {
 
 typedef struct {
   unsigned                        poll:1; //bleugh
+  unsigned                        http_raw_stream:1; //ugleh
   unsigned                        longpoll:1;
   unsigned                        http_chunked:1;
   unsigned                        http_multipart:1;
@@ -184,6 +185,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_complex_value_arr_t       pubsub_chid;
   ngx_str_t                       channel_group;
   ngx_str_t                       channel_id_split_delimiter;
+  
+  ngx_str_t                       subscriber_http_raw_stream_separator;
 
   ngx_str_t                       allow_origin;
   
@@ -228,7 +231,7 @@ typedef struct nchan_llist_timed_s {
 } nchan_llist_timed_t;
 
 typedef enum {PUB, SUB} pub_or_sub_t;
-typedef enum {LONGPOLL, HTTP_CHUNKED, HTTP_MULTIPART, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
+typedef enum {LONGPOLL, HTTP_CHUNKED, HTTP_MULTIPART, HTTP_RAW_STREAM, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 
 typedef struct {

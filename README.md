@@ -322,13 +322,13 @@ Publishing to multiple channels with a single request is also possible, with sim
   > Send POST request to internal location (which may proxy to an upstream server) with published message in the request body. Useful for bridging websocket publishers with HTTP applications, or for transforming message via upstream application before publishing to a channel.    
   > The upstream response code determine how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.    
 
-- **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed ]`  
+- **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 6  
   default: `http websocket eventsource longpoll chunked multipart-mixed`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
-- **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed ]`  
+- **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
   default: `websocket eventsource longpoll chunked multipart-mixed`  
   context: server, location, if  
@@ -355,6 +355,13 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `oldest`  
   context: server, location, if  
   > Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives.    
+
+- **nchan_subscriber_http_raw_stream_separator** `<string>`  
+  arguments: 1  
+  default: `
+`  
+  context: server, location, if  
+  > Message separator string for the http-raw-stream subscriber    
 
 - **nchan_subscriber_last_message_id**  
   arguments: 1 - 5  
