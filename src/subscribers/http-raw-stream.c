@@ -18,11 +18,9 @@ static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
 
 static void rawstream_ensure_headers_sent(full_subscriber_t *fsub) {
   ngx_http_request_t             *r = fsub->sub.request;
-  ngx_http_core_loc_conf_t       *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
   //nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   if(!fsub->data.shook_hands) {
-    clcf->chunked_transfer_encoding = 0;
     nchan_cleverly_output_headers_only_for_later_response(r);
     fsub->data.shook_hands = 1; 
   }
