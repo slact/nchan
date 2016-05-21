@@ -1,6 +1,6 @@
 /*
  * NchanSubscriber
- * usage: var sub = NchanSubscriber(url, opt);
+ * usage: var sub = new NchanSubscriber(url, opt);
  * 
  * opt = {
  *   subscriber: 'longpoll', 'eventsource', or 'websocket'
@@ -55,6 +55,10 @@ var ughbind = (Function.prototype.bind
 
 "use strict";
 function NchanSubscriber(url, opt) {
+  if(this === window) {
+    throw "use 'new NchanSubscriber(...)' to initialize";
+  }
+  
   this.url = url;
   
   //which transport should i use?
