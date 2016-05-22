@@ -22,6 +22,7 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool);
 
 static nchan_msg_id_t     latest_msg_id = NCHAN_NEWEST_MSGID;
 
+
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
   ngx_rbtree_node_t  *node;
@@ -32,6 +33,74 @@ static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id)
   else {
     return NULL;
   }
+}
+
+static char *msg_status_to_chr(nchan_msg_status_t status) {
+  switch(status) {
+    case MSG_CHANNEL_NOTREADY:
+      return "MSG_CHANNEL_NOTREADY";
+    case MSG_INVALID:
+      return "MSG_INVALID";
+    case MSG_PENDING:
+      return "MSG_PENDING";
+    case MSG_NOTFOUND:
+      return "MSG_NOTFOUND";
+    case MSG_FOUND:
+      return "MSG_FOUND";
+    case MSG_EXPECTED:
+      return "MSG_EXPECTED";
+    case MSG_EXPIRED:
+      return "MSG_EXPIRED";
+    case MSG_NORESPONSE:
+      return "MSG_NORESPONSE";
+    default:
+      return "WEIRD_STATUS";
+  }
+}
+
+typedef struct {
+  int                  n;
+  subscriber_pool_t   *msg_expected_spool;
+  
+  int                  err;
+} spool_verify_data_t;
+
+static void log_spool_err(spool_verify_data_t *d, subscriber_pool_t *spool, char *str) {
+  ERR("%p %s [%s]", spool, msg_status_to_chr(spool->msg_status), str);
+  d->err = 1;
+}
+
+
+static int validate_spooler_walker(rbtree_seed_t *seed, subscriber_pool_t *spool, spool_verify_data_t *d) {
+  if(spool->msg_status == MSG_EXPECTED) {
+    if(d->msg_expected_spool) {
+      log_spool_err(d, spool, "Found more than 1 spool with MSG_EXPECTED status");
+    }
+    else {
+      d->msg_expected_spool = spool;
+    }
+  }
+  else {
+    if(spool->sub_count == 0) {
+      log_spool_err(d, spool, "empty spool (not MSG_EXPECTED)");
+    }
+  }
+  d->n++;
+
+  return NGX_OK;
+}
+
+static int validate_spooler(channel_spooler_t *spl, char *str) {
+  spool_verify_data_t  d;
+  ngx_memzero(&d, sizeof(d));
+  rbtree_walk(&spl->spoolseed, (rbtree_walk_callback_pt )validate_spooler_walker, &d);
+  if(d.err == 0) {
+    ERR("%s: validated %i spools in channel spooler %V", str, d.n, spl->chid);
+  }
+  else {
+    ERR("%s: validating %i spools  FAILED in channel spooler %V; %i error(s).", str, d.n, spl->chid, d.err);
+  }
+  return d.err == 0;
 }
 
 static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
@@ -115,7 +184,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   ngx_int_t               immortal_spool = spool->id.time == -1;
   int16_t                 largetags[NCHAN_MULTITAG_MAX];
   nchan_msg_id_t          new_id = NCHAN_ZERO_MSGID;
-    
+  
   nchan_copy_msg_id(&new_id, &spool->id, largetags);
   nchan_update_multi_msgid(&new_id, new_last_id, largetags);
   
@@ -172,13 +241,9 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
       }
     }
   }
+  
   return NGX_OK;
 }
-
-typedef struct {
-  channel_spooler_t   *spooler;
-  nchan_msg_id_t       msgid;
-} fetchmsg_data_t;
 
 static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nchan_msg_t *msg, fetchmsg_data_t *data) {
   nchan_msg_id_t        anymsg;
@@ -188,6 +253,23 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_msg_status_t    prev_status;
   subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;
+  //nchan_msg_status_t    prev_status;
+  
+  if(spl && data == spl->fetchmsg_cb_data_list) {
+    spl->fetchmsg_cb_data_list = data->next;
+  }
+  if(data->next) {
+    data->next->prev = data->prev;
+  }
+  if(data->prev) {
+    data->prev->next = data->next;
+  }
+  
+  if(spl == NULL) { //channel already deleted
+    nchan_free_msg_id(&data->msgid);
+    ngx_free(data);
+    return NGX_OK;
+  }
   
   if(spl->handlers->get_message_finish) {
     spl->handlers->get_message_finish(spl, spl->handlers_privdata);
@@ -203,11 +285,11 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_free_msg_id(&data->msgid);
   ngx_free(data);
   
-  prev_status = spool->msg_status;
-  spool->msg_status = findmsg_status;
+  //prev_status = spool->msg_status;
   
   switch(findmsg_status) {
     case MSG_FOUND:
+      spool->msg_status = findmsg_status;
       DBG("fetchmsg callback for spool %p msg FOUND %p %V", spool, msg, msgid_to_str(&msg->id));
       assert(msg != NULL);
       spool->msg = msg;
@@ -218,12 +300,17 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
     
     case MSG_EXPECTED:
       // ♫ It's gonna be the future soon ♫
+      spool->msg_status = findmsg_status;
       DBG("fetchmsg callback for spool %p msg EXPECTED", spool);
       spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
       assert(msg == NULL);
       spool->msg = NULL;
       break;
-    
+      
+    case MSG_NORESPONSE:
+      //donothing
+      break;
+      
     case MSG_NOTFOUND:
       if(spl->fetching_strategy == FETCH_IGNORE_MSG_NOTFOUND) {
         spool->msg_status = prev_status;
@@ -232,6 +319,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
     case MSG_EXPIRED:
       //is this right?
       //TODO: maybe message-expired notification
+      spool->msg_status = findmsg_status;
       spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
       nuspool = get_spool(spool->spooler, &anymsg);
       if(spool != nuspool) {
@@ -244,6 +332,10 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       }
       break;
     
+    case MSG_PENDING:
+      ERR("spool %p set status to MSG_PENDING", spool);
+      break;
+      
     default:
       assert(0);
       break;
@@ -265,6 +357,13 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   //TODO: optimize this alloc away
   
   assert(data);
+  
+  data->next = spl->fetchmsg_cb_data_list;
+  if(data->next) {
+    data->next->prev = data;
+  }
+  spl->fetchmsg_cb_data_list = data;
+  data->prev = NULL;
   
   nchan_copy_new_msg_id(&data->msgid, &spool->id);
   data->spooler = spool->spooler;
@@ -364,7 +463,6 @@ static ngx_int_t spool_remove_subscriber(subscriber_pool_t *self, spooled_subscr
 
   assert(self->sub_count > 0);
   self->sub_count--;
-
   return NGX_OK;
 }
 
@@ -373,6 +471,8 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   spooled_subscriber_t       *nsub, *nnext;
   subscriber_t               *sub;
   
+  //channel_spooler_t          *spl = self->spooler;
+  //validate_spooler(spl, "before respond_general");
   //nchan_msg_id_t             unid;
   //nchan_msg_id_t             unprevid;
   //int8_t                     i, max;
@@ -420,6 +520,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   }
   
   if(status_code != NGX_HTTP_NO_CONTENT) self->responded_count++;
+  //assert(validate_spooler(spl, "after respond_general"));
   return NGX_OK;
 }
 
@@ -467,6 +568,8 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
     return NGX_ERROR;
   }
   
+  //validate_spooler(self, "before add_subscriber");
+  
   spool = get_spool(self, msgid);
   
   assert(spool->id.time == msgid->time);
@@ -482,7 +585,6 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
     ERR("couldn't add subscriber to spool %p", spool);
     return NGX_ERROR;
   }
-  
   self->handlers->add(self, sub, self->handlers_privdata);
   
   switch(spool->msg_status) {
@@ -508,6 +610,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
       
     case MSG_EXPIRED:
     case MSG_NOTFOUND:
+    case MSG_NORESPONSE:
       //shouldn't happen
       assert(0);
   }
@@ -515,6 +618,8 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   if(self->handlers->bulk_post_subscribe != NULL && subtype != INTERNAL) {
     self->handlers->bulk_post_subscribe(self, 1, self->handlers_privdata);
   }
+  
+  //validate_spooler(self, "after add_subscriber");
   
   return NGX_OK;
 }
@@ -600,41 +705,6 @@ static int8_t compare_msgid_time(nchan_msg_id_t *min, nchan_msg_id_t *max, nchan
   }
 }
 
-static ngx_inline int8_t msgid_tag_compare(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
-  uint8_t active = id2->tagactive;
-  int16_t *tags1, *tags2;
-  int16_t t1, t2;
-  
-  tags1 = (id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id1->tag.fixed : id1->tag.allocd;
-  tags2 = (id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id2->tag.fixed : id2->tag.allocd;
-  
-  //debugstuff that prevents this function from getting inlined
-  assert(id1->time == id2->time);
-  int i, nonnegs = 0;
-  for (i=0; i < id2->tagcount; i++) {
-    if(tags2[i] >= 0) nonnegs++;
-  }
-  assert(nonnegs == 1);
-  
-  if(id1->time == 0 && id2->time == 0) return 0; //always equal on zero-time
-  
-  t1 = (active < id1->tagcount) ? tags1[active] : -1;
-  t2 = tags2[active];
-  
-  //ERR("Comparing msgids: id1: %V --", msgid_to_str(id1));
-  //ERR("  --- id2: %V --", msgid_to_str(id2));
-  
-  if(t1 < t2){ 
-    //ERR("id1 is smaller. -1");
-    return -1;
-  }
-  if(t1 > t2){
-    //ERR("id1 is larger. 1");
-    return  1;
-  }
-  //ERR("id1 equals id2. 0");
-  return 0;
-}
 
 static void spoolcollector_addspool(spooler_respond_data_t *data, subscriber_pool_t *spool) {
   spool_collect_overflow_t  *overflow;
@@ -673,7 +743,7 @@ static subscriber_pool_t *spoolcollector_unwind_nextspool(spooler_respond_data_t
 }
 
 
-static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
+static rbtree_walk_direction_t collect_spool_range_callback(rbtree_seed_t *seed, subscriber_pool_t *spool, spooler_respond_data_t *data) {
   rbtree_walk_direction_t  dir;
   uint8_t multi_count = data->multi;
   
@@ -701,14 +771,14 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
         spoolcollector_addspool(data, spool);
       }
       else if(timcur == timmax && timcur == timmin) {
-        if( msgid_tag_compare(&spool->id, &data->max) < 0
-         && msgid_tag_compare(&spool->id, &data->min) >= 0 ) 
+        if( nchan_compare_msgid_tags(&spool->id, &data->max) < 0
+         && nchan_compare_msgid_tags(&spool->id, &data->min) >= 0 ) 
         {
           spoolcollector_addspool(data, spool);
         } 
       }
-      else if((timcur == timmax && (max_cmp = msgid_tag_compare(&spool->id, &data->max)) < 0) 
-           || (timcur == timmin && (min_cmp = msgid_tag_compare(&spool->id, &data->min)) >= 0))
+      else if((timcur == timmax && (max_cmp = nchan_compare_msgid_tags(&spool->id, &data->max)) < 0) 
+           || (timcur == timmin && (min_cmp = nchan_compare_msgid_tags(&spool->id, &data->min)) >= 0))
       {
         spoolcollector_addspool(data, spool);
       }
@@ -726,6 +796,20 @@ static rbtree_walk_direction_t collect_spool_range(rbtree_seed_t *seed, subscrib
   }
 }
 
+static ngx_int_t spooler_respond_status(channel_spooler_t *self, nchan_msg_id_t *id, ngx_int_t status_code, ngx_str_t *status_line) {
+  subscriber_pool_t         *spool = find_spool(self, id);
+  //validate_spooler(self, "before respond_status");
+  if(spool) {
+    if(status_code == NGX_HTTP_NO_CONTENT) {
+      spool->msg_status = MSG_EXPECTED;
+    }
+    spool_respond_general(spool, NULL, status_code, status_line);
+    destroy_spool(spool);
+  }
+  //validate_spooler(self, "after respond_status");
+  return NGX_OK;
+}
+
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
   spooler_respond_data_t     srdata;
   subscriber_pool_t         *spool;
@@ -737,9 +821,8 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   srdata.overflow = NULL;
   srdata.msg = msg;
   srdata.n = 0;
-  
   //find all spools between msg->prev_id and msg->id
-  rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range, &srdata);
+  rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range_callback, &srdata);
   
   if(srdata.n == 0) {
     DBG("no spools in range %V -- ", msgid_to_str(&msg->prev_id));
@@ -772,7 +855,6 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
 #if NCHAN_BENCHMARK
   self->last_responded_subscriber_count = responded_subs;
 #endif
-  
   return NGX_OK;
 }
 
@@ -796,7 +878,7 @@ static ngx_int_t spooler_respond_generic(channel_spooler_t *self, nchan_msg_t *m
   return NGX_OK;
 }
 
-static ngx_int_t spooler_respond_status(channel_spooler_t *self, ngx_int_t code, const ngx_str_t *line) {
+static ngx_int_t spooler_broadcast_status(channel_spooler_t *self, ngx_int_t code, const ngx_str_t *line) {
   return spooler_respond_generic(self, NULL, code, line);
 }
 
@@ -901,6 +983,7 @@ static channel_spooler_fn_t  spooler_fn = {
   spooler_channel_status_changed,
   spooler_respond_message,
   spooler_respond_status,
+  spooler_broadcast_status,
   spooler_prepare_to_stop
 };
 
@@ -987,6 +1070,8 @@ ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
   ngx_rbtree_t         *tree = &seed->tree;
   ngx_int_t             n=0;
   sentinel = tree->sentinel;
+  
+  fetchmsg_data_t      *dcur;
 #if NCHAN_RBTREE_DBG
   ngx_int_t active_before = seed->active_nodes, allocd_before = seed->active_nodes;
 #endif
@@ -1002,6 +1087,10 @@ ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
         rbtree_destroy_node(seed, cur);
       }
       n++;
+    }
+    
+    for(dcur = spl->fetchmsg_cb_data_list; dcur != NULL; dcur = dcur->next) {
+      dcur->spooler = NULL;
     }
     
     DBG("stopped %i spools in SPOOLER %p", n, *spl);

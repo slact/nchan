@@ -497,7 +497,7 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
   chanhead_messages_delete(ch);
   
   if(ch->sub_count > 0) {
-    ch->spooler.fn->respond_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+    ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
   if(ch->use_redis) {
@@ -648,7 +648,7 @@ void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
   }
 }
 
-static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
+static void memstore_spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
   nchan_store_channel_head_t  *head = d;
   time_t t = ngx_time();
   //ugh, this is so redundant. TODO: clean this shit up
@@ -659,7 +659,7 @@ static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, v
   }
 }
 
-static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
   head->sub_count++;
   head->channel.subscribers++;
@@ -695,7 +695,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   assert(head->sub_count >= head->internal_sub_count);
 }
 
-static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
+static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
   nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
@@ -743,10 +743,10 @@ static void spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type
 
 static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
-    spooler_add_handler,
+    memstore_spooler_add_handler,
     NULL,
-    spooler_bulk_dequeue_handler,
-    spooler_bulk_post_subscribe_handler,
+    memstore_spooler_bulk_dequeue_handler,
+    memstore_spooler_bulk_post_subscribe_handler,
     NULL,
     NULL
   };
@@ -839,7 +839,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, ui
         }
       }
     }
-    else {
+    else if(head->status != READY) {
       memstore_ready_chanhead_unless_stub(head);
     }
   }
@@ -1187,7 +1187,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   }
   else {
     DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
-    head->spooler.fn->respond_status(&head->spooler, status_code, status_line);
+    head->spooler.fn->broadcast_status(&head->spooler, status_code, status_line);
   }
     
   //TODO: be smarter about garbage-collecting chanheads
@@ -1964,7 +1964,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       assert(0);
   }
   */
-  
+  assert(status != MSG_NORESPONSE);
   d->getting--;
   
   if(d->msg_status == MSG_PENDING) {
@@ -2172,6 +2172,11 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   return NGX_OK;
 }
 
+void async_get_message_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status, void *pd){
+  subscribe_data_t            *d = (subscribe_data_t *) pd; 
+  nchan_memstore_handle_get_message_reply(NULL, status, d);
+}
+
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
   store_message_t             *chmsg;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
@@ -2191,13 +2196,16 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   }
   
   chead = nchan_memstore_find_chanhead(channel_id);
+  if(chead) {
+    use_redis = chead->use_redis;
+  }
   d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
   d->channel_id = channel_id;
   d->cb = callback;
   d->cb_privdata = privdata;
   d->sub = NULL;
-  ngx_memcpy(&d->msg_id, msg_id, sizeof(*msg_id));
+  d->msg_id = *msg_id;
   d->chanhead = chead;
   
   if(memstore_slot() != owner) {
@@ -2208,12 +2216,14 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
     chmsg = chanhead_find_next_message(d->chanhead, &d->msg_id, &findmsg_status);
     
     if(chmsg == NULL && use_redis) {
+      int       was_it_allocd = d->allocd;
+      d->allocd = 0;
+      nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(chead->redis_sub, msg_id, async_get_message_notify_on_MSG_EXPECTED_callback, sizeof(*d), d);
+      d->allocd = was_it_allocd;
       subscribe_data_free(d);
-      nchan_store_redis.get_message(channel_id, msg_id, callback, privdata);
+      return NGX_OK;
     }
-    else {
-      return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
-    }
+    return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
   
   return NGX_OK; //async only now!
@@ -2222,7 +2232,6 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
   //nchan_store_channel_head_t *chanhead = d->chanhead;
-  
   d->cb(findmsg_status, msg, d->cb_privdata);
   
   subscribe_data_free(d);
