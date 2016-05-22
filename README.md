@@ -361,7 +361,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `
 `  
   context: server, location, if  
-  > Message separator string for the http-raw-stream subscriber    
+  > Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character.    
 
 - **nchan_subscriber_last_message_id**  
   arguments: 1 - 5  

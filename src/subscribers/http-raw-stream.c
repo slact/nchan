@@ -11,11 +11,6 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:RAWSTREAM:" fmt, ##arg)
 #include <assert.h> 
 
-static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
-  return ctx->bcp;
-}
-
 static void rawstream_ensure_headers_sent(full_subscriber_t *fsub) {
   ngx_http_request_t             *r = fsub->sub.request;
   //nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
@@ -37,13 +32,21 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   ngx_chain_t            *chain;
   ngx_file_t             *file_copy;
   
+  size_t                  separator_len = cf->subscriber_http_raw_stream_separator.len;
+  size_t                  msg_len = ngx_buf_size((msg->buf));
+  
+  
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
     ngx_add_timer(&fsub->data.timeout_ev, sub->cf->subscriber_timeout * 1000);
   }
   
+  if(msg_len + separator_len == 0) {
+    //nothing to output
+    return NGX_OK;
+  }
   
-  if((bc = nchan_bufchain_pool_reserve(ctx->bcp, 2)) == NULL) {
+  if((bc = nchan_bufchain_pool_reserve(ctx->bcp, (1 + (msg_len > 0 ? 1: 0)))) == NULL) {
     ERR("cant allocate buf-and-chains for http-raw-stream client output");
     return NGX_ERROR;
   }
@@ -51,25 +54,29 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   chain = &bc->chain;
   
   //message
-  buf = chain->buf;
-  *buf = *msg_buf;
-  if(buf->file) {
-    file_copy = nchan_bufchain_pool_reserve_file(ctx->bcp);
-    nchan_msg_buf_open_fd_if_needed(buf, file_copy, NULL);
+  if(msg_len > 0) {
+    buf = chain->buf;
+    *buf = *msg_buf;
+    if(buf->file) {
+      file_copy = nchan_bufchain_pool_reserve_file(ctx->bcp);
+      nchan_msg_buf_open_fd_if_needed(buf, file_copy, NULL);
+    }
+    buf->last_buf = 0;
+    buf->last_in_chain = 0;
+    buf->flush = 0;
+    
+    chain = chain->next;
   }
-  buf->last_buf = 0;
-  buf->last_in_chain = 0;
-  buf->flush = 0;
   
   //separator 
-  chain = chain->next;
   buf = chain->buf;
   ngx_memzero(buf, sizeof(ngx_buf_t));
   buf->start = cf->subscriber_http_raw_stream_separator.data;
   buf->pos = buf->start;
-  buf->end = buf->start + cf->subscriber_http_raw_stream_separator.len;
+  buf->end = buf->start + separator_len;
   buf->last = buf->end;
   buf->memory = 1;
+  
   buf->last_buf = 0;
   buf->last_in_chain = 1;
   buf->flush = 1;
@@ -84,8 +91,6 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
 }
 
 static ngx_int_t rawstream_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
-  nchan_buf_and_chain_t    *bc;
-  static u_char            *end_boundary=(u_char *)"--\r\n";
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
   
@@ -98,25 +103,6 @@ static ngx_int_t rawstream_respond_status(subscriber_t *sub, ngx_int_t status_co
     nchan_respond_status(sub->request, status_code, status_line, 1);
     return NGX_OK;
   }
-  
-  rawstream_ensure_headers_sent(fsub);
-  
-  if((bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 1)) == NULL) {
-    nchan_respond_status(sub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
-    return NGX_ERROR;
-  }
-  
-  ngx_memzero(&bc->buf, sizeof(ngx_buf_t));
-  bc->buf.memory = 1;
-  bc->buf.last_buf = 1;
-  bc->buf.last_in_chain = 1;
-  bc->buf.flush = 1;
-  bc->buf.start = end_boundary;
-  bc->buf.pos = end_boundary;
-  bc->buf.end = end_boundary + 4;
-  bc->buf.last = bc->buf.end;
-  
-  nchan_output_filter(fsub->sub.request, &bc->chain);
   
   subscriber_maybe_dequeue_after_status_response(fsub, status_code);
 

@@ -182,7 +182,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
+  
   ngx_conf_merge_str_value(conf->subscriber_http_raw_stream_separator, prev->subscriber_http_raw_stream_separator, "\n");
+  
   ngx_conf_merge_str_value(conf->channel_id_split_delimiter, prev->channel_id_split_delimiter, "");
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
@@ -532,6 +534,27 @@ static char *nchan_ignore_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *
   ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
   if(!nchan_strmatch(val, 1, "broadcast")) {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "ignoring obsolete nchan config directive '%V %V;'. Only 'broadcast' is currently supported.", &cmd->name, val);
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_raw_subscriber_separator(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_loc_conf_t   *lcf = conf;
+  ngx_str_t          *cf_val = &lcf->subscriber_http_raw_stream_separator;
+  
+  if( val->data[val->len - 1] != '\n' ) { //must end in a newline
+    u_char   *cur;
+    if((cur = ngx_palloc(cf->pool, val->len + 1)) == NULL) {
+      return NGX_CONF_ERROR;
+    }
+    ngx_memcpy(cur, val->data, val->len);
+    cur[val->len] = '\n';
+    cf_val->len = val->len + 1;
+    cf_val->data = cur;
+  }
+  else {
+    *cf_val = *val;
   }
   return NGX_CONF_OK;
 }

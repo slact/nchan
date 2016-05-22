@@ -110,7 +110,7 @@ static ngx_command_t  nchan_commands[] = {
 
   { ngx_string("nchan_subscriber_http_raw_stream_separator"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
+    nchan_set_raw_subscriber_separator,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, subscriber_http_raw_stream_separator),
     NULL } ,

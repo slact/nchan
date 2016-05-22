@@ -125,14 +125,14 @@ CfCmd.new do
       info: "If `If-Modified-Since` and `If-None-Match` headers are absent, set the message id to the first non-empty of these values. Used primarily as a workaround for the inability to set the first `Last-Message-Id` of a web browser's EventSource object. "
   
   nchan_subscriber_http_raw_stream_separator [:srv, :loc, :if],
-      :ngx_conf_set_str_slot,
+      :nchan_set_raw_subscriber_separator,
       [:loc_conf, :subscriber_http_raw_stream_separator],
       args: 1,
       
       group: "pubsub",
       value: "<string>",
       default: "\n",
-      info: "Message separator string for the http-raw-stream subscriber"
+      info: "Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character."
   
   nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,
