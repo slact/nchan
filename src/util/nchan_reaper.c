@@ -104,7 +104,7 @@ ngx_inline void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
 
 static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
   verify_reaper_list(rp, NULL);
-  if (!ngx_exiting && rp->count > 0 && !rp->timer.timer_set) {
+  if (!ngx_exiting && !ngx_quit && rp->count > 0 && !rp->timer.timer_set) {
     DBG("reap %s again later (remaining: %i)", rp->name, rp->count);
     ngx_add_timer(&rp->timer, rp->tick_usec);
   }
