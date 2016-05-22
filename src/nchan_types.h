@@ -5,7 +5,7 @@
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
-typedef enum {MSG_CHANNEL_NOTREADY, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
+typedef enum {MSG_CHANNEL_NOTREADY, MSG_NORESPONSE, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY} chanhead_pubsub_status_t;
 
 typedef enum {
@@ -41,6 +41,11 @@ typedef struct {
   unsigned                        tagactive:16;
   unsigned                        tagcount:16;
 } nchan_msg_id_t;
+
+typedef struct {
+  time_t                          time;
+  int16_t                         tag;
+} nchan_msg_tiny_id_t;
 
 //message queue
 
