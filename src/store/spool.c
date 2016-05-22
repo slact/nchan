@@ -71,6 +71,7 @@ static void log_spool_err(spool_verify_data_t *d, subscriber_pool_t *spool, char
 }
 
 
+/*
 static int validate_spooler_walker(rbtree_seed_t *seed, subscriber_pool_t *spool, spool_verify_data_t *d) {
   if(spool->msg_status == MSG_EXPECTED) {
     if(d->msg_expected_spool) {
@@ -89,7 +90,8 @@ static int validate_spooler_walker(rbtree_seed_t *seed, subscriber_pool_t *spool
 
   return NGX_OK;
 }
-
+*/
+/*
 static int validate_spooler(channel_spooler_t *spl, char *str) {
   spool_verify_data_t  d;
   ngx_memzero(&d, sizeof(d));
@@ -102,6 +104,7 @@ static int validate_spooler(channel_spooler_t *spl, char *str) {
   }
   return d.err == 0;
 }
+*/
 
 static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   int           i, max;
@@ -253,7 +256,6 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_msg_status_t    prev_status;
   subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;
-  //nchan_msg_status_t    prev_status;
   
   if(spl && data == spl->fetchmsg_cb_data_list) {
     spl->fetchmsg_cb_data_list = data->next;
@@ -285,7 +287,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_free_msg_id(&data->msgid);
   ngx_free(data);
   
-  //prev_status = spool->msg_status;
+  prev_status = spool->msg_status;
   
   switch(findmsg_status) {
     case MSG_FOUND:
