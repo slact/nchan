@@ -3,8 +3,11 @@
  * usage: var sub = new NchanSubscriber(url, opt);
  * 
  * opt = {
- *   subscriber: 'longpoll', 'eventsource', or 'websocket'
+ *   subscriber: 'longpoll', 'eventsource', or 'websocket',
  *     //or an array of the above indicating subscriber type preference
+ *   reconnect: undefined or 'session' or 'persist'
+ *     //if the HTML5 sessionStore or localStore should be used to resume
+ *       connections interrupted by a page load
  * }
  * 
  * sub.on("message", function(message, message_metadata) {
@@ -100,9 +103,28 @@ function NchanSubscriber(url, opt) {
     throw "can't use any transport type";
   }
   
-  this.msgId = opt.id || opt.msgId;
+  this.lastMessageId = opt.id || opt.msgId;
   this.reconnect = typeof opt.reconnect == "undefined" ? true : opt.reconnect;
   this.reconnectTimeout = opt.reconnectTimeout || 10;
+  
+  var saveConnectionState;
+  if(! opt.reconnect) {
+    saveConnectionState = function() {};
+  }
+  else {
+    var index = "NchanSubscriber:" + url;
+    var storage;
+    if(opt.reconnect == "persist") {
+      storage = global.localStorage;
+    }
+    else if(opt.reconnect == "session") {
+      storage = global.sessionStorage;
+    }
+    saveConnectionState = function(msgid) {
+      storage.setItem(index, msgid);
+    }
+    this.lastMessageId = storage.getItem(index);
+  }
   
   var restartTimeoutIndex;
   var stopHandler = ughbind(function() {
@@ -116,6 +138,9 @@ function NchanSubscriber(url, opt) {
   
   this.on("message", function msg(msg, meta) {
     this.lastMessageId=meta.id;
+    if(meta.id) {
+      saveConnectionState(meta.id);
+    }
     //console.log(msg, meta);
   });
   this.on("error", function fail(code, text) {
