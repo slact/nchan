@@ -1176,15 +1176,6 @@ static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opco
   return nchan_output_filter(fsub->sub.request, websocket_frame_header_chain(fsub, opcode, len, msg_chain));
 }
 
-static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->start = start;
-  buf->pos = start;
-  buf->end = end;
-  buf->last = end;
-  buf->memory = 1;
-}
-
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
   nchan_buf_and_chain_t *bc;
   size_t                 sz = ngx_buf_size((msg->buf));
