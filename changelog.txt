@@ -1,3 +1,10 @@
+ feature: 'raw' mode for longpoll-multipart
+ feature: http-raw-stream client, like Push Stream Module's 'stream' mode
+ fix: incomplete longpoll-multipart response when using redis
+ fix: "subrequests cycle" error for websocket publisher for nginx > 1.9.4
+ fix: nchan_channel_id_split_delimiter inheritance
+ fix: subscriber memory leak from 0.99.8
+ fix: reload crash from 0.99.14
 0.99.14 (May 4 2016)
  fix: trailing NULL character in Publisher response content-type for json, xml, and yaml
  fix: don't crash when out of shared memory
