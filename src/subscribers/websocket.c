@@ -275,8 +275,9 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
   full_subscriber_t          *fsub = d->fsub;
   ngx_http_cleanup_t         *cln;
   
+#if nginx_version <= 1009004
   r->main->subrequests++; //avoid tripping up subrequest loop detection
-  
+#endif
   if(r->connection->data == sr) {
     r->connection->data = r;
   }
