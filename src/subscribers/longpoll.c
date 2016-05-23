@@ -305,7 +305,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   char                  *err;
   ngx_int_t              rc;
-  u_char                 char_boundary[50];
+  u_char                *char_boundary = NULL;
   u_char                *char_boundary_last;
   
   ngx_buf_t              boundary[3]; //first, mid, and last boundary
@@ -344,6 +344,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   //multi messages
   if(!use_raw_stream_separator) {
     nchan_request_set_content_type_multipart_boundary_header(r, ctx);
+    char_boundary = ngx_palloc(r->pool, 50);
     char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
     
     ngx_init_set_membuf_char(&double_newline_buf, "\r\n");
