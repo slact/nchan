@@ -1,3 +1,4 @@
+ fix: corrupt longpoll-multipart boundary data with long messages
  feature: 'raw' mode for longpoll-multipart
  feature: http-raw-stream client, like Push Stream Module's 'stream' mode
  fix: incomplete longpoll-multipart response when using redis
