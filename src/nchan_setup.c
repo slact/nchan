@@ -110,7 +110,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   
   lcf->longpoll_multimsg=NGX_CONF_UNSET;
-  lcf->longpoll_omit_multipart_separators=NGX_CONF_UNSET;
+  lcf->longpoll_multimsg_use_raw_stream_separator=NGX_CONF_UNSET;
   
   ngx_memzero(&lcf->pub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->sub_chid, sizeof(nchan_complex_value_arr_t));
@@ -193,7 +193,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->custom_msgtag_header, prev->custom_msgtag_header, "");
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
   ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);
-  ngx_conf_merge_value(conf->longpoll_omit_multipart_separators, prev->longpoll_omit_multipart_separators, 0);
+  ngx_conf_merge_value(conf->longpoll_multimsg_use_raw_stream_separator, prev->longpoll_multimsg_use_raw_stream_separator, 0);
   MERGE_CONF(conf, prev, channel_events_channel_id);
   MERGE_CONF(conf, prev, channel_event_string);
   
@@ -557,6 +557,26 @@ static char *nchan_set_raw_subscriber_separator(ngx_conf_t *cf, ngx_command_t *c
   }
   else {
     *cf_val = *val;
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_longpoll_multipart(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_loc_conf_t   *lcf = conf;
+  if(nchan_strmatch(val, 1, "on")) {
+    lcf->longpoll_multimsg = 1;
+  }
+  else if(nchan_strmatch(val, 1, "off")) {
+    lcf->longpoll_multimsg = 0;
+  }
+  else if(nchan_strmatch(val, 1, "raw")) {
+    lcf->longpoll_multimsg = 1;
+    lcf->longpoll_multimsg_use_raw_stream_separator = 1;
+  }
+  else {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid value for %V: %V;'. Must be 'on', 'off', or 'raw'", &cmd->name, val);
+    return NGX_CONF_ERROR;
   }
   return NGX_CONF_OK;
 }

@@ -58,7 +58,11 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.awaiting_destruction = 0;
   
   if(fsub->sub.cf->longpoll_multimsg) {
+    nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
     fsub->sub.dequeue_after_response = 0;
+    ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
+    nchan_bufchain_pool_init(ctx->bcp, r->pool);
+
   }
   
   fsub->data.multimsg_first = NULL;
@@ -304,16 +308,16 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   u_char                 char_boundary[50];
   u_char                *char_boundary_last;
   
-  ngx_int_t              i;
   ngx_buf_t              boundary[3]; //first, mid, and last boundary
   ngx_buf_t              newline_buf;
-  ngx_chain_t           *chains, *first_chain = NULL, *last_chain = NULL;
+  ngx_chain_t           *chain, *first_chain = NULL, *last_chain = NULL;
   ngx_buf_t             *buf;
   ngx_buf_t              double_newline_buf;
   ngx_str_t             *content_type;
   size_t                 size = 0;
   nchan_loc_conf_t      *cf = fsub->sub.cf;
-  int                    include_multipart_separators = !cf->longpoll_omit_multipart_separators;
+  int                    use_raw_stream_separator = cf->longpoll_multimsg_use_raw_stream_separator;
+  nchan_buf_and_chain_t *bc;
   
   nchan_longpoll_multimsg_t *first, *cur;
   
@@ -321,7 +325,6 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   fsub->data.cln->handler = empty_handler;
   
   first = fsub->data.multimsg_first;
-  
   
   fsub->sub.dequeue_after_response = 1;
   
@@ -339,129 +342,86 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   }
   
   //multi messages
-  nchan_request_set_content_type_multipart_boundary_header(r, ctx);
-  
-  char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
-  
-  ngx_memzero(&double_newline_buf, sizeof(double_newline_buf));
-  double_newline_buf.start = (u_char *)"\r\n\r\n";
-  double_newline_buf.end = double_newline_buf.start + 4;
-  double_newline_buf.pos = double_newline_buf.start;
-  double_newline_buf.last = double_newline_buf.end;
-  double_newline_buf.memory = 1;
-  
-  //set up the boundaries
-  for(i=0; i<3; i++) {
-    ngx_memzero(&boundary[i], sizeof(ngx_buf_t));
-    boundary[i].memory = 1;
-    if(i==0) {
-      boundary[i].start = &char_boundary[2];
-      boundary[i].end = &char_boundary_last[-4];
-    }
-    else if(i==1) {
-      boundary[i].start = &char_boundary[0];
-      boundary[i].end = &char_boundary_last[-4];
-    }
-    else if(i==2) {
-      if(include_multipart_separators) {
-        boundary[i].start = &char_boundary[0];
-        boundary[i].end = char_boundary_last;
-      }
-      else {
-        boundary[i].start = (u_char *)"\n";
-        boundary[i].end = (u_char *)"\n" + 1;
-      }
-      boundary[i].last_buf = 1;
-      boundary[i].last_in_chain = 1;
-      boundary[i].flush = 1;
-    }
-    boundary[i].pos = boundary[i].start;
-    boundary[i].last = boundary[i].end;
+  if(!use_raw_stream_separator) {
+    nchan_request_set_content_type_multipart_boundary_header(r, ctx);
+    char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
+    
+    ngx_init_set_membuf_char(&double_newline_buf, "\r\n");
+    
+    //set up the boundaries
+    ngx_init_set_membuf(&boundary[0], &char_boundary[2], &char_boundary_last[-4]);
+    ngx_init_set_membuf(&boundary[1], &char_boundary[0], &char_boundary_last[-4]);
+    ngx_init_set_membuf_char(&boundary[2], "\n");
+    
+    ngx_init_set_membuf_char(&newline_buf, "\n");
   }
-  
-  ngx_memzero(&newline_buf, sizeof(newline_buf));
-  newline_buf.start = (u_char *)"\n";
-  newline_buf.end = (u_char *)"\n" + 1;
-  newline_buf.pos = newline_buf.start;
-  newline_buf.last = newline_buf.end;
-  newline_buf.memory = 1;
   
   int n=0;
   
   for(cur = first; cur != NULL; cur = cur->next) {
-    chains = ngx_palloc(r->pool, sizeof(*chains)*4);
+    bc = nchan_bufchain_pool_reserve(ctx->bcp, 4);
+    chain = &bc->chain;
     n++;
     
-    if(include_multipart_separators) {
-      if(last_chain) {
-        last_chain->next = &chains[0];
-      }
-      if(!first_chain) {
-        first_chain = &chains[0];
-      }
-      
+    if(last_chain) {
+      last_chain->next = chain;
+    }
+    if(!first_chain) {
+      first_chain = chain;
+    }
+    if(!use_raw_stream_separator) {
       // each buffer needs to be unique for the purpose of dealing with nginx output guts
       // (something about max. 64 iovecs per write call and counting the number of bytes already sent)
-      buf = ngx_pcalloc(r->pool, sizeof(*buf));
-      *buf = cur == first ? boundary[0] : boundary[1];
-      chains[0].buf = buf;
-      chains[0].next = &chains[1];
-      
-      size += ngx_buf_size(chains[0].buf);
+      *chain->buf = cur == first ? boundary[0] : boundary[1];
+      size += ngx_buf_size((chain->buf));
+      chain = chain->next;
       
       content_type = &cur->msg->content_type;
+      buf = chain->buf;
       if (content_type->data != NULL) {
-        buf = ngx_pcalloc(r->pool, sizeof(*buf) + content_type->len + 25);
-        buf->memory = 1;
-        buf->start = (u_char *)&buf[1];
-        buf->end = ngx_snprintf(buf->start, content_type->len + 25, "\r\nContent-Type: %V\r\n\r\n", content_type);
-        buf->pos = buf->start;
-        buf->last = buf->end;
-        chains[1].buf = buf;
+        u_char    *char_cur = ngx_pcalloc(r->pool, content_type->len + 25);
+        ngx_init_set_membuf(buf, char_cur, ngx_snprintf(char_cur, content_type->len + 25, "\r\nContent-Type: %V\r\n\r\n", content_type));
       }
       else {
-        buf = ngx_palloc(r->pool, sizeof(*buf));
-        chains[1].buf = buf;
         *buf = double_newline_buf;
       }
-      size += ngx_buf_size(chains[1].buf);
-    }
-    else {
-      if(last_chain) {
-        last_chain->next = &chains[1];
-      }
-      if(!first_chain) {
-        first_chain = &chains[1];
-      }
-      chains[1].buf = ngx_pcalloc(r->pool, sizeof(*buf));
-      *chains[1].buf = newline_buf;
-      size += ngx_buf_size(chains[1].buf);
+      size += ngx_buf_size(buf);
+      chain = chain->next;
     }
       
     if(ngx_buf_size(cur->msg->buf) > 0) {
-      chains[1].next = &chains[2];
-      
-      buf = ngx_palloc(r->pool, sizeof(*buf));
+      buf = chain->buf;
       *buf = *cur->msg->buf;
-      nchan_msg_buf_open_fd_if_needed(buf, NULL, r);
-      buf->last_buf = 0;
-      chains[2].buf = buf;
-      size += ngx_buf_size(chains[2].buf);
       
-      last_chain = &chains[2];  
-    }
-    else {
-      last_chain = &chains[1];
+      if(buf->file) {
+        ngx_file_t  *file_copy = nchan_bufchain_pool_reserve_file(ctx->bcp);
+        nchan_msg_buf_open_fd_if_needed(buf, file_copy, NULL);
+      }
+      buf->last_buf = 0;
+      size += ngx_buf_size(buf);
     }
     
-    if(cur->next == NULL) {
-      last_chain->next = &chains[3];
-      chains[3].buf = &boundary[2];
-      chains[3].next = NULL;
-      last_chain = &chains[3];
-      size += ngx_buf_size(chains[3].buf);
+    if(use_raw_stream_separator) {
+      chain = chain->next;
+      ngx_init_set_membuf_str(chain->buf, &cf->subscriber_http_raw_stream_separator);
+      size += ngx_buf_size((chain->buf));
     }
+    else {
+      if(cur->next == NULL) {
+        chain = chain->next;
+        chain->buf = &boundary[2];
+        size += ngx_buf_size((chain->buf));
+      }
+    }
+    last_chain = chain;
   }
+    
+  buf = last_chain->buf;
+  buf->last_buf = 1;
+  buf->last_in_chain = 1;
+  buf->flush = 1;
+  last_chain->next = NULL;
+    
   r->headers_out.status = NGX_HTTP_OK;
   r->headers_out.content_length_n = size;
   nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);

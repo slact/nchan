@@ -297,17 +297,11 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value.    
 
-- **nchan_longpoll_multipart_omit_separator**  
+- **nchan_longpoll_multipart_response** `[ off | on | raw ]`  
   arguments: 1  
   default: `off`  
   context: server, location, if  
-  > A hack to omit the multipart separator in longpoll-multipart responses.    
-
-- **nchan_longpoll_multipart_response**  
-  arguments: 1  
-  default: `off`  
-  context: server, location, if  
-  > Enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server.    
+  > when set to 'on', enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server. When set to 'raw', sends multiple messages using the http-raw-stream message separator.    
 
 - **nchan_publisher** `[ http | websocket ]`  
   arguments: 0 - 2  

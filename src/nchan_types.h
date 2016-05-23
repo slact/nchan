@@ -205,7 +205,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   time_t                          subscriber_timeout;
   
   ngx_int_t                       longpoll_multimsg;
-  ngx_int_t                       longpoll_omit_multipart_separators;
+  ngx_int_t                       longpoll_multimsg_use_raw_stream_separator;
   
   ngx_str_t                       eventsource_event;
   
