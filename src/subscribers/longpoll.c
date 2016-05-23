@@ -306,11 +306,15 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   
   ngx_int_t              i;
   ngx_buf_t              boundary[3]; //first, mid, and last boundary
+  ngx_buf_t              newline_buf;
   ngx_chain_t           *chains, *first_chain = NULL, *last_chain = NULL;
   ngx_buf_t             *buf;
   ngx_buf_t              double_newline_buf;
   ngx_str_t             *content_type;
   size_t                 size = 0;
+  nchan_loc_conf_t      *cf = fsub->sub.cf;
+  int                    include_multipart_separators = !cf->longpoll_omit_multipart_separators;
+  
   nchan_longpoll_multimsg_t *first, *cur;
   
   //disable abort handler
@@ -359,8 +363,14 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
       boundary[i].end = &char_boundary_last[-4];
     }
     else if(i==2) {
-      boundary[i].start = &char_boundary[0];
-      boundary[i].end = char_boundary_last;
+      if(include_multipart_separators) {
+        boundary[i].start = &char_boundary[0];
+        boundary[i].end = char_boundary_last;
+      }
+      else {
+        boundary[i].start = (u_char *)"\n";
+        boundary[i].end = (u_char *)"\n" + 1;
+      }
       boundary[i].last_buf = 1;
       boundary[i].last_in_chain = 1;
       boundary[i].flush = 1;
@@ -369,46 +379,65 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
     boundary[i].last = boundary[i].end;
   }
   
+  ngx_memzero(&newline_buf, sizeof(newline_buf));
+  newline_buf.start = (u_char *)"\n";
+  newline_buf.end = (u_char *)"\n" + 1;
+  newline_buf.pos = newline_buf.start;
+  newline_buf.last = newline_buf.end;
+  newline_buf.memory = 1;
+  
   int n=0;
   
   for(cur = first; cur != NULL; cur = cur->next) {
     chains = ngx_palloc(r->pool, sizeof(*chains)*4);
     n++;
     
-    if(last_chain) {
-      last_chain->next = &chains[0];
-    }
-    if(!first_chain) {
-      first_chain = &chains[0];
-    }
-    
-    // each buffer needs to be unique for the purpose of dealing with nginx output guts
-    // (something about max. 64 iovecs per write call and counting the number of bytes already sent)
-    buf = ngx_pcalloc(r->pool, sizeof(*buf));
-    *buf = cur == first ? boundary[0] : boundary[1];
-    chains[0].buf = buf;
-    chains[0].next = &chains[1];
-    
-    size += ngx_buf_size(chains[0].buf);
-    
-    content_type = &cur->msg->content_type;
-    if (content_type->data != NULL) {
-      buf = ngx_pcalloc(r->pool, sizeof(*buf) + content_type->len + 25);
-      buf->memory = 1;
-      buf->start = (u_char *)&buf[1];
-      buf->end = ngx_snprintf(buf->start, content_type->len + 25, "\r\nContent-Type: %V\r\n\r\n", content_type);
-      buf->pos = buf->start;
-      buf->last = buf->end;
-      chains[1].buf = buf;
+    if(include_multipart_separators) {
+      if(last_chain) {
+        last_chain->next = &chains[0];
+      }
+      if(!first_chain) {
+        first_chain = &chains[0];
+      }
+      
+      // each buffer needs to be unique for the purpose of dealing with nginx output guts
+      // (something about max. 64 iovecs per write call and counting the number of bytes already sent)
+      buf = ngx_pcalloc(r->pool, sizeof(*buf));
+      *buf = cur == first ? boundary[0] : boundary[1];
+      chains[0].buf = buf;
+      chains[0].next = &chains[1];
+      
+      size += ngx_buf_size(chains[0].buf);
+      
+      content_type = &cur->msg->content_type;
+      if (content_type->data != NULL) {
+        buf = ngx_pcalloc(r->pool, sizeof(*buf) + content_type->len + 25);
+        buf->memory = 1;
+        buf->start = (u_char *)&buf[1];
+        buf->end = ngx_snprintf(buf->start, content_type->len + 25, "\r\nContent-Type: %V\r\n\r\n", content_type);
+        buf->pos = buf->start;
+        buf->last = buf->end;
+        chains[1].buf = buf;
+      }
+      else {
+        buf = ngx_palloc(r->pool, sizeof(*buf));
+        chains[1].buf = buf;
+        *buf = double_newline_buf;
+      }
+      size += ngx_buf_size(chains[1].buf);
     }
     else {
-
-      buf = ngx_palloc(r->pool, sizeof(*buf));
-      chains[1].buf = buf;
-      *buf = double_newline_buf;
+      if(last_chain) {
+        last_chain->next = &chains[1];
+      }
+      if(!first_chain) {
+        first_chain = &chains[1];
+      }
+      chains[1].buf = ngx_pcalloc(r->pool, sizeof(*buf));
+      *chains[1].buf = newline_buf;
+      size += ngx_buf_size(chains[1].buf);
     }
-    size += ngx_buf_size(chains[1].buf);
-    
+      
     if(ngx_buf_size(cur->msg->buf) > 0) {
       chains[1].next = &chains[2];
       
@@ -427,14 +456,12 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
     
     if(cur->next == NULL) {
       last_chain->next = &chains[3];
-      
       chains[3].buf = &boundary[2];
       chains[3].next = NULL;
       last_chain = &chains[3];
       size += ngx_buf_size(chains[3].buf);
     }
   }
-  
   r->headers_out.status = NGX_HTTP_OK;
   r->headers_out.content_length_n = size;
   nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);
