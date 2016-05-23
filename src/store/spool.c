@@ -34,7 +34,7 @@ static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id)
     return NULL;
   }
 }
-
+/*
 static char *msg_status_to_chr(nchan_msg_status_t status) {
   switch(status) {
     case MSG_CHANNEL_NOTREADY:
@@ -65,13 +65,12 @@ typedef struct {
   int                  err;
 } spool_verify_data_t;
 
+
 static void log_spool_err(spool_verify_data_t *d, subscriber_pool_t *spool, char *str) {
   ERR("%p %s [%s]", spool, msg_status_to_chr(spool->msg_status), str);
   d->err = 1;
 }
 
-
-/*
 static int validate_spooler_walker(rbtree_seed_t *seed, subscriber_pool_t *spool, spool_verify_data_t *d) {
   if(spool->msg_status == MSG_EXPECTED) {
     if(d->msg_expected_spool) {
@@ -90,8 +89,7 @@ static int validate_spooler_walker(rbtree_seed_t *seed, subscriber_pool_t *spool
 
   return NGX_OK;
 }
-*/
-/*
+
 static int validate_spooler(channel_spooler_t *spl, char *str) {
   spool_verify_data_t  d;
   ngx_memzero(&d, sizeof(d));
