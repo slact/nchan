@@ -92,6 +92,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->max_messages=NGX_CONF_UNSET;
   lcf->subscriber_start_at_oldest_message=NGX_CONF_UNSET;
   
+  
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->subscribe_only_existing_channel=NGX_CONF_UNSET;
   lcf->use_redis=NGX_CONF_UNSET;
@@ -107,7 +108,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_events_channel_id = NULL;
   lcf->channel_event_string = NULL;
   
+  
   lcf->longpoll_multimsg=NGX_CONF_UNSET;
+  lcf->longpoll_multimsg_use_raw_stream_separator=NGX_CONF_UNSET;
   
   ngx_memzero(&lcf->pub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->sub_chid, sizeof(nchan_complex_value_arr_t));
@@ -180,6 +183,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
+  
+  ngx_conf_merge_str_value(conf->subscriber_http_raw_stream_separator, prev->subscriber_http_raw_stream_separator, "\n");
+  
   ngx_conf_merge_str_value(conf->channel_id_split_delimiter, prev->channel_id_split_delimiter, "");
   ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
@@ -187,6 +193,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->custom_msgtag_header, prev->custom_msgtag_header, "");
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
   ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);
+  ngx_conf_merge_value(conf->longpoll_multimsg_use_raw_stream_separator, prev->longpoll_multimsg_use_raw_stream_separator, 0);
   MERGE_CONF(conf, prev, channel_events_channel_id);
   MERGE_CONF(conf, prev, channel_event_string);
   
@@ -280,6 +287,9 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 #define INTERVALPOLL_STRINGS "poll", "interval-poll", "intervalpoll", "http"
 #define INTERVALPOLL_STRINGS_N 4
 
+#define HTTP_RAW_STREAM_STRINGS "http-raw-stream"
+#define HTTP_RAW_STREAM_STRINGS_N 1
+
 #define DISABLED_STRINGS "none", "off", "disabled"
 #define DISABLED_STRINGS_N 3
 
@@ -329,6 +339,7 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
   
   if(cf->args->nelts == 1){ //no arguments
     subt->poll=0;
+    subt->http_raw_stream = 0;
     subt->longpoll=1;
     subt->websocket=1;
     subt->eventsource=1;
@@ -343,6 +354,9 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
       }
       else if(nchan_strmatch(val, INTERVALPOLL_STRINGS_N, INTERVALPOLL_STRINGS)) {
         subt->poll=1;
+      }
+      else if(nchan_strmatch(val, HTTP_RAW_STREAM_STRINGS_N, HTTP_RAW_STREAM_STRINGS)) {
+        subt->http_raw_stream=1;
       }
       else if(nchan_strmatch(val, HTTP_CHUNKED_STRINGS_N, HTTP_CHUNKED_STRINGS)) {
         subt->http_chunked=1;
@@ -522,6 +536,47 @@ static char *nchan_ignore_subscriber_concurrency(ngx_conf_t *cf, ngx_command_t *
   ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
   if(!nchan_strmatch(val, 1, "broadcast")) {
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "ignoring obsolete nchan config directive '%V %V;'. Only 'broadcast' is currently supported.", &cmd->name, val);
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_raw_subscriber_separator(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_loc_conf_t   *lcf = conf;
+  ngx_str_t          *cf_val = &lcf->subscriber_http_raw_stream_separator;
+  
+  if( val->data[val->len - 1] != '\n' ) { //must end in a newline
+    u_char   *cur;
+    if((cur = ngx_palloc(cf->pool, val->len + 1)) == NULL) {
+      return NGX_CONF_ERROR;
+    }
+    ngx_memcpy(cur, val->data, val->len);
+    cur[val->len] = '\n';
+    cf_val->len = val->len + 1;
+    cf_val->data = cur;
+  }
+  else {
+    *cf_val = *val;
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_longpoll_multipart(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_loc_conf_t   *lcf = conf;
+  if(nchan_strmatch(val, 1, "on")) {
+    lcf->longpoll_multimsg = 1;
+  }
+  else if(nchan_strmatch(val, 1, "off")) {
+    lcf->longpoll_multimsg = 0;
+  }
+  else if(nchan_strmatch(val, 1, "raw")) {
+    lcf->longpoll_multimsg = 1;
+    lcf->longpoll_multimsg_use_raw_stream_separator = 1;
+  }
+  else {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid value for %V: %V;'. Must be 'on', 'off', or 'raw'", &cmd->name, val);
+    return NGX_CONF_ERROR;
   }
   return NGX_CONF_OK;
 }

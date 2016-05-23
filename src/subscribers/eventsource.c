@@ -16,15 +16,6 @@ static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
   return ctx->bcp;
 }
 
-static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->start = start;
-  buf->pos = start;
-  buf->end = end;
-  buf->last = end;
-  buf->memory = 1;
-}
-
 /*static ngx_inline void str_to_buf(ngx_buf_t *buf, ngx_str_t *str) {
   buf->start = str->data;
   buf->pos = str->data;
