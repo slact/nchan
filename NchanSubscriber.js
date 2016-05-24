@@ -209,7 +209,7 @@ NchanSubscriber.prototype.SubscriberClass = {
         if(incoming) { this.headers[name]= incoming; }
       }, this);
       
-      if(headers) {
+      if(msgid) {
         this.headers = {"Etag": msgid};
       }
       
