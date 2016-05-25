@@ -105,6 +105,9 @@ function NchanSubscriber(url, opt) {
       error: pre + "error"
     };
     
+    if (!("localStorage" in global)) {
+      throw "localStorage unavailable for use in shared NchanSubscriber";
+    }
     this.sharedStorage = global.localStorage;
   }
   
@@ -121,12 +124,12 @@ function NchanSubscriber(url, opt) {
     var index = "NchanSubscriber:" + url + ":lastMessageId";
     var storage;
     if(opt.reconnect == "persist") {
-      storage = global.localStorage;
+      storage = ("localStorage" in global) && global.localStorage;
       if(!storage)
         throw "can't use reconnect: 'persist' option: localStorage not available";
     }
     else if(opt.reconnect == "session") {
-      storage = global.sessionStorage;
+      storage = ("sessionStorage" in global) && global.sessionStorage;
       if(!storage)
         throw "can't use reconnect: 'session' option: sessionStorage not available";
     }
