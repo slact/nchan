@@ -77,13 +77,23 @@ function NchanSubscriber(url, opt) {
   if(typeof opt.subscriber === "string") {
     opt.subscriber = [ opt.subscriber ];
   }
+  this.desiredTransport = opt.subscriber;
   
   if(opt.shared) {
     this.shared = true;
+  
+    this.masterCheckInterval = 10000;
+    this.masterIntervalCheckID;
     
     var pre = "NchanSubscriber:" + url + ":shared:";
-    var keys = {
+    this.sharedKeys = {
       status: pre + "status",
+      statusLastUpdate: pre + "status:lastUpdated",
+      
+      masterCreated: pre + "master:created",
+      
+      masterLastSeen: pre + "master:lastSeen",
+      
       slaves: pre + "slaves",
       masterLottery: pre + "lottery",
       masterLotteryTime: pre + "lotteryTime",
@@ -94,30 +104,9 @@ function NchanSubscriber(url, opt) {
       
       error: pre + "error"
     };
-    this.storageKeys = this.storageKeys;
     
-    var storage = global.localStorage;
-    this.sharedStorage = storage;
-    this.sharedKeys = keys;
-    
-    var status = this.sharedStorage.getItem(this.sharedKeys.status);
-    global.addEventListener("storage", ughbind(function(ev) {
-      if(ev.key == this.sharedKeys.status) {
-        if(ev.newValue == "disconnected" && this.sharedRole == "slave") {
-          //play the promotion lotery
-          this.maybePromoteToMaster();
-        }
-      }
-    }, this));
-    if(status == "disconnected") {
-      this.maybePromoteToMaster();
-    }
-    else {
-      this.sharedRole = status ? "slave" : "master";
-    }
+    this.sharedStorage = global.localStorage;
   }
-  
-  this.initializeTransport(opt.subscriber);
   
   this.lastMessageId = opt.id || opt.msgId;
   this.reconnect = typeof opt.reconnect == "undefined" ? true : opt.reconnect;
@@ -152,31 +141,28 @@ function NchanSubscriber(url, opt) {
     this.lastMessageId = storage.getItem(index);
   }
   
-  var notifySharedSubscribers = function(){};
+  var onUnloadEvent = ughbind(function(ev) {
+    if(this.running) {
+      this.stop();
+    }
+    if(this.sharedRole == "master") {
+      storage.setItem(this.sharedKeys.status, "disconnected");
+    }
+  }, this);
+  global.addEventListener('beforeunload', onUnloadEvent, false);
+  // swap `beforeunload` to `unload` after DOM is loaded
+  global.addEventListener('DOMContentLoaded', function() {
+    global.removeEventListener('beforeunload', onUnloadEvent, false);
+    global.addEventListener('unload', onUnloadEvent, false);
+  }, false);
+  
+  
+  var notifySharedSubscribers;
   if(opt.shared) {
-    var onUnloadEvent = ughbind(function(ev) {
-      console.log("unloadEvent");
-      if(this.running) {
-        this.stop();
-      }
-      if(this.sharedRole == "master") {
-        storage.setItem(this.sharedKeys.status, "disconnected");
-      }
-    }, this);
-    
-    global.addEventListener('beforeunload', onUnloadEvent, false);
-    // swap `beforeunload` to `unload` after DOM is loaded
-    global.addEventListener('DOMContentLoaded', function() {
-      global.removeEventListener('beforeunload', onUnloadEvent, false);
-      global.addEventListener('unload', onUnloadEvent, false);
-    }, false);
-    
     notifySharedSubscribers = ughbind(function(name, data) {
       if(this.sharedRole != "master") {
         return;
       }
-      
-      console.log("notifySharedSubscribers", name, data);
       
       if(name == "message") {
         storage.setItem(this.sharedKeys.msgId, data[1] && data[1].id || "");
@@ -193,20 +179,21 @@ function NchanSubscriber(url, opt) {
         storage.setItem(this.sharedKeys.status, "connected");
       }
       else if(name == "reconnect") {
-        console.log("setItem reconnect");
         storage.setItem(this.sharedKeys.status, "reconnecting");
       }
       else if(name == "disconnect") {
-        console.log("setItem disconnect");
         storage.setItem(this.sharedKeys.status, "disconnected");
       }
     }, this);
   }
-  
+  else {
+    notifySharedSubscribers = function(){};
+  }
   
   var restartTimeoutIndex;
   var stopHandler = ughbind(function() {
-    if(!restartTimeoutIndex && this.running && this.reconnect && !this.transport.reconnecting) {
+    if(!restartTimeoutIndex && this.running && this.reconnect && !this.transport.reconnecting && !this.transport.doNotReconnect) {
+      //console.log("stopHAndler reconnect plz", this.running, this.reconnect);
       notifySharedSubscribers("reconnect");
       restartTimeoutIndex = setTimeout(ughbind(function() {
         restartTimeoutIndex = null;
@@ -241,13 +228,6 @@ function NchanSubscriber(url, opt) {
     stopHandler(code, text);
     //console.log("__disconnect", code, text);
   });
-  
-  /*
-  //explicitly stop just before leaving the page
-  ['unload', 'beforeunload'].each(function(ev) {
-    window.addEvent(ev, this.stop.bind(this));
-  }.bind(this));
-  */
 }
 
 Emitter(NchanSubscriber.prototype);
@@ -291,45 +271,80 @@ NchanSubscriber.prototype.initializeTransport = function(possibleTransports) {
   }
 };
 
+NchanSubscriber.prototype.setSharedRole = function(role) {
+  if(role == "master" && this.sharedRole != "master") {
+    var now = new Date().getTime()/1000;
+    this.sharedStorage.setItem(this.sharedKeys.masterCreated, now);
+    this.sharedStorage.setItem(this.sharedKeys.masterLastSeen, now);
+  }
+  this.sharedRole = role;
+  return this;
+}
+
+var maybePromotingToMaster;
+
 NchanSubscriber.prototype.maybePromoteToMaster = function() {
+  if(!(this.running || this.starting)) {
+    //console.log("stopped Subscriber won't be promoted to master");
+    return this;
+  }
+  if(maybePromotingToMaster) {
+    //console.log("already maybePromotingToMaster");
+    return;
+  }
+  maybePromotingToMaster = true;
+  
+  //console.log("maybe promote to master");
   var processRoll;
   
-  var lotteryRoundDuration = 500;
+  var lotteryRoundDuration = 2000;
   var currentContenders = 0;
   
   //roll the dice
   var roll = Math.random();
-  this.sharedStorage.setItem(this.sharedKeys.masterLottery, roll);
-  this.sharedStorage.setItem(this.sharedKeys.masterLotteryTime, new Date().getTime() / 1000);
   var bestRoll = roll;
   
   var checkRollInterval;
-  var checkRoll = ughbind(function() {
+  var checkRoll = ughbind(function(dontProcess) {
+    var latestSharedRollTime = parseFloat(this.sharedStorage.getItem(this.sharedKeys.masterLotteryTime));
     var latestSharedRoll = parseFloat(this.sharedStorage.getItem(this.sharedKeys.masterLottery));
-    if(latestSharedRoll && (!bestRoll || latestSharedRoll > bestRoll)) {
+    var notStale = !latestSharedRollTime || (latestSharedRollTime > (new Date().getTime() - lotteryRoundDuration * 2));
+    if(notStale && latestSharedRoll && (!bestRoll || latestSharedRoll > bestRoll)) {
       bestRoll = latestSharedRoll;
     }
-    console.log("check roll", roll, bestRoll, "lastestSharedRoll", latestSharedRoll);
-    processRoll();
+    if(!dontProcess) {
+      processRoll();
+    }
   }, this);
+  
+  checkRoll(true);
+  this.sharedStorage.setItem(this.sharedKeys.masterLottery, roll);
+  this.sharedStorage.setItem(this.sharedKeys.masterLotteryTime, new Date().getTime() / 1000);
   
   var rollCallback = ughbind(function(ev) {
     if(ev.key != this.sharedKeys.masterLottery)
       return;
-    console.log("rollCallback ev", ev, bestRoll);
-    
+    //console.log(ev);
     if(ev.newValue) {
       currentContenders += 1;
       var newVal = parseFloat(ev.newValue);
+      var oldVal = parseFloat(ev.oldValue);
+      if(oldVal > newVal) {
+        this.sharedStorage.setItem(this.sharedKeys.masterLottery, oldVal);
+      }
+      
       if(!bestRoll || newVal >= bestRoll) {
+        //console.log("new bestRoll", newVal);
         bestRoll = newVal;
-        console.log("got better bestRoll: " + ev.newValue);
       }
     }
   }, this);
   global.addEventListener("storage", rollCallback);
   
   var finish = ughbind(function() {
+    //console.log("finish");
+    maybePromotingToMaster = false;
+    //console.log(this.sharedRole);
     global.removeEventListener("storage", rollCallback);
     if(checkRollInterval) {
       clearInterval(checkRollInterval);
@@ -337,33 +352,38 @@ NchanSubscriber.prototype.maybePromoteToMaster = function() {
     if(this.sharedRole == "master") {
       this.sharedStorage.removeItem(this.sharedKeys.masterLottery);
       this.sharedStorage.removeItem(this.sharedKeys.masterLotteryTime);
-      if(this.running) {
-        this.stop();
-      }
+    }
+    if(this.running) {
+      this.stop();
       this.initializeTransport();
       this.start();
+    }
+    else {
+      this.initializeTransport();
+      if(this.starting) {
+        this.start();
+      }
     }
   }, this);
   
   processRoll = ughbind(function() {
-    console.log("process roll (" + roll + ", best " + bestRoll + ")");
+    //console.log("roll, bestroll", roll, bestRoll);
     if(roll < bestRoll) {
-      //loser
-      console.log("loser");
-      this.sharedRole = "slave";
+      //console.log("loser");
+      this.setSharedRole("slave");
       finish();
     }
     else if(roll >= bestRoll) {
       var lotteryTime = parseFloat(this.sharedStorage.getItem(this.sharedKeys.masterLotteryTime));
       var now = new Date().getTime() / 1000;
-      console.log(lotteryTime, now - lotteryRoundDuration/1000);
+      //console.log(lotteryTime, now - lotteryRoundDuration/1000);
       if(currentContenders == 0) {
-        console.log("winner, no more contenders!");
-        this.sharedRole = "master";
+        //console.log("winner, no more contenders!");
+        this.setSharedRole("master");
         finish();
       }
       else {
-        console.log("winning, but have contenders", currentContenders);
+        //console.log("winning, but have contenders", currentContenders);
         currentContenders = 0;
       }
     }
@@ -372,24 +392,112 @@ NchanSubscriber.prototype.maybePromoteToMaster = function() {
   checkRollInterval = setInterval(checkRoll, lotteryRoundDuration);
 };
 
+NchanSubscriber.prototype.demoteToSlave = function() {
+  
+  //console.log("demote to slave");
+  if(this.sharedRole != "master") {
+    throw "can't demote non-master to slave";
+  }
+  if(this.running) {
+    this.stop();
+    this.setSharedRole("slave");
+    this.initializeTransport();
+    this.start();
+  }
+  else {
+    this.initializeTransport();
+  }
+};
+
+var storageEventListener;
+
 NchanSubscriber.prototype.start = function() {
-  if(!this.shared || this.sharedRole == "master") {
-    if(this.shared) {
+  if(this.running)
+    throw "Can't start NchanSubscriber, it's already started.";
+  
+  this.starting = true;
+  
+  if(this.shared) {
+    if(!this.sharedRole) {
+      var status = this.sharedStorage.getItem(this.sharedKeys.status);
+      storageEventListener = ughbind(function(ev) {
+        if(ev.key == this.sharedKeys.status) {
+          if(ev.newValue == "disconnected") {
+            if(this.sharedRole == "slave") {
+              //play the promotion lotery
+              //console.log("status changed to disconnected, maybepromotetomaster", ev.newValue, ev.oldValue);
+              this.maybePromoteToMaster();
+            }
+            else if(this.sharedRole == "master") {
+              //do nothing
+            }
+          }
+        }
+        else if(ev.key == this.sharedKeys.masterCreated && this.sharedRole == "master" && ev.newValue) {
+          //a new master has arrived. demote to slave.
+          this.demoteToSlave();
+        }
+      }, this);
+      global.addEventListener("storage", storageEventListener);
+      if(status == "disconnected") {
+        //console.log("status == disconnected, maybepromotetomaster");
+        this.maybePromoteToMaster();
+      }
+      else {
+        this.setSharedRole(status ? "slave" : "master");
+        this.initializeTransport();
+      }
+    }
+    
+    if(this.sharedRole == "master") {
       this.sharedStorage.setItem(this.sharedKeys.status, "connecting");
+      this.transport.listen(this.url, this.lastMessageId);
+      this.running = true;
+      delete this.starting;
+      
+      //master checkin interval
+      this.masterIntervalCheckID = setInterval(ughbind(function() {
+        this.sharedStorage.setItem(this.sharedKeys.masterLastSeen, new Date().getTime() / 1000);
+      }, this), this.masterCheckInterval * 0.8);
+    }
+    else if(this.sharedRole == "slave") {
+      this.transport.listen(this.url, this.sharedKeys);
+      this.running = true;
+      delete this.starting;
+      
+      //slave check if master is around
+      this.masterIntervalCheckID = setInterval(ughbind(function() {
+        var lastCheckin = parseFloat(this.sharedStorage.getItem(this.sharedKeys.masterLastSeen));
+        if(!lastCheckin || lastCheckin < (new Date().getTime() / 1000) - this.masterCheckInterval / 1000) {
+          //master hasn't checked in for too long. assume it's gone.
+          this.maybePromoteToMaster();
+        }
+      }, this), this.masterCheckInterval);
+    }
+  }
+  else {
+    if(!this.transport) {
+      this.initializeTransport();
     }
     this.transport.listen(this.url, this.lastMessageId);
+    this.running = true;
+    delete this.starting;
   }
-  else if(this.sharedRole == "slave") {
-    this.transport.listen(this.url, this.sharedKeys);
-  }
-  this.running = true;
   return this;
 };
 
 NchanSubscriber.prototype.stop = function() {
+  if(!this.running)
+    throw "Can't stop NchanSubscriber, it's not running.";
+  
   this.running = false;
-  if(!this.slave) {
-    this.transport.cancel();
+  if(storageEventListener) {
+    global.removeEventListener("storage", storageEventListener);
+  }
+  this.transport.cancel();
+  if(this.masterIntervalCheckID) {
+    clearInterval(this.masterIntervalCheckID);
+    delete this.masterIntervalCheckID;
   }
   return this;
 };
@@ -662,6 +770,7 @@ NchanSubscriber.prototype.SubscriberClass = {
   '__slave': (function() {
     function LocalStoreSlaveTransport(emit) {
       this.emit = emit;
+      this.doNotReconnect = true;
     }
     
     LocalStoreSlaveTransport.prototype.listen = function(url, keys) {
@@ -691,3 +800,4 @@ NchanSubscriber.prototype.SubscriberClass = {
 
 global.NchanSubscriber = NchanSubscriber;
 })(window);
+
