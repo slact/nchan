@@ -1979,8 +1979,6 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     //buf fuck it, we're doing it live.
     assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
     
-    nchan_dbgref_add(sd);
-    
     nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
     return NGX_OK;
   }
