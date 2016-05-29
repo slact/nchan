@@ -23,7 +23,6 @@ typedef struct {
 } nchan_auth_subrequest_stuff_t;
 
 static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
-  
   nchan_auth_subrequest_data_t *d = ev->data;
   
   d->sub->fn->release(d->sub, 1);
@@ -46,20 +45,26 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
 
 static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_auth_subrequest_data_t  *d = data;
-  ngx_event_t                   *timer = ngx_pcalloc(r->pool, sizeof(*timer));
-  
+  ngx_event_t                   *timer;
   if(timer == NULL) {
     return NGX_ERROR;
   }
   
-  d->rc = rc;
-  d->http_response_code = r->headers_out.status;
-  
-  timer->handler = subscriber_authorize_timer_callback_handler;
-  timer->log = d->sub->request->connection->log;
-  timer->data = data;
-  
-  ngx_add_timer(timer, 0); //not sure if this needs to be done like this, but i'm just playing it safe here.
+  if (rc == NGX_HTTP_CLIENT_CLOSED_REQUEST) {
+    d->sub->fn->release(d->sub, 1);
+    //subscriber will be cleaned up and destroyed because this happens before the 
+    //subscriber's sudden_abort_handler is called
+  }
+  else {
+    d->rc = rc;
+    d->http_response_code = r->headers_out.status;
+    timer = ngx_pcalloc(r->pool, sizeof(*timer));
+    timer->handler = subscriber_authorize_timer_callback_handler;
+    timer->log = d->sub->request->connection->log;
+    timer->data = data;
+    
+    ngx_add_timer(timer, 0); //not sure if this needs to be done like this, but i'm just playing it safe here.
+  }
   
   return NGX_OK;
 }
