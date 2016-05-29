@@ -1136,8 +1136,12 @@ static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
       msgid.data = (u_char *)r->element[4]->str;
       msgid.len = r->element[4]->len;
       
-      if(nchan_parse_compound_msgid(&ch->last_published_msg_id, &msgid, 1) != NGX_OK) {
+      if(msgid.len > 0 && nchan_parse_compound_msgid(&ch->last_published_msg_id, &msgid, 1) != NGX_OK) {
         ERR("failed to parse last-msgid %V from redis", &msgid);
+      }
+      else {
+        nchan_msg_id_t  zeroid = NCHAN_OLDEST_MSGID;
+        ch->last_published_msg_id = zeroid;
       }
     }
     
