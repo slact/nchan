@@ -352,7 +352,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
     //set up the boundaries
     ngx_init_set_membuf(&boundary[0], &char_boundary[2], &char_boundary_last[-4]);
     ngx_init_set_membuf(&boundary[1], &char_boundary[0], &char_boundary_last[-4]);
-    ngx_init_set_membuf_char(&boundary[2], "\n");
+    ngx_init_set_membuf(&boundary[2], &char_boundary[0], char_boundary_last);
     
     ngx_init_set_membuf_char(&newline_buf, "\n");
   }
