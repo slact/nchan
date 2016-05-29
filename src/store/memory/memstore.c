@@ -140,6 +140,10 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
       return NGX_DECLINED;
     }
     
+    if(ch->reserved > 0) {
+      DBG("not ready to reap %V, %i reservations left", &ch->id, ch->reserved);
+      return NGX_DECLINED;
+    }
     //DBG("ok to delete channel %V", &ch->id);
     return NGX_OK;
   }
@@ -944,6 +948,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->foreign_owner_ipc_sub = NULL;
   head->last_subscribed_local = 0;
   
+  head->reserved = 0;
   head->multi=NULL;
   head->multi_count = 0;
   head->multi_waiting = 0;
@@ -1910,22 +1915,21 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
 
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata);
 
-
-
 typedef struct get_multi_message_data_s get_multi_message_data_t;
 struct get_multi_message_data_s {
-  nchan_msg_status_t  msg_status;
-  nchan_msg_t        *msg;
-  ngx_int_t           n;
+  nchan_store_channel_head_t  *chanhead;
+  nchan_msg_status_t           msg_status;
+  nchan_msg_t                 *msg;
+  ngx_int_t                    n;
   
-  nchan_msg_id_t      wanted_msgid;
-  ngx_int_t           getting;
-  ngx_int_t           multi_count;
+  nchan_msg_id_t               wanted_msgid;
+  ngx_int_t                    getting;
+  ngx_int_t                    multi_count;
   
-  ngx_event_t         timer; 
+  ngx_event_t                  timer; 
   
-  callback_pt         cb;
-  void               *privdata;
+  callback_pt                  cb;
+  void                        *privdata;
 };
 
 typedef struct {
@@ -1933,6 +1937,10 @@ typedef struct {
   get_multi_message_data_t   *d;
 } get_multi_message_data_single_t;
 
+typedef struct {
+  get_multi_message_data_t         d;
+  get_multi_message_data_single_t  sd;
+} get_multi_message_data_blob_t;
 
 static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_message_data_single_t *sd, nchan_msg_t *msg, nchan_msg_status_t status) {
   d->msg_status = status;
@@ -1964,7 +1972,18 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       assert(0);
   }
   */
-  assert(status != MSG_NORESPONSE);
+  if(status == MSG_NORESPONSE) {
+    nchan_msg_id_t  retry_msgid = NCHAN_ZERO_MSGID;
+    //retry featching that message
+    //this isn't clean, nor is it efficient
+    //buf fuck it, we're doing it live.
+    assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
+    
+    nchan_dbgref_add(sd);
+    
+    nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+    return NGX_OK;
+  }
   d->getting--;
   
   if(d->msg_status == MSG_PENDING) {
@@ -2042,12 +2061,20 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     else {
       d->cb(d->msg_status, NULL, d->privdata);
     }
+    
     nchan_free_msg_id(&d->wanted_msgid);
+    ngx_del_timer(&d->timer);
     ngx_free(d);
   }
-  
-  ngx_free(sd);
   return NGX_OK;
+}
+
+static void get_multimsg_timeout(ngx_event_t *ev) {
+  get_multi_message_data_t    *d = (get_multi_message_data_t *)ev->data;
+  ERR("multimsg %p timeout!!", d);  
+  
+  d->chanhead->reserved--;
+  ngx_free(d);
 }
 
 static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
@@ -2062,110 +2089,95 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   nchan_msg_id_t              *lastid;
   ngx_str_t                   *getmsg_chid;
+  ngx_int_t                    getting = 0;
   
-  
-  time_t                       time = msg_id->time;
   ngx_int_t                    i;
   
-  get_multi_message_data_t    *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  assert(d);
-  d->cb = callback;
-  d->privdata = privdata;
-  d->msg_status = MSG_PENDING;
-  d->msg = NULL;
-  d->n = -1;
-  d->getting = 0;
+  ngx_memzero(req_msgid, sizeof(req_msgid));
   
-  ngx_memzero(&d->timer, sizeof(d->timer));
-  nchan_init_timer(&d->timer, NULL, d);
+  chead = nchan_memstore_get_chanhead(chid, NULL);
+  assert(chead);
+  n = chead->multi_count;
   
-  nchan_copy_new_msg_id(&d->wanted_msgid, msg_id);
+  multi = chead->multi;
   
-  if((chead = nchan_memstore_get_chanhead(chid, NULL)) != NULL) {
-    n = chead->multi_count;
-    multi = chead->multi;
-  }
-  else {
-    n = parse_multi_id(chid, ids);
-  }
+  chead->reserved++;
   
   //init loop
   for(i = 0; i < n; i++) {
     want[i] = 0;
   }
   
-  d->multi_count = n;
-  
   DBG("get multi msg %V (count: %i)", msgid_to_str(msg_id), n);
   
   
   if(msg_id->time == 0) {
     for(i = 0; i < n; i++) {
-      req_msgid[i].time = 0;
-      req_msgid[i].tag.fixed[0] = 0;
-      req_msgid[i].tagcount = 1;
+      assert(nchan_extract_from_multi_msgid(msg_id, i, &req_msgid[i]) == NGX_OK);
       want[i] = 1;
     }
-    d->getting = n;
+    getting = n;
     DBG("want all msgs");
   }
   else {
-    //nchan_decode_msg_id_multi_tag(tag, n, decoded_tags);
-    int16_t       *tags;
-    if(n <= NCHAN_FIXED_MULTITAG_MAX) tags = msg_id->tag.fixed;
-    else tags = msg_id->tag.allocd;
-    
     //what msgids do we want?
     for(i = 0; i < n; i++) {
-      req_msgid[i].time = time;
-      if(tags[i] == -1) {
-        req_msgid[i].time --;
-        req_msgid[i].tag.fixed[0] = 32767; //eeeeeh this is bad. but it's good enough.
-      }
-      else {
-        req_msgid[i].tag.fixed[0] = tags[i];
-      }
-      req_msgid[i].tagcount = 1;
+      assert(nchan_extract_from_multi_msgid(msg_id, i, &req_msgid[i]) == NGX_OK);
       DBG("might want msgid %V from chan_index %i", msgid_to_str(&req_msgid[i]), i);
     }
     
     //what do we need to fetch?
     for(i = 0; i < n; i++) {
-      if(multi) {
-        lastid = &multi[i].sub->last_msgid;
-        DBG("chan index %i last id %V", i, msgid_to_str(lastid));
-        if(lastid->time == 0 
-         || lastid->time == -1
-         || lastid->time > req_msgid[i].time
-         || (lastid->time == req_msgid[i].time && lastid->tag.fixed[0] >= req_msgid[i].tag.fixed[0])) {
-          want[i]=1;
-          d->getting++;
-          DBG("want %i", i);
-        }
-        else {
-          DBG("Do not want %i", i);
-        }
+      lastid = &multi[i].sub->last_msgid;
+      DBG("chan index %i last id %V", i, msgid_to_str(lastid));
+      if(lastid->time == 0 
+        || lastid->time == -1
+        || lastid->time > req_msgid[i].time
+        || (lastid->time == req_msgid[i].time && lastid->tag.fixed[0] >= req_msgid[i].tag.fixed[0])) {
+        want[i]=1;
+        getting++;
+        DBG("want %i", i);
       }
       else {
-        DBG("nomulti (lastid), want %i", i);
-        want[i]=1;
-        d->getting++;
+        DBG("Do not want %i", i);
       }
     }
   }
   
+  
+  get_multi_message_data_t         *d;
+  get_multi_message_data_single_t  *sd;
+  get_multi_message_data_blob_t    *dblob = ngx_alloc(sizeof(*dblob) + sizeof(*sd)*(getting - 1), ngx_cycle->log);
+  assert(dblob);
+  d = &dblob->d;
+  sd = &dblob->sd;
+  
+  d->cb = callback;
+  d->privdata = privdata;
+  d->multi_count = n;
+  d->msg_status = MSG_PENDING;
+  d->msg = NULL;
+  d->n = -1;
+  d->getting = getting;
+  d->chanhead = chead;
+  
+  ngx_memzero(&d->timer, sizeof(d->timer));
+  nchan_init_timer(&d->timer, get_multimsg_timeout, d);
+  ngx_add_timer(&d->timer, 5000);
+  
+  nchan_copy_new_msg_id(&d->wanted_msgid, msg_id);
+  
   //do it.
   for(i = 0; i < n; i++) {
     if(want[i]) {
-      get_multi_message_data_single_t  *sd = ngx_alloc(sizeof(*sd), ngx_cycle->log);
-      assert(sd);
-      
+      ngx_memzero(sd, sizeof(*sd));
       sd->d = d;
       sd->n = i;
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       DBG("get message from %V (n: %i) %V", getmsg_chid, i, msgid_to_str(&req_msgid[i]));
       nchan_store_async_get_message(getmsg_chid, &req_msgid[i], (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+      sd++;
     }
   }
   

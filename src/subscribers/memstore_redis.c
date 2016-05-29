@@ -45,12 +45,13 @@ static ngx_int_t empty_callback(){
 
 static void respond_msgexpected_callbacks(sub_data_t *d, nchan_msg_status_t status) {
   msgexpected_callback_llist_t    *cur, *next;
-  for(cur = d->waiting_for_msg_expected; cur != NULL; cur = next) {
+  cur = d->waiting_for_msg_expected;
+  d->waiting_for_msg_expected = NULL;
+  for(; cur != NULL; cur = next) {
     next = cur->next;
     cur->cb(status, &cur[1]);
     ngx_free(cur);
   }
-  d->waiting_for_msg_expected = NULL;
 }
 
 static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {

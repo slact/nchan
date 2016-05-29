@@ -269,6 +269,38 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
   return NGX_OK;
 }
 
+ngx_int_t nchan_extract_from_multi_msgid(nchan_msg_id_t *src, uint16_t n, nchan_msg_id_t *dst) {
+  uint8_t count = src->tagcount;
+  int16_t *tags;
+  
+  if(src->time == 0 || src->time == -1) {
+    dst->time = src->time;
+    dst->tag.fixed[0] = 0;
+    dst->tagcount = 1;
+    dst->tagactive = 0;
+    return NGX_OK;
+  }
+  
+  if(n > count) {
+    ERR("can't extract msgid %i from multi-msg of count %i", n, count);
+    return NGX_ERROR;
+  }
+  tags = (count <= NCHAN_FIXED_MULTITAG_MAX) ? src->tag.fixed : src->tag.allocd;
+  
+  dst->time = src->time;
+  if(tags[n] == -1) {
+    dst->time --;
+    dst->tag.fixed[0] = 32767; //eeeeeh this is bad. but it's good enough.
+  }
+  else {
+    dst->tag.fixed[0] = tags[n];
+  }
+  dst->tagcount = 1;
+  dst->tagactive = 0;
+  
+  return NGX_OK; 
+}
+
 static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
 #if nginx_version >= 1008000
   return r->headers_in.if_none_match ? &r->headers_in.if_none_match->value : NULL;
