@@ -347,7 +347,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
     char_boundary = ngx_palloc(r->pool, 50);
     char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
     
-    ngx_init_set_membuf_char(&double_newline_buf, "\r\n");
+    ngx_init_set_membuf_char(&double_newline_buf, "\r\n\r\n");
     
     //set up the boundaries
     ngx_init_set_membuf(&boundary[0], &char_boundary[2], &char_boundary_last[-4]);
