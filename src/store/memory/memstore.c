@@ -1928,6 +1928,8 @@ struct get_multi_message_data_s {
   
   ngx_event_t                  timer; 
   
+  time_t                       expired;
+  
   callback_pt                  cb;
   void                        *privdata;
 };
@@ -1972,6 +1974,12 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       assert(0);
   }
   */
+  if(d->expired) {
+    ERR("multimsg callback #%i for %p received after expiring at %ui status %i msg %p", d->n, d, d->expired, status, msg);
+    d->getting--;
+    goto cleanup;
+  }
+  
   if(status == MSG_NORESPONSE) {
     nchan_msg_id_t  retry_msgid = NCHAN_ZERO_MSGID;
     //retry featching that message
@@ -2059,9 +2067,14 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     else {
       d->cb(d->msg_status, NULL, d->privdata);
     }
-    
+  }
+
+cleanup:
+  if(d->getting == 0) {
     nchan_free_msg_id(&d->wanted_msgid);
-    ngx_del_timer(&d->timer);
+    if(d->timer.timer_set) {
+      ngx_del_timer(&d->timer);
+    }
     ngx_free(d);
   }
   return NGX_OK;
@@ -2070,9 +2083,9 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
 static void get_multimsg_timeout(ngx_event_t *ev) {
   get_multi_message_data_t    *d = (get_multi_message_data_t *)ev->data;
   ERR("multimsg %p timeout!!", d);  
-  
+  d->expired = ngx_time();
   d->chanhead->reserved--;
-  ngx_free(d);
+  //don't free it, a multimsg callback might arrive late. ngx_free(d);
 }
 
 static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
@@ -2158,10 +2171,11 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   d->n = -1;
   d->getting = getting;
   d->chanhead = chead;
+  d->expired = 0;
   
   ngx_memzero(&d->timer, sizeof(d->timer));
   nchan_init_timer(&d->timer, get_multimsg_timeout, d);
-  ngx_add_timer(&d->timer, 5000);
+  ngx_add_timer(&d->timer, 20000);
   
   nchan_copy_new_msg_id(&d->wanted_msgid, msg_id);
   
