@@ -17,4 +17,4 @@ ngx_str_t nchan_subscriber_set_recyclable_msgid_str(nchan_request_ctx_t *ctx, nc
 void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end);
 void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str);
 #define ngx_init_set_membuf_char(buf, str) \
-  ngx_init_set_membuf(buf, (u_char *)str, ((u_char *)str) + sizeof(str))
+  ngx_init_set_membuf(buf, (u_char *)str, ((u_char *)str) + sizeof(str)-1)
