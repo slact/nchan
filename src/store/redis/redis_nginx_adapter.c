@@ -68,21 +68,21 @@ redisAsyncContext *redis_nginx_open_context(u_char *host, int port, int database
     if (ac->err) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %s:%d - %s", host, port, ac->errstr);
       redisAsyncFree(ac);
+      *context = NULL;
       return NULL;
     }
     
-    redis_nginx_event_attach(ac);
-    
-    if (context != NULL) {
+    if(redis_nginx_event_attach(ac) == REDIS_OK) {
       *context = ac;
     }
+    
     if(password) {
       redisAsyncCommand(ac, redis_nginx_auth_callback, context, AUTH_COMMAND, password);
     }
     redisAsyncCommand(ac, redis_nginx_select_callback, context, SELECT_DATABASE_COMMAND, database);
   }
   else {
-    ac = *context;
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: redis context already open");
   }
 
   return ac;
@@ -104,6 +104,7 @@ redisContext *redis_nginx_open_sync_context(u_char *host, int port, int database
     if (c->err) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis sync context for %s:%d - %s", host, port, c->errstr);
       redisFree(c);
+      *context = NULL;
       return NULL;
     }
     
@@ -209,8 +210,8 @@ void redis_nginx_cleanup(void *privdata) {
     ngx_connection_t *connection = (ngx_connection_t *) privdata;
     redisAsyncContext *ac = (redisAsyncContext *) connection->data;
     if (ac->err) {
-      nchan_store_redis_connection_close_handler(ac);
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
+      //nchan_store_redis_connection_close_handler(ac);
+      //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
       /**
         * If the context had an error but the fd still valid is because another context got the same fd from OS.
         * So we clean the reference to this fd on redisAsyncContext and on ngx_connection, avoiding close a socket in use.
@@ -233,14 +234,6 @@ void redis_nginx_cleanup(void *privdata) {
   }
 }
 
-static void redis_nginx_connect_event_handler(const redisAsyncContext *ctx, int status) {
-  ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, "redis_nginx_adapter: connect event for ctx %p, status %i", ctx, status);
-}
-
-static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ctx, int status) {
-  ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, "redis_nginx_adapter: disconnect event for ctx %p, status %i", ctx, status);
-}
-
 int redis_nginx_event_attach(redisAsyncContext *ac) {
   ngx_connection_t *connection;
   redisContext *c = &(ac->c);
@@ -256,9 +249,6 @@ int redis_nginx_event_attach(redisAsyncContext *ac) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not get a connection for fd #%d", c->fd);
     return REDIS_ERR;
   }
-  
-  redisAsyncSetConnectCallback(ac, redis_nginx_connect_event_handler);
-  redisAsyncSetDisconnectCallback(ac, redis_nginx_disconnect_event_handler);
   
   /* Register functions to start/stop listening for events */
   ac->ev.addRead = redis_nginx_add_read;
