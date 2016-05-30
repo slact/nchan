@@ -46,9 +46,6 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
 static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_auth_subrequest_data_t  *d = data;
   ngx_event_t                   *timer;
-  if(timer == NULL) {
-    return NGX_ERROR;
-  }
   
   if (rc == NGX_HTTP_CLIENT_CLOSED_REQUEST) {
     d->sub->fn->release(d->sub, 1);
@@ -58,7 +55,9 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
   else {
     d->rc = rc;
     d->http_response_code = r->headers_out.status;
-    timer = ngx_pcalloc(r->pool, sizeof(*timer));
+    if((timer = ngx_pcalloc(r->pool, sizeof(*timer))) == NULL) {
+      return NGX_ERROR;
+    }
     timer->handler = subscriber_authorize_timer_callback_handler;
     timer->log = d->sub->request->connection->log;
     timer->data = data;
