@@ -234,7 +234,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       break;
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
-      assert(0);
+      websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
       break;
   }
   return NGX_OK;
