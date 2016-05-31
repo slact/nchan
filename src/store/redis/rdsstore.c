@@ -13,6 +13,8 @@
 #define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL 300
 #define REDIS_LUA_HASH_LENGTH 40
 
+#define REDIS_RECONNECT_TIME 5000
+
 static ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
 
 typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
@@ -61,8 +63,11 @@ typedef struct {
   redisAsyncContext               *ctx;
   redisAsyncContext               *sub_ctx;
   redisContext                    *sync_ctx;
+  
   redis_connection_status_t        status;
   int                              generation;
+  ngx_event_t                      reconnect_timer;
+  
   void                            (*set_status)(redis_connection_status_t status, const redisAsyncContext *ac);
   
   nchan_reaper_t                   chanhead_reaper;
@@ -296,15 +301,28 @@ static redisAsyncContext **whichRedisContext(const redisAsyncContext *ac) {
 }
 
 static void rdt_set_status(redis_connection_status_t status, const redisAsyncContext *ac) {
-  if(status == DISCONNECTED && ac) {
-    redisAsyncContext **pac = whichRedisContext(ac);
-    if(pac)
-      *pac = NULL;
+  if(status == DISCONNECTED) {
+    if(!rdt.reconnect_timer.timer_set) {
+      ngx_add_timer(&rdt.reconnect_timer, REDIS_RECONNECT_TIME);
+    }
+    
+    if(ac) {
+      redisAsyncContext **pac = whichRedisContext(ac);
+      if(pac)
+        *pac = NULL;
+    }
   }
   else if(status == CONNECTED && rdt.status != CONNECTED) {
     rdt.generation++;
   }
   rdt.status = status;
+}
+
+static void redis_reconnect_timer_handler(ngx_event_t *ev) {
+  if(!ev->timedout)
+    return;
+  
+  redis_ensure_connected();
 }
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
@@ -314,6 +332,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   rdt.status = DISCONNECTED;
   rdt.generation = 0;
   rdt.set_status = rdt_set_status;
+  nchan_init_timer(&rdt.reconnect_timer, redis_reconnect_timer_handler, NULL);
   
   ngx_memzero(&rdt.subscriber_id, sizeof(rdt.subscriber_id));
   ngx_memzero(&rdt.subscriber_channel, sizeof(rdt.subscriber_channel));
