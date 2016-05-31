@@ -423,6 +423,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   legacy name: push_message_timeout  
   > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
 
+- **nchan_redis_ping_interval**  
+  arguments: 1  
+  default: `4m`  
+  context: http  
+  > Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable.    
+
 - **nchan_redis_url**  
   arguments: 1  
   default: `127.0.0.1:6379`  
