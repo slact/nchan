@@ -1,3 +1,4 @@
+0.99.15 (May 31 2016)
  feature: redis client keepalive configurable with nchan_redis_ping_interval
  feature: try to reconnect to redis after lost connection to redis
  fix: invalid memory access after lost connection to redis
