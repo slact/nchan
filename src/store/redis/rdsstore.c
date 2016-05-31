@@ -1602,7 +1602,6 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   if(conf->redis_ping_interval==NGX_CONF_UNSET) {
     conf->redis_ping_interval=REDIS_DEFAULT_PING_INTERVAL_TIME;
   }
-  ERR("redis_ping_interval, %i, %i", NGX_CONF_UNSET, conf->redis_ping_interval);
   rdt.connect_url = &conf->redis_url;
   rdt.ping_interval = conf->redis_ping_interval;
   
@@ -1611,7 +1610,6 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
 
 static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
   mcf->redis_ping_interval=NGX_CONF_UNSET;
-  ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "create_main_conf redis %i", mcf->redis_ping_interval);
 }
 
 void redis_store_prepare_to_exit_worker() {
