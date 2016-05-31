@@ -175,6 +175,9 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   The response headers and the unused "preamble" portion of the response body are sent right away, with the boundary string generated randomly for each subscriber.  Each subsequent message will be sent as one part of the multipart message, and will include the message time and tag (`Last-Modified` and `Etag`) as well as the optional `Content-Type` headers.  
   Each message is terminated with the next multipart message's boundary **without a trailing newline**. While this conforms to the multipart spec, it is unusual as multipart messages are defined as *starting*, rather than ending with a boundary.  
   A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
+  
+- ##### HTTP Raw Stream
+  A simple subscription method similar to the [streaming subscriber](https://github.com/wandenberg/nginx-push-stream-module/blob/master/docs/directives/subscribers.textile#push_stream_subscriber) of the [Nginx HTTP Push Stream Module](https://github.com/wandenberg/nginx-push-stream-module). Messages are appended to the response body, separated by a newline or configurable by `nchan_subscriber_http_raw_stream_separator`.
 
 - ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
   This subscription method uses the `chunked` `Transfer-Encoding` to receive messages.   
