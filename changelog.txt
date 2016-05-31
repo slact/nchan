@@ -1,3 +1,6 @@
+ feature: redis client keepalive configurable with nchan_redis_ping_interval
+ feature: try to reconnect to redis after lost connection to redis
+ fix: invalid memory access after lost connection to redis
  fix: use-after-free error if subscriber disconnects before response 
       from upstream authorize server (thanks Filip Jenicek)
  fix: corrupt longpoll-multipart boundary data with long messages
