@@ -13,6 +13,8 @@
 #define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL 300
 #define REDIS_LUA_HASH_LENGTH 40
 
+#define REDIS_DEFAULT_PING_INTERVAL_TIME 4*60
+
 #define REDIS_RECONNECT_TIME 5000
 
 static ngx_str_t REDIS_DEFAULT_URL = ngx_string("127.0.0.1:6379");
@@ -67,6 +69,8 @@ typedef struct {
   redis_connection_status_t        status;
   int                              generation;
   ngx_event_t                      reconnect_timer;
+  ngx_event_t                      ping_timer;
+  time_t                           ping_interval;
   
   void                            (*set_status)(redis_connection_status_t status, const redisAsyncContext *ac);
   
@@ -124,6 +128,15 @@ static ngx_int_t redis_ensure_connected();
   }while(0)
   
 
+#define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
+#define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
+#define CHECK_REPLY_STRNVAL(reply, v, n) ( CHECK_REPLY_STR(reply) && ngx_strncmp((reply)->str, v, n) == 0 )
+#define CHECK_REPLY_INT(reply) ((reply)->type == REDIS_REPLY_INTEGER)
+#define CHECK_REPLY_INTVAL(reply, v) ( CHECK_REPLY_INT(reply) && (reply)->integer == v )
+#define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= (unsigned )size )
+#define CHECK_REPLY_NIL(reply) ((reply)->type == REDIS_REPLY_NIL)
+#define CHECK_REPLY_INT_OR_STR(reply) ((reply)->type == REDIS_REPLY_INTEGER || (reply)->type == REDIS_REPLY_STRING)
+  
 static ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *head, const char *reason);
 static ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *chanhead);
 
@@ -307,6 +320,9 @@ static void rdt_set_status(redis_connection_status_t status, const redisAsyncCon
     if(!rdt.reconnect_timer.timer_set) {
       ngx_add_timer(&rdt.reconnect_timer, REDIS_RECONNECT_TIME);
     }
+    if(rdt.ping_timer.timer_set) {
+      ngx_del_timer(&rdt.ping_timer);
+    }
     
     if(ac) {
       redisAsyncContext **pac = whichRedisContext(ac);
@@ -315,6 +331,9 @@ static void rdt_set_status(redis_connection_status_t status, const redisAsyncCon
     }
   }
   else if(status == CONNECTED && rdt.status != CONNECTED) {
+    if(!rdt.ping_timer.timer_set && rdt.ping_interval) {
+      ngx_add_timer(&rdt.ping_timer, rdt.ping_interval * 1000);
+    }
     rdt.generation++;
   }
   rdt.status = status;
@@ -327,6 +346,34 @@ static void redis_reconnect_timer_handler(ngx_event_t *ev) {
   redis_ensure_connected();
 }
 
+static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
+
+static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply         *reply = (redisReply *)r;
+  redisCheckErrorCallback(c, r, privdata);
+  if(CHECK_REPLY_INT(reply)) {
+    if(reply->integer < 1) {
+      ERR("failed to forward ping to sub_ctx");
+    }
+  }
+  else {
+    ERR("unexpected reply type for redis_ping_callback");
+  }
+}
+
+static void redis_ping_timer_handler(ngx_event_t *ev) {
+  
+  if(!ev->timedout)
+    return;
+  
+  if(rdt.status == CONNECTED && rdt.ctx && rdt.sub_ctx) {
+    redis_command(redis_ping_callback, NULL, "PUBLISH %s ping", rdt.subscriber_channel);
+    if(rdt.ping_interval) {
+      ngx_add_timer(ev, rdt.ping_interval * 1000);
+    }
+  }
+}
+
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   rdt.subhash = NULL;
@@ -334,7 +381,9 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   rdt.status = DISCONNECTED;
   rdt.generation = 0;
   rdt.set_status = rdt_set_status;
+  rdt.shutting_down = 0;
   nchan_init_timer(&rdt.reconnect_timer, redis_reconnect_timer_handler, NULL);
+  nchan_init_timer(&rdt.ping_timer, redis_ping_timer_handler, NULL);
   
   ngx_memzero(&rdt.subscriber_id, sizeof(rdt.subscriber_id));
   ngx_memzero(&rdt.subscriber_channel, sizeof(rdt.subscriber_channel));
@@ -576,15 +625,6 @@ static ngx_int_t redis_ensure_connected() {
 
 static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_buf_t *buf, redisReply *r, uint16_t offset);
 
-#define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
-#define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
-#define CHECK_REPLY_STRNVAL(reply, v, n) ( CHECK_REPLY_STR(reply) && ngx_strncmp((reply)->str, v, n) == 0 )
-#define CHECK_REPLY_INT(reply) ((reply)->type == REDIS_REPLY_INTEGER)
-#define CHECK_REPLY_INTVAL(reply, v) ( CHECK_REPLY_INT(reply) && (reply)->integer == v )
-#define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= (unsigned )size )
-#define CHECK_REPLY_NIL(reply) ((reply)->type == REDIS_REPLY_NIL)
-#define CHECK_REPLY_INT_OR_STR(reply) ((reply)->type == REDIS_REPLY_INTEGER || (reply)->type == REDIS_REPLY_STRING)
-
 #define SLOW_REDIS_REPLY 100 //ms
 
 static ngx_int_t log_redis_reply(char *name, ngx_msec_t t) {
@@ -761,6 +801,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   nchan_msg_t             msg;
   ngx_buf_t               buf;
   ngx_str_t               chid = ngx_null_string;
+  ngx_str_t               pubsub_channel; 
   ngx_str_t               msg_redis_hash_key = ngx_null_string;
   ngx_uint_t              subscriber_id;
   
@@ -782,16 +823,21 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_STRVAL(reply->element[0], "message")
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_STR(reply->element[2])) {
-
+    
+    pubsub_channel.data = (u_char *)reply->element[1]->str;
+    pubsub_channel.len = reply->element[1]->len;
+  
     //reply->element[1] is the pubsub channel name
     el = reply->element[2];
     
-    if(CHECK_REPLY_STR(el)) {
+    if(CHECK_REPLY_STRVAL(el, "ping") && ngx_strmatch(&pubsub_channel, (char *)&rdt.subscriber_channel)) {
+      DBG("got pinged");
+    }
+    else if(CHECK_REPLY_STR(el)) {
       uint32_t    array_sz;
       //maybe a message?
       set_buf(&mpbuf, (u_char *)el->str, el->len);
       cmp_init(&cmp, &mpbuf, ngx_buf_reader, ngx_buf_writer);
-      
       if(cmp_read_array(&cmp, &array_sz)) {
         
         if(array_sz != 0) {
@@ -1553,13 +1599,19 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     ngx_memcpy(&conf->redis_url, &REDIS_DEFAULT_URL, sizeof(REDIS_DEFAULT_URL));
   }
   
+  if(conf->redis_ping_interval==NGX_CONF_UNSET) {
+    conf->redis_ping_interval=REDIS_DEFAULT_PING_INTERVAL_TIME;
+  }
+  ERR("redis_ping_interval, %i, %i", NGX_CONF_UNSET, conf->redis_ping_interval);
   rdt.connect_url = &conf->redis_url;
+  rdt.ping_interval = conf->redis_ping_interval;
   
   return NGX_OK;
 }
 
 static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
-  mcf->shm_size=NGX_CONF_UNSET_SIZE;
+  mcf->redis_ping_interval=NGX_CONF_UNSET;
+  ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "create_main_conf redis %i", mcf->redis_ping_interval);
 }
 
 void redis_store_prepare_to_exit_worker() {
@@ -1571,6 +1623,8 @@ void redis_store_prepare_to_exit_worker() {
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t *cur, *tmp;
+  
+  rdt.shutting_down = 1;
   
   HASH_ITER(hh, rdt.subhash, cur, tmp) {
     cur->shutting_down = 1;

@@ -16,6 +16,7 @@ typedef enum {
 typedef struct {
   size_t                          shm_size;
   ngx_str_t                       redis_url;
+  time_t                          redis_ping_interval;
 } nchan_main_conf_t;
 
 typedef struct {

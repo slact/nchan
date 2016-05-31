@@ -60,11 +60,8 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   if(mcf == NULL) {
     return NGX_CONF_ERROR;
   }
-  
   nchan_store_memory.create_main_conf(cf, mcf);
-  if(global_redis_enabled) {
-    nchan_store_redis.create_main_conf(cf, mcf);
-  }
+  nchan_store_redis.create_main_conf(cf, mcf);
   
   return mcf;
 }
