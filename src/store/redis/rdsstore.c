@@ -71,6 +71,8 @@ typedef struct {
   void                            (*set_status)(redis_connection_status_t status, const redisAsyncContext *ac);
   
   nchan_reaper_t                   chanhead_reaper;
+  
+  unsigned                         shutting_down:1;
 } rdstore_data_t;
 
 static rdstore_data_t        rdt;
@@ -478,8 +480,8 @@ static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ac, in
   
   DBG("connection to redis for %V closed: %s", rdt.connect_url, ac->errstr);
   
-  if(rdt.status == CONNECTED) {
-    if(ac->errstr) {
+  if(rdt.status == CONNECTED && !ngx_exiting && !ngx_quit && !rdt.shutting_down) {
+    if(ac->err) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %v: %s.", rdt.connect_url, ac->errstr);
     }
     else {
