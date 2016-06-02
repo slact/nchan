@@ -45,14 +45,19 @@ struct nchan_store_channel_head_s {
   UT_hash_handle               hh;
 };
 
-typedef enum {DISCONNECTED, CONNECTING, CONNECTED} redis_connection_status_t;
-
 typedef struct {
   u_char       *password;
   u_char       *host;
   ngx_int_t     port;
   ngx_int_t     db;
 } redis_connect_params_t;
+
+typedef struct callback_chain_s callback_chain_t;
+struct callback_chain_s {
+  callback_pt                  cb;
+  void                        *pd;
+  callback_chain_t            *next;
+};
 
 typedef struct {
   nchan_store_channel_head_t      *subhash;
@@ -71,6 +76,7 @@ typedef struct {
   ngx_event_t                      reconnect_timer;
   ngx_event_t                      ping_timer;
   time_t                           ping_interval;
+  callback_chain_t                *on_connected;
   
   void                            (*set_status)(redis_connection_status_t status, const redisAsyncContext *ac);
   
@@ -81,6 +87,27 @@ typedef struct {
 
 static rdstore_data_t        rdt;
 
+
+redis_connection_status_t redis_connection_status(void) {
+  return rdt.status;
+}
+
+ngx_int_t redis_store_callback_on_connected(callback_pt cb, void *privdata) {
+  callback_chain_t  *d;
+  
+  if(rdt.status == CONNECTED) {
+    cb(NGX_OK, NULL, privdata);
+  }
+  
+  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  
+  d->cb = cb;
+  d->pd = privdata;
+  d->next = rdt.on_connected;
+  
+  rdt.on_connected = d;
+  return NGX_OK;
+}
 
 static ngx_int_t redis_ensure_connected();
 
@@ -316,6 +343,9 @@ static redisAsyncContext **whichRedisContext(const redisAsyncContext *ac) {
 }
 
 static void rdt_set_status(redis_connection_status_t status, const redisAsyncContext *ac) {
+  redis_connection_status_t prev_status = rdt.status;
+  rdt.status = status;
+  
   if(status == DISCONNECTED) {
     if(!rdt.reconnect_timer.timer_set) {
       ngx_add_timer(&rdt.reconnect_timer, REDIS_RECONNECT_TIME);
@@ -324,19 +354,40 @@ static void rdt_set_status(redis_connection_status_t status, const redisAsyncCon
       ngx_del_timer(&rdt.ping_timer);
     }
     
+    if(prev_status != DISCONNECTED) {
+      nchan_store_channel_head_t   *cur, *tmp;
+      HASH_ITER(hh, rdt.subhash, cur, tmp) {
+        cur->spooler.fn->broadcast_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+        chanhead_gc_add(cur, "redis connection gone");
+      }
+      nchan_reaper_flush(&rdt.chanhead_reaper);
+    }
+    
     if(ac) {
       redisAsyncContext **pac = whichRedisContext(ac);
       if(pac)
         *pac = NULL;
     }
   }
-  else if(status == CONNECTED && rdt.status != CONNECTED) {
+  else if(status == CONNECTED && prev_status != CONNECTED) {
+    callback_chain_t    *cur, *next;
+    
     if(!rdt.ping_timer.timer_set && rdt.ping_interval) {
       ngx_add_timer(&rdt.ping_timer, rdt.ping_interval * 1000);
     }
+    
+    //on_connected callbacks
+    cur = rdt.on_connected;
+    rdt.on_connected = NULL;
+    
+    while(cur != NULL) {
+      next = cur->next;
+      cur->cb(NGX_OK, NULL, cur->pd);
+      ngx_free(cur);
+      cur = next;
+    }
     rdt.generation++;
   }
-  rdt.status = status;
 }
 
 static void redis_reconnect_timer_handler(ngx_event_t *ev) {
@@ -519,14 +570,6 @@ static void redis_nginx_connect_event_handler(const redisAsyncContext *ac, int s
 }
 
 static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ac, int status) {
-  nchan_store_channel_head_t   *cur, *tmp;
-  
-  HASH_ITER(hh, rdt.subhash, cur, tmp) {
-    cur->spooler.fn->broadcast_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-    chanhead_gc_add(cur, "redis connection gone");
-  }
-  nchan_reaper_flush(&rdt.chanhead_reaper);
-  
   DBG("connection to redis for %V closed: %s", rdt.connect_url, ac->errstr);
   
   if(rdt.status == CONNECTED && !ngx_exiting && !ngx_quit && !rdt.shutting_down) {
@@ -537,8 +580,8 @@ static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ac, in
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %v.", rdt.connect_url);
     }
   }
-  
   rdt.set_status(DISCONNECTED, ac);
+  
 }
 
 void redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -1623,6 +1666,13 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t *cur, *tmp;
   
   rdt.shutting_down = 1;
+  
+  callback_chain_t *ccur, *cnext;  
+  for(ccur = rdt.on_connected; ccur != NULL; ccur = cnext) {
+    cnext = ccur->next;
+    ngx_free(ccur);
+  }
+  rdt.on_connected = NULL;
   
   HASH_ITER(hh, rdt.subhash, cur, tmp) {
     cur->shutting_down = 1;

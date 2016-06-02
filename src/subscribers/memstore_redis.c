@@ -35,6 +35,7 @@ struct sub_data_s {
   ngx_event_t                   timeout_ev;
   nchan_msg_status_t            last_msg_status;
   msgexpected_callback_llist_t *waiting_for_msg_expected;
+  sub_data_t                  **onconnect_callback_pd;
 }; //sub_data_t
 
 /*
@@ -102,8 +103,30 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
 }
 
 static ngx_int_t sub_destroy_handler(ngx_int_t status, void *d, sub_data_t *pd) {
+  DBG("%p sub_destroy_handler", pd->sub);
+  if(pd->onconnect_callback_pd)
+    (*pd->onconnect_callback_pd) = NULL;
   return NGX_OK;
 }
+
+static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
+  sub_data_t *sd = *((sub_data_t **) pd);
+  if(sd) {
+    DBG("%reconnect callback");
+    assert(sd->chanhead->redis_sub == sd->sub);
+    assert(&sd->chanhead->id == sd->chid);
+    nchan_store_redis.subscribe(sd->chid, sd->chanhead->redis_sub);
+    sd->onconnect_callback_pd = NULL;
+    sd->sub->dequeue_after_response = 0;
+    ((internal_subscriber_t *)sd->sub)->already_dequeued = 0;
+    ngx_free(pd);
+  }
+  else {
+    DBG("%reconnect callback skipped");
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p memstore-redis subscriber respond with status %i", d->sub, status);
   switch(status) {
@@ -111,6 +134,12 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
     case NGX_HTTP_CLOSE: //delete
       respond_msgexpected_callbacks(d, MSG_NORESPONSE);
       nchan_store_memory.delete_channel(d->chid, NULL, NULL);
+      if(redis_connection_status() != CONNECTED && d->onconnect_callback_pd == NULL) {
+        sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
+        *dd = d;
+        d->onconnect_callback_pd = dd;
+        redis_store_callback_on_connected(reconnect_callback, dd);
+      }
       break;
       
     case NGX_HTTP_NO_CONTENT:
@@ -193,6 +222,8 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   d->chid = &chanhead->id;
   d->last_msg_status = MSG_PENDING;
   d->waiting_for_msg_expected = NULL;
+  d->onconnect_callback_pd = NULL;
+
   
   /*
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
