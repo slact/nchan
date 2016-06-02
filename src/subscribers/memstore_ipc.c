@@ -52,7 +52,6 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   }
   else {
     DBG("%p (%V) destroy", fsub, d->chid);
-    ngx_free(d);
   }
   
   return ret;
@@ -155,8 +154,7 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   subscriber_t               *sub;
   
   assert(originator_slot != memstore_slot());
-  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, NULL);
+  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, NULL, NULL);
   
   sub->last_msgid = newest_msgid;
   sub->destroy_after_dequeue = 1;

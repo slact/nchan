@@ -64,12 +64,13 @@ static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
 }
 
 ngx_int_t memstore_redis_subscriber_destroy(subscriber_t *sub) {
+  DBG("%p destroy", sub);
   return internal_subscriber_destroy(sub);
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
+  DBG("%p dequeue", d->sub);
   respond_msgexpected_callbacks(d, MSG_NORESPONSE);
-  ngx_free(d);
   return NGX_OK;
 }
 
@@ -100,6 +101,9 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   return NGX_OK;
 }
 
+static ngx_int_t sub_destroy_handler(ngx_int_t status, void *d, sub_data_t *pd) {
+  return NGX_OK;
+}
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p memstore-redis subscriber respond with status %i", d->sub, status);
   switch(status) {
@@ -178,8 +182,8 @@ static ngx_str_t   sub_name = ngx_string("memstore-redis");
 subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
   subscriber_t               *sub;
   sub_data_t                 *d;
-  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler);
+  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, (callback_pt )sub_destroy_handler);
+  
   
   sub->destroy_after_dequeue = 0;
   sub->dequeue_after_response = 0;

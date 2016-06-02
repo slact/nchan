@@ -60,7 +60,6 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   d->multi_chanhead->multi_waiting++;
   d->multi->sub = NULL;
   
-  ngx_free(d);
   return NGX_OK;
 }
 
@@ -156,8 +155,7 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
     return NULL;
   }
   
-  d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-  sub = internal_subscriber_create_init(&sub_name, d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler);
+  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, NULL);
   
   sub->last_msgid = latest_msgid;
   
