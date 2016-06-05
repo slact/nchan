@@ -463,6 +463,8 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   
   DBG("%p respond req %p status %i", self, r, status_code);
   
+  fsub->sub.dequeue_after_response = 1;
+  
   nchan_set_msgid_http_response_headers(r, NULL, &self->last_msgid);
   
   //disable abort handler
