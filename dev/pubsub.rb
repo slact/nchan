@@ -403,12 +403,7 @@ class Subscriber
         #handshake response
         loop do
           @handshake << sock.readline
-          if @handshake.finished?
-            unless @handshake.valid?
-              @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
-            end
-            break
-          end
+          break if @handshake.finished?
         end
         
         if @handshake.valid?
@@ -417,6 +412,9 @@ class Subscriber
           async.listen bundle
           @notready-=1
           @cooked_ready.signal true if @notready == 0
+        else
+          @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
+          close nil
         end
       end
     end
