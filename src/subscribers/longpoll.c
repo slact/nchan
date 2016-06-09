@@ -476,6 +476,15 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   return NGX_OK;
 }
 
+ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t status_code, const ngx_str_t *status_line) {
+  ngx_http_request_t     *r = fsub->sub.request;
+  fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
+  fsub->data.finalize_request = 0;
+  fsub->sub.status = DEAD;
+  fsub->sub.fn->dequeue(&fsub->sub);
+  return nchan_respond_status(r, status_code, status_line, 1);
+}
+
 void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx_int_t status_code) {
   if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
