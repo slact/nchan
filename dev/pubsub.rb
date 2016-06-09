@@ -222,7 +222,7 @@ class Subscriber
         when /^(ws|http|h2c)$/
           @sock = Celluloid::IO::TCPSocket.new(uri.host, uri.port)
         when /^(wss|https|h2)$/
-          @sock = Celluloid::IO::SSLSocket.new(uri.host, uri.port)
+          @sock = Celluloid::IO::SSLSocket.new(Celluloid::IO::TCPSocket.new(uri.host, uri.port))
         else
           raise ArgumentError, "unexpected uri scheme #{uri.scheme}"
         end
