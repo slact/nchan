@@ -38,7 +38,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
 "
 
 _NCHAN_REDIS_STORE_SRCS="\
-  ${_NCHAN_HIREDIS_SRCS}
+  ${_NCHAN_HIREDIS_SRCS} \
   ${ngx_addon_dir}/src/store/redis/cmp.c \
   ${ngx_addon_dir}/src/store/redis/rdsstore.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
