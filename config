@@ -64,7 +64,7 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_subrequest.c \
 "
 
-_NCHAN_STORE_SRCS="  
+_NCHAN_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/rbtree_util.c \
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
