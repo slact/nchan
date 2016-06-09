@@ -13,8 +13,8 @@
 #include "memstore_redis.h"
 #include <assert.h>
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:MEM-REDIS:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:MEM-REDIS:" fmt, ##arg)
@@ -161,6 +161,7 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
 
 ngx_int_t nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(subscriber_t *sub, nchan_msg_id_t *id, void (*cb)(nchan_msg_status_t, void*), size_t pd_sz, void *pd) {
   sub_data_t      *d = internal_subscriber_get_privdata(sub);
+  DBG("%p nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED", d->sub);
   int8_t           cmpval = nchan_compare_msgids(id, &sub->last_msgid);
   if(cmpval < 0) {
     cb(MSG_NORESPONSE, pd);
@@ -224,6 +225,7 @@ subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanh
   d->waiting_for_msg_expected = NULL;
   d->onconnect_callback_pd = NULL;
 
+  DBG("%p create", d->sub);
   
   /*
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));

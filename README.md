@@ -331,6 +331,11 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
+- **nchan_subscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing.    
+
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
   default: `websocket eventsource longpoll chunked multipart-mixed`  
@@ -385,17 +390,16 @@ Publishing to multiple channels with a single request is also possible, with sim
   legacy name: push_subscriber_timeout  
   > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.    
 
+- **nchan_unsubscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing.    
+
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  
   default: `0 (none)`  
   context: server, location, if  
   > Interval for sending websocket ping frames. Disabled by default.    
-
-- **nchan_access_control_allow_origin** `<string>`  
-  arguments: 1  
-  default: `*`  
-  context: http, server, location  
-  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
 
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
@@ -447,6 +451,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
+
+- **nchan_access_control_allow_origin** `<string>`  
+  arguments: 1  
+  default: `*`  
+  context: http, server, location  
+  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
 
 - **nchan_channel_group** `<string>`  
   arguments: 1  

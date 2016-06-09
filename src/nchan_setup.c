@@ -84,6 +84,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->authorize_request_url = NULL;
   lcf->publisher_upstream_request_url = NULL;
+  lcf->unsubscribe_request_url = NULL;
+  lcf->subscribe_request_url = NULL;
   
   lcf->buffer_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
@@ -206,6 +208,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
 
   MERGE_CONF(conf, prev, authorize_request_url);
   MERGE_CONF(conf, prev, publisher_upstream_request_url);
+  MERGE_CONF(conf, prev, unsubscribe_request_url);
+  MERGE_CONF(conf, prev, subscribe_request_url);
   
   if(conf->pub_chid.n == 0) {
     conf->pub_chid = prev->pub_chid;

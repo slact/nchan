@@ -4,8 +4,8 @@
 #include "longpoll.h"
 #include "longpoll-private.h"
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:MULTIPART:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:MULTIPART:" fmt, ##arg)
@@ -269,6 +269,8 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
   //header bufs -- unique per response
   ctx->output_str_queue = ngx_palloc(r->pool, sizeof(*ctx->output_str_queue));
   nchan_reuse_queue_init(ctx->output_str_queue, offsetof(headerbuf_t, prev), offsetof(headerbuf_t, next), headerbuf_alloc, NULL, sub->request->pool);
+  
+  ctx->block_on_unsubscribe_request = 0;
   
   ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
   nchan_bufchain_pool_init(ctx->bcp, r->pool);

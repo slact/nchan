@@ -196,6 +196,22 @@ CfCmd.new do
       value: "<url>",
       info: "Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it."
   
+  nchan_subscribe_request [:srv, :loc, :if], 
+      :ngx_http_set_complex_value_slot,
+      [:loc_conf, :subscribe_request_url],
+      
+      group: "pubsub",
+      value: "<url>",
+      info: "Send GET request to internal location (which may proxy to an upstream server) after subscribing."
+  
+  nchan_unsubscribe_request [:srv, :loc, :if], 
+      :ngx_http_set_complex_value_slot,
+      [:loc_conf, :unsubscribe_request_url],
+      
+      group: "pubsub",
+      value: "<url>",
+      info: "Send GET request to internal location (which may proxy to an upstream server) after unsubscribing."
+  
   nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,
       :loc_conf,

@@ -19,6 +19,7 @@ typedef struct {
   unsigned                already_responded:1;
   unsigned                awaiting_destruction:1;
   unsigned                shook_hands:1;
+  unsigned                was_enqueued:1;
 } subscriber_data_t;
 
 typedef struct {

@@ -1,7 +1,7 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #include <assert.h>
@@ -16,15 +16,40 @@ ngx_int_t memstore_slot(void);
 
 static const subscriber_t new_longpoll_sub;
 
-static void empty_handler() { }
+static void empty_handler(void) { }
 
-static void sudden_abort_handler(subscriber_t *sub) {
+ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub);
+
+static int maybe_send_unsubscribe_upstream_request(full_subscriber_t *fsub, ngx_int_t status) {
+  if(fsub->data.was_enqueued && fsub->sub.cf->unsubscribe_request_url) {
+    nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
+    ctx->unsubscribe_request_finalize_code = status;
+    fsub->sub.request->main->blocked = 1;
+    return 1;
+  }
+  return 0;
+}
+
+static void longpoll_finalize_request(full_subscriber_t *fsub, ngx_int_t status) {
+  if(maybe_send_unsubscribe_upstream_request(fsub, status)) {
+    status = NGX_HTTP_CLIENT_CLOSED_REQUEST;
+  }
+  ngx_http_finalize_request(fsub->sub.request, status);
+}
+
+static void sudden_abort_handler(full_subscriber_t *fsub) {
 #if FAKESHARD
-  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->sub.owner);
 #endif
-  sub->status = DEAD;
-  sub->fn->dequeue(sub);
+  if(fsub->sub.cf->unsubscribe_request_url) {
+    nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
+    ctx->block_on_unsubscribe_request = 1;
+    ctx->unsubscribe_request_finalize_code = NGX_HTTP_CLIENT_CLOSED_REQUEST;
+  }
+  fsub->sub.status = DEAD;
+  fsub->data.finalize_request = 0;
+  fsub->sub.fn->dequeue(&fsub->sub);
+  longpoll_subscriber_destroy(&fsub->sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -35,7 +60,8 @@ static void sudden_abort_handler(subscriber_t *sub) {
 subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   DBG("create for req %p", r);
   full_subscriber_t      *fsub;
-
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  
   //TODO: allocate from pool (but not the request's pool)
   if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
@@ -54,16 +80,19 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   
   fsub->data.dequeue_handler = empty_handler;
   fsub->data.dequeue_handler_data = NULL;
+  
   fsub->data.already_responded = 0;
   fsub->data.awaiting_destruction = 0;
+  fsub->data.was_enqueued = 0;
   
   if(fsub->sub.cf->longpoll_multimsg) {
-    nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
     fsub->sub.dequeue_after_response = 0;
     ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
     nchan_bufchain_pool_init(ctx->bcp, r->pool);
-
   }
+  
+  ctx->block_on_unsubscribe_request = 1;
+  ctx->unsubscribe_request_finalize_code = NGX_DECLINED;
   
   fsub->data.multimsg_first = NULL;
   fsub->data.multimsg_last = NULL;
@@ -165,20 +194,23 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
   DBG("%p dequeue", self);
+  
   fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
+
   self->enqueued = 0;
   
   ctx->sub = NULL;
   
   if(fsub->data.finalize_request) {
-    DBG("finalize request %p", fsub->sub.request);
-    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    DBG("finalize request %p %i", fsub->sub.request);
+    
+    longpoll_finalize_request(fsub, NGX_OK);
     self->status = DEAD;
   }
   
-  if(self->destroy_after_dequeue) {
+  /*if(self->destroy_after_dequeue) {
     longpoll_subscriber_destroy(self);
-  }
+  }*/
   return NGX_OK;
 }
 
@@ -279,9 +311,10 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   return rc;
 }
 
-static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) {
+static void multipart_request_cleanup_handler(full_subscriber_t *fsub) {
   nchan_longpoll_multimsg_t    *cur;
   nchan_msg_copy_t             *cmsg;
+  nchan_longpoll_multimsg_t    *first = fsub->data.multimsg_first;
   for(cur = first; cur != NULL; cur = cur->next) {
     if(cur->msg->shared) {
       msg_release(cur->msg, "longpoll multipart");
@@ -330,7 +363,7 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   
   //cleanup to release msgs
   fsub->data.cln = ngx_http_cleanup_add(fsub->sub.request, 0);
-  fsub->data.cln->data = first;
+  fsub->data.cln->data = fsub;
   fsub->data.cln->handler = (ngx_http_cleanup_pt )multipart_request_cleanup_handler;
   
   if(fsub->data.multimsg_first == fsub->data.multimsg_last) {
@@ -461,9 +494,13 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
     }
   }
   
+  
+  
   DBG("%p respond req %p status %i", self, r, status_code);
   
-  fsub->sub.dequeue_after_response = 1;
+  if(fsub->sub.type == LONGPOLL && fsub->sub.cf->longpoll_multimsg) {
+    fsub->sub.dequeue_after_response = 1;
+  }
   
   nchan_set_msgid_http_response_headers(r, NULL, &self->last_msgid);
   
@@ -480,7 +517,9 @@ void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx
   if((status_code >=400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
-    fsub->data.finalize_request=1;
+    if(!fsub->sub.cf->unsubscribe_request_url) {
+      fsub->data.finalize_request=1;
+    }
     fsub->sub.fn->dequeue(&fsub->sub);
   }
 }
@@ -511,7 +550,7 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_reserve,
   &longpoll_release,
   NULL,
-  &nchan_subscriber_authorize_subscribe
+  &nchan_subscriber_authorize_subscribe_request
 };
 
 static ngx_str_t  sub_name = ngx_string("longpoll");
