@@ -962,6 +962,10 @@ class Subscriber
         if code != 200
           @subscriber.on_failure error(code, "")
           close b
+          b.on_response do |code, headers, body|
+            @subscriber.finished+=1
+            close b
+          end
         else
           @notready-=1
           @cooked_ready.signal true if @notready == 0
@@ -986,7 +990,7 @@ class Subscriber
         if !b.subparser.buf_empty?
           b.subparser.parse_line "\n"
         else
-          @subscriber.on_failure error(0, "Response completed unexpectedly", bundle)
+          @subscriber.on_failure error(0, "Response completed unexpectedly", b)
         end
         @subscriber.finished+=1
         close b
