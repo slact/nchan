@@ -38,7 +38,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
 "
 
 _NCHAN_REDIS_STORE_SRCS="\
-  ${_NCHAN_HIREDIS_SRCS}
+  ${_NCHAN_HIREDIS_SRCS} \
   ${ngx_addon_dir}/src/store/redis/cmp.c \
   ${ngx_addon_dir}/src/store/redis/rdsstore.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
@@ -64,7 +64,7 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_subrequest.c \
 "
 
-_NCHAN_STORE_SRCS="  
+_NCHAN_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/rbtree_util.c \
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
