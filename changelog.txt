@@ -1,3 +1,7 @@
+0.99.16 (Jun 10 2016)
+ fix: invalid memory access when upstream subscriber authorize request failed
+ fix: longpoll-multipart subscriber was managed incorrectly on channel deletion
+ fix: subscribers may not receive messages after redis reconnection
 0.99.15 (May 31 2016)
  feature: redis client keepalive configurable with nchan_redis_ping_interval
  feature: try to reconnect to redis after lost connection to redis
