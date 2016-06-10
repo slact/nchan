@@ -5,6 +5,8 @@ require "minitest/autorun"
 Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
+require_relative 'authserver.rb'
+
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 PORT=ENV["PUSHMODULE_PORT"] || "8082"
 DEFAULT_CLIENT=:longpoll
@@ -713,6 +715,53 @@ class PubSubTest <  Minitest::Test
   #  pub.post ["yeah", "what", "the"]
   #  sub.wait
   #end
+  
+  def test_auth
+    chan = short_id
+    
+    subs = [ :longpoll, :eventsource, :websocket, :multipart ]
+    
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
+      sub.on_failure { false }
+      sub.run
+      sub.wait
+      assert(sub.errors?)
+      assert /code 500/, sub.errors.first
+      sub.terminate
+    end
+    
+    auth_pid = Process.spawn("bundle exec ./authserver.rb -q")
+    while true
+      resp = Typhoeus.get("http://127.0.0.1:8053/", followlocation: true)
+      break unless resp.return_code == :couldnt_connect
+      sleep 0.20
+    end
+    
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
+      sub.on_failure { false }
+      sub.run
+      sub.wait
+      assert(sub.errors?)
+      assert /code 403/, sub.errors.first
+      sub.terminate
+    end
+    
+    pub = Publisher.new url("pub/#{chan}")
+    
+    pub.post [ "wut", "waht", "FIN" ]
+    
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/auth/#{chan}"), 1, client: t, quit_message: 'FIN')
+      sub.on_failure { false }
+      sub.run
+      sub.wait
+      verify pub, sub
+    end
+    
+    Process.kill 2, auth_pid
+  end
   
   def test_access_control
     
