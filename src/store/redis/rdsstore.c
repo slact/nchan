@@ -72,6 +72,7 @@ typedef struct {
   redisContext                    *sync_ctx;
   
   redis_connection_status_t        status;
+  int                              scripts_loaded_count;
   int                              generation;
   ngx_event_t                      reconnect_timer;
   ngx_event_t                      ping_timer;
@@ -354,7 +355,7 @@ static void rdt_set_status(redis_connection_status_t status, const redisAsyncCon
       ngx_del_timer(&rdt.ping_timer);
     }
     
-    if(prev_status != DISCONNECTED) {
+    if(prev_status == CONNECTED) {
       nchan_store_channel_head_t   *cur, *tmp;
       HASH_ITER(hh, rdt.subhash, cur, tmp) {
         cur->spooler.fn->broadcast_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
@@ -533,7 +534,28 @@ static void redis_load_script_callback(redisAsyncContext *c, void *r, void *priv
       break;
     case REDIS_REPLY_STRING:
       if(ngx_strncmp(reply->str, script->hash, REDIS_LUA_HASH_LENGTH)!=0) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan Redis lua script %s has unexpected hash %s (expected %s)", script->name, reply->str, script->hash);
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: Redis lua script %s has unexpected hash %s (expected %s)", script->name, reply->str, script->hash);
+      }
+      else {
+        //everything went well
+        if(rdt.status == LOADING_SCRIPTS) {
+          rdt.scripts_loaded_count++;
+          if(rdt.scripts_loaded_count == redis_lua_scripts_count) {
+            char        *action;
+            ngx_uint_t   loglevel;
+            if(rdt.generation == 0) {
+              action = "Established";
+              loglevel = NGX_LOG_NOTICE;
+            }
+            else {
+              action = "Re-established";
+              loglevel = NGX_LOG_WARN;
+            }
+            
+            ngx_log_error(loglevel, ngx_cycle->log, 0, "Nchan: %s connection to redis at %V.", action, rdt.connect_url);
+            rdt.set_status(CONNECTED, NULL);
+          }
+        }
       }
       break;
   }
@@ -545,6 +567,8 @@ static void redisInitScripts(void){
     ERR("unable to init lua scripts: redis connection not initialized.");
   }
   else {
+    rdt.set_status(LOADING_SCRIPTS, NULL);
+    rdt.scripts_loaded_count = 0;
     REDIS_LUA_SCRIPTS_EACH(script) {
       redisAsyncCommand(rdt.ctx, &redis_load_script_callback, script, "SCRIPT LOAD %s", script->script);
     }
@@ -559,10 +583,10 @@ static void redis_nginx_connect_event_handler(const redisAsyncContext *ac, int s
     if(rdt.status != DISCONNECTED) {
       char *action = rdt.generation == 0 ? "connect" : "reconnect";
       if(ac->errstr) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Can't %s to redis at %v: %s", action, rdt.connect_url, ac->errstr);
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Can't %s to redis at %V: %s", action, rdt.connect_url, ac->errstr);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Can't %s to redis at %v.", action, rdt.connect_url);
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Can't %s to redis at %V.", action, rdt.connect_url);
       }
     }
     rdt.set_status(DISCONNECTED, ac);
@@ -574,14 +598,69 @@ static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ac, in
   
   if(rdt.status == CONNECTED && !ngx_exiting && !ngx_quit && !rdt.shutting_down) {
     if(ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %v: %s.", rdt.connect_url, ac->errstr);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %V: %s.", rdt.connect_url, ac->errstr);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %v.", rdt.connect_url);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %V.", rdt.connect_url);
     }
   }
   rdt.set_status(DISCONNECTED, ac);
   
+}
+
+static void redis_server_persistence_info_check(redisAsyncContext *ac);
+
+static void redis_check_if_still_loading_handler(ngx_event_t *ev) {
+  DBG("still loading?,,.");
+  if(rdt.status != DISCONNECTED && rdt.ctx) {
+    redis_server_persistence_info_check(rdt.ctx);
+  }
+  
+  ngx_free(ev);
+}
+
+void redis_nginx_info_persistence_callback(redisAsyncContext *ac, void *rep, void *privdata) {
+  redisReply             *reply = rep;
+  int                     loading = -1;
+  //DBG("redis_nginx_info_persistence_callback %p", ac);
+  if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
+    redisCheckErrorCallback(ac, reply, privdata);
+    return;
+  }
+  
+  if(ngx_strstrn((u_char *)reply->str, "loading:1", 8)) {
+    loading = 1;
+  }
+  else if(ngx_strstrn((u_char *)reply->str, "loading:0", 8)) {
+    loading = 0;
+  }
+  else {
+    ERR("unexpected INFO PERSISTENCE reply");
+    return;
+  }
+  
+  if(loading == 1) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis server at %V is still loading data.", rdt.connect_url);
+    ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
+    nchan_init_timer(evt, redis_check_if_still_loading_handler, NULL);
+    rdt.set_status(LOADING, ac);
+    ngx_add_timer(evt, 1000);
+  }
+  else if(loading == 0) {
+    DBG("everything loaded and good to go");
+    redisInitScripts();
+    if(rdt.sub_ctx) {
+      redisAsyncCommand(rdt.sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %s", rdt.subscriber_channel);
+    }
+    else {
+      ERR("rdt.sub_ctx NULL, can't subscribe");
+    }
+  }
+}
+
+static void redis_server_persistence_info_check(redisAsyncContext *ac) {
+  //DBG("redis_server_persistence_info_check %p", ac);
+  redisAsyncCommand(ac, redis_nginx_info_persistence_callback, NULL, "INFO persistence", rdt.connect_params->password);
 }
 
 void redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -594,19 +673,8 @@ void redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdat
     redisAsyncFree(ac);
   }
   else if(rdt.ctx && rdt.sub_ctx && rdt.status == CONNECTING && !rdt.ctx->err && !rdt.sub_ctx->err) {
-    char        *action;
-    ngx_uint_t   loglevel;
-    if(rdt.generation == 0) {
-      action = "Established";
-      loglevel = NGX_LOG_NOTICE;
-    }
-    else {
-      action = "Re-established";
-      loglevel = NGX_LOG_WARN;
-    }
-    rdt.set_status(CONNECTED, NULL);
-    
-    ngx_log_error(loglevel, ngx_cycle->log, 0, "Nchan: %s connection to redis at %V.", action, rdt.connect_url);
+    rdt.set_status(AUTHENTICATING, NULL);
+    redis_server_persistence_info_check(ac);
   }
 }
 
@@ -646,12 +714,10 @@ static ngx_int_t redis_ensure_connected() {
   int connecting = 0;
   if(redis_initialize_ctx(&rdt.ctx)) {
     connecting = 1;
-    redisInitScripts();
   }
   
   if(redis_initialize_ctx(&rdt.sub_ctx)) {
     connecting = 1;
-    redisAsyncCommand(rdt.sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %s", rdt.subscriber_channel);
   }
     
   if(rdt.ctx && rdt.sub_ctx) {

@@ -960,5 +960,6 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "return {sub_id, sub_count}\n"}
 };
 
+const int redis_lua_scripts_count=11;
 #define REDIS_LUA_SCRIPTS_EACH(script) \
 for((script)=(redis_lua_script_t *)&redis_lua_scripts; (script) < (redis_lua_script_t *)(&redis_lua_scripts + 1); (script)++) 

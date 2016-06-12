@@ -6,7 +6,7 @@
 
 extern nchan_store_t  nchan_store_redis;
 
-typedef enum {DISCONNECTED, CONNECTING, CONNECTED} redis_connection_status_t;
+typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 redis_connection_status_t redis_connection_status(void);
 
 ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count, uint8_t shutting_down);

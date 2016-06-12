@@ -144,7 +144,6 @@ if [[ -z $NO_MAKE ]]; then
   rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \
      --format whole \
-     --no-count \
      ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
   if ! [ $? -eq 0 ]; then;
     echo "failed generating redis lua scripts";
