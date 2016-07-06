@@ -9,6 +9,8 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 
+#define NCHAN_MSG_NORESPONSE_RETRY_TIME 200
+
 //////// SPOOLs -- Subscriber Pools  /////////
 
 static ngx_int_t spool_remove_subscriber(subscriber_pool_t *, spooled_subscriber_t *);
@@ -258,6 +260,30 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   return NGX_OK;
 }
 
+typedef struct {
+  nchan_msg_id_t     msg_id;
+  channel_spooler_t *spooler;
+} nomsg_retry_data_t;
+
+static void spool_fetch_msg_noresponse_retry_cancel(void *pd) {
+  nomsg_retry_data_t *d = pd;
+  nchan_free_msg_id(&d->msg_id);
+  ngx_free(d);
+}
+
+static void spool_fetch_msg_noresponse_retry_callback(void *pd) {
+  nomsg_retry_data_t *d = pd;
+  subscriber_pool_t *spool = get_spool(d->spooler, &d->msg_id);
+  if(spool && spool->msg_status == MSG_INVALID) {
+    spool_fetch_msg(spool);
+  }
+  else if(!spool) {
+    DBG("spool not found for spool_fetch_msg_noresponse_retry_callback");
+  }
+  
+  spool_fetch_msg_noresponse_retry_cancel(pd);
+}
+
 static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nchan_msg_t *msg, fetchmsg_data_t *data) {
   nchan_msg_id_t        anymsg;
   anymsg.time = 0;
@@ -266,6 +292,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
   nchan_msg_status_t    prev_status;
   subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;
+  int                   free_msg_id = 1;
   
   if(spl && data == spl->fetchmsg_cb_data_list) {
     spl->fetchmsg_cb_data_list = data->next;
@@ -294,9 +321,6 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
     return NGX_ERROR;
   }
   
-  nchan_free_msg_id(&data->msgid);
-  ngx_free(data);
-  
   prev_status = spool->msg_status;
   
   switch(findmsg_status) {
@@ -320,7 +344,19 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       break;
       
     case MSG_NORESPONSE:
-      //donothing
+      if(prev_status == MSG_PENDING) {
+        spool->msg_status = MSG_INVALID;
+        if(spool->sub_count > 0) {
+          nomsg_retry_data_t *retry_data = ngx_alloc(sizeof(*retry_data), ngx_cycle->log);
+          
+          retry_data->spooler = spl;
+          
+          free_msg_id = 0;
+          retry_data->msg_id = data->msgid;
+          
+          spooler_add_timer(spl, NCHAN_MSG_NORESPONSE_RETRY_TIME, spool_fetch_msg_noresponse_retry_callback, spool_fetch_msg_noresponse_retry_cancel, retry_data);
+        }
+      }
       break;
       
     case MSG_NOTFOUND:
@@ -353,6 +389,10 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       break;
   }
   
+  if(free_msg_id) {
+    nchan_free_msg_id(&data->msgid);
+  }
+  ngx_free(data);
   return NGX_OK;
 }
 
