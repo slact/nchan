@@ -103,6 +103,41 @@ static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   return 1;
 }
 
+static void spooler_timer_handler(ngx_event_t *ev) {
+  spooler_event_ll_t *spl_ev = container_of(ev, spooler_event_ll_t, ev);
+  spl_ev->callback(ev->data);
+  if(spl_ev->prev) {
+    spl_ev->prev->next = spl_ev->next;
+  }
+  if(spl_ev->next) {
+    spl_ev->next->prev = spl_ev->prev;
+  }
+  if(spl_ev->spooler->spooler_dependent_events == spl_ev) {
+    spl_ev->spooler->spooler_dependent_events = spl_ev->next;
+  }
+  ngx_free(spl_ev);
+}
+
+ngx_event_t *spooler_add_timer(channel_spooler_t *spl, ngx_msec_t timeout, void (*cb)(void *), void (*cancel)(void *), void *pd) {
+  spooler_event_ll_t  *spl_ev = ngx_alloc(sizeof(*spl_ev), ngx_cycle->log);
+  ngx_memzero(&spl_ev->ev, sizeof(spl_ev->ev));
+  nchan_init_timer(&spl_ev->ev, spooler_timer_handler, pd);
+  
+  spl_ev->callback = cb;
+  spl_ev->cancel = cancel;
+  
+  spl_ev->spooler = spl;
+  spl_ev->next = spl->spooler_dependent_events;
+  spl_ev->prev = NULL;
+  if(spl->spooler_dependent_events) {
+    spl->spooler_dependent_events->prev = spl_ev;
+  }
+  spl->spooler_dependent_events = spl_ev;
+  
+  ngx_add_timer(&spl_ev->ev, timeout);
+  return &spl_ev->ev;
+}
+
 static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spool, nchan_msg_id_t *id) {
   nchan_copy_new_msg_id(&spool->id, id);
   spool->msg = NULL;
@@ -1042,6 +1077,7 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
 
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
   ngx_rbtree_node_t    *cur, *sentinel;
+  spooler_event_ll_t   *ecur, *ecur_next;
   subscriber_pool_t    *spool;
   rbtree_seed_t        *seed = &spl->spoolseed;
   ngx_rbtree_t         *tree = &seed->tree;
@@ -1053,6 +1089,16 @@ ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
   ngx_int_t active_before = seed->active_nodes, allocd_before = seed->active_nodes;
 #endif
   if(spl->running) {
+    
+    for(ecur = spl->spooler_dependent_events; ecur != NULL; ecur = ecur_next) {
+      ecur_next = ecur->next;
+      if(ecur->cancel) {
+        ecur->cancel(ecur->ev.data);
+      }
+      ngx_event_del_timer(&ecur->ev);
+      
+      ngx_free(ecur);
+    }
     
     for(cur = tree->root; cur != NULL && cur != sentinel; cur = tree->root) {
       spool = (subscriber_pool_t *)rbtree_data_from_node(cur);

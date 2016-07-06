@@ -56,6 +56,16 @@ struct fetchmsg_data_s {
   fetchmsg_data_t     *prev;
 };
 
+typedef struct spooler_event_ll_s spooler_event_ll_t;
+struct spooler_event_ll_s {
+  spooler_event_ll_t   *prev;
+  ngx_event_t           ev;
+  void                (*callback)(void *);
+  void                (*cancel)(void *);
+  channel_spooler_t    *spooler;
+  spooler_event_ll_t   *next;
+};
+
 struct channel_spooler_s {
   rbtree_seed_t               spoolseed;
   subscriber_pool_t           current_msg_spool;
@@ -68,6 +78,7 @@ struct channel_spooler_s {
   channel_spooler_handlers_t *handlers;
   void                       *handlers_privdata;
   fetchmsg_data_t            *fetchmsg_cb_data_list;
+  spooler_event_ll_t         *spooler_dependent_events;
 #if NCHAN_BENCHMARK
   ngx_int_t                   last_responded_subscriber_count;
 #endif  
@@ -89,6 +100,8 @@ struct channel_spooler_handlers_s {
 
 channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store,  spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers);
+
+ngx_event_t *spooler_add_timer(channel_spooler_t *spl, ngx_msec_t timeout, void (*cb)(void *), void (*cancel)(void *), void *pd);
 
 
 #endif  /*SPOOL_HEADER*/
