@@ -245,6 +245,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     
     if(newspool->sub_count > 0) {
       switch(newspool->msg_status) {
+        case MSG_CHANNEL_NOTREADY:
+          newspool->msg_status = MSG_INVALID;
         case MSG_INVALID:
           spool_fetch_msg(newspool);
           break;
