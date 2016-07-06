@@ -35,29 +35,6 @@ static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id)
   }
 }
 /*
-static char *msg_status_to_chr(nchan_msg_status_t status) {
-  switch(status) {
-    case MSG_CHANNEL_NOTREADY:
-      return "MSG_CHANNEL_NOTREADY";
-    case MSG_INVALID:
-      return "MSG_INVALID";
-    case MSG_PENDING:
-      return "MSG_PENDING";
-    case MSG_NOTFOUND:
-      return "MSG_NOTFOUND";
-    case MSG_FOUND:
-      return "MSG_FOUND";
-    case MSG_EXPECTED:
-      return "MSG_EXPECTED";
-    case MSG_EXPIRED:
-      return "MSG_EXPIRED";
-    case MSG_NORESPONSE:
-      return "MSG_NORESPONSE";
-    default:
-      return "WEIRD_STATUS";
-  }
-}
-
 typedef struct {
   int                  n;
   subscriber_pool_t   *msg_expected_spool;
