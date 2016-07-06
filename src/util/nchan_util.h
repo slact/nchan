@@ -5,3 +5,9 @@ ngx_buf_t *nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, si
 ngx_str_t *ngx_http_debug_pool_str(ngx_pool_t *pool);
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen);
 ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd);
+#ifndef container_of
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+        (type *)( (char *)__mptr - offsetof(type,member) );})
+#endif
