@@ -1,6 +1,5 @@
 #ifndef NCHAN_MEMSTORE_H
 #define NCHAN_MEMSTORE_H
-#include "uthash.h"
 
 extern nchan_store_t  nchan_store_memory;
 

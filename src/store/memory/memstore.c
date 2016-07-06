@@ -2,6 +2,7 @@
 
 #include <signal.h> 
 #include <assert.h>
+#include "uthash.h"
 #include "store.h"
 #include "shmem.h"
 #include "ipc.h"
