@@ -194,6 +194,26 @@ ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd)
   return NGX_OK;
 }
 
+
+typedef struct {
+  ngx_event_t    ev;
+  void          (*cb)(void *pd);
+} oneshot_timer_t;
+
+void oneshot_timer_callback(ngx_event_t *ev) {
+  oneshot_timer_t  *timer = container_of(ev, oneshot_timer_t, ev);
+  timer->cb(ev->data);
+  ngx_free(timer);
+ }
+
+ngx_int_t nchan_oneshot_timer(ngx_event_t *ev, void (*cb)(void *), void *pd) {
+  oneshot_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
+  ngx_memzero(&timer->ev, sizeof(timer->ev));
+  timer->cb = cb;
+  nchan_init_timer(&timer->ev, oneshot_timer_callback, pd);
+  return NGX_OK;
+}
+
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited
 static ngx_str_t            debug_pool_str;
