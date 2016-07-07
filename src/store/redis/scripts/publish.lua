@@ -48,6 +48,16 @@ local hmset = function (key, dict)
   return redis.call('HMSET', key, unpack(bulk))
 end
 
+--[[
+local hash_tostr=function(h)
+  local tt = {}
+  for k, v in pairs(h) do
+    table.insert(tt, ("%s: %s"):format(k, v))
+  end
+  return "{" .. table.concat(tt,", ") .. "}"
+end
+]]
+
 local tohash=function(arr)
   if type(arr)~="table" then
     return nil
@@ -99,10 +109,16 @@ else
 end
 
 --set new message id
+local lastmsg, lasttime, lasttag
 if key.last_message then
-  local lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
-  local lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
+  lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
+  lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
   --dbg("New message id: last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
+  if tonumber(lasttime) > tonumber(msg.time) then
+    redis.log(redis.LOG_WARNING, "Nchan: message for " .. id .. " arrived a little late and may be delivered out of order. Redis must be very busy.")
+    msg.time = lasttime
+    time = lasttime
+  end
   if lasttime==msg.time then
     msg.tag=lasttag+1
   end
@@ -116,7 +132,12 @@ msg.id=('%i:%i'):format(msg.time, msg.tag)
 
 key.message=key.message:format(msg.id)
 if redis.call('EXISTS', key.message) ~= 0 then
-  return {err=("Message for channel %s id %s already exists"):format(id, msg.id)}
+  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s"
+  errmsg = errmsg:format(key.message, id, msg.id, time, lasttime, lasttag)
+  --redis.log(redis.LOG_WARNING, errmsg)
+  --redis.log(redis.LOG_WARNING, "channel: " .. key.channel .. hash_tostr(channel))
+  --redis.log(redis.LOG_WARNING, ("messages: %s {%s}"):format(key.messages, table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ")))
+  return {err=errmsg}
 end
 
 msg.prev=channel.current_message
