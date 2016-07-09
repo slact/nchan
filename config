@@ -45,13 +45,13 @@ _NCHAN_REDIS_STORE_SRCS="\
 "
 _NCHAN_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/ipc.c \
-  ${ngx_addon_dir}/src/store/memory/shmem.c \
   ${ngx_addon_dir}/src/store/memory/ipc-handlers.c \
   ${ngx_addon_dir}/src/store/memory/memstore.c \
 "
 
 _nchan_util_dir="${ngx_addon_dir}/src/util"
 _NCHAN_UTIL_SRCS=" \
+  $_nchan_util_dir/shmem.c \
   $_nchan_util_dir/nchan_reuse_queue.c \
   $_nchan_util_dir/nchan_output.c \
   $_nchan_util_dir/nchan_util.c \

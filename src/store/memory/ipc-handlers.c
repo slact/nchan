@@ -1,6 +1,5 @@
 #include <nchan_module.h>
 #include <ngx_channel.h>
-#include "shmem.h"
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"

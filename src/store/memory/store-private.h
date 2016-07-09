@@ -1,6 +1,6 @@
  #ifndef MEMSTORE_PRIVATE_HEADER
 #define MEMSTORE_PRIVATE_HEADER
-
+#include <util/shmem.h>
 #include "uthash.h"
 typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
 typedef struct store_message_s store_message_t;

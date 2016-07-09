@@ -4,7 +4,6 @@
 #include <assert.h>
 #include "ipc.h"
 
-#include "shmem.h"
 #include "store-private.h"
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG

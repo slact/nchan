@@ -4,11 +4,11 @@
 #include <assert.h>
 #include "uthash.h"
 #include "store.h"
-#include "shmem.h"
+#include <util/shmem.h>
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
-#include "../spool.h"
+#include <store/spool.h>
 
 #include <util/nchan_reaper.h>
 
