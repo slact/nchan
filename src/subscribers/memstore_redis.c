@@ -210,7 +210,10 @@ static ngx_str_t   sub_name = ngx_string("memstore-redis");
 subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
   subscriber_t               *sub;
   sub_data_t                 *d;
-  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, (callback_pt )sub_destroy_handler);
+  
+  assert(chanhead->cf);
+  
+  sub = internal_subscriber_create_init(&sub_name, chanhead->cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, (callback_pt )sub_destroy_handler);
   
   
   sub->destroy_after_dequeue = 0;

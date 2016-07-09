@@ -54,8 +54,9 @@ struct nchan_store_channel_head_s {
   subscriber_t                   *foreign_owner_ipc_sub; //points to NULL or inaacceessible memory.
   unsigned                        stub:1;
   unsigned                        shutting_down:1;
-  unsigned                        use_redis:1;
   unsigned                        meta:1;
+  
+  nchan_loc_conf_t               *cf;
 
   subscriber_t                   *redis_sub;
   ngx_int_t                       delta_fakesubs;

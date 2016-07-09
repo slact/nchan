@@ -37,7 +37,7 @@ static void change_sub_count(nchan_store_channel_head_t *ch, ngx_int_t n) {
   if(ch->shared) {
     ngx_atomic_fetch_add(&ch->shared->sub_count, n);
   }
-  if(ch->use_redis) {
+  if(ch->cf->use_redis) {
     memstore_fakesub_add(ch, n);
   }
 }
@@ -146,15 +146,14 @@ subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanh
   nchan_store_channel_head_t  *target_ch;
   ngx_int_t                    multi_subs;
   subscriber_t                *sub;
-  nchan_loc_conf_t             cf;
   
-  cf.use_redis = chanhead->use_redis;
-  
-  if((target_ch = nchan_memstore_get_chanhead(&chanhead->multi[n].id, &cf))==NULL) {
+  if((target_ch = nchan_memstore_get_chanhead(&chanhead->multi[n].id, chanhead->cf))==NULL) {
     return NULL;
   }
   
-  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, NULL);
+  assert(chanhead->cf);
+  
+  sub = internal_subscriber_create_init(&sub_name, chanhead->cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, NULL);
   
   sub->last_msgid = latest_msgid;
   
