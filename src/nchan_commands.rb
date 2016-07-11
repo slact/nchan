@@ -233,9 +233,9 @@ CfCmd.new do
       default: :off,
       info: "Use redis for message storage at this location."
   
-  nchan_redis_ping_interval [:main],
+  nchan_redis_ping_interval [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,
-      [:main_conf, :redis_ping_interval],
+      [:loc_conf, :"redis.ping_interval"],
       
       group: "storage",
       default: "4m",

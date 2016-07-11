@@ -14,8 +14,6 @@
 #define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL 300
 #define REDIS_LUA_HASH_LENGTH 40
 
-#define REDIS_DEFAULT_PING_INTERVAL_TIME 4*60
-
 #define REDIS_RECONNECT_TIME 5000
 
 #include <store/spool.h>
@@ -1760,12 +1758,6 @@ static ngx_int_t redis_data_rbtree_compare(void *v1, void *v2) {
 }
 
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
-  nchan_main_conf_t     *conf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
-  
-  if(conf->redis_ping_interval==NGX_CONF_UNSET) {
-    conf->redis_ping_interval=REDIS_DEFAULT_PING_INTERVAL_TIME;
-  }
-
   rbtree_init(&redis_data_tree, "redis connection data", redis_data_rbtree_node_id, redis_data_rbtree_bucketer, redis_data_rbtree_compare);
   
   ngx_rbtree_node_t     *node;

@@ -15,15 +15,13 @@ typedef enum {
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
-  ngx_str_t                       redis_url;
-  time_t                          redis_ping_interval;
 } nchan_main_conf_t;
 
 typedef struct {
   ngx_int_t               enabled;
   ngx_str_t               url;
-  time_t                  redis_ping_interval;
   void                   *redis_privdata;
+  time_t                  ping_interval;
 } nchan_redis_conf_t;
 
 typedef struct {

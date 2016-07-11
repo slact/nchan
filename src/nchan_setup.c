@@ -115,6 +115,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   ngx_memzero(&lcf->redis, sizeof(lcf->redis));
   lcf->redis.enabled=NGX_CONF_UNSET;
+  lcf->redis.ping_interval = NGX_CONF_UNSET;
   
   return lcf;
 }
@@ -236,7 +237,10 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_value(conf->redis.enabled, prev->redis.enabled, 0);
   ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
-  
+  ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
+  if(conf->redis.enabled) {
+    nchan_store_redis_add_server_conf(cf, &conf->redis);
+  }
   
   return NGX_CONF_OK;
 }

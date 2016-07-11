@@ -203,10 +203,10 @@ static ngx_command_t  nchan_commands[] = {
     NULL } ,
 
   { ngx_string("nchan_redis_ping_interval"),
-    NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_sec_slot,
-    NGX_HTTP_MAIN_CONF_OFFSET,
-    offsetof(nchan_main_conf_t, redis_ping_interval),
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, redis.ping_interval),
     NULL } ,
 
   { ngx_string("nchan_message_timeout"),
