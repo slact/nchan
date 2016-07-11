@@ -114,7 +114,7 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb
   return NGX_OK;
 }
 
-static ngx_int_t redis_ensure_connected();
+static ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, chanhead_hash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, chanhead_hash, (chanhead->id).data, (chanhead->id).len, chanhead)
@@ -394,8 +394,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
 static void redis_reconnect_timer_handler(ngx_event_t *ev) {
   if(!ev->timedout)
     return;
-  
-  redis_ensure_connected();
+  redis_ensure_connected((rdstore_data_t *)ev->data);
 }
 
 static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
@@ -426,7 +425,16 @@ static void redis_ping_timer_handler(ngx_event_t *ev) {
   }
 }
 
+static ngx_int_t redis_data_tree_connector(rbtree_seed_t *seed, rdstore_data_t *rdata, ngx_int_t *total_rc) {
+  ngx_int_t  rc = redis_ensure_connected(rdata);
+  if(rc != NGX_OK) {
+    *total_rc = rc;
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
+  ngx_int_t rc = NGX_OK;
   ngx_memzero(&redis_subscriber_id, sizeof(redis_subscriber_id));
   ngx_memzero(&redis_subscriber_channel, sizeof(redis_subscriber_channel));
   ngx_snprintf(redis_subscriber_id, 255, "worker:%i:time:%i", ngx_pid, ngx_time());
@@ -434,8 +442,8 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   redis_nginx_init();
   
-
-  return redis_ensure_connected();
+  rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_connector, &rc);
+  return rc;
 }
 
 static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
@@ -1719,6 +1727,24 @@ ngx_int_t nchan_store_redis_add_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *
   return NGX_OK;
 }
 
+ngx_int_t nchan_store_redis_remove_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf) {
+  nchan_redis_conf_ll_t  *cur, *prev;
+  
+  for(cur = redis_conf_head, prev = NULL; cur != NULL; prev = cur, cur = cur->next) {
+    if(cur->cf == rcf) { //found it
+      if(prev == NULL) {
+        redis_conf_head = cur->next;
+      }
+      else {
+        prev->next = cur->next;
+      }
+      //don't need to ngx_pfree
+      return NGX_OK;
+    }
+  }
+  return NGX_OK;
+}
+
 //initialization
 static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -1769,6 +1795,10 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;
+    if(!rcf->enabled) {
+      ERR("there's a non-enabled redis_conf_t here");
+      continue;
+    }
     parse_redis_url(&rcf->url, &rcp);
     
     if((node = rbtree_find_node(&redis_data_tree, &rcp)) == NULL) {
@@ -1795,7 +1825,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
                     4
       );
       
-      rdata->ping_interval = rcf->redis_ping_interval;
+      rdata->ping_interval = rcf->ping_interval;
       rdata->connect_url = &rcf->url;
       
       if(rbtree_insert_node(&redis_data_tree, node) != NGX_OK) {
@@ -1808,9 +1838,9 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     else {
       //TODO
       rdata = (rdstore_data_t *)rbtree_data_from_node(node);
-      if(rcf->redis_ping_interval > 0 && rcf->redis_ping_interval < rdata->ping_interval) {
+      if(rcf->ping_interval > 0 && rcf->ping_interval < rdata->ping_interval) {
         //shorter ping interval wins
-        rdata->ping_interval = rcf->redis_ping_interval;
+        rdata->ping_interval = rcf->ping_interval;
       }
     }
     
@@ -1821,7 +1851,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
 }
 
 static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
-  mcf->redis_ping_interval=NGX_CONF_UNSET;
+  
 }
 
 void redis_store_prepare_to_exit_worker() {
@@ -1831,20 +1861,41 @@ void redis_store_prepare_to_exit_worker() {
   }
 }
 
-static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
-  nchan_store_channel_head_t *cur, *tmp;
+static ngx_int_t redis_data_tree_exiter_stage1(rbtree_seed_t *seed, rdstore_data_t *rdata, void *pd) {
+  rdata->shutting_down = 1;
   
-  /*
-   //TODO
-  rdt.shutting_down = 1;
-
-  
-  callback_chain_t *ccur, *cnext;  
-  for(ccur = rdt.on_connected; ccur != NULL; ccur = cnext) {
+  callback_chain_t     *ccur, *cnext;  
+  for(ccur = rdata->on_connected; ccur != NULL; ccur = cnext) {
     cnext = ccur->next;
     ngx_free(ccur);
   }
-  rdt.on_connected = NULL;
+  rdata->on_connected = NULL;
+
+  return NGX_OK;
+}
+
+static ngx_int_t redis_data_tree_exiter_stage2(rbtree_seed_t *seed, rdstore_data_t *rdata, unsigned *chanheads) {
+  
+  *chanheads += rdata->chanhead_reaper.count;
+  
+  nchan_reaper_stop(&rdata->chanhead_reaper);
+  
+  if(rdata->ctx)
+    redis_nginx_force_close_context(&rdata->ctx);
+  if(rdata->sub_ctx)
+    redis_nginx_force_close_context(&rdata->sub_ctx);
+  if(rdata->sync_ctx)
+    redisFree(rdata->sync_ctx);
+
+  return NGX_OK;
+}
+
+static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
+  nchan_store_channel_head_t *cur, *tmp;
+  unsigned                    n;
+  unsigned                    chanheads = 0;
+  
+  n = rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage1, NULL);
   
   HASH_ITER(hh, chanhead_hash, cur, tmp) {
     cur->shutting_down = 1;
@@ -1853,18 +1904,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     }
   }
   
-  
-  nchan_exit_notice_about_remaining_things("redis channel", "", chanhead_reaper.count);
-  
-  nchan_reaper_stop(&chanhead_reaper);
-  
-  if(rdt.ctx)
-    redis_nginx_force_close_context(&rdt.ctx);
-  if(rdt.sub_ctx)
-    redis_nginx_force_close_context(&rdt.sub_ctx);
-  if(rdt.sync_ctx)
-    redisFree(rdt.sync_ctx);
-  */
+  n = rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
+  nchan_exit_notice_about_remaining_things("redis channel", "", chanheads);
 }
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {

@@ -1094,15 +1094,11 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool) {
   return NGX_OK;
 }
 
-static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
-  rbtree_seed_t         *seed = &spool->spooler->spoolseed;
+static ngx_int_t destroy_spool_keep_node(subscriber_pool_t *spool) {
   spooled_subscriber_t  *ssub;
   subscriber_t          *sub;
-  ngx_rbtree_node_t     *node = rbtree_node_from_data(spool);
   
   remove_spool(spool);
-  
-  DBG("destroy spool node %p", node);
   
   for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
     sub = ssub->sub;
@@ -1114,19 +1110,31 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   
   ngx_memset(spool, 0x42, sizeof(*spool)); //debug
   
+  return NGX_OK;
+}
+
+static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
+  rbtree_seed_t         *seed = &spool->spooler->spoolseed;
+  ngx_int_t              rc = destroy_spool_keep_node(spool);
+  ngx_rbtree_node_t     *node = rbtree_node_from_data(spool);
+  DBG("destroy spool node %p", node);
   rbtree_destroy_node(seed, node);
+  return rc;
+}
+
+static ngx_int_t rbtree_spooler_stopper(rbtree_seed_t *seed, subscriber_pool_t *spool, uint8_t dequeue_subscribers) {
+  if(dequeue_subscribers) {
+    destroy_spool_keep_node(spool);
+  }
+  else {
+    remove_spool(spool);
+  }
   return NGX_OK;
 }
 
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
-  ngx_rbtree_node_t    *cur, *sentinel;
   spooler_event_ll_t   *ecur, *ecur_next;
-  subscriber_pool_t    *spool;
-  rbtree_seed_t        *seed = &spl->spoolseed;
-  ngx_rbtree_t         *tree = &seed->tree;
-  ngx_int_t             n=0;
-  sentinel = tree->sentinel;
-  
+  ngx_int_t             n;
   fetchmsg_data_t      *dcur;
 #if NCHAN_RBTREE_DBG
   ngx_int_t active_before = seed->active_nodes, allocd_before = seed->active_nodes;
@@ -1143,17 +1151,7 @@ ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
       ngx_free(ecur);
     }
     
-    for(cur = tree->root; cur != NULL && cur != sentinel; cur = tree->root) {
-      spool = (subscriber_pool_t *)rbtree_data_from_node(cur);
-      if(dequeue_subscribers) {
-        destroy_spool(spool);
-      }
-      else {
-        remove_spool(spool);
-        rbtree_destroy_node(seed, cur);
-      }
-      n++;
-    }
+    n = rbtree_empty(&spl->spoolseed, (rbtree_walk_callback_pt )rbtree_spooler_stopper, (void *)(intptr_t )dequeue_subscribers);
     
     for(dcur = spl->fetchmsg_cb_data_list; dcur != NULL; dcur = dcur->next) {
       dcur->spooler = NULL;
@@ -1167,8 +1165,8 @@ ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers) {
 #if NCHAN_RBTREE_DBG
   assert(active_before - n == 0);
   assert(allocd_before - n == 0);
-  assert(seed->active_nodes == 0);
-  assert(seed->allocd_nodes == 0);
+  assert(spl->spoolseed.active_nodes == 0);
+  assert(spl->spoolseed.allocd_nodes == 0);
 #endif
   nchan_free_msg_id(&spl->prev_msg_id);
   spl->running = 0;

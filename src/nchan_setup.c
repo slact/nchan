@@ -602,12 +602,14 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   if(lcf->redis.enabled) {
     nchan_store_redis_add_server_conf(cf, &lcf->redis);
   }
+  else {
+    nchan_store_redis_remove_server_conf(cf, &lcf->redis);
+  }
   
   return rc;
 }
 
 static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  char                *rc;
   nchan_loc_conf_t    *lcf = (nchan_loc_conf_t *)conf;
   ngx_str_t           *value;
   

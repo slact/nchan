@@ -20,8 +20,8 @@ typedef struct {
 typedef struct {
   ngx_int_t               enabled;
   ngx_str_t               url;
-  void                   *redis_privdata;
   time_t                  ping_interval;
+  void                   *privdata;
 } nchan_redis_conf_t;
 
 typedef struct {
