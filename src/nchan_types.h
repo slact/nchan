@@ -20,6 +20,13 @@ typedef struct {
 } nchan_main_conf_t;
 
 typedef struct {
+  ngx_int_t               enabled;
+  ngx_str_t               url;
+  time_t                  redis_ping_interval;
+  void                   *redis_privdata;
+} nchan_redis_conf_t;
+
+typedef struct {
   ngx_atomic_int_t  lock;
   ngx_atomic_t      mutex;
   ngx_int_t         write_pid;
@@ -218,7 +225,9 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_http_complex_value_t       *channel_event_string;
   
   ngx_int_t                       subscribe_only_existing_channel;
-  ngx_int_t                       use_redis;
+  
+  nchan_redis_conf_t              redis;
+  
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;
   time_t                          channel_timeout;

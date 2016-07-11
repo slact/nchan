@@ -92,7 +92,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->subscribe_only_existing_channel=NGX_CONF_UNSET;
-  lcf->use_redis=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
   lcf->channel_timeout=NGX_CONF_UNSET;
@@ -113,6 +112,10 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   ngx_memzero(&lcf->sub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->last_message_id, sizeof(nchan_complex_value_arr_t));
+  
+  ngx_memzero(&lcf->redis, sizeof(lcf->redis));
+  lcf->redis.enabled=NGX_CONF_UNSET;
+  
   return lcf;
 }
 
@@ -176,7 +179,6 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
   ngx_conf_merge_value(conf->subscribe_only_existing_channel, prev->subscribe_only_existing_channel, 0);
-  ngx_conf_merge_value(conf->use_redis, prev->use_redis, 0);
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
@@ -231,6 +233,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     }
     conf->last_message_id.n = 2;
   }
+  
+  ngx_conf_merge_value(conf->redis.enabled, prev->redis.enabled, 0);
+  ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
   
   
   return NGX_CONF_OK;
@@ -582,17 +587,38 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   char                *rc;
   ngx_flag_t          *fp;
   char                *p = conf;
+  nchan_loc_conf_t    *lcf = (nchan_loc_conf_t *)conf;
   
   rc = ngx_conf_set_flag_slot(cf, cmd, conf);
   if(rc == NGX_CONF_ERROR) {
     return rc;
   }
   fp = (ngx_flag_t *) (p + cmd->offset);
-  if(fp) {
-    global_redis_enabled = 1;
+  
+  if(lcf->redis.enabled) {
+    nchan_store_redis_add_server_conf(cf, &lcf->redis);
   }
   
   return rc;
+}
+
+static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  char                *rc;
+  nchan_loc_conf_t    *lcf = (nchan_loc_conf_t *)conf;
+  ngx_str_t           *value;
+  
+  if(lcf->redis.url.data) {
+    return "is duplicate";
+  }
+  value = cf->args->elts;
+  
+  lcf->redis.url = value[1];
+  
+  if(lcf->redis.enabled) {
+    nchan_store_redis_add_server_conf(cf, &lcf->redis);
+  }
+  
+  return NGX_CONF_OK;
 }
 
 #include "nchan_config_commands.c" //hideous but hey, it works

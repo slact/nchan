@@ -189,10 +189,17 @@ static ngx_command_t  nchan_commands[] = {
     NULL } ,
 
   { ngx_string("nchan_redis_url"),
-    NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
-    NGX_HTTP_MAIN_CONF_OFFSET,
-    offsetof(nchan_main_conf_t, redis_url),
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
+  { ngx_string("nchan_use_redis"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_enable_redis,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, redis.enabled),
     NULL } ,
 
   { ngx_string("nchan_redis_ping_interval"),
@@ -200,13 +207,6 @@ static ngx_command_t  nchan_commands[] = {
     ngx_conf_set_sec_slot,
     NGX_HTTP_MAIN_CONF_OFFSET,
     offsetof(nchan_main_conf_t, redis_ping_interval),
-    NULL } ,
-
-  { ngx_string("nchan_use_redis"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_enable_redis,
-    NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, use_redis),
     NULL } ,
 
   { ngx_string("nchan_message_timeout"),

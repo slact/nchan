@@ -57,6 +57,8 @@ const  char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF = "Last-Modifie
 
 const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");
 
+const char *NCHAN_REDIS_DEFAULT_URL = "redis://127.0.0.1:6379";
+
 
 const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN = ngx_string(
   "queued messages: %ui" CRLF

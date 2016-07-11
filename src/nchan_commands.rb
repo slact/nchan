@@ -216,13 +216,22 @@ CfCmd.new do
       default: "32M",
       info: "The size of the shared memory chunk this module will use for message queuing and buffering."
     
-  nchan_redis_url [:main],
+  nchan_redis_url [:main,  :srv, :loc],
       :ngx_conf_set_str_slot,
-      [:main_conf, :redis_url],
+      :loc_conf,
       
       group: "storage",
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
+  
+  nchan_use_redis [:main, :srv, :loc],
+      :ngx_conf_enable_redis,
+      [:loc_conf, :"redis.enabled"],
+      
+      group: "storage",
+      value: [ :on, :off ],
+      default: :off,
+      info: "Use redis for message storage at this location."
   
   nchan_redis_ping_interval [:main],
       :ngx_conf_set_sec_slot,
@@ -231,15 +240,6 @@ CfCmd.new do
       group: "storage",
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
-  
-  nchan_use_redis [:main, :srv, :loc],
-      :ngx_conf_enable_redis,
-      [:loc_conf, :use_redis],
-      
-      group: "storage",
-      value: [ :on, :off ],
-      default: :off,
-      info: "Use redis for message storage at this location."
   
   nchan_message_timeout [:main, :srv, :loc], 
       :ngx_conf_set_sec_slot, 

@@ -303,7 +303,7 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
   
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
-    if(d->cf->use_redis) {
+    if(d->cf->redis.enabled) {
       cd = ngx_alloc(sizeof(*cd) + sizeof(*d), ngx_cycle->log);
       cd->allocd=1;
       cd->d = (publish_data_t *)&cd[1];
@@ -451,7 +451,7 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
     nchan_msg_status_t           status;
     msg = chanhead_find_next_message(head, &d->d.req.msgid, &status);
     
-    if(msg == NULL && head->cf && head->cf->use_redis) {
+    if(msg == NULL && head->cf && head->cf->redis.enabled) {
       //messages from redis are not requested explicitly, but are delivered from oldest to newest
       //by the memmstore-redis subscriber. 
       getmessage_data_rsub_pd_t  rdata = {sender, *d};
@@ -677,7 +677,7 @@ static void receive_channel_auth_check(ngx_int_t sender, channel_authcheck_data_
   DBG("received channel_auth_check request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
-  if(!d->cf->use_redis) {
+  if(!d->cf->redis.enabled) {
     head = nchan_memstore_find_chanhead(d->shm_chid);
     if(head == NULL) {
       d->auth_ok = !d->channel_must_exist;

@@ -81,7 +81,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   DBG("%p memstore-redis subscriber respond with message", d->sub);
   
   cf.max_messages = d->chanhead->max_messages;
-  cf.use_redis = 0;
+  cf.redis.enabled = 0;
   cf.buffer_timeout = msg->expires - ngx_time();
   
   lastid = &d->chanhead->latest_msgid;
