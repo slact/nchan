@@ -538,48 +538,6 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm);
 static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_message_t *msg);
 
-void reload_msgs(void) {
-  nchan_msg_t                 *cur;
-  ngx_str_t                   *chid;
-  nchan_store_channel_head_t  *ch;
-  nchan_loc_conf_t             cf;
-  ngx_int_t                    owner;
-  store_message_t             *smsg;
-  nchan_reloading_channel_t   *rlch;
-  
-  DBG("time to reload? shdata: %p, rlch: %p", shdata, shdata == NULL ? NULL : shdata->rlch);
-  
-  shmtx_lock(shm);
-  for(rlch = shdata->rlch; rlch != NULL; rlch = rlch->next) {
-    chid = &rlch->id;
-    owner = memstore_channel_owner(chid);
-    ERR("serialized channel %p %V", rlch, chid);
-    if(owner == memstore_slot()) {
-      cf.use_redis  =   rlch->use_redis;
-      cf.max_messages = rlch->max_messages;
-      
-      if((ch = nchan_memstore_get_chanhead(chid, &cf)) != NULL) {
-        ERR("got chanhead %p for id %V", ch, chid);
-        
-        for(cur = rlch->msgs; cur != NULL; cur = cur->reload_next) {
-          assert(ch->shared);
-          
-          if((smsg = create_shared_message(cur, 1)) == NULL) {
-            ERR("can't allocate message for reloading. stop trying.");
-            return;
-          }
-          
-          chanhead_push_message(ch, smsg);
-          ERR("Added message %p (%V) to %V", smsg, msgid_to_str(&smsg->msg->id), chid);
-        }
-      }
-      shm_free_immutable_string(shm, chid);
-    }
-  }
-  shmtx_unlock(shm);
-}
-
-
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   ngx_int_t           workers = ccf->worker_processes;
