@@ -52,6 +52,7 @@ _NCHAN_MEMORY_STORE_SRCS="\
 _nchan_util_dir="${ngx_addon_dir}/src/util"
 _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/shmem.c \
+  $_nchan_util_dir/nchan_rbtree.c \
   $_nchan_util_dir/nchan_reuse_queue.c \
   $_nchan_util_dir/nchan_output.c \
   $_nchan_util_dir/nchan_util.c \
@@ -65,7 +66,6 @@ _NCHAN_UTIL_SRCS=" \
 "
 
 _NCHAN_STORE_SRCS="\
-  ${ngx_addon_dir}/src/store/rbtree_util.c \
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
   ${ngx_addon_dir}/src/store/store_common.c \
