@@ -39,7 +39,7 @@ typedef ngx_int_t (*rbtree_walk_callback_pt)(rbtree_seed_t *, void *, void *);
 typedef rbtree_walk_direction_t (*rbtree_walk_conditional_callback_pt)(rbtree_seed_t *, void *, void *);
 
 ngx_int_t rbtree_init(rbtree_seed_t *seed, char *name, void *(*id)(void *), uint32_t (*hash)(void *), ngx_int_t (*compare)(void *, void *));
-ngx_int_t            rbtree_shutdown(rbtree_seed_t *);
+unsigned             rbtree_empty(rbtree_seed_t *, rbtree_walk_callback_pt, void *data);
 
 ngx_rbtree_node_t   *rbtree_create_node(rbtree_seed_t *, size_t);
 ngx_int_t            rbtree_insert_node(rbtree_seed_t *, ngx_rbtree_node_t *);
