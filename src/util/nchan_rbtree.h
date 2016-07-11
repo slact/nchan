@@ -1,7 +1,7 @@
 #ifndef NCHAN_RBTREE_UTIL_HEADER
 #define NCHAN_RBTREE_UTIL_HEADER
 
-#define NCHAN_RBTREE_DBG 1
+#define NCHAN_RBTREE_DBG 0
 
 typedef struct {
   char              *name;

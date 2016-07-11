@@ -1,7 +1,7 @@
 #ifndef SPOOL_HEADER
 #define SPOOL_HEADER
 
-#include "rbtree_util.h"
+#include <util/nchan_rbtree.h>
 
 typedef struct spooled_subscriber_s spooled_subscriber_t;
 typedef struct subscriber_pool_s subscriber_pool_t;

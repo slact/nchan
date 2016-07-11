@@ -1,5 +1,5 @@
 #include <nchan_module.h>
-#include "rbtree_util.h"
+#include "nchan_rbtree.h"
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
