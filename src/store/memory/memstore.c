@@ -490,7 +490,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 static int send_redis_fakesub_delta(nchan_store_channel_head_t *head) {
   if(head->delta_fakesubs != 0) {
-    nchan_store_redis_fakesub_add(&head->id, head->delta_fakesubs, head->shutting_down);
+    nchan_store_redis_fakesub_add(&head->id, head->cf, head->delta_fakesubs, head->shutting_down);
     head->delta_fakesubs = 0;
     return 1;
   }
@@ -601,7 +601,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 
 void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
   if(REDIS_FAKESUB_TIMER_INTERVAL == 0) {
-    nchan_store_redis_fakesub_add(&head->id, n, head->shutting_down);
+    nchan_store_redis_fakesub_add(&head->id, head->cf, n, head->shutting_down);
   }
   else {
     head->delta_fakesubs += n;
@@ -717,7 +717,7 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   
   
   //(head->use_redis && head->owner == memstore_slot()) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH
-  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory, (head->cf && head->cf->redis.enabled) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory, head->cf, (head->cf && head->cf->redis.enabled) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
@@ -1206,7 +1206,7 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t                owner = memstore_channel_owner(channel_id);
   if(!is_multi_id(channel_id)) {
     if(memstore_slot() != owner) {
@@ -1886,7 +1886,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   return rc;
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata);
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 
 typedef struct get_multi_message_data_s get_multi_message_data_t;
 struct get_multi_message_data_s {
@@ -1960,7 +1960,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     //buf fuck it, we're doing it live.
     assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
     
-    nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+    nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
     return NGX_OK;
   }
   d->getting--;
@@ -2161,7 +2161,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       DBG("get message from %V (n: %i) %V", getmsg_chid, i, msgid_to_str(&req_msgid[i]));
-      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], chead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
       sd++;
     }
   }
@@ -2174,7 +2174,7 @@ void async_get_message_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status
   nchan_memstore_handle_get_message_reply(NULL, status, d);
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   store_message_t             *chmsg;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t            *d; 

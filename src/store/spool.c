@@ -430,7 +430,7 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   switch(spl->fetching_strategy) {
     case FETCH:
     case FETCH_IGNORE_MSG_NOTFOUND:
-      spool->spooler->store->get_message(spool->spooler->chid, &spool->id, (callback_pt )spool_fetch_msg_callback, data);
+      spool->spooler->store->get_message(spool->spooler->chid, &spool->id, spool->spooler->cf, (callback_pt )spool_fetch_msg_callback, data);
       break;
     case NO_FETCH:
       //do nothing
@@ -1040,7 +1040,7 @@ static channel_spooler_fn_t  spooler_fn = {
   spooler_prepare_to_stop
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store,  spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
   if(!spl->running) {
     ngx_memzero(spl, sizeof(*spl));
     rbtree_init(&spl->spoolseed, "spooler msg_id tree", spool_rbtree_node_id, spool_rbtree_bucketer, spool_rbtree_compare);
@@ -1066,6 +1066,8 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     
     spl->handlers = handlers;
     spl->handlers_privdata = handlers_privdata;
+    
+    spl->cf = cf;
     
     return spl;
   }
