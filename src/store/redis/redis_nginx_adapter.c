@@ -28,7 +28,7 @@ void redis_nginx_init(void) {
 }
 
 
-redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int database, ngx_str_t *password, redisAsyncContext **context) {
+redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int database, ngx_str_t *password, void *privdata, redisAsyncContext **context) {
   redisAsyncContext *ac = NULL;
   u_char             hostchr[1024];
   if(host->len >= 1023) {
@@ -54,6 +54,7 @@ redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int datab
     }
     
     if(redis_nginx_event_attach(ac) == REDIS_OK) {
+      ac->data = privdata;
       *context = ac;
     }
   }
