@@ -133,11 +133,11 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
     case NGX_HTTP_CLOSE: //delete
       respond_msgexpected_callbacks(d, MSG_NORESPONSE);
       nchan_store_memory.delete_channel(d->chid, NULL, NULL);
-      if(redis_connection_status() != CONNECTED && d->onconnect_callback_pd == NULL) {
+      if(redis_connection_status(d->sub->cf) != CONNECTED && d->onconnect_callback_pd == NULL) {
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;
         d->onconnect_callback_pd = dd;
-        redis_store_callback_on_connected(reconnect_callback, dd);
+        redis_store_callback_on_connected(d->sub->cf, reconnect_callback, dd);
       }
       break;
       
