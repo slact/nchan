@@ -599,32 +599,15 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   }
   fp = (ngx_flag_t *) (p + cmd->offset);
   
-  if(lcf->redis.enabled) {
+  if(*fp) {
     nchan_store_redis_add_server_conf(cf, &lcf->redis);
+    global_redis_enabled = 1;
   }
   else {
     nchan_store_redis_remove_server_conf(cf, &lcf->redis);
   }
   
   return rc;
-}
-
-static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  nchan_loc_conf_t    *lcf = (nchan_loc_conf_t *)conf;
-  ngx_str_t           *value;
-  
-  if(lcf->redis.url.data) {
-    return "is duplicate";
-  }
-  value = cf->args->elts;
-  
-  lcf->redis.url = value[1];
-  
-  if(lcf->redis.enabled) {
-    nchan_store_redis_add_server_conf(cf, &lcf->redis);
-  }
-  
-  return NGX_CONF_OK;
 }
 
 #include "nchan_config_commands.c" //hideous but hey, it works

@@ -218,7 +218,7 @@ CfCmd.new do
     
   nchan_redis_url [:main,  :srv, :loc],
       :ngx_conf_set_str_slot,
-      :loc_conf,
+      [:loc_conf, :"redis.url"],
       
       group: "storage",
       default: "127.0.0.1:6379",
