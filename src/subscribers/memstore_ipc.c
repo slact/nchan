@@ -22,7 +22,6 @@ struct sub_data_s {
   ngx_int_t                     originator;
   ngx_int_t                     owner;
   void                         *foreign_chanhead;
-//  nchan_store_channel_head_t   *chanhead;
   ngx_event_t                   timeout_ev;
 }; //sub_data_t
 

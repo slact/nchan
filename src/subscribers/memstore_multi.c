@@ -19,9 +19,9 @@
 
 
 typedef struct {
-  nchan_store_channel_head_t   *target_chanhead;
-  nchan_store_channel_head_t   *multi_chanhead;
-  nchan_store_multi_t          *multi;
+  memstore_channel_head_t      *target_chanhead;
+  memstore_channel_head_t      *multi_chanhead;
+  memstore_multi_t             *multi;
   ngx_int_t                     n;
 } sub_data_t;
 
@@ -31,7 +31,7 @@ static ngx_int_t empty_callback(){
 }
 */
 
-static void change_sub_count(nchan_store_channel_head_t *ch, ngx_int_t n) {
+static void change_sub_count(memstore_channel_head_t *ch, ngx_int_t n) {
   ch->sub_count += n;
   ch->channel.subscribers += n;
   if(ch->shared) {
@@ -140,10 +140,10 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
 
 static ngx_str_t  sub_name = ngx_string("memstore-multi");
 
-subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
+subscriber_t *memstore_multi_subscriber_create(memstore_channel_head_t *chanhead, uint8_t n) {
   static nchan_msg_id_t        latest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                  *d;
-  nchan_store_channel_head_t  *target_ch;
+  memstore_channel_head_t     *target_ch;
   ngx_int_t                    multi_subs;
   subscriber_t                *sub;
   

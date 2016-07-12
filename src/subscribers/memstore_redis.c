@@ -29,7 +29,7 @@ typedef struct sub_data_s sub_data_t;
 
 struct sub_data_s {
   subscriber_t                 *sub;
-  nchan_store_channel_head_t   *chanhead;
+  memstore_channel_head_t      *chanhead;
   ngx_str_t                    *chid;
   ngx_event_t                   timeout_ev;
   nchan_msg_status_t            last_msg_status;
@@ -207,7 +207,7 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 
 static ngx_str_t   sub_name = ngx_string("memstore-redis");
 
-subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
+subscriber_t *memstore_redis_subscriber_create(memstore_channel_head_t *chanhead) {
   subscriber_t               *sub;
   sub_data_t                 *d;
   
