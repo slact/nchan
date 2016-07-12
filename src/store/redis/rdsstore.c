@@ -69,8 +69,8 @@ u_char            redis_subscriber_id[255];
 u_char            redis_subscriber_channel[255];
 
 struct rdstore_data_s {
-  redis_connect_params_t           connect_params;
   ngx_str_t                       *connect_url;
+  redis_connect_params_t           connect_params;
   
   redisAsyncContext               *ctx;
   redisAsyncContext               *sub_ctx;
@@ -131,7 +131,7 @@ static ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 
 #define redis_command(rdata, cb, pd, fmt, args...)                   \
   do {                                                               \
-    if(redis_ensure_connected(rdata) == NGX_OK) {                         \
+    if(redis_ensure_connected(rdata) == NGX_OK) {                    \
       redisAsyncCommand((rdata)->ctx, cb, pd, fmt, ##args);          \
     } else {                                                         \
       ERR("Can't run redis command: no connection to redis server.");\
