@@ -7,6 +7,7 @@
 
 #include <store/memory/store.h>
 #include <store/redis/store.h>
+#include <store/redis/store-private.h>
 
 #include "internal.h"
 #include "memstore_redis.h"
