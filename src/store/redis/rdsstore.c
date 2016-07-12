@@ -1893,10 +1893,9 @@ static ngx_int_t redis_data_tree_exiter_stage2(rbtree_seed_t *seed, rdstore_data
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   nchan_store_channel_head_t *cur, *tmp;
-  unsigned                    n;
   unsigned                    chanheads = 0;
-  
-  n = rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage1, NULL);
+  DBG("redis exit worker");
+  rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage1, NULL);
   
   HASH_ITER(hh, chanhead_hash, cur, tmp) {
     cur->shutting_down = 1;
@@ -1905,13 +1904,12 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     }
   }
   
-  n = rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
+  rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
   nchan_exit_notice_about_remaining_things("redis channel", "", chanheads);
 }
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
-  //destroy channel tree in shared memory
-  //nchan_walk_rbtree(nchan_movezig_channel_locked, nchan_shm_zone);
+  rbtree_empty(&redis_data_tree, NULL, NULL);
 }
 
 typedef struct {
