@@ -18,7 +18,7 @@ typedef struct {
 } nchan_main_conf_t;
 
 typedef struct {
-  ngx_int_t               enabled;
+  ngx_flag_t              enabled;
   ngx_str_t               url;
   time_t                  ping_interval;
   void                   *privdata;
