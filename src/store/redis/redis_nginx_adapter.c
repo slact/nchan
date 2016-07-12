@@ -30,14 +30,12 @@ void redis_nginx_init(void) {
 
 redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int database, ngx_str_t *password, void *privdata, redisAsyncContext **context) {
   redisAsyncContext *ac = NULL;
-  u_char             hostchr[1024];
+  u_char             hostchr[1024] = {0};
   if(host->len >= 1023) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
     return NULL;
   }
-  
   ngx_memcpy(hostchr, host->data, host->len);
-  hostchr[host->len + 1] = '\0';
   
   if ((context == NULL) || (*context == NULL) || (*context)->err) {
     ac = redisAsyncConnect((const char *)hostchr, port);
@@ -70,14 +68,12 @@ redisContext *redis_nginx_open_sync_context(ngx_str_t *host, int port, int datab
   redisContext  *c = NULL;
   redisReply    *reply;
   
-  u_char        hostchr[1024];
+  u_char        hostchr[1024] = {0};
   if(host->len >= 1023) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
     return NULL;
   }
-  
   ngx_memcpy(hostchr, host->data, host->len);
-  hostchr[host->len + 1] = '\0';
   
   if ((context == NULL) || (*context == NULL) || (*context)->err) {
     c = redisConnect((const char *)hostchr, port);
