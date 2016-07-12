@@ -255,7 +255,6 @@ static ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
     }
     rcp->host.data = cur;
     rcp->host.len = ret - cur;
-    cur = ret;
   }
   else {
     rcp->host.data = cur;
@@ -272,6 +271,7 @@ static ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
       rcp->port = 6379;
     }
   }
+  cur = ret;
   
   if(cur[0] == '/') {
     cur++;
