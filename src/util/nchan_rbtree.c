@@ -243,6 +243,7 @@ unsigned rbtree_empty(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, voi
     if(callback) {
       callback(seed, rbtree_data_from_node(cur), data);
     }
+    rbtree_remove_node(seed, cur);
     rbtree_destroy_node(seed, cur);
     n++;
   }
