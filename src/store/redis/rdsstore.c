@@ -16,6 +16,12 @@
 
 #define REDIS_RECONNECT_TIME 5000
 
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
+
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
+
 #include <store/spool.h>
 
 typedef struct rdstore_data_s rdstore_data_t;
@@ -122,12 +128,6 @@ static ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 
 #include <stdbool.h>
 #include "cmp.h"
-
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
-
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
 #define redis_command(rdata, cb, pd, fmt, args...)                   \
   do {                                                               \
