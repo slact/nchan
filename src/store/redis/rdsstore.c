@@ -930,9 +930,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "redis_subscriber_callback,  privdata=%p", privdata);
   
   chanhead = (nchan_store_channel_head_t *)privdata;
-  if(chanhead) {
-    assert(chanhead->rdt = rdata);
-  }
   
   msg.expires = 0;
   msg.refcount = 0;
