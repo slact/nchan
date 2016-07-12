@@ -1808,6 +1808,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
       }
       
       rdata = (rdstore_data_t *)rbtree_data_from_node(node);
+      ngx_memzero(rdata, sizeof(*rdata));
       rdata->connect_params = rcp;
       rdata->status = DISCONNECTED;
       rdata->generation = 0;
