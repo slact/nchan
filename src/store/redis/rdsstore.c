@@ -348,7 +348,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
   rdata->status = status;
   
   if(status == DISCONNECTED) {
-    if(!rdata->reconnect_timer.timer_set) {
+    if(!rdata->shutting_down && !rdata->reconnect_timer.timer_set) {
       ngx_add_timer(&rdata->reconnect_timer, REDIS_RECONNECT_TIME);
     }
     if(rdata->ping_timer.timer_set) {
