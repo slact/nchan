@@ -114,7 +114,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   ngx_memzero(&lcf->last_message_id, sizeof(nchan_complex_value_arr_t));
   
   ngx_memzero(&lcf->redis, sizeof(lcf->redis));
-  lcf->redis.enabled=NGX_CONF_UNSET;
+  lcf->redis.url_enabled=NGX_CONF_UNSET;
   lcf->redis.ping_interval = NGX_CONF_UNSET;
   
   return lcf;
@@ -235,11 +235,12 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->last_message_id.n = 2;
   }
   
-  ngx_conf_merge_value(conf->redis.enabled, prev->redis.enabled, 0);
+  ngx_conf_merge_value(conf->redis.url_enabled, prev->redis.url_enabled, 0);
   ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
   ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
-  if(conf->redis.enabled) {
-    nchan_store_redis_add_server_conf(cf, &conf->redis);
+  if(conf->redis.url_enabled) {
+    conf->redis.enabled = 1;
+    nchan_store_redis_add_server_conf(cf, &conf->redis, conf);
   }
   
   return NGX_CONF_OK;
@@ -600,7 +601,10 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   fp = (ngx_flag_t *) (p + cmd->offset);
   
   if(*fp) {
-    nchan_store_redis_add_server_conf(cf, &lcf->redis);
+    if(!lcf->redis.enabled) {
+      lcf->redis.enabled = 1;
+      nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+    }
     global_redis_enabled = 1;
   }
   else {
@@ -614,61 +618,56 @@ static ngx_int_t nchan_upstream_dummy_roundrobin_init(ngx_conf_t *cf, ngx_http_u
   return NGX_OK;
 }
 
-char * ngx_http_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   ngx_http_upstream_srv_conf_t        *uscf;
   nchan_redis_conf_t                  *rcf;
   ngx_str_t                           *value;
+  ngx_http_upstream_server_t          *usrv;
   
   uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
-  ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "ngx_http_upstream_redis_server");
   
-  if (uscf->servers == NULL) {
-    if((uscf->servers = ngx_array_create(cf->pool, 4, sizeof(*rcf))) == NULL) {
-      return NGX_CONF_ERROR;
-    }
-  }
-  if ((rcf = ngx_array_push(uscf->servers)) == NULL) {
+  
+  if ((usrv = ngx_array_push(uscf->servers)) == NULL) {
     return NGX_CONF_ERROR;
   }
-  ngx_memzero(rcf, sizeof(*rcf));
   value = cf->args->elts;
-  rcf->url = value[1];
+  ngx_memzero(usrv, sizeof(*usrv));
+  usrv->name = value[1];
   
-  /*ngx_http_upstream_drizzle_srv_conf_t        *dscf = conf;
-    ngx_http_upstream_drizzle_server_t          *ds;
-    ngx_str_t                                   *value;
-    ngx_url_t                                    u;
-    ngx_uint_t                                   i, j;
-    
-    ngx_str_t                                    protocol;
-    ngx_str_t                                    charset;
-    u_char                                      *p;
-    size_t                                       len;
-    
-    
-
-    if (dscf->servers == NULL) {
-        dscf->servers = ngx_array_create(cf->pool, 4,
-                                 sizeof(ngx_http_upstream_drizzle_server_t));
-
-        if (dscf->servers == NULL) {
-            return NGX_CONF_ERROR;
-        }
-
-        uscf->servers = dscf->servers;
-    }
-
-    ds = ngx_array_push(dscf->servers);
-    if (ds == NULL) {
-        return NGX_CONF_ERROR;
-    }
-
-    ngx_memzero(ds, sizeof(ngx_http_upstream_drizzle_server_t));
-
-    value = cf->args->elts;
-
-    */
   uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t  *lcf = conf;
+  
+  if(lcf->redis.upstream) {
+    return "can't be set here: already using nchan_redis_pass";
+  }
+  
+  return ngx_conf_set_str_slot(cf, cmd, conf);
+}
+
+static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t  *lcf = conf;
+  ngx_str_t         *value = cf->args->elts;
+  ngx_url_t          upstream_url;
+  
+  if (lcf->redis.upstream) {
+    return "is duplicate";
+  }
+
+  ngx_memzero(&upstream_url, sizeof(upstream_url));
+  upstream_url.url = value[1];
+  upstream_url.no_resolve = 1;
+  
+  if ((lcf->redis.upstream = ngx_http_upstream_add(cf, &upstream_url, 0)) == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  
+  lcf->redis.enabled = 1;
+  nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+  
   return NGX_CONF_OK;
 }
 

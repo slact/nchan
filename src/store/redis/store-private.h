@@ -54,8 +54,10 @@ struct callback_chain_s {
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
 typedef struct {
-  rbtree_seed_t       *hashslots_map; //cluster rbtree seed
-  
+  rbtree_seed_t                   *hashslots_map; //cluster rbtree seed
+  ngx_http_upstream_srv_conf_t    *uscf;
+  ngx_array_t                     *nodes;
+  ngx_pool_t                      *pool;
 } redis_cluster_t;
 
 struct rdstore_data_s {

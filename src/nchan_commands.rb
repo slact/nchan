@@ -217,21 +217,28 @@ CfCmd.new do
       info: "The size of the shared memory chunk this module will use for message queuing and buffering."
     
   nchan_redis_url [:main, :srv, :loc],
-      :ngx_conf_set_str_slot,
+      :ngx_conf_set_redis_url,
       [:loc_conf, :"redis.url"],
       
       group: "storage",
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
   
+  nchan_redis_pass [:loc],
+      :ngx_conf_set_redis_upstream_pass,
+      [:loc_conf, :"redis"],
+      
+      group: "storage",
+      info: "Use an upstream config block for Redis servers."
+  
   nchan_redis_server [:upstream],
-      :ngx_http_upstream_redis_server,
+      :ngx_conf_upstream_redis_server,
       :loc_conf,
       group: "storage"
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,
-      [:loc_conf, :"redis.enabled"],
+      [:loc_conf, :"redis.url_enabled"],
       
       group: "storage",
       value: [ :on, :off ],

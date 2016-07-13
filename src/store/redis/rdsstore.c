@@ -1645,14 +1645,16 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 typedef struct nchan_redis_conf_ll_s nchan_redis_conf_ll_t;
 struct nchan_redis_conf_ll_s {
   nchan_redis_conf_t     *cf;
+  nchan_loc_conf_t       *loc_conf;
   nchan_redis_conf_ll_t  *next;
 };
 
 nchan_redis_conf_ll_t   *redis_conf_head;
 
-ngx_int_t nchan_store_redis_add_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf) {
+ngx_int_t nchan_store_redis_add_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf, nchan_loc_conf_t *loc_conf) {
   nchan_redis_conf_ll_t  *rcf_ll = ngx_palloc(cf->pool, sizeof(*rcf_ll));
   rcf_ll->cf = rcf;
+  rcf_ll->loc_conf = loc_conf;
   rcf_ll->next = redis_conf_head;
   redis_conf_head = rcf_ll;
   return NGX_OK;
@@ -1714,69 +1716,91 @@ static ngx_int_t redis_data_rbtree_compare(void *v1, void *v2) {
   return ngx_strncmp(id1->host.data, id2->host.data, id1->host.len);
 }
 
-static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
-  rbtree_init(&redis_data_tree, "redis connection data", redis_data_rbtree_node_id, redis_data_rbtree_bucketer, redis_data_rbtree_compare);
-  
+static ngx_int_t nchan_store_init_add_redis_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url) {
   ngx_rbtree_node_t     *node;
   rdstore_data_t        *rdata;
-  nchan_redis_conf_ll_t *cur;
-  nchan_redis_conf_t    *rcf;
-  
+  ngx_str_t             *url = override_url ? override_url : &rcf->url;
   redis_connect_params_t rcp;
+  
+  parse_redis_url(url, &rcp);
+  
+  if((node = rbtree_find_node(&redis_data_tree, &rcp)) == NULL) {
+    if((node = rbtree_create_node(&redis_data_tree, sizeof(*rdata))) == NULL) {
+      ERR("can't create rbtree node for redis connection");
+      return NGX_ERROR;
+    }
+    
+    rdata = (rdstore_data_t *)rbtree_data_from_node(node);
+    ngx_memzero(rdata, sizeof(*rdata));
+    rdata->connect_params = rcp;
+    rdata->status = DISCONNECTED;
+    rdata->generation = 0;
+    rdata->shutting_down = 0;
+    rdata->lcf = lcf;
+    nchan_init_timer(&rdata->reconnect_timer, redis_reconnect_timer_handler, rdata);
+    nchan_init_timer(&rdata->ping_timer, redis_ping_timer_handler, rdata);
+    
+    nchan_reaper_start(&rdata->chanhead_reaper, 
+                  "redis chanhead", 
+                  offsetof(rdstore_channel_head_t, gc_prev), 
+                  offsetof(rdstore_channel_head_t, gc_next), 
+      (ngx_int_t (*)(void *, uint8_t)) nchan_redis_chanhead_ready_to_reap,
+      (void (*)(void *)) redis_store_reap_chanhead,
+                  4
+    );
+    
+    rdata->ping_interval = rcf->ping_interval;
+    rdata->connect_url = url;
+    
+    if(rbtree_insert_node(&redis_data_tree, node) != NGX_OK) {
+      ERR("couldn't insert redis date node");
+      rbtree_destroy_node(&redis_data_tree, node);
+      return NGX_ERROR;
+    }
+    
+  }
+  else {
+    rdata = (rdstore_data_t *)rbtree_data_from_node(node);
+    if(rcf->ping_interval > 0 && rcf->ping_interval < rdata->ping_interval) {
+      //shorter ping interval wins
+      rdata->ping_interval = rcf->ping_interval;
+    }
+  }
+  
+  rcf->privdata = rdata;
+  
+  
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
+  nchan_redis_conf_t    *rcf;
+  nchan_redis_conf_ll_t *cur;
+  
+  rbtree_init(&redis_data_tree, "redis connection data", redis_data_rbtree_node_id, redis_data_rbtree_bucketer, redis_data_rbtree_compare);
   
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;
+    DBG("redis config url %V", &rcf->url);
     if(!rcf->enabled) {
       ERR("there's a non-enabled redis_conf_t here");
       continue;
     }
-    parse_redis_url(&rcf->url, &rcp);
     
-    if((node = rbtree_find_node(&redis_data_tree, &rcp)) == NULL) {
-      if((node = rbtree_create_node(&redis_data_tree, sizeof(*rdata))) == NULL) {
-        ERR("can't create rbtree node for redis connection");
-        return NGX_ERROR;
+    if(rcf->upstream) {
+      ngx_uint_t                   i;
+      ngx_array_t                 *servers = rcf->upstream->servers;
+      ngx_http_upstream_server_t  *usrv = servers->elts;
+      ngx_str_t                   *upstream_url;
+      
+      for(i=0; i < servers->nelts; i++) {
+        upstream_url = &usrv[i].name;
+        nchan_store_init_add_redis_connection_data(rcf, cur->loc_conf, upstream_url);
       }
-      
-      rdata = (rdstore_data_t *)rbtree_data_from_node(node);
-      ngx_memzero(rdata, sizeof(*rdata));
-      rdata->connect_params = rcp;
-      rdata->status = DISCONNECTED;
-      rdata->generation = 0;
-      rdata->shutting_down = 0;
-      rdata->lcf = container_of(rcf, nchan_loc_conf_t, redis);
-      nchan_init_timer(&rdata->reconnect_timer, redis_reconnect_timer_handler, rdata);
-      nchan_init_timer(&rdata->ping_timer, redis_ping_timer_handler, rdata);
-      
-      nchan_reaper_start(&rdata->chanhead_reaper, 
-                    "redis chanhead", 
-                    offsetof(rdstore_channel_head_t, gc_prev), 
-                    offsetof(rdstore_channel_head_t, gc_next), 
-        (ngx_int_t (*)(void *, uint8_t)) nchan_redis_chanhead_ready_to_reap,
-        (void (*)(void *)) redis_store_reap_chanhead,
-                    4
-      );
-      
-      rdata->ping_interval = rcf->ping_interval;
-      rdata->connect_url = &rcf->url;
-      
-      if(rbtree_insert_node(&redis_data_tree, node) != NGX_OK) {
-        ERR("couldn't insert redis date node");
-        rbtree_destroy_node(&redis_data_tree, node);
-        return NGX_ERROR;
-      }
-      
     }
     else {
-      //TODO
-      rdata = (rdstore_data_t *)rbtree_data_from_node(node);
-      if(rcf->ping_interval > 0 && rcf->ping_interval < rdata->ping_interval) {
-        //shorter ping interval wins
-        rdata->ping_interval = rcf->ping_interval;
-      }
+      nchan_store_init_add_redis_connection_data(rcf, cur->loc_conf, NULL);
     }
-    
-    rcf->privdata = rdata;
   }
   
   return NGX_OK;

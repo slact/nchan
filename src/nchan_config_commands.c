@@ -190,14 +190,21 @@ static ngx_command_t  nchan_commands[] = {
 
   { ngx_string("nchan_redis_url"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
+    ngx_conf_set_redis_url,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, redis.url),
     NULL } ,
 
+  { ngx_string("nchan_redis_pass"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_redis_upstream_pass,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, redis),
+    NULL } ,
+
   { ngx_string("nchan_redis_server"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
-    ngx_http_upstream_redis_server,
+    ngx_conf_upstream_redis_server,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
     NULL } ,
@@ -206,7 +213,7 @@ static ngx_command_t  nchan_commands[] = {
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_enable_redis,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(nchan_loc_conf_t, redis.enabled),
+    offsetof(nchan_loc_conf_t, redis.url_enabled),
     NULL } ,
 
   { ngx_string("nchan_redis_ping_interval"),
