@@ -6,6 +6,7 @@
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include <util/nchan_reaper.h>
+#include <util/nchan_rbtree.h>
 #include <store/spool.h>
 
 typedef struct rdstore_data_s rdstore_data_t;
@@ -25,8 +26,8 @@ struct rdstore_channel_head_s {
   void                        *redis_subscriber_privdata;
   rdstore_data_t              *rdt;
   
-  rdstore_channel_head_t *gc_prev;
-  rdstore_channel_head_t *gc_next;
+  rdstore_channel_head_t      *gc_prev;
+  rdstore_channel_head_t      *gc_next;
   
   time_t                       gc_time;
   unsigned                     in_gc_queue:1;
@@ -52,6 +53,11 @@ struct callback_chain_s {
 
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
+typedef struct {
+  rbtree_seed_t       *hashslots_map; //cluster rbtree seed
+  
+} redis_cluster_t;
+
 struct rdstore_data_s {
   ngx_str_t                       *connect_url;
   redis_connect_params_t           connect_params;
@@ -70,7 +76,7 @@ struct rdstore_data_s {
   time_t                           ping_interval;
   callback_chain_t                *on_connected;
   nchan_loc_conf_t                *lcf;
-  
+  redis_cluster_t                 *cluster;
   unsigned                         shutting_down:1;
 }; // rdstore_data_t
 

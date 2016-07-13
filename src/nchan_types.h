@@ -17,9 +17,10 @@ typedef struct {
   size_t                          shm_size;
 } nchan_main_conf_t;
 
+
 typedef struct {
-  ngx_flag_t              enabled;
   ngx_str_t               url;
+  ngx_flag_t              enabled;
   time_t                  ping_interval;
   void                   *privdata;
 } nchan_redis_conf_t;

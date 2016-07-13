@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "store-private.h"
 #include "store.h"
+#include "cluster.h"
 
 #include "redis_nginx_adapter.h"
 #include "redis_lua_commands.h"
