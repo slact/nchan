@@ -610,6 +610,69 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   return rc;
 }
 
+static ngx_int_t nchan_upstream_dummy_roundrobin_init(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us) {
+  return NGX_OK;
+}
+
+char * ngx_http_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_http_upstream_srv_conf_t        *uscf;
+  nchan_redis_conf_t                  *rcf;
+  ngx_str_t                           *value;
+  
+  uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
+  ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "ngx_http_upstream_redis_server");
+  
+  if (uscf->servers == NULL) {
+    if((uscf->servers = ngx_array_create(cf->pool, 4, sizeof(*rcf))) == NULL) {
+      return NGX_CONF_ERROR;
+    }
+  }
+  if ((rcf = ngx_array_push(uscf->servers)) == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  ngx_memzero(rcf, sizeof(*rcf));
+  value = cf->args->elts;
+  rcf->url = value[1];
+  
+  /*ngx_http_upstream_drizzle_srv_conf_t        *dscf = conf;
+    ngx_http_upstream_drizzle_server_t          *ds;
+    ngx_str_t                                   *value;
+    ngx_url_t                                    u;
+    ngx_uint_t                                   i, j;
+    
+    ngx_str_t                                    protocol;
+    ngx_str_t                                    charset;
+    u_char                                      *p;
+    size_t                                       len;
+    
+    
+
+    if (dscf->servers == NULL) {
+        dscf->servers = ngx_array_create(cf->pool, 4,
+                                 sizeof(ngx_http_upstream_drizzle_server_t));
+
+        if (dscf->servers == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        uscf->servers = dscf->servers;
+    }
+
+    ds = ngx_array_push(dscf->servers);
+    if (ds == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    ngx_memzero(ds, sizeof(ngx_http_upstream_drizzle_server_t));
+
+    value = cf->args->elts;
+
+    */
+  uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
+  return NGX_CONF_OK;
+}
+
+
 #include "nchan_config_commands.c" //hideous but hey, it works
 
 static ngx_http_module_t  nchan_module_ctx = {
