@@ -539,48 +539,111 @@ static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ac, in
   
 }
 
-static void redis_server_persistence_info_check(redisAsyncContext *ac);
+static void redis_get_server_info(redisAsyncContext *ac);
 
 static void redis_check_if_still_loading_handler(ngx_event_t *ev) {
   DBG("still loading?,,.");
   rdstore_data_t   *rdata = ev->data;
   if(rdata->status != DISCONNECTED && rdata->ctx) {
-    redis_server_persistence_info_check(rdata->ctx);
+    redis_get_server_info(rdata->ctx);
   }
   
   ngx_free(ev);
 }
 
-void redis_nginx_info_persistence_callback(redisAsyncContext *ac, void *rep, void *privdata) {
-  redisReply             *reply = rep;
-  int                     loading = -1;
-  rdstore_data_t         *rdata = ac->data;
+void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *privdata);
+static void redis_get_cluster_info(rdstore_data_t *rdata);
+static void redis_get_cluster_nodes(rdstore_data_t *rdata);
+
+static void redis_get_server_info(redisAsyncContext *ac) {
+  redisAsyncCommand(ac, redis_get_server_info_callback, NULL, "INFO");
+}
+
+
+static void redis_check_if_cluster_ready_handler(ngx_event_t *ev) {
+  rdstore_data_t   *rdata = ev->data;
+  if(rdata->status != DISCONNECTED && rdata->ctx) {
+    redis_get_cluster_info(rdata);
+  }
   
-  //DBG("redis_nginx_info_persistence_callback %p", ac);
+  ngx_free(ev);
+}
+
+
+static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *privdata) {
+  redisReply        *reply = rep;
+  rdstore_data_t    *rdata = ac->data;
+    if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
+    redisCheckErrorCallback(ac, reply, privdata);
+    return;
+  }
+  
+  if(ngx_strstrn((u_char *)reply->str, "cluster_state:ok", 16)) {
+    redis_get_cluster_nodes(rdata);
+  }
+  else {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis cluster not ready");
+    ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
+    nchan_init_timer(evt, redis_check_if_cluster_ready_handler, rdata);
+    //rdt_set_status(rdata, WAITING_FOR_CLUSTER_READY, ac);
+    ngx_add_timer(evt, 1000);
+  }
+}
+
+static void redis_get_cluster_info(rdstore_data_t *rdata) {
+  redisAsyncCommand(rdata->ctx, redis_cluster_info_callback, NULL, "CLUSTER INFO");
+}
+
+
+
+static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata) {
+  redisReply         *reply = rep;
+  //rdstore_data_t     *rdata = ac->data;
   if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
     redisCheckErrorCallback(ac, reply, privdata);
     return;
   }
   
-  if(ngx_strstrn((u_char *)reply->str, "loading:1", 8)) {
-    loading = 1;
+  //TODO
+  static ngx_regex_t    *re;
+  if(!re) {
+    ngx_str_t            pattern = ngx_string("foo");  
+    ngx_str_t            err = ngx_string("                                              ");
+    ngx_regex_compile_t  rc;
+    ngx_memzero(&rc, sizeof(rc));
+    
+    rc.pattern = pattern;
+    rc.pool = NULL;
+    rc.err = err;
   }
-  else if(ngx_strstrn((u_char *)reply->str, "loading:0", 8)) {
-    loading = 0;
-  }
-  else {
-    ERR("unexpected INFO PERSISTENCE reply");
+  
+  
+}
+
+static void redis_get_cluster_nodes(rdstore_data_t *rdata) {
+  redisAsyncCommand(rdata->ctx, redis_get_cluster_nodes_callback, NULL, "CLUSTER NODES");
+}
+
+
+void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *privdata) {
+  redisReply             *reply = rep;
+  rdstore_data_t         *rdata = ac->data;
+  
+  //DBG("redis_get_server_info_callback %p", ac);
+  if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
+    redisCheckErrorCallback(ac, reply, privdata);
     return;
   }
   
-  if(loading == 1) {
+  //is it loading?
+  if(ngx_strstrn((u_char *)reply->str, "loading:1", 8)) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis server at %V is still loading data.", rdata->connect_url);
     ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
     nchan_init_timer(evt, redis_check_if_still_loading_handler, rdata);
     rdt_set_status(rdata, LOADING, ac);
     ngx_add_timer(evt, 1000);
   }
-  else if(loading == 0) {
+  else {
     DBG("everything loaded and good to go");
     redisInitScripts(rdata);
     if(rdata->sub_ctx) {
@@ -590,11 +653,11 @@ void redis_nginx_info_persistence_callback(redisAsyncContext *ac, void *rep, voi
       ERR("rdata->sub_ctx NULL, can't subscribe");
     }
   }
-}
-
-static void redis_server_persistence_info_check(redisAsyncContext *ac) {
-  //DBG("redis_server_persistence_info_check %p", ac);
-  redisAsyncCommand(ac, redis_nginx_info_persistence_callback, NULL, "INFO persistence");
+  
+  //is it part of a cluster?
+  if(ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 17)) {
+    redis_get_cluster_info(rdata);
+  }
 }
 
 void redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -609,7 +672,7 @@ void redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdat
   }
   else if(rdata->ctx && rdata->sub_ctx && rdata->status == CONNECTING && !rdata->ctx->err && !rdata->sub_ctx->err) {
     rdt_set_status(rdata, AUTHENTICATING, NULL);
-    redis_server_persistence_info_check(ac);
+    redis_get_server_info(ac);
   }
 }
 
@@ -631,7 +694,12 @@ static int redis_initialize_ctx(redisAsyncContext **ctx, rdstore_data_t *rdata) 
       if(rdata->connect_params.password.len > 0) {
         redisAsyncCommand(*ctx, redis_nginx_auth_callback, NULL, "AUTH %b", STR(&rdata->connect_params.password));
       }
-      redisAsyncCommand(*ctx, redis_nginx_select_callback, NULL, "SELECT %d", rdata->connect_params.db);
+      if(rdata->connect_params.db > 0) {
+        redisAsyncCommand(*ctx, redis_nginx_select_callback, NULL, "SELECT %d", rdata->connect_params.db);
+      }
+      else {
+        redis_get_server_info(*ctx);
+      }
       redisAsyncSetConnectCallback(*ctx, redis_nginx_connect_event_handler);
       redisAsyncSetDisconnectCallback(*ctx, redis_nginx_disconnect_event_handler);
       return 1;
