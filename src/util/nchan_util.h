@@ -7,6 +7,12 @@ void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen);
 ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd);
 ngx_int_t nchan_oneshot_timer(ngx_event_t *ev, void (*cb)(void *), void *pd);
 char *nchan_msgstatus_to_str(nchan_msg_status_t status);
+
+
+int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz);
+#define nchan_ngx_str_substr(str, substr) \
+  nchan_ngx_str_char_substr(str, substr, sizeof(substr)-1)
+
 #ifndef container_of
 
 #define container_of(ptr, type, member) ({                      \

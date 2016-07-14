@@ -578,7 +578,7 @@ static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *
     return;
   }
   
-  if(ngx_strstrn((u_char *)reply->str, "cluster_state:ok", 16)) {
+  if(ngx_strstrn((u_char *)reply->str, "cluster_state:ok", 15)) {
     redis_get_cluster_nodes(rdata);
   }
   else {
@@ -596,6 +596,29 @@ static void redis_get_cluster_info(rdstore_data_t *rdata) {
 
 
 
+#define nchan_scan_chr(cur, chr, str)         \
+  str.data = (u_char *)ngx_strchr(cur, chr);  \
+  if(str.data) {                              \
+    str.len = str.data - cur;                 \
+    str.data = cur;                           \
+    cur+=str.len+1;                           \
+  }                                           \
+  else                                        \
+    goto fail
+    
+#define nchan_scan_chr_until_end_of_line(cur, str) \
+  str.data = (u_char *)ngx_strchr(cur, '\n'); \
+  if(!str.data)                               \
+    str.data = (u_char *)ngx_strchr(cur, '\0');\
+  if(str.data) {                              \
+    str.len = str.data - cur;                 \
+    str.data = cur;                           \
+    cur+=str.len;                             \
+  }                                           \
+  else                                        \
+    goto fail
+    
+
 static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply         *reply = rep;
   //rdstore_data_t     *rdata = ac->data;
@@ -604,19 +627,38 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     return;
   }
   
-  //TODO
-  static ngx_regex_t    *re;
-  if(!re) {
-    ngx_str_t            pattern = ngx_string("foo");  
-    ngx_str_t            err = ngx_string("                                              ");
-    ngx_regex_compile_t  rc;
-    ngx_memzero(&rc, sizeof(rc));
-    
-    rc.pattern = pattern;
-    rc.pool = NULL;
-    rc.err = err;
+  u_char *line, *cur;
+  ngx_str_t  id, ip, port, flags, master_id, ping_sent, pong_recv, config_epoch, link_state, slot;
+
+  for(line = (u_char *)reply->str-1; line != NULL; line = (u_char *)ngx_strchr(cur, '\n')) {
+    cur = line+1;
+    nchan_scan_chr(cur, ' ', id);
+    nchan_scan_chr(cur, ':', ip);
+    nchan_scan_chr(cur, ' ', port);
+    nchan_scan_chr(cur, ' ', flags);
+    if(nchan_ngx_str_substr(&flags, "master")) {
+      nchan_scan_chr(cur, ' ', master_id);
+      nchan_scan_chr(cur, ' ', ping_sent);
+      nchan_scan_chr(cur, ' ', pong_recv);
+      nchan_scan_chr(cur, ' ', config_epoch);
+      nchan_scan_chr(cur, ' ', link_state);
+      nchan_scan_chr_until_end_of_line(cur, slot);
+      
+      if(nchan_ngx_str_substr(&flags, "myself")) {
+        ERR("found myself!");
+      }
+      
+      ERR("%V %V:%V %V %V %V", &id, &ip, &port, &flags, &link_state, &slot);
+    }
+    else {
+      ERR("%V %V:%V %V %s", &id, &ip, &port, &flags, "SLAVE!!");
+    }
   }
   
+  return;
+  
+fail:
+  ERR("scan failed");
   
 }
 
@@ -655,7 +697,7 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
   }
   
   //is it part of a cluster?
-  if(ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 17)) {
+  if(ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 16)) {
     redis_get_cluster_info(rdata);
   }
 }

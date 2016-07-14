@@ -214,6 +214,19 @@ ngx_int_t nchan_oneshot_timer(ngx_event_t *ev, void (*cb)(void *), void *pd) {
   return NGX_OK;
 }
 
+int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
+  //naive non-null-terminated string matcher. don't use it in tight loops!
+  char *cur;
+  size_t len = str->len;
+  
+  for(cur = (char *)str->data, len = str->len; len >= sz; cur++, len--) {
+    if(strncmp(cur, substr, sz) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited
 static ngx_str_t            debug_pool_str;
