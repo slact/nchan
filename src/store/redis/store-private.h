@@ -7,6 +7,7 @@
 #include "hiredis/async.h"
 #include <util/nchan_reaper.h>
 #include <util/nchan_rbtree.h>
+#include <util/nchan_list.h>
 #include <store/spool.h>
 
 typedef struct rdstore_data_s rdstore_data_t;
@@ -54,11 +55,25 @@ struct callback_chain_s {
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
 typedef struct {
-  rbtree_seed_t                   *hashslots_map; //cluster rbtree seed
+  rbtree_seed_t                    hashslots_map; //cluster rbtree seed
+  nchan_list_t                     nodes; //cluster rbtree seed
+  ngx_int_t                        size; //number of master nodes
   ngx_http_upstream_srv_conf_t    *uscf;
-  ngx_array_t                     *nodes;
   ngx_pool_t                      *pool;
 } redis_cluster_t;
+
+typedef struct {
+  ngx_str_t         id;
+  ngx_str_t         address;
+  redis_cluster_t  *cluster;
+} redis_cluster_node_t;
+
+typedef struct {
+  ngx_str_t         id;
+  ngx_str_t         address;
+  rdstore_data_t   *rdata;
+} redis_cluster_rbtree_node_t;
+
 
 struct rdstore_data_s {
   ngx_str_t                       *connect_url;
@@ -78,7 +93,10 @@ struct rdstore_data_s {
   time_t                           ping_interval;
   callback_chain_t                *on_connected;
   nchan_loc_conf_t                *lcf;
-  redis_cluster_t                 *cluster;
+  
+  //cluster stuff
+  redis_cluster_node_t             node;
+  
   unsigned                         shutting_down:1;
 }; // rdstore_data_t
 

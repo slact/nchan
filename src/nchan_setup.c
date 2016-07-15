@@ -620,7 +620,6 @@ static ngx_int_t nchan_upstream_dummy_roundrobin_init(ngx_conf_t *cf, ngx_http_u
 
 static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   ngx_http_upstream_srv_conf_t        *uscf;
-  nchan_redis_conf_t                  *rcf;
   ngx_str_t                           *value;
   ngx_http_upstream_server_t          *usrv;
   
