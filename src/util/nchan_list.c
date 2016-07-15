@@ -10,6 +10,7 @@ ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz) {
   list->head = NULL;
   list->tail = NULL;
   list->data_sz = data_sz;
+  list->n = 0;
   return NGX_OK;
 }
 
@@ -26,7 +27,7 @@ void *nchan_list_append(nchan_list_t *list) {
     list->head = el;
   
   list->tail = el;
-  
+  list->n++;
   return (void *)&el[1];
 }
 
@@ -44,7 +45,7 @@ nchan_list_el_t  *el, *head = list->head;
   
   if(!list->tail)
     list->head = el;
-  
+  list->n++;
   return (void *)&el[1];
 }
 
@@ -63,6 +64,7 @@ ngx_int_t nchan_list_remove(nchan_list_t *list, void *el_data) {
   
   if(list->tail == el)
     list->tail = el->prev;
+  list->n--;
   
   return NGX_OK;
 }
@@ -76,5 +78,6 @@ ngx_int_t nchan_list_empty(nchan_list_t *list) {
   }
   list->head = NULL;
   list->tail = NULL;
+  list->n = 0;
   return NGX_OK;
 }

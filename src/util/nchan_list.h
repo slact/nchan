@@ -14,9 +14,9 @@ struct nchan_list_el_s {
 typedef struct {
   nchan_list_el_t *head;
   nchan_list_el_t *tail;
+  ngx_uint_t       n;
   size_t           data_sz;
 } nchan_list_t;
-
 
 ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz);
 void *nchan_list_append(nchan_list_t *list);
