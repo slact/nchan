@@ -6,11 +6,12 @@
 #include "cluster.h"
 
 #include "redis_nginx_adapter.h"
-#include "redis_lua_commands.h"
 
 #include <util/nchan_msgid.h>
 #include <util/nchan_rbtree.h>
 #include <store/store_common.h>
+
+#include "redis_lua_commands.h"
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 1
 #define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL 300
@@ -29,8 +30,6 @@ u_char            redis_subscriber_channel[255];
 
 static rdstore_channel_head_t    *chanhead_hash = NULL;
 static rbtree_seed_t              redis_data_tree;
-static rbtree_seed_t              redis_cluster_node_id_tree;
-
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
   rdstore_data_t  *rdata = cf->redis.privdata;
@@ -332,8 +331,6 @@ static void redis_reconnect_timer_handler(ngx_event_t *ev) {
   redis_ensure_connected((rdstore_data_t *)ev->data);
 }
 
-static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
-
 static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply         *reply = (redisReply *)r;
   redisCheckErrorCallback(c, r, privdata);
@@ -381,7 +378,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   return rc;
 }
 
-static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
+void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
   static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
   redisReply *reply = (redisReply *)r;
   if(reply != NULL && reply->type == REDIS_REPLY_ERROR) {
@@ -553,192 +550,13 @@ static void redis_check_if_still_loading_handler(ngx_event_t *ev) {
 }
 
 void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *privdata);
-static void redis_get_cluster_info(rdstore_data_t *rdata);
-static void redis_get_cluster_nodes(rdstore_data_t *rdata);
+
 
 static void redis_get_server_info(redisAsyncContext *ac) {
   redisAsyncCommand(ac, redis_get_server_info_callback, NULL, "INFO");
 }
 
 
-static void redis_check_if_cluster_ready_handler(ngx_event_t *ev) {
-  rdstore_data_t   *rdata = ev->data;
-  if(rdata->status != DISCONNECTED && rdata->ctx) {
-    redis_get_cluster_info(rdata);
-  }
-  
-  ngx_free(ev);
-}
-
-
-static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *privdata) {
-  redisReply        *reply = rep;
-  rdstore_data_t    *rdata = ac->data;
-    if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
-    redisCheckErrorCallback(ac, reply, privdata);
-    return;
-  }
-  
-  if(ngx_strstrn((u_char *)reply->str, "cluster_state:ok", 15)) {
-    redis_get_cluster_nodes(rdata);
-  }
-  else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis cluster not ready");
-    ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
-    nchan_init_timer(evt, redis_check_if_cluster_ready_handler, rdata);
-    //rdt_set_status(rdata, WAITING_FOR_CLUSTER_READY, ac);
-    ngx_add_timer(evt, 1000);
-  }
-}
-
-static void redis_get_cluster_info(rdstore_data_t *rdata) {
-  redisAsyncCommand(rdata->ctx, redis_cluster_info_callback, NULL, "CLUSTER INFO");
-}
-
-
-
-#define nchan_scan_chr(cur, chr, str)         \
-  str.data = (u_char *)ngx_strchr(cur, chr);  \
-  if(str.data) {                              \
-    str.len = str.data - cur;                 \
-    str.data = cur;                           \
-    cur+=str.len+1;                           \
-  }                                           \
-  else                                        \
-    goto fail
-    
-#define nchan_scan_chr_until_end_of_line(cur, str) \
-  str.data = (u_char *)ngx_strchr(cur, '\n'); \
-  if(!str.data)                               \
-    str.data = (u_char *)ngx_strchr(cur, '\0');\
-  if(str.data) {                              \
-    str.len = str.data - cur;                 \
-    str.data = cur;                           \
-    cur+=str.len;                             \
-  }                                           \
-  else                                        \
-    goto fail
-    
-
-static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata) {
-  redisReply                    *reply = rep;
-  rdstore_data_t                *rdata = ac->data;
-  ngx_rbtree_node_t             *rbtree_node = NULL;
-  redis_cluster_rbtree_node_t   *ctnode = NULL, *my_ctnode = NULL; //cluster tree node
-  redis_cluster_t               *cluster = NULL;
-  ngx_int_t                      num_master_nodes = 0;
-  
-  if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
-    redisCheckErrorCallback(ac, reply, privdata);
-    return;
-  }
-  
-  u_char *line, *cur;
-  ngx_str_t  id, address, flags, master_id, ping_sent, pong_recv, config_epoch, link_state, slot;
-  ngx_int_t   master_node;
-  for(line = (u_char *)reply->str-1; line != NULL; line = (u_char *)ngx_strchr(cur, '\n')) {
-    cur = line+1;
-    nchan_scan_chr(cur, ' ', id);
-    nchan_scan_chr(cur, ' ', address);
-    nchan_scan_chr(cur, ' ', flags);
-    if(nchan_ngx_str_substr(&flags, "master")) {
-      num_master_nodes ++;
-      master_node = 1;
-      nchan_scan_chr(cur, ' ', master_id);
-      nchan_scan_chr(cur, ' ', ping_sent);
-      nchan_scan_chr(cur, ' ', pong_recv);
-      nchan_scan_chr(cur, ' ', config_epoch);
-      nchan_scan_chr(cur, ' ', link_state);
-      nchan_scan_chr_until_end_of_line(cur, slot);
-      ERR("%V %V %V %V %V", &id, address, &flags, &link_state, &slot);
-    }
-    else {
-      ERR("%V %V %V %s", &id, &address, &flags, "SLAVE!!");
-      master_node = 0;
-    }
-    
-    if(!nchan_ngx_str_substr(&flags, "myself")) {
-      if((rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &id)) != NULL) {
-        //do any other nodes already have the cluster set? if so, use that cluster struct.
-        ctnode = rbtree_data_from_node(rbtree_node);
-        if(ctnode->rdata->node.cluster) {
-          if(cluster)
-            assert(cluster == ctnode->rdata->node.cluster);
-          else
-            cluster = ctnode->rdata->node.cluster;
-        }
-      }
-    }
-    else if(master_node) {
-      //myself!
-      if((rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &id)) != NULL) {
-        //node already known. what do?...
-        assert(0);
-      }
-      else {
-        if((rbtree_node = rbtree_create_node(&redis_cluster_node_id_tree, sizeof(my_ctnode) + id.len + address.len)) == NULL) {
-          ERR("can't create rbtree node for redis connection");
-          return;
-        }
-          
-        my_ctnode = rbtree_data_from_node(rbtree_node);
-        my_ctnode->id.data = (u_char *)&my_ctnode[1];
-        nchan_strcpy(&my_ctnode->id, &id, 0);
-        
-        my_ctnode->address.data = (u_char *)&my_ctnode[1] + my_ctnode->id.len;
-        nchan_strcpy(&my_ctnode->address, &address, 0);
-        
-        my_ctnode->rdata = rdata;
-        
-        rdata->node.id = my_ctnode->id;
-        rdata->node.address = my_ctnode->address;
-      }
-    }
-    else {
-      //don't care about slaves. disconnect!
-      //TODO
-      assert(0);
-    }
-  }
-  if(my_ctnode) {
-    rdstore_data_t  **ptr_rdata;
-    if(!cluster) {
-      //cluster struct not made by any node yet. make it so!
-      cluster = ngx_alloc(sizeof(*cluster), ngx_cycle->log); //TODO: don't allocate from heap, use a pool or something
-      
-      
-      //TODO
-      //rbtree_seed_t hashslots_map; 
-      
-      cluster->size = num_master_nodes;
-      cluster->uscf = rdata->lcf->redis.upstream;
-      cluster->pool = NULL;
-      nchan_list_init(&cluster->nodes, sizeof(rdstore_data_t *));
-      
-    }
-    my_ctnode->rdata->node.cluster = cluster;
-    ptr_rdata = nchan_list_append(&cluster->nodes);
-    *ptr_rdata = rdata;
-    
-    
-    
-    
-    //TODO
-    //TODO
-    //TODO
-  }
-  
-  
-  return;
-  
-fail:
-  ERR("scan failed");
-  
-}
-
-static void redis_get_cluster_nodes(rdstore_data_t *rdata) {
-  redisAsyncCommand(rdata->ctx, redis_get_cluster_nodes_callback, NULL, "CLUSTER NODES");
-}
 
 
 void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -1957,19 +1775,13 @@ static ngx_int_t nchan_store_init_add_redis_connection_data(nchan_redis_conf_t *
   return NGX_OK;
 }
 
-
-static void *redis_data_rbtree_node_cluster_id(void *data) {
-  return &((rdstore_data_t *)data)->node.id;
-}
-
-
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   nchan_redis_conf_t    *rcf;
   nchan_redis_conf_ll_t *cur;
   
   rbtree_init(&redis_data_tree, "redis connection data", redis_data_rbtree_node_id, redis_data_rbtree_bucketer, redis_data_rbtree_compare);
   
-  rbtree_init(&redis_cluster_node_id_tree, "redis cluster node (by id) data", redis_data_rbtree_node_cluster_id, NULL, NULL);
+  redis_cluster_init_postconfig(cf);
   
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;

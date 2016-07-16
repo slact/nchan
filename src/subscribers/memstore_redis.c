@@ -1,14 +1,15 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
+
 #include <store/memory/ipc.h>
 #include <store/memory/store-private.h>
 #include <store/memory/ipc-handlers.h>
-#include <util/nchan_msgid.h>
-
 #include <store/memory/store.h>
+
 #include <store/redis/store.h>
 #include <store/redis/store-private.h>
 
+#include <util/nchan_msgid.h>
 #include "internal.h"
 #include "memstore_redis.h"
 #include <assert.h>

@@ -55,7 +55,7 @@ struct callback_chain_s {
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
 typedef struct {
-  rbtree_seed_t                    hashslots_map; //cluster rbtree seed
+  rbtree_seed_t                    hashslots; //cluster rbtree seed
   nchan_list_t                     nodes; //cluster rbtree seed
   ngx_int_t                        size; //number of master nodes
   ngx_http_upstream_srv_conf_t    *uscf;
@@ -65,8 +65,19 @@ typedef struct {
 typedef struct {
   ngx_str_t         id;
   ngx_str_t         address;
+  ngx_str_t         slots;
   redis_cluster_t  *cluster;
 } redis_cluster_node_t;
+
+typedef struct {
+  unsigned         min:16;
+  unsigned         max:16;
+} redis_cluster_slot_range_t;
+
+typedef struct {
+  redis_cluster_slot_range_t   range;
+  rdstore_data_t              *rdata;
+} redis_cluster_keyslot_range_node_t;
 
 typedef struct {
   ngx_str_t         id;
@@ -101,5 +112,6 @@ struct rdstore_data_s {
 }; // rdstore_data_t
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf);
+void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
 
 #endif //NCHAN_REDIS_STORE_PRIVATE_H
