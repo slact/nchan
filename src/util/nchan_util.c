@@ -115,7 +115,7 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
 }
 
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen) {
-  size_t len = src->len > maxlen ? maxlen : src->len;
+  size_t len = src->len > maxlen && maxlen > 0 ? maxlen : src->len;
   ngx_memcpy(dst->data, src->data, len);
   dst->len = len;
 }

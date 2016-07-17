@@ -79,13 +79,6 @@ typedef struct {
   rdstore_data_t              *rdata;
 } redis_cluster_keyslot_range_node_t;
 
-typedef struct {
-  ngx_str_t         id;
-  ngx_str_t         address;
-  rdstore_data_t   *rdata;
-} redis_cluster_rbtree_node_t;
-
-
 struct rdstore_data_s {
   ngx_str_t                       *connect_url;
   redis_connect_params_t           connect_params;

@@ -606,7 +606,10 @@ void redis_nginx_select_callback(redisAsyncContext *ac, void *rep, void *privdat
   }
   else if(rdata->ctx && rdata->sub_ctx && rdata->status == CONNECTING && !rdata->ctx->err && !rdata->sub_ctx->err) {
     rdt_set_status(rdata, AUTHENTICATING, NULL);
-    redis_get_server_info(ac);
+    
+    if(rdata->ctx == ac) {
+      redis_get_server_info(ac);
+    }
   }
 }
 
