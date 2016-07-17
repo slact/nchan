@@ -114,7 +114,7 @@ function NchanSubscriber(url, opt) {
   
   this.lastMessageId = opt.id || opt.msgId;
   this.reconnect = typeof opt.reconnect == "undefined" ? true : opt.reconnect;
-  this.reconnectTimeout = opt.reconnectTimeout || 10;
+  this.reconnectTimeout = opt.reconnectTimeout || 1000;
   
   
   var saveConnectionState;
@@ -201,6 +201,7 @@ function NchanSubscriber(url, opt) {
       notifySharedSubscribers("reconnect");
       restartTimeoutIndex = setTimeout(ughbind(function() {
         restartTimeoutIndex = null;
+        this.stop();
         this.start();
       }, this), this.reconnectTimeout);
     }
