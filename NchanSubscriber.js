@@ -66,6 +66,7 @@ function NchanSubscriber(url, opt) {
   }
   
   this.url = url;
+  opt = opt || {};
   
   //which transport should i use?
   if(typeof opt === "string") {
