@@ -651,7 +651,6 @@ static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd
   nchan_loc_conf_t  *lcf = conf;
   ngx_str_t         *value = cf->args->elts;
   ngx_url_t          upstream_url;
-  
   if (lcf->redis.upstream) {
     return "is duplicate";
   }
@@ -665,6 +664,7 @@ static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd
   }
   
   lcf->redis.enabled = 1;
+  global_redis_enabled = 1;
   nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
   
   return NGX_CONF_OK;

@@ -23,5 +23,9 @@ void *nchan_list_append(nchan_list_t *list);
 void *nchan_list_prepend(nchan_list_t *list);
 ngx_int_t nchan_list_remove(nchan_list_t *list, void *el_data);
 ngx_int_t nchan_list_empty(nchan_list_t *list);
+#define nchan_list_el_from_data(el_data) \
+  ((nchan_list_el_t *)el_data - 1)
+#define nchan_list_data_from_el(el) \
+  ((void *)&el[1])
 
 #endif //NCHAN_LIST_H

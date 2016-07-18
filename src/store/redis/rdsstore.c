@@ -593,7 +593,8 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
   }
   
   //is it part of a cluster?
-  if(ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 16)) {
+  if(ac == rdata->ctx && ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 16)) {
+    DBG("is part of a cluster. learn more.");
     redis_get_cluster_info(rdata);
   }
 }

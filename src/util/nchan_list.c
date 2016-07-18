@@ -66,6 +66,8 @@ ngx_int_t nchan_list_remove(nchan_list_t *list, void *el_data) {
     list->tail = el->prev;
   list->n--;
   
+  ngx_free(el);
+  
   return NGX_OK;
 }
 

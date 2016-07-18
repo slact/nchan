@@ -210,6 +210,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
         my_rdata = *(rdstore_data_t **)rbtree_data_from_node(rbtree_node);
         
         assert(my_rdata == rdata);
+        my_ctnode = my_rdata;
         ERR("%p %V %V already added to redis_cluster_node_id_tree... weird... how?...", rdata, &rdata->node.id, &my_rdata->node.id);
       }
       else {
@@ -235,6 +236,8 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
           rbtree_destroy_node(&redis_cluster_node_id_tree, rbtree_node);
           assert(0);
         }
+        
+        my_ctnode = *(rdstore_data_t **)rbtree_data_from_node(rbtree_node);
       }
     }
     else {
@@ -290,7 +293,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
       slot_min = ngx_atoi(slot_min_str.data, slot_min_str.len);
       slot_max = ngx_atoi(slot_max_str.data, slot_max_str.len);
       
-      DBG("slots: %i - %i", &slot_min, &slot_max);
+      DBG("slots: %i - %i", slot_min, slot_max);
       
       range.min = slot_min;
       range.max = slot_max;
@@ -333,10 +336,10 @@ typedef struct {
 } rdata_node_finder_data_t;
 
 rbtree_walk_direction_t rdata_node_finder(rbtree_seed_t *seed, void *data, void *privdata) {
-  rdstore_data_t           **d = data;
-  rdata_node_finder_data_t  *pd = privdata;
+  redis_cluster_keyslot_range_node_t *d = data;
+  rdata_node_finder_data_t           *pd = privdata;
   
-  if(*d == pd->rdata) {
+  if(d->rdata == pd->rdata) {
     pd->found = rbtree_node_from_data(d);
     return RBTREE_WALK_STOP;
   }
@@ -351,11 +354,28 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
   int                        found = 0;
   ngx_rbtree_node_t         *rbtree_node;
   nchan_list_el_t           *cur;
-  rdata_node_finder_data_t   finder_data = {rdata, NULL};
+  rdata_node_finder_data_t   finder_data;
   
   if(!cluster) {
     ERR("not a cluster node");
     return;
+  }
+  
+  
+  //remove from hashslots. this is a little tricky, we walk the hashslots tree 
+  // until we can's find this rdata
+  finder_data.rdata = rdata;
+  while(1) {
+    finder_data.found = NULL;
+    rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
+    if(finder_data.found != NULL) {
+      ERR("destroyed node %p", finder_data.found);
+      rbtree_remove_node(&cluster->hashslots, finder_data.found);
+      rbtree_destroy_node(&cluster->hashslots, finder_data.found);
+    }
+    else {
+      break;
+    }
   }
   
   assert(cluster->nodes.n > 0);
@@ -371,29 +391,13 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
   assert(found);
   nchan_list_remove(&cluster->nodes, rdata_pptr);
   
-  
-  //remove from hashslots. this is a little tricky, we walk the hashslots tree 
-  // until we can's find this rdata
-  while(1) {
-    finder_data.found = NULL;
-    rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
-    if(finder_data.found != NULL) {
-      ERR("destroyed node %p", finder_data.found);
-      rbtree_remove_node(&cluster->hashslots, finder_data.found);
-      rbtree_destroy_node(&cluster->hashslots, finder_data.found);
-    }
-    else {
-      break;
-    }
+  if(cluster->nodes.n == 0) {
+    ngx_free(cluster);
   }
   
   rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
   assert(rbtree_node);
   rbtree_remove_node(&redis_cluster_node_id_tree, rbtree_node);
   
-  cluster->nodes.n --;
-  
-  if(cluster->nodes.n == 0) {
-    ngx_free(cluster);
-  }
+  rbtree_destroy_node(&redis_cluster_node_id_tree, rbtree_node);
 }
