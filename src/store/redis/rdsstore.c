@@ -227,7 +227,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   }
   
   DBG("UNSUBSCRIBING from channel:pubsub:%V", &ch->id);
-  redis_subscriber_command(ch->rdt, NULL, NULL, "UNSUBSCRIBE channel:pubsub:%b", STR(&ch->id));
+  redis_subscriber_command(ch->rdt, NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
   if(ch->keepalive_timer.timer_set) {
     ngx_del_timer(&ch->keepalive_timer);
@@ -443,7 +443,7 @@ static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
       }
       break;
   }
-  //redis_subscriber_command(NULL, NULL, "UNSUBSCRIBE channel:%b:pubsub", str(&(channel->id)));
+  //redis_subscriber_command(NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", str(&(channel->id)));
 }
 
 static void redis_load_script_callback(redisAsyncContext *ac, void *r, void *privdata) {
@@ -1278,7 +1278,7 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
   nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
   
   DBG("SUBSCRIBING to channel:pubsub:%V", channel_id);
-  redis_subscriber_command(head->rdt, redis_subscriber_callback, head, "SUBSCRIBE channel:pubsub:%b", STR(channel_id));
+  redis_subscriber_command(head->rdt, redis_subscriber_callback, head, "SUBSCRIBE {channel:%b}:pubsub", STR(channel_id));
   CHANNEL_HASH_ADD(head);
   
   return head;

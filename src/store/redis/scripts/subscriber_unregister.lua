@@ -8,11 +8,11 @@ local id, sub_id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 redis.call('echo', ' ######## SUBSCRIBER UNREGISTER SCRIPT ####### ')
-
+local ch=('{channel:%s}'):format(id)
 local keys = {
-  channel =     'channel:'..id,
-  messages =    'channel:messages:'..id,
-  subscribers = 'channel:subscribers:'..id,
+  channel =     ch,
+  messages =    ch..':messages',
+  subscribers = ch..':subscribers',
 }
 
 local setkeyttl=function(ttl)

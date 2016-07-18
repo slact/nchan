@@ -74,16 +74,17 @@ local tohash=function(arr)
   return h
 end
 
+local ch = ('{channel:%s}'):format(id)
+
 local key={
   time_offset=  'nchan:message_time_offset',
-  last_message= nil,
-  message=      'channel:msg:%s:'..id, --not finished yet
-  channel=      'channel:'..id,
-  messages=     'channel:messages:'..id,
-  subscribers=  'channel:subscribers:'..id
+  last_message= ch..':msg:%s',
+  message=      ch..':msg:%s', --not finished yet
+  channel=      ch,
+  messages=     ch..':messages',
+  subscribers=  ch..':subscribers'
 }
-
-local channel_pubsub = 'channel:pubsub:'..id
+local channel_pubsub = ch..':pubsub'
 
 local new_channel
 local channel
@@ -95,7 +96,7 @@ if channel~=nil then
   --dbg("channel present")
   if channel.current_message ~= nil then
     --dbg("channel current_message present")
-    key.last_message=('channel:msg:%s:%s'):format(channel.current_message, id)
+    key.last_message=key.last_message:format(channel.current_message, id)
   else
     --dbg("channel current_message absent")
     key.last_message=nil

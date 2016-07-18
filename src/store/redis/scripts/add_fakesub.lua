@@ -8,7 +8,7 @@ if num==nil then
   return {err="fakesub number not given"}
 end
 
-local chan_key = 'channel:'..id
+local chan_key = ('{channel:%s}'):format(id)
 local exists = false
 if redis.call('EXISTS', chan_key) == 1 then
   exists = true
