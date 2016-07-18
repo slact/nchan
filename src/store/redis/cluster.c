@@ -161,6 +161,9 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   
   for(line = (u_char *)reply->str-1; line != NULL; line = (u_char *)ngx_strchr(cur, '\n')) {
     cur = line+1;
+    if(cur[0]=='\0') {
+      break;
+    }
     nchan_scan_chr(cur, ' ', id, "id");
     nchan_scan_chr(cur, ' ', address, "address");
     nchan_scan_chr(cur, ' ', flags, "flags");
@@ -322,4 +325,75 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
 fail:
   ERR("scan failed %s, line: %s", what, line);
   
+}
+
+typedef struct {
+  rdstore_data_t      *rdata;
+  ngx_rbtree_node_t   *found;
+} rdata_node_finder_data_t;
+
+rbtree_walk_direction_t rdata_node_finder(rbtree_seed_t *seed, void *data, void *privdata) {
+  rdstore_data_t           **d = data;
+  rdata_node_finder_data_t  *pd = privdata;
+  
+  if(*d == pd->rdata) {
+    pd->found = rbtree_node_from_data(d);
+    return RBTREE_WALK_STOP;
+  }
+  else {
+    return RBTREE_WALK_LEFT_RIGHT;
+  }
+}
+
+void redis_cluster_drop_node(rdstore_data_t *rdata) {
+  redis_cluster_t           *cluster = rdata->node.cluster;
+  rdstore_data_t           **rdata_pptr;
+  int                        found = 0;
+  ngx_rbtree_node_t         *rbtree_node;
+  nchan_list_el_t           *cur;
+  rdata_node_finder_data_t   finder_data = {rdata, NULL};
+  
+  if(!cluster) {
+    ERR("not a cluster node");
+    return;
+  }
+  
+  assert(cluster->nodes.n > 0);
+  
+  for(cur = cluster->nodes.head; cur != NULL; cur = cur->next) {
+    rdata_pptr = nchan_list_data_from_el(cur);
+    if(*rdata_pptr == rdata) {
+      found = 1;
+      break;
+    }
+  }
+  
+  assert(found);
+  nchan_list_remove(&cluster->nodes, rdata_pptr);
+  
+  
+  //remove from hashslots. this is a little tricky, we walk the hashslots tree 
+  // until we can's find this rdata
+  while(1) {
+    finder_data.found = NULL;
+    rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
+    if(finder_data.found != NULL) {
+      ERR("destroyed node %p", finder_data.found);
+      rbtree_remove_node(&cluster->hashslots, finder_data.found);
+      rbtree_destroy_node(&cluster->hashslots, finder_data.found);
+    }
+    else {
+      break;
+    }
+  }
+  
+  rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
+  assert(rbtree_node);
+  rbtree_remove_node(&redis_cluster_node_id_tree, rbtree_node);
+  
+  cluster->nodes.n --;
+  
+  if(cluster->nodes.n == 0) {
+    ngx_free(cluster);
+  }
 }
