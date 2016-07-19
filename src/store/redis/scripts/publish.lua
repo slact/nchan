@@ -75,11 +75,11 @@ local tohash=function(arr)
 end
 
 local ch = ('{channel:%s}'):format(id)
-
+local msg_fmt = ch..':msg:%s'
 local key={
   time_offset=  'nchan:message_time_offset',
-  last_message= ch..':msg:%s',
-  message=      ch..':msg:%s', --not finished yet
+  last_message= msg_fmt, --not finished yet
+  message=      msg_fmt, --not finished yet
   channel=      ch,
   messages=     ch..':messages',
   subscribers=  ch..':subscribers'
@@ -197,16 +197,16 @@ end
 local max_stored_msgs = tonumber(redis.call('HGET', key.channel, 'max_stored_messages')) or -1
 
 if max_stored_msgs < 0 then --no limit
-  oldestmsg(key.messages, 'channel:msg:%s:'..id)
+  oldestmsg(key.messages, msg_fmt)
   redis.call('LPUSH', key.messages, msg.id)
 elseif max_stored_msgs > 0 then
   local stored_messages = tonumber(redis.call('LLEN', key.messages))
   redis.call('LPUSH', key.messages, msg.id)
   if stored_messages > max_stored_msgs then
     local oldmsgid = redis.call('RPOP', key.messages)
-    redis.call('DEL', 'channel:msg:'..id..':'..oldmsgid)
+    redis.call('DEL', msg_fmt:format(oldmsgid))
   end
-  oldestmsg(key.messages, 'channel:msg:%s:'..id)
+  oldestmsg(key.messages, msg_fmt)
 end
 
 
