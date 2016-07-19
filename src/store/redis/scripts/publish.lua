@@ -77,7 +77,6 @@ end
 local ch = ('{channel:%s}'):format(id)
 local msg_fmt = ch..':msg:%s'
 local key={
-  time_offset=  'nchan:message_time_offset',
   last_message= msg_fmt, --not finished yet
   message=      msg_fmt, --not finished yet
   channel=      ch,
@@ -212,7 +211,6 @@ end
 
 --set expiration times for all the things
   redis.call('EXPIRE', key.message, msg.ttl)
-  redis.call('EXPIRE', key.time_offset, channel.ttl)
   redis.call('EXPIRE', key.channel, channel.ttl)
   redis.call('EXPIRE', key.messages, channel.ttl)
   redis.call('EXPIRE', key.subscribers, channel.ttl)
