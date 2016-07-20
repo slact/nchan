@@ -196,10 +196,17 @@ static ngx_command_t  nchan_commands[] = {
     NULL } ,
 
   { ngx_string("nchan_redis_pass"),
-    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_redis_upstream_pass,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, redis),
+    NULL } ,
+
+  { ngx_string("nchan_redis_pass_inheritable"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, redis.upstream_inheritable),
     NULL } ,
 
   { ngx_string("nchan_redis_server"),

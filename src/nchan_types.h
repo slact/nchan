@@ -22,7 +22,9 @@ typedef struct {
   ngx_str_t                     url;
   ngx_flag_t                    url_enabled;
   time_t                        ping_interval;
+  ngx_str_t                     upstream_url;
   ngx_http_upstream_srv_conf_t *upstream;
+  ngx_flag_t                    upstream_inheritable;
   unsigned                      enabled:1;
   void                         *privdata;
 } nchan_redis_conf_t;

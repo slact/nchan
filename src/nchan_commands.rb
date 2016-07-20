@@ -224,12 +224,19 @@ CfCmd.new do
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
   
-  nchan_redis_pass [:loc],
+  nchan_redis_pass [:main, :srv, :loc],
       :ngx_conf_set_redis_upstream_pass,
       [:loc_conf, :"redis"],
       
       group: "storage",
       info: "Use an upstream config block for Redis servers."
+  
+  nchan_redis_pass_inheritable [:main, :srv, :loc],
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :"redis.upstream_inheritable"],
+      
+      undocumented: true,
+      group: "debug"
   
   nchan_redis_server [:upstream],
       :ngx_conf_upstream_redis_server,

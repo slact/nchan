@@ -419,7 +419,7 @@ Publishing to multiple channels with a single request is also possible, with sim
 
 - **nchan_redis_pass**  
   arguments: 1  
-  context: location  
+  context: http, server, location  
   > Use an upstream config block for Redis servers.    
 
 - **nchan_redis_ping_interval**  
