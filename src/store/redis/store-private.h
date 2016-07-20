@@ -11,13 +11,16 @@
 #include <store/spool.h>
 
 typedef struct rdstore_data_s rdstore_data_t;
+typedef struct rdstore_channel_head_s rdstore_channel_head_t;
 
 typedef struct {
-  rdstore_data_t  *node_rdt;
-  unsigned         enabled:1;
+  rdstore_data_t          *node_rdt;
+  unsigned                 enabled:1;
+  //rdstore_channel_head_t  *next;
+  //rdstore_channel_head_t  *prev;
 } rdstore_channel_head_cluster_data_t;
 
-typedef struct rdstore_channel_head_s rdstore_channel_head_t;
+
 struct rdstore_channel_head_s {
   ngx_str_t                    id; //channel id
   channel_spooler_t            spooler;
@@ -63,7 +66,9 @@ typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS
 typedef struct {
   rbtree_seed_t                    hashslots; //cluster rbtree seed
   nchan_list_t                     nodes; //cluster rbtree seed
-  ngx_int_t                        size; //number of master nodes
+  ngx_uint_t                       size; //number of master nodes
+  ngx_int_t                        node_connections_pending; //number of master nodes
+  uint32_t                         homebrew_id;
   ngx_http_upstream_srv_conf_t    *uscf;
   ngx_pool_t                      *pool;
 } redis_cluster_t;
