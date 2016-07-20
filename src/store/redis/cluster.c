@@ -253,6 +253,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     u_char                              *dash;
     redis_cluster_slot_range_t           range;
     redis_cluster_keyslot_range_node_t  *keyslot_tree_node;
+    
     if(!cluster) {
       //cluster struct not made by any node yet. make it so!
       cluster = ngx_alloc(sizeof(*cluster), ngx_cycle->log); //TODO: don't allocate from heap, use a pool or something
@@ -405,6 +406,22 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
 
 static uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 static rdstore_data_t *redis_cluster_rdata_from_keyslot(rdstore_data_t *rdata, uint16_t slot);
+
+
+rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch) {
+  if(!ch->cluster.enabled) {
+    return ch->rdt;
+  }
+  
+  if(ch->cluster.node_rdt) {
+    return ch->cluster.node_rdt;
+  }
+  
+  ch->cluster.node_rdt = redis_cluster_rdata_from_channel_id(ch->rdt, &ch->id);
+  
+  return ch->cluster.node_rdt;
+  
+}
 
 rdstore_data_t *redis_cluster_rdata_from_channel_id(rdstore_data_t *rdata, ngx_str_t *str){
   if(!rdata->node.cluster)

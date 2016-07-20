@@ -12,6 +12,11 @@
 
 typedef struct rdstore_data_s rdstore_data_t;
 
+typedef struct {
+  rdstore_data_t  *node_rdt;
+  unsigned         enabled:1;
+} rdstore_channel_head_cluster_data_t;
+
 typedef struct rdstore_channel_head_s rdstore_channel_head_t;
 struct rdstore_channel_head_s {
   ngx_str_t                    id; //channel id
@@ -26,6 +31,7 @@ struct rdstore_channel_head_s {
   
   void                        *redis_subscriber_privdata;
   rdstore_data_t              *rdt;
+  rdstore_channel_head_cluster_data_t cluster;
   
   rdstore_channel_head_t      *gc_prev;
   rdstore_channel_head_t      *gc_next;
