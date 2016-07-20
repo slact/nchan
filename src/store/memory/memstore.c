@@ -506,7 +506,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
-  if(ch->cf && ch->cf->redis.enabled) {
+  if(ch->cf && ch->cf->redis.enabled && !ch->multi) {
     send_redis_fakesub_delta(ch);
     if(ch->delta_fakesubs_timer_ev.timer_set) {
       ngx_del_timer(&ch->delta_fakesubs_timer_ev);
@@ -639,7 +639,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
       assert(CHANHEAD_SHARED_OKAY(head));
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
-    if(head->cf && head->cf->redis.enabled) {
+    if(head->cf && head->cf->redis.enabled && !head->multi) {
       memstore_fakesub_add(head, 1);
     }
     
@@ -677,7 +677,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       assert(head->shutting_down == 1);
     }
     */
-    if(head->cf && head->cf->redis.enabled) {
+    if(head->cf && head->cf->redis.enabled && !head->multi) {
       memstore_fakesub_add(head, -count);
     }
     
@@ -787,7 +787,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8
     }
   }
   else {
-    if(head->cf && head->cf->redis.enabled && head->status != READY) {
+    if(head->cf && head->cf->redis.enabled && !head->multi && head->status != READY) {
       if(head->redis_sub == NULL) {
         head->redis_sub = memstore_redis_subscriber_create(head);
         nchan_store_redis.subscribe(&head->id, head->redis_sub);
@@ -876,7 +876,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->cf = NULL;
   }
   
-  if(head->cf && head->cf->redis.enabled) {
+  if(head->cf && head->cf->redis.enabled && !head->multi) {
     head->delta_fakesubs = 0;
     nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
   }
