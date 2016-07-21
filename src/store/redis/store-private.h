@@ -117,5 +117,8 @@ struct rdstore_data_s {
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf);
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
-
+ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url);
+rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf);
+ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
+ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
 #endif //NCHAN_REDIS_STORE_PRIVATE_H

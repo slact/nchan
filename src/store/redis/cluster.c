@@ -113,28 +113,36 @@ void redis_get_cluster_nodes(rdstore_data_t *rdata, uintptr_t cluster_size) {
   redisAsyncCommand(rdata->ctx, redis_get_cluster_nodes_callback, (void *)cluster_size, "CLUSTER NODES");
 }
 
-#define nchan_scan_chr(cur, chr, str)   \
-  (str)->data = (u_char *)ngx_strchr(cur, chr);\
-  if((str)->data) {                           \
-    (str)->len = (str)->data - cur;           \
-    (str)->data = cur;                        \
-    cur+=(str)->len+1;                        \
-  }                                           \
-  else                                        \
-    goto fail
-    
-#define nchan_scan_until_end_of_line(cur, str) \
-  (str)->data = (u_char *)ngx_strchr(cur, '\n');\
-  if(!(str)->data)                            \
-    (str)->data = (u_char *)ngx_strchr(cur, '\0');\
-  if((str)->data) {                           \
-    (str)->len = (str)->data - cur;           \
-    (str)->data = cur;                        \
-    cur+=(str)->len;                          \
-  }                                           \
-  else                                        \
-    goto fail
-    
+
+static void nchan_scan_nearest_chr(u_char **cur, ngx_str_t *str, ngx_int_t n, ...) {
+  u_char    chr;
+  va_list   args;
+  u_char   *shortest = NULL;
+  
+  u_char *tmp_cur;
+  
+  ngx_int_t i;
+  
+  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur[-1] != '\0'); tmp_cur++) {
+    va_start(args, n);
+    for(i=0; shortest == NULL && i<n; i++) {
+      chr = (u_char )va_arg(args, int);
+      if(*tmp_cur == chr) {
+        shortest = tmp_cur;
+      }
+    }
+    va_end(args);
+  }
+  if(shortest) {
+    str->data = (u_char *)*cur;
+    str->len = shortest - *cur;
+    *cur = shortest + 1;
+  }
+  else {
+    str->data = NULL;
+    str->len = 0;
+  }
+}
 
 #define nchan_scan_str(str_src, cur, chr, str)\
   (str)->data = (u_char *)memchr(cur, chr, (str_src)->len - (cur - (str_src)->data));\
@@ -151,6 +159,7 @@ void redis_get_cluster_nodes(rdstore_data_t *rdata, uintptr_t cluster_size) {
 
 
 typedef struct {
+  ngx_str_t      line;
   ngx_str_t      id;         //node id
   ngx_str_t      address;    //address as known by redis
   ngx_str_t      flags;
@@ -169,19 +178,23 @@ typedef struct {
 } cluster_nodes_line_t;
     
 static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) {
-  u_char     *end, *cur = (u_char *)line;
-  nchan_scan_chr(cur, ' ', &l->id);
-  nchan_scan_chr(cur, ' ', &l->address);
-  nchan_scan_chr(cur, ' ', &l->flags);
+  u_char     *cur = (u_char *)line;
   
-  nchan_scan_chr(cur, ' ', &l->master_id);
-  nchan_scan_chr(cur, ' ', &l->ping_sent);
-  nchan_scan_chr(cur, ' ', &l->pong_recv);
-  nchan_scan_chr(cur, ' ', &l->config_epoch);
-  nchan_scan_chr(cur, ' ', &l->link_state);
+  if(cur[0]=='\0')
+    return NULL;
+  
+  nchan_scan_nearest_chr(&cur, &l->id,           1, ' ');
+  nchan_scan_nearest_chr(&cur, &l->address,      1, ' ');
+  nchan_scan_nearest_chr(&cur, &l->flags,        1, ' ');
+  
+  nchan_scan_nearest_chr(&cur, &l->master_id,    1, ' ');
+  nchan_scan_nearest_chr(&cur, &l->ping_sent,    1, ' ');
+  nchan_scan_nearest_chr(&cur, &l->pong_recv,    1, ' ');
+  nchan_scan_nearest_chr(&cur, &l->config_epoch, 1, ' ');
+  nchan_scan_nearest_chr(&cur, &l->link_state,   3, ' ', '\n', '\0');
   
   if(nchan_ngx_str_substr((&l->flags), "master")) {
-    nchan_scan_until_end_of_line(cur, &l->slots);
+    nchan_scan_nearest_chr(&cur, &l->slots, 2, '\n', '\0');
     l->master = 1;
   }
   else {
@@ -194,13 +207,11 @@ static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) 
   
   l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
   
-  if((end = (u_char *)ngx_strchr(cur, '\n')) == NULL) {
-    return NULL;
-  }
-  return (char *)(end + 1);
-  
-fail:
-  return NULL;
+  l->line.data = (u_char *)line;
+  l->line.len = cur - l->line.data;
+  if(&cur[-1] > (u_char *)line && cur[-1] == '\0')
+    cur--;
+  return (char *)cur;
 }
 
 static u_char *redis_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur, redis_cluster_slot_range_t *r) {
@@ -248,6 +259,32 @@ fail:
   return NULL;
 }
 
+static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *reply, nchan_loc_conf_t *cf, redis_cluster_t *cluster) {
+  char                  *line;
+  redis_connect_params_t rcp;
+  rdstore_data_t        *rdata;
+  cluster_nodes_line_t   l;
+  ngx_str_t             *url;
+  
+  DBG("discover new nodes");
+  line = reply->str;
+  while((line = redis_scan_cluster_nodes_line(line, &l)) != NULL) {
+    if(l.master && (rbtree_find_node(&redis_cluster_node_id_tree, &l.id) == NULL)) {
+      DBG("found a node %V %V", &l.id, &l.address);
+      url = ngx_palloc(ngx_cycle->pool, sizeof(*url) + l.address.len + 1); //TODO: pallocate in a more fitting pool
+      url->data = (u_char *)&url[1];
+      url->len = l.address.len;
+      memcpy(url->data, l.address.data, l.address.len);
+      url->data[url->len] = '\0';
+      parse_redis_url(url, &rcp);
+      rdata = redis_create_rdata(url, &rcp, &cf->redis, cf);
+      cluster->node_connections_pending++;
+      redis_ensure_connected(rdata);
+    }
+  }
+  
+}
+
 static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                    *reply = rep;
   rdstore_data_t                *rdata = ac->data;
@@ -276,9 +313,8 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   char                 *line;
   cluster_nodes_line_t  l;
   
-  raise(SIGSTOP);
-  
   line = reply->str;
+  //DBG("\n%s", reply->str);
   while((line = redis_scan_cluster_nodes_line(line, &l)) != NULL) {
     
     if(l.master) {
@@ -404,7 +440,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     
     cluster->node_connections_pending --;
     if(cluster->node_connections_pending == 0 && cluster->nodes.n < cluster->size) {
-      
+      redis_cluster_discover_and_connect_to_missing_nodes(reply, cf, cluster);
     }
     
   }
