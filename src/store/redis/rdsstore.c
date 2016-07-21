@@ -818,7 +818,10 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   if(!cmp_read_int(cmp, &ttl)) {
     return cmp_err(cmp);
   }
-  assert(ttl > 0);
+  assert(ttl >= 0);
+  if(ttl == 0) {
+    ttl++; // less than a second left for this message... give it a second's lease on life
+  }
   msg->expires = ngx_time() + ttl;
   
   //msg id
