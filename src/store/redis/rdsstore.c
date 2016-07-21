@@ -392,9 +392,9 @@ static void rdt_set_status(redis_connection_status_t status, const redisAsyncCon
 }
 
 static void redis_reconnect_timer_handler(ngx_event_t *ev) {
-  if(!ev->timedout)
+  if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
-  
+  ev->timedout = 0;
   redis_ensure_connected();
 }
 
@@ -415,9 +415,10 @@ static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
 
 static void redis_ping_timer_handler(ngx_event_t *ev) {
   
-  if(!ev->timedout)
+  if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
   
+  ev->timedout = 0;
   if(rdt.status == CONNECTED && rdt.ctx && rdt.sub_ctx) {
     redis_command(redis_ping_callback, NULL, "PUBLISH %s ping", rdt.subscriber_channel);
     if(rdt.ping_interval) {
