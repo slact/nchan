@@ -392,8 +392,9 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
 }
 
 static void redis_reconnect_timer_handler(ngx_event_t *ev) {
-  if(!ev->timedout)
+  if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
+  ev->timedout = 0;
   redis_ensure_connected((rdstore_data_t *)ev->data);
 }
 
@@ -414,9 +415,10 @@ static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
 
 static void redis_ping_timer_handler(ngx_event_t *ev) {
   rdstore_data_t  *rdata = ev->data;
-  if(!ev->timedout)
+  if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
   
+  ev->timedout = 0;
   if(rdata->status == CONNECTED && rdata->ctx && rdata->sub_ctx) {
     redis_command(rdata, redis_ping_callback, NULL, "PUBLISH %s ping", redis_subscriber_channel);
     if(rdata->ping_interval) {
@@ -822,7 +824,10 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_buf_t *buf) {
   if(!cmp_read_int(cmp, &ttl)) {
     return cmp_err(cmp);
   }
-  assert(ttl > 0);
+  assert(ttl >= 0);
+  if(ttl == 0) {
+    ttl++; // less than a second left for this message... give it a second's lease on life
+  }
   msg->expires = ngx_time() + ttl;
   
   //msg id
