@@ -29,9 +29,9 @@ class AuthServer
         chid="foo"
         headers["X-Accel-Redirect"]="/sub/internal/#{chid}"
         headers["X-Accel-Buffering"] = "no"
-      when "/subauth"
+      when "/auth"
         #meh
-      when "/subauth_fail"
+      when "/auth_fail"
         code = 403
       when "/pub"
         resp << "WEE! + #{body}"
