@@ -407,6 +407,8 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
       
       cluster->node_connections_pending = configured_unverified_nodes;
       
+      rdstore_initialize_chanhead_reaper(&cluster->chanhead_reaper, "redis channels (cluster orphans)");
+      
     }
     rdata->node.cluster = cluster;
     ptr_rdata = nchan_list_append(&cluster->nodes);
@@ -525,7 +527,17 @@ static uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 static rdstore_data_t *redis_cluster_rdata_from_keyslot(rdstore_data_t *rdata, uint16_t slot);
 
 
+ngx_int_t redis_cluster_associate_chanhead_with_rdata(rdstore_channel_head_t *ch) {
+  if(redis_cluster_rdata_from_channel(ch)) {
+    return NGX_OK;
+  }
+  else {
+    return NGX_ERROR;
+  }
+}
+
 rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch) {
+  rdstore_data_t  *rdata;
   if(!ch->cluster.enabled) {
     return ch->rdt;
   }
@@ -534,9 +546,30 @@ rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch) {
     return ch->cluster.node_rdt;
   }
   
-  ch->cluster.node_rdt = redis_cluster_rdata_from_channel_id(ch->rdt, &ch->id);
+  rdata = redis_cluster_rdata_from_channel_id(ch->rdt, &ch->id);
   
-  return ch->cluster.node_rdt;
+  assert(ch->rd_prev == NULL);
+  assert(ch->rd_next == NULL);
+  
+  if(rdata) {
+    ch->rd_prev = NULL;
+    ch->rd_next = rdata->channels_head;
+    if(rdata->channels_head) {
+      rdata->channels_head->rd_prev = ch;
+    }
+  }
+  else {
+    redis_cluster_t   *cluster = ch->rdt->node.cluster;
+    ch->rd_prev = NULL;
+    
+    if(cluster->orphan_channels_head) {
+      cluster->orphan_channels_head = ch;
+    }
+    cluster->orphan_channels_head = ch;
+  }
+  
+  ch->cluster.node_rdt = rdata;
+  return rdata;
   
 }
 

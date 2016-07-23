@@ -16,8 +16,6 @@ typedef struct rdstore_channel_head_s rdstore_channel_head_t;
 typedef struct {
   rdstore_data_t          *node_rdt;
   unsigned                 enabled:1;
-  //rdstore_channel_head_t  *next;
-  //rdstore_channel_head_t  *prev;
 } rdstore_channel_head_cluster_data_t;
 
 
@@ -39,9 +37,13 @@ struct rdstore_channel_head_s {
   rdstore_channel_head_t      *gc_prev;
   rdstore_channel_head_t      *gc_next;
   
+  rdstore_channel_head_t      *rd_next;
+  rdstore_channel_head_t      *rd_prev;
+  
   time_t                       gc_time;
   unsigned                     in_gc_queue:1;
   
+  unsigned                     pubsub_subscribed:1;
   unsigned                     meta:1;
   unsigned                     shutting_down:1;
   UT_hash_handle               hh;
@@ -63,7 +65,11 @@ struct callback_chain_s {
 
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
+typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_OK} redis_cluster_status_t;
+
 typedef struct {
+  redis_cluster_status_t           status;
+  
   rbtree_seed_t                    hashslots; //cluster rbtree seed
   nchan_list_t                     nodes; //cluster rbtree seed
   ngx_uint_t                       size; //number of master nodes
@@ -71,6 +77,9 @@ typedef struct {
   uint32_t                         homebrew_id;
   ngx_http_upstream_srv_conf_t    *uscf;
   ngx_pool_t                      *pool;
+  
+  nchan_reaper_t                   chanhead_reaper;
+  rdstore_channel_head_t          *orphan_channels_head;
 } redis_cluster_t;
 
 typedef struct {
@@ -78,6 +87,8 @@ typedef struct {
   ngx_str_t         address;
   ngx_str_t         slots;
   redis_cluster_t  *cluster;
+  
+  rdstore_channel_head_t  *channels_head;
 } redis_cluster_node_t;
 
 typedef struct {
@@ -111,6 +122,7 @@ struct rdstore_data_s {
   
   //cluster stuff
   redis_cluster_node_t             node;
+  rdstore_channel_head_t          *channels_head;
   
   unsigned                         shutting_down:1;
 }; // rdstore_data_t
@@ -121,4 +133,5 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
 rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf);
 ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
+ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name);
 #endif //NCHAN_REDIS_STORE_PRIVATE_H
