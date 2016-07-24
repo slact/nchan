@@ -14,4 +14,6 @@ rdstore_data_t *redis_cluster_rdata_from_cstr(rdstore_data_t *rdata, u_char *str
 rdstore_data_t *redis_cluster_rdata_from_channel_id(rdstore_data_t *rdata, ngx_str_t *str);
 rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch);
 ngx_int_t redis_cluster_associate_chanhead_with_rdata(rdstore_channel_head_t *ch);
+
+ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connection_status_t status);
 #endif //NCHAN_REDIS_CLUSTER_H

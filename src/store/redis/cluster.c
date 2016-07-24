@@ -449,6 +449,73 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   
 }
 
+static ngx_int_t cluster_change_status(redis_cluster_t *cluster, redis_cluster_status_t status) {
+  redis_cluster_status_t     prev_status = cluster->status;
+  rdstore_data_t            *node_rdata;
+  rdstore_channel_head_t    *cur;
+  
+  if(status == CLUSTER_READY && prev_status != CLUSTER_READY) {
+    while((cur = cluster->orphan_channels_head) != NULL) {
+      node_rdata = redis_cluster_rdata_from_channel(cur);
+      assert(node_rdata);
+      redis_chanhead_gc_withdraw_from_reaper(&cluster->chanhead_reaper,  cur);
+      
+      cluster->orphan_channels_head = cur->rd_next;
+      if(cluster->orphan_channels_head) {
+        cluster->orphan_channels_head->rd_prev = NULL;
+      }
+      
+      cur->rd_prev = NULL;
+      cur->rd_next = NULL;
+      redis_cluster_associate_chanhead_with_rdata(cur);
+    }
+  }
+  else if(status != CLUSTER_READY && prev_status == CLUSTER_READY) {
+    for(cur = cluster->orphan_channels_head; cur != NULL; cur = cur->rd_next) {
+      if(!cur->in_gc_queue) {
+        redis_chanhead_gc_add_to_reaper(&cluster->chanhead_reaper, cur, NCHAN_CHANHEAD_CLUSTER_ORPHAN_EXPIRE_SEC, "redis connection to cluster node gone"); //automatically added to cluster's gc
+      }
+    }
+  }
+  return NGX_OK;
+}
+
+ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connection_status_t status) {
+  redis_connection_status_t   prev_status = rdata->status;
+  redis_cluster_t            *cluster = rdata->node.cluster;
+  rdstore_channel_head_t     *cur, *last;
+  
+  if(status == CONNECTED && prev_status != CONNECTED) {
+    cluster->nodes_connected++;
+    
+    if(cluster->size == cluster->nodes_connected) {
+      cluster_change_status(cluster, CLUSTER_READY);
+    }
+  }
+  else if(status != CONNECTED && prev_status == CONNECTED) {    
+    
+    //add to orphan chanheads list
+    
+    //wait to reconnect maybe?
+    for(cur = rdata->channels_head; cur != NULL; cur = cur->rd_next) {
+      redis_chanhead_gc_withdraw(cur);
+      last = cur;
+    }
+    
+    if(rdata->node.cluster->orphan_channels_head) {
+      rdata->node.cluster->orphan_channels_head->rd_prev = last;
+    }
+    last->rd_next = rdata->node.cluster->orphan_channels_head;
+    rdata->node.cluster->orphan_channels_head = rdata->channels_head;
+    
+    rdata->channels_head = NULL;
+    
+    cluster_change_status(cluster, CLUSTER_NOTREADY);
+  }
+
+  return NGX_OK; 
+}
+
 typedef struct {
   rdstore_data_t      *rdata;
   ngx_rbtree_node_t   *found;

@@ -1,6 +1,9 @@
 #ifndef NCHAN_REDIS_STORE_PRIVATE_H
 #define NCHAN_REDIS_STORE_PRIVATE_H
 
+#define NCHAN_CHANHEAD_EXPIRE_SEC 1
+#define NCHAN_CHANHEAD_CLUSTER_ORPHAN_EXPIRE_SEC 15
+
 #include <nchan_module.h>
 #include "uthash.h"
 #include "hiredis/hiredis.h"
@@ -65,7 +68,7 @@ struct callback_chain_s {
 
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
-typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_OK} redis_cluster_status_t;
+typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_NOTREADY, CLUSTER_READY} redis_cluster_status_t;
 
 typedef struct {
   redis_cluster_status_t           status;
@@ -73,6 +76,7 @@ typedef struct {
   rbtree_seed_t                    hashslots; //cluster rbtree seed
   nchan_list_t                     nodes; //cluster rbtree seed
   ngx_uint_t                       size; //number of master nodes
+  ngx_uint_t                       nodes_connected; //number of master nodes
   ngx_int_t                        node_connections_pending; //number of master nodes
   uint32_t                         homebrew_id;
   ngx_http_upstream_srv_conf_t    *uscf;
@@ -87,8 +91,6 @@ typedef struct {
   ngx_str_t         address;
   ngx_str_t         slots;
   redis_cluster_t  *cluster;
-  
-  rdstore_channel_head_t  *channels_head;
 } redis_cluster_node_t;
 
 typedef struct {
@@ -134,4 +136,9 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
 ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
 ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name);
+
+ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
+ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *, rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
+ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *head);
+ngx_int_t redis_chanhead_gc_withdraw_from_reaper(nchan_reaper_t *, rdstore_channel_head_t *head);
 #endif //NCHAN_REDIS_STORE_PRIVATE_H
