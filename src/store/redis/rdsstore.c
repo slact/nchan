@@ -1251,7 +1251,12 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
   }
   keepalive_ttl = reply->element[2]->integer;
   if(keepalive_ttl > 0) {
-    ngx_add_timer(&sdata->chanhead->keepalive_timer, keepalive_ttl * 1000);
+    if(!sdata->chanhead->keepalive_timer.timer_set) {
+      ngx_add_timer(&sdata->chanhead->keepalive_timer, keepalive_ttl * 1000);
+    }
+    else {
+      ERR("keepalive_timer for channel %V (%p) already set in redis_subscriber_register_callback", &sdata->chanhead->id, sdata->chanhead);
+    }
   }
   ngx_free(sdata);
 }
@@ -1281,7 +1286,13 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
   
   redisCheckErrorCallback(c, vr, NULL);
   assert(CHECK_REPLY_INT(reply));
-  ngx_add_timer(&head->keepalive_timer, reply->integer * 1000);
+  if(!head->keepalive_timer.timer_set) {
+    ngx_add_timer(&head->keepalive_timer, reply->integer * 1000);
+  }
+  else {
+    ERR("keepalive_timer for channel %V (%p) already set in redisChannelKeepaliveCallback", &head->id, head);
+  }
+  
 }
 
 static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
