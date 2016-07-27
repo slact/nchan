@@ -469,7 +469,7 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `off`  
   context: http, server, location  
   legacy name: push_authorized_channels_only  
-  > Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
+  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
 
 - **nchan_channel_event_string** `<string>`  
   arguments: 1  
