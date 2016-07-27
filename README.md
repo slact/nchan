@@ -426,13 +426,13 @@ Publishing to multiple channels with a single request is also possible, with sim
 - **nchan_redis_ping_interval**  
   arguments: 1  
   default: `4m`  
-  context: http  
+  context: http, server, location  
   > Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable.    
 
 - **nchan_redis_url**  
   arguments: 1  
   default: `127.0.0.1:6379`  
-  context: http  
+  context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
 
 - **nchan_store_messages** `[ on | off ]`  
