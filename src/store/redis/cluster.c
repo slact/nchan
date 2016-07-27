@@ -394,7 +394,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     
     if(!cluster) {
       //cluster struct not made by any node yet. make it so!
-      cluster = ngx_alloc(sizeof(*cluster), ngx_cycle->log); //TODO: don't allocate from heap, use a pool or something
+      cluster = ngx_calloc(sizeof(*cluster), ngx_cycle->log); //TODO: don't allocate from heap, use a pool or something
       
       rbtree_init(&cluster->hashslots, "redis cluster node (by id) data", rbtree_cluster_hashslots_id, rbtree_cluster_hashslots_bucketer, rbtree_cluster_hashslots_compare);
       
@@ -483,7 +483,7 @@ static ngx_int_t cluster_change_status(redis_cluster_t *cluster, redis_cluster_s
 ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connection_status_t status) {
   redis_connection_status_t   prev_status = rdata->status;
   redis_cluster_t            *cluster = rdata->node.cluster;
-  rdstore_channel_head_t     *cur, *last;
+  rdstore_channel_head_t     *cur, *last = NULL;
   
   if(status == CONNECTED && prev_status != CONNECTED) {
     cluster->nodes_connected++;
@@ -505,7 +505,9 @@ ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connecti
     if(rdata->node.cluster->orphan_channels_head) {
       rdata->node.cluster->orphan_channels_head->rd_prev = last;
     }
-    last->rd_next = rdata->node.cluster->orphan_channels_head;
+    if(last) {
+      last->rd_next = rdata->node.cluster->orphan_channels_head;
+    }
     rdata->node.cluster->orphan_channels_head = rdata->channels_head;
     
     rdata->channels_head = NULL;
