@@ -114,12 +114,12 @@ if key.last_message then
   lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')
   lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
   --dbg("New message id: last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
-  if tonumber(lasttime) > tonumber(msg.time) then
+  if lasttime and tonumber(lasttime) > tonumber(msg.time) then
     redis.log(redis.LOG_WARNING, "Nchan: message for " .. id .. " arrived a little late and may be delivered out of order. Redis must be very busy.")
     msg.time = lasttime
     time = lasttime
   end
-  if lasttime==msg.time then
+  if lasttime and lasttime==msg.time then
     msg.tag=lasttag+1
   end
   msg.prev_time = lasttime
