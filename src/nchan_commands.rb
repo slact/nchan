@@ -270,7 +270,7 @@ CfCmd.new do
       group: "security",
       value: [:on, :off],
       default: :off,
-      info: "Whether or not a subscriber may create a channel by sending a request to a push_subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
+      info: "Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
   
   nchan_access_control_allow_origin [:main, :srv, :loc], 
       :ngx_conf_set_str_slot,

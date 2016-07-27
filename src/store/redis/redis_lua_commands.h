@@ -397,7 +397,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "45e1a07f8a6946621a3f1d3d91f8f5fd17adad64",
+  {"publish", "0f9d00c376e563c67f3e6d7f6965caf46474314a",
    "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
    "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
@@ -514,12 +514,12 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  lastmsg = redis.call('HMGET', key.last_message, 'time', 'tag')\n"
    "  lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])\n"
    "  --dbg(\"New message id: last_time \", lasttime, \" last_tag \", lasttag, \" msg_time \", msg.time)\n"
-   "  if tonumber(lasttime) > tonumber(msg.time) then\n"
+   "  if lasttime and tonumber(lasttime) > tonumber(msg.time) then\n"
    "    redis.log(redis.LOG_WARNING, \"Nchan: message for \" .. id .. \" arrived a little late and may be delivered out of order. Redis must be very busy.\")\n"
    "    msg.time = lasttime\n"
    "    time = lasttime\n"
    "  end\n"
-   "  if lasttime==msg.time then\n"
+   "  if lasttime and lasttime==msg.time then\n"
    "    msg.tag=lasttag+1\n"
    "  end\n"
    "  msg.prev_time = lasttime\n"
