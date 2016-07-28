@@ -656,6 +656,22 @@ rdstore_data_t *redis_cluster_rdata_from_channel_id(rdstore_data_t *rdata, ngx_s
   return redis_cluster_rdata_from_keyslot(rdata, slot);
 }
 
+rdstore_data_t *redis_cluster_rdata_from_key(rdstore_data_t *rdata, ngx_str_t *key) {
+  char        *start, *end;
+  ngx_str_t    hashable;
+  
+  if(((start = memchr(key->data, '{', key->len))) != NULL) {
+    start++;
+    end = memchr(start, '}', key->len - ((u_char *)start - key->data));
+    if(end && end - start > 1) {
+      hashable.data = (u_char *)start;
+      hashable.len = (end - start);
+    }
+    return redis_cluster_rdata(rdata, &hashable);
+  }
+  return redis_cluster_rdata(rdata, key);
+}
+
 rdstore_data_t *redis_cluster_rdata(rdstore_data_t *rdata, ngx_str_t *str) {
   if(!rdata->node.cluster)
     return rdata;

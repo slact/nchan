@@ -11,6 +11,7 @@ void redis_get_cluster_nodes(rdstore_data_t *rdata, uintptr_t cluster_size);
 void redis_cluster_drop_node(rdstore_data_t *rdata);
 rdstore_data_t *redis_cluster_rdata(rdstore_data_t *rdata, ngx_str_t *str);
 rdstore_data_t *redis_cluster_rdata_from_cstr(rdstore_data_t *rdata, u_char *str);
+rdstore_data_t *redis_cluster_rdata_from_key(rdstore_data_t *rdata, ngx_str_t *key);
 rdstore_data_t *redis_cluster_rdata_from_channel_id(rdstore_data_t *rdata, ngx_str_t *str);
 rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch);
 ngx_int_t redis_cluster_associate_chanhead_with_rdata(rdstore_channel_head_t *ch);

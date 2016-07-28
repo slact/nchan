@@ -878,7 +878,7 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, rdstore_data_t *rdat
   
   //d->hcln = put_current_subscribers_in_limbo(head);
   //assert(d->hcln != 0);
-  if((rdata = redis_cluster_rdata(rdata, msg_redis_hash_key)) == NULL) {
+  if((rdata = redis_cluster_rdata_from_key(rdata, msg_redis_hash_key)) == NULL) {
     return NGX_ERROR;
   }
   redis_command(rdata, &get_msg_from_msgkey_callback, d, "EVALSHA %s 1 %b", redis_lua_scripts.get_message_from_key.hash, STR(msg_redis_hash_key));
