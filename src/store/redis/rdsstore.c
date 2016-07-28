@@ -1315,12 +1315,6 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
   else {
     head->meta = 0;
   }
-  
-  head->spooler.running=0;
-  start_chanhead_spooler(head);
-  if(head->meta) {
-    head->spooler.publish_events = 0;
-  }
 
   ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
   nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
@@ -1333,6 +1327,13 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
   if(rdata->node.cluster) {
     head->cluster.enabled = 1;
     redis_cluster_associate_chanhead_with_rdata(head);
+  }
+  
+  
+  head->spooler.running=0;
+  start_chanhead_spooler(head);
+  if(head->meta) {
+    head->spooler.publish_events = 0;
   }
   
   DBG("SUBSCRIBING to {channel:%V}:pubsub", channel_id);

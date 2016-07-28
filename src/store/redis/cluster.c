@@ -416,7 +416,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     
     //hash slots
     cur = NULL;
-    while((cur = redis_scan_cluster_nodes_slots_string(&l.slots, cur, &range)) != NULL) {
+    while((cur = redis_scan_cluster_nodes_slots_string(&my_ctnode->node.slots, cur, &range)) != NULL) {
       
       if((rbtree_node = rbtree_find_node(&cluster->hashslots, &range)) == NULL) {
         if((rbtree_node = rbtree_create_node(&cluster->hashslots, sizeof(*keyslot_tree_node))) == NULL) {
