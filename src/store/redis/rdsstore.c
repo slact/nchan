@@ -403,7 +403,10 @@ static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdat
 static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply         *reply = (redisReply *)r;
   redisCheckErrorCallback(c, r, privdata);
-  if(CHECK_REPLY_INT(reply)) {
+  if(!reply) {
+    ERR("redis connection disappeared while pinging");
+  }
+  else if(CHECK_REPLY_INT(reply)) {
     if(reply->integer < 1) {
       ERR("failed to forward ping to sub_ctx");
     }
