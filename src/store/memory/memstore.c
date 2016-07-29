@@ -1193,7 +1193,9 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
   }
   
   if(d->n == 0) {
-    d->cb(code, &d->chinfo, d->pd);
+    if(d->cb) {
+      d->cb(code, &d->chinfo, d->pd);
+    }
     ngx_free(d);
   }
   
