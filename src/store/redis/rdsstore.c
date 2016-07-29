@@ -1271,9 +1271,6 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
     if(!sdata->chanhead->keepalive_timer.timer_set) {
       ngx_add_timer(&sdata->chanhead->keepalive_timer, keepalive_ttl * 1000);
     }
-    else {
-      ERR("keepalive_timer for channel %V (%p) already set in redis_subscriber_register_callback", &sdata->chanhead->id, sdata->chanhead);
-    }
   }
   ngx_free(sdata);
 }
