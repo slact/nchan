@@ -399,20 +399,19 @@ static void redis_reconnect_timer_handler(ngx_event_t *ev) {
 }
 
 static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
+static int redisReplyOk(redisAsyncContext *c, void *r);
 
 static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply         *reply = (redisReply *)r;
-  redisCheckErrorCallback(c, r, privdata);
-  if(!reply) {
-    ERR("redis connection disappeared while pinging");
-  }
-  else if(CHECK_REPLY_INT(reply)) {
-    if(reply->integer < 1) {
-      ERR("failed to forward ping to sub_ctx");
+  if(redisReplyOk(c, r)) {
+    if(CHECK_REPLY_INT(reply)) {
+      if(reply->integer < 1) {
+        ERR("failed to forward ping to sub_ctx");
+      }
     }
-  }
-  else {
-    ERR("unexpected reply type for redis_ping_callback");
+    else {
+      ERR("unexpected reply type for redis_ping_callback");
+    }
   }
 }
 
@@ -461,16 +460,28 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 }
 
 static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReplyOk(c, r);
+}
+static int redisReplyOk(redisAsyncContext *c, void *r) {
   static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
   redisReply *reply = (redisReply *)r;
-  if(reply != NULL && reply->type == REDIS_REPLY_ERROR) {
+  if(reply == NULL) { //redis disconnected?...
+    if(c->err) {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed while waiting for reply - %s", c->errstr);
+    }
+    else {
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "got a NULL redis reply for unknown reason");
+    }
+    return 0;
+  }
+  else if(reply->type == REDIS_REPLY_ERROR) {
     if(ngx_strncmp(reply->str, script_error_start.data, script_error_start.len) == 0 && (unsigned ) reply->len > script_error_start.len + REDIS_LUA_HASH_LENGTH) {
       char *hash = &reply->str[script_error_start.len];
       redis_lua_script_t  *script;
       REDIS_LUA_SCRIPTS_EACH(script) {
         if (ngx_strncmp(script->hash, hash, REDIS_LUA_HASH_LENGTH)==0) {
           ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
-          return;
+          return 0;
         }
       }
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
@@ -478,6 +489,10 @@ static void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdat
     else {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ERROR: %s", reply->str);
     }
+    return 0;
+  }
+  else {
+    return 1;
   }
 }
 
@@ -627,8 +642,7 @@ void redis_nginx_info_persistence_callback(redisAsyncContext *ac, void *rep, voi
   redisReply             *reply = rep;
   int                     loading = -1;
   //DBG("redis_nginx_info_persistence_callback %p", ac);
-  if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
-    redisCheckErrorCallback(ac, reply, privdata);
+  if(ac->err || !redisReplyOk(ac, rep) || reply->type != REDIS_REPLY_STRING) {
     return;
   }
   
@@ -1284,16 +1298,15 @@ static ngx_int_t redis_subscriber_unregister(ngx_str_t *channel_id, subscriber_t
 static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *privdata) {
   nchan_store_channel_head_t  *head = (nchan_store_channel_head_t *)privdata;
   redisReply                  *reply = (redisReply *)vr;
-  if(!reply) 
-    return;
   
-  redisCheckErrorCallback(c, vr, NULL);
-  assert(CHECK_REPLY_INT(reply));
-  if(!head->keepalive_timer.timer_set) {
-    ngx_add_timer(&head->keepalive_timer, reply->integer * 1000);
-  }
-  else {
-    ERR("keepalive_timer for channel %V (%p) already set in redisChannelKeepaliveCallback", &head->id, head);
+  if(redisReplyOk(c, vr)) {
+    assert(CHECK_REPLY_INT(reply));
+    
+    //reply->integer == -1 means "let it disappear" (see channel_keepalive.lua)
+    
+    if(reply->integer != -1 && !head->keepalive_timer.timer_set) {
+      ngx_add_timer(&head->keepalive_timer, reply->integer * 1000);
+    }
   }
   
 }
