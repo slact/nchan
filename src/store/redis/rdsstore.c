@@ -28,7 +28,6 @@ u_char            redis_subscriber_id[255];
 u_char            redis_subscriber_channel[255];
 
 static rdstore_channel_head_t    *chanhead_hash = NULL;
-static rbtree_seed_t              redis_data_tree;
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
   rdstore_data_t  *rdata = cf->redis.privdata;
@@ -237,8 +236,6 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     if(rdata->node.cluster->orphan_channels_head == ch) {
       rdata->node.cluster->orphan_channels_head = ch->rd_next;
     }
-    
-    
   }
   ch->pubsub_subscribed = 0;
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
@@ -326,15 +323,8 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
       if(pac)
         *pac = NULL;
     }
-    if(rdata->ctx)
-      redisAsyncFree(rdata->ctx);
-    if(rdata->sub_ctx)
-      redisAsyncFree(rdata->sub_ctx);
     
-    if(rdata->ctx == NULL && rdata->sub_ctx == NULL) {
-      //both async connections closed
-      redis_cluster_drop_node(rdata);
-    }
+    redis_cluster_drop_node(rdata);
   }
   else if(status == CONNECTED && prev_status != CONNECTED) {
     callback_chain_t    *cur, *next;
@@ -380,14 +370,14 @@ static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
 }
 
 static void redis_ping_timer_handler(ngx_event_t *ev) {
-  rdstore_data_t  *rdata = ev->data;
+  rdstore_data_t  *rdata = ev->data, *cmd_rdata;
   if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
   
   ev->timedout = 0;
   if(rdata->status == CONNECTED && rdata->ctx && rdata->sub_ctx) {
-    if((rdata = redis_cluster_rdata_from_cstr(rdata, redis_subscriber_channel)) != NULL) {
-      redis_command(rdata, redis_ping_callback, NULL, "PUBLISH %s ping", redis_subscriber_channel);
+    if((cmd_rdata = redis_cluster_rdata_from_cstr(rdata, redis_subscriber_channel)) != NULL) {
+      redis_command(cmd_rdata, redis_ping_callback, NULL, "PUBLISH %s ping", redis_subscriber_channel);
     }
     else {
       //TODO: what to do?...

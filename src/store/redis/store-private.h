@@ -75,6 +75,7 @@ typedef struct {
   
   rbtree_seed_t                    hashslots; //cluster rbtree seed
   nchan_list_t                     nodes; //cluster rbtree seed
+  nchan_list_t                     inactive_nodes; //cluster rbtree seed
   ngx_uint_t                       size; //number of master nodes
   ngx_uint_t                       nodes_connected; //number of master nodes
   ngx_int_t                        node_connections_pending; //number of master nodes
@@ -91,6 +92,8 @@ typedef struct {
   ngx_str_t         address;
   ngx_str_t         slots;
   redis_cluster_t  *cluster;
+  unsigned          failed:1;
+  unsigned          inactive:1;
 } redis_cluster_node_t;
 
 typedef struct {
@@ -128,6 +131,9 @@ struct rdstore_data_s {
   
   unsigned                         shutting_down:1;
 }; // rdstore_data_t
+
+
+rbtree_seed_t              redis_data_tree;
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf);
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);

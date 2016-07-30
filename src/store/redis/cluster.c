@@ -174,6 +174,7 @@ typedef struct {
   
   unsigned       connected:1;
   unsigned       master:1;
+  unsigned       failed:1;
   unsigned       self:1;
 } cluster_nodes_line_t;
     
@@ -202,7 +203,7 @@ static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) 
     l->slots.len = 0;
     l->master = 0;
   }
-  
+  l->failed = nchan_ngx_str_substr((&l->flags), "fail");
   l->self = nchan_ngx_str_substr((&l->flags), "myself") ? 1 : 0;
   
   l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
@@ -265,21 +266,43 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
   rdstore_data_t        *rdata;
   cluster_nodes_line_t   l;
   ngx_str_t             *url;
+  ngx_rbtree_node_t     *node;
   
   DBG("discover new nodes");
   line = reply->str;
   while((line = redis_scan_cluster_nodes_line(line, &l)) != NULL) {
-    if(l.master && (rbtree_find_node(&redis_cluster_node_id_tree, &l.id) == NULL)) {
-      DBG("found a node %V %V", &l.id, &l.address);
-      url = ngx_palloc(ngx_cycle->pool, sizeof(*url) + l.address.len + 1); //TODO: pallocate in a more fitting pool
-      url->data = (u_char *)&url[1];
-      url->len = l.address.len;
-      memcpy(url->data, l.address.data, l.address.len);
-      url->data[url->len] = '\0';
-      parse_redis_url(url, &rcp);
-      rdata = redis_create_rdata(url, &rcp, &cf->redis, cf);
-      cluster->node_connections_pending++;
-      redis_ensure_connected(rdata);
+    if(l.master) {
+      if((node = rbtree_find_node(&redis_cluster_node_id_tree, &l.id)) == NULL) {
+        DBG("found a node %V %V", &l.id, &l.address);
+        url = ngx_palloc(ngx_cycle->pool, sizeof(*url) + l.address.len + 1); //TODO: pallocate in a more fitting pool
+        url->data = (u_char *)&url[1];
+        url->len = l.address.len;
+        memcpy(url->data, l.address.data, l.address.len);
+        url->data[url->len] = '\0';
+        parse_redis_url(url, &rcp);
+        rdata = redis_create_rdata(url, &rcp, &cf->redis, cf);
+        rdata->node.failed = l.failed;
+        if(!rdata->node.failed) {
+          cluster->node_connections_pending++;
+          redis_ensure_connected(rdata);
+        }
+      }
+      else {
+        rdata = rbtree_data_from_node(node);
+        if(rdata->node.failed && !l.failed) {
+          rdata->node.failed = l.failed;
+          cluster->node_connections_pending++;
+          redis_ensure_connected(rdata);
+        }
+        else if(!rdata->node.failed && l.failed) {
+          rdata->node.failed = l.failed;
+          assert(0);
+          //what do?...
+        }
+        else {
+          rdata->node.failed = l.failed;
+        }
+      }
     }
   }
   
@@ -287,7 +310,7 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
 
 static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                    *reply = rep;
-  rdstore_data_t                *rdata = ac->data;
+  rdstore_data_t                *rdata = ac->data, *node_rdata;
   ngx_rbtree_node_t             *rbtree_node = NULL;
   rdstore_data_t                *ctnode = NULL, *my_ctnode = NULL; //cluster tree node
   redis_cluster_t               *cluster = NULL;
@@ -318,8 +341,20 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   while((line = redis_scan_cluster_nodes_line(line, &l)) != NULL) {
     
     if(l.master) {
-      num_master_nodes++;
-      homebrew_cluster_id += redis_crc16(0, (const char*)l.id.data, l.id.len);
+      if(!l.failed) {
+        num_master_nodes++;
+        homebrew_cluster_id += redis_crc16(0, (const char*)l.id.data, l.id.len);
+      }
+      
+      if((rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &l.id)) == NULL) {
+        redis_connect_params_t rcp;
+        parse_redis_url(&l.address, &rcp);
+        rbtree_node = rbtree_find_node(&redis_data_tree, &rcp);
+      }
+      if(rbtree_node != NULL) {
+        node_rdata = (rdstore_data_t *)rbtree_data_from_node(rbtree_node);
+        node_rdata->node.failed = l.failed;
+      }
     }
     
     if(!l.self) {
@@ -360,6 +395,8 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
         
         rdata_ptr_and_buf = rbtree_data_from_node(rbtree_node);
         rdata_ptr_and_buf->rdata = rdata;
+        
+        rdata->node.inactive = 0;
         
         rdata->node.id.data = &rdata_ptr_and_buf->chr;
         nchan_strcpy(&rdata->node.id, &l.id, 0);
@@ -404,6 +441,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
       cluster->pool = NULL;
       cluster->homebrew_id = homebrew_cluster_id;
       nchan_list_init(&cluster->nodes, sizeof(rdstore_data_t *));
+      nchan_list_init(&cluster->inactive_nodes, sizeof(rdstore_data_t *));
       
       cluster->node_connections_pending = configured_unverified_nodes;
       
@@ -445,6 +483,9 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
       redis_cluster_discover_and_connect_to_missing_nodes(reply, cf, cluster);
     }
     
+  }
+  else {
+    DBG("my_ctnode was blank... eh?...");
   }
   
 }
@@ -544,53 +585,74 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
   nchan_list_el_t           *cur;
   rdata_node_finder_data_t   finder_data;
   
+  
+  if(rdata->node.failed && rdata->reconnect_timer.timer_set) {
+    ngx_del_timer(&rdata->reconnect_timer);
+  }
+  
   if(!cluster) {
     DBG("not a cluster node");
     return;
   }
   
-  ERR("drop cluster node for rdata %p", rdata);
-  
-  //remove from hashslots. this is a little tricky, we walk the hashslots tree 
-  // until we can's find this rdata
-  finder_data.rdata = rdata;
-  while(1) {
-    finder_data.found = NULL;
-    rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
-    if(finder_data.found != NULL) {
-      ERR("destroyed node %p", finder_data.found);
-      rbtree_remove_node(&cluster->hashslots, finder_data.found);
-      rbtree_destroy_node(&cluster->hashslots, finder_data.found);
+  if(!rdata->node.inactive) {
+    ERR("drop cluster node for rdata %p", rdata);
+    
+    //remove from hashslots. this is a little tricky, we walk the hashslots tree 
+    // until we can's find this rdata
+    finder_data.rdata = rdata;
+    while(1) {
+      finder_data.found = NULL;
+      rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
+      if(finder_data.found != NULL) {
+        ERR("destroyed node %p", finder_data.found);
+        rbtree_remove_node(&cluster->hashslots, finder_data.found);
+        rbtree_destroy_node(&cluster->hashslots, finder_data.found);
+      }
+      else {
+        break;
+      }
     }
-    else {
-      break;
+    
+    assert(cluster->nodes.n > 0);
+    
+    for(cur = cluster->nodes.head; cur != NULL; cur = cur->next) {
+      rdata_pptr = nchan_list_data_from_el(cur);
+      if(*rdata_pptr == rdata) {
+        found = 1;
+        break;
+      }
     }
+    
+    assert(found);
+    nchan_list_remove(&cluster->nodes, rdata_pptr);
+    
+    if(cluster->size == cluster->nodes_connected) {
+      //we don't need this node to reconnect
+      rdstore_data_t    **ptr_rdata;
+      ptr_rdata = nchan_list_append(&cluster->inactive_nodes);
+      *ptr_rdata = rdata;
+      rdata->node.inactive = 1;
+      if(rdata->reconnect_timer.timer_set) {
+        ngx_del_timer(&rdata->reconnect_timer);
+      }
+    }
+    
   }
   
-  assert(cluster->nodes.n > 0);
-  
-  for(cur = cluster->nodes.head; cur != NULL; cur = cur->next) {
-    rdata_pptr = nchan_list_data_from_el(cur);
-    if(*rdata_pptr == rdata) {
-      found = 1;
-      break;
-    }
-  }
-  
-  assert(found);
-  nchan_list_remove(&cluster->nodes, rdata_pptr);
-  
-  if(cluster->nodes.n == 0) {
+  if(cluster->nodes.n == 0 && cluster->inactive_nodes.n == 0) {
     ngx_free(cluster);
   }
   
-  rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
-  assert(rbtree_node);
-  rbtree_remove_node(&redis_cluster_node_id_tree, rbtree_node);
-  
-  rbtree_destroy_node(&redis_cluster_node_id_tree, rbtree_node);
-  
-  rdata->node.cluster = NULL;
+  if(!rdata->node.inactive) {
+    rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
+    assert(rbtree_node);
+    rbtree_remove_node(&redis_cluster_node_id_tree, rbtree_node);
+    
+    rbtree_destroy_node(&redis_cluster_node_id_tree, rbtree_node);
+    
+    rdata->node.cluster = NULL;
+  }
 }
 
 
