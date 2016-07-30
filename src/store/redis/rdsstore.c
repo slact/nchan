@@ -326,6 +326,11 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
       if(pac)
         *pac = NULL;
     }
+    if(rdata->ctx)
+      redisAsyncFree(rdata->ctx);
+    if(rdata->sub_ctx)
+      redisAsyncFree(rdata->sub_ctx);
+    
     if(rdata->ctx == NULL && rdata->sub_ctx == NULL) {
       //both async connections closed
       redis_cluster_drop_node(rdata);

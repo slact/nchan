@@ -545,7 +545,7 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
   rdata_node_finder_data_t   finder_data;
   
   if(!cluster) {
-    ERR("not a cluster node");
+    DBG("not a cluster node");
     return;
   }
   
@@ -589,6 +589,8 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
   rbtree_remove_node(&redis_cluster_node_id_tree, rbtree_node);
   
   rbtree_destroy_node(&redis_cluster_node_id_tree, rbtree_node);
+  
+  rdata->node.cluster = NULL;
 }
 
 
