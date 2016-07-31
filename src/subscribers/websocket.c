@@ -201,7 +201,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   ngx_http_request_t    *r = fsub->sub.request;
   ngx_str_t             *accept_header = NULL;
   ngx_buf_t             *tmp_buf;
-  nchan_buf_and_chain_t *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+  nchan_buf_and_chain_t *bc;
   if(ch) {
     subscribers = ch->subscribers;
     last_seen = ch->last_seen;
@@ -226,6 +226,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       if(r->headers_in.accept) {
         accept_header = &r->headers_in.accept->value;
       }
+      bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
       tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, NULL);
       ngx_memcpy(&bc->buf, tmp_buf, sizeof(*tmp_buf));
       bc->buf.last_buf=1;
