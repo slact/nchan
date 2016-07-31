@@ -490,7 +490,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   
 }
 
-static ngx_int_t cluster_change_status(redis_cluster_t *cluster, redis_cluster_status_t status) {
+static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_status_t status) {
   redis_cluster_status_t     prev_status = cluster->status;
   rdstore_data_t            *node_rdata;
   rdstore_channel_head_t    *cur;
@@ -530,7 +530,7 @@ ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connecti
     cluster->nodes_connected++;
     
     if(cluster->size == cluster->nodes_connected) {
-      cluster_change_status(cluster, CLUSTER_READY);
+      cluster_set_status(cluster, CLUSTER_READY);
     }
   }
   else if(status != CONNECTED && prev_status == CONNECTED) {    
@@ -553,7 +553,7 @@ ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connecti
     
     rdata->channels_head = NULL;
     
-    cluster_change_status(cluster, CLUSTER_NOTREADY);
+    cluster_set_status(cluster, CLUSTER_NOTREADY);
   }
 
   return NGX_OK; 
