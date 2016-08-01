@@ -27,6 +27,7 @@
 u_char            redis_subscriber_id[255];
 u_char            redis_subscriber_channel[255];
 
+static rbtree_seed_t              redis_data_tree;
 static rdstore_channel_head_t    *chanhead_hash = NULL;
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
@@ -354,7 +355,6 @@ static void redis_reconnect_timer_handler(ngx_event_t *ev) {
   redis_ensure_connected((rdstore_data_t *)ev->data);
 }
 
-static int redisReplyOk(redisAsyncContext *c, void *r);
 static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply         *reply = (redisReply *)r;
   if(redisReplyOk(c, r)) {
@@ -412,7 +412,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReplyOk(c, r);
 }
-static int redisReplyOk(redisAsyncContext *c, void *r) {
+int redisReplyOk(redisAsyncContext *c, void *r) {
   static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
   redisReply *reply = (redisReply *)r;
   if(reply == NULL) { //redis disconnected?...
@@ -1887,19 +1887,33 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   return rdata;
 }
 
-ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url) {
-  ngx_rbtree_node_t     *node;
-  rdstore_data_t        *rdata;
-  ngx_str_t             *url = override_url ? override_url : &rcf->url;
+rdstore_data_t *find_rdata_by_url(ngx_str_t *url) {
   redis_connect_params_t rcp;
+  parse_redis_url(url, &rcp);
+  return find_rdata_by_connect_params(&rcp);
+}
+
+rdstore_data_t *find_rdata_by_connect_params(redis_connect_params_t *rcp) {
+  rdstore_data_t        *rdata;
+  ngx_rbtree_node_t     *node;
+  if((node = rbtree_find_node(&redis_data_tree, rcp)) == NULL) {
+    return NULL;
+  }
+  rdata = (rdstore_data_t *)rbtree_data_from_node(node);
+  return rdata;
+}
+
+ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url) {
+  rdstore_data_t          *rdata;
+  redis_connect_params_t   rcp;
+  ngx_str_t               *url = override_url ? override_url : &rcf->url;
   
   parse_redis_url(url, &rcp);
   
-  if((node = rbtree_find_node(&redis_data_tree, &rcp)) == NULL) {
+  if((rdata = find_rdata_by_connect_params(&rcp)) == NULL) {
     rdata = redis_create_rdata(url, &rcp, rcf, lcf);
   }
   else {
-    rdata = (rdstore_data_t *)rbtree_data_from_node(node);
     if(rcf->ping_interval > 0 && rcf->ping_interval < rdata->ping_interval) {
       //shorter ping interval wins
       rdata->ping_interval = rcf->ping_interval;
@@ -1907,7 +1921,6 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
   }
   
   rcf->privdata = rdata;
-  
   
   return NGX_OK;
 }
