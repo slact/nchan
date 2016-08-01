@@ -5,6 +5,7 @@
 #include "store.h"
 
 void redis_cluster_init_postconfig(ngx_conf_t *cf);
+void redis_cluster_exit_worker(ngx_cycle_t *cycle);
 
 void redis_get_cluster_info(rdstore_data_t *rdata);
 void redis_get_cluster_nodes(rdstore_data_t *rdata);

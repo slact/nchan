@@ -74,14 +74,18 @@ typedef struct {
   redis_cluster_status_t           status;
   
   rbtree_seed_t                    hashslots; //cluster rbtree seed
-  nchan_list_t                     nodes; //cluster rbtree seed
-  nchan_list_t                     inactive_nodes; //cluster rbtree seed
+  nchan_list_t                     nodes;
+  nchan_list_t                     slave_nodes;
+  nchan_list_t                     inactive_nodes;
+  nchan_list_t                     failed_nodes;
   ngx_uint_t                       size; //number of master nodes
   ngx_uint_t                       nodes_connected; //number of master nodes
   ngx_int_t                        node_connections_pending; //number of master nodes
   uint32_t                         homebrew_id;
   ngx_http_upstream_srv_conf_t    *uscf;
   ngx_pool_t                      *pool;
+  
+  ngx_event_t                      still_notready_timer;
   
   nchan_reaper_t                   chanhead_reaper;
   rdstore_channel_head_t          *orphan_channels_head;
@@ -92,8 +96,10 @@ typedef struct {
   ngx_str_t         address;
   ngx_str_t         slots;
   redis_cluster_t  *cluster;
+  unsigned          slave:1;
   unsigned          failed:1;
   unsigned          inactive:1;
+  unsigned          indexed:1;
 } redis_cluster_node_t;
 
 typedef struct {
@@ -133,10 +139,9 @@ struct rdstore_data_s {
 }; // rdstore_data_t
 
 
-rbtree_seed_t              redis_data_tree;
-
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf);
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
+int redisReplyOk(redisAsyncContext *c, void *r);
 ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url);
 rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf);
 ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
@@ -147,4 +152,7 @@ ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, 
 ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *, rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
 ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *head);
 ngx_int_t redis_chanhead_gc_withdraw_from_reaper(nchan_reaper_t *, rdstore_channel_head_t *head);
+
+rdstore_data_t *find_rdata_by_connect_params(redis_connect_params_t *rcp);
+rdstore_data_t *find_rdata_by_url(ngx_str_t *url);
 #endif //NCHAN_REDIS_STORE_PRIVATE_H

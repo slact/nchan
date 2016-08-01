@@ -19,13 +19,39 @@
 #define CLUSTER_NOTREADY_RETRY_TIME 1000
 
 static rbtree_seed_t              redis_cluster_node_id_tree;
+static nchan_list_t               redis_cluster_list;
 
 static void *redis_data_rbtree_node_cluster_id(void *data) {
   return &(*(rdstore_data_t **)data)->node.id;
 }
 void redis_cluster_init_postconfig(ngx_conf_t *cf) {
   rbtree_init(&redis_cluster_node_id_tree, "redis cluster node (by id) data", redis_data_rbtree_node_cluster_id, NULL, NULL);
+  nchan_list_init(&redis_cluster_list, sizeof(redis_cluster_t));
 }
+
+void redis_cluster_exit_worker(ngx_cycle_t *cycle) {
+  nchan_list_el_t  *cur;
+  redis_cluster_t  *cluster;
+  for(cur = redis_cluster_list.head; cur != NULL; cur = cur->next) {
+    cluster = nchan_list_data_from_el(cur);
+    nchan_list_empty(&cluster->nodes);
+    nchan_list_empty(&cluster->slave_nodes);
+    nchan_list_empty(&cluster->inactive_nodes);
+    nchan_list_empty(&cluster->failed_nodes);
+    cluster->status = CLUSTER_NOTREADY;
+    nchan_reaper_flush(&cluster->chanhead_reaper);
+    if(cluster->still_notready_timer.timer_set) {
+      ngx_del_timer(&cluster->still_notready_timer);
+    }
+    if(cluster->pool) {
+      ngx_destroy_pool(cluster->pool);
+    }
+  }
+  nchan_list_empty(&redis_cluster_list);
+  rbtree_empty(&redis_cluster_node_id_tree, NULL, NULL);
+}
+
+static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_status_t status);
 
 static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *privdata);
 static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata);
@@ -40,6 +66,31 @@ static void redis_check_if_cluster_ready_handler(ngx_event_t *ev) {
   ngx_free(ev);
 }
 
+static void nchan_list_rdata_init(nchan_list_t *list) {
+  nchan_list_init(list, sizeof(rdstore_data_t *));
+}
+static void nchan_list_rdata_append(nchan_list_t *list, rdstore_data_t *rdata) {
+  rdstore_data_t       **ptr_rdata;
+  
+  ptr_rdata = nchan_list_append(list);
+  *ptr_rdata = rdata;
+}
+
+static ngx_int_t nchan_list_rdata_remove(nchan_list_t *list, rdstore_data_t *rdata) {
+  nchan_list_el_t       *cur;
+  rdstore_data_t       **ptr_rdata;
+  for(cur = list->head; cur != NULL; cur = cur->next) {
+    ptr_rdata = nchan_list_data_from_el(cur);
+    if(*ptr_rdata == rdata) {
+      //found
+      nchan_list_remove(list, ptr_rdata);
+      return NGX_OK;
+    }
+  }
+  return NGX_DECLINED;
+}
+
+#define nchan_list_rdata_from_el(cur) *(rdstore_data_t **)nchan_list_data_from_el(cur)
 
 
 void redis_get_cluster_info(rdstore_data_t *rdata) {
@@ -114,7 +165,6 @@ static ngx_int_t rbtree_cluster_hashslots_compare(void *v1, void *v2) {
 void redis_get_cluster_nodes(rdstore_data_t *rdata) {
   redisAsyncCommand(rdata->ctx, redis_get_cluster_nodes_callback, NULL, "CLUSTER NODES");
 }
-
 
 static void nchan_scan_nearest_chr(u_char **cur, ngx_str_t *str, ngx_int_t n, ...) {
   u_char    chr;
@@ -279,7 +329,7 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
   cluster_nodes_line_t   l;
   ngx_str_t             *url;
   
-  DBG("discover new nodes");
+  ERR("discover new nodes");
   line = reply->str;
   while((line = redis_scan_cluster_nodes_line(line, &l)) != NULL) {
     if(l.master) {
@@ -318,9 +368,27 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
   
 }
 
+static rdstore_data_t *get_any_connected_cluster_node(redis_cluster_t *cluster) {
+  rdstore_data_t     *rdata;
+  nchan_list_el_t    *cur;
+  nchan_list_el_t   *node_head[] = {cluster->nodes.head, cluster->slave_nodes.head};
+  int                 i;
+  
+  for(i = 0; i < 2; i++) {
+    ERR("%i", i);
+    for(cur = node_head[i]; cur != NULL; cur = cur->next) {
+      rdata = nchan_list_rdata_from_el(cur);
+      if(rdata->status == CONNECTED) {
+        return rdata;
+      }
+    }
+  }
+  
+  return NULL;
+}
+
 static void cluster_not_ready_timer_handler(ngx_event_t *ev) {
   redis_cluster_t               *cluster = ev->data;
-  nchan_list_el_t               *cur;
   rdstore_data_t                *rdata;
   
   if(ngx_exiting || ngx_quit) {
@@ -329,13 +397,12 @@ static void cluster_not_ready_timer_handler(ngx_event_t *ev) {
   
   if(ev->timedout) {
     ev->timedout=0;
-    for(cur = cluster->nodes.head; cur != NULL; cur = cur->next) {
-      rdata = nchan_list_data_from_el(cur);
-      if(rdata->status == CONNECTED) {
-        //do a thing
-        redis_get_cluster_nodes(rdata);
-        break;
-      }
+    if((rdata = get_any_connected_cluster_node(cluster)) != NULL) {
+      cluster->node_connections_pending = 0; //enough waiting. assume no more pending connections
+      redis_get_cluster_nodes(rdata);
+    }
+    else {
+      ERR("no connected cluster nodes, can't ready this cluster. stuck and don't know what to do...");
     }
   }
   
@@ -361,8 +428,6 @@ static ngx_int_t index_rdata_by_cluster_node_id(rdstore_data_t *rdata, cluster_n
   rdata_ptr_and_buf = rbtree_data_from_node(rbtree_node);
   rdata_ptr_and_buf->rdata = rdata;
   
-  rdata->node.inactive = 0;
-  
   rdata->node.id.data = &rdata_ptr_and_buf->chr;
   nchan_strcpy(&rdata->node.id, &line->id, 0);
   
@@ -386,11 +451,11 @@ static ngx_int_t index_rdata_by_cluster_node_id(rdstore_data_t *rdata, cluster_n
 
 static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_master_nodes, uint32_t homebrew_cluster_id, int configured_unverified_nodes) {
   redis_cluster_t               *cluster;
-  //cluster struct not made by any node yet. make it so!
-  if((cluster = ngx_calloc(sizeof(*cluster), ngx_cycle->log)) == NULL) { //TODO: don't allocate from heap, use a pool or something
+  if((cluster = nchan_list_append(&redis_cluster_list)) == NULL) { //TODO: don't allocate from heap, use a pool or something
     ERR("can't allocate cluster data");
     return NULL;
   }
+  ngx_memzero(cluster, sizeof(*cluster));
   
   rbtree_init(&cluster->hashslots, "redis cluster node (by id) data", rbtree_cluster_hashslots_id, rbtree_cluster_hashslots_bucketer, rbtree_cluster_hashslots_compare);
   
@@ -398,11 +463,13 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   cluster->uscf = node_rdata->lcf->redis.upstream;
   cluster->pool = NULL;
   cluster->homebrew_id = homebrew_cluster_id;
-  nchan_list_init(&cluster->nodes, sizeof(rdstore_data_t *));
-  nchan_list_init(&cluster->slave_nodes, sizeof(rdstore_data_t *));
-  nchan_list_init(&cluster->inactive_nodes, sizeof(rdstore_data_t *));
+  nchan_list_rdata_init(&cluster->nodes);
+  nchan_list_rdata_init(&cluster->slave_nodes);
+  nchan_list_rdata_init(&cluster->failed_nodes);
+  nchan_list_rdata_init(&cluster->inactive_nodes);
   
   nchan_init_timer(&cluster->still_notready_timer, cluster_not_ready_timer_handler, cluster);
+  ngx_add_timer(&cluster->still_notready_timer, CLUSTER_NOTREADY_RETRY_TIME);
   
   cluster->node_connections_pending = configured_unverified_nodes;
   
@@ -410,7 +477,7 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   return cluster;
 }
 
-static ngx_int_t check_cluster_slots_range_ok(redis_cluster_t *cluster) {
+static int check_cluster_slots_range_ok(redis_cluster_t *cluster) {
   ngx_rbtree_node_t                   *node;
   redis_cluster_slot_range_t           range = {0, 0};
   redis_cluster_keyslot_range_node_t  *keyslot_tree_node;
@@ -418,7 +485,7 @@ static ngx_int_t check_cluster_slots_range_ok(redis_cluster_t *cluster) {
   while(range.min <= 16383) {
     if((node = rbtree_find_node(&cluster->hashslots, &range)) == NULL) {
       ERR("cluster slots range incomplete: can't find slot %i", range.min);
-      return NGX_ERROR;
+      return 0;
     }
     keyslot_tree_node = rbtree_data_from_node(node);
     
@@ -427,27 +494,34 @@ static ngx_int_t check_cluster_slots_range_ok(redis_cluster_t *cluster) {
   }
   
   ERR("cluster range complete");
-  return NGX_OK;
+  return 1;
 }
+
+static nchan_list_t *cluster_rdata_appropriate_list(rdstore_data_t *rdata, redis_cluster_t *cluster) {
+  if(rdata->node.inactive)
+    return &cluster->inactive_nodes;
+  else if(rdata->node.failed)
+    return &cluster->failed_nodes;
+  else if(rdata->node.slave)
+    return &cluster->slave_nodes;
+  else
+    return &cluster->nodes;
+}
+
 
 static ngx_int_t associate_rdata_with_cluster(rdstore_data_t *rdata, redis_cluster_t *cluster) {
   u_char                              *cur;
   redis_cluster_slot_range_t           range;
   ngx_rbtree_node_t                   *rbtree_node;
   redis_cluster_keyslot_range_node_t  *keyslot_tree_node;
-  rdstore_data_t                     **ptr_rdata;
   
   if(!rdata->node.cluster) {
     nchan_list_t   *list;
     rdata->node.cluster = cluster;
    
-    if(rdata->node.slave)
-      list = &cluster->nodes;
-    else
-      list = &cluster->slave_nodes;
+    list = cluster_rdata_appropriate_list(rdata, cluster);
       
-    ptr_rdata = nchan_list_append(list);
-    *ptr_rdata = rdata;
+    nchan_list_rdata_append(list, rdata);
   }
   
   if(!rdata->node.slave) {
@@ -455,7 +529,8 @@ static ngx_int_t associate_rdata_with_cluster(rdstore_data_t *rdata, redis_clust
     cur = NULL;
     while((cur = redis_scan_cluster_nodes_slots_string(&rdata->node.slots, cur, &range)) != NULL) {
       
-      if((rbtree_node = rbtree_find_node(&cluster->hashslots, &range)) == NULL) {
+      rbtree_node = rbtree_find_node(&cluster->hashslots, &range);
+      if(rbtree_node == NULL) {
         if((rbtree_node = rbtree_create_node(&cluster->hashslots, sizeof(*keyslot_tree_node))) == NULL) {
           assert(0);
         }
@@ -471,24 +546,63 @@ static ngx_int_t associate_rdata_with_cluster(rdstore_data_t *rdata, redis_clust
         }
       }
       else {
-        //overlapping range found! uh oh!
-        assert(0);
+        keyslot_tree_node = rbtree_data_from_node(rbtree_node);
+        if(keyslot_tree_node->rdata == rdata && keyslot_tree_node->range.min == range.min && keyslot_tree_node->range.max == range.max) {
+          ERR("cluster node keyslot range already exists. no problem here.");
+        }
+        else {
+          assert(0);
+        }
       }
     }
   }
   
-  check_cluster_slots_range_ok(cluster);
+  if(check_cluster_slots_range_ok(cluster)) {
+    cluster_set_status(cluster, CLUSTER_READY);
+  }
   return NGX_OK;
+}
+
+static void rdata_set_cluster_node_flags(rdstore_data_t *rdata, cluster_nodes_line_t *l) {
+  nchan_list_t   *list = NULL;
+  int             changed = 0;
+  
+  if(rdata->node.cluster) {
+    list = cluster_rdata_appropriate_list(rdata, rdata->node.cluster);
+  }
+  
+  if(l->failed != rdata->node.failed) {
+    if(list) 
+      nchan_list_rdata_remove(list, rdata);
+    rdata->node.failed = l->failed;
+    changed = 1;
+  }
+  
+  if((!l->master) != rdata->node.slave) {
+    if(list) 
+      nchan_list_rdata_remove(list, rdata);
+    rdata->node.slave = !l->master;
+    changed = 1;
+  }
+  
+  if(changed && list) {
+    nchan_list_rdata_remove(cluster_rdata_appropriate_list(rdata, rdata->node.cluster), rdata);
+  }
 }
 
 static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                    *reply = rep;
   rdstore_data_t                *rdata = ac->data;
-  rdstore_data_t                *found_rdata = NULL, *my_rdata = NULL; //cluster tree node
+  rdstore_data_t                *found_rdata = NULL, *unassoc_rdata, *my_rdata = NULL; //cluster tree node
   redis_cluster_t               *cluster = NULL;
   ngx_uint_t                     num_master_nodes = 0;
   uint32_t                       homebrew_cluster_id = 0;
   int                            configured_unverified_nodes;
+  
+  nchan_list_t                   unassociated_nodes;
+  nchan_list_el_t               *cur;
+  nchan_list_rdata_init(&unassociated_nodes);
+  
   
   nchan_loc_conf_t              *cf = rdata->lcf;
   
@@ -515,9 +629,9 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     found_rdata = NULL;
     
     if(l.master && !l.failed) {
-        num_master_nodes++;
-        homebrew_cluster_id += redis_crc16(0, (const char*)l.id.data, l.id.len);
-      }
+      num_master_nodes++;
+      homebrew_cluster_id += redis_crc16(0, (const char*)l.id.data, l.id.len);
+    }
       
     if((found_rdata = find_rdata_by_node_id(&l.id)) == NULL) {
       redis_connect_params_t rcp;
@@ -526,20 +640,22 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     }
     
     if(found_rdata) {
-      found_rdata->node.failed = l.failed;
-      
+      rdata_set_cluster_node_flags(found_rdata, &l);
+      index_rdata_by_cluster_node_id(found_rdata, &l);
       if(found_rdata->node.cluster) {
         if(cluster)
           assert(cluster == found_rdata->node.cluster);
         else
           cluster = found_rdata->node.cluster;
       }
+      else {
+        nchan_list_rdata_append(&unassociated_nodes, found_rdata);
+      }
     }
     
     if(l.self) {
       //myself
-      rdata->node.slave = !l.master;
-      rdata->node.failed = l.failed;
+      rdata_set_cluster_node_flags(rdata, &l);
       index_rdata_by_cluster_node_id(rdata, &l);
       if(found_rdata) {
         assert(found_rdata == rdata);
@@ -558,7 +674,9 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     
     associate_rdata_with_cluster(my_rdata, cluster);
     
-    cluster->node_connections_pending --;
+    if(cluster->node_connections_pending > 0) {
+      cluster->node_connections_pending --;
+    }
     if(cluster->node_connections_pending == 0 && cluster->nodes.n < cluster->size) {
       redis_cluster_discover_and_connect_to_missing_nodes(reply, cf, cluster);
     }
@@ -567,6 +685,14 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   else {
     DBG("my_rdata was blank... eh?...");
   }
+  
+  if(cluster) {
+    for(cur = unassociated_nodes.head; cur != NULL; cur = cur->next) {
+      unassoc_rdata = nchan_list_rdata_from_el(cur);
+      associate_rdata_with_cluster(unassoc_rdata, cluster);
+    }
+  }
+  nchan_list_empty(&unassociated_nodes);
   
 }
 
@@ -590,6 +716,11 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
       cur->rd_next = NULL;
       redis_cluster_associate_chanhead_with_rdata(cur);
     }
+    
+    if(cluster->still_notready_timer.timer_set) {
+      ngx_del_timer(&cluster->still_notready_timer);
+    }
+    
   }
   else if(status != CLUSTER_READY && prev_status == CLUSTER_READY) {
     for(cur = cluster->orphan_channels_head; cur != NULL; cur = cur->rd_next) {
@@ -613,12 +744,8 @@ ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connecti
   
   if(status == CONNECTED && prev_status != CONNECTED) {
     cluster->nodes_connected++;
-    
-    if(cluster->size == cluster->nodes_connected) {
-      cluster_set_status(cluster, CLUSTER_READY);
-    }
   }
-  else if(status != CONNECTED && prev_status == CONNECTED) {    
+  else if(status != CONNECTED && prev_status == CONNECTED) {
     
     //add to orphan chanheads list
     
@@ -664,14 +791,13 @@ rbtree_walk_direction_t rdata_node_finder(rbtree_seed_t *seed, void *data, void 
 
 void redis_cluster_drop_node(rdstore_data_t *rdata) {
   redis_cluster_t           *cluster = rdata->node.cluster;
-  rdstore_data_t           **rdata_pptr;
-  int                        found = 0;
+  ngx_int_t                  rc;
   ngx_rbtree_node_t         *rbtree_node;
-  nchan_list_el_t           *cur;
   rdata_node_finder_data_t   finder_data;
+  nchan_list_t              *node_list;
   
   
-  if(rdata->node.failed && rdata->reconnect_timer.timer_set) {
+  if((rdata->node.failed || rdata->node.slave) && rdata->reconnect_timer.timer_set) {
     ngx_del_timer(&rdata->reconnect_timer);
   }
   
@@ -680,55 +806,49 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
     return;
   }
   
-  if(!rdata->node.inactive) {
-    ERR("drop cluster node for rdata %p", rdata);
-    
-    //remove from hashslots. this is a little tricky, we walk the hashslots tree 
-    // until we can's find this rdata
-    finder_data.rdata = rdata;
-    while(1) {
-      finder_data.found = NULL;
-      rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
-      if(finder_data.found != NULL) {
-        ERR("destroyed node %p", finder_data.found);
-        rbtree_remove_node(&cluster->hashslots, finder_data.found);
-        rbtree_destroy_node(&cluster->hashslots, finder_data.found);
-      }
-      else {
-        break;
-      }
-    }
-    
-    assert(cluster->nodes.n > 0);
-    
-    for(cur = cluster->nodes.head; cur != NULL; cur = cur->next) {
-      rdata_pptr = nchan_list_data_from_el(cur);
-      if(*rdata_pptr == rdata) {
-        found = 1;
-        break;
-      }
-    }
-    
-    assert(found);
-    nchan_list_remove(&cluster->nodes, rdata_pptr);
-    
-    if(cluster->size == cluster->nodes_connected) {
-      //we don't need this node to reconnect
-      rdstore_data_t    **ptr_rdata;
-      ptr_rdata = nchan_list_append(&cluster->inactive_nodes);
-      *ptr_rdata = rdata;
-      rdata->node.inactive = 1;
-      if(rdata->reconnect_timer.timer_set) {
-        ngx_del_timer(&rdata->reconnect_timer);
-      }
-    }
-    
+  if(rdata->node.inactive || rdata->node.failed || rdata->node.slave) {
+    DBG("don't care, node is inactive, failed, or slave");
+    return;
   }
   
-  if(cluster->nodes.n == 0 && cluster->inactive_nodes.n == 0) {
+  ERR("drop cluster node for rdata %p", rdata);
+  
+  //remove from hashslots. this is a little tricky, we walk the hashslots tree 
+  // until we can's find this rdata
+  finder_data.rdata = rdata;
+  while(1) {
+    finder_data.found = NULL;
+    rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
+    if(finder_data.found != NULL) {
+      ERR("destroyed node %p", finder_data.found);
+      rbtree_remove_node(&cluster->hashslots, finder_data.found);
+      rbtree_destroy_node(&cluster->hashslots, finder_data.found);
+    }
+    else {
+      break;
+    }
+  }
+  
+  node_list = cluster_rdata_appropriate_list(rdata, cluster);
+  
+  assert(node_list->n > 0);
+  rc = nchan_list_rdata_remove(node_list, rdata);
+  assert(rc == NGX_OK);
+  
+  if(check_cluster_slots_range_ok(cluster)) {
+    //we don't need this node to reconnect
+    nchan_list_rdata_append(&cluster->inactive_nodes, rdata);
+    rdata->node.inactive = 1;
+    if(rdata->reconnect_timer.timer_set) {
+      ngx_del_timer(&rdata->reconnect_timer);
+    }
+  }
+  
+  
+  if(cluster->nodes.n == 0 && cluster->inactive_nodes.n == 0 && cluster->slave_nodes.n == 0 && cluster->failed_nodes.n == 0) {
     ngx_free(cluster);
   }
-  
+
   if(!rdata->node.inactive) {
     rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
     assert(rbtree_node);
@@ -738,6 +858,7 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
     
     rdata->node.cluster = NULL;
   }
+
 }
 
 
@@ -800,7 +921,7 @@ rdstore_data_t *redis_cluster_rdata_from_channel_id(rdstore_data_t *rdata, ngx_s
     prefix_crc = redis_crc16(0, "channel:", 8);
   }
   uint16_t   slot = redis_crc16(prefix_crc, (const char *)str->data, str->len) % 16384;
-  DBG("channel id %V (key {channel:%V}) slot %i", str, str, slot);
+  //DBG("channel id %V (key {channel:%V}) slot %i", str, str, slot);
   
   return redis_cluster_rdata_from_keyslot(rdata, slot);
 }
@@ -826,7 +947,7 @@ rdstore_data_t *redis_cluster_rdata(rdstore_data_t *rdata, ngx_str_t *str) {
     return rdata;
   
   uint16_t   slot = redis_crc16(0, (const char *)str->data, str->len) % 16384;
-  DBG("str %V slot %i", str, str, slot);
+  DBG("str %V slot %i", str, slot);
   
   return redis_cluster_rdata_from_keyslot(rdata, slot);
 }

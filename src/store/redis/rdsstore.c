@@ -2034,6 +2034,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   
   rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage3, NULL);
   nchan_exit_notice_about_remaining_things("redis channel", "", chanheads);
+  
+  redis_cluster_exit_worker(cycle);
 }
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
