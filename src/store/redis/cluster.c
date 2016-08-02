@@ -514,10 +514,14 @@ static int check_cluster_slots_range_ok(redis_cluster_t *cluster) {
     }
     keyslot_tree_node = rbtree_data_from_node(node);
     
+    if(keyslot_tree_node->rdata->status != CONNECTED) {
+      ERR("cluster node for range %i - %i not connected", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+      return 0;
+    }
+    
     range.min = keyslot_tree_node->range.max + 1;
     range.max = range.min;
   }
-  
   ERR("cluster range complete");
   return 1;
 }
@@ -695,7 +699,10 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     if(!cluster) {
       cluster = create_cluster_data(my_rdata, num_master_nodes, homebrew_cluster_id, configured_unverified_nodes);
     }
-    assert(cluster->homebrew_id == homebrew_cluster_id);
+    if(cluster->homebrew_id != homebrew_cluster_id && cluster->status != CLUSTER_READY) {
+      ERR("Cluster homebrew_id changed maybe");
+      cluster->homebrew_id = homebrew_cluster_id;
+    }
     
     associate_rdata_with_cluster(my_rdata, cluster);
     
@@ -759,6 +766,9 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
     }
     
   }
+  
+  cluster->status = status;
+  
   return NGX_OK;
 }
 
