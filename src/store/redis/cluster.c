@@ -868,11 +868,6 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
       ngx_del_timer(&rdata->reconnect_timer);
     }
   }
-  
-  
-  if(cluster->nodes.n == 0 && cluster->inactive_nodes.n == 0 && cluster->slave_nodes.n == 0 && cluster->failed_nodes.n == 0) {
-    ngx_free(cluster);
-  }
 
   if(!rdata->node.inactive) {
     rbtree_node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
@@ -881,7 +876,7 @@ void redis_cluster_drop_node(rdstore_data_t *rdata) {
     
     rbtree_destroy_node(&redis_cluster_node_id_tree, rbtree_node);
     
-    rdata->node.cluster = NULL;
+    ngx_memzero(&rdata->node, sizeof(rdata->node));
   }
 
 }
