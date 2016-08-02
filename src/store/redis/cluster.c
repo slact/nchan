@@ -196,6 +196,24 @@ static void nchan_scan_nearest_chr(u_char **cur, ngx_str_t *str, ngx_int_t n, ..
   }
 }
 
+static void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr) {
+  u_char     *cur;
+  //ERR("rest_line: \"%V\"", line);
+  cur = (u_char *)memchr(line->data, chr, line->len);
+  if(!cur) {
+    *str = *line;
+    line->data += line->len;
+    line->len = 0;
+  }
+  else {
+    str->data = line->data;
+    str->len = (cur - line->data);
+    line->len -= str->len + 1;
+    line->data += str->len + 1;
+  }
+  //ERR("str: \"%V\"", str);
+}
+
 #define nchan_scan_str(str_src, cur, chr, str)\
   (str)->data = (u_char *)memchr(cur, chr, (str_src)->len - (cur - (str_src)->data));\
   if(!(str)->data)                            \
@@ -242,22 +260,27 @@ static rdstore_data_t *find_rdata_by_node_id(ngx_str_t *id) {
 
 static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) {
   u_char     *cur = (u_char *)line;
+  u_char     *max = cur;
+  ngx_str_t   rest_line;
   
   if(cur[0]=='\0')
     return NULL;
   
-  nchan_scan_nearest_chr(&cur, &l->id,           1, ' ');
-  nchan_scan_nearest_chr(&cur, &l->address,      1, ' ');
-  nchan_scan_nearest_chr(&cur, &l->flags,        1, ' ');
+  nchan_scan_nearest_chr(&max, &rest_line, 2, '\n', '\0');
+  l->line = rest_line;
   
-  nchan_scan_nearest_chr(&cur, &l->master_id,    1, ' ');
-  nchan_scan_nearest_chr(&cur, &l->ping_sent,    1, ' ');
-  nchan_scan_nearest_chr(&cur, &l->pong_recv,    1, ' ');
-  nchan_scan_nearest_chr(&cur, &l->config_epoch, 1, ' ');
-  nchan_scan_nearest_chr(&cur, &l->link_state,   3, ' ', '\n', '\0');
+  nchan_scan_until_chr_on_line(&rest_line, &l->id,           ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->address,      ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->flags,        ' ');
+  
+  nchan_scan_until_chr_on_line(&rest_line, &l->master_id,    ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->ping_sent,    ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->pong_recv,    ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->config_epoch, ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->link_state,   ' ');
   
   if(nchan_ngx_str_substr((&l->flags), "master")) {
-    nchan_scan_nearest_chr(&cur, &l->slots, 2, '\n', '\0');
+    l->slots = rest_line;
     l->master = 1;
   }
   else {
@@ -270,8 +293,7 @@ static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) 
   
   l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
   
-  l->line.data = (u_char *)line;
-  l->line.len = cur - l->line.data;
+  cur = max;
   if(&cur[-1] > (u_char *)line && cur[-1] == '\0')
     cur--;
   return (char *)cur;
@@ -286,6 +308,9 @@ static u_char *redis_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur
     cur = str->data;
   }
   else if(cur >= str->data + str->len) {
+    return NULL;
+  }
+  if(str->len == 0) {
     return NULL;
   }
   
