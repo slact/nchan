@@ -1954,7 +1954,6 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   d->getting--;
   
   if(d->msg_status == MSG_PENDING) {
-    assert(d->msg_status != MSG_FOUND);
     set_multimsg_msg(d, sd, msg, status);
   }
   else if(msg) {
