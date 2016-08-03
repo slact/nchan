@@ -1639,7 +1639,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    if(msgid->time == 0) {
+    if(msgid->time == 0 || ch->max_messages == 0) {
       *status = MSG_EXPECTED;
     }
     else {
