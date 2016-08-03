@@ -2126,7 +2126,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   d->cb = callback;
   d->privdata = privdata;
   d->multi_count = n;
-  d->msg_status = MSG_PENDING;
+  d->msg_status = getting == n ? MSG_PENDING : MSG_EXPECTED;
   d->msg = NULL;
   d->n = -1;
   d->getting = getting;
