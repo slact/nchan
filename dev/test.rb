@@ -824,6 +824,31 @@ class PubSubTest <  Minitest::Test
     sub.wait
     verify pub, sub
   end
+  
+  def test_changing_buffer_length
+    chan = short_id
+    sub = Subscriber.new url("sub/broadcast/#{chan}"), 30, quit_message: 'FIN'
+    pub_delta = Publisher.new url("/pub/#{chan}")
+    pub_snapshot = Publisher.new url("/pub_1message/#{chan}")
+    
+    pub_delta.post %W(foo bar baz bzzzt FIN)
+    sub.run
+    sub.wait
+    verify pub_delta, sub
+    sub.reset
+    
+    pub_snapshot.post %W(blah anotherblah)
+    pub_snapshot.messages.clear
+    pub_snapshot.post "this is the real thing right here"
+    
+    pub_delta.messages.clear
+    pub_delta.messages << pub_snapshot.messages.first
+    pub_delta.post %W(d1 d2 d3 and_other_deltas FIN)
+    sub.run
+    sub.wait
+    
+    verify pub_delta, sub
+  end
 end
 
 
