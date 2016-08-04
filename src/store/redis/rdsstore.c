@@ -31,7 +31,6 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                   sub_count;
   ngx_int_t                    fetching_message_count;
   ngx_uint_t                   internal_sub_count;
-  ngx_uint_t                   max_messages;
   ngx_event_t                  keepalive_timer;
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
@@ -945,7 +944,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   redisReply             *el = NULL;
   nchan_msg_t             msg;
   ngx_buf_t               buf;
-  ngx_str_t               chid = ngx_null_string;
+  ngx_str_t              *chid = NULL;
   ngx_str_t               pubsub_channel; 
   ngx_str_t               msg_redis_hash_key = ngx_null_string;
   ngx_uint_t              subscriber_id;
@@ -980,7 +979,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     }
     else if(CHECK_REPLY_STR(el)) {
       uint32_t    array_sz;
+      unsigned    chid_present = 0;
+      ngx_str_t   extracted_channel_id;
       unsigned    msgbuf_size_changed = 0;
+      uintptr_t   msgbuf_size;
       //maybe a message?
       set_buf(&mpbuf, (u_char *)el->str, el->len);
       cmp_init(&cmp, &mpbuf, ngx_buf_reader, ngx_buf_writer);
@@ -993,38 +995,41 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
           if(ngx_str_chop_if_startswith(&msg_type, "max_msgs+")) {
-            msgbuf_size_changed = 1;
-            if(!cmp_read_uinteger(&cmp, &chanhead->max_messages)) {
+            if(cmp_read_uinteger(&cmp, &msgbuf_size))
+              msgbuf_size_changed = 1; 
+            else
+              cmp_err(&cmp);
+          }
+          
+          if(ngx_str_chop_if_startswith(&msg_type, "ch+")) {
+            if(cmp_read_str_size(&cmp, &sz)) {
+              fwd_buf_to_str(&mpbuf, sz, &extracted_channel_id);
+              chid = &extracted_channel_id;
+            }
+            else {
               cmp_err(&cmp);
             }
           }
+          else if(chanhead) {
+            chid = &chanhead->id;
+          }
+          
+          if(msgbuf_size_changed && (chanhead || ((chanhead = nchan_store_get_chanhead(chid)) != NULL))) {
+            chanhead->spooler.fn->broadcast_notice(&chanhead->spooler, NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE, (void *)msgbuf_size);
+          }
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 9 + msgbuf_size_changed);
+            assert(array_sz == 9 + msgbuf_size_changed + chid_present);
             if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
-              nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
+              nchan_store_publish_generic(chid, &msg, 0, NULL);
             }
             else {
               ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msg");
             }
           }
-          else if(ngx_strmatch(&msg_type, "ch+msg")) {
-            assert(array_sz == 10 + msgbuf_size_changed);
-            if(cmp_read_str_size(&cmp, &sz)) {
-              fwd_buf_to_str(&mpbuf, sz, &chid);
-              if(cmp_to_msg(&cmp, &msg, &buf) == false) {
-                ERR("couldn't parse msgpacked message from redis");
-                return;
-              }
-              nchan_store_publish_generic(&chid, &msg, 0, NULL);
-            }
-            else {
-              cmp_err(&cmp);
-            }
-          }
           else if(ngx_strmatch(&msg_type, "msgkey")) {
-            assert(array_sz == 4 + msgbuf_size_changed);
+            assert(array_sz == 4 + msgbuf_size_changed + chid_present);
             if(chanhead != NULL) {
               uint64_t              msgtag;
               nchan_msg_id_t        msgid;
@@ -1045,36 +1050,11 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
               
               if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
-                get_msg_from_msgkey(&chanhead->id, &msgid, &msg_redis_hash_key);
+                get_msg_from_msgkey(chid, &msgid, &msg_redis_hash_key);
               }
             }
             else {
               ERR("nchan: thought there'd be a channel id around for msgkey");
-            }
-          }
-          else if(ngx_strmatch(&msg_type, "ch+msgkey")) {
-            uint64_t              msgtag;
-            nchan_msg_id_t        msgid;
-            assert(array_sz == 5);
-            if(! cmp_to_str(&cmp, &chid)) {
-              return;
-            }
-            if(!cmp_read_uinteger(&cmp, (uint64_t *)&msgid.time)) {
-              cmp_err(&cmp);
-              return;
-            }
-            if(!cmp_read_uinteger(&cmp, &msgtag)) {
-              cmp_err(&cmp);
-              return;
-            }
-            else {
-              msgid.tag.fixed[0] = msgtag;
-              msgid.tagactive = 0;
-              msgid.tagcount = 1;
-            }
-            
-            if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
-              get_msg_from_msgkey(&chid, &msgid, &msg_redis_hash_key);
             }
           }
           else if(ngx_strmatch(&msg_type, "alert") && array_sz > 1) {
@@ -1085,16 +1065,16 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
             
             if(ngx_strmatch(&alerttype, "delete channel") && array_sz > 2) {
-              if(cmp_to_str(&cmp, &chid)) {
-                nchan_store_publish_generic(&chid, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                nchan_store_publish_generic(&extracted_channel_id, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
               }
               else {
                 ERR("nchan: unexpected \"delete channel\" msgpack message from redis");
               }
             }
             else if(ngx_strmatch(&alerttype, "unsub one") && array_sz > 3) {
-              if(cmp_to_str(&cmp, &chid)) {
-                cmp_to_str(&cmp, &chid);
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                cmp_to_str(&cmp, &extracted_channel_id);
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
@@ -1102,12 +1082,12 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               assert(0);
             }
             else if(ngx_strmatch(&alerttype, "unsub all") && array_sz > 1) {
-              if(cmp_to_str(&cmp, &chid)) {
-                nchan_store_publish_generic(&chid, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                nchan_store_publish_generic(&extracted_channel_id, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
               }
             }
             else if(ngx_strmatch(&alerttype, "unsub all except")) {
-              if(cmp_to_str(&cmp, &chid)) {
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
@@ -1351,7 +1331,6 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
   head->sub_count=0;
-  head->max_messages = (ngx_int_t) -1;;
   head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
   head->status = NOTREADY;
@@ -2032,15 +2011,6 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count, 
     redis_sync_command("EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
   }
   return NGX_OK;
-}
-
-ngx_int_t redis_store_channel_max_message(ngx_str_t *channel_id) {
-  nchan_store_channel_head_t *head = nchan_store_get_chanhead(channel_id);
-  if (head != NULL) {
-    return head->max_messages;
-  }
-  // Return the default value which is unlimited
-  return (ngx_int_t) -1;
 }
 
 nchan_store_t  nchan_store_redis = {

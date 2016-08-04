@@ -91,7 +91,6 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
 static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 
@@ -1612,7 +1611,7 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
+ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
   return chanhead_messages_gc_custom(ch, ch->max_messages);
 }

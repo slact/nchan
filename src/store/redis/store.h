@@ -4,6 +4,8 @@
 #include "hiredis/async.h"
 #include "uthash.h"
 
+#define NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE 0xB00F
+
 extern nchan_store_t  nchan_store_redis;
 
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
@@ -13,5 +15,4 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count, 
 void redis_store_prepare_to_exit_worker(); // hark! a hack!!
 
 ngx_int_t redis_store_callback_on_connected(callback_pt cb, void *privdata);
-ngx_int_t redis_store_channel_max_message(ngx_str_t *channel_id);
 #endif // NCHAN_REDIS_STORE_H
