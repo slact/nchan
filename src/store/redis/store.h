@@ -5,6 +5,7 @@
 #include "uthash.h"
 
 #define NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME 4*60
+#define NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE 0xB00F
 
 extern nchan_store_t  nchan_store_redis;
 

@@ -92,7 +92,6 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
 static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
 static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 
@@ -1626,7 +1625,7 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
+ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
   return chanhead_messages_gc_custom(ch, ch->max_messages);
 }
@@ -1653,7 +1652,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    if(msgid->time == 0) {
+    if(msgid->time == 0 || ch->max_messages == 0) {
       *status = MSG_EXPECTED;
     }
     else {
@@ -1968,7 +1967,6 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   d->getting--;
   
   if(d->msg_status == MSG_PENDING) {
-    assert(d->msg_status != MSG_FOUND);
     set_multimsg_msg(d, sd, msg, status);
   }
   else if(msg) {
@@ -2141,7 +2139,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   d->cb = callback;
   d->privdata = privdata;
   d->multi_count = n;
-  d->msg_status = MSG_PENDING;
+  d->msg_status = getting == n ? MSG_PENDING : MSG_EXPECTED;
   d->msg = NULL;
   d->n = -1;
   d->getting = getting;
