@@ -89,6 +89,7 @@ local new_channel
 local channel
 if redis.call('EXISTS', key.channel) ~= 0 then
   channel=tohash(redis.call('HGETALL', key.channel))
+  channel.max_stored_messages = tonumber(channel.max_stored_messages)
 end
 
 if channel~=nil then
@@ -159,14 +160,11 @@ if not channel.ttl then
 end
 
 local message_len_changed = false
-if not channel.max_stored_messages or channel.max_stored_messages ~= store_at_most_n_messages then
+if channel.max_stored_messages ~= store_at_most_n_messages then
   channel.max_stored_messages = store_at_most_n_messages
   message_len_changed = true
   redis.call('HSET', key.channel, 'max_stored_messages', store_at_most_n_messages)
   --dbg("channel.max_stored_messages was not set, but is now ", store_at_most_n_messages)
-else
-  channel.max_stored_messages =tonumber(channel.max_stored_messages)
-  --dbg("channel.mas_stored_messages == " , channel.max_stored_messages)
 end
 
 --write message
@@ -195,7 +193,7 @@ local oldestmsg=function(list_key, old_fmt)
   end
 end
 
-local max_stored_msgs = tonumber(redis.call('HGET', key.channel, 'max_stored_messages')) or -1
+local max_stored_msgs = channel.max_stored_messages or -1
 
 if max_stored_msgs < 0 then --no limit
   oldestmsg(key.messages, msg_fmt)
@@ -205,9 +203,9 @@ elseif max_stored_msgs > 0 then
   redis.call('LPUSH', key.messages, msg.id)
   -- Reduce the message length if neccessary
   local dump_message_ids = redis.call('LRANGE', key.messages, max_stored_msgs, stored_messages);
-  if next(dump_message_ids) and #dump_message_ids > 0 then
-    for _, oldmsgid in ipairs(dump_message_ids) do
-      redis.call('DEL', msg_fmt:format(oldmsgid))
+  if dump_message_ids then
+    for _, msgid in ipairs(dump_message_ids) do
+      redis.call('DEL', msg_fmt:format(msgid))
     end
   end
   redis.call('LTRIM', key.messages, 0, max_stored_msgs - 1)
