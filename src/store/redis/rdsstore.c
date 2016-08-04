@@ -116,8 +116,22 @@ static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
   return buf;
 }
 
-static ngx_int_t ngx_strmatch(ngx_str_t *str, char *match) {
+static int ngx_strmatch(ngx_str_t *str, char *match) {
   return ngx_strncmp(str->data, match, str->len) == 0;
+}
+
+static int ngx_str_chop_if_startswith(ngx_str_t *str, char *match) {
+  char *cur, *max = (char *)str->data + str->len;
+  for(cur = (char *)str->data; cur < max; cur++, match++) {
+    if(*match == '\0') {
+      str->len -= (u_char *)cur - str->data;
+      str->data = (u_char *)cur;
+      return 1;
+    }
+    else if(*match != *cur)
+      break;
+  }
+  return 0;
 }
 
 static u_char *fwd_buf(ngx_buf_t *buf, size_t sz) {
@@ -905,7 +919,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   redisReply             *el = NULL;
   nchan_msg_t             msg;
   ngx_buf_t               buf;
-  ngx_str_t               chid = ngx_null_string;
+  ngx_str_t              *chid = NULL;
   ngx_str_t               pubsub_channel; 
   ngx_str_t               msg_redis_hash_key = ngx_null_string;
   ngx_uint_t              subscriber_id;
@@ -943,6 +957,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     }
     else if(CHECK_REPLY_STR(el)) {
       uint32_t    array_sz;
+      unsigned    chid_present = 0;
+      ngx_str_t   extracted_channel_id;
+      unsigned    msgbuf_size_changed = 0;
+      uintptr_t   msgbuf_size;
       //maybe a message?
       set_buf(&mpbuf, (u_char *)el->str, el->len);
       cmp_init(&cmp, &mpbuf, ngx_buf_reader, ngx_buf_writer);
@@ -954,32 +972,42 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           cmp_read_str_size(&cmp ,&sz);
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
-          if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 9);
-            if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
-              //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
-              nchan_store_publish_generic(&chanhead->id, chanhead->rdt, &msg, 0, NULL);
-            }
-            else {
-              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msg");
-            }
+          if(ngx_str_chop_if_startswith(&msg_type, "max_msgs+")) {
+            if(cmp_read_uinteger(&cmp, &msgbuf_size))
+              msgbuf_size_changed = 1; 
+            else
+              cmp_err(&cmp);
           }
-          else if(ngx_strmatch(&msg_type, "ch+msg")) {
-            assert(array_sz == 10);
+          
+          if(ngx_str_chop_if_startswith(&msg_type, "ch+")) {
             if(cmp_read_str_size(&cmp, &sz)) {
-              fwd_buf_to_str(&mpbuf, sz, &chid);
-              if(cmp_to_msg(&cmp, &msg, &buf) == false) {
-                ERR("couldn't parse msgpacked message from redis");
-                return;
-              }
-              nchan_store_publish_generic(&chid, rdata, &msg, 0, NULL);
+              fwd_buf_to_str(&mpbuf, sz, &extracted_channel_id);
+              chid = &extracted_channel_id;
             }
             else {
               cmp_err(&cmp);
             }
           }
+          else if(chanhead) {
+            chid = &chanhead->id;
+          }
+          
+          if(msgbuf_size_changed && (chanhead || ((chanhead = nchan_store_get_chanhead(chid, rdata)) != NULL))) {
+            chanhead->spooler.fn->broadcast_notice(&chanhead->spooler, NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE, (void *)msgbuf_size);
+          }
+          
+          if(ngx_strmatch(&msg_type, "msg")) {
+            assert(array_sz == 9 + msgbuf_size_changed + chid_present);
+            if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
+              //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
+              nchan_store_publish_generic(chid, chanhead ? chanhead->rdt : rdata, &msg, 0, NULL);
+            }
+            else {
+              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msg");
+            }
+          }
           else if(ngx_strmatch(&msg_type, "msgkey")) {
-            assert(array_sz == 4);
+            assert(array_sz == 4 + msgbuf_size_changed + chid_present);
             if(chanhead != NULL) {
               uint64_t              msgtag;
               nchan_msg_id_t        msgid;
@@ -1000,36 +1028,11 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
               
               if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
-                get_msg_from_msgkey(&chanhead->id, rdata, &msgid, &msg_redis_hash_key);
+                get_msg_from_msgkey(chid, chanhead ? chanhead->rdt : rdata, &msgid, &msg_redis_hash_key);
               }
             }
             else {
               ERR("nchan: thought there'd be a channel id around for msgkey");
-            }
-          }
-          else if(ngx_strmatch(&msg_type, "ch+msgkey")) {
-            uint64_t              msgtag;
-            nchan_msg_id_t        msgid;
-            assert(array_sz == 5);
-            if(! cmp_to_str(&cmp, &chid)) {
-              return;
-            }
-            if(!cmp_read_uinteger(&cmp, (uint64_t *)&msgid.time)) {
-              cmp_err(&cmp);
-              return;
-            }
-            if(!cmp_read_uinteger(&cmp, &msgtag)) {
-              cmp_err(&cmp);
-              return;
-            }
-            else {
-              msgid.tag.fixed[0] = msgtag;
-              msgid.tagactive = 0;
-              msgid.tagcount = 1;
-            }
-            
-            if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
-              get_msg_from_msgkey(&chid, rdata, &msgid, &msg_redis_hash_key);
             }
           }
           else if(ngx_strmatch(&msg_type, "alert") && array_sz > 1) {
@@ -1040,16 +1043,16 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
             
             if(ngx_strmatch(&alerttype, "delete channel") && array_sz > 2) {
-              if(cmp_to_str(&cmp, &chid)) {
-                nchan_store_publish_generic(&chid, rdata, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                nchan_store_publish_generic(&extracted_channel_id, rdata, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
               }
               else {
                 ERR("nchan: unexpected \"delete channel\" msgpack message from redis");
               }
             }
             else if(ngx_strmatch(&alerttype, "unsub one") && array_sz > 3) {
-              if(cmp_to_str(&cmp, &chid)) {
-                cmp_to_str(&cmp, &chid);
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                cmp_to_str(&cmp, &extracted_channel_id);
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
@@ -1057,12 +1060,12 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               assert(0);
             }
             else if(ngx_strmatch(&alerttype, "unsub all") && array_sz > 1) {
-              if(cmp_to_str(&cmp, &chid)) {
-                nchan_store_publish_generic(&chid, rdata, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                nchan_store_publish_generic(&extracted_channel_id, rdata, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
               }
             }
             else if(ngx_strmatch(&alerttype, "unsub all except")) {
-              if(cmp_to_str(&cmp, &chid)) {
+              if(cmp_to_str(&cmp, &extracted_channel_id)) {
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }

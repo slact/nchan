@@ -92,14 +92,13 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
 static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
-static ngx_int_t chanhead_messages_gc(memstore_channel_head_t *ch);
 static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
 
 
 static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *ch, uint8_t force) {
   
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   if(!force) {
     if(ch->status != INACTIVE) {
       char *sts;
@@ -157,7 +156,7 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *
 
 static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(memstore_channel_head_t *ch, uint8_t force) {
   
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   if(!force) {
     if(ch->churn_time - ngx_time() > 0) {
       DBG("not yet time to reap %V, %i sec left", &ch->id, ch->churn_time - ngx_time());
@@ -1626,7 +1625,7 @@ static ngx_int_t chanhead_messages_gc_custom(memstore_channel_head_t *ch, ngx_in
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc(memstore_channel_head_t *ch) {
+ngx_int_t memstore_chanhead_messages_gc(memstore_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
   return chanhead_messages_gc_custom(ch, ch->max_messages);
 }
@@ -1647,13 +1646,13 @@ store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_m
     *status = MSG_NOTFOUND;
     return NULL;
   }
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   
   first = ch->msg_first;
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    if(msgid->time == 0) {
+    if(msgid->time == 0 || ch->max_messages == 0) {
       *status = MSG_EXPECTED;
     }
     else {
@@ -1968,7 +1967,6 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   d->getting--;
   
   if(d->msg_status == MSG_PENDING) {
-    assert(d->msg_status != MSG_FOUND);
     set_multimsg_msg(d, sd, msg, status);
   }
   else if(msg) {
@@ -2141,7 +2139,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   d->cb = callback;
   d->privdata = privdata;
   d->multi_count = n;
-  d->msg_status = MSG_PENDING;
+  d->msg_status = getting == n ? MSG_PENDING : MSG_EXPECTED;
   d->msg = NULL;
   d->n = -1;
   d->getting = getting;
@@ -2274,7 +2272,7 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   ch->msg_last = msg;
   
   //DBG("create %V %V", msgid_to_str(&msg->msg->id), chanhead_msg_to_str(msg));
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   if(ch->msg_last != msg) { //why does this happen?
     ERR("just-published messages is no longer the last message for some reason... This is unexpected.");
   }
@@ -2592,7 +2590,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   chead->max_messages = cf->max_messages;
   
-  chanhead_messages_gc(chead);
+  memstore_chanhead_messages_gc(chead);
   if(cf->max_messages == 0) {
     ///no buffer
     channel_copy=&chead->channel;

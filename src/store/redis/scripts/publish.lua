@@ -23,7 +23,7 @@ if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
---[[local dbg = function(...) 
+--[[local dbg = function(...)
   local arg = {...}
   for i = 1, #arg do
     arg[i]=tostring(arg[i])
@@ -158,8 +158,10 @@ if not channel.ttl then
   redis.call('HSET', key.channel, 'ttl', channel.ttl)
 end
 
-if not channel.max_stored_messages then
+local message_len_changed = false
+if not channel.max_stored_messages or channel.max_stored_messages ~= store_at_most_n_messages then
   channel.max_stored_messages = store_at_most_n_messages
+  message_len_changed = true
   redis.call('HSET', key.channel, 'max_stored_messages', store_at_most_n_messages)
   --dbg("channel.max_stored_messages was not set, but is now ", store_at_most_n_messages)
 else
@@ -186,7 +188,7 @@ local oldestmsg=function(list_key, old_fmt)
       else
         redis.call('rpop', list_key)
         del=del+1
-      end 
+      end
     else
       break
     end
@@ -201,10 +203,14 @@ if max_stored_msgs < 0 then --no limit
 elseif max_stored_msgs > 0 then
   local stored_messages = tonumber(redis.call('LLEN', key.messages))
   redis.call('LPUSH', key.messages, msg.id)
-  if stored_messages > max_stored_msgs then
-    local oldmsgid = redis.call('RPOP', key.messages)
-    redis.call('DEL', msg_fmt:format(oldmsgid))
+  -- Reduce the message length if neccessary
+  local dump_message_ids = redis.call('LRANGE', key.messages, max_stored_msgs, stored_messages);
+  if next(dump_message_ids) and #dump_message_ids > 0 then
+    for _, oldmsgid in ipairs(dump_message_ids) do
+      redis.call('DEL', msg_fmt:format(oldmsgid))
+    end
   end
+  redis.call('LTRIM', key.messages, 0, max_stored_msgs - 1)
   oldestmsg(key.messages, msg_fmt)
 end
 
@@ -237,6 +243,11 @@ else
     tonumber(msg.tag) or 0,
     key.message
   }
+end
+
+if message_len_changed then
+  unpacked[1] = "max_msgs+" .. unpacked[1]
+  table.insert(unpacked, 2, tonumber(channel.max_stored_messages))
 end
 
 local msgpacked

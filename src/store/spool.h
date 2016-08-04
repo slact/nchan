@@ -42,6 +42,7 @@ typedef struct {
   ngx_int_t            (*respond_message)(channel_spooler_t *self, nchan_msg_t *msg);
   ngx_int_t            (*respond_status)(channel_spooler_t *self, nchan_msg_id_t *id, ngx_int_t status_code, ngx_str_t *status_line);
   ngx_int_t            (*broadcast_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
+  ngx_int_t            (*broadcast_notice)(channel_spooler_t *self, ngx_int_t notice_code, void *data);
   ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
 } channel_spooler_fn_t;
 

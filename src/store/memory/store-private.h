@@ -117,6 +117,7 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
 ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8_t ipc_subscribe_if_needed);
 ngx_int_t memstore_ready_chanhead_unless_stub(memstore_channel_head_t *head);
 void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n);
+ngx_int_t memstore_chanhead_messages_gc(memstore_channel_head_t *ch);
 
 #if FAKESHARD
 void memstore_fakeprocess_push(ngx_int_t slot);

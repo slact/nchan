@@ -36,8 +36,8 @@ typedef struct {
 } ngx_rwlock_t;
 
 #define NCHAN_ZERO_MSGID {0, {{0}}, 0, 0}
-#define NCHAN_OLDEST_MSGID {0, {{0}}, 1, 0}
-#define NCHAN_NEWEST_MSGID {-1, {{0}}, 1, 0}
+#define NCHAN_OLDEST_MSGID {0, {{0}}, 0, 1}
+#define NCHAN_NEWEST_MSGID {-1, {{0}}, 0, 1}
 
 #define NCHAN_MULTITAG_MAX 255
 #define NCHAN_FIXED_MULTITAG_MAX 4
