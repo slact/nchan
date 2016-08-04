@@ -31,6 +31,7 @@ struct nchan_store_channel_head_s {
   ngx_uint_t                   sub_count;
   ngx_int_t                    fetching_message_count;
   ngx_uint_t                   internal_sub_count;
+  ngx_uint_t                   max_messages;
   ngx_event_t                  keepalive_timer;
   nchan_msg_id_t               last_msgid;
   void                        *redis_subscriber_privdata;
@@ -1000,6 +1001,21 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               cmp_err(&cmp);
             }
           }
+          else if(ngx_strmatch(&msg_type, "sz+msg")) {
+            assert(array_sz == 10);
+            if(cmp_read_uinteger(&cmp, &chanhead->max_messages)) {
+              if(chanhead != NULL && cmp_to_msg(&cmp, &msg, &buf)) {
+                //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
+                nchan_store_publish_generic(&chanhead->id, &msg, 0, NULL);
+              }
+              else {
+                ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msg");
+              }
+            }
+            else {
+              cmp_err(&cmp);
+            }
+          }
           else if(ngx_strmatch(&msg_type, "msgkey")) {
             assert(array_sz == 4);
             if(chanhead != NULL) {
@@ -1050,6 +1066,32 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               msgid.tagcount = 1;
             }
             
+            if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
+              get_msg_from_msgkey(&chid, &msgid, &msg_redis_hash_key);
+            }
+          }
+          else if(ngx_strmatch(&msg_type, "sz+msgkey")) {
+            uint64_t              msgtag;
+            nchan_msg_id_t        msgid;
+            assert(array_sz == 5);
+            if(!cmp_read_uinteger(&cmp, &chanhead->max_messages)) {
+              cmp_err(&cmp);
+              return;
+            }
+            if(!cmp_read_uinteger(&cmp, (uint64_t *)&msgid.time)) {
+              cmp_err(&cmp);
+              return;
+            }
+            if(!cmp_read_uinteger(&cmp, &msgtag)) {
+              cmp_err(&cmp);
+              return;
+            }
+            else {
+              msgid.tag.fixed[0] = msgtag;
+              msgid.tagactive = 0;
+              msgid.tagcount = 1;
+            }
+
             if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
               get_msg_from_msgkey(&chid, &msgid, &msg_redis_hash_key);
             }
@@ -1328,6 +1370,7 @@ static nchan_store_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id) 
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
   head->sub_count=0;
+  head->max_messages = (ngx_int_t) -1;;
   head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
   head->status = NOTREADY;
@@ -2008,6 +2051,15 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, ngx_int_t count, 
     redis_sync_command("EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
   }
   return NGX_OK;
+}
+
+ngx_int_t redis_store_channel_max_message(ngx_str_t *channel_id) {
+  nchan_store_channel_head_t *head = nchan_store_get_chanhead(channel_id);
+  if (head != NULL) {
+    return head->max_messages;
+  }
+  // Return the default value which is unlimited
+  return (ngx_int_t) -1;
 }
 
 nchan_store_t  nchan_store_redis = {
