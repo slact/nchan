@@ -23,6 +23,7 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool);
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool);
 
 static nchan_msg_id_t     latest_msg_id = NCHAN_NEWEST_MSGID;
+static nchan_msg_id_t     oldest_msg_id = NCHAN_OLDEST_MSGID;
 
 
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
@@ -287,10 +288,6 @@ static void spool_fetch_msg_noresponse_retry_callback(void *pd) {
 }
 
 static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nchan_msg_t *msg, fetchmsg_data_t *data) {
-  nchan_msg_id_t        anymsg;
-  anymsg.time = 0;
-  anymsg.tag.fixed[0] = 0;
-  anymsg.tagcount = 1;
   nchan_msg_status_t    prev_status;
   subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;
@@ -371,7 +368,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       //TODO: maybe message-expired notification
       spool->msg_status = findmsg_status;
       spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
-      nuspool = get_spool(spool->spooler, &anymsg);
+      nuspool = get_spool(spool->spooler, &oldest_msg_id);
       if(spool != nuspool) {
         spool_transfer_subscribers(spool, nuspool, 1);
         destroy_spool(spool);

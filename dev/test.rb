@@ -825,6 +825,27 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
   end
   
+  def test_issue_212 #https://github.com/slact/nchan/issues/212
+    chan1 = short_id
+    chan2 = short_id
+    sub = Subscriber.new url("/sub/multi/#{chan1}/#{chan2}"), 1, quit_message: 'FIN', client: :eventsource, timeout: 3
+    sub.on_failure { false }
+    pub = Publisher.new url("/pub/#{chan1}")
+    pub_nobuf = Publisher.new url("/pub/nobuffer/#{chan2}")
+    sub.run
+    sub.wait :ready
+
+    pub.post %w(yes what this and also)
+    sleep 1.1
+    pub_nobuf.post "WHAT?!"
+    pub.messages << pub_nobuf.messages.first
+    pub.post %W(foo bar baz bzzzt FIN)
+
+    sub.wait
+    
+    verify pub, sub
+  end
+  
   def test_changing_buffer_length
     chan = short_id
     sub = Subscriber.new url("sub/broadcast/#{chan}"), 30, quit_message: 'FIN'
