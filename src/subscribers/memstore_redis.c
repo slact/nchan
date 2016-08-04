@@ -80,8 +80,9 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_loc_conf_t   cf;
   nchan_msg_id_t    *lastid;    
   DBG("%p memstore-redis subscriber respond with message", d->sub);
-  
-  cf.max_messages = d->chanhead->max_messages;
+
+  // Sync max_message from redis store
+  cf.max_messages = d->chanhead->max_messages = redis_store_channel_max_message(&d->chanhead->id);
   cf.use_redis = 0;
   cf.buffer_timeout = msg->expires - ngx_time();
   
