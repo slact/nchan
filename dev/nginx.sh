@@ -125,7 +125,7 @@ cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
 
 conf_replace(){
     echo "$1 $2"
-    sed "s|\($1\).*|\1 $2;|g" $NGINX_TEMP_CONFIG -i
+    sed "s|^\(\s*\)\($1\)\(\s\+\).*|\1\2\3$2;|g" $NGINX_TEMP_CONFIG -i
 }
 
 ulimit -c unlimited
@@ -141,7 +141,7 @@ export ASAN_OPTIONS=symbolize=1
 
 echo "nginx $NGINX_OPT"
 if [[ ! -z $ALTPORT ]]; then
-  conf_replace "listen" 8083
+  sed "s|^\(\s\+\)listen\(\s\+\)\(.*\)|\1listen\21\3|g" $NGINX_TEMP_CONFIG -i
 fi
 
 conf_replace "access_log" $ACCESS_LOG
