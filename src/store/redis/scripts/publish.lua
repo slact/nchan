@@ -227,20 +227,7 @@ end
 --publish message
 local unpacked
 
-if #msg.data < 5*1024 and message_len_changed then
-  unpacked= {
-    "sz+msg",
-    channel.max_stored_messages,
-    msg.ttl or 0,
-    msg.time,
-    tonumber(msg.tag) or 0,
-    msg.prev_time or 0,
-    msg.prev_tag or 0,
-    msg.data or "",
-    msg.content_type or "",
-    msg.eventsource_event or ""
-  }
-elseif #msg.data < 5*1024 then
+if #msg.data < 5*1024 then
   unpacked= {
     "msg",
     msg.ttl or 0,
@@ -252,14 +239,6 @@ elseif #msg.data < 5*1024 then
     msg.content_type or "",
     msg.eventsource_event or ""
   }
-elseif message_len_changed then
-  unpacked= {
-    "sz+msgkey",
-    channel.max_stored_messages,
-    msg.time,
-    tonumber(msg.tag) or 0,
-    key.message
-  }
 else
   unpacked= {
     "msgkey",
@@ -267,6 +246,11 @@ else
     tonumber(msg.tag) or 0,
     key.message
   }
+end
+
+if message_len_changed then
+  unpacked[1] = "max_msgs+" .. unpacked[1]
+  table.insert(unpacked, 2, tonumber(channel.max_stored_messages))
 end
 
 local msgpacked
