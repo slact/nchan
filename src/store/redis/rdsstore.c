@@ -344,7 +344,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
   else if(status == CONNECTED && prev_status != CONNECTED) {
     callback_chain_t    *cur, *next;
     
-    if(!rdata->ping_timer.timer_set && rdata->ping_interval) {
+    if(!rdata->ping_timer.timer_set && rdata->ping_interval > 0) {
       ngx_add_timer(&rdata->ping_timer, rdata->ping_interval * 1000);
     }
     
@@ -396,7 +396,7 @@ static void redis_ping_timer_handler(ngx_event_t *ev) {
     else {
       //TODO: what to do?...
     }
-    if(rdata->ping_interval) {
+    if(rdata->ping_interval > 0) {
       ngx_add_timer(ev, rdata->ping_interval * 1000);
     }
   }
