@@ -16,13 +16,19 @@ typedef struct {
   nchan_list_el_t *tail;
   ngx_uint_t       n;
   size_t           data_sz;
+  ngx_pool_t      *pool;
+  size_t           pool_sz;
 } nchan_list_t;
 
 ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz);
+ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz);
+
 void *nchan_list_append(nchan_list_t *list);
 void *nchan_list_prepend(nchan_list_t *list);
 ngx_int_t nchan_list_remove(nchan_list_t *list, void *el_data);
 ngx_int_t nchan_list_empty(nchan_list_t *list);
+ngx_int_t nchan_list_traverse_and_empty(nchan_list_t *list, void (*)(void *data, void *pd), void *pd);
+
 #define nchan_list_el_from_data(el_data) \
   ((nchan_list_el_t *)el_data - 1)
 #define nchan_list_data_from_el(el) \

@@ -7,16 +7,34 @@
   */
 
 ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz) {
+  return nchan_list_pool_init(list, data_sz, 0);
+}
+
+ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz) {
   list->head = NULL;
   list->tail = NULL;
   list->data_sz = data_sz;
   list->n = 0;
+  list->pool = NULL;
+  list->pool_sz = pool_sz;
   return NGX_OK;
+}
+
+static ngx_pool_t *nchan_list_get_pool(nchan_list_t *list) {
+  if(!list->pool) {
+    list->pool = ngx_create_pool(list->pool_sz, ngx_cycle->log);
+  }
+  return list->pool;
 }
 
 void *nchan_list_append(nchan_list_t *list) {
   nchan_list_el_t  *el, *tail = list->tail;
-  el = ngx_alloc(sizeof(*el) + list->data_sz, ngx_cycle->log);
+  if(list->pool_sz > 0) {
+    el = ngx_palloc(nchan_list_get_pool(list), list->data_sz);
+  }
+  else {
+    el = ngx_alloc(sizeof(*el) + list->data_sz, ngx_cycle->log);
+  }
   if(tail)
     tail->next = el;
   
@@ -66,20 +84,52 @@ ngx_int_t nchan_list_remove(nchan_list_t *list, void *el_data) {
     list->tail = el->prev;
   list->n--;
   
-  ngx_free(el);
+  if(list->pool)
+    ngx_pfree(list->pool, el);
+  else
+    ngx_free(el);
   
   return NGX_OK;
 }
 
 ngx_int_t nchan_list_empty(nchan_list_t *list) {
   nchan_list_el_t  *el, *next;
-  
-  for(el = list->head; el != NULL; el = next) {
-    next = el->next;
-    ngx_free(el);
+  if(list->pool) {
+    ngx_destroy_pool(list->pool);
+    list->pool = NULL;
+  }
+  else {
+    for(el = list->head; el != NULL; el = next) {
+      next = el->next;
+      ngx_free(el);
+    }
   }
   list->head = NULL;
   list->tail = NULL;
   list->n = 0;
+  return NGX_OK;
+}
+
+
+ngx_int_t nchan_list_traverse_and_empty(nchan_list_t *list, void (*cb)(void *data, void *pd), void *pd) {
+  nchan_list_el_t  *head = list->head, *el, *next;
+  ngx_pool_t       *pool = list->pool;
+  
+  list->head = NULL;
+  list->tail = NULL;
+  list->n = 0;
+  list->pool = NULL;
+  
+  for(el = head; el != NULL; el = next) {
+    cb(nchan_list_data_from_el(el), pd);
+    next = el->next;
+    if(!pool) {
+      ngx_free(el);
+    }
+  }
+  
+  if(pool)
+    ngx_destroy_pool(list->pool);
+  
   return NGX_OK;
 }
