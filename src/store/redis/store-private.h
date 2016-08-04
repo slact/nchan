@@ -71,6 +71,20 @@ typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS
 
 typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_NOTREADY, CLUSTER_READY} redis_cluster_status_t;
 
+
+typedef enum {CLUSTER_RETRY_BY_CHANHEAD, CLUSTER_RETRY_BY_CHANNEL_ID, CLUSTER_RETRY_BY_KEY, CLUSTER_RETRY_BY_CSTR} redis_cluster_retry_hashslot_t;
+typedef struct redis_cluster_retry_s redis_cluster_retry_t;
+struct redis_cluster_retry_s {
+  redis_cluster_retry_hashslot_t     type;
+  union {
+    rdstore_channel_head_t          *chanhead;
+    ngx_str_t                        str;
+    u_char                          *cstr;
+  };
+  void                              (*retry)(rdstore_data_t*, void *);
+  void                               *data;
+}; //retry_redis_script_t
+
 typedef struct {
   redis_cluster_status_t           status;
   
@@ -90,6 +104,8 @@ typedef struct {
   
   nchan_reaper_t                   chanhead_reaper;
   rdstore_channel_head_t          *orphan_channels_head;
+  
+  nchan_list_t                     retry_commands;
 } redis_cluster_t;
 
 typedef struct {

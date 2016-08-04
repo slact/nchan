@@ -38,6 +38,9 @@ void redis_cluster_exit_worker(ngx_cycle_t *cycle) {
     nchan_list_empty(&cluster->slave_nodes);
     nchan_list_empty(&cluster->inactive_nodes);
     nchan_list_empty(&cluster->failed_nodes);
+    
+    nchan_list_empty(&cluster->retry_commands);
+    
     cluster->status = CLUSTER_NOTREADY;
     nchan_reaper_flush(&cluster->chanhead_reaper);
     if(cluster->still_notready_timer.timer_set) {
@@ -474,6 +477,105 @@ static ngx_int_t index_rdata_by_cluster_node_id(rdstore_data_t *rdata, cluster_n
 }
 
 
+void *cluster_retry_palloc(redis_cluster_t *cluster, size_t sz) {
+  return ngx_palloc(cluster->retry_commands.pool, sz);
+}
+void  cluster_retry_pfree(redis_cluster_t *cluster, void *ptr) {
+  ngx_pfree(cluster->retry_commands.pool, ptr);
+}
+
+static redis_cluster_retry_t *cluster_create_retry_command(redis_cluster_t *cluster, void (*handler)(rdstore_data_t *, void *), void *pd) {
+  redis_cluster_retry_t *retry;
+  if((retry = nchan_list_append(&cluster->retry_commands)) == NULL)
+    return NULL;
+  retry->retry = handler;
+  retry->data = pd;
+  return retry;
+}
+
+ngx_int_t cluster_add_retry_command_with_chanhead(rdstore_channel_head_t *chanhead, void (*handler)(rdstore_data_t *, void *), void *pd) {
+  redis_cluster_retry_t         *retry;
+  if((retry = cluster_create_retry_command(chanhead->rdt->node.cluster, handler, pd)) == NULL)
+    return NGX_ERROR;
+  
+  retry->type = CLUSTER_RETRY_BY_CHANHEAD;
+  retry->chanhead = chanhead;
+  //TODO: reserve chanhead
+  
+  return NGX_OK;
+}
+
+ngx_int_t cluster_add_retry_command_with_key(redis_cluster_t *cluster, ngx_str_t *key, void (*handler)(rdstore_data_t *, void *pd), void *pd) {
+  redis_cluster_retry_t         *retry;
+  if((retry = cluster_create_retry_command(cluster, handler, pd)) == NULL)
+    return NGX_ERROR;
+  
+  retry->type = CLUSTER_RETRY_BY_KEY;
+  retry->str.data = cluster_retry_palloc(cluster, key->len);
+  nchan_strcpy(&retry->str, key, 0);
+  
+  return NGX_OK;
+}
+
+ngx_int_t cluster_add_retry_command_with_channel_id(redis_cluster_t *cluster, ngx_str_t *chid, void (*handler)(rdstore_data_t *, void *pd), void *pd) {
+  redis_cluster_retry_t         *retry;
+  if((retry = cluster_create_retry_command(cluster, handler, pd)) == NULL)
+    return NGX_ERROR;
+  
+  retry->type = CLUSTER_RETRY_BY_CHANNEL_ID;
+  retry->str.data = cluster_retry_palloc(cluster, chid->len);
+  nchan_strcpy(&retry->str, chid, 0);
+  
+  return NGX_OK;
+}
+
+ngx_int_t cluster_add_retry_command_with_cstr(redis_cluster_t *cluster, u_char *cstr, void (*handler)(rdstore_data_t *, void *pd), void *pd) {
+  redis_cluster_retry_t         *retry;
+  size_t                         str_sz = strlen((char *)cstr);
+  
+  if((retry = cluster_create_retry_command(cluster, handler, pd)) == NULL)
+    return NGX_ERROR;
+  
+  retry->type = CLUSTER_RETRY_BY_CSTR;
+  retry->cstr = cluster_retry_palloc(cluster, str_sz + 1);
+  strcpy((char *)retry->cstr, (char *)cstr);
+  
+  return NGX_OK;
+}
+
+static void retry_commands_traverse_callback(void *data, void *pd) {
+  redis_cluster_t         *cluster = pd;
+  redis_cluster_retry_t   *retry = data;
+  rdstore_data_t          *rdata;
+  rdstore_data_t          *any_rdata = get_any_connected_cluster_node(cluster);
+  switch(retry->type) {
+    case CLUSTER_RETRY_BY_CHANHEAD:
+      //TODO: unreserve chanhead
+      rdata = redis_cluster_rdata_from_channel(retry->chanhead);
+      break;
+    
+    case CLUSTER_RETRY_BY_CHANNEL_ID:
+      rdata = redis_cluster_rdata_from_channel_id(any_rdata, &retry->str);
+      break;
+      
+    case CLUSTER_RETRY_BY_KEY:
+      rdata = redis_cluster_rdata_from_key(any_rdata, &retry->str);
+      break;
+      
+    case CLUSTER_RETRY_BY_CSTR:
+      rdata = redis_cluster_rdata_from_cstr(any_rdata, retry->cstr);
+      break;
+    
+  }
+  retry->retry(rdata, retry->data);
+}
+
+static ngx_int_t cluster_run_retry_commands(redis_cluster_t *cluster) {
+  assert(cluster->status = CLUSTER_READY);
+  nchan_list_traverse_and_empty(&cluster->retry_commands, retry_commands_traverse_callback, cluster);
+  return NGX_OK;
+}
+
 static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_master_nodes, uint32_t homebrew_cluster_id, int configured_unverified_nodes) {
   redis_cluster_t               *cluster;
   if((cluster = nchan_list_append(&redis_cluster_list)) == NULL) { //TODO: don't allocate from heap, use a pool or something
@@ -492,6 +594,8 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   nchan_list_rdata_init(&cluster->slave_nodes);
   nchan_list_rdata_init(&cluster->failed_nodes);
   nchan_list_rdata_init(&cluster->inactive_nodes);
+  
+  nchan_list_pool_init(&cluster->retry_commands, sizeof(redis_cluster_retry_t *), NGX_DEFAULT_POOL_SIZE);
   
   nchan_init_timer(&cluster->still_notready_timer, cluster_not_ready_timer_handler, cluster);
   ngx_add_timer(&cluster->still_notready_timer, CLUSTER_NOTREADY_RETRY_TIME);
@@ -644,8 +748,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     assert(0);
   }
   
-  if(ac->err || !reply || reply->type != REDIS_REPLY_STRING) {
-    redisCheckErrorCallback(ac, reply, privdata);
+  if(!redisReplyOk(ac, reply) || reply->type != REDIS_REPLY_STRING) {
     return;
   }
   
@@ -752,6 +855,8 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
     if(cluster->still_notready_timer.timer_set) {
       ngx_del_timer(&cluster->still_notready_timer);
     }
+    
+    cluster_run_retry_commands(cluster);
     
   }
   else if(status != CLUSTER_READY && prev_status == CLUSTER_READY) {
