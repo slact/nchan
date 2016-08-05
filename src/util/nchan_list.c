@@ -6,11 +6,14 @@
   * Should not be used in tight loops.
   */
 
-ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz) {
-  return nchan_list_pool_init(list, data_sz, 0);
+ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz, char *name) {
+  return nchan_list_pool_init(list, data_sz, 0, name);
 }
 
-ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz) {
+ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz, char *name) {
+#if NCHAN_LIST_DEBUG
+  list->name = name;
+#endif
   list->head = NULL;
   list->tail = NULL;
   list->data_sz = data_sz;

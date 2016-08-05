@@ -1,6 +1,8 @@
 #ifndef NCHAN_LIST_H
 #define NCHAN_LIST_H
 
+#define NCHAN_LIST_DEBUG 1
+
 #include <nginx.h>
 #include <ngx_http.h>
 
@@ -12,6 +14,9 @@ struct nchan_list_el_s {
 };
 
 typedef struct {
+#if NCHAN_LIST_DEBUG
+  char            *name;
+#endif
   nchan_list_el_t *head;
   nchan_list_el_t *tail;
   ngx_uint_t       n;
@@ -20,8 +25,8 @@ typedef struct {
   size_t           pool_sz;
 } nchan_list_t;
 
-ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz);
-ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz);
+ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz, char *name);
+ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz, char *name);
 ngx_pool_t *nchan_list_get_pool(nchan_list_t *list);
 
 void *nchan_list_append(nchan_list_t *list);
