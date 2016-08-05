@@ -22,6 +22,7 @@ typedef struct {
 
 ngx_int_t nchan_list_init(nchan_list_t *list, size_t data_sz);
 ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_sz);
+ngx_pool_t *nchan_list_get_pool(nchan_list_t *list);
 
 void *nchan_list_append(nchan_list_t *list);
 void *nchan_list_prepend(nchan_list_t *list);

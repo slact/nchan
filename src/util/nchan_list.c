@@ -20,8 +20,8 @@ ngx_int_t nchan_list_pool_init(nchan_list_t *list, size_t data_sz, size_t pool_s
   return NGX_OK;
 }
 
-static ngx_pool_t *nchan_list_get_pool(nchan_list_t *list) {
-  if(!list->pool) {
+ngx_pool_t *nchan_list_get_pool(nchan_list_t *list) {
+  if(!list->pool && list->pool_sz) {
     list->pool = ngx_create_pool(list->pool_sz, ngx_cycle->log);
   }
   return list->pool;
@@ -30,7 +30,7 @@ static ngx_pool_t *nchan_list_get_pool(nchan_list_t *list) {
 void *nchan_list_append(nchan_list_t *list) {
   nchan_list_el_t  *el, *tail = list->tail;
   if(list->pool_sz > 0) {
-    el = ngx_palloc(nchan_list_get_pool(list), list->data_sz);
+    el = ngx_palloc(nchan_list_get_pool(list), sizeof(*el) + list->data_sz);
   }
   else {
     el = ngx_alloc(sizeof(*el) + list->data_sz, ngx_cycle->log);
