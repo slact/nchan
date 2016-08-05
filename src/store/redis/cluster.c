@@ -317,7 +317,7 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
   cluster_nodes_line_t   l;
   ngx_str_t             *url;
   
-  ERR("discover new nodes");
+  DBG("discover new nodes");
   line = reply->str;
   while((line = redis_scan_cluster_nodes_line(line, &l)) != NULL) {
     if(l.master && !l.failed) {
@@ -340,19 +340,26 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
       }
       
       if(!nchan_ngx_str_match(&rdata->node.slots, &l.slots)) {
+        if(rdata->node.cluster)
+          redis_cluster_node_drop_keyslots(rdata);
+        
         unindex_rdata_by_cluster_node_id(rdata);
         index_rdata_by_cluster_node_id(rdata, &l);
       }
       
       rdata_set_cluster_node_flags(rdata, &l);
       
-      if(!rdata->node.cluster) {
-        associate_rdata_with_cluster(rdata, cluster);
-      }
+      associate_rdata_with_cluster(rdata, cluster);
       
-      if(!rdata->node.failed) {
+      if(!rdata->node.failed && rdata->status != CONNECTED) {
         cluster->node_connections_pending++;
         redis_ensure_connected(rdata);
+      }
+    }
+    else if(!l.master && !l.failed && (rdata = find_rdata_by_node_id(&l.id)) != NULL) {
+      if(rdata->node.master) {
+        //master got downgraded to slave
+        rdata_set_cluster_node_flags(rdata, &l);
       }
     }
   }
@@ -365,7 +372,6 @@ static rdstore_data_t *get_any_connected_cluster_node(redis_cluster_t *cluster) 
   int                 i;
   
   for(i = 0; i < 2; i++) {
-    ERR("%i", i);
     for(cur = node_head[i]; cur != NULL; cur = cur->next) {
       rdata = nchan_list_rdata_from_el(cur);
       if(rdata->status == CONNECTED) {
@@ -439,14 +445,15 @@ static ngx_int_t index_rdata_by_cluster_node_id(rdstore_data_t *rdata, cluster_n
 }
 
 static ngx_int_t unindex_rdata_by_cluster_node_id(rdstore_data_t *rdata) {
-  ngx_rbtree_node_t    *node = rbtree_node_from_data(rdata);
-  
-  rbtree_remove_node(&redis_cluster_node_id_tree, node);
-  rbtree_destroy_node(&redis_cluster_node_id_tree, node);
-  ngx_memzero(&rdata->node.id, sizeof(rdata->node.id));
-  ngx_memzero(&rdata->node.address, sizeof(rdata->node.address));
-  ngx_memzero(&rdata->node.slots, sizeof(rdata->node.slots));
-  rdata->node.indexed = 0;
+  ngx_rbtree_node_t    *node = rbtree_find_node(&redis_cluster_node_id_tree, &rdata->node.id);
+  if(node) {
+    rbtree_remove_node(&redis_cluster_node_id_tree, node);
+    rbtree_destroy_node(&redis_cluster_node_id_tree, node);
+    ngx_memzero(&rdata->node.id, sizeof(rdata->node.id));
+    ngx_memzero(&rdata->node.address, sizeof(rdata->node.address));
+    ngx_memzero(&rdata->node.slots, sizeof(rdata->node.slots));
+    rdata->node.indexed = 0;
+  }
   return NGX_OK;
 }
 
@@ -665,27 +672,28 @@ static ngx_int_t associate_rdata_with_cluster(rdstore_data_t *rdata, redis_clust
     while((cur = redis_scan_cluster_nodes_slots_string(&rdata->node.slots, cur, &range)) != NULL) {
       
       rbtree_node = rbtree_find_node(&cluster->hashslots, &range);
-      if(rbtree_node == NULL) {
-        if((rbtree_node = rbtree_create_node(&cluster->hashslots, sizeof(*keyslot_tree_node))) == NULL) {
-          assert(0);
+      if(rbtree_node) {
+        keyslot_tree_node = rbtree_data_from_node(rbtree_node);
+        if(keyslot_tree_node->rdata == rdata && keyslot_tree_node->range.min == range.min && keyslot_tree_node->range.max == range.max) {
+          DBG("cluster node keyslot range already exists. no problem here.");
         }
+        else {
+          DBG("this slot range is a little different. get rid of the old one");
+          rbtree_remove_node(&cluster->hashslots, rbtree_node);
+          rbtree_destroy_node(&cluster->hashslots, rbtree_node);
+          rbtree_node = NULL;
+        }
+      }
+      
+      if(rbtree_node == NULL) {
+        rbtree_node = rbtree_create_node(&cluster->hashslots, sizeof(*keyslot_tree_node));
         keyslot_tree_node = rbtree_data_from_node(rbtree_node);
         keyslot_tree_node->range = range;
         keyslot_tree_node->rdata = rdata;
         
-        
         if(rbtree_insert_node(&cluster->hashslots, rbtree_node) != NGX_OK) {
-          ERR("couldn't insert redis cluster node ");
+          ERR("couldn't insert redis cluster hashslots node ");
           rbtree_destroy_node(&cluster->hashslots, rbtree_node);
-          assert(0);
-        }
-      }
-      else {
-        keyslot_tree_node = rbtree_data_from_node(rbtree_node);
-        if(keyslot_tree_node->rdata == rdata && keyslot_tree_node->range.min == range.min && keyslot_tree_node->range.max == range.max) {
-          ERR("cluster node keyslot range already exists. no problem here.");
-        }
-        else {
           assert(0);
         }
       }
@@ -893,6 +901,7 @@ ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connecti
   }
   else if(status != CONNECTED && prev_status == CONNECTED) {
     
+    cluster->nodes_connected--;
     //add to orphan chanheads list
     
     //wait to reconnect maybe?
