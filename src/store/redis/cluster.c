@@ -340,8 +340,9 @@ static void redis_cluster_discover_and_connect_to_missing_nodes(redisReply *repl
       }
       
       if(!nchan_ngx_str_match(&rdata->node.slots, &l.slots)) {
-        if(rdata->node.cluster)
+        if(rdata->node.cluster) {
           redis_cluster_node_drop_keyslots(rdata);
+        }
         
         unindex_rdata_by_cluster_node_id(rdata);
         index_rdata_by_cluster_node_id(rdata, &l);
@@ -612,6 +613,30 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   return cluster;
 }
 
+static void print_cluster_slots(redis_cluster_t *cluster) {
+  ngx_rbtree_node_t                   *node;
+  redis_cluster_slot_range_t           range = {0, 0};
+  redis_cluster_keyslot_range_node_t  *keyslot_tree_node;
+  
+  while(range.min <= 16383) {
+    if((node = rbtree_find_node(&cluster->hashslots, &range)) == NULL) {
+      ERR("cluster slots range incomplete: can't find slot %i", range.min);
+      return;
+    }
+    keyslot_tree_node = rbtree_data_from_node(node);
+    
+    if(keyslot_tree_node->rdata->status != CONNECTED) {
+      ERR("cluster node for range %i - %i not connected", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+      return;
+    }
+    
+    ERR("%p %V : range %i - %i", keyslot_tree_node->rdata, keyslot_tree_node->rdata->connect_url, keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+    range.min = keyslot_tree_node->range.max + 1;
+    range.max = range.min;
+  }
+  ERR("cluster range complete");
+}
+
 static int check_cluster_slots_range_ok(redis_cluster_t *cluster) {
   ngx_rbtree_node_t                   *node;
   redis_cluster_slot_range_t           range = {0, 0};
@@ -633,6 +658,7 @@ static int check_cluster_slots_range_ok(redis_cluster_t *cluster) {
     range.max = range.min;
   }
   ERR("cluster range complete");
+  print_cluster_slots(cluster);
   return 1;
 }
 
@@ -891,10 +917,29 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
   return NGX_OK;
 }
 
+static ngx_int_t rdata_make_chanheads_cluster_orphans(rdstore_data_t *rdata) {
+  redis_cluster_t            *cluster = rdata->node.cluster;
+  if(rdata->channels_head) {
+    rdstore_channel_head_t  *cur, *last = NULL;
+    for(cur = rdata->channels_head; cur; cur = cur->rd_next){
+      last = cur;
+      redis_chanhead_gc_withdraw_from_reaper(&rdata->chanhead_reaper, cur);
+      cur->cluster.node_rdt = NULL;
+    }
+    if(last) {
+      last->rd_next = cluster->orphan_channels_head;
+      if(cluster->orphan_channels_head)
+        cluster->orphan_channels_head->rd_prev = last;
+      cluster->orphan_channels_head = last;
+    }
+    rdata->channels_head = NULL;
+  }
+  return NGX_OK;
+}
+
 ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connection_status_t status) {
   redis_connection_status_t   prev_status = rdata->status;
   redis_cluster_t            *cluster = rdata->node.cluster;
-  rdstore_channel_head_t     *cur, *last = NULL;
   
   if(status == CONNECTED && prev_status != CONNECTED) {
     cluster->nodes_connected++;
@@ -905,20 +950,7 @@ ngx_int_t redis_cluster_node_change_status(rdstore_data_t *rdata, redis_connecti
     //add to orphan chanheads list
     
     //wait to reconnect maybe?
-    for(cur = rdata->channels_head; cur != NULL; cur = cur->rd_next) {
-      redis_chanhead_gc_withdraw(cur);
-      last = cur;
-    }
-    
-    if(rdata->node.cluster->orphan_channels_head) {
-      rdata->node.cluster->orphan_channels_head->rd_prev = last;
-    }
-    if(last) {
-      last->rd_next = rdata->node.cluster->orphan_channels_head;
-    }
-    rdata->node.cluster->orphan_channels_head = rdata->channels_head;
-    
-    rdata->channels_head = NULL;
+    rdata_make_chanheads_cluster_orphans(rdata);
     
     cluster_set_status(cluster, CLUSTER_NOTREADY);
   }
@@ -964,6 +996,8 @@ static void redis_cluster_node_drop_keyslots(rdstore_data_t *rdata) {
       break;
     }
   }
+  
+  rdata_make_chanheads_cluster_orphans(rdata);
 }
 
 static void dissociate_rdata_with_cluster(rdstore_data_t *rdata, int force) {
@@ -990,6 +1024,8 @@ static void dissociate_rdata_with_cluster(rdstore_data_t *rdata, int force) {
   
   ERR("drop cluster node for rdata %p", rdata);
   
+  rdata_make_chanheads_cluster_orphans(rdata);
+  
   redis_cluster_node_drop_keyslots(rdata);
   
   node_list = cluster_rdata_appropriate_list(rdata, cluster);
@@ -997,19 +1033,6 @@ static void dissociate_rdata_with_cluster(rdstore_data_t *rdata, int force) {
   assert(node_list->n > 0);
   rc = nchan_list_rdata_remove(node_list, rdata);
   assert(rc == NGX_OK);
-  
-  if(rdata->channels_head) {
-    rdstore_channel_head_t  *cur;
-    for(cur = rdata->channels_head; cur && cur->rd_next; cur = cur->rd_next){
-      //traverse until last element
-    }
-    if(cur) {
-      cur->rd_next = cluster->orphan_channels_head;
-      if(cluster->orphan_channels_head)
-        cluster->orphan_channels_head->rd_prev = cur;
-      cluster->orphan_channels_head = cur;
-    }
-  }
   
   if(check_cluster_slots_range_ok(cluster)) {
     //we don't need this node to reconnect
@@ -1071,6 +1094,7 @@ rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch) {
     if(rdata->channels_head) {
       rdata->channels_head->rd_prev = ch;
     }
+    rdata->channels_head = ch;
   }
   else {
     redis_cluster_t   *cluster = ch->rdt->node.cluster;
