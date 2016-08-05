@@ -64,7 +64,7 @@ typedef struct {
 } redis_lua_scripts_t;
 
 static redis_lua_scripts_t redis_lua_scripts = {
-  {"add_fakesub", "06159ede107c3e0fe768f9a941f197955b8f2abf",
+  {"add_fakesub", "b6511d02062dd6f2a1e99d761fe57ef8c987f299",
    "--input:  keys: [], values: [channel_id, number]\n"
    "--output: current_fake_subscribers\n"
    "  \n"
@@ -76,10 +76,13 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "end\n"
    "\n"
    "local chan_key = ('{channel:%s}'):format(id)\n"
-   "local exists = false\n"
-   "if redis.call('EXISTS', chan_key) == 1 then\n"
-   "  exists = true\n"
+   "\n"
+   "local res = redis.pcall('EXISTS', chan_key)\n"
+   "if type(res) == \"table\" and res[\"err\"] then\n"
+   "  return {err = (\"CLUSTER KEYSLOT ERROR. %i %s\"):format(num, id)}\n"
    "end\n"
+   "\n"
+   "local exists = res == 1\n"
    "\n"
    "local cur = 0\n"
    "\n"
@@ -948,7 +951,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_id, sub_count, next_keepalive}\n"},
 
-  {"subscriber_unregister", "9fc56c89ca9dcb8120f6fd6c94f3c4cfca66f33f",
+  {"subscriber_unregister", "841cddb1a9ae8af8f25df7ee53fa8739abdd6f76",
    "--input: keys: [], values: [channel_id, subscriber_id, empty_ttl]\n"
    "-- 'subscriber_id' is an existing id\n"
    "-- 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec\n"
@@ -979,7 +982,13 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "end\n"
    "\n"
    "local sub_count = 0\n"
-   "if redis.call('EXISTS', keys.channel) ~= 0 then\n"
+   "\n"
+   "local res = redis.pcall('EXISTS', keys.channel)\n"
+   "if type(res) == \"table\" and res[\"err\"] then\n"
+   "  return {err = (\"CLUSTER KEYSLOT ERROR. %i %s\"):format(empty_ttl, id)}\n"
+   "end\n"
+   "\n"
+   "if res ~= 0 then\n"
    "   sub_count = redis.call('hincrby', keys.channel, 'subscribers', -1)\n"
    "\n"
    "  if sub_count == 0 and tonumber(redis.call('LLEN', keys.messages)) == 0 then\n"

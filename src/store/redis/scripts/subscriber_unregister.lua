@@ -28,7 +28,13 @@ local setkeyttl=function(ttl)
 end
 
 local sub_count = 0
-if redis.call('EXISTS', keys.channel) ~= 0 then
+
+local res = redis.pcall('EXISTS', keys.channel)
+if type(res) == "table" and res["err"] then
+  return {err = ("CLUSTER KEYSLOT ERROR. %i %s"):format(empty_ttl, id)}
+end
+
+if res ~= 0 then
    sub_count = redis.call('hincrby', keys.channel, 'subscribers', -1)
 
   if sub_count == 0 and tonumber(redis.call('LLEN', keys.messages)) == 0 then
