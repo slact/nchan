@@ -169,54 +169,6 @@ void redis_get_cluster_nodes(rdstore_data_t *rdata) {
   redisAsyncCommand(rdata->ctx, redis_get_cluster_nodes_callback, NULL, "CLUSTER NODES");
 }
 
-static void nchan_scan_nearest_chr(u_char **cur, ngx_str_t *str, ngx_int_t n, ...) {
-  u_char    chr;
-  va_list   args;
-  u_char   *shortest = NULL;
-  
-  u_char *tmp_cur;
-  
-  ngx_int_t i;
-  
-  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur[-1] != '\0'); tmp_cur++) {
-    va_start(args, n);
-    for(i=0; shortest == NULL && i<n; i++) {
-      chr = (u_char )va_arg(args, int);
-      if(*tmp_cur == chr) {
-        shortest = tmp_cur;
-      }
-    }
-    va_end(args);
-  }
-  if(shortest) {
-    str->data = (u_char *)*cur;
-    str->len = shortest - *cur;
-    *cur = shortest + 1;
-  }
-  else {
-    str->data = NULL;
-    str->len = 0;
-  }
-}
-
-static void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr) {
-  u_char     *cur;
-  //ERR("rest_line: \"%V\"", line);
-  cur = (u_char *)memchr(line->data, chr, line->len);
-  if(!cur) {
-    *str = *line;
-    line->data += line->len;
-    line->len = 0;
-  }
-  else {
-    str->data = line->data;
-    str->len = (cur - line->data);
-    line->len -= str->len + 1;
-    line->data += str->len + 1;
-  }
-  //ERR("str: \"%V\"", str);
-}
-
 #define nchan_scan_str(str_src, cur, chr, str)\
   (str)->data = (u_char *)memchr(cur, chr, (str_src)->len - (cur - (str_src)->data));\
   if(!(str)->data)                            \

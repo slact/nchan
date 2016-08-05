@@ -121,21 +121,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   return lcf;
 }
 
-static ngx_int_t nchan_strmatch(ngx_str_t *val, ngx_int_t n, ...) {
-  u_char   *match;
-  va_list   args;
-  ngx_int_t i;
-  va_start(args, n);  
-  for(i=0; i<n; i++) {
-    match = va_arg(args, u_char *);
-    if(ngx_strncasecmp(val->data, match, val->len)==0) {
-      return 1;
-    }
-  }
-  va_end(args);
-  return 0;
-}
-
 static char * create_complex_value_from_ngx_str(ngx_conf_t *cf, ngx_http_complex_value_t **dst_cv, ngx_str_t *str) {
   ngx_http_complex_value_t           *cv;
   ngx_http_compile_complex_value_t    ccv;
