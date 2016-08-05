@@ -339,7 +339,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
         *pac = NULL;
     }
     
-    redis_cluster_drop_node(rdata);
+    redis_cluster_disconnect_node(rdata);
   }
   else if(status == CONNECTED && prev_status != CONNECTED) {
     callback_chain_t    *cur, *next;

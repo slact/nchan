@@ -113,7 +113,7 @@ typedef struct {
   ngx_str_t         address;
   ngx_str_t         slots;
   redis_cluster_t  *cluster;
-  unsigned          slave:1;
+  unsigned          master:1;
   unsigned          failed:1;
   unsigned          inactive:1;
   unsigned          indexed:1;
