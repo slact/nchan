@@ -129,7 +129,7 @@ ngx_int_t nchan_list_traverse_and_empty(nchan_list_t *list, void (*cb)(void *dat
   }
   
   if(pool)
-    ngx_destroy_pool(list->pool);
+    ngx_destroy_pool(pool);
   
   return NGX_OK;
 }
