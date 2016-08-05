@@ -89,12 +89,13 @@ typedef struct {
   redis_cluster_status_t           status;
   
   rbtree_seed_t                    hashslots; //cluster rbtree seed
-  nchan_list_t                     nodes;
-  nchan_list_t                     slave_nodes;
-  nchan_list_t                     inactive_nodes;
-  nchan_list_t                     failed_nodes;
+  struct {
+    nchan_list_t                     master;
+    nchan_list_t                     slave;
+    nchan_list_t                     disconnected;
+  } nodes;
   ngx_uint_t                       size; //number of master nodes
-  ngx_uint_t                       nodes_connected; //number of master nodes
+  ngx_uint_t                       nodes_connected; //number of connected nodes
   ngx_int_t                        node_connections_pending; //number of master nodes
   uint32_t                         homebrew_id;
   ngx_http_upstream_srv_conf_t    *uscf;
@@ -113,6 +114,10 @@ typedef struct {
   ngx_str_t         address;
   ngx_str_t         slots;
   redis_cluster_t  *cluster;
+  
+  nchan_list_t     *in_node_list;
+  rdstore_data_t  **node_list_el_data;
+  
   unsigned          master:1;
   unsigned          failed:1;
   unsigned          inactive:1;

@@ -9,7 +9,7 @@ void redis_cluster_exit_worker(ngx_cycle_t *cycle);
 
 void redis_get_cluster_info(rdstore_data_t *rdata);
 void redis_get_cluster_nodes(rdstore_data_t *rdata);
-void redis_cluster_disconnect_node(rdstore_data_t *rdata);
+
 rdstore_data_t *redis_cluster_rdata(rdstore_data_t *rdata, ngx_str_t *str);
 rdstore_data_t *redis_cluster_rdata_from_cstr(rdstore_data_t *rdata, u_char *str);
 rdstore_data_t *redis_cluster_rdata_from_key(rdstore_data_t *rdata, ngx_str_t *key);
