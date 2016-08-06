@@ -1,4 +1,6 @@
-#!/usr/bin/luajit
+#!/usr/bin/lua
+local lpty = require "lpty"
+
 local lines_tailed=100000
 local filename="errors.log"
 local follow=false
@@ -231,9 +233,16 @@ if follow then
   local lasttime, now=os.time(), nil
   print "follow errors.log"
   local tailin = io.popen(string.format('tail --lines=%s -F %s 2>&1', lines_tailed, filename), 'r')
-  for line in tailin:lines() do
+  
+  pty = lpty.new()
+  pty:startproc('tail', ("--lines=%s"):format(lines_tailed), "-F", filename)
+  
+  while true do
+    line = pty:readline(false, 1)
     now=os.time()
-    if line:match('truncated') or
+    if not line then
+      summary()
+    elseif line:match('truncated') or
        line:match(("‘%s’ has become inaccessible: No such file or directory"):format(filename)) then
       --reset
       init()
