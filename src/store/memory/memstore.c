@@ -223,8 +223,8 @@ static void init_mpt(memstore_data_t *m) {
          (void (*)(void *)) memstore_reap_churned_chanhead,
                      10
   );
-  m->nobuffer_msg_reaper.strategy = KEEP_PLACE;
-  m->nobuffer_msg_reaper.max_notready_ratio = 0.10;
+  m->chanhead_churner.strategy = KEEP_PLACE;
+  m->chanhead_churner.max_notready_ratio = 0.10;
   
 }
 
