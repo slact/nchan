@@ -72,7 +72,7 @@ void redis_cluster_exit_worker(ngx_cycle_t *cycle) {
     rbtree_empty(&cluster->hashslots, NULL, NULL);
     
     cluster->status = CLUSTER_NOTREADY;
-    nchan_reaper_flush(&cluster->chanhead_reaper);
+    nchan_reaper_stop(&cluster->chanhead_reaper);
     if(cluster->still_notready_timer.timer_set) {
       ngx_del_timer(&cluster->still_notready_timer);
     }
@@ -597,7 +597,12 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   
   cluster->node_connections_pending = configured_unverified_nodes;
   
-  rdstore_initialize_chanhead_reaper(&cluster->chanhead_reaper, "redis channels (cluster orphans)");
+  u_char     clustername[60];
+  ngx_str_t  cname;
+  cname.data = clustername;
+  cname.len = ngx_sprintf(clustername, "%p hid=%i", cluster, cluster->homebrew_id) - cname.data;
+  
+  rdstore_initialize_chanhead_reaper(&cluster->chanhead_reaper, "redis channels (cluster orphans)", &cname);
   return cluster;
 }
 
@@ -875,7 +880,7 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
   if(status == CLUSTER_READY && prev_status != CLUSTER_READY) {
     assert(check_cluster_slots_range_ok(cluster));
     while((ch_cur = cluster->orphan_channels_head) != NULL) {
-      redis_chanhead_gc_withdraw_from_reaper(&cluster->chanhead_reaper,  ch_cur);
+      redis_chanhead_gc_withdraw(ch_cur);
       
       cluster->orphan_channels_head = ch_cur->rd_next;
       if(cluster->orphan_channels_head) {
@@ -910,7 +915,8 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
   }
   else if(status != CLUSTER_READY && prev_status == CLUSTER_READY) {
     for(ch_cur = cluster->orphan_channels_head; ch_cur != NULL; ch_cur = ch_cur->rd_next) {
-      if(!ch_cur->in_gc_queue) {
+      if(ch_cur->in_gc_reaper) {
+        redis_chanhead_gc_withdraw(ch_cur);
         redis_chanhead_gc_add_to_reaper(&cluster->chanhead_reaper, ch_cur, NCHAN_CHANHEAD_CLUSTER_ORPHAN_EXPIRE_SEC, "redis connection to cluster node gone"); //automatically added to cluster's gc
       }
     }
@@ -932,7 +938,7 @@ static ngx_int_t rdata_make_chanheads_cluster_orphans(rdstore_data_t *rdata) {
     rdstore_channel_head_t  *cur, *last = NULL;
     for(cur = rdata->channels_head; cur; cur = cur->rd_next){
       last = cur;
-      redis_chanhead_gc_withdraw_from_reaper(&rdata->chanhead_reaper, cur);
+      redis_chanhead_gc_withdraw(cur);
       cur->cluster.node_rdt = NULL;
     }
     if(last) {

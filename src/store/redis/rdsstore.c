@@ -237,7 +237,8 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     assert(ch->sub_count == 0 && ch->fetching_message_count == 0);
   }
   
-  DBG("UNSUBSCRIBING from {channel:%V}:pubsub", &ch->id);
+  DBG("reap channel %V", &ch->id);
+
   if((rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
     redis_subscriber_command(rdata, NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
     
@@ -1422,7 +1423,7 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
   
-  head->in_gc_queue = 0;
+  head->in_gc_reaper = NULL;
   
   if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
     head->meta = 1;
@@ -1504,20 +1505,25 @@ nchan_reaper_t *rdstore_get_chanhead_reaper(rdstore_channel_head_t *ch) {
 }
 
 ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *reaper, rdstore_channel_head_t *head, ngx_int_t expire, const char *reason) {
-    DBG("Chanhead gc add %p %V: %s", head, &head->id, reason);
-  
-  if(head->in_gc_queue != 1) {
+  assert(head->sub_count == 0);
+    
+  if(head->in_gc_reaper && head->in_gc_reaper != reaper) {
+    redis_chanhead_gc_withdraw(head);
+  }
+    
+  if(!head->in_gc_reaper) {
     assert(head->status != INACTIVE);
     head->status = INACTIVE;
     head->gc_time = ngx_time() + (expire == 0 ? NCHAN_CHANHEAD_EXPIRE_SEC : expire);
-    head->in_gc_queue = 1;
+    head->in_gc_reaper = reaper;
     
     nchan_reaper_add(reaper, head);
     
-    DBG("gc_add chanhead %V", &head->id);
+    DBG("gc_add chanhead %V to %V (%s)", &head->id, reaper->name, reason);
   }
   else {
-    ERR("gc_add chanhead %V: already added", &head->id);
+    assert(head->in_gc_reaper == reaper);
+    ERR("gc_add chanhead %V to %V: already added (%s)", &head->id, reaper->name, reason);
   }
 
   return NGX_OK;
@@ -1528,26 +1534,18 @@ ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, 
   return redis_chanhead_gc_add_to_reaper(rdstore_get_chanhead_reaper(head), head, expire, reason);
 }
 
-
-
-ngx_int_t redis_chanhead_gc_withdraw_from_reaper(nchan_reaper_t *reaper, rdstore_channel_head_t *chanhead) {
-  DBG("gc_withdraw chanhead %V", &chanhead->id);
-  if(chanhead->in_gc_queue == 1) {
+ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *chanhead) {
+  if(chanhead->in_gc_reaper) {
+    DBG("gc_withdraw chanhead %V from %V", chanhead->in_gc_reaper->name, &chanhead->id);
     assert(chanhead->status == INACTIVE);
     
-    nchan_reaper_withdraw(reaper, chanhead);
-    chanhead->in_gc_queue = 0;
+    nchan_reaper_withdraw(chanhead->in_gc_reaper, chanhead);
+    chanhead->in_gc_reaper = NULL;
   }
   else {
-    DBG("gc_withdraw chanhead %p (%V), but already not in gc reaper", chanhead, &chanhead->id);
+    DBG("gc_withdraw chanhead (%V), but not in gc reaper", &chanhead->id);
   }
   return NGX_OK;
-  
-}
-
-ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *chanhead) {
-  //remove from cleanup list if we're there
-  return redis_chanhead_gc_withdraw_from_reaper(rdstore_get_chanhead_reaper(chanhead), chanhead);
 }
 
 static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, rdstore_data_t *rdata, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line){
@@ -1989,9 +1987,14 @@ static ngx_int_t redis_data_rbtree_compare(void *v1, void *v2) {
   return ngx_strncmp(id1->host.data, id2->host.data, id1->host.len);
 }
 
-ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name) {
+ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name, ngx_str_t *url) {
+  
+  char *namestr = ngx_palloc(ngx_cycle->pool, strlen(name) + url->len + 10);
+  
+  ngx_sprintf((u_char *)namestr, "%s (%V)", name, url);
+  
   nchan_reaper_start(reaper, 
-              name, 
+              namestr, 
               offsetof(rdstore_channel_head_t, gc_prev), 
               offsetof(rdstore_channel_head_t, gc_next), 
   (ngx_int_t (*)(void *, uint8_t)) nchan_redis_chanhead_ready_to_reap,
@@ -2021,7 +2024,7 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   nchan_init_timer(&rdata->reconnect_timer, redis_reconnect_timer_handler, rdata);
   nchan_init_timer(&rdata->ping_timer, redis_ping_timer_handler, rdata);
   
-  rdstore_initialize_chanhead_reaper(&rdata->chanhead_reaper, "redis chanhead");
+  rdstore_initialize_chanhead_reaper(&rdata->chanhead_reaper, "redis chanhead", url);
   
   rdata->ping_interval = rcf->ping_interval;
   rdata->connect_url = url;
@@ -2173,9 +2176,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   
   HASH_ITER(hh, chanhead_hash, cur, tmp) {
     cur->shutting_down = 1;
-    if(cur->in_gc_queue != 1) {
+    if(!cur->in_gc_reaper)
       redis_chanhead_gc_add(cur, 0, "exit worker");
-    }
   }
   
   rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
@@ -2480,7 +2482,6 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
 ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t *cf, ngx_int_t count, uint8_t shutting_down) {
   rdstore_data_t                 *rdata;
   
-  DBG("add_fakesub EVALSHA %s 0 %V %i", redis_lua_scripts.add_fakesub.hash, channel_id, count);
   if((rdata = redis_cluster_rdata_from_channel_id(cf->redis.privdata, channel_id)) == NULL) {
     return NGX_ERROR;
   }
