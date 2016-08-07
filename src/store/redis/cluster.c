@@ -495,7 +495,7 @@ ngx_int_t cluster_add_retry_command_with_chanhead(rdstore_channel_head_t *chanhe
   
   retry->type = CLUSTER_RETRY_BY_CHANHEAD;
   retry->chanhead = chanhead;
-  //TODO: reserve chanhead
+  chanhead->reserved++;
   
   return NGX_OK;
 }
@@ -545,7 +545,7 @@ static void retry_commands_traverse_callback(void *data, void *pd) {
   rdstore_data_t          *any_rdata = get_any_connected_cluster_node(cluster);
   switch(retry->type) {
     case CLUSTER_RETRY_BY_CHANHEAD:
-      //TODO: unreserve chanhead
+      retry->chanhead->reserved--;
       rdata = redis_cluster_rdata_from_channel(retry->chanhead);
       break;
     

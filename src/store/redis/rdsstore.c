@@ -271,6 +271,11 @@ static ngx_int_t nchan_redis_chanhead_ready_to_reap(rdstore_channel_head_t *ch, 
       return NGX_DECLINED;
     }
     
+    if(ch->reserved > 0 ) {
+      DBG("not yet time to reap %V, %i reservations left", &ch->id, ch->reserved);
+      return NGX_DECLINED;
+    }
+    
     if(ch->gc_time - ngx_time() > 0) {
       DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
       return NGX_DECLINED;
@@ -1422,6 +1427,7 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
   head->last_msgid.tagcount = 1;
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
+  head->reserved = 0;
   
   head->in_gc_reaper = NULL;
   

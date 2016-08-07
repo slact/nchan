@@ -38,6 +38,8 @@ struct rdstore_channel_head_s {
   rdstore_data_t              *rdt;
   rdstore_channel_head_cluster_data_t cluster;
   
+  ngx_int_t                    reserved;
+  
   rdstore_channel_head_t      *gc_prev;
   rdstore_channel_head_t      *gc_next;
   
