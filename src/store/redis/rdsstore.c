@@ -778,7 +778,12 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *pr
 
 static void get_msg_from_msgkey_send(rdstore_data_t *rdata, void *pd) {
   redis_get_message_from_key_data_t *d = pd;
-  redis_command(rdata, &get_msg_from_msgkey_callback, d, "EVALSHA %s 1 %b", redis_lua_scripts.get_message_from_key.hash, STR(&d->msg_key));
+  if(rdata) {
+    redis_command(rdata, &get_msg_from_msgkey_callback, d, "EVALSHA %s 1 %b", redis_lua_scripts.get_message_from_key.hash, STR(&d->msg_key));
+  }
+  else {
+    ngx_free(d);
+  }
 }
 
 static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *privdata) {
@@ -1230,8 +1235,13 @@ typedef struct {
 
 static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
   redis_subscriber_register_t   *d = pd;
-  
-  redis_command(rdata, &redis_subscriber_register_callback, d, "EVALSHA %s 0 %b - %i", redis_lua_scripts.subscriber_register.hash, STR(&d->chanhead->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
+  if(rdata) {
+    redis_command(rdata, &redis_subscriber_register_callback, d, "EVALSHA %s 0 %b - %i", redis_lua_scripts.subscriber_register.hash, STR(&d->chanhead->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
+  }
+  else {
+    d->sub->fn->release(d->sub, 0);
+    ngx_free(d);
+  }
 }
 
 
@@ -1307,7 +1317,9 @@ static void redis_subscriber_unregister_send(rdstore_data_t *rdata, void *pd) {
   // 'subscriber_id' is an existing id
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
   //output: subscriber_id, num_current_subscribers
-  redis_command(rdata, &redis_subscriber_unregister_callback, NULL, "EVALSHA %s 0 %b %i %i", redis_lua_scripts.subscriber_unregister.hash, STR(((subscriber_unregister_data_t *)pd)->channel_id), 0/*TODO: sub->id*/, ((subscriber_unregister_data_t *)pd)->channel_timeout);
+  if(rdata) {
+    redis_command(rdata, &redis_subscriber_unregister_callback, NULL, "EVALSHA %s 0 %b %i %i", redis_lua_scripts.subscriber_unregister.hash, STR(((subscriber_unregister_data_t *)pd)->channel_id), 0/*TODO: sub->id*/, ((subscriber_unregister_data_t *)pd)->channel_timeout);
+  }
 }
 
 static void redis_subscriber_unregister_callback(redisAsyncContext *c, void *r, void *privdata) {
@@ -1371,7 +1383,9 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
 
 static void redisChannelKeepaliveCallback_send(rdstore_data_t *rdata, void *pd) {
   rdstore_channel_head_t   *head = pd;
-  redis_command(rdata, &redisChannelKeepaliveCallback, head, "EVALSHA %s 0 %b %i", redis_lua_scripts.channel_keepalive.hash, STR(&head->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
+  if(rdata) {
+    redis_command(rdata, &redisChannelKeepaliveCallback, head, "EVALSHA %s 0 %b %i", redis_lua_scripts.channel_keepalive.hash, STR(&head->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
+  }
 }
 
 static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *privdata) {
@@ -1683,6 +1697,9 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
         redisEchoCallback(c, r, privdata);
     }
   }
+  else {
+    d->callback(NGX_ERROR, NULL, d->privdata);
+  }
   ngx_free(d);
 }
 
@@ -1690,7 +1707,12 @@ static void redisChannelDeleteCallback(redisAsyncContext *c, void *r, void *priv
 
 static void nchan_store_delete_channel_send(rdstore_data_t *rdata, void *pd) {
   redis_channel_callback_data_t *d = pd;
-  redis_command(rdata, &redisChannelDeleteCallback, d, "EVALSHA %s 0 %b", redis_lua_scripts.delete.hash, STR(d->channel_id));
+  if(rdata) {
+    redis_command(rdata, &redisChannelDeleteCallback, d, "EVALSHA %s 0 %b", redis_lua_scripts.delete.hash, STR(d->channel_id));
+  }
+  else {
+    redisChannelDeleteCallback(NULL, NULL, d);
+  }
 }
 
 static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *privdata) {
@@ -1700,8 +1722,8 @@ static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *pri
     cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_delete_channel_send, privdata);
     return;
   }
-  
   redisChannelInfoCallback(ac, r, privdata);
+  ngx_free(privdata);
 }
 
 static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
@@ -1724,7 +1746,12 @@ static void redisChannelFindCallback(redisAsyncContext *c, void *r, void *privda
 
 static void nchan_store_find_channel_send(rdstore_data_t *rdata, void *pd) {
   redis_channel_callback_data_t *d = pd;
-  redis_command(rdata, &redisChannelFindCallback, d, "EVALSHA %s 0 %b", redis_lua_scripts.find_channel.hash, STR(d->channel_id));
+  if(rdata) {
+    redis_command(rdata, &redisChannelFindCallback, d, "EVALSHA %s 0 %b", redis_lua_scripts.find_channel.hash, STR(d->channel_id));
+  }
+  else {
+    redisChannelFindCallback(NULL, NULL, d);
+  }
 }
 
 static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privdata) {
@@ -1736,6 +1763,7 @@ static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privd
   }
   
   redisChannelInfoCallback(ac, r, privdata);
+  ngx_free(privdata);
 }
 
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
@@ -1844,7 +1872,13 @@ static void nchan_store_async_get_message_send(rdstore_data_t *rdata, void *pd) 
   redis_get_message_data_t           *d = pd;
   //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl, subscriber_channel]
   //subscriber channel is not given, because we don't care to subscribe
-  redis_command(rdata, &redis_get_message_callback, d, "EVALSHA %s 0 %b %i %i %s", redis_lua_scripts.get_message.hash, STR(d->channel_id), d->msg_id.time, d->msg_id.tag, "FILO", 0);
+  if(rdata) {
+    redis_command(rdata, &redis_get_message_callback, d, "EVALSHA %s 0 %b %i %i %s", redis_lua_scripts.get_message.hash, STR(d->channel_id), d->msg_id.time, d->msg_id.tag, "FILO", 0);
+  }
+  else {
+    //TODO: pass on a get_msg error status maybe?
+    ngx_free(d);
+  }
 }
 
 static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
@@ -2445,7 +2479,9 @@ typedef struct {
 
 static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r, void *privdata);
 static void nchan_store_redis_add_fakesub_send(rdstore_data_t *rdata, void *pd) {
-  redis_command(rdata, &nchan_store_redis_add_fakesub_callback, NULL, "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(((add_fakesub_data_t *)pd)->channel_id), ((add_fakesub_data_t *)pd)->count);
+  if(rdata) {
+    redis_command(rdata, &nchan_store_redis_add_fakesub_callback, NULL, "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(((add_fakesub_data_t *)pd)->channel_id), ((add_fakesub_data_t *)pd)->count);
+  }
 }
 
 static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r, void *privdata) {

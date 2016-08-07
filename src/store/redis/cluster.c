@@ -571,6 +571,20 @@ static ngx_int_t cluster_run_retry_commands(redis_cluster_t *cluster) {
   return NGX_OK;
 }
 
+static void retry_commands_traverse_abort_callback(void *data, void *pd) {
+  redis_cluster_retry_t   *retry = data;
+  if(retry->type == CLUSTER_RETRY_BY_CHANHEAD) {
+    retry->chanhead->reserved--;
+  }
+  retry->retry(NULL, retry->data);
+}
+
+static ngx_int_t cluster_abort_retry_commands(redis_cluster_t *cluster) {
+  nchan_list_traverse_and_empty(&cluster->retry_commands, retry_commands_traverse_abort_callback, cluster);
+  return NGX_OK;
+}
+
+
 static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_master_nodes, uint32_t homebrew_cluster_id, int configured_unverified_nodes) {
   redis_cluster_t               *cluster;
   if((cluster = nchan_list_append(&redis_cluster_list)) == NULL) { //TODO: don't allocate from heap, use a pool or something
@@ -925,6 +939,10 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
       ngx_add_timer(&cluster->still_notready_timer, CLUSTER_NOTREADY_RETRY_TIME);
     }
     
+  }
+  
+  else if(status == CLUSTER_FAILED && prev_status != CLUSTER_FAILED) {
+    cluster_abort_retry_commands(cluster);
   }
   
   cluster->status = status;
