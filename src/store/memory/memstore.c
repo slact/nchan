@@ -2040,6 +2040,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   if(d->getting == 0) {
     //got all the messages we wanted
+    memstore_chanhead_release(d->chanhead, "multimsg");
     if(d->msg) {
       int16_t      *muhtags;
       
