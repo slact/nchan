@@ -96,6 +96,56 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 
 
+static void log_memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_el_t  *cur;
+  char            **lbl;
+  ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved.n);
+  for(cur = ch->reserved.head; cur != NULL; cur = cur->next) {
+    lbl = nchan_list_data_from_el(cur);
+    ERR("   %s", *lbl);
+  }
+#else
+  ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved);
+#endif
+}
+
+static int memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  return ch->reserved.n;
+#else
+  return ch->reserved;
+#endif
+}
+
+static void memstore_chanhead_reserve(nchan_store_channel_head_t *ch, const char *lbl) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  char   **label = nchan_list_append(&ch->reserved);
+  *label = (char *)lbl;
+#else
+  ch->reserved++;
+#endif
+}
+
+static void memstore_chanhead_release(nchan_store_channel_head_t *ch, char *label) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_el_t  *cur;
+  char            **lbl;
+  for(cur = ch->reserved.head; cur != NULL; cur = cur->next) {
+    lbl = nchan_list_data_from_el(cur);
+    if(strcmp(label, *lbl) == 0) {
+      nchan_list_remove(&ch->reserved, lbl);
+      return;
+    }
+  }
+  ERR("can't release for channel %p %V reservation %s (total reservations: %i)", ch, &ch->id, label, ch->reserved.n);
+  assert(0);
+#else
+  ch->reserved--;
+#endif
+}
+
+
 static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_t *ch, uint8_t force) {
   
   chanhead_messages_gc(ch);
@@ -130,8 +180,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
       return NGX_DECLINED;
     }
     
-    if (ch->sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    if (ch->total_sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
       return NGX_DECLINED;
     }
     
@@ -141,8 +191,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
       return NGX_DECLINED;
     }
     
-    if(ch->reserved > 0) {
-      DBG("not ready to reap %V, %i reservations left", &ch->id, ch->reserved);
+    if(memstore_chanhead_reservations(ch) > 0) {
+      DBG("not ready to reap %V, still reserved:", &ch->id);
       return NGX_DECLINED;
     }
     //DBG("ok to delete channel %V", &ch->id);
@@ -163,8 +213,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channe
       return NGX_DECLINED;
     }
     
-    if (ch->sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    if (ch->total_sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
       return NGX_DECLINED;
     }
     
@@ -223,8 +273,8 @@ static void init_mpt(memstore_data_t *m) {
          (void (*)(void *)) memstore_reap_churned_chanhead,
                      10
   );
-  m->nobuffer_msg_reaper.strategy = KEEP_PLACE;
-  m->nobuffer_msg_reaper.max_notready_ratio = 0.10;
+  m->chanhead_churner.strategy = KEEP_PLACE;
+  m->chanhead_churner.max_notready_ratio = 0.10;
   
 }
 
@@ -501,7 +551,7 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
   
   chanhead_messages_delete(ch);
   
-  if(ch->sub_count > 0) {
+  if(ch->total_sub_count > 0) {
     ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
@@ -624,7 +674,7 @@ static void memstore_spooler_bulk_post_subscribe_handler(channel_spooler_t *spl,
 
 static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
-  head->sub_count++;
+  head->total_sub_count++;
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
@@ -655,7 +705,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
     
   }
 
-  assert(head->sub_count >= head->internal_sub_count);
+  assert(head->total_sub_count >= head->internal_sub_count);
 }
 
 static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
@@ -691,13 +741,13 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       }
     }
   }
-  head->sub_count -= count;
-  head->channel.subscribers = head->sub_count - head->internal_sub_count;
-  assert(head->sub_count >= 0);
+  head->total_sub_count -= count;
+  head->channel.subscribers = head->total_sub_count - head->internal_sub_count;
+  assert(head->total_sub_count >= 0);
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
-  assert(head->sub_count >= head->internal_sub_count);
-  if(head->sub_count == 0 && head->foreign_owner_ipc_sub == NULL) {
+  assert(head->total_sub_count >= head->internal_sub_count);
+  if(head->total_sub_count == 0 && head->foreign_owner_ipc_sub == NULL) {
     chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
   }
 }
@@ -899,7 +949,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->id.len = channel_id->len;
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
-  head->sub_count=0;
+  head->total_sub_count=0;
   head->internal_sub_count=0;
   head->status = NOTREADY;
   head->msg_last = NULL;
@@ -907,7 +957,11 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->foreign_owner_ipc_sub = NULL;
   head->last_subscribed_local = 0;
   
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_init(&head->reserved, sizeof(char *), "chanhead reserve (debug)");
+#else
   head->reserved = 0;
+#endif
   head->multi=NULL;
   head->multi_count = 0;
   head->multi_waiting = 0;
@@ -1135,7 +1189,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   }
 
   if(msg) {
-    DBG("tried publishing %V to chanhead %p (subs: %i)", msgid_to_str(&msg->id), head, head->sub_count);
+    DBG("tried publishing %V to chanhead %p (subs: %i)", msgid_to_str(&msg->id), head, head->total_sub_count);
     head->spooler.fn->respond_message(&head->spooler, msg);
 
 #if NCHAN_BENCHMARK
@@ -1155,7 +1209,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
     }
   }
   else {
-    DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
+    DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->total_sub_count);
     head->spooler.fn->broadcast_status(&head->spooler, status_code, status_line);
   }
     
@@ -1999,6 +2053,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   if(d->getting == 0) {
     //got all the messages we wanted
+    memstore_chanhead_release(d->chanhead, "multimsg");
     if(d->msg) {
       int16_t      *muhtags;
       
@@ -2035,6 +2090,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       DBG("respond msg id transformed into %p %V", &retmsg.copy, msgid_to_str(&retmsg.copy.id));
       
       d->cb(d->msg_status, &retmsg.copy, d->privdata);
+      
       msg_release(d->msg, "get multi msg");
     }
     else {
@@ -2057,7 +2113,8 @@ static void get_multimsg_timeout(ngx_event_t *ev) {
   get_multi_message_data_t    *d = (get_multi_message_data_t *)ev->data;
   ERR("multimsg %p timeout!!", d);  
   d->expired = ngx_time();
-  d->chanhead->reserved--;
+  
+  memstore_chanhead_release(d->chanhead, "multimsg");
   //don't free it, a multimsg callback might arrive late. ngx_free(d);
 }
 
@@ -2085,7 +2142,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   multi = chead->multi;
   
-  chead->reserved++;
+  memstore_chanhead_reserve(chead, "multimsg");
   
   //init loop
   for(i = 0; i < n; i++) {
