@@ -429,7 +429,7 @@ NchanSubscriber.prototype.start = function() {
         if(ev.key == this.sharedKeys.status) {
           if(ev.newValue == "disconnected") {
             if(this.sharedRole == "slave") {
-              //play the promotion lotery
+              //play the promotion lottery
               //console.log("status changed to disconnected, maybepromotetomaster", ev.newValue, ev.oldValue);
               this.maybePromoteToMaster();
             }
