@@ -176,8 +176,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *
       return NGX_DECLINED;
     }
     
-    if(ch->gc_time - ngx_time() > 0) {
-      DBG("not yet time to reap %V, %i sec left", &ch->id, ch->gc_time - ngx_time());
+    if(ch->gc_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
+      DBG("not ready to reap %V, %i sec left", &ch->id, ch->gc_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
       return NGX_DECLINED;
     }
     
@@ -186,14 +186,19 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *
       return NGX_DECLINED;
     }
     
-    if(ch->channel.messages > 0) {
-      assert(ch->msg_first != NULL);
-      DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+    if(memstore_chanhead_reservations(ch) > 0) {
+      DBG("not ready to reap %V, still reserved:", &ch->id);
+      //log_memstore_chanhead_reservations(ch);
       return NGX_DECLINED;
     }
     
-    if(memstore_chanhead_reservations(ch) > 0) {
-      DBG("not ready to reap %V, still reserved:", &ch->id);
+    if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
+      DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
+      return NGX_OK;
+    }
+    else if(ch->channel.messages > 0) {
+      assert(ch->msg_first != NULL);
+      DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
       return NGX_DECLINED;
     }
     //DBG("ok to delete channel %V", &ch->id);
@@ -209,19 +214,24 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(memstore_channel_h
   
   memstore_chanhead_messages_gc(ch);
   if(!force) {
-    if(ch->churn_time - ngx_time() > 0) {
-      DBG("not yet time to reap %V, %i sec left", &ch->id, ch->churn_time - ngx_time());
+    if(ch->churn_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
+      DBG("not ready to reap %p %V, %i sec left", ch, &ch->id, ch->churn_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
       return NGX_DECLINED;
     }
     
     if (ch->total_sub_count > 0) { //there are subscribers
       DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
+      //ERR("not ready to reap %p %V, %i [%i] {%i} subs (%i {%i} internal) left", ch, &ch->id, ch->total_sub_count, ch->channel.subscribers, ch->shared->sub_count, ch->internal_sub_count, ch->shared->internal_sub_count);
       return NGX_DECLINED;
     }
     
-    if(ch->channel.messages > 0) {
+    if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
+      DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
+      return NGX_OK;
+    }
+    else if(ch->channel.messages > 0 || (ch->churn_start_time )) {
       assert(ch->msg_first != NULL);
-      DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+      DBG("not ready to reap %p %V, %i messages left", ch, &ch->id, ch->channel.messages);
       return NGX_DECLINED;
     }
   }
@@ -480,7 +490,7 @@ static ngx_int_t chanhead_churner_add(memstore_channel_head_t *ch) {
   
   if(!ch->in_churn_queue) {
     ch->in_churn_queue = 1;
-    ch->churn_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
+    ch->churn_start_time = ngx_time();
     nchan_reaper_add(&mpt->chanhead_churner, ch);
   }
 
@@ -929,6 +939,10 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   if(head->cf && head->cf->redis.enabled && !head->multi) {
     head->delta_fakesubs = 0;
     nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
+    head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
+  }
+  else {
+    head->redis_idle_cache_ttl = 0;
   }
   
   if(head->slot == owner) {
@@ -1109,7 +1123,7 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
   
   assert(ch->slot == slot);
   if(! ch->in_gc_queue) {
-    ch->gc_time = ngx_time() + NCHAN_CHANHEAD_EXPIRE_SEC;
+    ch->gc_start_time = ngx_time();
     ch->status = INACTIVE;
     ch->gc_queued_times ++;
     chanhead_churner_withdraw(ch);

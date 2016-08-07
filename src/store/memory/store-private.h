@@ -59,6 +59,7 @@ struct memstore_channel_head_s {
   nchan_msg_id_t                  latest_msgid;
   nchan_msg_id_t                  oldest_msgid;
   subscriber_t                   *foreign_owner_ipc_sub; //points to NULL or inaacceessible memory.
+  time_t                          redis_idle_cache_ttl;
   unsigned                        stub:1;
   unsigned                        shutting_down:1;
   unsigned                        meta:1;
@@ -71,12 +72,12 @@ struct memstore_channel_head_s {
   
   memstore_channel_head_t        *gc_prev;
   memstore_channel_head_t        *gc_next;
-  time_t                          gc_time;
+  time_t                          gc_start_time;
   unsigned                        in_gc_queue:1;
   
   memstore_channel_head_t        *churn_prev;
   memstore_channel_head_t        *churn_next;
-  time_t                          churn_time;
+  time_t                          churn_start_time;
   unsigned                        in_churn_queue:1;
   
   UT_hash_handle                  hh;

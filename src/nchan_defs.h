@@ -3,6 +3,7 @@
 
 #define NCHAN_DEFAULT_SHM_SIZE 33554432 //32 megs
 #define NCHAN_DEFAULT_BUFFER_TIMEOUT 3600
+#define NCHAN_DEFAULT_REDIS_IDLE_CHANNEL_CACHE_TIMEOUT 30
 #define NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT 0  //default: never timeout
 //(liucougar: this is a bit confusing, but it is what's the default behavior before this option is introducecd)
 #define NCHAN_DEFAULT_WEBSOCKET_PING_INTERVAL 0

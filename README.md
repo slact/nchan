@@ -417,6 +417,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   legacy name: push_message_timeout  
   > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
 
+- **nchan_redis_idle_channel_cache_timeout** `<time>`  
+  arguments: 1  
+  default: `30s`  
+  context: http, server, location  
+  > A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers.    
+
 - **nchan_redis_pass**  
   arguments: 1  
   context: http, server, location  
