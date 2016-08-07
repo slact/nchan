@@ -33,7 +33,7 @@ static ngx_int_t empty_callback(){
 */
 
 static void change_sub_count(nchan_store_channel_head_t *ch, ngx_int_t n) {
-  ch->sub_count += n;
+  ch->total_sub_count += n;
   ch->channel.subscribers += n;
   if(ch->shared) {
     ngx_atomic_fetch_add(&ch->shared->sub_count, n);

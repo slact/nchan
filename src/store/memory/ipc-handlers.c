@@ -151,9 +151,9 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   head->shared = d->shared_channel_data;
   
   if(old_shared == NULL) {
-    //ERR("%V local sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
-    assert(head->sub_count >= head->internal_sub_count);
-    ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count - head->internal_sub_count);
+    //ERR("%V local total_sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
+    assert(head->total_sub_count >= head->internal_sub_count);
+    ngx_atomic_fetch_add(&head->shared->sub_count, head->total_sub_count - head->internal_sub_count);
     ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
   }
   else {
@@ -202,7 +202,7 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
       return;
     }
     //gc if no subscribers
-    if(head->sub_count == 0) {
+    if(head->total_sub_count == 0) {
       DBG("add %p to GC", head);
       head->foreign_owner_ipc_sub = NULL;
       chanhead_gc_add(head, "received UNSUBSCRIVED over ipc, sub_count == 0");
@@ -755,7 +755,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
     assert(head == d->originator);
     assert(head->status == READY || head->status == STUBBED);
     assert(head->foreign_owner_ipc_sub == d->ipc_sub);
-    if(head->sub_count == 0) {
+    if(head->total_sub_count == 0) {
       if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
         d->renew = 0;
         DBG("No subscribers lately. Time... to die.");

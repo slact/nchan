@@ -180,8 +180,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
       return NGX_DECLINED;
     }
     
-    if (ch->sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    if (ch->total_sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
       return NGX_DECLINED;
     }
     
@@ -191,8 +191,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
       return NGX_DECLINED;
     }
     
-    if(ch->reserved > 0) {
-      DBG("not ready to reap %V, %i reservations left", &ch->id, ch->reserved);
+    if(memstore_chanhead_reservations(ch) > 0) {
+      DBG("not ready to reap %V, still reserved:", &ch->id);
       return NGX_DECLINED;
     }
     //DBG("ok to delete channel %V", &ch->id);
@@ -213,8 +213,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channe
       return NGX_DECLINED;
     }
     
-    if (ch->sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->sub_count);
+    if (ch->total_sub_count > 0) { //there are subscribers
+      DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
       return NGX_DECLINED;
     }
     
@@ -551,7 +551,7 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
   
   chanhead_messages_delete(ch);
   
-  if(ch->sub_count > 0) {
+  if(ch->total_sub_count > 0) {
     ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
@@ -674,7 +674,7 @@ static void memstore_spooler_bulk_post_subscribe_handler(channel_spooler_t *spl,
 
 static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
-  head->sub_count++;
+  head->total_sub_count++;
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
@@ -705,7 +705,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
     
   }
 
-  assert(head->sub_count >= head->internal_sub_count);
+  assert(head->total_sub_count >= head->internal_sub_count);
 }
 
 static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
@@ -741,13 +741,13 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       }
     }
   }
-  head->sub_count -= count;
-  head->channel.subscribers = head->sub_count - head->internal_sub_count;
-  assert(head->sub_count >= 0);
+  head->total_sub_count -= count;
+  head->channel.subscribers = head->total_sub_count - head->internal_sub_count;
+  assert(head->total_sub_count >= 0);
   assert(head->internal_sub_count >= 0);
   assert(head->channel.subscribers >= 0);
-  assert(head->sub_count >= head->internal_sub_count);
-  if(head->sub_count == 0 && head->foreign_owner_ipc_sub == NULL) {
+  assert(head->total_sub_count >= head->internal_sub_count);
+  if(head->total_sub_count == 0 && head->foreign_owner_ipc_sub == NULL) {
     chanhead_gc_add(head, "sub count == 0 after spooler dequeue");
   }
 }
@@ -949,7 +949,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->id.len = channel_id->len;
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
-  head->sub_count=0;
+  head->total_sub_count=0;
   head->internal_sub_count=0;
   head->status = NOTREADY;
   head->msg_last = NULL;
@@ -1184,7 +1184,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   }
 
   if(msg) {
-    DBG("tried publishing %V to chanhead %p (subs: %i)", msgid_to_str(&msg->id), head, head->sub_count);
+    DBG("tried publishing %V to chanhead %p (subs: %i)", msgid_to_str(&msg->id), head, head->total_sub_count);
     head->spooler.fn->respond_message(&head->spooler, msg);
 
 #if NCHAN_BENCHMARK
@@ -1204,7 +1204,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
     }
   }
   else {
-    DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->sub_count);
+    DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->total_sub_count);
     head->spooler.fn->broadcast_status(&head->spooler, status_code, status_line);
   }
     
