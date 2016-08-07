@@ -96,6 +96,56 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 
 
+static int log_memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_el_t  *cur;
+  char            **lbl;
+  ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved.n);
+  for(cur = ch->reserved.head; cur != NULL; cur = cur->next) {
+    lbl = nchan_list_data_from_el(cur);
+    ERR("   %s", *lbl);
+  }
+#else
+  ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved);
+#endif
+}
+
+static int memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  return ch->reserved.n;
+#else
+  return ch->reserved;
+#endif
+}
+
+static void memstore_chanhead_reserve(nchan_store_channel_head_t *ch, const char *lbl) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  char   **label = nchan_list_append(&ch->reserved);
+  *label = (char *)lbl;
+#else
+  ch->reserved++;
+#endif
+}
+
+static void memstore_chanhead_release(nchan_store_channel_head_t *ch, char *label) {
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_el_t  *cur;
+  char            **lbl;
+  for(cur = ch->reserved.head; cur != NULL; cur = cur->next) {
+    lbl = nchan_list_data_from_el(cur);
+    if(strcmp(label, *lbl) == 0) {
+      nchan_list_remove(&ch->reserved, lbl);
+      return;
+    }
+  }
+  ERR("can't release for channel %p %V reservation %s (total reservations: %i)", ch, &ch->id, label, ch->reserved.n);
+  assert(0);
+#else
+  ch->reserved--;
+#endif
+}
+
+
 static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_t *ch, uint8_t force) {
   
   chanhead_messages_gc(ch);
@@ -907,7 +957,11 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->foreign_owner_ipc_sub = NULL;
   head->last_subscribed_local = 0;
   
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_init(&head->reserved, sizeof(char *), "chanhead reserve (debug)");
+#else
   head->reserved = 0;
+#endif
   head->multi=NULL;
   head->multi_count = 0;
   head->multi_waiting = 0;
@@ -2022,6 +2076,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
       DBG("respond msg id transformed into %p %V", &retmsg.copy, msgid_to_str(&retmsg.copy.id));
       
       d->cb(d->msg_status, &retmsg.copy, d->privdata);
+      
       msg_release(d->msg, "get multi msg");
     }
     else {
@@ -2044,7 +2099,8 @@ static void get_multimsg_timeout(ngx_event_t *ev) {
   get_multi_message_data_t    *d = (get_multi_message_data_t *)ev->data;
   ERR("multimsg %p timeout!!", d);  
   d->expired = ngx_time();
-  d->chanhead->reserved--;
+  
+  memstore_chanhead_release(d->chanhead, "multimsg");
   //don't free it, a multimsg callback might arrive late. ngx_free(d);
 }
 
@@ -2072,7 +2128,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   multi = chead->multi;
   
-  chead->reserved++;
+  memstore_chanhead_reserve(chead, "multimsg");
   
   //init loop
   for(i = 0; i < n; i++) {

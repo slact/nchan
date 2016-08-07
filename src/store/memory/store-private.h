@@ -1,6 +1,7 @@
  #ifndef MEMSTORE_PRIVATE_HEADER
 #define MEMSTORE_PRIVATE_HEADER
 
+//#define MESTORE_CHANHEAD_RESERVE_DEBUG 0
 #include "uthash.h"
 typedef struct nchan_store_channel_head_s nchan_store_channel_head_t;
 typedef struct store_message_s store_message_t;
@@ -37,8 +38,13 @@ struct nchan_store_channel_head_s {
   chanhead_pubsub_status_t        status;
   ngx_atomic_int_t                sub_count;
   time_t                          last_subscribed_local;
-  
+
+#if MESTORE_CHANHEAD_RESERVE_DEBUG
+  nchan_list_t                    reserved;
+#else
   uint16_t                        reserved;
+#endif
+  
   uint8_t                         multi_waiting;
   uint8_t                         multi_count;
   nchan_store_multi_t            *multi;
