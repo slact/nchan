@@ -96,7 +96,7 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
 
 
 
-static int log_memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+static void log_memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_el_t  *cur;
   char            **lbl;
