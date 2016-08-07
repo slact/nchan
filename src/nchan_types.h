@@ -225,6 +225,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_int_t                       subscribe_only_existing_channel;
   
   nchan_redis_conf_t              redis;
+  time_t                          redis_idle_channel_cache_timeout;
   
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;

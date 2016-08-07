@@ -158,7 +158,11 @@ ngx_int_t nchan_reaper_withdraw(nchan_reaper_t *rp, void *thing) {
   
   assert(rp->count > 0);
   rp->count--;
-
+  
+  if(rp->strategy == KEEP_PLACE && rp->position == thing) {
+    rp->position = next;
+  }
+  
   *thing_next_ptr(rp, thing) = NULL;
   *thing_prev_ptr(rp, thing) = NULL;
 
@@ -180,6 +184,9 @@ static ngx_inline void reap_ready_thing(nchan_reaper_t *rp, void *cur, void *nex
   if(next) *thing_prev_ptr(rp, next) = prev;
   if(cur == rp->first) rp->first = next;
   if(cur == rp->last)  rp->last = prev;
+  if(rp->strategy == KEEP_PLACE && rp->position == cur) {
+    rp->position = next;
+  }
   rp->count--;
   
   rp->reap(cur);

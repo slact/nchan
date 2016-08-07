@@ -241,6 +241,15 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
+  nchan_redis_idle_channel_cache_timeout [:main, :srv, :loc],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :redis_idle_channel_cache_timeout],
+      
+      group: "storage",
+      value: "<time>",
+      default: "30s",
+      info: "A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers."
+  
   nchan_message_timeout [:main, :srv, :loc], 
       :ngx_conf_set_sec_slot, 
       [:loc_conf, :buffer_timeout],
