@@ -93,6 +93,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->subscribe_only_existing_channel=NGX_CONF_UNSET;
   lcf->use_redis=NGX_CONF_UNSET;
+  lcf->redis_idle_channel_cache_timeout=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
   lcf->channel_timeout=NGX_CONF_UNSET;
@@ -175,6 +176,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_WEBSOCKET_PING_INTERVAL);
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
+  ngx_conf_merge_sec_value(conf->redis_idle_channel_cache_timeout, prev->redis_idle_channel_cache_timeout, NCHAN_DEFAULT_REDIS_IDLE_CHANNEL_CACHE_TIMEOUT);
+  
   ngx_conf_merge_value(conf->subscribe_only_existing_channel, prev->subscribe_only_existing_channel, 0);
   ngx_conf_merge_value(conf->use_redis, prev->use_redis, 0);
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);

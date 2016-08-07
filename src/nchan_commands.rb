@@ -241,6 +241,15 @@ CfCmd.new do
       default: :off,
       info: "Use redis for message storage at this location."
   
+  nchan_redis_idle_channel_cache_timeout [:main, :srv, :loc],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :redis_idle_channel_cache_timeout],
+      
+      group: "storage",
+      value: "<time>",
+      default: "30s",
+      info: "A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers."
+  
   nchan_message_timeout [:main, :srv, :loc], 
       :ngx_conf_set_sec_slot, 
       [:loc_conf, :buffer_timeout],
