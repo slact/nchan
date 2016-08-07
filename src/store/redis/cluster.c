@@ -9,8 +9,8 @@
 
 #include "cluster.h"
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE(CLUSTER): " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE(CLUSTER): " fmt, ##args)
@@ -143,19 +143,13 @@ static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *
     redis_get_cluster_nodes(rdata);
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis cluster not ready");
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis cluster not ready, says node %V", &rdata->connect_url);
     ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
     nchan_init_timer(evt, redis_check_if_cluster_ready_handler, rdata);
     //rdt_set_status(rdata, WAITING_FOR_CLUSTER_READY, ac);
     ngx_add_timer(evt, 1000);
   }
 }
-
-
-
-
-
-
 
 
 static void *rbtree_cluster_hashslots_id(void *data) {
@@ -181,9 +175,6 @@ static ngx_int_t rbtree_cluster_hashslots_compare(void *v1, void *v2) {
     return 0;
   }
 }
-
-
-
 
 
 void redis_get_cluster_nodes(rdstore_data_t *rdata) {
@@ -387,7 +378,7 @@ static void cluster_not_ready_timer_handler(ngx_event_t *ev) {
       redis_get_cluster_nodes(rdata);
     }
     else {
-      ERR("no connected cluster nodes, can't ready this cluster. stuck and don't know what to do...");
+      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: No connected Redis cluster nodes. Wait until a connection can be established to at least one...");
     }
   }
   
@@ -619,7 +610,7 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   rdstore_initialize_chanhead_reaper(&cluster->chanhead_reaper, "redis channels (cluster orphans)", &cname);
   return cluster;
 }
-
+/*
 static void print_cluster_slots(redis_cluster_t *cluster) {
   ngx_rbtree_node_t                   *node;
   redis_cluster_slot_range_t           range = {0, 0};
@@ -627,23 +618,23 @@ static void print_cluster_slots(redis_cluster_t *cluster) {
   
   while(range.min <= 16383) {
     if((node = rbtree_find_node(&cluster->hashslots, &range)) == NULL) {
-      ERR("cluster slots range incomplete: can't find slot %i", range.min);
+      DBG("cluster slots range incomplete: can't find slot %i", range.min);
       return;
     }
     keyslot_tree_node = rbtree_data_from_node(node);
     
     if(keyslot_tree_node->rdata->status != CONNECTED) {
-      ERR("cluster node for range %i - %i not connected", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+      DBG("cluster node for range %i - %i not connected", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
       return;
     }
     
-    ERR("%p %V : range %i - %i", keyslot_tree_node->rdata, keyslot_tree_node->rdata->connect_url, keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+    DBG("%p %V : range %i - %i", keyslot_tree_node->rdata, keyslot_tree_node->rdata->connect_url, keyslot_tree_node->range.min, keyslot_tree_node->range.max);
     range.min = keyslot_tree_node->range.max + 1;
     range.max = range.min;
   }
-  ERR("cluster range complete");
+  DBG("cluster range complete");
 }
-
+*/
 static int check_cluster_slots_range_ok(redis_cluster_t *cluster) {
   ngx_rbtree_node_t                   *node;
   redis_cluster_slot_range_t           range = {0, 0};
@@ -651,21 +642,21 @@ static int check_cluster_slots_range_ok(redis_cluster_t *cluster) {
   
   while(range.min <= 16383) {
     if((node = rbtree_find_node(&cluster->hashslots, &range)) == NULL) {
-      ERR("cluster slots range incomplete: can't find slot %i", range.min);
+      DBG("cluster slots range incomplete: can't find slot %i", range.min);
       return 0;
     }
     keyslot_tree_node = rbtree_data_from_node(node);
     
     if(keyslot_tree_node->rdata->status != CONNECTED) {
-      ERR("cluster node for range %i - %i not connected", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+      DBG("cluster node for range %i - %i not connected", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
       return 0;
     }
     
     range.min = keyslot_tree_node->range.max + 1;
     range.max = range.min;
   }
-  ERR("cluster range complete");
-  print_cluster_slots(cluster);
+  DBG("cluster range complete");
+  //print_cluster_slots(cluster);
   return 1;
 }
 
@@ -846,7 +837,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
       index_rdata_by_cluster_node_id(rdata, &l);
       if(found_rdata) {
         assert(found_rdata == rdata);
-        ERR("%p %V %V already added to redis_cluster_node_id_tree... weird... how?...", rdata, &rdata->node.id, &rdata->node.id);
+        DBG("%p %V %V already added to redis_cluster_node_id_tree... weird... how?...", rdata, &rdata->node.id, &rdata->node.id);
       }
       
       my_rdata = rdata;
@@ -858,7 +849,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
       cluster = create_cluster_data(my_rdata, num_master_nodes, homebrew_cluster_id, configured_unverified_nodes);
     }
     if(cluster->homebrew_id != homebrew_cluster_id && cluster->status != CLUSTER_READY) {
-      ERR("Cluster homebrew_id changed maybe");
+      DBG("Cluster homebrew_id changed maybe");
       cluster->homebrew_id = homebrew_cluster_id;
     }
     
@@ -925,6 +916,8 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
     }
     
     cluster_run_retry_commands(cluster);
+    
+    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "Nchan: Redis cluster ready.");
     
   }
   else if(status != CLUSTER_READY && prev_status == CLUSTER_READY) {
@@ -1021,7 +1014,7 @@ static void redis_cluster_node_drop_keyslots(rdstore_data_t *rdata) {
     finder_data.found = NULL;
     rbtree_conditional_walk(&cluster->hashslots, rdata_node_finder, &finder_data);
     if(finder_data.found != NULL) {
-      ERR("destroyed node %p", finder_data.found);
+      DBG("destroyed node %p", finder_data.found);
       rbtree_remove_node(&cluster->hashslots, finder_data.found);
       rbtree_destroy_node(&cluster->hashslots, finder_data.found);
     }
@@ -1160,7 +1153,7 @@ static rdstore_data_t *redis_cluster_rdata_from_keyslot(rdstore_data_t *rdata, u
   redis_cluster_keyslot_range_node_t  *keyslot_tree_node;
   
   if((rbtree_node = rbtree_find_node(&rdata->node.cluster->hashslots, &range)) == NULL) {
-    ERR("hashslot not found. what do?!");
+    DBG("hashslot not found. what do?!");
     return NULL;
   }
   

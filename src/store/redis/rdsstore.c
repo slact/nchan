@@ -20,8 +20,8 @@
 
 #define REDIS_RECONNECT_TIME 5000
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
@@ -646,11 +646,14 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
   else {
     DBG("everything loaded and good to go");
     redisInitScripts(rdata);
-    if(rdata->sub_ctx && redis_cluster_rdata_from_cstr(rdata, redis_subscriber_channel) == rdata) {
-      redisAsyncCommand(rdata->sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %s", redis_subscriber_channel);
+    if(rdata->sub_ctx) {
+      //ERR("rdata->sub_ctx OK, subscribing for %V", rdata->connect_url);
+      if(redis_cluster_rdata_from_cstr(rdata, redis_subscriber_channel) == rdata) {
+        redisAsyncCommand(rdata->sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %s", redis_subscriber_channel);
+      }
     }
     else {
-      ERR("rdata->sub_ctx NULL, can't subscribe");
+      ERR("rdata->sub_ctx NULL, can't subscribe for %V", rdata->connect_url);
     }
   }
   
