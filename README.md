@@ -425,7 +425,7 @@ Publishing to multiple channels with a single request is also possible, with sim
 
 - **nchan_redis_idle_channel_cache_timeout** `<time>`  
   arguments: 1  
-  default: `2m`  
+  default: `30s`  
   context: http, server, location  
   > A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers.    
 
