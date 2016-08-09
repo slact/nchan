@@ -161,7 +161,7 @@ static subscriber_pool_t *get_spool(channel_spooler_t *spl, nchan_msg_id_t *id) 
   ngx_rbtree_node_t  *node;
   subscriber_pool_t *spool;
   
-  if(id->time == -1) {
+  if(id->time == NCHAN_NEWEST_MSGID_TIME) {
     spool = &spl->current_msg_spool;
     spool->msg_status = MSG_EXPECTED;
     return &spl->current_msg_spool;
@@ -197,7 +197,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   subscriber_pool_t      *newspool;
   channel_spooler_t      *spl = spool->spooler;
   
-  ngx_int_t               immortal_spool = spool->id.time == -1;
+  ngx_int_t               immortal_spool = spool->id.time == NCHAN_NEWEST_MSGID_TIME;
   int16_t                 largetags[NCHAN_MULTITAG_MAX];
   nchan_msg_id_t          new_id = NCHAN_ZERO_MSGID;
   
@@ -335,11 +335,18 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
     
     case MSG_EXPECTED:
       // ♫ It's gonna be the future soon ♫
-      spool->msg_status = findmsg_status;
-      DBG("fetchmsg callback for spool %p msg EXPECTED", spool);
-      spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
-      assert(msg == NULL);
-      spool->msg = NULL;
+      if(spool->id.time == NCHAN_NTH_MSGID_TIME) {
+        //wait for message in the NEWEST_ID spool
+        nchan_msg_id_t  newest_id = NCHAN_NEWEST_MSGID;
+        spool_nextmsg(spool, &newest_id); 
+      }
+      else {
+        spool->msg_status = findmsg_status;
+        DBG("fetchmsg callback for spool %p msg EXPECTED", spool);
+        spool_respond_general(spool, NULL, NGX_HTTP_NO_CONTENT, NULL);
+        assert(msg == NULL);
+        spool->msg = NULL;
+      }
       break;
       
     case MSG_NORESPONSE:

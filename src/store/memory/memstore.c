@@ -1691,7 +1691,7 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
 }
 
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status) {
-  store_message_t      *cur, *first;
+  store_message_t      *cur, *prev, *first;
   
   time_t           mid_time; //optimization yeah
   int16_t          mid_tag; //optimization yeah
@@ -1707,7 +1707,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   cur = ch->msg_last;
   
   if(cur == NULL) {
-    if(msgid->time == 0 || ch->max_messages == 0) {
+    if(msgid->time == NCHAN_OLDEST_MSGID_TIME || ch->max_messages == 0) {
       *status = MSG_EXPECTED;
     }
     else {
@@ -1715,37 +1715,64 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     }
     return NULL;
   }
-  
-  assert(msgid->tagcount == 1 && first->msg->id.tagcount == 1);
-  if(msgid == NULL || (msgid->time < first->msg->id.time || (msgid->time == first->msg->id.time && msgid->tag.fixed[0] < first->msg->id.tag.fixed[0])) ) {
-    DBG("found message %V", msgid_to_str(&first->msg->id));
-    *status = MSG_FOUND;
-    return first;
+  else if(msgid->time == NCHAN_NEWEST_MSGID_TIME) {
+    ERR("wanted 'NCHAN_NEWEST_MSGID_TIME', which is weird...");
+    *status = MSG_EXPECTED; //future message
+    return NULL;
   }
   
   mid_time = msgid->time;
   mid_tag = msgid->tag.fixed[0];
   
-  while(cur != NULL) {
-    //assert(cur->msg->id.tagcount == 1);
-    //DBG("cur: (chid: %V)  %V %V", &ch->id, msgid_to_str(&cur->msg->id), chanhead_msg_to_str(cur));
+  if(mid_time == NCHAN_NTH_MSGID_TIME) {
+    int direction = mid_tag > 0 ? 1 : -1;
+    int nth_msg = mid_tag * direction;
+    int n = nth_msg;
     
-    if(mid_time > cur->msg->id.time || (mid_time == cur->msg->id.time && mid_tag >= cur->msg->id.tag.fixed[0])){
-      if(cur->next != NULL) {
-        *status = MSG_FOUND;
-        DBG("found message %V", msgid_to_str(&cur->next->msg->id));
-        return cur->next;
-      }
-      else {
-        *status = MSG_EXPECTED;
-        return NULL;
-      }
+    assert(mid_tag != 0);
+    for(cur = (direction>0 ? ch->msg_first : ch->msg_last); cur != NULL && n > 1; cur = (direction>0 ? cur->next : cur->prev)) {
+      prev = cur;
+      n--;
     }
-    cur=cur->prev;
+    cur = cur ? cur : prev;
+    if(cur) {
+      *status = MSG_FOUND;
+      return cur;
+    }
+    else {
+      *status = MSG_EXPECTED;
+      return NULL;
+    }
   }
-  //DBG("looked everywhere, not found");
-  *status = MSG_NOTFOUND;
-  return NULL;
+  else {
+    assert(msgid->tagcount == 1 && first->msg->id.tagcount == 1);
+    if(msgid == NULL || (mid_time < first->msg->id.time || (mid_time == first->msg->id.time && mid_tag < first->msg->id.tag.fixed[0])) ) {
+      //DBG("found message %V", msgid_to_str(&first->msg->id));
+      *status = MSG_FOUND;
+      return first;
+    }
+    
+    while(cur != NULL) {
+      //assert(cur->msg->id.tagcount == 1);
+      //DBG("cur: (chid: %V)  %V %V", &ch->id, msgid_to_str(&cur->msg->id), chanhead_msg_to_str(cur));
+      
+      if(mid_time > cur->msg->id.time || (mid_time == cur->msg->id.time && mid_tag >= cur->msg->id.tag.fixed[0])){
+        if(cur->next != NULL) {
+          *status = MSG_FOUND;
+          //DBG("found message %V", msgid_to_str(&cur->next->msg->id));
+          return cur->next;
+        }
+        else {
+          *status = MSG_EXPECTED;
+          return NULL;
+        }
+      }
+      cur=cur->prev;
+    }
+    //DBG("looked everywhere, not found");
+    *status = MSG_NOTFOUND;
+    return NULL;
+  }
 }
 
 typedef struct {

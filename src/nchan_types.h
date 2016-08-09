@@ -25,9 +25,15 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
+
+#define NCHAN_OLDEST_MSGID_TIME 0
+#define NCHAN_NEWEST_MSGID_TIME -1
+#define NCHAN_NTH_MSGID_TIME -2
+
 #define NCHAN_ZERO_MSGID {0, {{0}}, 0, 0}
-#define NCHAN_OLDEST_MSGID {0, {{0}}, 0, 1}
-#define NCHAN_NEWEST_MSGID {-1, {{0}}, 0, 1}
+#define NCHAN_OLDEST_MSGID {NCHAN_OLDEST_MSGID_TIME, {{0}}, 0, 1}
+#define NCHAN_NEWEST_MSGID {NCHAN_NEWEST_MSGID_TIME, {{0}}, 0, 1}
+#define NCHAN_NTH_MSGID {NCHAN_NTH_MSGID_TIME, {{0}}, 0, 1}
 
 #define NCHAN_MULTITAG_MAX 255
 #define NCHAN_FIXED_MULTITAG_MAX 4
@@ -212,7 +218,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   time_t                          websocket_ping_interval;
   
-  ngx_int_t                       subscriber_start_at_oldest_message;
+  ngx_int_t                       subscriber_first_message;
   
   ngx_http_complex_value_t       *channel_events_channel_id;
   ngx_http_complex_value_t       *channel_event_string;
