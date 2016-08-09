@@ -353,11 +353,11 @@ Publishing to multiple channels with a single request is also possible, with sim
   > Enabling this option packs the entire message id into the `Etag` header, and discards  
   > `Last-Modified` and `If-Modified-Since` headers.    
 
-- **nchan_subscriber_first_message** `[ oldest | newest ]`  
+- **nchan_subscriber_first_message** `[ oldest | newest | <number> ]`  
   arguments: 1  
   default: `oldest`  
   context: server, location, if  
-  > Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives.    
+  > Controls the first message received by a new subscriber. 'oldest' starts at the oldest available message in a channel's message queue, 'newest' waits until a message arrives. If a number `n` is specified, starts at `n`th message from the oldest. (`-n` start at `n`th from now). 0 is equivalent to 'newest'.    
 
 - **nchan_subscriber_http_raw_stream_separator** `<string>`  
   arguments: 1  

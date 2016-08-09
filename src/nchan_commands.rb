@@ -141,9 +141,9 @@ CfCmd.new do
       args: 1,
       
       group: "pubsub",
-      value: ["oldest", "newest"],
+      value: ["oldest", "newest", "<number>"],
       default: "oldest",
-      info: "Controls the first message received by a new subscriber. 'oldest' returns the oldest available message in a channel's message queue, 'newest' waits until a message arrives."
+      info: "Controls the first message received by a new subscriber. 'oldest' starts at the oldest available message in a channel's message queue, 'newest' waits until a message arrives. If a number `n` is specified, starts at `n`th message from the oldest. (`-n` start at `n`th from now). 0 is equivalent to 'newest'."
   
   
   #nchan_subscriber_concurrency [:main, :srv, :loc, :if],
