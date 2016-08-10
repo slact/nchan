@@ -1,3 +1,23 @@
+ feature: Redis Cluster support
+ (WARNING:) data in Redis from previous versions will be inaccessible
+ feature: different locations can use different Redis servers
+ feature: nchan_subscriber_first_message can take a number (positive or negative) 
+      for nth message (from first or last)
+ feature: expire redis-backed idle channels with nchan_redis_idle_channel_cache_timeout
+ fix: some multiplexed channels never garbage-collected when inactive
+ fix: unbuffered message garbage collector was too lazy
+ fix: update nchan_message_buffer_length correctly when using Redis (thanks @supertong)
+ fix: incorrect handling of missing/expired messages in multiplexed channels
+ fix: memory leak when publishing via Websocket on a pubsub location
+ fix: multiplexed channel DELETE when using Redis handled incorrectly
+ fix: rare Redis script error when publishing message
+ fix: Redis connection ping infinite loop when reloading
+ fix: crash if Redis message TTL less than 1 sec
+ fix: message delivery occasionally stopped when using redis 
+      and rapidly publishing messages
+ fix: logpoll-multipart sometimes failed to respond when using redis 
+      and rapidly publishing messages
+ fix: don't crash if redis server is busy loading data
 0.99.16 (Jun 10 2016)
  fix: invalid memory access when upstream subscriber authorize request failed
  fix: longpoll-multipart subscriber was managed incorrectly on channel deletion
