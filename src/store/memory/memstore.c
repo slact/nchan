@@ -1691,7 +1691,7 @@ static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
 }
 
 store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status) {
-  store_message_t      *cur, *prev, *first;
+  store_message_t      *cur, *first;
   
   time_t           mid_time; //optimization yeah
   int16_t          mid_tag; //optimization yeah
@@ -1725,9 +1725,10 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
   mid_tag = msgid->tag.fixed[0];
   
   if(mid_time == NCHAN_NTH_MSGID_TIME) {
-    int direction = mid_tag > 0 ? 1 : -1;
-    int nth_msg = mid_tag * direction;
-    int n = nth_msg;
+    int               direction = mid_tag > 0 ? 1 : -1;
+    int               nth_msg = mid_tag * direction;
+    int               n = nth_msg;
+    store_message_t  *prev = NULL;
     
     assert(mid_tag != 0);
     for(cur = (direction>0 ? ch->msg_first : ch->msg_last); cur != NULL && n > 1; cur = (direction>0 ? cur->next : cur->prev)) {
