@@ -23,6 +23,8 @@ for opt in $*; do
       ;;
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
+    gcc5)
+      export CC=gcc-5;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     debug-pool|debugpool) 
