@@ -124,10 +124,11 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   if(evcf == NULL) {
     evcf = &evcf_data;
     ngx_memzero(evcf, sizeof(*evcf));
-    evcf->buffer_timeout = 10;
-    evcf->max_messages = NGX_MAX_INT_T_VALUE;
+
+    evcf->buffer_timeout = NCHAN_META_CHANNEL_MESSAGE_TTL;
+    evcf->max_messages = NCHAN_META_CHANNEL_MAX_MESSAGES;
     evcf->subscriber_first_message = 0;
-    evcf->channel_timeout = 30;
+    evcf->channel_timeout = NCHAN_META_CHANNEL_TIMEOUT;
   }
   evcf->storage_engine = cf->storage_engine;
   evcf->redis = cf->redis;

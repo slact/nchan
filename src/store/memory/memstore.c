@@ -990,6 +990,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   
   if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
     head->meta = 1;
+    head->max_messages = NCHAN_META_CHANNEL_MAX_MESSAGES;
   }
   else {
     head->meta = 0;
