@@ -290,7 +290,7 @@ This storage method uses a segment of shared memory to store messages and channe
 
 Nchan can also store messages and channels on a Redis server, or in a Redis cluster. To use a Redis server, set `nchan_use_redis on;` and set the server url with `nchan_redis_url`. These two settings are inheritable by nested locations, so it is enough to set them within an `http { }` block to enable Redis for all Nchan locations in that block. Different locations can also use different Redis servers.
 
-To use a Redis Cluster, the Redis Servers acting as cluster nodes need to be configured in an `upstream { }` block:
+To use a Redis Cluster, the Redis servers acting as cluster nodes need to be configured in an `upstream { }` block:
 
 ```nginx
   upstream redis_cluster {
