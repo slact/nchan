@@ -2028,7 +2028,7 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
 
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
-  ngx_str_t                   empty_id_str = ngx_string("-");
+  //ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
   nchan_msg_copy_t            retmsg;
   
