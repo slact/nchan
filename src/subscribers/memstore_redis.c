@@ -158,7 +158,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
 
 static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
   if(code == NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE) {
-    uintptr_t   max_messages = (uintptr_t )data;
+    intptr_t   max_messages = (intptr_t )data;
     d->chanhead->max_messages = max_messages;
     memstore_chanhead_messages_gc(d->chanhead);
   }

@@ -251,7 +251,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     if(rdata->channels_head == ch) {
       rdata->channels_head = ch->rd_next;
     }
-    if(rdata->node.cluster->orphan_channels_head == ch) {
+    if(rdata->node.cluster && rdata->node.cluster->orphan_channels_head == ch) {
       rdata->node.cluster->orphan_channels_head = ch->rd_next;
     }
   }
@@ -992,7 +992,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       unsigned    chid_present = 0;
       ngx_str_t   extracted_channel_id;
       unsigned    msgbuf_size_changed = 0;
-      uintptr_t   msgbuf_size;
+      intptr_t    msgbuf_size;
       //maybe a message?
       set_buf(&mpbuf, (u_char *)el->str, el->len);
       cmp_init(&cmp, &mpbuf, ngx_buf_reader, ngx_buf_writer);
@@ -1005,7 +1005,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           fwd_buf_to_str(&mpbuf, sz, &msg_type);
           
           if(ngx_str_chop_if_startswith(&msg_type, "max_msgs+")) {
-            if(cmp_read_uinteger(&cmp, &msgbuf_size))
+            if(cmp_read_integer(&cmp, &msgbuf_size))
               msgbuf_size_changed = 1; 
             else
               cmp_err(&cmp);
