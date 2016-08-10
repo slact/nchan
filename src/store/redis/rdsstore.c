@@ -1458,7 +1458,9 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
   ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
   nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
   
-  assert(channel_id->data[0]!='m');
+  if(channel_id->len > 2) { // absolutely no multiplexed channels allowed
+    assert(ngx_strncmp(head->id.data, "m/", 2) != 0);
+  }
   
   head->rd_next = NULL;
   head->rd_prev = NULL;
