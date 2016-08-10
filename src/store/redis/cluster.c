@@ -532,7 +532,7 @@ ngx_int_t cluster_add_retry_command_with_cstr(redis_cluster_t *cluster, u_char *
 static void retry_commands_traverse_callback(void *data, void *pd) {
   redis_cluster_t         *cluster = pd;
   redis_cluster_retry_t   *retry = data;
-  rdstore_data_t          *rdata;
+  rdstore_data_t          *rdata = NULL;
   rdstore_data_t          *any_rdata = get_any_connected_cluster_node(cluster);
   switch(retry->type) {
     case CLUSTER_RETRY_BY_CHANHEAD:
