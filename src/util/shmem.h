@@ -1,3 +1,5 @@
+#ifndef NCHAN_SHMEM_H
+#define NCHAN_SHMEM_H
 typedef struct {
   ngx_shm_zone_t        *zone;
 } shmem_t;
@@ -19,3 +21,5 @@ void              shmtx_unlock(shmem_t *shm);
 ngx_str_t        *shm_copy_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_free_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_verify_immutable_string(shmem_t *shm, ngx_str_t *str);
+
+#endif //NCHAN_SHMEM_H

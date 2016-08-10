@@ -1,9 +1,8 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
-#include "../store/memory/shmem.h"
-#include "../store/memory/ipc.h"
-#include "../store/memory/store-private.h"
-#include "../store/memory/ipc-handlers.h"
+#include <store/memory/ipc.h>
+#include <store/memory/store-private.h>
+#include <store/memory/ipc-handlers.h>
 #include "internal.h"
 #include "memstore_ipc.h"
 #include <assert.h>
@@ -22,9 +21,7 @@ struct sub_data_s {
   ngx_str_t                    *chid;
   ngx_int_t                     originator;
   ngx_int_t                     owner;
-  unsigned                      use_redis:1;
   void                         *foreign_chanhead;
-//  nchan_store_channel_head_t   *chanhead;
   ngx_event_t                   timeout_ev;
 }; //sub_data_t
 
@@ -61,17 +58,12 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   ngx_int_t               rc;
   nchan_msg_t            *msg = (nchan_msg_t *) ptr;
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
-  nchan_loc_conf_t        cf;
-  
-  cf.buffer_timeout = 50;
-  cf.max_messages = -1; //TODO: fix this value
-  cf.use_redis = d->use_redis;
   
   //DBG("%p (%V) memstore subscriber (lastid %V) respond with message %V (lastid %V)", d->sub, d->chid, msgid_to_str(&d->sub->last_msg_id), msgid_to_str(&msg->id), msgid_to_str(&msg->prev_id));
   
   //update_subscriber_last_msg_id(d->sub, msg);
   
-  rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, &cf, empty_callback, NULL);
+  rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, d->sub->cf, empty_callback, NULL);
   
   //no multi-ids allowed here
   assert(msg->id.tagcount == 1);
@@ -148,13 +140,13 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 
 static ngx_str_t  sub_name = ngx_string("memstore-ipc");
 
-subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, uint8_t use_redis, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
+subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, nchan_loc_conf_t *cf, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
   static  nchan_msg_id_t      newest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                 *d;
   subscriber_t               *sub;
   
   assert(originator_slot != memstore_slot());
-  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, NULL, NULL);
+  sub = internal_subscriber_create_init(&sub_name, cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, NULL, NULL);
   
   sub->last_msgid = newest_msgid;
   sub->destroy_after_dequeue = 1;
@@ -169,7 +161,6 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
   nchan_init_timer(&d->timeout_ev, timeout_ev_handler, d);
 
-  d->use_redis = use_redis;
   reset_timer(d);
   DBG("%p (%V) memstore-ipc subscriber created with privdata %p", d->sub, d->chid, d);
   return sub;

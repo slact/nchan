@@ -2,11 +2,12 @@
 --output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
 -- delete this channel and all its messages
 local id = ARGV[1]
-local key_msg=    'channel:msg:%s:'..id --not finished yet
-local key_channel='channel:'..id
-local messages=   'channel:messages:'..id
-local subscribers='channel:subscribers:'..id
-local pubsub=     'channel:pubsub:'..id
+local ch = ('{channel:%s}'):format(id)
+local key_msg=    ch..':msg:%s' --not finished yet
+local key_channel=ch
+local messages=   ch..':messages'
+local subscribers=ch..':subscribers'
+local pubsub=     ch..':pubsub'
 
 redis.call('echo', ' ####### DELETE #######')
 local num_messages = 0
@@ -43,7 +44,7 @@ if redis.call('EXISTS', key_channel) ~= 0 then
   end
   
   --leave some crumbs behind showing this channel was just deleted
-  redis.call('setex', "channel:deleted:"..id, 5, 1)
+  redis.call('setex', ch..":deleted", 5, 1)
   
   table.insert(nearly_departed, num_messages)
 end

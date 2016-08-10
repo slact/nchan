@@ -1,7 +1,7 @@
 #ifndef SPOOL_HEADER
 #define SPOOL_HEADER
 
-#include "rbtree_util.h"
+#include <util/nchan_rbtree.h>
 
 typedef struct spooled_subscriber_s spooled_subscriber_t;
 typedef struct subscriber_pool_s subscriber_pool_t;
@@ -42,6 +42,7 @@ typedef struct {
   ngx_int_t            (*respond_message)(channel_spooler_t *self, nchan_msg_t *msg);
   ngx_int_t            (*respond_status)(channel_spooler_t *self, nchan_msg_id_t *id, ngx_int_t status_code, ngx_str_t *status_line);
   ngx_int_t            (*broadcast_status)(channel_spooler_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
+  ngx_int_t            (*broadcast_notice)(channel_spooler_t *self, ngx_int_t notice_code, void *data);
   ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
 } channel_spooler_fn_t;
 
@@ -74,6 +75,7 @@ struct channel_spooler_s {
   ngx_str_t                  *chid;
   chanhead_pubsub_status_t   *channel_status;
   nchan_store_t              *store;
+  nchan_loc_conf_t           *cf;
   channel_spooler_fn_t       *fn;
   channel_spooler_handlers_t *handlers;
   void                       *handlers_privdata;
@@ -98,7 +100,7 @@ struct channel_spooler_handlers_s {
   void                        (*get_message_finish)(channel_spooler_t *, void *);
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store,  spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers);
 
 ngx_event_t *spooler_add_timer(channel_spooler_t *spl, ngx_msec_t timeout, void (*cb)(void *), void (*cancel)(void *), void *pd);

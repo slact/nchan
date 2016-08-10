@@ -23,6 +23,13 @@ char *nchan_msgstatus_to_str(nchan_msg_status_t status) {
   return "???";
 }
 
+int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
+  if(str1->len != str2->len) {
+    return 0;
+  }
+  return memcmp(str1->data, str2->data, str1->len) == 0;
+}
+
 ngx_int_t ngx_http_complex_value_noalloc(ngx_http_request_t *r, ngx_http_complex_value_t *val, ngx_str_t *value, size_t maxlen) {
   size_t                        len;
   ngx_http_script_code_pt       code;
@@ -114,8 +121,97 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
   return NULL;
 }
 
+static int nchan_strmatch_va_list(ngx_str_t *val, ngx_int_t n, va_list args) {
+  u_char   *match;
+  ngx_int_t i;
+  for(i=0; i<n; i++) {
+    match = va_arg(args, u_char *);
+    if(ngx_strncasecmp(val->data, match, val->len)==0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int nchan_strmatch(ngx_str_t *val, ngx_int_t n, ...) {
+  int      rc;
+  va_list  args;
+  va_start(args, n);  
+  rc = nchan_strmatch_va_list(val, n, args);
+  va_end(args);
+  return rc;
+}
+
+int nchan_cstrmatch(char *cstr, ngx_int_t n, ...) {
+  int       rc;
+  va_list   args;
+  ngx_str_t str;
+  str.data = (u_char *)cstr;
+  str.len = strlen(cstr);
+  va_start(args, n);  
+  rc = nchan_strmatch_va_list(&str, n, args);
+  va_end(args);
+  return rc;
+}
+
+int nchan_cstr_startswith(char *cstr, char *match) {
+  for(/*void*/; *match != '\0'; cstr++, match++) {
+    if(*cstr == '\0' || *cstr != *match)
+      return 0;
+  }
+  return 1;
+}
+
+void nchan_scan_nearest_chr(u_char **cur, ngx_str_t *str, ngx_int_t n, ...) {
+  u_char    chr;
+  va_list   args;
+  u_char   *shortest = NULL;
+  
+  u_char *tmp_cur;
+  
+  ngx_int_t i;
+  
+  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur[-1] != '\0'); tmp_cur++) {
+    va_start(args, n);
+    for(i=0; shortest == NULL && i<n; i++) {
+      chr = (u_char )va_arg(args, int);
+      if(*tmp_cur == chr) {
+        shortest = tmp_cur;
+      }
+    }
+    va_end(args);
+  }
+  if(shortest) {
+    str->data = (u_char *)*cur;
+    str->len = shortest - *cur;
+    *cur = shortest + 1;
+  }
+  else {
+    str->data = NULL;
+    str->len = 0;
+  }
+}
+
+void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr) {
+  u_char     *cur;
+  //ERR("rest_line: \"%V\"", line);
+  cur = (u_char *)memchr(line->data, chr, line->len);
+  if(!cur) {
+    *str = *line;
+    line->data += line->len;
+    line->len = 0;
+  }
+  else {
+    str->data = line->data;
+    str->len = (cur - line->data);
+    line->len -= str->len + 1;
+    line->data += str->len + 1;
+  }
+  //ERR("str: \"%V\"", str);
+}
+
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen) {
-  size_t len = src->len > maxlen ? maxlen : src->len;
+  size_t len = src->len > maxlen && maxlen > 0 ? maxlen : src->len;
   ngx_memcpy(dst->data, src->data, len);
   dst->len = len;
 }
@@ -212,6 +308,19 @@ ngx_int_t nchan_oneshot_timer(ngx_event_t *ev, void (*cb)(void *), void *pd) {
   timer->cb = cb;
   nchan_init_timer(&timer->ev, oneshot_timer_callback, pd);
   return NGX_OK;
+}
+
+int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
+  //naive non-null-terminated string matcher. don't use it in tight loops!
+  char *cur;
+  size_t len = str->len;
+  
+  for(cur = (char *)str->data, len = str->len; len >= sz; cur++, len--) {
+    if(strncmp(cur, substr, sz) == 0) {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 #if (NGX_DEBUG_POOL)

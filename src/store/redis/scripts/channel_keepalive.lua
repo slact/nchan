@@ -11,10 +11,10 @@ end
 local random_safe_next_ttl = function(ttl)
   return math.floor(ttl/2 + ttl/2.1 * math.random())
 end
-
+local ch = ('{channel:%s}'):format(id)
 local key={
-  channel=      'channel:'..id, --hash
-  messages=     'channel:messages:'..id, --list
+  channel=   ch, --hash
+  messages=  ch..':messages', --list
 }
   
 local subs_count = tonumber(redis.call('HGET', key.channel, "subscribers")) or 0

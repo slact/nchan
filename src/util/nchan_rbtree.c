@@ -1,5 +1,5 @@
 #include <nchan_module.h>
-#include "rbtree_util.h"
+#include "nchan_rbtree.h"
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -232,6 +232,22 @@ static ngx_inline void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *
 ngx_int_t rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data) {
   rbtree_walk_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
   return NGX_OK;
+}
+
+unsigned rbtree_empty(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data) {
+  ngx_rbtree_t         *tree = &seed->tree;
+  ngx_rbtree_node_t    *cur, *sentinel = tree->sentinel;
+  unsigned int          n = 0;
+  
+  for(cur = tree->root; cur != NULL && cur != sentinel; cur = tree->root) {
+    if(callback) {
+      callback(seed, rbtree_data_from_node(cur), data);
+    }
+    rbtree_remove_node(seed, cur);
+    rbtree_destroy_node(seed, cur);
+    n++;
+  }
+  return n;
 }
 
 

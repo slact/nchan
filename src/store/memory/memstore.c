@@ -4,11 +4,11 @@
 #include <assert.h>
 #include "uthash.h"
 #include "store.h"
-#include "shmem.h"
+#include <util/shmem.h>
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
-#include "../spool.h"
+#include <store/spool.h>
 
 #include <util/nchan_reaper.h>
 
@@ -38,9 +38,9 @@
 
 
 typedef struct {
-  //nchan_store_channel_head_t      unbuffered_dummy_chanhead;
+  //memstore_channel_head_t       unbuffered_dummy_chanhead;
   store_channel_head_shm_t        dummy_shared_chaninfo;
-  nchan_store_channel_head_t     *hash;
+  memstore_channel_head_t        *hash;
   nchan_reaper_t                  msg_reaper;
   nchan_reaper_t                  nobuffer_msg_reaper;
   nchan_reaper_t                  chanhead_reaper;
@@ -56,6 +56,7 @@ typedef struct {
 
 
 ngx_int_t                         memstore_procslot_offset = 0;
+static nchan_loc_conf_t           default_multiconf;
 
 static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t *smsg, uint8_t respect_expire, uint8_t force) {
   if(!force) {
@@ -91,12 +92,11 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
 static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch);
-static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
+static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
 
-
-static void log_memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+/*
+static void log_memstore_chanhead_reservations(memstore_channel_head_t *ch) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_el_t  *cur;
   char            **lbl;
@@ -109,8 +109,9 @@ static void log_memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
   ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved);
 #endif
 }
+*/
 
-static int memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
+static int memstore_chanhead_reservations(memstore_channel_head_t *ch) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   return ch->reserved.n;
 #else
@@ -118,7 +119,7 @@ static int memstore_chanhead_reservations(nchan_store_channel_head_t *ch) {
 #endif
 }
 
-static void memstore_chanhead_reserve(nchan_store_channel_head_t *ch, const char *lbl) {
+static void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *lbl) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   char   **label = nchan_list_append(&ch->reserved);
   *label = (char *)lbl;
@@ -127,7 +128,7 @@ static void memstore_chanhead_reserve(nchan_store_channel_head_t *ch, const char
 #endif
 }
 
-static void memstore_chanhead_release(nchan_store_channel_head_t *ch, char *label) {
+static void memstore_chanhead_release(memstore_channel_head_t *ch, char *label) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_el_t  *cur;
   char            **lbl;
@@ -146,9 +147,9 @@ static void memstore_chanhead_release(nchan_store_channel_head_t *ch, char *labe
 }
 
 
-static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_t *ch, uint8_t force) {
+static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *ch, uint8_t force) {
   
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   if(!force) {
     if(ch->status != INACTIVE) {
       char *sts;
@@ -187,11 +188,11 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
     
     if(memstore_chanhead_reservations(ch) > 0) {
       DBG("not ready to reap %V, still reserved:", &ch->id);
-      log_memstore_chanhead_reservations(ch);
+      //log_memstore_chanhead_reservations(ch);
       return NGX_DECLINED;
     }
     
-    if(ch->use_redis && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
+    if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
       DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
       return NGX_OK;
     }
@@ -209,9 +210,9 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(nchan_store_channel_head_
   }
 }
 
-static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channel_head_t *ch, uint8_t force) {
+static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(memstore_channel_head_t *ch, uint8_t force) {
   
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   if(!force) {
     if(ch->churn_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
       DBG("not ready to reap %p %V, %i sec left", ch, &ch->id, ch->churn_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
@@ -224,7 +225,7 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channe
       return NGX_DECLINED;
     }
     
-    if(ch->use_redis && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
+    if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
       DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
       return NGX_OK;
     }
@@ -239,8 +240,8 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(nchan_store_channe
   return NGX_OK;
 }
 
-static void memstore_reap_chanhead(nchan_store_channel_head_t *ch);
-static void memstore_reap_churned_chanhead(nchan_store_channel_head_t *ch) { //different method for some debug tracing
+static void memstore_reap_chanhead(memstore_channel_head_t *ch);
+static void memstore_reap_churned_chanhead(memstore_channel_head_t *ch) { //different method for some debug tracing
   memstore_reap_chanhead(ch);
 }
 
@@ -268,8 +269,8 @@ static void init_mpt(memstore_data_t *m) {
   
   nchan_reaper_start(&m->chanhead_reaper, 
                      "chanhead", 
-                     offsetof(nchan_store_channel_head_t, gc_prev), 
-                     offsetof(nchan_store_channel_head_t, gc_next), 
+                     offsetof(memstore_channel_head_t, gc_prev), 
+                     offsetof(memstore_channel_head_t, gc_next), 
     (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_chanhead_ready_to_reap,
          (void (*)(void *)) memstore_reap_chanhead,
                      4
@@ -277,8 +278,8 @@ static void init_mpt(memstore_data_t *m) {
   
   nchan_reaper_start(&m->chanhead_churner, 
                      "chanhead churner", 
-                     offsetof(nchan_store_channel_head_t, churn_prev), 
-                     offsetof(nchan_store_channel_head_t, churn_next), 
+                     offsetof(memstore_channel_head_t, churn_prev), 
+                     offsetof(memstore_channel_head_t, churn_next), 
     (ngx_int_t (*)(void *, uint8_t)) nchan_memstore_chanhead_ready_to_reap_slowly,
          (void (*)(void *)) memstore_reap_churned_chanhead,
                      10
@@ -475,7 +476,7 @@ void msg_debug_assert_isempty(void) {
 
 
 
-static ngx_int_t chanhead_churner_add(nchan_store_channel_head_t *ch) {
+static ngx_int_t chanhead_churner_add(memstore_channel_head_t *ch) {
   DBG("Chanhead churn add %p %V", ch, &ch->id);
   
   //the churner is only allowed to churn self-owned channels
@@ -496,7 +497,7 @@ static ngx_int_t chanhead_churner_add(nchan_store_channel_head_t *ch) {
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_churner_withdraw(nchan_store_channel_head_t *ch) {
+static ngx_int_t chanhead_churner_withdraw(memstore_channel_head_t *ch) {
   //remove from gc list if we're there
   DBG("Chanhead churn withdraw %p %V", ch, &ch->id);
   
@@ -547,16 +548,16 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   return NGX_OK;
 }
 
-static int send_redis_fakesub_delta(nchan_store_channel_head_t *head) {
+static int send_redis_fakesub_delta(memstore_channel_head_t *head) {
   if(head->delta_fakesubs != 0) {
-    nchan_store_redis_fakesub_add(&head->id, head->delta_fakesubs, head->shutting_down);
+    nchan_store_redis_fakesub_add(&head->id, head->cf, head->delta_fakesubs, head->shutting_down);
     head->delta_fakesubs = 0;
     return 1;
   }
   return 0;
 }
 
-static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
+static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
   int       i;
   
   chanhead_messages_delete(ch);
@@ -565,7 +566,7 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
     ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
-  if(ch->use_redis) {
+  if(ch->cf && ch->cf->redis.enabled && !ch->multi) {
     send_redis_fakesub_delta(ch);
     if(ch->delta_fakesubs_timer_ev.timer_set) {
       ngx_del_timer(&ch->delta_fakesubs_timer_ev);
@@ -596,7 +597,7 @@ static void memstore_reap_chanhead(nchan_store_channel_head_t *ch) {
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm);
-static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_message_t *msg);
+static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_message_t *msg);
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_core_conf_t    *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
@@ -656,11 +657,11 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
-#define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (head->use_redis == 1 && head->status == WAITING && head->owner == head->slot)
+#define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (!head->stub && head->cf->redis.enabled == 1 && head->status == WAITING && head->owner == head->slot)
 
-void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
+void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n) {
   if(REDIS_FAKESUB_TIMER_INTERVAL == 0) {
-    nchan_store_redis_fakesub_add(&head->id, n, head->shutting_down);
+    nchan_store_redis_fakesub_add(&head->id, head->cf, n, head->shutting_down);
   }
   else {
     head->delta_fakesubs += n;
@@ -672,7 +673,7 @@ void memstore_fakesub_add(nchan_store_channel_head_t *head, ngx_int_t n) {
 }
 
 static void memstore_spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
-  nchan_store_channel_head_t  *head = d;
+  memstore_channel_head_t  *head = d;
   time_t t = ngx_time();
   //ugh, this is so redundant. TODO: clean this shit up
   head->last_subscribed_local = t;
@@ -683,7 +684,7 @@ static void memstore_spooler_bulk_post_subscribe_handler(channel_spooler_t *spl,
 }
 
 static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
-  nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
+  memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
   head->total_sub_count++;
   head->channel.subscribers++;
   if(sub->type == INTERNAL) {
@@ -698,7 +699,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
       assert(CHANHEAD_SHARED_OKAY(head));
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
-    if(head->use_redis) {
+    if(head->cf && head->cf->redis.enabled && !head->multi) {
       memstore_fakesub_add(head, 1);
     }
     
@@ -719,7 +720,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
 }
 
 static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
-  nchan_store_channel_head_t   *head = (nchan_store_channel_head_t *)privdata;
+  memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
   if (type == INTERNAL) {
     //internal subscribers are *special* and don't really count
     head->internal_sub_count -= count;
@@ -736,7 +737,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       assert(head->shutting_down == 1);
     }
     */
-    if(head->use_redis) {
+    if(head->cf && head->cf->redis.enabled && !head->multi) {
       memstore_fakesub_add(head, -count);
     }
     
@@ -764,7 +765,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
 
 
 
-static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
+static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
     memstore_spooler_add_handler,
     NULL,
@@ -776,14 +777,14 @@ static ngx_int_t start_chanhead_spooler(nchan_store_channel_head_t *head) {
   
   
   //(head->use_redis && head->owner == memstore_slot()) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH
-  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory, head->use_redis ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
+  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory, head->cf, (head->cf && head->cf->redis.enabled) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
   return NGX_OK;
 }
 
-ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head) {
+ngx_int_t memstore_ready_chanhead_unless_stub(memstore_channel_head_t *head) {
   if(head->stub) {
     head->status = STUBBED;
   }
@@ -798,13 +799,13 @@ ngx_int_t memstore_ready_chanhead_unless_stub(nchan_store_channel_head_t *head) 
   return NGX_OK;
 }
 
-ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, uint8_t ipc_subscribe_if_needed) {
+ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8_t ipc_subscribe_if_needed) {
   ngx_int_t                      owner;
-  nchan_loc_conf_t               cf;
   ngx_int_t                      i;
   if(head == NULL) {
     return NGX_OK;
   }
+  assert(!head->stub && head->cf);
   owner = head->owner;
   DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
   if(head->in_gc_queue) {//recycled chanhead
@@ -833,10 +834,9 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, ui
       head->status = WAITING;
       if(ipc_subscribe_if_needed) {
         ngx_int_t       rc;
-        cf.max_messages = head->max_messages;
-        cf.use_redis = head->use_redis;
+        assert(head->cf);
         DBG("ensure chanhead ready: request for %V from %i to %i", &head->id, memstore_slot(), owner);
-        if((rc = memstore_ipc_send_subscribe(owner, &head->id, head, &cf)) != NGX_OK) {
+        if((rc = memstore_ipc_send_subscribe(owner, &head->id, head, head->cf)) != NGX_OK) {
           return rc;
         }
       }
@@ -847,7 +847,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(nchan_store_channel_head_t *head, ui
     }
   }
   else {
-    if(head->use_redis && head->status != READY) {
+    if(head->cf && head->cf->redis.enabled && !head->multi && head->status != READY) {
       if(head->redis_sub == NULL) {
         head->redis_sub = memstore_redis_subscriber_create(head);
         nchan_store_redis.subscribe(&head->id, head->redis_sub);
@@ -895,15 +895,15 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
 }
 
 static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
-  nchan_store_channel_head_t *head = (nchan_store_channel_head_t *)ev->data;
+  memstore_channel_head_t *head = (memstore_channel_head_t *)ev->data;
   if(send_redis_fakesub_delta(head) && !ngx_exiting && !ngx_quit && ev->timedout) {
     ev->timedout = 0;
     ngx_add_timer(ev, REDIS_FAKESUB_TIMER_INTERVAL);
   }
 }
 
-static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
-  nchan_store_channel_head_t   *head;
+static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
+  memstore_channel_head_t      *head;
   ngx_int_t                     owner = memstore_channel_owner(channel_id);
   ngx_str_t                     ids[NCHAN_MULTITAG_MAX];
   ngx_int_t                     i, n = 0;
@@ -926,16 +926,17 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   head->in_gc_queue = 0;
   head->in_churn_queue = 0;
   head->gc_queued_times = 0;
+  head->redis_sub = NULL;
   if(cf) {
     head->stub = 0;
-    head->use_redis = cf->use_redis;
-    head->redis_sub = NULL;
+    head->cf=cf;
   }
   else {
     head->stub = 1;
+    head->cf = NULL;
   }
   
-  if(head->use_redis) {
+  if(head->cf && head->cf->redis.enabled && !head->multi) {
     head->delta_fakesubs = 0;
     nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
     head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
@@ -998,8 +999,8 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   
   head->multi_waiting = 0;
   if((n = parse_multi_id(&head->id, ids)) > 0) {
-    nchan_store_multi_t          *multi;
-    int16_t                      *tags_latest, *tags_oldest;
+    memstore_multi_t          *multi;
+    int16_t                   *tags_latest, *tags_oldest;
     
     if((multi = ngx_calloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
       ERR("can't allocate multi array for multi-channel %p", head);
@@ -1058,7 +1059,7 @@ static nchan_store_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_i
   return head;
 }
 
-static ngx_inline nchan_store_channel_head_t *ensure_chanhead_ready_or_trash_chanhead(nchan_store_channel_head_t *head, int8_t ipc_sub_if_needed) {
+static ngx_inline memstore_channel_head_t *ensure_chanhead_ready_or_trash_chanhead(memstore_channel_head_t *head, int8_t ipc_sub_if_needed) {
   if(head != NULL) {
     if(memstore_ensure_chanhead_is_ready(head, ipc_sub_if_needed) != NGX_OK) {
       head->status = INACTIVE;
@@ -1069,24 +1070,29 @@ static ngx_inline nchan_store_channel_head_t *ensure_chanhead_ready_or_trash_cha
   return head;
 }
 
-nchan_store_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
-  nchan_store_channel_head_t     *head = NULL;
+memstore_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
+  memstore_channel_head_t     *head = NULL;
   CHANNEL_HASH_FIND(channel_id, head);
   return ensure_chanhead_ready_or_trash_chanhead(head, 1);
 }
 
-nchan_store_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
-  nchan_store_channel_head_t          *head;
+memstore_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
+  memstore_channel_head_t          *head;
   head = nchan_memstore_find_chanhead(channel_id);
   if(head==NULL) {
     head = chanhead_memstore_create(channel_id, cf);
     return ensure_chanhead_ready_or_trash_chanhead(head, 1);
   }
+  
+  if(cf->pub.http || cf->pub.websocket) {
+    head->cf = cf;
+  }
+  
   return head;
 }
 
-nchan_store_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
-  nchan_store_channel_head_t     *head = NULL;
+memstore_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
+  memstore_channel_head_t     *head = NULL;
   CHANNEL_HASH_FIND(channel_id, head);
   if(head != NULL) {
     return ensure_chanhead_ready_or_trash_chanhead(head, 0);
@@ -1098,7 +1104,7 @@ nchan_store_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *ch
   return head;
 }
 
-ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
+ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
   ngx_int_t                   slot = memstore_slot();
   DBG("Chanhead gc add %p %V: %s", ch, &ch->id, reason);
   
@@ -1109,7 +1115,7 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   if(ch->slot != ch->owner) {
     ch->shared = NULL;
   }
-  if(ch->status == WAITING && !ch->use_redis && !(ngx_exiting || ngx_quit)) {
+  if(ch->status == WAITING && !(ch->cf && ch->cf->redis.enabled) && !(ngx_exiting || ngx_quit)) {
     ERR("tried adding WAITING chanhead %p %V to chanhead_gc. why?", ch, &ch->id);
     //don't gc it just yet.
     return NGX_OK;
@@ -1131,7 +1137,7 @@ ngx_int_t chanhead_gc_add(nchan_store_channel_head_t *ch, const char *reason) {
   return NGX_OK;
 }
 
-ngx_int_t chanhead_gc_withdraw(nchan_store_channel_head_t *ch, const char *reason) {
+ngx_int_t chanhead_gc_withdraw(memstore_channel_head_t *ch, const char *reason) {
   //remove from gc list if we're there
   DBG("Chanhead gc withdraw %p %V: %s", ch, &ch->id, reason);
   
@@ -1176,12 +1182,12 @@ static ngx_str_t *chanhead_msg_to_str(store_message_t *msg) {
 }
 */
 
-ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
+ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   
   ngx_int_t          shared_sub_count = 0;
   
   if(head->shared) {
-    if(!head->use_redis && !head->multi) {
+    if(!(head->cf && head->cf->redis.enabled) && !head->multi) {
       assert(head->status == READY || head->status == STUBBED);
     }
     shared_sub_count = head->shared->sub_count;
@@ -1236,7 +1242,7 @@ ngx_int_t nchan_memstore_publish_generic(nchan_store_channel_head_t *head, nchan
   return (shared_sub_count > 0) ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED;
 }
 
-static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch);
+static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
 static ngx_int_t empty_callback(){
   return NGX_OK;
@@ -1270,7 +1276,7 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t                owner = memstore_channel_owner(channel_id);
   if(!is_multi_id(channel_id)) {
     if(memstore_slot() != owner) {
@@ -1313,10 +1319,10 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, callback_pt c
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_message_t *msg);
+static ngx_int_t chanhead_delete_message(memstore_channel_head_t *ch, store_message_t *msg);
 
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
-  nchan_store_channel_head_t    *ch;
+  memstore_channel_head_t       *ch;
   nchan_channel_t                chaninfo_copy;
   store_message_t               *msg = NULL;
   
@@ -1347,9 +1353,9 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
 
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
-  nchan_store_channel_head_t  *ch;
+  memstore_channel_head_t     *ch;
   nchan_channel_t              chaninfo;
-  if(cf->use_redis) {
+  if(cf->redis.enabled) {
     return nchan_store_redis.find_channel(channel_id, cf, callback, privdata);
   }
   else if(memstore_slot() == owner) {
@@ -1444,6 +1450,14 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   }
   ipc_open(ipc, cycle, shdata->max_workers, &init_shdata_procslots);
 
+  //initialize default shared multi-channel config
+  ngx_memzero(&default_multiconf, sizeof(default_multiconf));
+  default_multiconf.buffer_timeout = 0;
+  default_multiconf.max_messages = -1;
+  default_multiconf.max_channel_id_length = NCHAN_MAX_CHANNEL_ID_LENGTH;
+  default_multiconf.max_channel_subscribers = -1;
+  
+  
   return NGX_OK;
 }
 
@@ -1462,7 +1476,7 @@ static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf)
 }
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
-  nchan_store_channel_head_t         *cur, *tmp;
+  memstore_channel_head_t            *cur, *tmp;
   ngx_int_t                           i, my_procslot_index = NCHAN_INVALID_SLOT;
     
   DBG("exit worker %i  (slot %i)", ngx_pid, ngx_process_slot);
@@ -1548,7 +1562,7 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   shm_destroy(shm);
 }
 
-static ngx_int_t validate_chanhead_messages(nchan_store_channel_head_t *ch) {
+static ngx_int_t validate_chanhead_messages(memstore_channel_head_t *ch) {
   /*
   ngx_int_t              count = ch->channel.messages;
   ngx_int_t              rev_count = count;
@@ -1612,7 +1626,7 @@ static ngx_int_t memstore_reap_store_message( store_message_t *smsg ) {
 
 
 
-static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
+static ngx_int_t chanhead_delete_message(memstore_channel_head_t *ch, store_message_t *msg) {
   //validate_chanhead_messages(ch);
   
   //DBG("withdraw message %V from ch %p %V", msgid_to_str(&msg->msg->id), ch, &ch->id);
@@ -1647,7 +1661,7 @@ static ngx_int_t chanhead_delete_message(nchan_store_channel_head_t *ch, store_m
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx_int_t max_messages) {
+static ngx_int_t chanhead_messages_gc_custom(memstore_channel_head_t *ch, ngx_int_t max_messages) {
   validate_chanhead_messages(ch);
   store_message_t   *cur = ch->msg_first;
   store_message_t   *next = NULL;
@@ -1680,17 +1694,17 @@ static ngx_int_t chanhead_messages_gc_custom(nchan_store_channel_head_t *ch, ngx
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_messages_gc(nchan_store_channel_head_t *ch) {
+ngx_int_t memstore_chanhead_messages_gc(memstore_channel_head_t *ch) {
   //DBG("messages gc for ch %p %V", ch, &ch->id);
   return chanhead_messages_gc_custom(ch, ch->max_messages);
 }
 
-static ngx_int_t chanhead_messages_delete(nchan_store_channel_head_t *ch) {
+static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch) {
   chanhead_messages_gc_custom(ch, 0);
   return NGX_OK;
 }
 
-store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status) {
+store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status) {
   store_message_t      *cur, *first;
   
   time_t           mid_time; //optimization yeah
@@ -1701,7 +1715,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
     *status = MSG_NOTFOUND;
     return NULL;
   }
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   
   first = ch->msg_first;
   cur = ch->msg_last;
@@ -1779,7 +1793,7 @@ store_message_t *chanhead_find_next_message(nchan_store_channel_head_t *ch, ncha
 typedef struct {
   subscriber_t                *sub;
   ngx_int_t                    channel_owner;
-  nchan_store_channel_head_t  *chanhead;
+  memstore_channel_head_t     *chanhead;
   ngx_str_t                   *channel_id;
   nchan_msg_id_t               msg_id;
   callback_pt                  cb;
@@ -1823,7 +1837,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub) {
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
-  subscribe_data_t            *d = subscribe_data_alloc(sub->cf->use_redis ? -1 : owner);
+  subscribe_data_t            *d = subscribe_data_alloc(sub->cf->redis.enabled ? -1 : owner);
   
   assert(d != NULL);
   
@@ -1888,11 +1902,11 @@ static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, vo
 }
 
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
-  nchan_store_channel_head_t  *chanhead = NULL;
+  memstore_channel_head_t       *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
   ngx_int_t                      not_dead;
-  ngx_int_t                      use_redis = d->sub->cf->use_redis;
+  ngx_int_t                      use_redis = d->sub->cf->redis.enabled;
   nchan_loc_conf_t              *cf = d->sub->cf;
   ngx_int_t                      rc = NGX_OK;
   
@@ -1970,11 +1984,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   return rc;
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata);
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 
 typedef struct get_multi_message_data_s get_multi_message_data_t;
 struct get_multi_message_data_s {
-  nchan_store_channel_head_t  *chanhead;
+  memstore_channel_head_t     *chanhead;
   nchan_msg_status_t           msg_status;
   nchan_msg_t                 *msg;
   ngx_int_t                    n;
@@ -2044,7 +2058,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     //buf fuck it, we're doing it live.
     assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
     
-    nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+    nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
     return NGX_OK;
   }
   d->getting--;
@@ -2149,8 +2163,8 @@ static void get_multimsg_timeout(ngx_event_t *ev) {
 
 static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
   
-  nchan_store_channel_head_t  *chead;
-  nchan_store_multi_t         *multi = NULL;
+  memstore_channel_head_t     *chead;
+  memstore_multi_t            *multi = NULL;
   
   ngx_int_t                    n;
   uint8_t                      want[NCHAN_MULTITAG_MAX];
@@ -2165,7 +2179,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   ngx_memzero(req_msgid, sizeof(req_msgid));
   
-  chead = nchan_memstore_get_chanhead(chid, NULL);
+  chead = nchan_memstore_get_chanhead(chid, &default_multiconf);
   assert(chead);
   n = chead->multi_count;
   
@@ -2247,7 +2261,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       DBG("get message from %V (n: %i) %V", getmsg_chid, i, msgid_to_str(&req_msgid[i]));
-      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], chead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
       sd++;
     }
   }
@@ -2260,12 +2274,12 @@ void async_get_message_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status
   nchan_memstore_handle_get_message_reply(NULL, status, d);
 }
 
-static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, callback_pt callback, void *privdata) {
+static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   store_message_t             *chmsg;
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   subscribe_data_t            *d; 
   nchan_msg_status_t           findmsg_status;
-  nchan_store_channel_head_t  *chead;
+  memstore_channel_head_t     *chead;
   
   ngx_int_t                    use_redis = 0;
   
@@ -2280,7 +2294,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   chead = nchan_memstore_find_chanhead(channel_id);
   if(chead) {
-    use_redis = chead->use_redis;
+    use_redis = chead->cf && chead->cf->redis.enabled;
   }
   d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
@@ -2314,14 +2328,14 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *data) {
   subscribe_data_t           *d = (subscribe_data_t *)data;
-  //nchan_store_channel_head_t *chanhead = d->chanhead;
+  //memstore_channel_head_t    *chanhead = d->chanhead;
   d->cb(findmsg_status, msg, d->cb_privdata);
   
   subscribe_data_free(d);
   return NGX_OK;
 }
 
-static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_message_t *msg) {
+static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_message_t *msg) {
   msg->next = NULL;
   msg->prev = ch->msg_last;
   
@@ -2358,7 +2372,7 @@ static ngx_int_t chanhead_push_message(nchan_store_channel_head_t *ch, store_mes
   ch->msg_last = msg;
   
   //DBG("create %V %V", msgid_to_str(&msg->msg->id), chanhead_msg_to_str(msg));
-  chanhead_messages_gc(ch);
+  memstore_chanhead_messages_gc(ch);
   if(ch->msg_last != msg) { //why does this happen?
     ERR("just-published messages is no longer the last message for some reason... This is unexpected.");
   }
@@ -2595,7 +2609,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 }
 
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  nchan_store_channel_head_t  *chead;
+  memstore_channel_head_t  *chead;
   
   if(is_multi_id(channel_id)) {
     ngx_int_t             i, n = 0;
@@ -2635,7 +2649,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
   }
 }
 
-ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   nchan_channel_t              channel_copy_data;
   nchan_channel_t             *channel_copy = &channel_copy_data;
   store_message_t             *shmsg_link;
@@ -2676,7 +2690,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
   
   chead->max_messages = cf->max_messages;
   
-  chanhead_messages_gc(chead);
+  memstore_chanhead_messages_gc(chead);
   if(cf->max_messages == 0) {
     ///no buffer
     channel_copy=&chead->channel;
@@ -2733,7 +2747,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(nchan_store_channel_head_
  
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
   
-  if(cf->use_redis) {
+  if(cf->redis.enabled) {
     rc = nchan_store_redis.publish(&chead->id, publish_msg, cf, callback, privdata);
   }
   else {

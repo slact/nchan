@@ -130,7 +130,7 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
     evcf->channel_timeout = 30;
   }
   evcf->storage_engine = cf->storage_engine;
-  evcf->use_redis = cf->use_redis;
+  evcf->redis = cf->redis;
   
   evcf->storage_engine->publish(id, &msg, evcf, NULL, NULL);
   
@@ -566,7 +566,7 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
       break;
       
     case NGX_HTTP_DELETE:
-      cf->storage_engine->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      cf->storage_engine->delete_channel(channel_id, cf, (callback_pt) &channel_info_callback, (void *)r);
       nchan_maybe_send_channel_event_message(r, CHAN_DELETE);
       break;
       

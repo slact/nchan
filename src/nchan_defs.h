@@ -98,4 +98,6 @@ extern const ngx_str_t NCHAN_CHANNEL_INFO_JSON;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_XML;
 extern const ngx_str_t NCHAN_CHANNEL_INFO_YAML;
 
+#define NCHAN_REDIS_DEFAULT_URL "redis://127.0.0.1:6379"
+
 #endif /* NCHAN_DEFS_H */

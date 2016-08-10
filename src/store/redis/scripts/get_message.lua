@@ -16,13 +16,14 @@ end
 -- redis doesn't do includes. It could be generated pre-insertion into redis, 
 -- but then error messages become less useful, complicating debugging. If you 
 -- have a solution to this, please help.
-
+local ch=('{channel:%s}'):format(id)
+local msgkey_fmt=ch..':msg:%s'
 local key={
-  next_message= 'channel:msg:%s:'..id, --hash
-  message=      'channel:msg:%s:%s', --hash
-  channel=      'channel:'..id, --hash
-  messages=     'channel:messages:'..id, --list
---  pubsub=       'channel:subscribers:'..id, --set
+  next_message= msgkey_fmt, --hash
+  message=      msgkey_fmt, --hash
+  channel=      ch, --hash
+  messages=     ch..':messages', --list
+--  pubsub=       ch..':subscribers:', --set
 }
 
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
@@ -100,7 +101,7 @@ if msg_id==nil then
     elseif no_msgid_order == 'FILO' then --oldest message
       --dbg("get oldest")
       
-      found_msg_id=oldestmsg(key.messages, ('channel:msg:%s:'..id))
+      found_msg_id=oldestmsg(key.messages, msgkey_fmt)
     end
     if found_msg_id == nil then
       --we await a message
@@ -123,7 +124,7 @@ else
     return {418, "", "", "", "", subs_count}
   end
 
-  key.message=key.message:format(msg_id, id)
+  key.message=key.message:format(msg_id)
   local msg=tohash(redis.call('HGETALL', key.message))
 
   if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there

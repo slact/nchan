@@ -92,7 +92,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->subscribe_only_existing_channel=NGX_CONF_UNSET;
-  lcf->use_redis=NGX_CONF_UNSET;
   lcf->redis_idle_channel_cache_timeout=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
   lcf->max_channel_subscribers=NGX_CONF_UNSET;
@@ -114,22 +113,13 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   ngx_memzero(&lcf->sub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->pubsub_chid, sizeof(nchan_complex_value_arr_t));
   ngx_memzero(&lcf->last_message_id, sizeof(nchan_complex_value_arr_t));
+  
+  ngx_memzero(&lcf->redis, sizeof(lcf->redis));
+  lcf->redis.url_enabled=NGX_CONF_UNSET;
+  lcf->redis.ping_interval = NGX_CONF_UNSET;
+  lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
+  
   return lcf;
-}
-
-static ngx_int_t nchan_strmatch(ngx_str_t *val, ngx_int_t n, ...) {
-  u_char   *match;
-  va_list   args;
-  ngx_int_t i;
-  va_start(args, n);  
-  for(i=0; i<n; i++) {
-    match = va_arg(args, u_char *);
-    if(ngx_strncasecmp(val->data, match, val->len)==0) {
-      return 1;
-    }
-  }
-  va_end(args);
-  return 0;
 }
 
 static char * create_complex_value_from_ngx_str(ngx_conf_t *cf, ngx_http_complex_value_t **dst_cv, ngx_str_t *str) {
@@ -153,6 +143,28 @@ static char * create_complex_value_from_ngx_str(ngx_conf_t *cf, ngx_http_complex
   }
   
   *dst_cv = cv;
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_upstream(ngx_conf_t *cf, ngx_str_t *url, void *conf) {  
+  ngx_url_t             upstream_url;
+  nchan_loc_conf_t     *lcf = conf;
+  if (lcf->redis.upstream) {
+    return "is duplicate";
+  }
+  
+  ngx_memzero(&upstream_url, sizeof(upstream_url));
+  upstream_url.url = *url;
+  upstream_url.no_resolve = 1;
+  
+  if ((lcf->redis.upstream = ngx_http_upstream_add(cf, &upstream_url, 0)) == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  
+  lcf->redis.enabled = 1;
+  global_redis_enabled = 1;
+  nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+  
   return NGX_CONF_OK;
 }
 
@@ -184,7 +196,6 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_sec_value(conf->redis_idle_channel_cache_timeout, prev->redis_idle_channel_cache_timeout, NCHAN_DEFAULT_REDIS_IDLE_CHANNEL_CACHE_TIMEOUT);
   
   ngx_conf_merge_value(conf->subscribe_only_existing_channel, prev->subscribe_only_existing_channel, 0);
-  ngx_conf_merge_value(conf->use_redis, prev->use_redis, 0);
   ngx_conf_merge_value(conf->max_channel_id_length, prev->max_channel_id_length, NCHAN_MAX_CHANNEL_ID_LENGTH);
   ngx_conf_merge_value(conf->max_channel_subscribers, prev->max_channel_subscribers, 0);
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
@@ -240,6 +251,18 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->last_message_id.n = 2;
   }
   
+  ngx_conf_merge_value(conf->redis.url_enabled, prev->redis.url_enabled, 0);
+  ngx_conf_merge_value(conf->redis.upstream_inheritable, prev->redis.upstream_inheritable, 0);
+  ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
+  ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
+  if(conf->redis.url_enabled) {
+    conf->redis.enabled = 1;
+    nchan_store_redis_add_server_conf(cf, &conf->redis, conf);
+  }
+  if(conf->redis.upstream_inheritable && !conf->redis.upstream && prev->redis.upstream && prev->redis.upstream_url.len > 0) {
+    conf->redis.upstream_url = prev->redis.upstream_url;
+    ngx_conf_set_redis_upstream(cf, &conf->redis.upstream_url, conf);
+  }
   
   return NGX_CONF_OK;
 }
@@ -607,18 +630,69 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   char                *rc;
   ngx_flag_t          *fp;
   char                *p = conf;
+  nchan_loc_conf_t    *lcf = (nchan_loc_conf_t *)conf;
   
   rc = ngx_conf_set_flag_slot(cf, cmd, conf);
   if(rc == NGX_CONF_ERROR) {
     return rc;
   }
   fp = (ngx_flag_t *) (p + cmd->offset);
-  if(fp) {
+  
+  if(*fp) {
+    if(!lcf->redis.enabled) {
+      lcf->redis.enabled = 1;
+      nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+    }
     global_redis_enabled = 1;
+  }
+  else {
+    nchan_store_redis_remove_server_conf(cf, &lcf->redis);
   }
   
   return rc;
 }
+
+static ngx_int_t nchan_upstream_dummy_roundrobin_init(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us) {
+  return NGX_OK;
+}
+
+static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_http_upstream_srv_conf_t        *uscf;
+  ngx_str_t                           *value;
+  ngx_http_upstream_server_t          *usrv;
+  
+  uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
+  
+  
+  if ((usrv = ngx_array_push(uscf->servers)) == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  value = cf->args->elts;
+  ngx_memzero(usrv, sizeof(*usrv));
+  usrv->name = value[1];
+  
+  uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t  *lcf = conf;
+  
+  if(lcf->redis.upstream) {
+    return "can't be set here: already using nchan_redis_pass";
+  }
+  
+  return ngx_conf_set_str_slot(cf, cmd, conf);
+}
+
+static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t  *lcf = conf;
+  ngx_str_t         *value = cf->args->elts;
+  
+  lcf->redis.upstream_url = value[1];
+  return ngx_conf_set_redis_upstream(cf, &value[1], conf);
+}
+
 
 #include "nchan_config_commands.c" //hideous but hey, it works
 

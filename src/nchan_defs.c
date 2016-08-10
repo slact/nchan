@@ -57,7 +57,6 @@ const  char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF = "Last-Modifie
 
 const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");
 
-
 const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN = ngx_string(
   "queued messages: %ui" CRLF
   "last requested: %d sec. ago" CRLF

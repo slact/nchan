@@ -1,14 +1,15 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
-#include <store/memory/shmem.h>
+
 #include <store/memory/ipc.h>
 #include <store/memory/store-private.h>
 #include <store/memory/ipc-handlers.h>
-#include <util/nchan_msgid.h>
-
 #include <store/memory/store.h>
-#include <store/redis/store.h>
 
+#include <store/redis/store.h>
+#include <store/redis/store-private.h>
+
+#include <util/nchan_msgid.h>
 #include "internal.h"
 #include "memstore_redis.h"
 #include <assert.h>
@@ -30,7 +31,7 @@ typedef struct sub_data_s sub_data_t;
 
 struct sub_data_s {
   subscriber_t                 *sub;
-  nchan_store_channel_head_t   *chanhead;
+  memstore_channel_head_t      *chanhead;
   ngx_str_t                    *chid;
   ngx_event_t                   timeout_ev;
   nchan_msg_status_t            last_msg_status;
@@ -80,9 +81,9 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_loc_conf_t   cf;
   nchan_msg_id_t    *lastid;    
   DBG("%p memstore-redis subscriber respond with message", d->sub);
-  
+
   cf.max_messages = d->chanhead->max_messages;
-  cf.use_redis = 0;
+  cf.redis.enabled = 0;
   cf.buffer_timeout = msg->expires - ngx_time();
   
   lastid = &d->chanhead->latest_msgid;
@@ -133,12 +134,12 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
     case NGX_HTTP_GONE: //delete
     case NGX_HTTP_CLOSE: //delete
       respond_msgexpected_callbacks(d, MSG_NORESPONSE);
-      nchan_store_memory.delete_channel(d->chid, NULL, NULL);
-      if(redis_connection_status() != CONNECTED && d->onconnect_callback_pd == NULL) {
+      nchan_store_memory.delete_channel(d->chid, d->sub->cf, NULL, NULL);
+      if(redis_connection_status(d->sub->cf) != CONNECTED && d->onconnect_callback_pd == NULL) {
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;
         d->onconnect_callback_pd = dd;
-        redis_store_callback_on_connected(reconnect_callback, dd);
+        redis_store_callback_on_connected(d->sub->cf, reconnect_callback, dd);
       }
       break;
       
@@ -156,6 +157,11 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
 }
 
 static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
+  if(code == NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE) {
+    uintptr_t   max_messages = (uintptr_t )data;
+    d->chanhead->max_messages = max_messages;
+    memstore_chanhead_messages_gc(d->chanhead);
+  }
   return NGX_OK;
 }
 
@@ -208,10 +214,13 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 
 static ngx_str_t   sub_name = ngx_string("memstore-redis");
 
-subscriber_t *memstore_redis_subscriber_create(nchan_store_channel_head_t *chanhead) {
+subscriber_t *memstore_redis_subscriber_create(memstore_channel_head_t *chanhead) {
   subscriber_t               *sub;
   sub_data_t                 *d;
-  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, (callback_pt )sub_destroy_handler);
+  
+  assert(chanhead->cf);
+  
+  sub = internal_subscriber_create_init(&sub_name, chanhead->cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, (callback_pt )sub_destroy_handler);
   
   
   sub->destroy_after_dequeue = 0;

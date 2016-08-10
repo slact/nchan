@@ -10,8 +10,10 @@ if code==nil then
 end
 
 local pubmsg = "status:"..code
-local subs_key = 'channel:subscribers:'..id
-local chan_key = 'channel:'..id
+local ch = ('{channel:%s}'):format(id)
+local subs_key = ch..':subscribers'
+local chan_key = ch
+--local channel_pubsub = ch..':pubsub'
 
 for k,channel_key in pairs(redis.call('SMEMBERS', subs_key)) do
   --not efficient, but useful for a few short-term subscriptions
@@ -20,5 +22,5 @@ end
 --clear short-term subscriber list
 redis.call('DEL', subs_key)
 --now publish to the efficient channel
-redis.call('PUBLISH', channel_pubsub, pubmsg)
+--what?... redis.call('PUBLISH', channel_pubsub, pubmsg)
 return redis.call('HGET', chan_key, 'subscribers') or 0

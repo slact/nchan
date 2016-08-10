@@ -15,9 +15,19 @@ typedef enum {
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
-  ngx_str_t                       redis_url;
-  time_t                          redis_ping_interval;
 } nchan_main_conf_t;
+
+
+typedef struct {
+  ngx_str_t                     url;
+  ngx_flag_t                    url_enabled;
+  time_t                        ping_interval;
+  ngx_str_t                     upstream_url;
+  ngx_http_upstream_srv_conf_t *upstream;
+  ngx_flag_t                    upstream_inheritable;
+  unsigned                      enabled:1;
+  void                         *privdata;
+} nchan_redis_conf_t;
 
 typedef struct {
   ngx_atomic_int_t  lock;
@@ -144,11 +154,11 @@ typedef struct{
   void      (*exit_master)(ngx_cycle_t *cycle);
   
   //async-friendly functions with callbacks
-  ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
+  ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, nchan_loc_conf_t *cf, callback_pt, void *);
   ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *);
   ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, nchan_loc_conf_t *, callback_pt, void *);
   
-  ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
+  ngx_int_t (*delete_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void *);
   
   //channel actions
   ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
@@ -224,8 +234,10 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_http_complex_value_t       *channel_event_string;
   
   ngx_int_t                       subscribe_only_existing_channel;
-  ngx_int_t                       use_redis;
+  
+  nchan_redis_conf_t              redis;
   time_t                          redis_idle_channel_cache_timeout;
+  
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;
   time_t                          channel_timeout;

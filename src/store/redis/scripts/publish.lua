@@ -23,7 +23,7 @@ if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
---[[local dbg = function(...) 
+--[[local dbg = function(...)
   local arg = {...}
   for i = 1, #arg do
     arg[i]=tostring(arg[i])
@@ -74,28 +74,29 @@ local tohash=function(arr)
   return h
 end
 
+local ch = ('{channel:%s}'):format(id)
+local msg_fmt = ch..':msg:%s'
 local key={
-  time_offset=  'nchan:message_time_offset',
-  last_message= nil,
-  message=      'channel:msg:%s:'..id, --not finished yet
-  channel=      'channel:'..id,
-  messages=     'channel:messages:'..id,
-  subscribers=  'channel:subscribers:'..id
+  last_message= msg_fmt, --not finished yet
+  message=      msg_fmt, --not finished yet
+  channel=      ch,
+  messages=     ch..':messages',
+  subscribers=  ch..':subscribers'
 }
-
-local channel_pubsub = 'channel:pubsub:'..id
+local channel_pubsub = ch..':pubsub'
 
 local new_channel
 local channel
 if redis.call('EXISTS', key.channel) ~= 0 then
   channel=tohash(redis.call('HGETALL', key.channel))
+  channel.max_stored_messages = tonumber(channel.max_stored_messages)
 end
 
 if channel~=nil then
   --dbg("channel present")
   if channel.current_message ~= nil then
     --dbg("channel current_message present")
-    key.last_message=('channel:msg:%s:%s'):format(channel.current_message, id)
+    key.last_message=key.last_message:format(channel.current_message, id)
   else
     --dbg("channel current_message absent")
     key.last_message=nil
@@ -158,13 +159,12 @@ if not channel.ttl then
   redis.call('HSET', key.channel, 'ttl', channel.ttl)
 end
 
-if not channel.max_stored_messages then
+local message_len_changed = false
+if channel.max_stored_messages ~= store_at_most_n_messages then
   channel.max_stored_messages = store_at_most_n_messages
+  message_len_changed = true
   redis.call('HSET', key.channel, 'max_stored_messages', store_at_most_n_messages)
   --dbg("channel.max_stored_messages was not set, but is now ", store_at_most_n_messages)
-else
-  channel.max_stored_messages =tonumber(channel.max_stored_messages)
-  --dbg("channel.mas_stored_messages == " , channel.max_stored_messages)
 end
 
 --write message
@@ -186,32 +186,35 @@ local oldestmsg=function(list_key, old_fmt)
       else
         redis.call('rpop', list_key)
         del=del+1
-      end 
+      end
     else
       break
     end
   end
 end
 
-local max_stored_msgs = tonumber(redis.call('HGET', key.channel, 'max_stored_messages')) or -1
+local max_stored_msgs = channel.max_stored_messages or -1
 
 if max_stored_msgs < 0 then --no limit
-  oldestmsg(key.messages, 'channel:msg:%s:'..id)
+  oldestmsg(key.messages, msg_fmt)
   redis.call('LPUSH', key.messages, msg.id)
 elseif max_stored_msgs > 0 then
   local stored_messages = tonumber(redis.call('LLEN', key.messages))
   redis.call('LPUSH', key.messages, msg.id)
-  if stored_messages > max_stored_msgs then
-    local oldmsgid = redis.call('RPOP', key.messages)
-    redis.call('DEL', 'channel:msg:'..id..':'..oldmsgid)
+  -- Reduce the message length if neccessary
+  local dump_message_ids = redis.call('LRANGE', key.messages, max_stored_msgs, stored_messages);
+  if dump_message_ids then
+    for _, msgid in ipairs(dump_message_ids) do
+      redis.call('DEL', msg_fmt:format(msgid))
+    end
   end
-  oldestmsg(key.messages, 'channel:msg:%s:'..id)
+  redis.call('LTRIM', key.messages, 0, max_stored_msgs - 1)
+  oldestmsg(key.messages, msg_fmt)
 end
 
 
 --set expiration times for all the things
   redis.call('EXPIRE', key.message, msg.ttl)
-  redis.call('EXPIRE', key.time_offset, channel.ttl)
   redis.call('EXPIRE', key.channel, channel.ttl)
   redis.call('EXPIRE', key.messages, channel.ttl)
   redis.call('EXPIRE', key.subscribers, channel.ttl)
@@ -238,6 +241,11 @@ else
     tonumber(msg.tag) or 0,
     key.message
   }
+end
+
+if message_len_changed then
+  unpacked[1] = "max_msgs+" .. unpacked[1]
+  table.insert(unpacked, 2, tonumber(channel.max_stored_messages))
 end
 
 local msgpacked

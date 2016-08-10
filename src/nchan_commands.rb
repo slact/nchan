@@ -216,30 +216,49 @@ CfCmd.new do
       default: "32M",
       info: "The size of the shared memory chunk this module will use for message queuing and buffering."
     
-  nchan_redis_url [:main],
-      :ngx_conf_set_str_slot,
-      [:main_conf, :redis_url],
+  nchan_redis_url [:main, :srv, :loc],
+      :ngx_conf_set_redis_url,
+      [:loc_conf, :"redis.url"],
       
       group: "storage",
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted."
   
-  nchan_redis_ping_interval [:main],
-      :ngx_conf_set_sec_slot,
-      [:main_conf, :redis_ping_interval],
+  nchan_redis_pass [:main, :srv, :loc],
+      :ngx_conf_set_redis_upstream_pass,
+      [:loc_conf, :"redis"],
       
       group: "storage",
-      default: "4m",
-      info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
+      info: "Use an upstream config block for Redis servers."
+  
+  nchan_redis_pass_inheritable [:main, :srv, :loc],
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :"redis.upstream_inheritable"],
+      
+      undocumented: true,
+      group: "debug"
+  
+  nchan_redis_server [:upstream],
+      :ngx_conf_upstream_redis_server,
+      :loc_conf,
+      group: "storage"
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,
-      [:loc_conf, :use_redis],
+      [:loc_conf, :"redis.url_enabled"],
       
       group: "storage",
       value: [ :on, :off ],
       default: :off,
       info: "Use redis for message storage at this location."
+  
+  nchan_redis_ping_interval [:main, :srv, :loc],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :"redis.ping_interval"],
+      
+      group: "storage",
+      default: "4m",
+      info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
   nchan_redis_idle_channel_cache_timeout [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,

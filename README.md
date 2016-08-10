@@ -10,9 +10,9 @@ For use in a web browser, you can try the [NchanSubscriber.js](https://github.co
 
 ## Status and History
 
-The latest Nchan release is v0.99.16 (June 10, 2016) ([changelog](https://nchan.slact.net/changelog)). This is a *beta* release. There may be some bugs but Nchan is already stable and well-tested.
+The latest Nchan release is v0.99.16 (June 10, 2016) ([changelog](https://nchan.slact.net/changelog)).
 
-The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, specifically *channel events* is still experimental and may be a bit buggy.
+The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, especially Redis Cluster may be a bit buggy.
 
 Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
@@ -27,7 +27,7 @@ Although Nchan is backwards-compatible with all Push Module configuration direct
 
 Yes it does. Like Nginx, Nchan can easily handle as much traffic as you can throw at it. I've tried to benchmark it, but my benchmarking tools are much slower than Nchan. The data I've gathered is on how long Nchan itself takes to respond to every subscriber after publishing a message -- this excludes TCP handshake times and internal HTTP request parsing. Basically, it measures how Nchan scales assuming all other components are already tuned for scalability. The graphed data are averages of 5 runs with 50-byte messages.
 
-With a well-tuned OS and network stack on commodity server hardware, expect to handle upwards of 300K concurrent subscribers per second at minimal CPU load. Nchan can also be scaled out to multiple Nginx instances using the [Redis storage engine](#nchan_use_redis).
+With a well-tuned OS and network stack on commodity server hardware, expect to handle upwards of 300K concurrent subscribers per second at minimal CPU load. Nchan can also be scaled out to multiple Nginx instances using the [Redis storage engine](#nchan_use_redis), and that too can be scaled up beyond a single-point-of-failure by using Redis Cluster.
 
 Currently, Nchan's performance is limited by available memory bandwidth. This can be improved significantly in future versions with fewer allocations and the use of contiguous memory pools. Please consider supporting Nchan to speed up the work of memory cache optimization.
 
@@ -278,7 +278,42 @@ Publishing to multiple channels with a single request is also possible, with sim
     nchan_channel_id "$1" "$2" "another_channel";
   }
 ```
-			    
+## Storage
+
+Nchan can stores messages in memory, on disk, or via Redis. Memory storage is much faster, whereas Redis has additional overhead as is considerably slower for publishing messages, but offers near unlimited scalability for broadcast use cases with far more subscribers than publishers.
+
+### Memory Storage
+
+This storage method uses a segment of shared memory to store messages and channel data. Large messages as determined by Nginx's caching layer are stored on-disk. The size of the memory segment is configured with `nchan_max_reserved_memory`. Data stored here is not persistent, and is lost if Nginx is restarted or reloaded.
+
+### Redis
+
+Nchan can also store messages and channels on a Redis server, or in a Redis cluster. To use a Redis server, set `nchan_use_redis on;` and set the server url with `nchan_redis_url`. These two settings are inheritable by nested locations, so it is enough to set them within an `http { }` block to enable Redis for all Nchan locations in that block. Different locations can also use different Redis servers.
+
+To use a Redis Cluster, the Redis Servers acting as cluster nodes need to be configured in an `upstream { }` block:
+
+```nginx
+  upstream redis_cluster {
+    nchan_redis_server redis://127.0.0.1:7000;
+    nchan_redis_server redis://127.0.0.1:7001;
+    nchan_redis_server redis://127.0.0.1:7002;
+  }
+```
+
+It is best to specify all master cluster nodes, but this is not required -- as long as Nchan can connect to at least 1 node, it will discover and connect to the whole cluster.
+
+To use Redis Cluster in an Nchan location, use the `nchan_redis_pass` setting:
+
+```nginx
+  location ~ /pubsub/(\w+)$ {
+    nchan_channel_id $1;
+    nchan_pubsub;
+    nchan_redis_pass redis_cluster;
+  }
+
+```
+
+Note that `nchan_redis_pass` implies `nchan_use_redis on;`, and that this setting is *not* inherited by nested locations.
 
 ## Configuration Directives
 
@@ -391,12 +426,6 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: server, location, if  
   > Interval for sending websocket ping frames. Disabled by default.    
 
-- **nchan_access_control_allow_origin** `<string>`  
-  arguments: 1  
-  default: `*`  
-  context: http, server, location  
-  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
-
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
@@ -429,16 +458,25 @@ Publishing to multiple channels with a single request is also possible, with sim
   context: http, server, location  
   > A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers.    
 
+- **nchan_redis_pass**  
+  arguments: 1  
+  context: http, server, location  
+  > Use an upstream config block for Redis servers.    
+
 - **nchan_redis_ping_interval**  
   arguments: 1  
   default: `4m`  
-  context: http  
+  context: http, server, location  
   > Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable.    
+
+- **nchan_redis_server**  
+  arguments: 1  
+  context: upstream  
 
 - **nchan_redis_url**  
   arguments: 1  
   default: `127.0.0.1:6379`  
-  context: http  
+  context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
 
 - **nchan_store_messages** `[ on | off ]`  
@@ -453,6 +491,12 @@ Publishing to multiple channels with a single request is also possible, with sim
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
+
+- **nchan_access_control_allow_origin** `<string>`  
+  arguments: 1  
+  default: `*`  
+  context: http, server, location  
+  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
 
 - **nchan_channel_group** `<string>`  
   arguments: 1  

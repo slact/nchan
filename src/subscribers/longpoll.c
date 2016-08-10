@@ -519,7 +519,7 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_set_dequeue_callback,
   &longpoll_reserve,
   &longpoll_release,
-  NULL,
+  &nchan_subscriber_empty_notify,
   &nchan_subscriber_authorize_subscribe
 };
 
