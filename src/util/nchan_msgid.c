@@ -273,12 +273,19 @@ ngx_int_t nchan_extract_from_multi_msgid(nchan_msg_id_t *src, uint16_t n, nchan_
   uint8_t count = src->tagcount;
   int16_t *tags;
   
-  if(src->time == 0 || src->time == -1) {
+  if(src->time == NCHAN_OLDEST_MSGID_TIME || src->time == NCHAN_NEWEST_MSGID_TIME) {
     dst->time = src->time;
     dst->tag.fixed[0] = 0;
     dst->tagcount = 1;
     dst->tagactive = 0;
     return NGX_OK;
+  }
+  else if(src->time == NCHAN_NTH_MSGID_TIME) {
+    dst->time = src->time;
+    dst->tag.fixed[0] = src->tag.fixed[0];
+    dst->tagcount = 1;
+    dst->tagactive = 0;
+    return NGX_OK; 
   }
   
   if(n > count) {
@@ -356,8 +363,14 @@ ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int
   return NGX_DECLINED;
 }
 
+
+
 nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
+  static nchan_msg_id_t           nth_msg_id = NCHAN_NTH_MSGID;
+  static nchan_msg_id_t           oldest_msg_id = NCHAN_OLDEST_MSGID;
+  static nchan_msg_id_t           newest_msg_id = NCHAN_NEWEST_MSGID;
+  
   ngx_str_t                      *if_none_match;
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
@@ -414,10 +427,18 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   }
   
   //eh, we didn't find a valid alt_msgid value from variables. use the defaults
-  id.time = cf->subscriber_start_at_oldest_message ? 0 : -1;
-  id.tagcount=1;
-  id.tagactive=0;
-  id.tag.fixed[0] = 0;
+  switch(cf->subscriber_first_message) {
+    case 1:
+      id = oldest_msg_id;
+      break;
+    case 0: 
+      id = newest_msg_id;
+      break;
+    default:
+      id = nth_msg_id;
+      id.tag.fixed[0] = cf->subscriber_first_message;
+      break;
+  }
   return &id;
 }
 
