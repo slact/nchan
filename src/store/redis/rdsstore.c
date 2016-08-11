@@ -1705,7 +1705,6 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
   else {
     d->callback(NGX_ERROR, NULL, d->privdata);
   }
-  ngx_free(d);
 }
 
 static void redisChannelDeleteCallback(redisAsyncContext *c, void *r, void *privdata);
