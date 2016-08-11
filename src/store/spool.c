@@ -239,8 +239,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     }
 
     
-    if(newspool->non_internal_sub_count > 0 && spl->handlers->bulk_post_subscribe != NULL) {
-      spl->handlers->bulk_post_subscribe(spl, newspool->non_internal_sub_count, spl->handlers_privdata);
+    if(newspool->non_internal_sub_count > 0 && spl->handlers->use != NULL) {
+      spl->handlers->use(spl, spl->handlers_privdata);
     }
     
     if(newspool->sub_count > 0) {
@@ -671,8 +671,8 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
       assert(0);
   }
   
-  if(self->handlers->bulk_post_subscribe != NULL && subtype != INTERNAL) {
-    self->handlers->bulk_post_subscribe(self, 1, self->handlers_privdata);
+  if(self->handlers->use != NULL && subtype != INTERNAL) {
+    self->handlers->use(self, self->handlers_privdata);
   }
   
   //validate_spooler(self, "after add_subscriber");

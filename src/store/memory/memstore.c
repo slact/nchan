@@ -672,7 +672,7 @@ void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n) {
   }
 }
 
-static void memstore_spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
+static void memstore_spooler_use_handler(channel_spooler_t *spl, void *d) {
   memstore_channel_head_t  *head = d;
   time_t t = ngx_time();
   //ugh, this is so redundant. TODO: clean this shit up
@@ -770,7 +770,7 @@ static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
     memstore_spooler_add_handler,
     NULL,
     memstore_spooler_bulk_dequeue_handler,
-    memstore_spooler_bulk_post_subscribe_handler,
+    memstore_spooler_use_handler,
     NULL,
     NULL
   };

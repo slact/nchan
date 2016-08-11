@@ -1202,7 +1202,7 @@ static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, v
   
 }
 
-static void spooler_bulk_post_subscribe_handler(channel_spooler_t *spl, int n, void *d) {
+static void spooler_use_handler(channel_spooler_t *spl, void *d) {
   //nothing. 
 }
 
@@ -1220,7 +1220,7 @@ static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
     spooler_add_handler,
     spooler_dequeue_handler,
     NULL,
-    spooler_bulk_post_subscribe_handler,
+    spooler_use_handler,
     spooler_get_message_start_handler,
     spooler_get_message_finish_handler
   };
