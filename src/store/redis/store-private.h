@@ -159,6 +159,11 @@ struct rdstore_data_s {
   redis_cluster_node_t             node;
   rdstore_channel_head_t          *channels_head;
   
+  int                              stall_counter;
+  int                              stall_counter_while_checking;
+  ngx_event_t                      stall_timer;
+  unsigned                         stall_count_check:1;
+  
   unsigned                         shutting_down:1;
 }; // rdstore_data_t
 
