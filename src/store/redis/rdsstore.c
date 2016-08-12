@@ -1767,7 +1767,7 @@ static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *pri
     rdata_stallcheck_subtract(rdata);
   }
   
-  if(!clusterKeySlotOk(ac, r)) {
+  if(!clusterKeySlotOk(ac, r) && ac) {
     redis_channel_callback_data_t  *d = privdata;
 
     cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_delete_channel_send, privdata);
@@ -1813,7 +1813,7 @@ static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privd
     rdata_stallcheck_subtract(rdata);
   }
   
-  if(!clusterKeySlotOk(ac, r) && rdata) {
+  if(!clusterKeySlotOk(ac, r) && ac) {
     redis_channel_callback_data_t  *d = privdata;
     cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_find_channel_send, privdata);
     return;
