@@ -140,6 +140,8 @@ struct rdstore_data_s {
   ngx_str_t                       *connect_url;
   redis_connect_params_t           connect_params;
   
+  ngx_peer_connection_t            pc;
+  
   redisAsyncContext               *ctx;
   redisAsyncContext               *sub_ctx;
   redisContext                    *sync_ctx;
