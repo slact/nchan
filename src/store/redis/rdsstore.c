@@ -1595,11 +1595,11 @@ ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *reaper, rdstore_channe
     
     nchan_reaper_add(reaper, head);
     
-    DBG("gc_add chanhead %V to %V (%s)", &head->id, reaper->name, reason);
+    DBG("gc_add chanhead %V to %s (%s)", &head->id, reaper->name, reason);
   }
   else {
     assert(head->in_gc_reaper == reaper);
-    ERR("gc_add chanhead %V to %V: already added (%s)", &head->id, reaper->name, reason);
+    ERR("gc_add chanhead %V to %s: already added (%s)", &head->id, reaper->name, reason);
   }
 
   return NGX_OK;
