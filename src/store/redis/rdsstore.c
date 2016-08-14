@@ -1270,6 +1270,7 @@ typedef struct {
 static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
   redis_subscriber_register_t   *d = pd;
   if(rdata) {
+    d->chanhead->reserved++;
     redis_command(rdata, &redis_subscriber_register_callback, d, "EVALSHA %s 0 %b - %i", redis_lua_scripts.subscriber_register.hash, STR(&d->chanhead->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
   }
   else {
@@ -1311,7 +1312,7 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
   int                          keepalive_ttl;
   
   rdata_stallcheck_subtract(rdata);
-  
+  sdata->chanhead->reserved--;
   sdata->sub->fn->release(sdata->sub, 0);
   
   if(!clusterKeySlotOk(c, reply)) {
@@ -1424,6 +1425,7 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
 static void redisChannelKeepaliveCallback_send(rdstore_data_t *rdata, void *pd) {
   rdstore_channel_head_t   *head = pd;
   if(rdata) {
+    head->reserved++;
     redis_command(rdata, &redisChannelKeepaliveCallback, head, "EVALSHA %s 0 %b %i", redis_lua_scripts.channel_keepalive.hash, STR(&head->id), REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL);
   }
 }
@@ -1433,6 +1435,7 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
   redisReply               *reply = (redisReply *)vr;
   rdstore_data_t           *rdata = c->data;
   
+  head->reserved--;
   rdata_stallcheck_subtract(rdata);
   
   if(!clusterKeySlotOk(c, vr)) {
