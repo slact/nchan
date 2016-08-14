@@ -1463,6 +1463,15 @@ static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
   }
 }
 
+void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_data_t *rdata) {
+  head->rd_prev = NULL;
+  head->rd_next = rdata->channels_head;
+  if(rdata->channels_head) {
+    rdata->channels_head->rd_prev = head;
+  }
+  rdata->channels_head = head;
+}
+
 static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdstore_data_t *rdata) {
   rdstore_channel_head_t   *head;
   
@@ -1509,7 +1518,9 @@ static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdst
     head->cluster.enabled = 1;
     redis_cluster_associate_chanhead_with_rdata(head);
   }
-  
+  else {
+    redis_associate_chanhead_with_rdata(head, rdata);
+  }
   
   head->spooler.running=0;
   start_chanhead_spooler(head);

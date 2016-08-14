@@ -1073,12 +1073,7 @@ rdstore_data_t *redis_cluster_rdata_from_channel(rdstore_channel_head_t *ch) {
   assert(ch->rd_next == NULL);
   
   if(rdata) {
-    ch->rd_prev = NULL;
-    ch->rd_next = rdata->channels_head;
-    if(rdata->channels_head) {
-      rdata->channels_head->rd_prev = ch;
-    }
-    rdata->channels_head = ch;
+    redis_associate_chanhead_with_rdata(ch, rdata);
   }
   else {
     redis_cluster_t   *cluster = ch->rdt->node.cluster;
