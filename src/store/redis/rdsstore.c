@@ -343,7 +343,6 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
       ngx_del_timer(&rdata->stall_timer);
     }
     
-    
     if(prev_status == CONNECTED) {
       rdstore_channel_head_t   *cur;
       
@@ -351,11 +350,12 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
         //not in a cluster -- disconnect all subs right away
         for(cur = rdata->channels_head; cur != NULL; cur = cur->rd_next) {
           cur->spooler.fn->broadcast_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-          redis_chanhead_gc_add(cur, 0, "redis connection gone");
+          if(!cur->in_gc_reaper) {
+            redis_chanhead_gc_add(cur, 0, "redis connection gone");
+          }
         }
         nchan_reaper_flush(&rdata->chanhead_reaper);
       }
-      
     }
     
     if(ac) {
