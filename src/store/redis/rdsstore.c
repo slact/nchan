@@ -19,7 +19,8 @@
 #define REDIS_LUA_HASH_LENGTH 40
 
 #define REDIS_RECONNECT_TIME 5000
-#define REDIS_STALL_CHECK_TIME 5000
+
+#define REDIS_STALL_CHECK_TIME 0 //disable for now
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -374,7 +375,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     rdata->stall_count_check = 0;
     rdata->stall_counter_while_checking = 0;
     rdata->stall_counter = 0;
-    if(!rdata->stall_timer.timer_set) {
+    if(!rdata->stall_timer.timer_set && REDIS_STALL_CHECK_TIME > 0) {
       ngx_add_timer(&rdata->stall_timer, REDIS_STALL_CHECK_TIME);
     }
     
@@ -2159,7 +2160,9 @@ static void redis_stall_timer_handler(ngx_event_t *ev) {
     rdata->stall_count_check = 1;
   }
   //ERR("redis_stall_timer_handler POST ctr: %d ctr_while_checking: %d, chk: %i", rdata->stall_counter, rdata->stall_counter_while_checking, rdata->stall_count_check);
-  ngx_add_timer(ev, REDIS_STALL_CHECK_TIME);
+  if(REDIS_STALL_CHECK_TIME > 0) {
+    ngx_add_timer(ev, REDIS_STALL_CHECK_TIME);
+  }
 }
 
 rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf) {
