@@ -230,6 +230,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.ping_interval),
     NULL } ,
 
+  { ngx_string("nchan_redis_fakesub_timer_interval"),
+    NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_msec_slot,
+    NGX_HTTP_MAIN_CONF_OFFSET,
+    offsetof(nchan_main_conf_t, redis_fakesub_timer_interval),
+    NULL } ,
+
   { ngx_string("nchan_redis_idle_channel_cache_timeout"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_sec_slot,

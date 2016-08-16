@@ -19,7 +19,8 @@
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 5
 
-#define REDIS_FAKESUB_TIMER_INTERVAL 100
+static ngx_int_t redis_fakesub_timer_interval;
+#define REDIS_DEFAULT_FAKESUB_TIMER_INTERVAL 100;
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -660,14 +661,14 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 #define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (!head->stub && head->cf->redis.enabled == 1 && head->status == WAITING && head->owner == head->slot)
 
 void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n) {
-  if(REDIS_FAKESUB_TIMER_INTERVAL == 0) {
+  if(redis_fakesub_timer_interval == 0) {
     nchan_store_redis_fakesub_add(&head->id, head->cf, n, head->shutting_down);
   }
   else {
     head->delta_fakesubs += n;
     if(!head->delta_fakesubs_timer_ev.timer_set && !head->shutting_down && !ngx_exiting && !ngx_quit) {
       //ERR("%V start fakesub timer", &head->id);
-      ngx_add_timer(&head->delta_fakesubs_timer_ev, REDIS_FAKESUB_TIMER_INTERVAL);
+      ngx_add_timer(&head->delta_fakesubs_timer_ev, redis_fakesub_timer_interval);
     }
   }
 }
@@ -898,7 +899,7 @@ static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
   memstore_channel_head_t *head = (memstore_channel_head_t *)ev->data;
   if(send_redis_fakesub_delta(head) && !ngx_exiting && !ngx_quit && ev->timedout) {
     ev->timedout = 0;
-    ngx_add_timer(ev, REDIS_FAKESUB_TIMER_INTERVAL);
+    ngx_add_timer(ev, redis_fakesub_timer_interval);
   }
 }
 
@@ -1470,12 +1471,18 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   if(conf->shm_size==NGX_CONF_UNSET_SIZE) {
     conf->shm_size=NCHAN_DEFAULT_SHM_SIZE;
   }
+  if(conf->redis_fakesub_timer_interval == NGX_CONF_UNSET_MSEC) {
+    conf->redis_fakesub_timer_interval = REDIS_DEFAULT_FAKESUB_TIMER_INTERVAL;
+  }
+  redis_fakesub_timer_interval = conf->redis_fakesub_timer_interval;
+  
   shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_nchan_module);
   return NGX_OK;
 }
 
 static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
   mcf->shm_size=NGX_CONF_UNSET_SIZE;
+  mcf->redis_fakesub_timer_interval=NGX_CONF_UNSET_MSEC;
 }
 
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {

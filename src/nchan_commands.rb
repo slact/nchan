@@ -260,6 +260,14 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
+  nchan_redis_fakesub_timer_interval [:main],
+      :ngx_conf_set_msec_slot,
+      [:main_conf, :redis_fakesub_timer_interval],
+      
+      group: "tweak",
+      undocumented: true,
+      default: "100ms"
+  
   nchan_redis_idle_channel_cache_timeout [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,
       [:loc_conf, :redis_idle_channel_cache_timeout],

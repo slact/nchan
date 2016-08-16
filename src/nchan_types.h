@@ -15,6 +15,7 @@ typedef enum {
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
+  ngx_msec_t                      redis_fakesub_timer_interval;
 } nchan_main_conf_t;
 
 
