@@ -1115,6 +1115,11 @@ rdstore_data_t *redis_cluster_rdata_from_key(rdstore_data_t *rdata, ngx_str_t *k
       hashable.data = (u_char *)start;
       hashable.len = (end - start);
     }
+    else {
+      hashable = *key;
+      // not quite right -- need to ignore zero-length {} and scan to the next {
+      // but it's good enough for the keys we're using
+    }
     return redis_cluster_rdata(rdata, &hashable);
   }
   return redis_cluster_rdata(rdata, key);
