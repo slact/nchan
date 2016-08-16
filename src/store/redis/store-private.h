@@ -158,6 +158,7 @@ struct rdstore_data_s {
   //cluster stuff
   redis_cluster_node_t             node;
   rdstore_channel_head_t          *channels_head;
+  rdstore_channel_head_t          *almost_deleted_channels_head;
   
   int                              stall_counter;
   int                              stall_counter_while_checking;

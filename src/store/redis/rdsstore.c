@@ -253,23 +253,33 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   
   DBG("reap channel %V", &ch->id);
 
-  if((rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
-    redis_subscriber_command(rdata, NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
-    
-    if(ch->rd_prev) {
-      ch->rd_prev->rd_next = ch->rd_next;
-    }
-    if(ch->rd_next) {
-      ch->rd_next->rd_prev = ch->rd_prev;
-    }
-    if(rdata->channels_head == ch) {
-      rdata->channels_head = ch->rd_next;
-    }
-    if(rdata->node.cluster && rdata->node.cluster->orphan_channels_head == ch) {
-      rdata->node.cluster->orphan_channels_head = ch->rd_next;
-    }
+  rdata = redis_cluster_rdata_from_channel(ch);
+  redis_subscriber_command(rdata, NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
+  
+  if(ch->rd_prev) {
+    ch->rd_prev->rd_next = ch->rd_next;
   }
+  if(ch->rd_next) {
+    ch->rd_next->rd_prev = ch->rd_prev;
+  }
+  if(rdata->channels_head == ch) {
+    rdata->channels_head = ch->rd_next;
+  }
+  
+  if(rdata->almost_deleted_channels_head) {
+    ch->rd_next = rdata->almost_deleted_channels_head;
+    rdata->almost_deleted_channels_head->rd_prev = ch;
+    ch->rd_prev = NULL;
+  }
+  rdata->almost_deleted_channels_head = ch;
+  
+  
+  if(rdata->node.cluster && rdata->node.cluster->orphan_channels_head == ch) {
+    rdata->node.cluster->orphan_channels_head = ch->rd_next;
+  }
+  
   ch->pubsub_subscribed = 0;
+  
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
   if(ch->keepalive_timer.timer_set) {
     ngx_del_timer(&ch->keepalive_timer);
@@ -296,6 +306,7 @@ static void free_chanhead(rdstore_channel_head_t *ch) {
   DBG("freed channel %V %p", &ch->id, ch);
   
   ngx_free(ch);
+
 }
 
 static ngx_int_t nchan_redis_chanhead_ready_to_reap(rdstore_channel_head_t *ch, uint8_t force) {
@@ -374,7 +385,12 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
             redis_chanhead_gc_add(cur, 0, "redis connection gone");
           }
         }
+        
         nchan_reaper_flush(&rdata->chanhead_reaper);
+        
+        while((cur = rdata->almost_deleted_channels_head) != NULL) {
+          free_chanhead(cur);
+        }
       }
     }
     
@@ -1214,6 +1230,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_INT(reply->element[2])) {
 
     DBG("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    free_chanhead(chanhead);
   }
   
   else {
@@ -2207,6 +2224,9 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->stall_count_check = 0;
   rdata->stall_counter = 0;
   rdata->stall_counter_while_checking = 0;
+  
+  rdata->channels_head = NULL;
+  rdata->almost_deleted_channels_head = NULL;
   
   rdstore_initialize_chanhead_reaper(&rdata->chanhead_reaper, "redis chanhead", url);
   
