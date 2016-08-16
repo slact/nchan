@@ -276,6 +276,25 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   }
   stop_spooler(&ch->spooler, 1);
   CHANNEL_HASH_DEL(ch);
+  
+  
+  //don't free the actual chanhead. That will be done once an UNSUBSCRIBE reply is received.
+}
+
+static void free_chanhead(rdstore_channel_head_t *ch) {
+  rdstore_data_t   *rdata = redis_cluster_rdata_from_channel(ch);
+  if(ch->rd_prev) {
+    ch->rd_prev->rd_next = ch->rd_next;
+  }
+  if(ch->rd_next) {
+    ch->rd_next->rd_prev = ch->rd_prev;
+  }
+  if(rdata->almost_deleted_channels_head == ch) {
+    rdata->almost_deleted_channels_head = ch->rd_next;
+  }
+
+  DBG("freed channel %V %p", &ch->id, ch);
+  
   ngx_free(ch);
 }
 
@@ -1476,7 +1495,7 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
   rdata->channels_head = head;
 }
 
-static rdstore_channel_head_t *chanhead_redis_create(ngx_str_t *channel_id, rdstore_data_t *rdata) {
+static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata) {
   rdstore_channel_head_t   *head;
   
   head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
@@ -1549,7 +1568,7 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
   
   CHANNEL_HASH_FIND(channel_id, head);
   if(head==NULL) {
-    head = chanhead_redis_create(channel_id, rdata);
+    head = create_chanhead(channel_id, rdata);
   }
   if(head == NULL) {
     ERR("can't create chanhead for redis store");
