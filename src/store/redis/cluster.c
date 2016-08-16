@@ -773,7 +773,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
   redis_cluster_t               *cluster = NULL;
   ngx_uint_t                     num_master_nodes = 0;
   uint32_t                       homebrew_cluster_id = 0;
-  int                            configured_unverified_nodes;
+  int                            configured_unverified_nodes = 0;
   
   nchan_list_t                   unassociated_nodes;
   nchan_list_el_t               *cur;
