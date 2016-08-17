@@ -268,8 +268,12 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   }
   
   if(rdata->almost_deleted_channels_head) {
-    ch->rd_next = rdata->almost_deleted_channels_head;
     rdata->almost_deleted_channels_head->rd_prev = ch;
+    ch->rd_next = rdata->almost_deleted_channels_head;
+    ch->rd_prev = NULL;
+  }
+  else {
+    ch->rd_next = NULL;
     ch->rd_prev = NULL;
   }
   rdata->almost_deleted_channels_head = ch;
