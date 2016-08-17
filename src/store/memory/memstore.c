@@ -520,6 +520,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shmtx_lock(shm);
     d->generation ++;
     d->current_active_workers = 0;
+    ngx_memzero(&d->stats, sizeof(d->stats));
     shmtx_unlock(shm);
   }
   else {
@@ -541,12 +542,29 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
+    ngx_memzero(&d->stats, sizeof(d->stats));
     DBG("Shm created with data at %p", d);
 #if NCHAN_MSG_LEAK_DEBUG
     shdata->msgdebug_head = NULL;
 #endif
   }
   return NGX_OK;
+}
+
+
+void __memstore_update_stub_status(off_t offset, int count) {
+  if(nchan_stub_status_enabled) {
+    ngx_atomic_uint_t  *counter = (ngx_atomic_uint_t *)((char *)&shdata->stats + offset);
+    ngx_atomic_fetch_add(counter, count);
+  }
+}
+
+nchan_stub_status_t *nchan_get_stub_status_stats(void) {
+  return &shdata->stats;
+}
+
+ngx_uint_t nchan_get_used_shmem(void) {
+  assert(0); // don't know how to do this yet
 }
 
 static int send_redis_fakesub_delta(memstore_channel_head_t *head) {
@@ -573,8 +591,10 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
       ngx_del_timer(&ch->delta_fakesubs_timer_ev);
     }
   }
-  if(ch->owner == memstore_slot() && ch->shared) {
-    shm_free(shm, ch->shared);
+  if(ch->owner == memstore_slot()) {
+    nchan_update_stub_status(channels, -1);
+    if(ch->shared)
+      shm_free(shm, ch->shared);
   }
   DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
   CHANNEL_HASH_DEL(ch);
@@ -703,7 +723,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
     if(head->cf && head->cf->redis.enabled && !head->multi) {
       memstore_fakesub_add(head, 1);
     }
-    
+    nchan_update_stub_status(subscribers, 1);
     if(head->multi) {
       ngx_int_t      i, max = head->multi_count;
       subscriber_t  *msub;
@@ -741,6 +761,8 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
     if(head->cf && head->cf->redis.enabled && !head->multi) {
       memstore_fakesub_add(head, -count);
     }
+    
+    nchan_update_stub_status(subscribers, -count);
     
     if(head->multi) {
       ngx_int_t     i, max = head->multi_count;
@@ -956,6 +978,8 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->shared->total_message_count = 0;
     head->shared->stored_message_count = 0;
     head->shared->last_seen = ngx_time();
+    
+    nchan_update_stub_status(channels, 1);
   }
   else {
     head->shared = NULL;
@@ -1622,6 +1646,7 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   nchan_free_msg_id(&msg->prev_id);
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
   shm_free(shm, msg);
+  nchan_update_stub_status(messages, -1);
   return NGX_OK;
 }
 
@@ -2718,7 +2743,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     publish_msg->prev_id.tagcount = 1;
     
     nchan_reaper_add(&mpt->nobuffer_msg_reaper, shmsg_link);
-    
     //DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   }
   else {
@@ -2741,6 +2765,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     assert(chead->msg_last == shmsg_link);
     publish_msg = shmsg_link->msg;
   }
+  
   nchan_copy_msg_id(&chead->latest_msgid, &publish_msg->id, NULL);
   if (chead->shared) {
     channel_copy->last_seen = chead->shared->last_seen;
@@ -2751,10 +2776,14 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag.fixed[0] != publish_msg->prev_id.tag.fixed[0]));
   //DBG("publish %V expire %i", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   //DBG("prev: %V", msgid_to_str(&publish_msg->prev_id));
+  /*
   if(publish_msg->buf && publish_msg->buf->file) {
     DBG("fd %i", publish_msg->buf->file->fd);
   }
- 
+  */
+  
+  nchan_update_stub_status(messages, 1);
+  
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
   
   if(cf->redis.enabled) {

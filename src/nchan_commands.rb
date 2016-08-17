@@ -336,6 +336,14 @@ CfCmd.new do
       group: "meta",
       info: "Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'."
   
+  nchan_stub_status [:loc],
+      :nchan_stub_status_directive,
+      :loc_conf,
+      args: 0,
+      
+      group: "meta",
+      info: "Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics."
+  
   nchan_channel_event_string [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :channel_event_string],

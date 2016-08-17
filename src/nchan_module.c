@@ -27,6 +27,8 @@
 #include <nchan_websocket_publisher.h>
 
 ngx_int_t           nchan_worker_processes;
+int                 nchan_stub_status_enabled = 0;
+
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -186,6 +188,48 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
     return rc;
   }
   return NGX_DONE;
+}
+
+ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
+  ngx_buf_t           *b;
+  ngx_chain_t          out;
+  nchan_stub_status_t *stats;
+  
+  char     *buf_fmt = "total published messages: %ui\n"
+                      "stored messages: %ui\n"
+                      "shared memory used: %s\n"
+                      "channels: %ui\n"
+                      "subscribers: %ui\n"
+                      "redis pending commands: %ui\n"
+                      "redis connected servers: %ui\n";
+  
+  if ((b = ngx_pcalloc(r->pool, sizeof(*b) + 500)) == NULL) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "Failed to allocate response buffer.");
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  
+  stats = nchan_get_stub_status_stats();
+  
+  b->start = (u_char *)&b[1];
+  b->pos = b->start;
+  
+  b->end = ngx_snprintf(b->start, 500, buf_fmt, stats->total_published_messages, stats->messages, "?", stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers);
+  b->last = b->end;
+
+  b->memory = 1;
+  b->last_buf = 1;
+  
+  r->headers_out.status = NGX_HTTP_OK;
+  r->headers_out.content_type.len = sizeof("text/plain") - 1;
+  r->headers_out.content_type.data = (u_char *) "text/plain";
+  
+  r->headers_out.content_length_n = b->end - b->start;
+  ngx_http_send_header(r);
+  
+  out.buf = b;
+  out.next = NULL;
+  
+  return ngx_http_output_filter(r, &out);
 }
 
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
@@ -455,8 +499,8 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
-  
   cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
+  nchan_update_stub_status(total_published_messages, 1);
 #if FAKESHARD
   memstore_pub_debug_end();
 #endif

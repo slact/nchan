@@ -133,13 +133,14 @@ typedef struct {
   ngx_rwlock_t                   lock;
 } nchan_worker_msg_sentinel_t;
 
-//shared memory
 typedef struct {
-  ngx_rbtree_t                  tree;
-  ngx_uint_t                    channels; //# of channels being used
-  ngx_uint_t                    messages; //# of channels being used
-  nchan_worker_msg_sentinel_t  *ipc; //interprocess stuff
-} nchan_shm_data_t;
+  ngx_atomic_uint_t      channels;
+  ngx_atomic_uint_t      subscribers;
+  ngx_atomic_uint_t      total_published_messages;
+  ngx_atomic_uint_t      messages;
+  ngx_atomic_uint_t      redis_pending_commands;
+  ngx_atomic_uint_t      redis_connected_servers;
+} nchan_stub_status_t;
 
 typedef struct subscriber_s subscriber_t;
 

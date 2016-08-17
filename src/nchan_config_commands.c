@@ -322,6 +322,13 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
+  { ngx_string("nchan_stub_status"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+    nchan_stub_status_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_channel_event_string"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_http_set_complex_value_slot,

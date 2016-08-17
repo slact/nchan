@@ -652,6 +652,12 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   return rc;
 }
 
+static char *nchan_stub_status_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_stub_status_enabled = 1;
+  return nchan_setup_handler(cf, conf, &nchan_stub_status_handler);
+}
+
+
 static ngx_int_t nchan_upstream_dummy_roundrobin_init(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us) {
   return NGX_OK;
 }
