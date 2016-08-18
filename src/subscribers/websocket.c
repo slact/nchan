@@ -4,7 +4,7 @@
 #include <ngx_crypt.h>
 #include <ngx_sha1.h>
 #include <nginx.h>
-
+#include <store/memory/store.h>
 
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -340,6 +340,7 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   
   websocket_reserve(&fsub->sub);
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub); 
+  nchan_update_stub_status(total_published_messages, 1);
   
 }
 
