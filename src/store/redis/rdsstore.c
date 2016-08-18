@@ -2382,8 +2382,10 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   
   HASH_ITER(hh, chanhead_hash, cur, tmp) {
     cur->shutting_down = 1;
-    if(!cur->in_gc_reaper)
+    if(!cur->in_gc_reaper) {
+      cur->spooler.fn->broadcast_status(&cur->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
       redis_chanhead_gc_add(cur, 0, "exit worker");
+    }
   }
   
   rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
