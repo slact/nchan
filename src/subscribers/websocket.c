@@ -4,7 +4,6 @@
 #include <ngx_crypt.h>
 #include <ngx_sha1.h>
 #include <nginx.h>
-#include <store/memory/store.h>
 
 
 //#define DEBUG_LEVEL NGX_LOG_WARN

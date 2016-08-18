@@ -47,6 +47,9 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_event_type_t);
 
+#define nchan_update_stub_status(counter_name, count) __memstore_update_stub_status(offsetof(nchan_stub_status_t, counter_name), count)
+void __memstore_update_stub_status(off_t offset, int count);
+
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
 void subscriber_debug_add(subscriber_t *);
 void subscriber_debug_remove(subscriber_t *);
