@@ -169,11 +169,11 @@ struct full_subscriber_s {
   nchan_pub_upstream_stuff_t  *upstream_stuff;
   
   ngx_event_t             ping_ev;
+  unsigned                awaiting_pong:1;
   unsigned                ws_meta_subprotocol:1;
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                connected:1;
-  unsigned                pinging:1;
   unsigned                closing:1;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
@@ -193,12 +193,18 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, ngx_
 static ngx_int_t websocket_reserve(subscriber_t *self);
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 
+static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
+  ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+}
+
+
 static void sudden_abort_handler(subscriber_t *sub) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
 #if FAKESHARD
   memstore_fakeprocess_push(fsub->sub.owner);
 #endif
   fsub->connected = 0;
+  sub->request->read_event_handler = aborted_ws_close_request_rev_handler;
   sub->status = DEAD;
   sub->fn->dequeue(sub);
 #if FAKESHARD
@@ -600,7 +606,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->holding = 0;
   fsub->shook_hands = 0;
   fsub->connected = 0;
-  fsub->pinging = 0;
+  fsub->awaiting_pong = 0;
   fsub->closing = 0;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
@@ -816,9 +822,16 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
 static void ping_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
   if(ev->timedout) {
-    websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0, NULL); 
     ev->timedout=0;
-    ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+    if(fsub->awaiting_pong) {
+      //never got a PONG back
+      ngx_http_finalize_request(fsub->sub.request, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+    }
+    else {
+      fsub->awaiting_pong = 1;
+      websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0, NULL); 
+      ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+    }
   }
 }
 
@@ -1064,6 +1077,13 @@ static void websocket_reading(ngx_http_request_t *r) {
             
           case WEBSOCKET_OPCODE_PONG:
             DBG("%p Got ponged", fsub);
+            if(fsub->awaiting_pong) {
+              fsub->awaiting_pong = 0;
+            }
+            else { //unexpected PONG. quit.
+              websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0, NULL);
+              goto finalize;
+            }
             break;
             
           case WEBSOCKET_OPCODE_CLOSE:
