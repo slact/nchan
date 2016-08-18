@@ -160,10 +160,8 @@ struct rdstore_data_s {
   rdstore_channel_head_t          *channels_head;
   rdstore_channel_head_t          *almost_deleted_channels_head;
   
-  int                              stall_counter;
-  int                              stall_counter_while_checking;
+  ngx_int_t                        pending_commands;
   ngx_event_t                      stall_timer;
-  unsigned                         stall_count_check:1;
   
   unsigned                         shutting_down:1;
 }; // rdstore_data_t

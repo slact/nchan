@@ -39,17 +39,6 @@ redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
   return rdata->status;
 }
 
-static void rdata_stallcheck_add(rdstore_data_t *rdata) {
-  if(rdata->stall_count_check)
-    rdata->stall_counter_while_checking++;
-  else
-    rdata->stall_counter++;
-}
-static void rdata_stallcheck_subtract(rdstore_data_t *rdata) {
-  rdata->stall_counter--;
-}
-
-
 ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb, void *privdata) {
   rdstore_data_t    *rdata = cf->redis.privdata;
   callback_chain_t  *d;
@@ -78,7 +67,7 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb
 #define redis_command(rdata, cb, pd, fmt, args...)                   \
   do {                                                               \
     if(redis_ensure_connected(rdata) == NGX_OK) {                    \
-      rdata_stallcheck_add(rdata);                                   \
+      rdata->pending_commands++;                                     \
       nchan_update_stub_status(redis_pending_commands, 1);           \
       redisAsyncCommand((rdata)->ctx, cb, pd, fmt, ##args);          \
     } else {                                                         \
@@ -382,6 +371,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     if(prev_status == CONNECTED) {
       rdstore_channel_head_t   *cur;
       
+      //nchan_update_stub_status(redis_pending_commands, -(rdata->pending_commands)); // not  necessary, callbacks will be called
       nchan_update_stub_status(redis_connected_servers, -1);
       
       if(!rdata->node.cluster) {
@@ -448,7 +438,7 @@ static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply         *reply = (redisReply *)r;
   rdstore_data_t     *rdata = c->data;
   
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(redisReplyOk(c, r)) {
@@ -871,7 +861,7 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *pr
   ngx_str_t            *chid = &d->channel_id;
   rdstore_data_t       *rdata = c->data;
   
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   DBG("get_msg_from_msgkey_callback");
@@ -1359,7 +1349,7 @@ static void redis_subscriber_register_callback(redisAsyncContext *c, void *vr, v
   rdstore_data_t              *rdata = c->data;
   int                          keepalive_ttl;
   
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   sdata->chanhead->reserved--;
@@ -1415,7 +1405,7 @@ static void redis_subscriber_unregister_callback(redisAsyncContext *c, void *r, 
   redisReply      *reply = r;
   rdstore_data_t  *rdata = c->data;
   
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(reply && reply->type == REDIS_REPLY_ERROR) {
@@ -1487,7 +1477,7 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
   rdstore_data_t           *rdata = c->data;
   
   head->reserved--;
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(!clusterKeySlotOk(c, vr)) {
@@ -1830,7 +1820,7 @@ static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *pri
   
   if(ac) {
     rdata = ac->data;
-    rdata_stallcheck_subtract(rdata);
+    rdata->pending_commands--;
   }
   
   if(!clusterKeySlotOk(ac, r) && ac) {
@@ -1876,7 +1866,7 @@ static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privd
   
   if(ac) {
     rdata = ac->data;
-    rdata_stallcheck_subtract(rdata);
+    rdata->pending_commands--;
     nchan_update_stub_status(redis_pending_commands, -1);
   }
   
@@ -2012,7 +2002,7 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   ngx_buf_t                  msgbuf;
   rdstore_data_t            *rdata = c->data;
   
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(!clusterKeySlotOk(c, r)) {
@@ -2172,7 +2162,8 @@ ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name,
 }
 
 static void redis_stall_timer_handler(ngx_event_t *ev) {
-  rdstore_data_t  *rdata = ev->data;
+  /*rdstore_data_t  *rdata = ev->data;
+  
   
   if(!ev->timedout || ngx_exiting || ngx_quit || rdata->shutting_down)
     return;
@@ -2181,7 +2172,7 @@ static void redis_stall_timer_handler(ngx_event_t *ev) {
   if(rdata->status != CONNECTED) {
    return;
   }
-  if(rdata->stall_count_check) {
+  if( 0 ) { //stalled
     if(rdata->stall_counter > 0) {
       //yep, it stalled
       if(rdata->ctx) {
@@ -2216,6 +2207,7 @@ static void redis_stall_timer_handler(ngx_event_t *ev) {
   if(REDIS_STALL_CHECK_TIME > 0) {
     ngx_add_timer(ev, REDIS_STALL_CHECK_TIME);
   }
+  */
 }
 
 rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf) {
@@ -2236,11 +2228,9 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->lcf = lcf;
   nchan_init_timer(&rdata->reconnect_timer, redis_reconnect_timer_handler, rdata);
   nchan_init_timer(&rdata->ping_timer, redis_ping_timer_handler, rdata);
-  
+
+  rdata->pending_commands = 0;  
   nchan_init_timer(&rdata->stall_timer, redis_stall_timer_handler, rdata);
-  rdata->stall_count_check = 0;
-  rdata->stall_counter = 0;
-  rdata->stall_counter_while_checking = 0;
   
   rdata->channels_head = NULL;
   rdata->almost_deleted_channels_head = NULL;
@@ -2604,7 +2594,7 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   nchan_channel_t                ch;
   
   rdstore_data_t                *rdata = c->data;
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(!clusterKeySlotOk(c, r)) {
@@ -2672,7 +2662,7 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
   redisReply      *reply = r;
   rdstore_data_t  *rdata = c->data;
   
-  rdata_stallcheck_subtract(rdata);
+  rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(reply && reply->type == REDIS_REPLY_ERROR) {
