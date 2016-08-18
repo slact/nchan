@@ -406,9 +406,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
       ngx_add_timer(&rdata->ping_timer, rdata->ping_interval * 1000);
     }
     
-    rdata->stall_count_check = 0;
-    rdata->stall_counter_while_checking = 0;
-    rdata->stall_counter = 0;
+    rdata->pending_commands = 0;
     if(!rdata->stall_timer.timer_set && REDIS_STALL_CHECK_TIME > 0) {
       ngx_add_timer(&rdata->stall_timer, REDIS_STALL_CHECK_TIME);
     }
@@ -2193,9 +2191,6 @@ static void redis_stall_timer_handler(ngx_event_t *ev) {
       return;
     }
     else {
-      rdata->stall_counter += rdata->stall_counter_while_checking;
-      rdata->stall_count_check = 0;
-      rdata->stall_counter_while_checking = 0;
       //ERR("all good");
     }
   }
