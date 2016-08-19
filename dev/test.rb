@@ -716,7 +716,7 @@ class PubSubTest <  Minitest::Test
   #  sub.wait
   #end
   
-  def test_auth
+  def dont_test_auth
     chan = short_id
     
     subs = [ :longpoll, :eventsource, :websocket, :multipart ]
