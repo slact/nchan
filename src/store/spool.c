@@ -484,10 +484,9 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
   
   if(enqueue) {
     sub->fn->enqueue(sub);
-  }
-  
-  if(sub->type != INTERNAL && self->spooler->publish_events) {
-    nchan_maybe_send_channel_event_message(sub->request, SUB_ENQUEUE);
+    if(sub->type != INTERNAL && self->spooler->publish_events) {
+      nchan_maybe_send_channel_event_message(sub->request, SUB_ENQUEUE);
+    }
   }
   
   sub->fn->set_dequeue_callback(sub, spool_sub_dequeue_callback, &ssub->dequeue_callback_data);
