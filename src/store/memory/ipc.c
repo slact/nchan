@@ -145,6 +145,10 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
+static void ipc_record_alert_send_delay(ngx_uint_t delay) {
+  nchan_update_stub_status(ipc_total_send_delay, delay);
+}
+
 static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
   int         n;
   ngx_int_t   err;
@@ -163,6 +167,7 @@ static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
   }
   
   if(ngx_time() - alert->time_sent >= 2) {
+    ipc_record_alert_send_delay(ngx_time() - alert->time_sent);
     ERR("Sending of IPC alert delayed by %i sec", ngx_time() - alert->time_sent);
   }
   return NGX_OK;
@@ -175,7 +180,8 @@ static void ipc_write_handler(ngx_event_t *ev) {
   ipc_process_t           *proc = (ipc_process_t *) c->data;
   ipc_alert_t             *alerts = proc->wbuf.alerts;
   
-  int                      i, first = proc->wbuf.first, last = first + proc->wbuf.n;
+  int                      n = proc->wbuf.n;
+  int                      i, first = proc->wbuf.first, last = first + n;
   uint8_t                  write_aborted = 0;
   
   //DBG("%i alerts to write, with %i in overflow", proc->wbuf.n, proc->wbuf.overflow_n);
@@ -217,6 +223,8 @@ static void ipc_write_handler(ngx_event_t *ev) {
     proc->wbuf.n -= (i - first);
     //DBG("first now at %i, %i alerts remain", i, proc->wbuf.n);
   }
+  
+  nchan_update_stub_status(ipc_queue_size, proc->wbuf.n - n);
   
   if(proc->wbuf.overflow_n > 0 && i - first > 0) {
     ipc_writebuf_overflow_t  *of;
@@ -332,6 +340,10 @@ static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *
   return n;
 }
 
+static void ipc_record_alert_receive_delay(ngx_uint_t delay) {
+  nchan_update_stub_status(ipc_total_receive_delay, delay);
+}
+
 #if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
 typedef struct {
   ngx_event_t   timer;
@@ -343,6 +355,7 @@ static void fake_ipc_alert_delay_handler(ngx_event_t *ev) {
   
   if(ngx_time() - glob->alert.time_sent >= 2) {
     ERR("got IPC alert delayed by %i sec", ngx_time() - glob->alert.time_sent);
+    ipc_record_alert_receive_delay(ngx_time() - glob->alert.time_sent);
   }
   
   glob->ipc->handler(glob->alert.src_slot, glob->alert.code, glob->alert.data);
@@ -393,8 +406,10 @@ static void ipc_read_handler(ngx_event_t *ev) {
       ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);
 #else
       if(ngx_time() - alert.time_sent >= 2) {
+        ipc_record_alert_receive_delay(ngx_time() - alert.time_sent);
         ERR("got IPC alert delayed by %i sec", ngx_time() - alert.time_sent);
       }
+      nchan_update_stub_status(ipc_total_alerts_received, 1);
       ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 #endif
     }
@@ -409,6 +424,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     ERR("IPC_DATA_SIZE too small. wanted %i, have %i", data_size, IPC_DATA_SIZE);
     assert(0);
   }
+  nchan_update_stub_status(ipc_total_alerts_sent, 1);
 #if (FAKESHARD)
   
   ipc_alert_t         alert = {0};
@@ -432,6 +448,8 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   ipc_alert_t        *alert;
   
   assert(proc->active);
+  
+  nchan_update_stub_status(ipc_queue_size, 1);
   
   if(wb->n < IPC_WRITEBUF_SIZE) {
     alert = &wb->alerts[(wb->first + wb->n++) % IPC_WRITEBUF_SIZE];

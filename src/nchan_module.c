@@ -201,9 +201,14 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
                       "channels: %ui\n"
                       "subscribers: %ui\n"
                       "redis pending commands: %ui\n"
-                      "redis connected servers: %ui\n";
+                      "redis connected servers: %ui\n"
+                      //"total interprocess alerts sent: %ui\n"
+                      "total interprocess alerts received: %ui\n"
+                      "interprocess queued alerts: %ui\n"
+                      "total interprocess send delay: %ui\n"
+                      "total interprocess receive delay: %ui\n";
   
-  if ((b = ngx_pcalloc(r->pool, sizeof(*b) + 500)) == NULL) {
+  if ((b = ngx_pcalloc(r->pool, sizeof(*b) + 800)) == NULL) {
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "Failed to allocate response buffer.");
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
@@ -213,7 +218,7 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   b->start = (u_char *)&b[1];
   b->pos = b->start;
   
-  b->end = ngx_snprintf(b->start, 500, buf_fmt, stats->total_published_messages, stats->messages, "?", stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers);
+  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, "?", stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, /*stats->ipc_total_alerts_sent, */stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay);
   b->last = b->end;
 
   b->memory = 1;
