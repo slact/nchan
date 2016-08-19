@@ -25,6 +25,8 @@ for opt in $*; do
       export CC="$_clang $clang_sanitize_addres";;
     gcc5)
       export CC=gcc-5;;
+    gcc4|gcc47|gcc4.7)
+      export CC=gcc-4.7;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     debug-pool|debugpool) 
