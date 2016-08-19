@@ -1,3 +1,9 @@
+ fix: incorrectly repeated subscriber_enqueue channel events
+ fix: badly handled Redis messages with TTL < 1 (again)
+ fix: websocket didn't close connection on PING fail
+ feature: nchan_stub_status stats location
+ fix: bad memory access for Redis channels when unsubscribing and very busy
+ optimize: SSE2 & AVX2 optimizations for websocket frame unmasking
  feature: Redis Cluster support
  (WARNING:) data in Redis from previous versions will be inaccessible
  feature: different locations can use different Redis servers
