@@ -530,20 +530,28 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
 
 static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
   redisReply      *reply = r;
-  rdstore_data_t  *rdata = ac->data;
+  rdstore_data_t  *rdata;
   unsigned    i;
   //nchan_channel_t * channel = (nchan_channel_t *)privdata;
-  if(ac->err) {
-    if(rdata->status != DISCONNECTED) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed - %s", ac->errstr);
-      rdt_set_status(rdata, DISCONNECTED, ac);
+  if(ac) {
+    rdata = ac->data;
+    if(ac->err) {
+      if(rdata->status != DISCONNECTED) {
+        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed - %s", ac->errstr);
+        rdt_set_status(rdata, DISCONNECTED, ac);
+      }
+      return;
     }
+  }
+  else {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis was terminated");
     return;
   }
-  else if (reply == NULL) {
+  if(reply == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY is NULL");
     return;
-  }
+  }  
+  
   switch(reply->type) {
     case REDIS_REPLY_STATUS:
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STATUS  %s", reply->str);
