@@ -1930,7 +1930,10 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_buf_t *b
       ERR("invalid ttl integer value is msg response from redis");
       return NGX_ERROR;
     }
-    assert(ttl > 0);
+    assert(ttl >= 0);
+    if(ttl == 0)
+      ttl++; // less than a second left for this message... give it a second's lease on life
+
     msg->expires = ngx_time() + ttl;
     
     if(content_type_len > 0) {
