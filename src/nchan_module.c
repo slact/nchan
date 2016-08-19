@@ -202,8 +202,8 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
                       "subscribers: %ui\n"
                       "redis pending commands: %ui\n"
                       "redis connected servers: %ui\n"
-                      //"total interprocess alerts sent: %ui\n"
                       "total interprocess alerts received: %ui\n"
+                      "interprocess alerts in transit: %ui\n"
                       "interprocess queued alerts: %ui\n"
                       "total interprocess send delay: %ui\n"
                       "total interprocess receive delay: %ui\n";
@@ -218,7 +218,7 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   b->start = (u_char *)&b[1];
   b->pos = b->start;
   
-  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, "?", stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, /*stats->ipc_total_alerts_sent, */stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay);
+  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, "?", stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, stats->ipc_total_alerts_received, stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay);
   b->last = b->end;
 
   b->memory = 1;
