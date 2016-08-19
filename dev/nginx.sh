@@ -65,8 +65,12 @@ for opt in $*; do
       VALGRIND_OPT+=( "--vgdb=yes" "--vgdb-error=1" )
       #ATTACH_DDD=1
       ;;
+    massif)
+      VALGRIND_OPT=( "--tool=massif" "--heap=yes" "--stacks=yes" "--massif-out-file=massif-nginx-%p.out")
+      valgrind=1
+      ;;
     callgrind|profile)
-      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
+      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--branch-sim=yes" "--cache-sim=yes" "--simulate-hwpref=yes" "--simulate-wb=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
       valgrind=1;;
     helgrind)
     VALGRIND_OPT=( "--tool=helgrind" "--free-is-write=yes")
