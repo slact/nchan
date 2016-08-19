@@ -554,8 +554,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 
 void __memstore_update_stub_status(off_t offset, int count) {
   if(nchan_stub_status_enabled) {
-    ngx_atomic_uint_t  *counter = (ngx_atomic_uint_t *)((char *)&shdata->stats + offset);
-    ngx_atomic_fetch_add(counter, count);
+    ngx_atomic_fetch_add((ngx_atomic_uint_t *)((char *)&shdata->stats + offset), count);
   }
 }
 
