@@ -1819,13 +1819,13 @@ static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *pri
   if(ac) {
     rdata = ac->data;
     rdata->pending_commands--;
-  }
-  
-  if(!clusterKeySlotOk(ac, r) && ac) {
-    redis_channel_callback_data_t  *d = privdata;
-
-    cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_delete_channel_send, privdata);
-    return;
+    
+    if(!clusterKeySlotOk(ac, r)) {
+      redis_channel_callback_data_t  *d = privdata;
+      
+      cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_delete_channel_send, privdata);
+      return;
+    }
   }
   redisChannelInfoCallback(ac, r, privdata);
   ngx_free(privdata);
