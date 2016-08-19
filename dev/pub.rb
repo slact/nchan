@@ -47,7 +47,7 @@ puts "Publishing to #{url}."
 
 loopmsg=("\r"*20) + "sending message #"
 
-pub = Publisher.new url, timeout: timeout
+pub = Publisher.new url, nostore: true, timeout: timeout
 pub.accept=accept
 pub.nofail=true
 repeat=true
