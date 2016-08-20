@@ -10,7 +10,7 @@ For use in a web browser, you can try the [NchanSubscriber.js](https://github.co
 
 ## Status and History
 
-The latest Nchan release is v0.99.16 (June 10, 2016) ([changelog](https://nchan.slact.net/changelog)).
+The latest Nchan release is v1.0.0 (August 20, 2016) ([changelog](https://nchan.slact.net/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, especially Redis Cluster may be a bit buggy.
 
@@ -562,7 +562,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_stub_status**  
   arguments: 0  
   context: location  
-  > Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics.    
+  > Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.    
 
 - **nchan_max_channel_id_length** `<number>`  
   arguments: 1  

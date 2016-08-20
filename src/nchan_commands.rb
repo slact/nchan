@@ -132,7 +132,7 @@ CfCmd.new do
       
       group: "pubsub",
       value: "<string>",
-      default: "\n",
+      default: "\\n",
       info: "Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character."
   
   nchan_subscriber_first_message [:srv, :loc, :if],
