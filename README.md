@@ -335,7 +335,7 @@ Nchan makes several variables usabled in the config file:
   The current and previous (if applicable) message id for publisher request or subscriber response.
 
 - `$nchan_channel_event`
-  For channel events, this is the event name. USeful when configuring `nchan_channel_event_string`.
+  For channel events, this is the event name. Useful when configuring `nchan_channel_event_string`.
   
 Additionally, `nchan_stub_status` data is also exposed as variables. These are available only when `nchan_stub_status` is enabled on at least one location:
 
