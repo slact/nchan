@@ -342,7 +342,7 @@ CfCmd.new do
       args: 0,
       
       group: "meta",
-      info: "Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics."
+      info: "Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc."
   
   nchan_channel_event_string [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
