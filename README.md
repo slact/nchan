@@ -315,6 +315,43 @@ To use Redis Cluster in an Nchan location, use the `nchan_redis_pass` setting:
 
 Note that `nchan_redis_pass` implies `nchan_use_redis on;`, and that this setting is *not* inherited by nested locations.
 
+## Variables
+
+Nchan makes several variables usabled in the config file:
+ 
+- `$nchan_channel_id`  
+  The channel id extracted from a publisher or subscriber location request. For multiplexed locations, this is the first channel id in the list.
+
+- `$nchan_channel_id1`, `$nchan_channel_id2`, `$nchan_channel_id3`, `$nchan_channel_id4`  
+  As above, but for the nth channel id in multiplexed channels.
+
+- `$nchan_subscriber_type`  
+  For subscriber locations, this variable is set to the subscriber type (websocket, longpoll, etc.).
+
+- `$nchan_publisher_type`  
+  For subscriber locations, this variable is set to the subscriber type (http or websocket).
+  
+- `$nchan_prev_message_id`, `$nchan_message_id`
+  The current and previous (if applicable) message id for publisher request or subscriber response.
+
+- `$nchan_channel_event`
+  For channel events, this is the event name. USeful when configuring `nchan_channel_event_string`.
+  
+Additionally, `nchan_stub_status` data is also exposed as variables. These are available only when `nchan_stub_status` is enabled on at least one location:
+
+- `$nchan_stub_status_total_published_messages`  
+- `$nchan_stub_status_stored_messages`  
+- `$nchan_stub_status_shared_memory_used`  
+- `$nchan_stub_status_channels`  
+- `$nchan_stub_status_subscribers`  
+- `$nchan_stub_status_redis_pending_commands`  
+- `$nchan_stub_status_redis_connected_servers`  
+- `$nchan_stub_status_total_ipc_alerts_received`  
+- `$nchan_stub_status_ipc_queued_alerts`  
+- `$nchan_stub_status_total_ipc_send_delay`  
+- `$nchan_stub_status_total_ipc_receive_delay`  
+
+
 ## Configuration Directives
 
 - **nchan_channel_id**  
@@ -396,8 +433,7 @@ Note that `nchan_redis_pass` implies `nchan_use_redis on;`, and that this settin
 
 - **nchan_subscriber_http_raw_stream_separator** `<string>`  
   arguments: 1  
-  default: `
-`  
+  default: `\n`  
   context: server, location, if  
   > Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character.    
 
