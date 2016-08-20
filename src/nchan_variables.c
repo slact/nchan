@@ -134,10 +134,48 @@ static ngx_int_t nchan_message_alert_type_variable(ngx_http_request_t *r, ngx_ht
 }
 */
 
+static ngx_int_t nchan_stub_status_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  static u_char         buf[sizeof(nchan_stub_status_t)/sizeof(ngx_atomic_uint_t)][NGX_INT_T_LEN + 4];
+  off_t                 offset = (off_t )data;
+  int                   n = offset / sizeof(ngx_atomic_uint_t);
+  nchan_stub_status_t  *stats = nchan_get_stub_status_stats();
+  ngx_atomic_uint_t     stat = *(ngx_atomic_uint_t *)((char *)stats + offset);
+  ngx_str_t             str;
+  
+  str.data = &buf[n][0];
+  str.len = ngx_sprintf(str.data, "%ui", stat) - str.data;
+  
+  set_varval(v, str.data, str.len);
+  
+  return NGX_OK;
+}
+
+
+static ngx_int_t nchan_stub_status_ipc_alerts_in_transit(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  static u_char         buf[NGX_INT_T_LEN + 4];
+  nchan_stub_status_t  *stats = nchan_get_stub_status_stats();
+  ngx_str_t             str;
+  
+  str.data = &buf[0];
+  str.len = ngx_sprintf(str.data, "%ui", stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received) - str.data;
+  
+  set_varval(v, str.data, str.len);
+  
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_stub_status_shared_memory_used(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  set_varval(v, "?", 1);
+  return NGX_OK;
+}
 
 
 
-
+#define STUB_STATUS_VARIABLE(counter) \
+  {  ngx_string("nchan_stub_status_"#counter), nchan_stub_status_variable, offsetof(nchan_stub_status_t, counter) }
+  
+#define STUB_STATUS_NAMED_VARIABLE(var_name, counter) \
+  {  ngx_string("nchan_stub_status_" var_name), nchan_stub_status_variable, offsetof(nchan_stub_status_t, counter) }
 
 
 nchan_variable_t nchan_vars[] = {
@@ -152,6 +190,20 @@ nchan_variable_t nchan_vars[] = {
 //  { ngx_string("nchan_message"),            nchan_message_variable, 0},
   { ngx_string("nchan_prev_message_id"),    nchan_prev_message_id_variable, 0},
   { ngx_string("nchan_message_id"),         nchan_message_id_variable, 0},
+  
+  STUB_STATUS_VARIABLE(channels),
+  STUB_STATUS_VARIABLE(subscribers),
+  STUB_STATUS_VARIABLE(total_published_messages),
+  STUB_STATUS_NAMED_VARIABLE("stored_messages", messages),
+  STUB_STATUS_VARIABLE(redis_pending_commands),
+  STUB_STATUS_VARIABLE(redis_connected_servers),
+  STUB_STATUS_NAMED_VARIABLE("total_ipc_alerts_received", ipc_total_alerts_received),
+  { ngx_string("nchan_stub_status_shared_memory_used"),  nchan_stub_status_shared_memory_used, 0},
+  { ngx_string("nchan_stub_status_ipc_alerts_in_transit"),  nchan_stub_status_ipc_alerts_in_transit, 0},
+  STUB_STATUS_NAMED_VARIABLE("ipc_queued_alerts", ipc_queue_size),
+  STUB_STATUS_NAMED_VARIABLE("total_ipc_send_delay", ipc_total_send_delay),
+  STUB_STATUS_NAMED_VARIABLE("total_ipc_receive_delay", ipc_total_receive_delay),
+  
 //  { ngx_string("nchan_message_alert_type"), nchan_message_alert_type_variable, 0},
   
   { ngx_null_string,                        NULL, 0 }
