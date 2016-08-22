@@ -1,3 +1,6 @@
+1.0.1 (Aug. 22 2016)
+ feature: nchan_stub_status shared memory accounting
+ fix: various compiler warnings
 1.0.0 (Aug. 20 2016)
  fix: incorrectly repeated subscriber_enqueue channel events
  fix: badly handled Redis messages with TTL < 1 (again)
