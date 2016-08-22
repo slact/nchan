@@ -108,6 +108,8 @@ typedef struct {
   
   nchan_stub_status_t                stats;
   
+  ngx_atomic_uint_t                  shmem_pages_used;
+  
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;
 #endif

@@ -164,8 +164,10 @@ static ngx_int_t nchan_stub_status_ipc_alerts_in_transit(ngx_http_request_t *r, 
   return NGX_OK;
 }
 
-static ngx_int_t nchan_stub_status_shared_memory_used(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
-  set_varval(v, "?", 1);
+static ngx_int_t nchan_stub_status_shared_memory_used(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t d) {
+  static u_char data[30];
+  
+  set_varval(v, data, ngx_snprintf(data, 30, "%fK", (float )((float )nchan_get_used_shmem() / 1024.0)) - data);
   return NGX_OK;
 }
 

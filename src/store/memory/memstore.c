@@ -517,10 +517,12 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     zone->data = data;
     d = zone->data;
     DBG("reattached shm data at %p", data);
+    shm_reinit(shm);
     shmtx_lock(shm);
     d->generation ++;
     d->current_active_workers = 0;
     ngx_memzero(&d->stats, sizeof(d->stats));
+    shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
     shmtx_unlock(shm);
   }
   else {
@@ -543,6 +545,10 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
     ngx_memzero(&d->stats, sizeof(d->stats));
+    
+    shdata->shmem_pages_used=0;
+    shm_set_allocd_pages_tracker(shm, &shdata->shmem_pages_used);
+    
     DBG("Shm created with data at %p", d);
 #if NCHAN_MSG_LEAK_DEBUG
     shdata->msgdebug_head = NULL;
@@ -562,8 +568,8 @@ nchan_stub_status_t *nchan_get_stub_status_stats(void) {
   return &shdata->stats;
 }
 
-ngx_uint_t nchan_get_used_shmem(void) {
-  assert(0); // don't know how to do this yet
+size_t nchan_get_used_shmem(void) {
+  return shdata->shmem_pages_used * ngx_pagesize;
 }
 
 static int send_redis_fakesub_delta(memstore_channel_head_t *head) {

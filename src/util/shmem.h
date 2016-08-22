@@ -6,6 +6,7 @@ typedef struct {
 
 shmem_t          *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t (*init)(ngx_shm_zone_t *, void *), void *privdata);
 ngx_int_t         shm_init(shmem_t *shm);
+ngx_int_t         shm_reinit(shmem_t *shm);
 ngx_int_t         shm_destroy(shmem_t *shm);
 void             *shm_alloc(shmem_t *shm, size_t size, const char *label);
 void             *shm_calloc(shmem_t *shm, size_t size, const char *label);
@@ -21,5 +22,7 @@ void              shmtx_unlock(shmem_t *shm);
 ngx_str_t        *shm_copy_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_free_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_verify_immutable_string(shmem_t *shm, ngx_str_t *str);
+
+void shm_set_allocd_pages_tracker(shmem_t *shm, ngx_atomic_uint_t *ptr);
 
 #endif //NCHAN_SHMEM_H
