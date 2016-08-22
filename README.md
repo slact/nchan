@@ -315,6 +315,8 @@ To use Redis Cluster in an Nchan location, use the `nchan_redis_pass` setting:
 
 Note that `nchan_redis_pass` implies `nchan_use_redis on;`, and that this setting is *not* inherited by nested locations.
 
+When connecting several Nchan servers to the same Redis server (or cluster), the servers **must have their times synced up**. Failure to do so will result in missing and duplicated messages.
+
 ## Variables
 
 Nchan makes several variables usabled in the config file:
