@@ -403,7 +403,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "43b51538c85d2d2c7950841680553f1bf7dfafa9",
+  {"publish", "cac0b67f3f3ea3e3cfb679a05d68fe9a29f8c56c",
    "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
    "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
@@ -560,10 +560,6 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "if time then\n"
    "  redis.call('HSET', key.channel, 'time', time)\n"
    "end\n"
-   "if not channel.ttl then\n"
-   "  channel.ttl=msg.ttl\n"
-   "  redis.call('HSET', key.channel, 'ttl', channel.ttl)\n"
-   "end\n"
    "\n"
    "local message_len_changed = false\n"
    "if channel.max_stored_messages ~= store_at_most_n_messages then\n"
@@ -620,10 +616,13 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "\n"
    "--set expiration times for all the things\n"
-   "  redis.call('EXPIRE', key.message, msg.ttl)\n"
-   "  redis.call('EXPIRE', key.channel, channel.ttl)\n"
-   "  redis.call('EXPIRE', key.messages, channel.ttl)\n"
-   "  redis.call('EXPIRE', key.subscribers, channel.ttl)\n"
+   "local channel_ttl = tonumber(redis.call('TTL',  key.channel))\n"
+   "redis.call('EXPIRE', key.message, msg.ttl)\n"
+   "if msg.ttl > channel_ttl then\n"
+   "  redis.call('EXPIRE', key.channel, msg.ttl)\n"
+   "  redis.call('EXPIRE', key.messages, msg.ttl)\n"
+   "  redis.call('EXPIRE', key.subscribers, msg.ttl)\n"
+   "end\n"
    "\n"
    "--publish message\n"
    "local unpacked\n"

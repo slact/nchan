@@ -154,10 +154,6 @@ end
 if time then
   redis.call('HSET', key.channel, 'time', time)
 end
-if not channel.ttl then
-  channel.ttl=msg.ttl
-  redis.call('HSET', key.channel, 'ttl', channel.ttl)
-end
 
 local message_len_changed = false
 if channel.max_stored_messages ~= store_at_most_n_messages then
@@ -214,10 +210,13 @@ end
 
 
 --set expiration times for all the things
-  redis.call('EXPIRE', key.message, msg.ttl)
-  redis.call('EXPIRE', key.channel, channel.ttl)
-  redis.call('EXPIRE', key.messages, channel.ttl)
-  redis.call('EXPIRE', key.subscribers, channel.ttl)
+local channel_ttl = tonumber(redis.call('TTL',  key.channel))
+redis.call('EXPIRE', key.message, msg.ttl)
+if msg.ttl > channel_ttl then
+  redis.call('EXPIRE', key.channel, msg.ttl)
+  redis.call('EXPIRE', key.messages, msg.ttl)
+  redis.call('EXPIRE', key.subscribers, msg.ttl)
+end
 
 --publish message
 local unpacked
