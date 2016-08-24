@@ -3,7 +3,7 @@
 
 static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_conf_t *cf) {
   if(id->len > (unsigned )cf->max_channel_id_length) {
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, id->len);
+    nchan_log_request_warning(r, "channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, id->len);
     return NGX_ERROR;
   }
   return NGX_OK;
@@ -66,7 +66,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   }
 
   if((id_out = ngx_palloc(r->pool, sizeof(*id_out) + sz)) == NULL) {
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: can't allocate space for channel id");
+    nchan_log_warning("can't allocate space for channel id");
     *ret_id = NULL;
     return NGX_ERROR;
   }
@@ -112,7 +112,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   
   vv = ngx_http_get_variable(r, &channel_id_var_name, key);
   if (vv == NULL || vv->not_found || vv->len == 0) {
-    //ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: the legacy $push_channel_id variable is not set");
+    //nchan_log_warning("the legacy $push_channel_id variable is not set");
     return NGX_ABORT;
   }
   else {
@@ -127,7 +127,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   
   sz = group->len + 1 + tmpid.len;
   if((id = ngx_palloc(r->pool, sizeof(*id) + sz)) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't allocate space for legacy channel id");
+    nchan_log_error("can't allocate space for legacy channel id");
     *ret_id = NULL;
     return NGX_ERROR;
   }

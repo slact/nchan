@@ -142,7 +142,7 @@ static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *
     redis_get_cluster_nodes(rdata);
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis cluster not ready, says node %V", &rdata->connect_url);
+    nchan_log_warning("Redis cluster not ready, says node %V", &rdata->connect_url);
     ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
     nchan_init_timer(evt, redis_check_if_cluster_ready_handler, rdata);
     //rdt_set_status(rdata, WAITING_FOR_CLUSTER_READY, ac);
@@ -377,7 +377,7 @@ static void cluster_not_ready_timer_handler(ngx_event_t *ev) {
       redis_get_cluster_nodes(rdata);
     }
     else {
-      ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: No connected Redis cluster nodes. Wait until a connection can be established to at least one...");
+      nchan_log_warning("No connected Redis cluster nodes. Wait until a connection can be established to at least one...");
     }
   }
   
@@ -916,7 +916,7 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
     
     cluster_run_retry_commands(cluster);
     
-    ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "Nchan: Redis cluster ready.");
+    nchan_log_notice("Redis cluster ready.");
     
   }
   else if(status != CLUSTER_READY && prev_status == CLUSTER_READY) {

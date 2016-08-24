@@ -158,7 +158,7 @@ static ngx_uint_t delayed_sent_alerts_count;
 static ngx_uint_t delayed_sent_alerts_delay;
 
 static void send_alert_delay_log_timer_handler(ngx_event_t *ev) {
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Sending %ui interprocess alert%s delayed by %ui sec.", delayed_sent_alerts_count, delayed_sent_alerts_count == 1 ? "" : "s", (ngx_uint_t)(delayed_sent_alerts_count > 0 ? delayed_sent_alerts_delay / delayed_sent_alerts_count : 0));
+  nchan_log_error("Sending %ui interprocess alert%s delayed by %ui sec.", delayed_sent_alerts_count, delayed_sent_alerts_count == 1 ? "" : "s", (ngx_uint_t)(delayed_sent_alerts_count > 0 ? delayed_sent_alerts_delay / delayed_sent_alerts_count : 0));
   
   delayed_sent_alerts_count = 0;
   delayed_sent_alerts_delay = 0;
@@ -367,7 +367,7 @@ static ngx_uint_t delayed_received_alerts_count;
 static ngx_uint_t delayed_received_alerts_delay;
 
 static void receive_alert_delay_log_timer_handler(ngx_event_t *ev) {
-  ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Received %ui interprocess alert%s delayed by %ui sec.", delayed_received_alerts_count, delayed_received_alerts_count == 1 ? "" : "s", (ngx_uint_t)(delayed_received_alerts_count > 0 ? delayed_received_alerts_delay / delayed_received_alerts_count : 0));
+  nchan_log_error("Received %ui interprocess alert%s delayed by %ui sec.", delayed_received_alerts_count, delayed_received_alerts_count == 1 ? "" : "s", (ngx_uint_t)(delayed_received_alerts_count > 0 ? delayed_received_alerts_delay / delayed_received_alerts_count : 0));
   
   delayed_received_alerts_count = 0;
   delayed_received_alerts_delay = 0;

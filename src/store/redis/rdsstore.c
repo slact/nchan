@@ -590,11 +590,11 @@ static void redis_load_script_callback(redisAsyncContext *ac, void *r, void *pri
   if (reply == NULL) return;
   switch(reply->type) {
     case REDIS_REPLY_ERROR:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: Failed loading redis lua script %s :%s", script->name, reply->str);
+      nchan_log_error("Failed loading redis lua script %s :%s", script->name, reply->str);
       break;
     case REDIS_REPLY_STRING:
       if(ngx_strncmp(reply->str, script->hash, REDIS_LUA_HASH_LENGTH)!=0) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: Redis lua script %s has unexpected hash %s (expected %s)", script->name, reply->str, script->hash);
+        nchan_log_error("Redis lua script %s has unexpected hash %s (expected %s)", script->name, reply->str, script->hash);
       }
       else {
         //everything went well
@@ -602,20 +602,14 @@ static void redis_load_script_callback(redisAsyncContext *ac, void *r, void *pri
         if(rdata->status == LOADING_SCRIPTS) {
           rdata->scripts_loaded_count++;
           if(rdata->scripts_loaded_count == redis_lua_scripts_count) {
-            char            *action;
-            ngx_uint_t       loglevel;
-            
             
             if(rdata->generation == 0) {
-              action = "Established";
-              loglevel = NGX_LOG_NOTICE;
+              nchan_log_notice( "Established connection to redis at %V.",    rdata->connect_url);
             }
             else {
-              action = "Re-established";
-              loglevel = NGX_LOG_WARN;
+              nchan_log_warning("Re-established connection to redis at %V.", rdata->connect_url);
             }
             
-            ngx_log_error(loglevel, ngx_cycle->log, 0, "Nchan: %s connection to redis at %V.", action, rdata->connect_url);
             rdt_set_status(rdata, CONNECTED, NULL);
           }
         }
@@ -647,10 +641,10 @@ static void redis_nginx_connect_event_handler(const redisAsyncContext *ac, int s
     if(rdata->status != DISCONNECTED) {
       char *action = rdata->generation == 0 ? "connect" : "reconnect";
       if(ac->errstr) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Can't %s to redis at %V: %s", action, rdata->connect_url, ac->errstr);
+        nchan_log_error("Can't %s to redis at %V: %s.", action, rdata->connect_url, ac->errstr);
       }
       else {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Can't %s to redis at %V.", action, rdata->connect_url);
+        nchan_log_error("Can't %s to redis at %V.", action, rdata->connect_url);
       }
     }
     rdt_set_status(rdata, DISCONNECTED, ac);
@@ -664,10 +658,10 @@ static void redis_nginx_disconnect_event_handler(const redisAsyncContext *ac, in
   
   if(rdata->status == CONNECTED && !ngx_exiting && !ngx_quit && !rdata->shutting_down) {
     if(ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %V: %s.", rdata->connect_url, ac->errstr);
+      nchan_log_error("Lost connection to redis at %V: %s.", rdata->connect_url, ac->errstr);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Nchan: Lost connection to redis at %V.", rdata->connect_url);
+      nchan_log_error("Lost connection to redis at %V.", rdata->connect_url);
     }
   }
   rdt_set_status(rdata, DISCONNECTED, ac);
@@ -707,7 +701,7 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
   
   //is it loading?
   if(ngx_strstrn((u_char *)reply->str, "loading:1", 8)) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Nchan: Redis server at %V is still loading data.", rdata->connect_url);
+    nchan_log_warning("Redis server at %V is still loading data.", rdata->connect_url);
     ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
     nchan_init_timer(evt, redis_check_if_still_loading_handler, rdata);
     rdt_set_status(rdata, LOADING, ac);
@@ -994,7 +988,7 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, rdstore_data_t *rdat
   }
   
   if((d=ngx_alloc(sizeof(*d) + (u_char)channel_id->len + (u_char)msg_redis_hash_key->len, ngx_cycle->log)) == 0) {
-    ERR("nchan: unable to allocate memory for callback data for message hmget");
+    ERR("unable to allocate memory for callback data for message hmget");
     return NGX_ERROR;
   }
   d->channel_id.data = (u_char *)&d[1];
@@ -1109,7 +1103,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               nchan_store_publish_generic(chid, chanhead ? chanhead->rdt : rdata, &msg, 0, NULL);
             }
             else {
-              ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: thought there'd be a channel id around for msg");
+              ERR("thought there'd be a channel id around for msg");
             }
           }
           else if(ngx_strmatch(&msg_type, "msgkey")) {
@@ -1138,7 +1132,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
             }
             else {
-              ERR("nchan: thought there'd be a channel id around for msgkey");
+              ERR("thought there'd be a channel id around for msgkey");
             }
           }
           else if(ngx_strmatch(&msg_type, "alert") && array_sz > 1) {
@@ -1153,7 +1147,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 nchan_store_publish_generic(&extracted_channel_id, rdata, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
               }
               else {
-                ERR("nchan: unexpected \"delete channel\" msgpack message from redis");
+                ERR("unexpected \"delete channel\" msgpack message from redis");
               }
             }
             else if(ngx_strmatch(&alerttype, "unsub one") && array_sz > 3) {
@@ -1179,22 +1173,22 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               assert(0);
             }
             else {
-              ERR("nchan: unexpected msgpack alert from redis");
+              ERR("unexpected msgpack alert from redis");
               assert(0);
             }
           }
           else {
-            ERR("nchan: unexpected msgpack message from redis");
+            ERR("unexpected msgpack message from redis");
             assert(0);
           }
         }
         else {
-          ERR("nchan: unexpected msgpack object from redis");
+          ERR("unexpected msgpack object from redis");
           assert(0);
         }
       }
       else {
-        ERR("nchan: invalid msgpack message from redis: %s", cmp_strerror(&cmp));
+        ERR("invalid msgpack message from redis: %s", cmp_strerror(&cmp));
         assert(0);
       }
     }
@@ -1975,7 +1969,7 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_buf_t *b
     return NGX_OK;
   }
   else {
-    ERR("nchan: invalid message redis reply");
+    ERR("invalid message redis reply");
     return NGX_ERROR;
   }
 }
@@ -2483,11 +2477,11 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t       *etag = NULL;
   if(pool!=NULL && (etag = ngx_palloc(pool, sizeof(*etag) + NGX_INT_T_LEN))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header in pool");
+    nchan_log_error("unable to allocate memory for Etag header in pool");
     return NULL;
   }
   else if(pool==NULL && (etag = ngx_alloc(sizeof(*etag) + NGX_INT_T_LEN, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Etag header");
+    nchan_log_error("unable to allocate memory for Etag header");
     return NULL;
   }
   etag->data = (u_char *)(etag+1);
@@ -2498,11 +2492,11 @@ static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *msg, ngx_pool_t *p
 static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *msg, ngx_pool_t *pool){
   ngx_str_t        *content_type = NULL;
   if(pool != NULL && (content_type = ngx_palloc(pool, sizeof(*content_type) + msg->content_type.len))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header in pool");
+    nchan_log_error("unable to allocate memory for Content Type header in pool");
     return NULL;
   }
   else if(pool == NULL && (content_type = ngx_alloc(sizeof(*content_type) + msg->content_type.len, ngx_cycle->log))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: unable to allocate memory for Content Type header");
+    nchan_log_error("unable to allocate memory for Content Type header");
     return NULL;
   }
   content_type->data = (u_char *)(content_type+1);

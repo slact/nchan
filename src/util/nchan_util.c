@@ -238,13 +238,13 @@ ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, s
   if (chain->next == NULL) {
     return ensure_last_buf(pool, chain->buf);
   }
-  //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan: multiple buffers in request, need memcpy :(");
+  //nchan_log_error("multiple buffers in request, need memcpy :(");
   if (chain->buf->in_file) {
     if (ngx_buf_in_memory(chain->buf)) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: can't handle a buffer in a temp file and in memory ");
+      nchan_log_error("can't handle a buffer in a temp file and in memory ");
     }
     if (chain->next != NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: error reading request body with multiple ");
+      nchan_log_error("error reading request body with multiple ");
     }
     return ensure_last_buf(pool, chain->buf);
   }
@@ -262,7 +262,7 @@ ngx_buf_t * nchan_chain_to_single_buffer(ngx_pool_t *pool, ngx_chain_t *chain, s
       if (chain->buf->in_file) {
         n = ngx_read_file(chain->buf->file, buf->start, len, 0);
         if (n == NGX_FILE_ERROR) {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan: cannot read file with request body");
+          nchan_log_error("cannot read file with request body");
           return NULL;
         }
         buf->last = buf->last + len;
