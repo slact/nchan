@@ -168,6 +168,27 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
     rc = nchan_process_legacy_channel_id(r, cf, &id);
   }
   
+  if(cf->redis.enabled && id) {
+    // make sure all closing curlybrace '}' are silently and unambiguously replaced by \31
+    // that's because failing to do so will mess up cluster sharding {channel key strings}
+    // it's not pretty, but it _is_ good enough.
+    ngx_str_t id_cur = *id;
+    char     *cur;
+    if(memchr(id_cur.data, '\31', id_cur.len)) {
+      nchan_log_request_warning(r, "character \\31 not allowed in channel id when using Redis.");
+      id = NULL;
+      rc = NGX_DECLINED;
+      goto done;
+    }
+    
+    while((cur = memchr(id_cur.data, '}', id_cur.len)) != NULL) {
+      *cur='\31';
+      id_cur.len -= (cur - (char *)id_cur.data + 1);
+      id_cur.data = (u_char *)cur + 1;
+    }
+  }
+
+done:
   if(id == NULL && fail_hard) {
     assert(rc != NGX_OK);
     switch(rc) {
