@@ -2730,6 +2730,15 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   chead->max_messages = cf->max_messages;
   
+  if(chead->latest_msgid.time > msg->id.time) {
+    if(cf->redis.enabled) {
+      nchan_log_error("A message from the past has just been published. At least one of your servers running Nchan using Redis does not have its time synchronized.");
+    }
+    else {
+      nchan_log_error("A message from the past has just been published. Unless the system time has been adjusted, this should never happen.");
+    }
+  }
+  
   memstore_chanhead_messages_gc(chead);
   if(cf->max_messages == 0) {
     ///no buffer
