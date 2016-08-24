@@ -1,3 +1,6 @@
+ fix: issue warning when out-of-order published message is detected
+ fix: redis cluster compatibility with channel ids containing '}' character
+ fix: redis-backed channel deleted too quickly when publishing short-lived messages
 1.0.1 (Aug. 22 2016)
  feature: nchan_stub_status shared memory accounting
  fix: various compiler warnings
