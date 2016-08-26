@@ -2756,6 +2756,10 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     publish_msg->prev_id.tag.fixed[0] = 0;
     publish_msg->prev_id.tagcount = 1;
     
+    if(chead->latest_msgid.time == publish_msg->id.time) {
+      publish_msg->id.tag.fixed[0] = chead->latest_msgid.tag.fixed[0] + 1;
+    }
+    
     nchan_reaper_add(&mpt->nobuffer_msg_reaper, shmsg_link);
     //DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   }
