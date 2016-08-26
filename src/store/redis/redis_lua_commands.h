@@ -403,12 +403,24 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "cc40ee6a9fcad2c2d8e3eeb732f5aafce5de50f7",
+  {"publish", "12fb90ad4f2dd7565c3e1d157dbf0a3048335424",
    "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
    "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
    "local id=ARGV[1]\n"
-   "local time=tonumber(ARGV[2])\n"
+   "local time\n"
+   "if redis.replicate_commands then\n"
+   "  -- we're on redis >= 3.2. We can use We can use 'script effects replication' to allow\n"
+   "  -- writing nondeterministic command values like TIME.\n"
+   "  -- That's exactly what we want to do, use Redis' TIME rather than the given time from Nginx\n"
+   "  -- Also, it's more efficient to replicate just the commands in this case rather than run the whole script\n"
+   "  redis.replicate_commands()\n"
+   "  time = tonumber(redis.call('TIME')[1])\n"
+   "else\n"
+   "  --fallback to the provided time\n"
+   "  time = tonumber(ARGV[2])\n"
+   "end\n"
+   "\n"
    "local msg={\n"
    "  id=nil,\n"
    "  data= ARGV[3],\n"
