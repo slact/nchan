@@ -522,7 +522,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `on`  
   context: http, server, location, if  
   legacy name: push_store_messages  
-  > Publisher configuration. "`off`" is equivalent to setting `nchan_channel_buffer_length 0`    
+  > Publisher configuration. "`off`" is equivalent to setting `nchan_message_buffer_length 0`, which disables the buffering of old messages. Using this setting is not recommended when publishing very quickly, as it may result in missed messages.    
 
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  
