@@ -197,7 +197,7 @@ if max_stored_msgs < 0 then --no limit
 elseif max_stored_msgs > 0 then
   local stored_messages = tonumber(redis.call('LLEN', key.messages))
   redis.call('LPUSH', key.messages, msg.id)
-  -- Reduce the message length if neccessary
+  -- Reduce the message length if necessary
   local dump_message_ids = redis.call('LRANGE', key.messages, max_stored_msgs, stored_messages);
   if dump_message_ids then
     for _, msgid in ipairs(dump_message_ids) do

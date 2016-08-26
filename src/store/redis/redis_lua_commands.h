@@ -403,7 +403,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "cac0b67f3f3ea3e3cfb679a05d68fe9a29f8c56c",
+  {"publish", "cc40ee6a9fcad2c2d8e3eeb732f5aafce5de50f7",
    "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
    "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
@@ -603,7 +603,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "elseif max_stored_msgs > 0 then\n"
    "  local stored_messages = tonumber(redis.call('LLEN', key.messages))\n"
    "  redis.call('LPUSH', key.messages, msg.id)\n"
-   "  -- Reduce the message length if neccessary\n"
+   "  -- Reduce the message length if necessary\n"
    "  local dump_message_ids = redis.call('LRANGE', key.messages, max_stored_msgs, stored_messages);\n"
    "  if dump_message_ids then\n"
    "    for _, msgid in ipairs(dump_message_ids) do\n"
