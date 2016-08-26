@@ -302,11 +302,12 @@ void oneshot_timer_callback(ngx_event_t *ev) {
   ngx_free(timer);
  }
 
-ngx_int_t nchan_oneshot_timer(ngx_event_t *ev, void (*cb)(void *), void *pd) {
+ngx_int_t nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay) {
   oneshot_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
   ngx_memzero(&timer->ev, sizeof(timer->ev));
   timer->cb = cb;
   nchan_init_timer(&timer->ev, oneshot_timer_callback, pd);
+  ngx_add_timer(&timer->ev, delay);
   return NGX_OK;
 }
 

@@ -2064,6 +2064,16 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
   d->msg_status = status;
 }
 
+static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd);
+
+static void retry_get_multi_message_after_MSG_NORESPONSE(void *pd) {
+  get_multi_message_data_single_t  *sd = pd;
+  get_multi_message_data_t         *d = sd->d;
+  nchan_msg_id_t                    retry_msgid = NCHAN_ZERO_MSGID;
+  assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
+  nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+}
+
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   //ngx_str_t                   empty_id_str = ngx_string("-");
@@ -2072,17 +2082,11 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   
   /*
   switch(status) {
-    case MSG_EXPECTED:
-      DBG("multi[%i] of %i msg EXPECTED", sd->n, d->multi_count);
-      break;
-    case MSG_NOTFOUND:
-      DBG("multi[%i] of %i msg NOTFOUND", sd->n, d->multi_count);
-      break;
     case MSG_FOUND:
-      DBG("multi[%i] of %i msg FOUND %V %p", sd->n, d->multi_count, msgid_to_str(&msg->id), msg);
+      ERR("multi[%i] of %i msg FOUND (getting: %i) %V %p", sd->n, d->multi_count, d->getting, msgid_to_str(&msg->id), msg);
       break;
-    default:
-      assert(0);
+    default: 
+      ERR("multi[%i] of %i msg %s (getting: %i)", sd->n, d->multi_count, nchan_msgstatus_to_str(status), d->getting);
   }
   */
   if(d->expired) {
@@ -2092,13 +2096,10 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   }
   
   if(status == MSG_NORESPONSE) {
-    nchan_msg_id_t  retry_msgid = NCHAN_ZERO_MSGID;
     //retry featching that message
     //this isn't clean, nor is it efficient
     //buf fuck it, we're doing it live.
-    assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
-    
-    nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+    nchan_add_oneshot_timer(retry_get_multi_message_after_MSG_NORESPONSE, sd, 10);
     return NGX_OK;
   }
   d->getting--;
