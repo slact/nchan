@@ -1350,7 +1350,7 @@ end
 
 class Publisher
   #include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose
   def initialize(url, opt={})
     @url= url
     unless opt[:nostore]
@@ -1359,6 +1359,7 @@ class Publisher
     end
     @timeout = opt[:timeout]
     @accept = opt[:accept]
+    @verbose = opt[:verbose]
   end
   
   def with_url(alt_url)
@@ -1395,7 +1396,8 @@ class Publisher
       method: method,
       body: body,
       timeout: @timeout || PUBLISH_TIMEOUT,
-      connecttimeout: @timeout || PUBLISH_TIMEOUT
+      connecttimeout: @timeout || PUBLISH_TIMEOUT,
+      verbose: @verbose
     )
     if @messages
       msg=Message.new body

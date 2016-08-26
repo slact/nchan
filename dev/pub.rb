@@ -13,10 +13,11 @@ method=:POST
 runonce=false
 accept = nil
 timeout = 3
+verbose = nil
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
-  opts.on("-v", "--verbose", "Blabberhttp"){Typhoeus::Config.verbose=true}
+  opts.on("-v", "--verbose", "Blabberhttp"){verbose=true}
   opts.on("-l", "--loop [SECONDS]", "re-send message every N seconds (#{repeat_sec})") do |v| 
     loop=true
     repeat_sec=Float(v) unless v.nil?
@@ -47,7 +48,7 @@ puts "Publishing to #{url}."
 
 loopmsg=("\r"*20) + "sending message #"
 
-pub = Publisher.new url, nostore: true, timeout: timeout
+pub = Publisher.new url, nostore: true, timeout: timeout, verbose: verbose
 pub.accept=accept
 pub.nofail=true
 repeat=true
