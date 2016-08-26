@@ -2714,6 +2714,12 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     msg->expires = msg->id.time + timeout;
   }
   
+  if(cf->redis.enabled) {
+    assert(!msg_in_shm);
+    nchan_update_stub_status(messages, 1);
+    return nchan_store_redis.publish(&chead->id, msg, cf, callback, privdata);
+  }
+  
   if(memstore_slot() != owner) {
     if((publish_msg = create_shm_msg(msg)) == NULL) {
       callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
@@ -2805,12 +2811,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
   
-  if(cf->redis.enabled) {
-    rc = nchan_store_redis.publish(&chead->id, publish_msg, cf, callback, privdata);
-  }
-  else {
-    callback(rc, channel_copy, privdata);
-  }
+  assert(!cf->redis.enabled);
+  callback(rc, channel_copy, privdata);
 
   return rc;
 }

@@ -2,7 +2,19 @@
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local id=ARGV[1]
-local time=tonumber(ARGV[2])
+local time
+if redis.replicate_commands then
+  -- we're on redis >= 3.2. We can use We can use 'script effects replication' to allow
+  -- writing nondeterministic command values like TIME.
+  -- That's exactly what we want to do, use Redis' TIME rather than the given time from Nginx
+  -- Also, it's more efficient to replicate just the commands in this case rather than run the whole script
+  redis.replicate_commands()
+  time = tonumber(redis.call('TIME')[1])
+else
+  --fallback to the provided time
+  time = tonumber(ARGV[2])
+end
+
 local msg={
   id=nil,
   data= ARGV[3],
