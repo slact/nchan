@@ -123,6 +123,57 @@ class CfCmd #let's make a DSL!
       lines.map! {|l| "#{l}  "}
       lines.join "\n"
     end
+    
+    def to_txt(opt={})
+      lines = []
+      if value.class == Array
+        val = "[ #{value.join ' | '} ]"
+      elsif value
+        val = "#{value}"
+      end
+      
+      if val
+        lines << "#{name} #{val}"
+      else
+        lines << "#{name}"
+      end
+      
+      if Range === args
+        lines << "  #{descr 'arguments', opt} #{args.first} - #{args.exclude_end? ? args.last - 1 : args.last}"
+      elsif Numeric === args
+        lines << "  #{descr 'arguments', opt} #{args}"
+      else
+        raise "invalid args: #{args}"
+      end
+      
+      if default
+        lines << "  #{descr 'default', opt} #{Array === default ? default.join(' ') : default}"
+      end
+      
+      ctx_lookup = { main: :http, srv: :server, loc: :location }
+      ctx = contexts.map do |c|
+        ctx_lookup[c] || c;
+      end
+      lines << "  #{descr 'context', opt} #{ctx.join ', '}"
+      
+      if legacy
+        if Array === self.legacy
+          lines << "  #{descr 'legacy names', opt} #{legacy.join ', '}"
+        else
+          lines << "  #{descr 'legacy name', opt} #{legacy}"
+        end
+      end
+      
+      if info
+        out = info.lines.map do |line|
+          "   #{line.chomp}  "
+        end
+        lines << out.join("\n")
+      end
+      
+      lines.map! {|l| "#{l}  "}
+      lines.join "\n"
+    end
   end
   
   
