@@ -1035,6 +1035,25 @@ static ngx_int_t spooler_channel_status_changed(channel_spooler_t *self) {
   return NGX_OK;
 }
 
+
+static ngx_int_t spooler_print_contents_callback(rbtree_seed_t *seed, subscriber_pool_t *spool, channel_spooler_t *spl) {
+  spooled_subscriber_t       *cur;
+  
+  ERR("  spool %p id %V", spool, msgid_to_str(&spool->id));
+  for(cur = spool->first; cur != NULL; cur = cur->next) {
+    ERR("    %V", cur->sub->name);
+  }
+  
+  return NGX_OK;
+}
+
+ngx_int_t spooler_print_contents(channel_spooler_t *spl) {
+  ERR("spooler for channel %V", spl->chid);
+  spooler_print_contents_callback(NULL, &spl->current_msg_spool, spl);
+  rbtree_walk_incr(&spl->spoolseed, (rbtree_walk_callback_pt )spooler_print_contents_callback, spl);
+  return NGX_OK;
+}
+
 static channel_spooler_fn_t  spooler_fn = {
   spooler_add_subscriber,
   spooler_channel_status_changed,
