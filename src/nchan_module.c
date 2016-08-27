@@ -408,10 +408,20 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_re
   return NGX_OK;
 }
 
-static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
-  nchan_channel_t       *ch = rptr;
-  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, ngx_http_cleanup_t *cln) {
+  nchan_request_ctx_t   *ctx;
   static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
+  ngx_http_request_t    **rptr = cln->data;
+  ngx_http_request_t    *r = *rptr;
+  
+  cln->data = NULL;
+  ngx_free(rptr);
+  
+  if(r == NULL) { // the request has since disappered
+    return NGX_ERROR;
+  }
+  ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  
   //DBG("publish_callback %V owner %i status %i", ch_id, memstore_channel_owner(ch_id), status);
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:
@@ -451,11 +461,20 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
   }
 }
 
+static void clear_request_pointer(ngx_http_request_t **rptr) {
+  if(rptr) {
+    *rptr = NULL;
+  }
+}
+
 static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *content_type, size_t content_length, ngx_chain_t *request_body_chain, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_buf_t                      *buf;
   struct timeval                  tv;
   nchan_msg_t                    *msg;
   ngx_str_t                      *eventsource_event;
+  
+  ngx_http_request_t            **rptr;
+  ngx_http_cleanup_t             *cln;
 
 #if FAKESHARD
   memstore_pub_debug_start();
@@ -506,7 +525,19 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
-  cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
+  
+  cln = ngx_http_cleanup_add(r, 0);
+  rptr = ngx_alloc(sizeof(rptr), ngx_cycle->log);
+  if(!cln || !rptr) {
+    nchan_log_request_error(r, "couldn't allocate publisher request cleanup stuff.");
+    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    return;
+  }
+  *rptr = r;
+  cln->data = rptr;
+  cln->handler = (ngx_http_cleanup_pt )clear_request_pointer;
+  
+  cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, cln);
   nchan_update_stub_status(total_published_messages, 1);
 #if FAKESHARD
   memstore_pub_debug_end();
