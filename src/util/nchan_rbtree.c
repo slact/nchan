@@ -227,8 +227,41 @@ static ngx_inline void rbtree_walk_real(rbtree_seed_t *seed, ngx_rbtree_node_t *
   callback(seed, rbtree_data_from_node(node), data);
 }
 
+static ngx_inline void rbtree_walk_ordered_incr_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_callback_pt callback, void *data) {
+  ngx_rbtree_node_t  *left, *right;
+  if(node == sentinel || node == NULL) {
+    return;
+  }
+  left = node->left;
+  right = node->right;
+  rbtree_walk_real(seed, left, sentinel, callback, data);
+  callback(seed, rbtree_data_from_node(node), data);
+  rbtree_walk_real(seed, right, sentinel, callback, data);
+}
+
+static ngx_inline void rbtree_walk_ordered_decr_real(rbtree_seed_t *seed, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel, rbtree_walk_callback_pt callback, void *data) {
+  ngx_rbtree_node_t  *left, *right;
+  if(node == sentinel || node == NULL) {
+    return;
+  }
+  left = node->left;
+  right = node->right;
+  rbtree_walk_real(seed, right, sentinel, callback, data);
+  callback(seed, rbtree_data_from_node(node), data);
+  rbtree_walk_real(seed, left, sentinel, callback, data);
+}
+
 ngx_int_t rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data) {
   rbtree_walk_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
+  return NGX_OK;
+}
+
+ngx_int_t rbtree_walk_incr(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data) {
+  rbtree_walk_ordered_incr_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
+  return NGX_OK;
+}
+ngx_int_t rbtree_walk_decr(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data) {
+  rbtree_walk_ordered_decr_real(seed, seed->tree.root, seed->tree.sentinel, callback, data);
   return NGX_OK;
 }
 

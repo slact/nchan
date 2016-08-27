@@ -47,7 +47,10 @@ ngx_int_t            rbtree_remove_node(rbtree_seed_t *, ngx_rbtree_node_t *);
 ngx_int_t            rbtree_destroy_node(rbtree_seed_t *, ngx_rbtree_node_t *);
 
 ngx_rbtree_node_t   *rbtree_find_node(rbtree_seed_t *, void *);
+
 ngx_int_t            rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt, void *data);
+ngx_int_t            rbtree_walk_incr(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data);
+ngx_int_t            rbtree_walk_decr(rbtree_seed_t *seed, rbtree_walk_callback_pt callback, void *data);
 ngx_int_t            rbtree_walk_writesafe(rbtree_seed_t *seed, int (*include)(void *), rbtree_walk_callback_pt callback, void *data);
 
 ngx_int_t            rbtree_conditional_walk(rbtree_seed_t *seed, rbtree_walk_conditional_callback_pt, void *data);
