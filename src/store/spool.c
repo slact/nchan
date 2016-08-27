@@ -881,12 +881,12 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   
   //find all spools between msg->prev_id and msg->id
   rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range_callback, &srdata);
-  
+  /*
   if(srdata.n == 0) {
     DBG("no spools in range %V -- ", msgid_to_str(&msg->prev_id));
     DBG(" -- %V", msgid_to_str(&msg->id));
   }
-  
+  */
   while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
     responded_subs += spool->sub_count;
     if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
