@@ -31,12 +31,16 @@ ngx_pool_t *nchan_list_get_pool(nchan_list_t *list) {
 }
 
 void *nchan_list_append(nchan_list_t *list) {
+ return nchan_list_append_sized(list, list->data_sz);
+}
+
+void *nchan_list_append_sized(nchan_list_t *list, size_t sz) {
   nchan_list_el_t  *el, *tail = list->tail;
   if(list->pool_sz > 0) {
-    el = ngx_palloc(nchan_list_get_pool(list), sizeof(*el) + list->data_sz);
+    el = ngx_palloc(nchan_list_get_pool(list), sizeof(*el) + sz);
   }
   else {
-    el = ngx_alloc(sizeof(*el) + list->data_sz, ngx_cycle->log);
+    el = ngx_alloc(sizeof(*el) + sz, ngx_cycle->log);
   }
   if(tail)
     tail->next = el;
@@ -54,8 +58,12 @@ void *nchan_list_append(nchan_list_t *list) {
 
 
 void *nchan_list_prepend(nchan_list_t *list) {
+  return nchan_list_prepend_sized(list, list->data_sz);
+}
+
+void *nchan_list_prepend_sized(nchan_list_t *list, size_t sz) {
 nchan_list_el_t  *el, *head = list->head;
-  el = ngx_alloc(sizeof(*el) + list->data_sz, ngx_cycle->log);
+  el = ngx_alloc(sizeof(*el) + sz, ngx_cycle->log);
   if(head)
     head->prev = el;
   
