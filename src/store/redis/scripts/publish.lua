@@ -233,14 +233,14 @@ end
 --publish message
 local unpacked
 
-if #msg.data < 5*1024 then
+if msg.unbuffered or #msg.data < 5*1024 then
   unpacked= {
     "msg",
     msg.ttl or 0,
     msg.time,
     tonumber(msg.tag) or 0,
-    msg.prev_time or 0,
-    msg.prev_tag or 0,
+    (msg.unbuffered and 0 or msg.prev_time) or 0,
+    (msg.unbuffered and 0 or msg.prev_tag) or 0,
     msg.data or "",
     msg.content_type or "",
     msg.eventsource_event or ""
