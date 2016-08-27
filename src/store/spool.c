@@ -876,6 +876,9 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   srdata.overflow = NULL;
   srdata.msg = msg;
   srdata.n = 0;
+  
+  //spooler_print_contents(self);
+  
   //find all spools between msg->prev_id and msg->id
   rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range_callback, &srdata);
   

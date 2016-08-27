@@ -103,6 +103,8 @@ struct channel_spooler_handlers_s {
 channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers);
 
+ngx_int_t spooler_print_contents(channel_spooler_t *spl);
+
 ngx_event_t *spooler_add_timer(channel_spooler_t *spl, ngx_msec_t timeout, void (*cb)(void *), void (*cancel)(void *), void *pd);
 
 
