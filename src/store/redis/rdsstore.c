@@ -2146,14 +2146,10 @@ static ngx_int_t redis_data_rbtree_compare(void *v1, void *v2) {
   return ngx_strncmp(id1->host.data, id2->host.data, id1->host.len);
 }
 
-ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name, ngx_str_t *url) {
-  
-  char *namestr = ngx_palloc(ngx_cycle->pool, strlen(name) + url->len + 10);
-  
-  ngx_sprintf((u_char *)namestr, "%s (%V)", name, url);
+ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name) {
   
   nchan_reaper_start(reaper, 
-              namestr, 
+              name, 
               offsetof(rdstore_channel_head_t, gc_prev), 
               offsetof(rdstore_channel_head_t, gc_next), 
   (ngx_int_t (*)(void *, uint8_t)) nchan_redis_chanhead_ready_to_reap,
@@ -2213,8 +2209,12 @@ static void redis_stall_timer_handler(ngx_event_t *ev) {
 rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf) {
   ngx_rbtree_node_t     *node;
   rdstore_data_t        *rdata;
+  size_t                 reaper_name_len;
+  char                  *reaper_name;
   
-  if((node = rbtree_create_node(&redis_data_tree, sizeof(*rdata))) == NULL) {
+  reaper_name_len = strlen("redis chanhead ()  ") + url->len;
+  
+  if((node = rbtree_create_node(&redis_data_tree, sizeof(*rdata) + reaper_name_len)) == NULL) {
     ERR("can't create rbtree node for redis connection");
     return NULL;
   }
@@ -2235,7 +2235,9 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->channels_head = NULL;
   rdata->almost_deleted_channels_head = NULL;
   
-  rdstore_initialize_chanhead_reaper(&rdata->chanhead_reaper, "redis chanhead", url);
+  reaper_name = (char *)&rdata[1];
+  ngx_sprintf((u_char *)reaper_name, "redis chanhead (%V)%Z", url);
+  rdstore_initialize_chanhead_reaper(&rdata->chanhead_reaper, reaper_name);
   
   rdata->ping_interval = rcf->ping_interval;
   rdata->connect_url = url;

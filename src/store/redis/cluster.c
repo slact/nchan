@@ -576,8 +576,11 @@ static ngx_int_t cluster_abort_retry_commands(redis_cluster_t *cluster) {
 
 
 static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_master_nodes, uint32_t homebrew_cluster_id, int configured_unverified_nodes) {
-  redis_cluster_t               *cluster;
-  if((cluster = nchan_list_append(&redis_cluster_list)) == NULL) { //TODO: don't allocate from heap, use a pool or something
+  redis_cluster_t               *cluster = NULL;
+  size_t                         reaper_name_len = strlen("redis channel (cluster orphans) ()   ") + 60; //whatever
+  char                          *reaper_name;
+  
+  if((cluster = nchan_list_append_sized(&redis_cluster_list, sizeof(*cluster) + reaper_name_len )) == NULL) { //TODO: don't allocate from heap, use a pool or something
     ERR("can't allocate cluster data");
     return NULL;
   }
@@ -601,12 +604,10 @@ static redis_cluster_t *create_cluster_data(rdstore_data_t *node_rdata, int num_
   
   cluster->node_connections_pending = configured_unverified_nodes;
   
-  u_char     clustername[60];
-  ngx_str_t  cname;
-  cname.data = clustername;
-  cname.len = ngx_sprintf(clustername, "%p hid=%i", cluster, cluster->homebrew_id) - cname.data;
+  reaper_name = (char *)&cluster[1];
+  ngx_sprintf((u_char *)reaper_name, "redis channel (cluster orphans) (%p hid=%i)%Z", cluster, cluster->homebrew_id);
   
-  rdstore_initialize_chanhead_reaper(&cluster->chanhead_reaper, "redis channels (cluster orphans)", &cname);
+  rdstore_initialize_chanhead_reaper(&cluster->chanhead_reaper, reaper_name);
   return cluster;
 }
 /*

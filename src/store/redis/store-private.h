@@ -174,7 +174,7 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
 rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf);
 ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
-ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name, ngx_str_t *url);
+ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name);
 
 ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
 ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *, rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
