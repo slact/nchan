@@ -32,9 +32,9 @@ opt=OptionParser.new do |opts|
   opts.on("-p", "--put", "create channel without submitting message"){method = :PUT}
   opts.on("-t", "--timeout SECONDS", "publishing timeout (sec). default #{timeout} sec"){|v| timeout = v.to_i}
   opts.on("-r",  "--response", 'Show response code and body') do
-    on_response = Proc.new do |pub|
-      puts pub.response_code
-      puts pub.response_body
+    on_response = Proc.new do |code, body|
+      puts code
+      puts body
     end
   end
 end

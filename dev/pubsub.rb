@@ -1360,6 +1360,7 @@ class Publisher
     @timeout = opt[:timeout]
     @accept = opt[:accept]
     @verbose = opt[:verbose]
+    @on_response = opt[:on_response]
   end
   
   def with_url(alt_url)
@@ -1371,6 +1372,11 @@ class Publisher
     else
       self
     end
+  end
+  
+  def on_response(&block)
+    @on_response = block if block_given?
+    @on_response
   end
   
   def on_complete(&block)
@@ -1435,7 +1441,8 @@ class Publisher
             raise errmsg
           end
         end
-        block.call(self) if block
+        block.call(self.response_code, self.response_body) if block
+        on_response.call(self.response_code, self.response_body) if on_response
       end
     end
     #puts "publishing to #{@url}"
