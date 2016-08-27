@@ -238,7 +238,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return nil\n"
    "end\n"},
 
-  {"get_message", "d995d33aa9707b6e63d2caf68154cb34ce0aa423",
+  {"get_message", "cc3d8f6503731b6580f3a5a5d0de97bfc18c19ca",
    "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
    "--output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
    "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
@@ -250,6 +250,10 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "local msg_id\n"
    "if time and time ~= 0 and tag then\n"
    "  msg_id=(\"%s:%s\"):format(time, tag)\n"
+   "end\n"
+   "\n"
+   "if redis.replicate_commands then\n"
+   "  redis.replicate_commands()\n"
    "end\n"
    "\n"
    "-- This script has gotten big and ugly, but there are a few good reasons \n"

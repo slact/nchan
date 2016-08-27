@@ -11,6 +11,10 @@ if time and time ~= 0 and tag then
   msg_id=("%s:%s"):format(time, tag)
 end
 
+if redis.replicate_commands then
+  redis.replicate_commands()
+end
+
 -- This script has gotten big and ugly, but there are a few good reasons 
 -- to keep it big and ugly. It needs to do a lot of stuff atomically, and 
 -- redis doesn't do includes. It could be generated pre-insertion into redis, 
