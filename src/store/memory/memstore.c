@@ -2649,6 +2649,20 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
 }
 
+static ngx_inline time_t message_timeout(nchan_loc_conf_t *cf) {
+  return cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60;
+}
+
+static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
+  //this coould be dangerous!!
+  if(msg->id.time == 0) {
+    msg->id.time = ngx_time();
+  }
+  if(msg->expires == 0) {
+    msg->expires = msg->id.time + timeout;
+  }
+}
+
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   memstore_channel_head_t  *chead;
   
@@ -2681,6 +2695,16 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     return NGX_OK;
   }
   else {
+    if(cf->redis.enabled) {
+      assert(!msg_in_shm);
+      nchan_update_stub_status(messages, 1);
+      fill_message_timedata(msg, message_timeout(cf));
+      if(callback == NULL) {
+        callback = empty_callback;
+      }
+      return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
+    }
+    
     if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
       ERR("can't get chanhead for id %V", channel_id);
       callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
@@ -2698,7 +2722,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   nchan_msg_t                 *publish_msg;
   ngx_int_t                    owner = chead->owner;
   ngx_int_t                    rc;
-  time_t                       chan_expire, timeout = (cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60);
+  time_t                       chan_expire, timeout = message_timeout(cf);
   
   if(callback == NULL) {
     callback = empty_callback;
@@ -2706,19 +2730,9 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
 
   assert(msg->id.tagcount == 1);
   
-  //this coould be dangerous!!
-  if(msg->id.time == 0) {
-    msg->id.time = ngx_time();
-  }
-  if(msg->expires == 0) {
-    msg->expires = msg->id.time + timeout;
-  }
+  fill_message_timedata(msg, timeout);
   
-  if(cf->redis.enabled) {
-    assert(!msg_in_shm);
-    nchan_update_stub_status(messages, 1);
-    return nchan_store_redis.publish(&chead->id, msg, cf, callback, privdata);
-  }
+  assert(!cf->redis.enabled);
   
   if(memstore_slot() != owner) {
     if((publish_msg = create_shm_msg(msg)) == NULL) {
