@@ -1011,7 +1011,7 @@ static int its_time_for_a_spooling_filter(void *data) {
 
 static ngx_int_t its_time_for_a_spooling(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
   ngx_int_t       rc;
-  validate_spool(spool);
+  //validate_spool(spool);
   assert(spool->msg_status == MSG_CHANNEL_NOTREADY);
   spool->msg_status = MSG_INVALID;
   rc = spool_fetch_msg(spool);
