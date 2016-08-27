@@ -7,12 +7,12 @@ typedef struct {
   char              *name;
   ngx_rbtree_t       tree;
   ngx_rbtree_node_t  sentinel;
+  ngx_uint_t         allocd_nodes;
+  ngx_uint_t         active_nodes;
   void              *(*id)(void *node);
   uint32_t           (*hash)(void *);
   ngx_int_t          (*compare)(void *, void *);
-#if NCHAN_RBTREE_DBG   
-  ngx_uint_t         allocd_nodes;
-  ngx_uint_t         active_nodes;
+  #if NCHAN_RBTREE_DBG   
   //ngx_rbtree_node_t *actives[4096]; //super-heavy debugging
 #endif
 } rbtree_seed_t;
@@ -48,6 +48,7 @@ ngx_int_t            rbtree_destroy_node(rbtree_seed_t *, ngx_rbtree_node_t *);
 
 ngx_rbtree_node_t   *rbtree_find_node(rbtree_seed_t *, void *);
 ngx_int_t            rbtree_walk(rbtree_seed_t *seed, rbtree_walk_callback_pt, void *data);
+ngx_int_t            rbtree_walk_writesafe(rbtree_seed_t *seed, int (*include)(void *), rbtree_walk_callback_pt callback, void *data);
 
 ngx_int_t            rbtree_conditional_walk(rbtree_seed_t *seed, rbtree_walk_conditional_callback_pt, void *data);
 
