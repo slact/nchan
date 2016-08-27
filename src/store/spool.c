@@ -1005,36 +1005,30 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
   }
 }
 
+static int its_time_for_a_spooling_filter(void *data) {
+  return ((subscriber_pool_t *)data)->msg_status == MSG_CHANNEL_NOTREADY;
+}
+
 static ngx_int_t its_time_for_a_spooling(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
   ngx_int_t       rc;
-  
-  if(spool->msg_status == MSG_CHANNEL_NOTREADY) {
-    spool->msg_status = MSG_INVALID;
-    rc = spool_fetch_msg(spool);
-  }
-  else {
-    rc = NGX_OK;
-  }
-  
+  validate_spool(spool);
+  assert(spool->msg_status == MSG_CHANNEL_NOTREADY);
+  spool->msg_status = MSG_INVALID;
+  rc = spool_fetch_msg(spool);
   assert(rc == NGX_OK);
   return rc;
 }
 
 static ngx_int_t spooler_channel_status_changed(channel_spooler_t *self) {
-  rbtree_walk_callback_pt callback = NULL;
   switch(*self->channel_status) {
     case READY:
-      callback = (rbtree_walk_callback_pt )its_time_for_a_spooling;
+      rbtree_walk_writesafe(&self->spoolseed, its_time_for_a_spooling_filter, (rbtree_walk_callback_pt )its_time_for_a_spooling, NULL); 
       break;
       
     default:
       //do nothing
       break;
   };
-  
-  if(callback) {
-    rbtree_walk(&self->spoolseed, callback, NULL); 
-  }
   return NGX_OK;
 }
 
