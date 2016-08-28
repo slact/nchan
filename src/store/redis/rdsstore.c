@@ -1657,7 +1657,7 @@ ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, 
 
 ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *chanhead) {
   if(chanhead->in_gc_reaper) {
-    DBG("gc_withdraw chanhead %V from %V", chanhead->in_gc_reaper->name, &chanhead->id);
+    DBG("gc_withdraw chanhead %s from %V", chanhead->in_gc_reaper->name, &chanhead->id);
     assert(chanhead->status == INACTIVE);
     
     nchan_reaper_withdraw(chanhead->in_gc_reaper, chanhead);
