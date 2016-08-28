@@ -1054,6 +1054,25 @@ ngx_int_t spooler_print_contents(channel_spooler_t *spl) {
   return NGX_OK;
 }
 
+
+
+static int spooler_catch_up_filter(void *data) {
+  nchan_msg_status_t  status =  ((subscriber_pool_t *)data)->msg_status;
+  return status == MSG_EXPECTED || status == MSG_PENDING;
+}
+
+static ngx_int_t spooler_catch_up_callback(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
+  spool->msg_status = MSG_INVALID;
+  spool_fetch_msg(spool);
+  return NGX_OK;
+}
+
+ngx_int_t spooler_catch_up(channel_spooler_t *spl) {
+  rbtree_walk_writesafe(&spl->spoolseed, spooler_catch_up_filter, (rbtree_walk_callback_pt )spooler_catch_up_callback, NULL); 
+  return NGX_OK;
+}
+
+
 static channel_spooler_fn_t  spooler_fn = {
   spooler_add_subscriber,
   spooler_channel_status_changed,

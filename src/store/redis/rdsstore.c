@@ -1517,6 +1517,11 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
   rdata->channels_head = head;
 }
 
+
+ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch) {
+  return spooler_catch_up(&ch->spooler);
+}
+
 static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata) {
   rdstore_channel_head_t   *head;
   

@@ -180,6 +180,8 @@ ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, 
 ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *, rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
 ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *head);
 ngx_int_t redis_chanhead_gc_withdraw_from_reaper(nchan_reaper_t *, rdstore_channel_head_t *head);
+ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch);
+
 
 void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_data_t *rdata);
 nchan_reaper_t *rdstore_get_chanhead_reaper(rdstore_channel_head_t *ch);

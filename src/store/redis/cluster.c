@@ -895,6 +895,7 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
       ch_cur->rd_prev = NULL;
       ch_cur->rd_next = NULL;
       assert(redis_cluster_associate_chanhead_with_rdata(ch_cur) == NGX_OK);
+      redis_chanhead_catch_up_after_reconnect(ch_cur);
     }
     
     //stop any still running rdata reconnect timers
