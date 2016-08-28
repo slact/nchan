@@ -23,6 +23,8 @@ typedef struct {
 } rdstore_channel_head_cluster_data_t;
 
 
+typedef enum {SUBBING, SUBBED, UNSUBBING, UNSUBBED} redis_pubsub_status_t;
+
 struct rdstore_channel_head_s {
   ngx_str_t                    id; //channel id
   channel_spooler_t            spooler;
@@ -49,7 +51,7 @@ struct rdstore_channel_head_s {
   time_t                       gc_time;
   nchan_reaper_t              *in_gc_reaper;
   
-  unsigned                     pubsub_subscribed:1;
+  redis_pubsub_status_t        pubsub_status;
   unsigned                     meta:1;
   unsigned                     shutting_down:1;
   UT_hash_handle               hh;

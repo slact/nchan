@@ -111,7 +111,7 @@ static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *, ngx_pool
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 
 static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata);
-
+static ngx_int_t ensure_chanhead_subscribed(rdstore_channel_head_t *ch);
 
 static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
   ngx_memzero(buf, sizeof(*buf));
@@ -244,7 +244,10 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   DBG("reap channel %V", &ch->id);
 
   rdata = redis_cluster_rdata_from_channel(ch);
-  redis_subscriber_command(rdata, NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
+  if(ch->pubsub_status == SUBBED) {
+    ch->pubsub_status = UNSUBBING;
+    redis_subscriber_command(rdata, NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
+  }
   
   if(ch->rd_prev) {
     ch->rd_prev->rd_next = ch->rd_next;
@@ -265,14 +268,12 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     ch->rd_next = NULL;
     ch->rd_prev = NULL;
   }
-  rdata->almost_deleted_channels_head = ch;
   
+  rdata->almost_deleted_channels_head = ch;
   
   if(rdata->node.cluster && rdata->node.cluster->orphan_channels_head == ch) {
     rdata->node.cluster->orphan_channels_head = ch->rd_next;
   }
-  
-  ch->pubsub_subscribed = 0;
   
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
   if(ch->keepalive_timer.timer_set) {
@@ -1203,11 +1204,15 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_INT(reply->element[2])) {
 
     if(chanhead != NULL){
+      if(chanhead->pubsub_status != SUBBING) {
+        ERR("expected previous pubsub_status for channel %p (id: %V) to be SUBBING (%i), was %i", chanhead, &chanhead->id, SUBBING, chanhead->pubsub_status);
+      }
+      chanhead->pubsub_status = SUBBED;
+      
       switch(chanhead->status) {
         case NOTREADY:
           chanhead->status = READY;
           chanhead->spooler.fn->handle_channel_status_change(&chanhead->spooler);
-          chanhead->pubsub_subscribed = 1;
           //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
           break;
         case READY:
@@ -1231,7 +1236,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_INT(reply->element[2])) {
 
     DBG("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
-    free_chanhead(chanhead);
+    if(chanhead->pubsub_status == UNSUBBING) {
+      chanhead->pubsub_status = UNSUBBED;
+      free_chanhead(chanhead);
+    }
   }
   
   else {
@@ -1517,6 +1525,14 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
   rdata->channels_head = head;
 }
 
+static ngx_int_t ensure_chanhead_subscribed(rdstore_channel_head_t *ch) {
+  rdstore_data_t     *rdata;
+  if(ch->pubsub_status != SUBBED && (rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
+    ch->pubsub_status = SUBBING;
+    redis_subscriber_command(rdata, redis_subscriber_callback, ch, "SUBSCRIBE {channel:%b}:pubsub", STR(&ch->id));
+  }
+  return NGX_OK;
+}
 
 ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch) {
   return spooler_catch_up(&ch->spooler);
@@ -1537,6 +1553,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
   head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
   head->status = NOTREADY;
+  head->pubsub_status = UNSUBBED;
   head->generation = 0;
   head->last_msgid.time=0;
   head->last_msgid.tag.fixed[0]=0;
@@ -1579,12 +1596,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
   }
   
   DBG("SUBSCRIBING to {channel:%V}:pubsub", channel_id);
-  if((rdata = redis_cluster_rdata_from_channel(head)) != NULL) {
-    redis_subscriber_command(rdata, redis_subscriber_callback, head, "SUBSCRIBE {channel:%b}:pubsub", STR(channel_id));
-  }
-  else {
-    //TODO: pending chanhead for cluster
-  }
+  ensure_chanhead_subscribed(head);
   CHANNEL_HASH_ADD(head);
   
   return head;
@@ -1603,7 +1615,11 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
   }
   
   if (head->status == INACTIVE) { //recycled chanhead
+    ensure_chanhead_subscribed(head);
     redis_chanhead_gc_withdraw(head);
+    
+    // this isn't _quite_ correct. In the event that a a redis connection was lost, then regained, 
+    // the channel may not have yet SUBSCRIBED. however, for now this is adequate.
     head->status = READY;
   }
 
