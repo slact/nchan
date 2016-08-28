@@ -2377,6 +2377,15 @@ static ngx_int_t redis_data_tree_exiter_stage3(rbtree_seed_t *seed, rdstore_data
     redisFree(rdata->sync_ctx);
     rdata->sync_ctx = NULL;
   }
+  if(rdata->ping_timer.timer_set) {
+    ngx_del_timer(&rdata->ping_timer);
+  }
+  if(rdata->stall_timer.timer_set) {
+    ngx_del_timer(&rdata->stall_timer);
+  }
+  if(rdata->reconnect_timer.timer_set) {
+    ngx_del_timer(&rdata->reconnect_timer);
+  }
 
   return NGX_OK;
 }

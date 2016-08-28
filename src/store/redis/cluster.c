@@ -142,7 +142,7 @@ static void redis_cluster_info_callback(redisAsyncContext *ac, void *rep, void *
     redis_get_cluster_nodes(rdata);
   }
   else {
-    nchan_log_warning("Redis cluster not ready, says node %V", &rdata->connect_url);
+    nchan_log_warning("Redis cluster not ready, says node %V", rdata->connect_url);
     ngx_event_t      *evt = ngx_calloc(sizeof(*evt), ngx_cycle->log);
     nchan_init_timer(evt, redis_check_if_cluster_ready_handler, rdata);
     //rdt_set_status(rdata, WAITING_FOR_CLUSTER_READY, ac);
