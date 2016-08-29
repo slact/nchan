@@ -271,6 +271,9 @@ if mysite
   
   # add an #about link
   text.prepend "<a id=\"about\"></a>\n"
+  
+  #add a table-of-contents div right before the first heading
+  text.sub! /^#/, "<div class=\"tableOfContents\"></div>\n#"
 end
 
 config_heading = "## Configuration Directives"
