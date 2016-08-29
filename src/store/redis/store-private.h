@@ -187,6 +187,8 @@ ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch);
 
 void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_data_t *rdata);
 nchan_reaper_t *rdstore_get_chanhead_reaper(rdstore_channel_head_t *ch);
+ngx_int_t ensure_chanhead_pubsub_subscribed(rdstore_channel_head_t *ch);
+
 
 rdstore_data_t *find_rdata_by_connect_params(redis_connect_params_t *rcp);
 rdstore_data_t *find_rdata_by_url(ngx_str_t *url);

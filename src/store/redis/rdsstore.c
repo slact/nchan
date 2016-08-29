@@ -1525,7 +1525,7 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
   rdata->channels_head = head;
 }
 
-static ngx_int_t ensure_chanhead_subscribed(rdstore_channel_head_t *ch) {
+ngx_int_t ensure_chanhead_pubsub_subscribed(rdstore_channel_head_t *ch) {
   rdstore_data_t     *rdata;
   if(ch->pubsub_status != SUBBED && (rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
     ch->pubsub_status = SUBBING;
@@ -1596,7 +1596,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
   }
   
   DBG("SUBSCRIBING to {channel:%V}:pubsub", channel_id);
-  ensure_chanhead_subscribed(head);
+  ensure_chanhead_pubsub_subscribed(head);
   CHANNEL_HASH_ADD(head);
   
   return head;
@@ -1615,7 +1615,7 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
   }
   
   if (head->status == INACTIVE) { //recycled chanhead
-    ensure_chanhead_subscribed(head);
+    ensure_chanhead_pubsub_subscribed(head);
     redis_chanhead_gc_withdraw(head);
     
     // this isn't _quite_ correct. In the event that a a redis connection was lost, then regained, 
