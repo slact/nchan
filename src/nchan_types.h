@@ -16,6 +16,7 @@ typedef enum {
 typedef struct {
   size_t                          shm_size;
   ngx_msec_t                      redis_fakesub_timer_interval;
+  size_t                          redis_publish_message_msgkey_size;
 } nchan_main_conf_t;
 
 
