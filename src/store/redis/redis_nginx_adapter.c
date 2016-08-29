@@ -15,6 +15,9 @@
 #define PING_DATABASE_COMMAND "PING"
 
 #define EVENT_FLAGS ((ngx_event_flags & NGX_USE_CLEAR_EVENT) ?  NGX_CLEAR_EVENT : NGX_LEVEL_EVENT)
+
+#define REDIS_MAX_BUFFERED_READ_SIZE 1024*18 //hardcoded into hiredis
+
 //NGX_CLEAR_EVENT for kqueue, epoll
 //NGX_LEVEL_EVENT for select, poll, /dev/poll
 
@@ -137,8 +140,13 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 }
 
 void redis_nginx_read_event(ngx_event_t *ev) {
-  ngx_connection_t *connection = (ngx_connection_t *) ev->data;
-  redisAsyncHandleRead(connection->data);
+  redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
+  redisContext      *c = &(ac->c);
+  size_t             bytes_read_start = c->reader->len;
+  redisAsyncHandleRead(ac);
+  if (c->reader->len - bytes_read_start >= REDIS_MAX_BUFFERED_READ_SIZE && !c->err && !ac->err && !c->reader->err) {
+    redis_nginx_read_event(ev);
+  }
 }
 
 void redis_nginx_write_event(ngx_event_t *ev) {
