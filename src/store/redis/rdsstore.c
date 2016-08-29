@@ -2305,8 +2305,8 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
   }
   url = override_url ? override_url : &rcf->url;
   
-  if(url.len == 0) {
-    url = default_redis_url;
+  if(url->len == 0) {
+    url = &default_redis_url;
   }
   
   parse_redis_url(url, &rcp);
