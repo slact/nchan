@@ -330,6 +330,10 @@ static ngx_int_t nchan_redis_chanhead_ready_to_reap(rdstore_channel_head_t *ch, 
       return NGX_DECLINED;
     }
     
+    //if(ch->pubsub_status == SUBBING) {
+    //  return NGX_DECLINED;
+    //}
+    
     //DBG("ok to delete channel %V", &ch->id);
     return NGX_OK;
   }
