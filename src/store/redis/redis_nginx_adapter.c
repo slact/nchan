@@ -141,10 +141,17 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 
 void redis_nginx_read_event(ngx_event_t *ev) {
   redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
-  redisContext      *c = &(ac->c);
-  size_t             bytes_read_start = c->reader->len;
+  int                bytes_left;
   redisAsyncHandleRead(ac);
-  if (c->reader->len - bytes_read_start >= REDIS_MAX_BUFFERED_READ_SIZE && !c->err && !ac->err && !c->reader->err) {
+  
+  // we need to do this because hiredis, in its infinite wisdom, will read at 
+  // most 16Kb of data, and there's no reliable way to tell if it read that 
+  // whole amount in one gulp. Otherwise, we could just check if 16Kb have 
+  //been read and try again. But no, apparently that's not an option.
+  
+  ioctl(ac->c.fd, FIONREAD, &bytes_left);
+  if (bytes_left > 0) {
+    //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "again!");
     redis_nginx_read_event(ev);
   }
 }
