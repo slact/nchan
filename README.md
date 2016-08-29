@@ -510,6 +510,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_redis_server**  
   arguments: 1  
   context: upstream  
+  > Used in upstream { } blocks to set redis servers.    
 
 - **nchan_redis_url**  
   arguments: 1  
