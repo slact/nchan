@@ -77,7 +77,7 @@ ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
   return NGX_OK;
 }
 
-static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid) {
+static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid, char **err) {
   int16_t  *tags1 = id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
   int16_t  *tags2 = id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
   if(id1->time > 0 && id2->time > 0) {
@@ -91,7 +91,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         for(j=0; j < max; j++) {
           if(tags2[j] != -1) {
             if( i != -1) {
-              ERR("verify_msg_id: more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg. fail.");
+              *err = "more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg";
               return NGX_ERROR;
             }
             else {
@@ -100,7 +100,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
           }
         }
         if(msgidtags[i] != 0) {
-          ERR("verify_msg_id: only the first message in a given second is ok. anything else means a missed message.");
+          *err = "only the first message in a given second is ok. anything else means a missed message.";
           return NGX_ERROR;
         }
         //ok, it's just the first-per-second message of a channel from a multi-channel
@@ -108,14 +108,14 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         return NGX_OK;
       }
       else {
-        ERR("verify_msg_id: not a multimsg tag, different times. could be a missed message.");
+        *err = "previous message id times don't match";
         return NGX_ERROR;
       }
     }
     
     if(id1->tagcount == 1) {
       if(tags1[0] != tags2[0]){
-        ERR("verify_msg_id: tag mismatch. missed message?");
+        *err = "previous message id tags don't match";
         return NGX_ERROR;
       }
     }
@@ -123,7 +123,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
       int   i, max = id1->tagcount;
       for(i=0; i < max; i++) {
         if(tags2[i] != -1 && tags1[i] != tags2[i]) {
-          ERR("verify_msg_id: multitag mismatch. missed message?");
+          *err = "previous message multitag mismatch";
           return NGX_ERROR;
         }
       }
@@ -196,7 +196,8 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid, int1
 
 ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
-    if(verify_msg_id(&sub->last_msgid, &msg->prev_id, &msg->id) == NGX_ERROR) {
+    char *err, *huh;
+    if(verify_msg_id(&sub->last_msgid, &msg->prev_id, &msg->id, &err) == NGX_ERROR) {
       struct timeval    tv;
       time_t            time;
       int               ttl = msg->expires - msg->id.time;
@@ -204,10 +205,17 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
       time = tv.tv_sec;
       
       if(sub->last_msgid.time + ttl <= time) {
-        ERR("missed a message because it probably expired");
+        huh = "The message probably expired.";
       }
       else {
-        ERR("missed a message for an unknown reason. Maybe it's a bug or maybe the message queue length is too small.");
+        huh = "Try increasing the message buffer length.";
+      }
+      
+      if(sub->type == INTERNAL) {
+        nchan_log_warning("Missed message for internal %V subscriber: %s. %s", sub->name, err, huh);
+      }
+      else {
+        nchan_log_request_warning(sub->request, "Missed message for %V subscriber: %s. %s", sub->name, err, huh);
       }
     }
     
