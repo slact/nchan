@@ -950,6 +950,7 @@ static ngx_int_t rdata_make_chanheads_cluster_orphans(rdstore_data_t *rdata) {
     rdstore_channel_head_t  *cur, *last = NULL;
     for(cur = rdata->channels_head; cur; cur = cur->rd_next){
       last = cur;
+      cur->pubsub_status = UNSUBBED;
       redis_chanhead_gc_withdraw(cur);
       cur->cluster.node_rdt = NULL;
     }
