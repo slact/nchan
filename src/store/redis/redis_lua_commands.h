@@ -38,7 +38,7 @@ typedef struct {
   //output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
   redis_lua_script_t get_message_from_key;
 
-  //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]
+  //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   redis_lua_script_t publish;
 
@@ -407,8 +407,8 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "3b9b35cee6e73213336e69ab4a511056d7d41969",
-   "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]\n"
+  {"publish", "a3ef246c361dbe55269bce8afc4974c6e555a482",
+   "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
    "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
    "local id=ARGV[1]\n"
@@ -444,6 +444,8 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "if store_at_most_n_messages == 0 then\n"
    "  msg.unbuffered = 1\n"
    "end\n"
+   "\n"
+   "local msgpacked_pubsub_cutoff = tonumber(ARGV[8])\n"
    "\n"
    "--[[local dbg = function(...)\n"
    "  local arg = {...}\n"
@@ -643,7 +645,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "--publish message\n"
    "local unpacked\n"
    "\n"
-   "if msg.unbuffered or #msg.data < 5*1024 then\n"
+   "if msg.unbuffered or #msg.data < msgpacked_pubsub_cutoff then\n"
    "  unpacked= {\n"
    "    \"msg\",\n"
    "    msg.ttl or 0,\n"

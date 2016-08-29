@@ -1,4 +1,4 @@
---input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size]
+--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local id=ARGV[1]
@@ -34,6 +34,8 @@ end
 if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
+
+local msgpacked_pubsub_cutoff = tonumber(ARGV[8])
 
 --[[local dbg = function(...)
   local arg = {...}
@@ -233,7 +235,7 @@ end
 --publish message
 local unpacked
 
-if msg.unbuffered or #msg.data < 5*1024 then
+if msg.unbuffered or #msg.data < msgpacked_pubsub_cutoff then
   unpacked= {
     "msg",
     msg.ttl or 0,

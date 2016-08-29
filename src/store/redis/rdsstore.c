@@ -33,6 +33,7 @@ u_char            redis_subscriber_channel[255];
 
 static rbtree_seed_t              redis_data_tree;
 static rdstore_channel_head_t    *chanhead_hash = NULL;
+static size_t                     redis_publish_message_msgkey_size;
 
 redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
   rdstore_data_t  *rdata = cf->redis.privdata;
@@ -2329,6 +2330,12 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   nchan_redis_conf_t    *rcf;
   nchan_redis_conf_ll_t *cur;
+  nchan_main_conf_t     *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
+  
+  if(mcf->redis_publish_message_msgkey_size == NGX_CONF_UNSET_SIZE) {
+    mcf->redis_publish_message_msgkey_size = NCHAN_REDIS_DEFAULT_PUBSUB_MESSAGE_MSGKEY_SIZE;
+  }
+  redis_publish_message_msgkey_size = mcf->redis_publish_message_msgkey_size;
   
   rbtree_init(&redis_data_tree, "redis connection data", redis_data_rbtree_node_id, redis_data_rbtree_bucketer, redis_data_rbtree_compare);
   
@@ -2361,7 +2368,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
 }
 
 static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
-  
+  mcf->redis_publish_message_msgkey_size=NGX_CONF_UNSET_SIZE;
 }
 
 void redis_store_prepare_to_exit_worker() {
@@ -2577,8 +2584,6 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
   size_t                          msglen;
   nchan_msg_t                    *msg = d->msg;
   
-  //input:  keys: [], values: [channel_id, time, message, content_type, msg_ttl, max_messages]
-  //output: message_tag, channel_hash
   buf = msg->buf;
   if(ngx_buf_in_memory(buf)) {
     msgstart = buf->pos;
@@ -2600,7 +2605,10 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
   }
   d->msglen = msglen;
   
-  redis_command(rdata, &redisPublishCallback, d, "EVALSHA %s 0 %b %i %b %b %b %i %i", redis_lua_scripts.publish.hash, STR(d->channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), STR(&(msg->eventsource_event)), d->buffer_timeout, d->max_messages);
+  
+  //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+  //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+  redis_command(rdata, &redisPublishCallback, d, "EVALSHA %s 0 %b %i %b %b %b %i %i %i", redis_lua_scripts.publish.hash, STR(d->channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), STR(&(msg->eventsource_event)), d->buffer_timeout, d->max_messages, redis_publish_message_msgkey_size);
   if(mmapped && munmap(msgstart, msglen) == -1) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "munmap was a problem");
   }
