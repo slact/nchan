@@ -129,12 +129,19 @@ static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
 }
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
+  nchan_loc_conf_t  fake_cf;
   DBG("%p memstore-redis subscriber respond with status %i", d->sub, status);
   switch(status) {
     case NGX_HTTP_GONE: //delete
     case NGX_HTTP_CLOSE: //delete
       respond_msgexpected_callbacks(d, MSG_NORESPONSE);
-      nchan_store_memory.delete_channel(d->chid, d->sub->cf, NULL, NULL);
+      fake_cf = *d->sub->cf;
+      fake_cf.redis.enabled = 0;
+      d->sub->destroy_after_dequeue = 1;
+      nchan_store_memory.delete_channel(d->chid, &fake_cf, NULL, NULL);
+      //now the chanhead will be in the garbage collector
+      d->chanhead->redis_sub = NULL;
+      
       if(redis_connection_status(d->sub->cf) != CONNECTED && d->onconnect_callback_pd == NULL) {
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;

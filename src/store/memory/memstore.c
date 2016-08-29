@@ -1310,9 +1310,12 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
 }
 
 static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  ngx_int_t                owner = memstore_channel_owner(channel_id);
+  ngx_int_t                owner;
   if(!is_multi_id(channel_id)) {
-    if(memstore_slot() != owner) {
+    if(cf->redis.enabled) {
+      return nchan_store_redis.delete_channel(channel_id, cf, callback, privdata);
+    }
+    else if(memstore_slot() != (owner = memstore_channel_owner(channel_id))) {
       memstore_ipc_send_delete(owner, channel_id, callback, privdata);
     }
     else {

@@ -1148,7 +1148,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             
             if(ngx_strmatch(&alerttype, "delete channel") && array_sz > 2) {
               if(cmp_to_str(&cmp, &extracted_channel_id)) {
+                rdstore_channel_head_t *doomed_channel;
                 nchan_store_publish_generic(&extracted_channel_id, rdata, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+                doomed_channel = nchan_store_get_chanhead(&extracted_channel_id, rdata);
+                redis_chanhead_gc_add(doomed_channel, 0, "channel deleted");
               }
               else {
                 ERR("unexpected \"delete channel\" msgpack message from redis");
@@ -1806,22 +1809,24 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
   
   log_redis_reply(d->name, d->t);
   
-  if(reply) {
-    switch(redis_array_to_channel(reply, &channel)) {
-      case NGX_OK:
-        d->callback(NGX_OK, &channel, d->privdata);
-        break;
-      case NGX_DECLINED: //not found
-        d->callback(NGX_OK, NULL, d->privdata);
-        break;
-      case NGX_ERROR:
-      default:
-        d->callback(NGX_ERROR, NULL, d->privdata);
-        redisEchoCallback(c, r, privdata);
+  if(d->callback) {
+    if(reply) {
+      switch(redis_array_to_channel(reply, &channel)) {
+        case NGX_OK:
+          d->callback(NGX_OK, &channel, d->privdata);
+          break;
+        case NGX_DECLINED: //not found
+          d->callback(NGX_OK, NULL, d->privdata);
+          break;
+        case NGX_ERROR:
+        default:
+          d->callback(NGX_ERROR, NULL, d->privdata);
+          redisEchoCallback(c, r, privdata);
+      }
     }
-  }
-  else {
-    d->callback(NGX_ERROR, NULL, d->privdata);
+    else {
+      d->callback(NGX_ERROR, NULL, d->privdata);
+    }
   }
 }
 
