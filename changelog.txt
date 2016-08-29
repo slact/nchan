@@ -1,3 +1,8 @@
+ fix: incomplete redis channel deletion
+ fix: Redis command responses may not be processed after large message
+      until next command
+ feature: catch up with missed messages after reconnecting to Redis cluster
+ fix: possible invalid memory access after disconnecting from Redis cluster
  fix: Redis-stored unbuffered messages may not be delivered
  fix: possible invalid memory access when using previously idling channels
  fix: invalid memory access if publisher POST request's connection terminates
