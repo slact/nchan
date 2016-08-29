@@ -1,3 +1,4 @@
+1.0.2 (Aug. 29 2016)
  fix: more informative missed-message warnings
  fix: invalid memory access when Redis enabled without setting server URL
  fix: incomplete redis channel deletion
