@@ -111,7 +111,6 @@ static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *, ngx_pool
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 
 static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata);
-static ngx_int_t ensure_chanhead_subscribed(rdstore_channel_head_t *ch);
 
 static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
   ngx_memzero(buf, sizeof(*buf));
