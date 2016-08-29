@@ -238,10 +238,17 @@ CfCmd.new do
       undocumented: true,
       group: "debug"
   
+  nchan_redis_publish_msgpacked_max_size [:main],
+      :ngx_conf_set_size_slot,
+      [:main_conf, :redis_publish_message_msgkey_size],
+      undocumented: true,
+      group: "storage"
+  
   nchan_redis_server [:upstream],
       :ngx_conf_upstream_redis_server,
       :loc_conf,
-      group: "storage"
+      group: "storage",
+      info: "Used in upstream { } blocks to set redis servers."
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,

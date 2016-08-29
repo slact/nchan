@@ -209,6 +209,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.upstream_inheritable),
     NULL } ,
 
+  { ngx_string("nchan_redis_publish_msgpacked_max_size"),
+    NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_size_slot,
+    NGX_HTTP_MAIN_CONF_OFFSET,
+    offsetof(nchan_main_conf_t, redis_publish_message_msgkey_size),
+    NULL } ,
+
   { ngx_string("nchan_redis_server"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_upstream_redis_server,
