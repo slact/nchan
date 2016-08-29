@@ -2297,7 +2297,7 @@ rdstore_data_t *find_rdata_by_connect_params(redis_connect_params_t *rcp) {
 ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url) {
   rdstore_data_t          *rdata;
   redis_connect_params_t   rcp;
-  ngx_str_t                default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
+  static ngx_str_t         default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
   ngx_str_t               *url;
   
   if(rcf->url.len == 0) {
