@@ -1618,9 +1618,7 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
     ensure_chanhead_pubsub_subscribed(head);
     redis_chanhead_gc_withdraw(head);
     
-    // this isn't _quite_ correct. In the event that a a redis connection was lost, then regained, 
-    // the channel may not have yet SUBSCRIBED. however, for now this is adequate.
-    head->status = READY;
+    head->status = head->pubsub_status == SUBBED ? READY : NOTREADY;
   }
 
   if(!head->spooler.running) {
