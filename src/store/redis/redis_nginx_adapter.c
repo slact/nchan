@@ -150,7 +150,7 @@ void redis_nginx_read_event(ngx_event_t *ev) {
   //been read and try again. But no, apparently that's not an option.
   
   ioctl(ac->c.fd, FIONREAD, &bytes_left);
-  if (bytes_left > 0) {
+  if (bytes_left > 0 && !ac->err) {
     //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "again!");
     redis_nginx_read_event(ev);
   }
