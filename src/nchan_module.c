@@ -32,7 +32,15 @@ int                 nchan_stub_status_enabled = 0;
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
+
 //#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
+
+typedef struct {
+  ngx_http_request_t    *r;
+  ngx_http_cleanup_t    *cln;
+} channel_info_data_t;
+static channel_info_data_t *nchan_set_safe_request_ptr(ngx_http_request_t *r);
+static ngx_http_request_t *nchan_get_safe_request_ptr(channel_info_data_t *pd);
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_event_type_t event_type) {
   static nchan_loc_conf_t            evcf_data;
@@ -403,19 +411,63 @@ bad_msgid:
   
 }
 
-static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
+static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, void *pd) {
+  ngx_http_request_t *r = nchan_get_safe_request_ptr(pd);
+  if(r == NULL) {
+    return NGX_ERROR;
+  }
   ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
   return NGX_OK;
 }
 
-static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, ngx_http_cleanup_t *cln) {
+static void clear_request_pointer(channel_info_data_t *pdata) {
+  if(pdata) {
+    pdata->r = NULL;
+  }
+}
+
+static channel_info_data_t *nchan_set_safe_request_ptr(ngx_http_request_t *r) {
+  channel_info_data_t          *data = ngx_alloc(sizeof(*data), ngx_cycle->log);
+  ngx_http_cleanup_t           *cln = ngx_http_cleanup_add(r, 0);
+  
+  if(!data || !cln) {
+    nchan_log_request_error(r, "couldn't allocate request cleanup stuff.");
+    if(cln) {
+      cln->data = NULL;
+      cln->handler = (ngx_http_cleanup_pt )clear_request_pointer;
+    }
+    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    return NULL;
+  }
+  
+  data->cln = cln;
+  data->r = r;
+  
+  cln->data = data;
+  cln->handler = (ngx_http_cleanup_pt )clear_request_pointer;
+  
+  return data;
+}
+
+static ngx_http_request_t *nchan_get_safe_request_ptr(channel_info_data_t *d) {
+  ngx_http_request_t    *r = d->r;
+  ngx_http_cleanup_t    *cln = d->cln;
+  
+  ngx_free(d);
+  
+  if(r) {
+    cln->data = NULL;
+  }
+  
+  return r;
+}
+
+
+static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, channel_info_data_t *pd) {
   nchan_request_ctx_t   *ctx;
   static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
-  ngx_http_request_t    **rptr = cln->data;
-  ngx_http_request_t    *r = *rptr;
   
-  cln->data = NULL;
-  ngx_free(rptr);
+  ngx_http_request_t    *r = nchan_get_safe_request_ptr(pd);
   
   if(r == NULL) { // the request has since disappered
     return NGX_ERROR;
@@ -461,20 +513,13 @@ static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, ngx_htt
   }
 }
 
-static void clear_request_pointer(ngx_http_request_t **rptr) {
-  if(rptr) {
-    *rptr = NULL;
-  }
-}
-
 static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *content_type, size_t content_length, ngx_chain_t *request_body_chain, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_buf_t                      *buf;
   struct timeval                  tv;
   nchan_msg_t                    *msg;
   ngx_str_t                      *eventsource_event;
   
-  ngx_http_request_t            **rptr;
-  ngx_http_cleanup_t             *cln;
+  channel_info_data_t            *pd;
 
 #if FAKESHARD
   memstore_pub_debug_start();
@@ -526,18 +571,12 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   msg->start_tv = ctx->start_tv;
 #endif
   
-  cln = ngx_http_cleanup_add(r, 0);
-  rptr = ngx_alloc(sizeof(rptr), ngx_cycle->log);
-  if(!cln || !rptr) {
-    nchan_log_request_error(r, "couldn't allocate publisher request cleanup stuff.");
-    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+  
+  if((pd = nchan_set_safe_request_ptr(r)) == NULL) {
     return;
   }
-  *rptr = r;
-  cln->data = rptr;
-  cln->handler = (ngx_http_cleanup_pt )clear_request_pointer;
   
-  cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, cln);
+  cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, pd);
   nchan_update_stub_status(total_published_messages, 1);
 #if FAKESHARD
   memstore_pub_debug_end();
@@ -607,10 +646,14 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
 static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_http_complex_value_t       *publisher_upstream_request_url_ccv;
   static ngx_str_t                POST_REQUEST_STRING = {4, (u_char *)"POST "};
+  channel_info_data_t            *pd;
   
   switch(r->method) {
     case NGX_HTTP_GET:
-      cf->storage_engine->find_channel(channel_id, cf, (callback_pt) &channel_info_callback, (void *)r);
+      if((pd = nchan_set_safe_request_ptr(r)) == NULL){
+        return;
+      }
+      cf->storage_engine->find_channel(channel_id, cf, (callback_pt) &channel_info_callback, pd);
       break;
     
     case NGX_HTTP_PUT:
@@ -649,7 +692,10 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
       break;
       
     case NGX_HTTP_DELETE:
-      cf->storage_engine->delete_channel(channel_id, cf, (callback_pt) &channel_info_callback, (void *)r);
+      if((pd = nchan_set_safe_request_ptr(r)) == NULL){
+        return;
+      }
+      cf->storage_engine->delete_channel(channel_id, cf, (callback_pt) &channel_info_callback, pd);
       nchan_maybe_send_channel_event_message(r, CHAN_DELETE);
       break;
       
