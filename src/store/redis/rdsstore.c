@@ -111,6 +111,8 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *, rdstore_data_t *, ncha
 static ngx_str_t * nchan_store_content_type_from_message(nchan_msg_t *, ngx_pool_t *);
 static ngx_str_t * nchan_store_etag_from_message(nchan_msg_t *, ngx_pool_t *);
 
+static void delay_info_response(ngx_int_t code, callback_pt cb, void *pd, nchan_channel_t *ch, ngx_uint_t msec);
+
 static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata);
 
 static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
@@ -1814,14 +1816,14 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
     if(reply) {
       switch(redis_array_to_channel(reply, &channel)) {
         case NGX_OK:
-          d->callback(NGX_OK, &channel, d->privdata);
+          delay_info_response(NGX_OK, d->callback, d->privdata, &channel, 5000);
           break;
         case NGX_DECLINED: //not found
-          d->callback(NGX_OK, NULL, d->privdata);
+          delay_info_response(NGX_OK, d->callback, d->privdata, NULL, 5000);
           break;
         case NGX_ERROR:
         default:
-          d->callback(NGX_ERROR, NULL, d->privdata);
+          delay_info_response(NGX_ERROR, d->callback, d->privdata, NULL, 5000);
           redisEchoCallback(c, r, privdata);
       }
     }
@@ -2645,6 +2647,37 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   return NGX_OK;
 }
 
+typedef struct {
+  ngx_int_t                      code;
+  callback_pt                    cb;
+  void                          *pd;
+  nchan_channel_t               *ch;
+  nchan_channel_t                ch_data;
+} info_delay_t;
+
+static void delay_info_response_callback(void *privdata) {
+  ERR("delayed info response");
+  info_delay_t                  *d = privdata; 
+  d->cb(d->code, d->ch, d->pd);
+  ngx_free(d);
+}
+
+static void delay_info_response(ngx_int_t code, callback_pt cb, void *pd, nchan_channel_t *ch, ngx_uint_t msec) {
+  info_delay_t  *delay;
+  delay = ngx_alloc(sizeof(*delay), ngx_cycle->log);
+  if(ch) {
+    delay->ch_data = *ch;
+    delay->ch = &delay->ch_data;
+  }
+  else {
+    delay->ch = NULL;
+  }
+  delay->pd = pd;
+  delay->cb = cb;
+  delay->code = code;
+  nchan_add_oneshot_timer(delay_info_response_callback, delay, msec);
+}
+
 static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) {
   redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
   redisReply                    *reply=r;
@@ -2683,8 +2716,9 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
     cur=reply->element[1];
     switch(redis_array_to_channel(cur, &ch)) {
       case NGX_OK:
-        d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
+        delay_info_response(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, d->callback, d->privdata, &ch, 5000);
         break;
+        
       case NGX_DECLINED: //not found
         d->callback(NGX_OK, NULL, d->privdata);
         break;
