@@ -1821,8 +1821,8 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
           break;
         case NGX_ERROR:
         default:
-          d->callback(NGX_ERROR, NULL, d->privdata);
           redisEchoCallback(c, r, privdata);
+          d->callback(NGX_ERROR, NULL, d->privdata);
       }
     }
     else {
