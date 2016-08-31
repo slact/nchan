@@ -68,7 +68,7 @@ int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct tim
 #define nchan_log_request_warning(request, fmt, args...) ngx_log_error(NGX_LOG_WARN, (request)->connection->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_request_error(request, fmt, args...)    ngx_log_error(NGX_LOG_ERR, (request)->connection->log, 0, "nchan: " fmt, ##args)
 
-#define nchan_log(level, log, fmt, args...) ngx_log_error(level, log, 0, "nchan: " fmt, ##args)
+#define nchan_log(level, log, errno, fmt, args...) ngx_log_error(level, log, errno, "nchan: " fmt, ##args)
 
 
 #endif /*NCHAN_MODULE_H*/

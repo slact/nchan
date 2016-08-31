@@ -1112,7 +1112,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         break;
         
       default:
-        ngx_log_debug(NGX_LOG_ERR, c->log, 0, "push stream module: unknown websocket step (%d)", frame->step);
+        nchan_log(NGX_LOG_ERR, c->log, 0, "unknown websocket step (%d)", frame->step);
         goto finalize;
         break;
     }
@@ -1130,7 +1130,7 @@ exit:
     frame->last = buf.last;
     if (!c->read->ready) {
       if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
-        ngx_log_error(NGX_LOG_INFO, c->log, ngx_socket_errno, "push stream module: failed to restore read events");
+        nchan_log(NGX_LOG_INFO, c->log, ngx_socket_errno, "websocket client: failed to restore read events");
         goto finalize;
       }
     }
@@ -1139,7 +1139,7 @@ exit:
   if (rc == NGX_ERROR) {
     rev->eof = 1;
     c->error = 1;
-    ngx_log_error(NGX_LOG_INFO, c->log, ngx_socket_errno, "push stream module: client closed prematurely connection");
+    nchan_log(NGX_LOG_INFO, c->log, ngx_socket_errno, "websocket client prematurely closed connection");
     goto finalize;
   }
 
