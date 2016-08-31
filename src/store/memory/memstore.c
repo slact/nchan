@@ -2402,7 +2402,7 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   if(ch->msg_last && ch->msg_last->msg->id.time == msg->msg->id.time) {
     msg->msg->id.tag.fixed[0] = ch->msg_last->msg->id.tag.fixed[0] + 1;
   }
-  else {
+  else if(!ch->cf->redis.enabled) {
     msg->msg->id.tag.fixed[0] = 0;
   }
 
