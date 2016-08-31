@@ -38,9 +38,9 @@ int                 nchan_stub_status_enabled = 0;
 typedef struct {
   ngx_http_request_t    *r;
   ngx_http_cleanup_t    *cln;
-} channel_info_data_t;
-static channel_info_data_t *nchan_set_safe_request_ptr(ngx_http_request_t *r);
-static ngx_http_request_t *nchan_get_safe_request_ptr(channel_info_data_t *pd);
+} safe_request_ptr_t;
+static safe_request_ptr_t *nchan_set_safe_request_ptr(ngx_http_request_t *r);
+static ngx_http_request_t *nchan_get_safe_request_ptr(safe_request_ptr_t *pd);
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_event_type_t event_type) {
   static nchan_loc_conf_t            evcf_data;
@@ -420,14 +420,14 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, void *pd) {
   return NGX_OK;
 }
 
-static void clear_request_pointer(channel_info_data_t *pdata) {
+static void clear_request_pointer(safe_request_ptr_t *pdata) {
   if(pdata) {
     pdata->r = NULL;
   }
 }
 
-static channel_info_data_t *nchan_set_safe_request_ptr(ngx_http_request_t *r) {
-  channel_info_data_t          *data = ngx_alloc(sizeof(*data), ngx_cycle->log);
+static safe_request_ptr_t *nchan_set_safe_request_ptr(ngx_http_request_t *r) {
+  safe_request_ptr_t           *data = ngx_alloc(sizeof(*data), ngx_cycle->log);
   ngx_http_cleanup_t           *cln = ngx_http_cleanup_add(r, 0);
   
   if(!data || !cln) {
@@ -449,7 +449,7 @@ static channel_info_data_t *nchan_set_safe_request_ptr(ngx_http_request_t *r) {
   return data;
 }
 
-static ngx_http_request_t *nchan_get_safe_request_ptr(channel_info_data_t *d) {
+static ngx_http_request_t *nchan_get_safe_request_ptr(safe_request_ptr_t *d) {
   ngx_http_request_t    *r = d->r;
   ngx_http_cleanup_t    *cln = d->cln;
   
@@ -463,7 +463,7 @@ static ngx_http_request_t *nchan_get_safe_request_ptr(channel_info_data_t *d) {
 }
 
 
-static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, channel_info_data_t *pd) {
+static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, safe_request_ptr_t *pd) {
   nchan_request_ctx_t   *ctx;
   static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
   
@@ -519,7 +519,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   nchan_msg_t                    *msg;
   ngx_str_t                      *eventsource_event;
   
-  channel_info_data_t            *pd;
+  safe_request_ptr_t             *pd;
 
 #if FAKESHARD
   memstore_pub_debug_start();
@@ -646,7 +646,7 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
 static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_http_complex_value_t       *publisher_upstream_request_url_ccv;
   static ngx_str_t                POST_REQUEST_STRING = {4, (u_char *)"POST "};
-  channel_info_data_t            *pd;
+  safe_request_ptr_t             *pd;
   
   switch(r->method) {
     case NGX_HTTP_GET:
