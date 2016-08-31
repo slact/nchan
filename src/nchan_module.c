@@ -736,10 +736,14 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
       ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
-    *content_length_elt = *sr->headers_in.content_length;
-    content_length_elt->value.len=1;
-    content_length_elt->value.data=(u_char *)"0";
-    sr->headers_in.content_length = content_length_elt;
+    
+    if(sr->headers_in.content_length) {
+      *content_length_elt = *sr->headers_in.content_length;
+      content_length_elt->value.len=1;
+      content_length_elt->value.data=(u_char *)"0";
+      sr->headers_in.content_length = content_length_elt;
+    }
+    
     sr->headers_in.content_length_n = 0;
     sr->args = r->args;
     sr->header_only = 1;
