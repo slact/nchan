@@ -684,7 +684,7 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
     }
   }
   else {
-    ngx_http_finalize_request(r->parent, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    ngx_http_finalize_request(r->parent, rc);
   }
   return NGX_OK;
 }
