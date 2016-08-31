@@ -13,6 +13,26 @@ require "http/2"
 
 PUBLISH_TIMEOUT=3 #seconds
 
+module URI
+  class Generic
+    def set_host_unchecked(str)
+      set_host(str)
+    end
+  end
+  def self.parse_possibly_unix_socket(str)
+    u = URI.parse(str)
+    if u && u.scheme == "unix"
+      m = u.path.match "([^:]*):(.*)"
+      if m
+        u.set_host_unchecked("#{u.host}#{m[1]}")
+        u.path=m[2]
+      end
+    end
+    
+    u
+  end
+end
+
 class Message
   attr_accessor :content_type, :message, :times_seen, :etag, :last_modified
   def initialize(msg, last_modified=nil, etag=nil)
@@ -219,6 +239,8 @@ class Subscriber
       end
       def open_socket
         case uri.scheme
+        when /^unix$/
+          @sock = Celluloid::IO::UNIXSocket.new(uri.host)
         when /^(ws|http|h2c)$/
           @sock = Celluloid::IO::TCPSocket.new(uri.host, uri.port)
         when /^(wss|https|h2)$/
@@ -375,8 +397,8 @@ class Subscriber
     end
     
     def run(was_success = nil)
-      uri = URI.parse(@url)
-      uri.port ||= (uri.scheme == "ws" ? 80 : 443)
+      uri = URI.parse_possibly_unix_socket(@url)
+      uri.port ||= (uri.scheme == "ws" || uri.scheme == "unix" ? 80 : 443)
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       if @http2
@@ -387,7 +409,7 @@ class Subscriber
         @cooked.signal true
         return
       end
-      raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme.match /^wss?$/
+      raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme == "unix" || uri.scheme.match(/^wss?$/)
       @concurrency.times do
         begin
           sock = ParserBundle.new(uri).open_socket.sock
@@ -396,8 +418,14 @@ class Subscriber
           close nil
           return
         end
-          
-        @handshake = WebSocket::Handshake::Client.new(url: @url)
+        
+        if uri.scheme == "unix"
+          hs_url="http://#{uri.host.match "[^/]+$"}#{uri.path}#{uri.query ? "?#{uri.query}" :""}"
+        else
+          hs_url=@url
+        end        
+        
+        @handshake = WebSocket::Handshake::Client.new(url: hs_url)
         sock << @handshake.to_s
         
         #handshake response
@@ -503,9 +531,10 @@ class Subscriber
         @parser = Http::Parser.new
         @done = false
         extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
+        host = uri.host.match "[^/]+$"
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           
@@ -513,7 +542,7 @@ class Subscriber
         
         @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           If-Modified-Since: %s
@@ -742,7 +771,7 @@ class Subscriber
     end
     
     def run(was_success = nil)
-      uri = URI.parse(@url)
+      uri = URI.parse_possibly_unix_socket(@url)
       uri.port||= uri.scheme.match(/^(ws|http)$/) ? 80 : 443
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
@@ -1423,7 +1452,7 @@ class Publisher
           # aw hell no
           #puts "publisher err: timeout"
           
-          pub_url=URI.parse(response.request.url)
+          pub_url=URI.parse_possibly_unix_socket(response.request.url)
           pub_url = "#{pub_url.path}#{pub_url.query ? "?#{pub_url.query}" : nil}"
           raise "Publisher #{response.request.options[:method]} to #{pub_url} timed out."
         elsif response.code == 0

@@ -37,7 +37,7 @@ opt_parser=OptionParser.new do |opts|
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
   opts.on("--origin STR", "Set Origin header if appplicable."){|v| origin = v}
-  opts.on("--full-url URL", "full subscriber url") do |v|
+  opts.on("--url URL", "full subscriber url") do |v|
     url = v
   end
   opts.on("--http2", "use HTTP/2"){opt[:http2] = true}
