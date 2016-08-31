@@ -2398,12 +2398,10 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   //set time and tag
   if(msg->msg->id.time == 0) {
     msg->msg->id.time = ngx_time();
+    msg->msg->id.tag.fixed[0] = 0;
   }
   if(ch->msg_last && ch->msg_last->msg->id.time == msg->msg->id.time) {
     msg->msg->id.tag.fixed[0] = ch->msg_last->msg->id.tag.fixed[0] + 1;
-  }
-  else {
-    msg->msg->id.tag.fixed[0] = 0;
   }
 
   if(ch->msg_first == NULL) {
