@@ -204,7 +204,7 @@ typedef struct {
 
 struct nchan_loc_conf_s { //nchan_loc_conf_t
   
-  time_t                          buffer_timeout;
+  time_t                          message_timeout;
   ngx_int_t                       max_messages;
   
   ngx_http_complex_value_t       *authorize_request_url;

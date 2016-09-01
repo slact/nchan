@@ -286,7 +286,7 @@ CfCmd.new do
   
   nchan_message_timeout [:main, :srv, :loc], 
       :ngx_conf_set_sec_slot, 
-      [:loc_conf, :buffer_timeout],
+      [:loc_conf, :message_timeout],
       legacy: "push_message_timeout",
       
       group: "storage",

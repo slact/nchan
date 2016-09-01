@@ -47,7 +47,7 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, nchan_loc_conf_t *cf, 
   /*
   if(dummy_config_ptr == NULL) {
     ngx_memzero(&dummy_config, sizeof(dummy_config));
-    dummy_config.buffer_timeout = 0;
+    dummy_config.message_timeout = 0;
     dummy_config.max_messages = -1;
     dummy_config_ptr = &dummy_config;
   }
@@ -173,7 +173,7 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
     //add timeout timer
     reset_timer(fsub);
   }
-  fsub->enqueue(fsub->sub.cf->buffer_timeout, NULL, fsub->privdata);
+  fsub->enqueue(fsub->sub.cf->message_timeout, NULL, fsub->privdata);
   self->enqueued = 1;
   return NGX_OK;
 }

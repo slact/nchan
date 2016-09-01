@@ -2567,7 +2567,7 @@ typedef struct {
   time_t                msg_time;
   nchan_msg_t          *msg;
   unsigned              shared_msg:1;
-  time_t                buffer_timeout;
+  time_t                message_timeout;
   ngx_int_t             max_messages;
   ngx_int_t             msglen;
   callback_pt           callback;
@@ -2608,7 +2608,7 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
   
   //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
-  redis_command(rdata, &redisPublishCallback, d, "EVALSHA %s 0 %b %i %b %b %b %i %i %i", redis_lua_scripts.publish.hash, STR(d->channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), STR(&(msg->eventsource_event)), d->buffer_timeout, d->max_messages, redis_publish_message_msgkey_size);
+  redis_command(rdata, &redisPublishCallback, d, "EVALSHA %s 0 %b %i %b %b %b %i %i %i", redis_lua_scripts.publish.hash, STR(d->channel_id), msg->id.time, msgstart, msglen, STR(&(msg->content_type)), STR(&(msg->eventsource_event)), d->message_timeout, d->max_messages, redis_publish_message_msgkey_size);
   if(mmapped && munmap(msgstart, msglen) == -1) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "munmap was a problem");
   }
@@ -2629,7 +2629,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   }
   d->msg = msg;
   d->shared_msg = msg->shared;
-  d->buffer_timeout = cf->buffer_timeout;
+  d->message_timeout = cf->message_timeout;
   d->max_messages = cf->max_messages;
   
   assert(msg->id.tagcount == 1);

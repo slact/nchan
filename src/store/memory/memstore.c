@@ -1488,7 +1488,7 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
   //initialize default shared multi-channel config
   ngx_memzero(&default_multiconf, sizeof(default_multiconf));
-  default_multiconf.buffer_timeout = 0;
+  default_multiconf.message_timeout = 0;
   default_multiconf.max_messages = -1;
   default_multiconf.max_channel_id_length = NCHAN_MAX_CHANNEL_ID_LENGTH;
   default_multiconf.max_channel_subscribers = -1;
@@ -2653,7 +2653,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 }
 
 static ngx_inline time_t message_timeout(nchan_loc_conf_t *cf) {
-  return cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60;
+  return cf->message_timeout != 0 ? cf->message_timeout : 525600 * 60;
 }
 
 static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
@@ -2785,7 +2785,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     }
     
     nchan_reaper_add(&mpt->nobuffer_msg_reaper, shmsg_link);
-    //DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
+    //DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->message_timeout);
   }
   else {
     
@@ -2816,7 +2816,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   //do the actual publishing
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag.fixed[0] != publish_msg->prev_id.tag.fixed[0]));
-  //DBG("publish %V expire %i", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
+  //DBG("publish %V expire %i", msgid_to_str(&publish_msg->id), cf->message_timeout);
   //DBG("prev: %V", msgid_to_str(&publish_msg->prev_id));
   /*
   if(publish_msg->buf && publish_msg->buf->file) {

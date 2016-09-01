@@ -85,7 +85,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->authorize_request_url = NULL;
   lcf->publisher_upstream_request_url = NULL;
   
-  lcf->buffer_timeout=NGX_CONF_UNSET;
+  lcf->message_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
   
   lcf->subscriber_first_message=NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET;
@@ -182,7 +182,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_bitmask_value(conf->sub.http_chunked, prev->sub.http_chunked, 0);
   ngx_conf_merge_bitmask_value(conf->sub.websocket, prev->sub.websocket, 0);
   
-  ngx_conf_merge_sec_value(conf->buffer_timeout, prev->buffer_timeout, NCHAN_DEFAULT_BUFFER_TIMEOUT);
+  ngx_conf_merge_sec_value(conf->message_timeout, prev->message_timeout, NCHAN_DEFAULT_MESSAGE_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
   
   
