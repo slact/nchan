@@ -1,16 +1,21 @@
 #!/bin/zsh
 
+seconds_per_day=0.04
+git log --no-walk --tags --reverse --simplify-by-decoration --pretty="format:%ct|%D" > captions.txt
 
 gource_opt=(
     --highlight-dirs
     --multi-sampling
     --camera-mode overview
     -c 4
-    --seconds-per-day 0.07
+    --seconds-per-day $seconds_per_day
     --max-file-lag 1
     --auto-skip-seconds 1
     --date-format "%b %d %Y"
     --viewport 640x320
+    --caption-file ./captions.txt
+    --caption-duration 10
+    --caption-offset 1
 )
 
 ffmpeg_opt=(
@@ -34,3 +39,5 @@ if [[ -z $1 ]]; then
 else
     gource ./ $gource_opt -o - | ffmpeg $ffmpeg_opt $1
 fi
+
+rm captions.txt
