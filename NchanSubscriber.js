@@ -257,7 +257,7 @@ NchanSubscriber.prototype.initializeTransport = function(possibleTransports) {
     
     var i;
     if(this.desiredTransport) {
-      for(i in this.desiredTransport) {
+      for(i=0; i<this.desiredTransport.length; i++) {
         if(tryInitializeTransport(this.desiredTransport[i])) {
           break;
         }
@@ -265,7 +265,7 @@ NchanSubscriber.prototype.initializeTransport = function(possibleTransports) {
     }
     else {
       for(i in this.SubscriberClass) {
-        if(tryInitializeTransport(i)) {
+        if (this.SubscriberClass.hasOwnProperty(key) && tryInitializeTransport(i)) {
           break;
         }
       }
