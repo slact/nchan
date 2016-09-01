@@ -167,7 +167,8 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   To resume a closed EventSource connection from the last-received message, one *should* start the connection with the "`Last-Event-ID`" header set to the last message's `id`.  
   Unfortunately, browsers [don't support setting](http://www.w3.org/TR/2011/WD-eventsource-20111020/#concept-event-stream-last-event-id) this header for an `EventSource` object, so by default the last message id is set either from the "`Last-Event-Id`" header or the `last_event_id` url query string argument.  
   This behavior can be configured via the [`nchan_subscriber_last_message_id`](#nchan_subscriber_last_message_id) config.  
-  A message's associated `event` type, if present, will be sent to this subscriber with the `event:` line.
+  A message's `content-type` will not be received by an EventSource subscriber, as the protocol makes no provisions for this metadata.
+  A message's associated `event` type, if present, will be sent to this subscriber with the `event:` line.  
   
 - ##### HTTP [multipart/mixed](http://www.w3.org/Protocols/rfc1341/7_2_Multipart.html#z0)
   The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.  
