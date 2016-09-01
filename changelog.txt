@@ -1,3 +1,13 @@
+ fix: unsolicited websocket PONGs disconnected the subscriber in violation of RFC6455
+ fix: possible script error when getting channel from Redis
+ fix: possible incorrect message IDs when using Redis (thanks @supertong)
+ security: possible invalid memory access on publisher GET, POST, or DELETE when
+      using Redis and the publisher connection is terminated before receiving
+      a response
+ fix: correct publisher response code when nchan_authorize_request is unavailable
+      (502 instead of 500)
+ security: crash if publisher POSTs request with no Content-Length header when 
+      using nchan_authorize_request
 1.0.2 (Aug. 29 2016)
  fix: more informative missed-message warnings
  fix: invalid memory access when Redis enabled without setting server URL
