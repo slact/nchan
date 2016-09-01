@@ -1,6 +1,7 @@
 #!/bin/zsh
 
 seconds_per_day=0.04
+file_resolution="640x320"
 git log --no-walk --tags --reverse --simplify-by-decoration --pretty="format:%ct|%D" > captions.txt
 
 gource_opt=(
@@ -12,7 +13,6 @@ gource_opt=(
     --max-file-lag 1
     --auto-skip-seconds 1
     --date-format "%b %d %Y"
-    --viewport 640x320
     --caption-file ./captions.txt
     --caption-duration 10
     --caption-offset 1
@@ -37,6 +37,8 @@ ffmpeg_opt=(
 if [[ -z $1 ]]; then
     gource ./ $gource_opt
 else
+    gource_opt+=(--viewport $file_resolution
+		 --hide mouse,progress)
     gource ./ $gource_opt -o - | ffmpeg $ffmpeg_opt $1
 fi
 
