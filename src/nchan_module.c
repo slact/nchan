@@ -247,6 +247,60 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   return ngx_http_output_filter(r, &out);
 }
 
+int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {
+  ngx_str_t    val;
+  
+  if(!cf->complex_message_timeout && !cf->complex_max_messages) {
+    return 1;
+  }
+  
+  if(cf->complex_message_timeout) {
+    time_t    timeout;
+    if(ngx_http_complex_value(r, cf->complex_message_timeout, &val) != NGX_OK) {
+      nchan_log_request_error(r, "cannot evaluate nchan_message_timeout value");
+      *err = NULL;
+      return 0;
+    }
+    if(val.len == 0) {
+      *err = "missing nchan_message_timeout value";
+      nchan_log_request_error(r, "%s", *err);
+      return 0;
+    }
+    
+    if((timeout = ngx_parse_time(&val, 1)) == (time_t )NGX_ERROR) {
+      *err = "invalid nchan_message_timeout value";
+      nchan_log_request_error(r, "%s '%V'", *err, &val);
+      return 0;
+    }
+    
+    cf->message_timeout = timeout;
+  }
+  if(cf->complex_max_messages) {
+    ngx_int_t num;
+    
+    if(ngx_http_complex_value(r, cf->complex_max_messages, &val) != NGX_OK) {
+      nchan_log_request_error(r, "cannot evaluate nchan_message_buffer_length value");
+      *err = NULL;
+      return 0;
+    }
+    
+    if(val.len == 0) {
+      *err = "missing nchan_message_buffer_length value";
+      nchan_log_request_error(r, "%s", *err);
+      return 0;
+    }
+    
+    num = ngx_atoi(val.data, val.len);
+    if(num == NGX_ERROR || num < 0) {
+      *err = "invalid nchan_message_buffer_length value";
+      nchan_log_request_error(r, "%s %V", *err, &val);
+      return 0;
+    }
+    cf->max_messages = num;
+  }
+  return 1;
+}
+
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_str_t              *channel_id;
@@ -295,6 +349,20 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
+  if(cf->pub.websocket || cf->pub.http) {
+    char *err;
+    if(!nchan_parse_message_buffer_config(r, cf, &err)) {
+      if(err) {
+        nchan_respond_cstring(r, NGX_HTTP_FORBIDDEN, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, err, 0);
+        return NGX_OK;
+      }
+      else {
+        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 0);
+        return NGX_OK;
+      }
+    }
+  }
+  
   if(nchan_detect_websocket_request(r)) {
     //want websocket?
     if(cf->sub.websocket) {

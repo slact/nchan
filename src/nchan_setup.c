@@ -88,6 +88,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->message_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
   
+  lcf->complex_message_timeout = NULL;
+  lcf->complex_max_messages = NULL;
+  
   lcf->subscriber_first_message=NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET;
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
@@ -185,6 +188,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_sec_value(conf->message_timeout, prev->message_timeout, NCHAN_DEFAULT_MESSAGE_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
   
+  MERGE_CONF(conf, prev, complex_message_timeout);
+  MERGE_CONF(conf, prev, complex_max_messages);
   
   if (conf->subscriber_first_message == NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET) {
     conf->subscriber_first_message = (prev->subscriber_first_message == NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET) ? NCHAN_SUBSCRIBER_DEFAULT_FIRST_MESSAGE : prev->subscriber_first_message;
@@ -568,6 +573,46 @@ static char *nchan_store_messages_directive(ngx_conf_t *cf, ngx_command_t *cmd, 
     ngx_int_t *max;
     max = (ngx_int_t *) (p + offsetof(nchan_loc_conf_t, max_messages));
     *max=0;
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t    *lcf = conf;
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *arg = &val[1];
+  
+  if(memchr(arg->data, '$', arg->len)) {
+    //complex
+    lcf->max_messages = NGX_CONF_UNSET;
+    cmd->offset = offsetof(nchan_loc_conf_t, complex_max_messages);
+    ngx_http_set_complex_value_slot(cf, cmd, conf);
+  }
+  else {
+    //simple
+    lcf->complex_max_messages = NULL;
+    cmd->offset = offsetof(nchan_loc_conf_t, max_messages);
+    ngx_conf_set_num_slot(cf, cmd, conf);
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_message_timeout(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t    *lcf = conf;
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *arg = &val[1];
+  
+  if(memchr(arg->data, '$', arg->len)) {
+    //complex
+    lcf->message_timeout = NGX_CONF_UNSET;
+    cmd->offset = offsetof(nchan_loc_conf_t, complex_message_timeout);
+    ngx_http_set_complex_value_slot(cf, cmd, conf);
+  }
+  else {
+    //simple
+    lcf->complex_message_timeout = NULL;
+    cmd->offset = offsetof(nchan_loc_conf_t, message_timeout);
+    ngx_conf_set_sec_slot(cf, cmd, conf);
   }
   return NGX_CONF_OK;
 }
