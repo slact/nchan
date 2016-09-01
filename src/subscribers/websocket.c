@@ -1080,10 +1080,8 @@ static void websocket_reading(ngx_http_request_t *r) {
             if(fsub->awaiting_pong) {
               fsub->awaiting_pong = 0;
             }
-            else { //unexpected PONG. quit.
-              websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0, NULL);
-              goto finalize;
-            }
+            // unsolicited pongs are ok too as per 
+            // https://tools.ietf.org/html/rfc6455#page-37
             break;
             
           case WEBSOCKET_OPCODE_CLOSE:
