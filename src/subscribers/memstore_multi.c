@@ -42,7 +42,7 @@ static void change_sub_count(memstore_channel_head_t *ch, ngx_int_t n) {
   }
 }
 
-static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
+static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p enqueued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   assert(d->multi_chanhead->multi_waiting > 0);
   d->multi_chanhead->multi_waiting --;

@@ -45,6 +45,9 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r);
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type);
 
+time_t nchan_loc_conf_message_timeout(nchan_loc_conf_t *cf);
+ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf);
+
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_event_type_t);
 
 #define nchan_update_stub_status(counter_name, count) __memstore_update_stub_status(offsetof(nchan_stub_status_t, counter_name), count)

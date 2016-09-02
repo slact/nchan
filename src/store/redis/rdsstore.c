@@ -2629,8 +2629,8 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   }
   d->msg = msg;
   d->shared_msg = msg->shared;
-  d->message_timeout = cf->message_timeout;
-  d->max_messages = cf->max_messages;
+  d->message_timeout = nchan_loc_conf_message_timeout(cf);
+  d->max_messages = nchan_loc_conf_max_messages(cf);
   
   assert(msg->id.tagcount == 1);
   if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
