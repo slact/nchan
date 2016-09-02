@@ -173,7 +173,7 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
     //add timeout timer
     reset_timer(fsub);
   }
-  fsub->enqueue(fsub->sub.cf->message_timeout, NULL, fsub->privdata);
+  fsub->enqueue(NGX_OK, NULL, fsub->privdata);
   self->enqueued = 1;
   return NGX_OK;
 }

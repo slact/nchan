@@ -56,7 +56,7 @@ static void respond_msgexpected_callbacks(sub_data_t *d, nchan_msg_status_t stat
   }
 }
 
-static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
+static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p memstore-redis subsriber enqueued ok", d->sub);
   
   d->chanhead->status = READY;
@@ -85,6 +85,8 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   cf.max_messages = d->chanhead->max_messages;
   cf.redis.enabled = 0;
   cf.message_timeout = msg->expires - ngx_time();
+  cf.complex_max_messages = NULL;
+  cf.complex_message_timeout = NULL;
   
   lastid = &d->chanhead->latest_msgid;
   
