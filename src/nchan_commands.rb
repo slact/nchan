@@ -290,9 +290,9 @@ CfCmd.new do
       legacy: "push_message_timeout",
       
       group: "storage",
-      value: "<time>",
+      value: ["<time>", "<variable>"],
       default: "1h",
-      info: "Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Note that messages always expire from oldest to newest, so an older message may prevent a newer one with a shorter timeout from expiring."
+      info: "Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Note that messages always expire from oldest to newest, so an older message may prevent a newer one with a shorter timeout from expiring. An Nginx variable can also be used to set the timeout dynamically."
   
   nchan_message_buffer_length [:main, :srv, :loc],
       :nchan_set_message_buffer_length,
@@ -301,9 +301,9 @@ CfCmd.new do
       alt: ["nchan_message_max_buffer_length"],
       
       group: "storage",
-      value: "<number>",
+      value: ["<number>", "<variable>"],
       default: 10,
-      info: "Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages."
+      info: "Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages. An Nginx variable can also be used to set the buffer length dynamically."
   
   nchan_subscribe_existing_channels_only [:main, :srv, :loc],
       :ngx_conf_set_flag_slot, 

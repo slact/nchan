@@ -135,6 +135,8 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
 
     evcf->message_timeout = NCHAN_META_CHANNEL_MESSAGE_TTL;
     evcf->max_messages = NCHAN_META_CHANNEL_MAX_MESSAGES;
+    evcf->complex_max_messages = NULL;
+    evcf->complex_message_timeout = NULL;
     evcf->subscriber_first_message = 0;
     evcf->channel_timeout = NCHAN_META_CHANNEL_TIMEOUT;
   }
@@ -168,6 +170,36 @@ static void memstore_pub_debug_end() {
   memstore_fakeprocess_pop();
 }
 #endif
+
+time_t nchan_loc_conf_message_timeout(nchan_loc_conf_t *cf) {
+  time_t                        timeout;
+  nchan_loc_conf_shared_data_t *shcf;
+  
+  if(!cf->complex_message_timeout) {
+    timeout = cf->message_timeout;
+  }
+  else {
+    shcf = memstore_get_conf_shared_data(cf);
+    timeout = shcf->message_timeout;
+  }
+  
+  return timeout != 0 ? timeout : 525600 * 60;
+}
+
+ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf) {  
+  ngx_int_t                     num;
+  nchan_loc_conf_shared_data_t *shcf;
+  
+  if(!cf->complex_max_messages) {
+    num = cf->max_messages;
+  }
+  else {
+    shcf = memstore_get_conf_shared_data(cf);
+    num = shcf->max_messages;
+  }
+  
+  return num;
+}
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r);
 
@@ -248,7 +280,8 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
 }
 
 int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {
-  ngx_str_t    val;
+  ngx_str_t                      val;
+  nchan_loc_conf_shared_data_t  *shcf;
   
   if(!cf->complex_message_timeout && !cf->complex_max_messages) {
     return 1;
@@ -273,11 +306,11 @@ int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *c
       return 0;
     }
     
-    cf->message_timeout = timeout;
+    shcf = memstore_get_conf_shared_data(cf);
+    shcf->message_timeout = timeout;
   }
   if(cf->complex_max_messages) {
-    ngx_int_t num;
-    
+    ngx_int_t                      num;
     if(ngx_http_complex_value(r, cf->complex_max_messages, &val) != NGX_OK) {
       nchan_log_request_error(r, "cannot evaluate nchan_message_buffer_length value");
       *err = NULL;
@@ -296,7 +329,9 @@ int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *c
       nchan_log_request_error(r, "%s %V", *err, &val);
       return 0;
     }
-    cf->max_messages = num;
+    
+    shcf = memstore_get_conf_shared_data(cf);
+    shcf->max_messages = num;
   }
   return 1;
 }

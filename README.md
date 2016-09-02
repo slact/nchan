@@ -477,19 +477,19 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_max_reserved_memory  
   > The size of the shared memory chunk this module will use for message queuing and buffering.    
 
-- **nchan_message_buffer_length** `<number>`  
+- **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
   default: `10`  
   context: http, server, location  
   legacy names: push_max_message_buffer_length, push_message_buffer_length  
-  > Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages.    
+  > Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages. An Nginx variable can also be used to set the buffer length dynamically.    
 
-- **nchan_message_timeout** `<time>`  
+- **nchan_message_timeout** `[ <time> | <variable> ]`  
   arguments: 1  
   default: `1h`  
   context: http, server, location  
   legacy name: push_message_timeout  
-  > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Applicable only if a nchan_publisher is present in this or a child context.    
+  > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Note that messages always expire from oldest to newest, so an older message may prevent a newer one with a shorter timeout from expiring. An Nginx variable can also be used to set the timeout dynamically.    
 
 - **nchan_redis_idle_channel_cache_timeout** `<time>`  
   arguments: 1  
@@ -554,7 +554,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_channel_event_string** `<string>`  
   arguments: 1  
-  default: `$nchan_channel_event $nchan_channel_id`  
+  default: `"$nchan_channel_event $nchan_channel_id"`  
   context: server, location, if  
   > Contents of channel event message    
 

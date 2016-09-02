@@ -82,6 +82,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->sub.websocket=0;
   lcf->sub.http_chunked=0;
   
+  lcf->shared_data_index=NGX_CONF_UNSET;
+  
   lcf->authorize_request_url = NULL;
   lcf->publisher_upstream_request_url = NULL;
   
@@ -587,6 +589,7 @@ static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd,
     lcf->max_messages = NGX_CONF_UNSET;
     cmd->offset = offsetof(nchan_loc_conf_t, complex_max_messages);
     ngx_http_set_complex_value_slot(cf, cmd, conf);
+    memstore_reserve_conf_shared_data(lcf);
   }
   else {
     //simple
@@ -607,6 +610,7 @@ static char *nchan_set_message_timeout(ngx_conf_t *cf, ngx_command_t *cmd, void 
     lcf->message_timeout = NGX_CONF_UNSET;
     cmd->offset = offsetof(nchan_loc_conf_t, complex_message_timeout);
     ngx_http_set_complex_value_slot(cf, cmd, conf);
+    memstore_reserve_conf_shared_data(lcf);
   }
   else {
     //simple

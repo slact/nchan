@@ -202,7 +202,14 @@ typedef struct {
   ngx_int_t                       n;
 } nchan_complex_value_arr_t;
 
+typedef struct {
+ ngx_atomic_uint_t               message_timeout;
+ ngx_atomic_uint_t               max_messages;
+} nchan_loc_conf_shared_data_t;
+
 struct nchan_loc_conf_s { //nchan_loc_conf_t
+  
+  ngx_int_t                       shared_data_index;
   
   time_t                          message_timeout;
   ngx_int_t                       max_messages;

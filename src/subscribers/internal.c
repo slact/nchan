@@ -44,14 +44,6 @@ static ngx_str_t     subscriber_name = ngx_string("internal");
 
 subscriber_t *internal_subscriber_create(ngx_str_t *name, nchan_loc_conf_t *cf, size_t pd_size, void **pd) {
   internal_subscriber_t               *fsub;
-  /*
-  if(dummy_config_ptr == NULL) {
-    ngx_memzero(&dummy_config, sizeof(dummy_config));
-    dummy_config.message_timeout = 0;
-    dummy_config.max_messages = -1;
-    dummy_config_ptr = &dummy_config;
-  }
-  */
   
   if((fsub = ngx_alloc(sizeof(*fsub) + pd_size, ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
