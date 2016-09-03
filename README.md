@@ -130,7 +130,7 @@ Metadata can be added to a message when using an HTTP POST request for publishin
 
 **HTTP `DELETE`** requests delete a channel and end all subscriber connections. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
-#### Subscriber Endpoint
+#### Subscriber Endpoints
 
 Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*](#nchan_subscriber) directive.
 
