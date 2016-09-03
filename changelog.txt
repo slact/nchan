@@ -1,3 +1,6 @@
+1.0.3 (Sept. 3 2016)
+ feature: nchan_message_timeout and nchan_message_buffer_length 
+      can now use nginx variables for dynamic values
  fix: unsolicited websocket PONGs disconnected the subscriber in violation of RFC6455
  fix: possible script error when getting channel from Redis
  fix: possible incorrect message IDs when using Redis (thanks @supertong)
