@@ -342,7 +342,7 @@ ngx_int_t memstore_reserve_conf_shared_data(nchan_loc_conf_t *cf) {
   if(cf->shared_data_index == NGX_CONF_UNSET) {
     cf->shared_data_index = shared_loc_conf_count++;
   }
-  ERR("shared_loc_conf_count is %i", shared_loc_conf_count);
+  //DBG("shared_loc_conf_count is %i", shared_loc_conf_count);
   return NGX_OK;
 }
 
