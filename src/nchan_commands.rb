@@ -81,6 +81,22 @@ CfCmd.new do
       info: "Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value."
       
   
+  nchan_channel_relay_source_location [:loc],
+      :ngx_conf_set_channel_relay_source,
+      [:loc_conf, :relay_source_url],
+      args: 1,
+      group: "pubsub",
+      default: "(none)",
+      info: "this does stuff"
+
+  nchan_relay_publisher [:loc],
+      :ngx_conf_set_relay_type,
+      [:loc_conf, :relay],
+      args: 1,
+      group: "pubsub",
+      default: "(none)",
+      info: "this does stuff"
+  
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,
       :loc_conf,

@@ -207,6 +207,15 @@ typedef struct {
  ngx_atomic_uint_t               max_messages;
 } nchan_loc_conf_shared_data_t;
 
+typedef enum {RELAY_DISCONNECTED, RELAY_CONNECTING, RELAY_CONNECTED} nchan_relay_status_t;
+typedef enum {REDIS_PUBSUB} nchan_relay_type_t;
+typedef struct {
+  nchan_relay_type_t    type;
+  ngx_str_t             name;
+  ngx_stt_t            *channel_id;
+  void                 *data;
+} nchan_relay_t;
+
 struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   ngx_int_t                       shared_data_index;

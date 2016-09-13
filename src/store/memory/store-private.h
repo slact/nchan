@@ -40,6 +40,8 @@ struct memstore_channel_head_s {
   ngx_int_t                       internal_sub_count;
   time_t                          last_subscribed_local;
 
+  nchan_relay_t                  *relay;
+  
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_t                    reserved;
 #else
