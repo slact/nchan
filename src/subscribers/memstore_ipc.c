@@ -127,6 +127,11 @@ static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
 
 static void timeout_ev_handler(ngx_event_t *ev) {
   sub_data_t *d = (sub_data_t *)ev->data;
+  
+  if(!ev->timedout) {
+    return;
+  }
+  
 #if FAKESHARD
   memstore_fakeprocess_push(d->owner);
 #endif
