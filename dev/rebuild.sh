@@ -44,6 +44,8 @@ for opt in $*; do
       export NO_MAKE=1;;
     nodebug)
       export NO_DEBUG=1;;
+    echo_module)
+      export NGX_ECHO_MODULE=1;;
     O0)
       optimize_level=0;;
     O1)
