@@ -29,7 +29,7 @@ static ngx_int_t empty_callback(){
   return NGX_OK;
 }
 
-static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
+static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p (%V) memstore subsriber enqueued ok", d->sub, d->chid);
   return NGX_OK;
 }

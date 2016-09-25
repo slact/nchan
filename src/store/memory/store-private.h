@@ -106,10 +106,12 @@ typedef struct {
   ngx_atomic_int_t                   reloading;
   ngx_atomic_uint_t                  generation;
   
+  nchan_loc_conf_shared_data_t      *conf_data;
+  
   nchan_stub_status_t                stats;
   
   ngx_atomic_uint_t                  shmem_pages_used;
-  
+
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;
 #endif

@@ -337,6 +337,21 @@ ipc_t *nchan_memstore_get_ipc(void){
   return ipc;
 }
 
+static ngx_int_t                  shared_loc_conf_count = 0;
+ngx_int_t memstore_reserve_conf_shared_data(nchan_loc_conf_t *cf) {
+  if(cf->shared_data_index == NGX_CONF_UNSET) {
+    cf->shared_data_index = shared_loc_conf_count++;
+  }
+  //DBG("shared_loc_conf_count is %i", shared_loc_conf_count);
+  return NGX_OK;
+}
+
+nchan_loc_conf_shared_data_t *memstore_get_conf_shared_data(nchan_loc_conf_t *cf) {
+  assert(cf->shared_data_index != NGX_CONF_UNSET);
+  return &shdata->conf_data[cf->shared_data_index];
+}
+
+
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, mpt->hash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, mpt->hash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( mpt->hash, chanhead)
@@ -521,6 +536,12 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shmtx_lock(shm);
     d->generation ++;
     d->current_active_workers = 0;
+    
+    if(d->conf_data) {
+      shm_locked_free(shm, d->conf_data);
+      d->conf_data = NULL;
+    }
+    
     ngx_memzero(&d->stats, sizeof(d->stats));
     shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
     shmtx_unlock(shm);
@@ -541,6 +562,9 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shdata->total_active_workers = 0;
     shdata->current_active_workers = 0;
     shdata->reloading = 0;
+    
+    
+    
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
@@ -553,6 +577,13 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
 #if NCHAN_MSG_LEAK_DEBUG
     shdata->msgdebug_head = NULL;
 #endif
+  }
+  
+  if(shared_loc_conf_count > 0) {
+    d->conf_data = shm_calloc(shm, sizeof(nchan_loc_conf_shared_data_t) * shared_loc_conf_count, "shared config data");
+    if(d->conf_data == NULL) {
+      return NGX_ERROR;
+    }
   }
   return NGX_OK;
 }
@@ -1488,8 +1519,10 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
   //initialize default shared multi-channel config
   ngx_memzero(&default_multiconf, sizeof(default_multiconf));
-  default_multiconf.buffer_timeout = 0;
+  default_multiconf.complex_message_timeout = NULL;
+  default_multiconf.message_timeout = 0;
   default_multiconf.max_messages = -1;
+  default_multiconf.complex_max_messages = NULL;
   default_multiconf.max_channel_id_length = NCHAN_MAX_CHANNEL_ID_LENGTH;
   default_multiconf.max_channel_subscribers = -1;
   
@@ -2652,10 +2685,6 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
 }
 
-static ngx_inline time_t message_timeout(nchan_loc_conf_t *cf) {
-  return cf->buffer_timeout != 0 ? cf->buffer_timeout : 525600 * 60;
-}
-
 static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
   //this coould be dangerous!!
   if(msg->id.time == 0) {
@@ -2701,7 +2730,7 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     if(cf->redis.enabled) {
       assert(!msg_in_shm);
       nchan_update_stub_status(messages, 1);
-      fill_message_timedata(msg, message_timeout(cf));
+      fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
       if(callback == NULL) {
         callback = empty_callback;
       }
@@ -2725,7 +2754,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   nchan_msg_t                 *publish_msg;
   ngx_int_t                    owner = chead->owner;
   ngx_int_t                    rc;
-  time_t                       chan_expire, timeout = message_timeout(cf);
+  time_t                       chan_expire, timeout = nchan_loc_conf_message_timeout(cf);
   
   if(callback == NULL) {
     callback = empty_callback;
@@ -2752,7 +2781,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   }
   sub_count = chead->shared->sub_count;
   
-  chead->max_messages = cf->max_messages;
+  chead->max_messages = nchan_loc_conf_max_messages(cf);
   
   if(chead->latest_msgid.time > msg->id.time) {
     if(cf->redis.enabled) {
@@ -2764,7 +2793,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   }
   
   memstore_chanhead_messages_gc(chead);
-  if(cf->max_messages == 0) {
+  if(chead->max_messages == 0) {
     ///no buffer
     channel_copy=&chead->channel;
     
@@ -2785,7 +2814,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     }
     
     nchan_reaper_add(&mpt->nobuffer_msg_reaper, shmsg_link);
-    //DBG("publish unbuffer msg %V expire %i ", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
   }
   else {
     
@@ -2816,13 +2844,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   //do the actual publishing
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag.fixed[0] != publish_msg->prev_id.tag.fixed[0]));
-  //DBG("publish %V expire %i", msgid_to_str(&publish_msg->id), cf->buffer_timeout);
-  //DBG("prev: %V", msgid_to_str(&publish_msg->prev_id));
-  /*
-  if(publish_msg->buf && publish_msg->buf->file) {
-    DBG("fd %i", publish_msg->buf->file->fd);
-  }
-  */
   
   nchan_update_stub_status(messages, 1);
   
