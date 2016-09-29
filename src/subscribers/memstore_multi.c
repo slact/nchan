@@ -1,6 +1,5 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
-#include <store/memory/shmem.h>
 #include <store/memory/ipc.h>
 #include <store/memory/store-private.h>
 #include <store/memory/ipc-handlers.h>
@@ -20,9 +19,9 @@
 
 
 typedef struct {
-  nchan_store_channel_head_t   *target_chanhead;
-  nchan_store_channel_head_t   *multi_chanhead;
-  nchan_store_multi_t          *multi;
+  memstore_channel_head_t      *target_chanhead;
+  memstore_channel_head_t      *multi_chanhead;
+  memstore_multi_t             *multi;
   ngx_int_t                     n;
 } sub_data_t;
 
@@ -32,18 +31,18 @@ static ngx_int_t empty_callback(){
 }
 */
 
-static void change_sub_count(nchan_store_channel_head_t *ch, ngx_int_t n) {
-  ch->sub_count += n;
+static void change_sub_count(memstore_channel_head_t *ch, ngx_int_t n) {
+  ch->total_sub_count += n;
   ch->channel.subscribers += n;
   if(ch->shared) {
     ngx_atomic_fetch_add(&ch->shared->sub_count, n);
   }
-  if(ch->use_redis) {
+  if(ch->cf->redis.enabled) {
     memstore_fakesub_add(ch, n);
   }
 }
 
-static ngx_int_t sub_enqueue(ngx_int_t timeout, void *ptr, sub_data_t *d) {
+static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p enqueued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   assert(d->multi_chanhead->multi_waiting > 0);
   d->multi_chanhead->multi_waiting --;
@@ -141,21 +140,20 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
 
 static ngx_str_t  sub_name = ngx_string("memstore-multi");
 
-subscriber_t *memstore_multi_subscriber_create(nchan_store_channel_head_t *chanhead, uint8_t n) {
+subscriber_t *memstore_multi_subscriber_create(memstore_channel_head_t *chanhead, uint8_t n) {
   static nchan_msg_id_t        latest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                  *d;
-  nchan_store_channel_head_t  *target_ch;
+  memstore_channel_head_t     *target_ch;
   ngx_int_t                    multi_subs;
   subscriber_t                *sub;
-  nchan_loc_conf_t             cf;
   
-  cf.use_redis = chanhead->use_redis;
-  
-  if((target_ch = nchan_memstore_get_chanhead(&chanhead->multi[n].id, &cf))==NULL) {
+  if((target_ch = nchan_memstore_get_chanhead(&chanhead->multi[n].id, chanhead->cf))==NULL) {
     return NULL;
   }
   
-  sub = internal_subscriber_create_init(&sub_name, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, NULL);
+  assert(chanhead->cf);
+  
+  sub = internal_subscriber_create_init(&sub_name, chanhead->cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_notify_handler, NULL);
   
   sub->last_msgid = latest_msgid;
   

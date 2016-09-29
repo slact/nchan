@@ -15,6 +15,9 @@
 #define PING_DATABASE_COMMAND "PING"
 
 #define EVENT_FLAGS ((ngx_event_flags & NGX_USE_CLEAR_EVENT) ?  NGX_CLEAR_EVENT : NGX_LEVEL_EVENT)
+
+#define REDIS_MAX_BUFFERED_READ_SIZE 1024*18 //hardcoded into hiredis
+
 //NGX_CLEAR_EVENT for kqueue, epoll
 //NGX_LEVEL_EVENT for select, poll, /dev/poll
 
@@ -28,24 +31,31 @@ void redis_nginx_init(void) {
 }
 
 
-redisAsyncContext *redis_nginx_open_context(u_char *host, int port, int database, u_char *password, redisAsyncContext **context) {
+redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int database, ngx_str_t *password, void *privdata, redisAsyncContext **context) {
   redisAsyncContext *ac = NULL;
+  u_char             hostchr[1024] = {0};
+  if(host->len >= 1023) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
+    return NULL;
+  }
+  ngx_memcpy(hostchr, host->data, host->len);
   
   if ((context == NULL) || (*context == NULL) || (*context)->err) {
-    ac = redisAsyncConnect((const char *)host, port);
+    ac = redisAsyncConnect((const char *)hostchr, port);
     if (ac == NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %s:%d", host, port);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %V:%d", host, port);
       return NULL;
     }
     
     if (ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %s:%d - %s", host, port, ac->errstr);
+      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
       redisAsyncFree(ac);
       *context = NULL;
       return NULL;
     }
     
     if(redis_nginx_event_attach(ac) == REDIS_OK) {
+      ac->data = privdata;
       *context = ac;
     }
   }
@@ -57,12 +67,19 @@ redisAsyncContext *redis_nginx_open_context(u_char *host, int port, int database
 }
 
 
-redisContext *redis_nginx_open_sync_context(u_char *host, int port, int database, u_char *password, redisContext **context) {
+redisContext *redis_nginx_open_sync_context(ngx_str_t *host, int port, int database, ngx_str_t *password, redisContext **context) {
   redisContext  *c = NULL;
   redisReply    *reply;
   
+  u_char        hostchr[1024] = {0};
+  if(host->len >= 1023) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
+    return NULL;
+  }
+  ngx_memcpy(hostchr, host->data, host->len);
+  
   if ((context == NULL) || (*context == NULL) || (*context)->err) {
-    c = redisConnect((const char *)host, port);
+    c = redisConnect((const char *)hostchr, port);
     if (c == NULL) {
       ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis sync context for %s:%d", host, port);
       return NULL;
@@ -76,15 +93,17 @@ redisContext *redis_nginx_open_sync_context(u_char *host, int port, int database
     if (context != NULL) {
       *context = c;
     }
-    if(password) {
-      reply = redisCommand(c, "AUTH %s", password);
+    if(password->len > 0) {
+      reply = redisCommand(c, "AUTH %b", password->data, password->len);
       if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
         goto fail;
       }
     }
-    reply = redisCommand(c, "SELECT %d", database);
-    if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
-      goto fail;
+    if(database != -1) {
+      reply = redisCommand(c, "SELECT %d", database);
+      if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
+        goto fail;
+      }
     }
   }
   else {
@@ -121,8 +140,20 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 }
 
 void redis_nginx_read_event(ngx_event_t *ev) {
-  ngx_connection_t *connection = (ngx_connection_t *) ev->data;
-  redisAsyncHandleRead(connection->data);
+  redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
+  int                bytes_left;
+  redisAsyncHandleRead(ac);
+  
+  // we need to do this because hiredis, in its infinite wisdom, will read at 
+  // most 16Kb of data, and there's no reliable way to tell if it read that 
+  // whole amount in one gulp. Otherwise, we could just check if 16Kb have 
+  //been read and try again. But no, apparently that's not an option.
+  
+  ioctl(ac->c.fd, FIONREAD, &bytes_left);
+  if (bytes_left > 0 && !ac->err) {
+    //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "again!");
+    redis_nginx_read_event(ev);
+  }
 }
 
 void redis_nginx_write_event(ngx_event_t *ev) {

@@ -15,11 +15,6 @@
 #define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
 #define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
 
-#define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-
-
 //file descriptor cache
 static void *fd_cache = NULL;
 
@@ -610,97 +605,3 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_or
   }
   return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
 }
-
-/*
-
-void nchan_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
-  if (cbuf!=NULL) {
-    ngx_memcpy(cbuf, buf, sizeof(*buf)); //overkill?
-    if(buf->temporary || buf->memory) { //we don't want to copy mmpapped memory, so no ngx_buf_in_momory(buf)
-      cbuf->pos = (u_char *) (cbuf+1);
-      cbuf->last = cbuf->pos + ngx_buf_size(buf);
-      cbuf->start=cbuf->pos;
-      cbuf->end = cbuf->start + ngx_buf_size(buf);
-      ngx_memcpy(cbuf->pos, buf->pos, ngx_buf_size(buf));
-      cbuf->memory=ngx_buf_in_memory_only(buf) ? 1 : 0;
-    }
-    if (buf->file!=NULL) {
-      cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
-      cbuf->file->fd=buf->file->fd;
-      cbuf->file->log=ngx_cycle->log;
-      cbuf->file->offset=buf->file->offset;
-      cbuf->file->sys_offset=buf->file->sys_offset;
-      cbuf->file->name.len=buf->file->name.len;
-      cbuf->file->name.data=(u_char *) (cbuf->file+1);
-      ngx_memcpy(cbuf->file->name.data, buf->file->name.data, buf->file->name.len);
-    }
-  }
-}
-
-#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                         \
-(sizeof(*buf) +                                                              \
-(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +              \
-(((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
-
-//buffer is _copied_
-ngx_chain_t * nchan_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
-  ngx_chain_t                    *out;
-  ngx_file_t                     *file;
-  ngx_pool_cleanup_t             *cln = NULL;
-  ngx_pool_cleanup_file_t        *clnf = NULL;
-  if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain, can't allocate chain  in pool");
-    return NULL;
-  }
-  ngx_buf_t                      *buf_copy;
-  
-  if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
-    //TODO: don't zero the whole thing!
-    ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain, can't allocate buffer copy in pool");
-    return NULL;
-  }
-  nchan_copy_preallocated_buffer(buf, buf_copy);
-  
-  if (buf->file!=NULL) {
-    if(buf->mmap) { //just the mmap, please
-      buf->in_file=0;
-      buf->file=NULL;
-      buf->file_pos=0;
-      buf->file_last=0;
-    }
-    else {
-      file = buf_copy->file;
-      file->log=log;
-      if(file->fd==NGX_INVALID_FILE) {
-        //ngx_log_error(NGX_LOG_ERR, log, 0, "opening invalid file at %s", file->name.data);
-        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-      }
-      if(file->fd==NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain, file in buffer is invalid");
-        return NULL;
-      }
-      else {
-        //close file on cleanup
-        if((cln = ngx_pool_cleanup_add(pool, sizeof(*clnf))) == NULL) {
-          ngx_close_file(file->fd);
-          file->fd=NGX_INVALID_FILE;
-          ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain file cleanup.");
-          return NULL;
-        }
-        cln->handler = ngx_pool_cleanup_file;
-        clnf = cln->data;
-        clnf->fd = file->fd;
-        clnf->name = file->name.data;
-        clnf->log = pool->log;
-      }
-    }
-  }
-  
-  
-  
-  buf_copy->last_buf = 1;
-  out->buf = buf_copy;
-  out->next = NULL;
-  return out;
-}
-*/

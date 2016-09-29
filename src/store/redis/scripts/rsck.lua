@@ -66,7 +66,7 @@ local known_channel_keys = {}
 
 local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)
   description = description and "msg (" .. description ..")" or "msg"
-  local msgkey = "channel:msg:"..msgid..":"..chid
+  local msgkey = "{channel:"..chid.."}:msg:"..msgid
   if not known_msgkeys[msgkey] then
     known_msgs_count = known_msgs_count + 1
   end
@@ -75,13 +75,13 @@ local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)
   if t == "none" then
     --message is missing, but maybe it expired under normal circumstances. 
     --check if any earlier messages are present
-    local msgids = redis.call('LRANGE', "channel:messages:" .. chid, 0, -1)
+    local msgids = redis.call('LRANGE', "{channel:"..chid.."}:messages", 0, -1)
     local founds = 0
     for i=#msgids, 1, -1 do
       if msgids[i] == msgid then 
         break
       end
-      local thismsgkey = "channel:msg:".. msgids[i]..":"..chid
+      local thismsgkey = "{channel:"..chid.."}:msg:".. msgids[i]
       local ttt = redis.call('type', thismsgkey)['ok']
       redis.breakpoint()
       if ttt == "hash" then
@@ -116,8 +116,8 @@ end
 
 local check_channel = function(id)
   local key={
-    ch = "channel:"..id,
-    msgs = "channel:messages:" .. id
+    ch = "{channel:"..id.."}",
+    msgs = "{channel:"..id.."}:messages"
   }
   
   local ok, chkey_type = type_is(key.ch, "hash", "channel hash")
@@ -162,11 +162,11 @@ end
 
 local channel_ids = {}
 
-for i, chkey in ipairs(redis.call("KEYS", "channel:*")) do
-  local msgs_chid_match = chkey:match("^channel:messages:(.*)")
+for i, chkey in ipairs(redis.call("KEYS", "{channel:*}")) do
+  local msgs_chid_match = chkey:match("^{channel:(.*)}:messages")
   if msgs_chid_match then
-    type_is("channel:" .. msgs_chid_match, "hash", "channel messages' corresponding hash key")
-  elseif not chkey:match("^channel:msg:") then
+    type_is("{channel:" .. msgs_chid_match.."}", "hash", "channel messages' corresponding hash key")
+  elseif not chkey:match(":msg$") then
     table.insert(channel_ids, chkey);
     known_channel_keys[chkey] = true
   end
@@ -174,11 +174,11 @@ end
 
 dbg("found", #channel_ids, "channels")
 for i, chkey in ipairs(channel_ids) do
-  local chid = chkey:match("^channel:(.*)")
+  local chid = chkey:match("^{channel:(.*)}")
   check_channel(chid)
 end
 
-for i, msgkey in ipairs(redis.call("KEYS", "channel:msg:*")) do
+for i, msgkey in ipairs(redis.call("KEYS", "{channel:*}:msg")) do
   if not known_msgkeys[msgkey] then
     local ok, t = type_is(msgkey, "hash")
     if ok then

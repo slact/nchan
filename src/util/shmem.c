@@ -1,6 +1,8 @@
 #include <nchan_module.h>
 #include "shmem.h"
 #include "assert.h"
+#include <util/ngx_nchan_hacked_slab.h>
+
 #define DEBUG_SHM_ALLOC 0
 
 #define SHPOOL(shmem) ((ngx_slab_pool_t *)(shmem)->zone->shm.addr)
@@ -43,11 +45,23 @@ shmem_t *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t 
   return shm;
 }
 
+void shm_set_allocd_pages_tracker(shmem_t *shm, ngx_atomic_uint_t *ptr) {
+  nchan_slab_set_reserved_pages_tracker(SHPOOL(shm), ptr);
+}
+
 ngx_int_t shm_init(shmem_t *shm) {
-  #if (DEBUG_SHM_ALLOC == 1)
   ngx_slab_pool_t    *shpool = SHPOOL(shm);
+  #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
   #endif
+  nchan_slab_init(shpool);
+  
+  return NGX_OK;
+}
+
+ngx_int_t shm_reinit(shmem_t *shm) {
+  ngx_slab_pool_t    *shpool = SHPOOL(shm);
+  nchan_slab_init(shpool);
   
   return NGX_OK;
 }
@@ -70,7 +84,7 @@ void *shm_alloc(shmem_t *shm, size_t size, const char *label) {
 #if FAKESHARD  
   p = ngx_alloc(size, ngx_cycle->log);
 #else
-  p = ngx_slab_alloc(SHPOOL(shm), size);  
+  p = nchan_slab_alloc(SHPOOL(shm), size);  
 #endif
   if(p == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "shpool alloc failed");
@@ -96,7 +110,7 @@ void shm_free(shmem_t *shm, void *p) {
 #if FAKESHARD
   ngx_free(p);
 #else
-  ngx_slab_free(SHPOOL(shm), p);
+  nchan_slab_free(SHPOOL(shm), p);
 #endif
 #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);
@@ -112,7 +126,7 @@ void *shm_locked_alloc(shmem_t *shm, size_t size, const char *label) {
 #if FAKESHARD  
   p = ngx_alloc(size, ngx_cycle->log);
 #else
-  p = ngx_slab_alloc_locked(SHPOOL(shm), size);  
+  p = nchan_slab_alloc_locked(SHPOOL(shm), size);  
 #endif
   if(p == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "shpool alloc failed");
@@ -138,7 +152,7 @@ void shm_locked_free(shmem_t *shm, void *p) {
 #if FAKESHARD
   ngx_free(p);
 #else
-  ngx_slab_free_locked(SHPOOL(shm), p);
+  nchan_slab_free_locked(SHPOOL(shm), p);
 #endif
 #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);

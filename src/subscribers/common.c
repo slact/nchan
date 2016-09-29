@@ -315,6 +315,10 @@ void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ng
   }
 }
 
+ngx_int_t nchan_subscriber_empty_notify(subscriber_t *self, ngx_int_t code, void *data) {
+  return NGX_OK;
+}
+
 
 #define MSGID_BUF_LEN (10*255)
 typedef struct msgidbuf_s msgidbuf_t;

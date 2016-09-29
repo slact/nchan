@@ -23,6 +23,10 @@ for opt in $*; do
       ;;
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
+    gcc5)
+      export CC=gcc-5;;
+    gcc4|gcc47|gcc4.7)
+      export CC=gcc-4.7;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     debug-pool|debugpool) 
@@ -40,6 +44,8 @@ for opt in $*; do
       export NO_MAKE=1;;
     nodebug)
       export NO_DEBUG=1;;
+    echo_module)
+      export NGX_ECHO_MODULE=1;;
     O0)
       optimize_level=0;;
     O1)
@@ -144,7 +150,6 @@ if [[ -z $NO_MAKE ]]; then
   rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \
      --format whole \
-     --no-count \
      ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
   if ! [ $? -eq 0 ]; then;
     echo "failed generating redis lua scripts";

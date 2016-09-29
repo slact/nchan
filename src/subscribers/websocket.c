@@ -5,12 +5,33 @@
 #include <ngx_sha1.h>
 #include <nginx.h>
 
-#define DEBUG_LEVEL NGX_LOG_WARN
+
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:WEBSOCKET:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:WEBSOCKET:" fmt, ##arg)
 #include <assert.h>
+
+#if __AVX2__
+  #include <immintrin.h>                     // AVX2 intrinsics
+  #define WEBSOCKET_OPTIMIZED_UNMASK 1
+  
+  #define __vector_size_bytes 32
+  #define __vector_type __m256i
+  #define __vector_load_intrinsic _mm256_load_si256
+  #define __vector_xor_intrinsic _mm256_xor_si256
+  #define __vector_store_intrinsic _mm256_store_si256
+    
+#elif __SSE2__
+  #define WEBSOCKET_OPTIMIZED_UNMASK 1
+  #include <emmintrin.h>                     // SSE2 instrinsics
+  
+  #define __vector_size_bytes 16
+  #define __vector_type __m128i
+  #define __vector_load_intrinsic _mm_load_si128
+  #define __vector_xor_intrinsic _mm_xor_si128
+  #define __vector_store_intrinsic _mm_store_si128
+#endif
 
 #define WEBSOCKET_LAST_FRAME                0x8
 
@@ -147,11 +168,11 @@ struct full_subscriber_s {
   nchan_pub_upstream_stuff_t  *upstream_stuff;
   
   ngx_event_t             ping_ev;
+  unsigned                awaiting_pong:1;
   unsigned                ws_meta_subprotocol:1;
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
   unsigned                connected:1;
-  unsigned                pinging:1;
   unsigned                closing:2;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
@@ -172,11 +193,11 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, ngx_
 static ngx_int_t websocket_reserve(subscriber_t *self);
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 
-static int maybe_send_unsubscribe_upstream_request(full_subscriber_t *fsub, ngx_int_t status) {
-  if(fsub->was_enqueued && fsub->sub.cf->unsubscribe_request_url) {
-    fsub->ctx->unsubscribe_request_finalize_code = status;
-    fsub->sub.request->main->blocked = 1;
-    return 1;
+static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
+  ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+}
+
+
   }
   return 0;
 }
@@ -195,7 +216,7 @@ static void sudden_abort_handler(subscriber_t *sub) {
   memstore_fakeprocess_push(fsub->sub.owner);
 #endif
   fsub->connected = 0;
-  maybe_send_unsubscribe_upstream_request(fsub, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+  sub->request->read_event_handler = aborted_ws_close_request_rev_handler;
   
   sub->status = DEAD;
   sub->fn->dequeue(sub);
@@ -212,6 +233,62 @@ static void sudden_upstream_request_abort_handler(full_subscriber_t *fsub) {
 
 static void init_msg_buf(ngx_buf_t *buf);
 
+#if WEBSOCKET_OPTIMIZED_UNMASK
+static void websocket_unmask_frame(ws_frame_t *frame) {
+  //stupid overcomplicated websockets and their masks
+  
+  uint64_t   i, j, payload_len = frame->payload_len;
+  u_char    *payload = frame->payload;
+  u_char    *mask_key = frame->mask_key;
+  uint64_t   preamble_len = payload_len <= __vector_size_bytes ? payload_len : (uintptr_t )payload % __vector_size_bytes;
+  uint64_t   fastlen;
+  __vector_type    w, w_mask;
+  u_char     extended_mask[__vector_size_bytes];  
+  
+  //preamble
+  for (i = 0; i < preamble_len && i < payload_len; i++) {
+    payload[i] ^= mask_key[i % 4];
+  }
+  //are we done?
+  if(payload_len < __vector_size_bytes) {
+    return;
+  }
+  
+  assert((uintptr_t )(&payload[i]) % __vector_size_bytes == 0);
+  
+  for(j=0; j<__vector_size_bytes; j+=4) {
+    ngx_memcpy(&extended_mask[j], mask_key, 4);
+  }
+  
+  w_mask = __vector_load_intrinsic((__vector_type *)extended_mask);
+  fastlen = payload_len - ((payload_len - i) % __vector_size_bytes);
+  
+  assert(fastlen % __vector_size_bytes == 0);
+  
+  for (/*void*/; i < fastlen; i += __vector_size_bytes) {           // note that N must be multiple of [__vector_size_bytes]
+    w = __vector_load_intrinsic((__vector_type *)&payload[i]);       // load [__vector_size_bytes] bytes
+    w = __vector_xor_intrinsic(w, w_mask);           // XOR with mask
+    __vector_store_intrinsic((__vector_type *)&payload[i], w);   // store [__vector_size_bytes] masked bytes
+  }
+  
+  //leftovers
+  for (/*void*/; i < payload_len; i++) {
+    payload[i] ^= mask_key[i % 4];
+  }
+  
+}
+#else
+static void websocket_unmask_frame(ws_frame_t *frame) {
+  //stupid overcomplicated websockets and their masks
+  uint64_t   i, mpayload_len = frame->payload_len;
+  u_char    *mpayload = frame->payload;
+  u_char    *mask_key = frame->mask_key;
+  
+  for (i = 0; i < mpayload_len; i++) {
+    mpayload[i] ^= mask_key[i % 4];
+  }
+}
+#endif
 
 static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *ch, full_subscriber_t *fsub) {
   time_t                 last_seen = 0;
@@ -221,7 +298,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   ngx_http_request_t    *r = fsub->sub.request;
   ngx_str_t             *accept_header = NULL;
   ngx_buf_t             *tmp_buf;
-  nchan_buf_and_chain_t *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+  nchan_buf_and_chain_t *bc;
   if(ch) {
     subscribers = ch->subscribers;
     last_seen = ch->last_seen;
@@ -246,6 +323,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       if(r->headers_in.accept) {
         accept_header = &r->headers_in.accept->value;
       }
+      bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
       tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, NULL);
       ngx_memcpy(&bc->buf, tmp_buf, sizeof(*tmp_buf));
       bc->buf.last_buf=1;
@@ -280,6 +358,7 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   
   websocket_reserve(&fsub->sub);
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub); 
+  nchan_update_stub_status(total_published_messages, 1);
   
 }
 
@@ -541,7 +620,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->holding = 0;
   fsub->shook_hands = 0;
   fsub->connected = 0;
-  fsub->pinging = 0;
+  fsub->awaiting_pong = 0;
   fsub->closing = 0;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
@@ -766,9 +845,16 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
 static void ping_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
   if(ev->timedout) {
-    websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0, NULL); 
     ev->timedout=0;
-    ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+    if(fsub->awaiting_pong) {
+      //never got a PONG back
+      ngx_http_finalize_request(fsub->sub.request, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+    }
+    else {
+      fsub->awaiting_pong = 1;
+      websocket_send_frame(fsub, WEBSOCKET_PING_LAST_FRAME_BYTE, 0, NULL); 
+      ngx_add_timer(&fsub->ping_ev, fsub->sub.cf->websocket_ping_interval * 1000);
+    }
   }
 }
 
@@ -893,7 +979,6 @@ static void websocket_reading(ngx_http_request_t *r) {
   ngx_int_t                   rc = NGX_OK;
   ngx_event_t                *rev;
   ngx_connection_t           *c;
-  uint64_t                    i;
   ngx_buf_t                   buf;
   ngx_pool_t                 *temp_pool = NULL;
   int                         free_temp_pool = 1;
@@ -993,10 +1078,7 @@ static void websocket_reading(ngx_http_request_t *r) {
           }
           
           if (frame->mask) {
-            //stupid overcomplicated websockets and their masks
-            for (i = 0; i < frame->payload_len; i++) {
-              frame->payload[i] = frame->payload[i] ^ frame->mask_key[i % 4];
-            }
+            websocket_unmask_frame(frame);
           }
         }
         frame->step = WEBSOCKET_READ_START_STEP;
@@ -1030,6 +1112,11 @@ static void websocket_reading(ngx_http_request_t *r) {
             
           case WEBSOCKET_OPCODE_PONG:
             DBG("%p Got ponged", fsub);
+            if(fsub->awaiting_pong) {
+              fsub->awaiting_pong = 0;
+            }
+            // unsolicited pongs are ok too as per 
+            // https://tools.ietf.org/html/rfc6455#page-37
             break;
             
           case WEBSOCKET_OPCODE_CLOSE:
@@ -1058,7 +1145,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         break;
         
       default:
-        ngx_log_debug(NGX_LOG_ERR, c->log, 0, "push stream module: unknown websocket step (%d)", frame->step);
+        nchan_log(NGX_LOG_ERR, c->log, 0, "unknown websocket step (%d)", frame->step);
         goto finalize;
         break;
     }
@@ -1076,7 +1163,7 @@ exit:
     frame->last = buf.last;
     if (!c->read->ready) {
       if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
-        ngx_log_error(NGX_LOG_INFO, c->log, ngx_socket_errno, "push stream module: failed to restore read events");
+        nchan_log(NGX_LOG_INFO, c->log, ngx_socket_errno, "websocket client: failed to restore read events");
         goto finalize;
       }
     }
@@ -1085,7 +1172,7 @@ exit:
   if (rc == NGX_ERROR) {
     rev->eof = 1;
     c->error = 1;
-    ngx_log_error(NGX_LOG_INFO, c->log, ngx_socket_errno, "push stream module: client closed prematurely connection");
+    nchan_log(NGX_LOG_INFO, c->log, ngx_socket_errno, "websocket client prematurely closed connection");
     goto finalize;
   }
 
@@ -1433,7 +1520,7 @@ static const subscriber_fn_t websocket_fn = {
   &websocket_set_dequeue_callback,
   &websocket_reserve,
   &websocket_release,
-  NULL,
+  &nchan_subscriber_empty_notify,
   &nchan_subscriber_authorize_subscribe_request
 };
 

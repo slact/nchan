@@ -137,8 +137,7 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   }
   
   if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code < 600) {
-    nchan_respond_status(sub->request, status_code, status_line, 1);
-    return NGX_OK;
+    return subscriber_respond_unqueued_status(fsub, status_code, status_line);
   }
   
   chunked_ensure_headers_sent(fsub);

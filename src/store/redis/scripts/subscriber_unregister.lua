@@ -8,11 +8,11 @@ local id, sub_id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 redis.call('echo', ' ######## SUBSCRIBER UNREGISTER SCRIPT ####### ')
-
+local ch=('{channel:%s}'):format(id)
 local keys = {
-  channel =     'channel:'..id,
-  messages =    'channel:messages:'..id,
-  subscribers = 'channel:subscribers:'..id,
+  channel =     ch,
+  messages =    ch..':messages',
+  subscribers = ch..':subscribers',
 }
 
 local setkeyttl=function(ttl)
@@ -28,7 +28,13 @@ local setkeyttl=function(ttl)
 end
 
 local sub_count = 0
-if redis.call('EXISTS', keys.channel) ~= 0 then
+
+local res = redis.pcall('EXISTS', keys.channel)
+if type(res) == "table" and res["err"] then
+  return {err = ("CLUSTER KEYSLOT ERROR. %i %s"):format(empty_ttl, id)}
+end
+
+if res ~= 0 then
    sub_count = redis.call('hincrby', keys.channel, 'subscribers', -1)
 
   if sub_count == 0 and tonumber(redis.call('LLEN', keys.messages)) == 0 then

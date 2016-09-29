@@ -8,11 +8,14 @@ if num==nil then
   return {err="fakesub number not given"}
 end
 
-local chan_key = 'channel:'..id
-local exists = false
-if redis.call('EXISTS', chan_key) == 1 then
-  exists = true
+local chan_key = ('{channel:%s}'):format(id)
+
+local res = redis.pcall('EXISTS', chan_key)
+if type(res) == "table" and res["err"] then
+  return {err = ("CLUSTER KEYSLOT ERROR. %i %s"):format(num, id)}
 end
+
+local exists = res == 1
 
 local cur = 0
 

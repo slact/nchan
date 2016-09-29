@@ -2,6 +2,7 @@
 require 'securerandom'
 require_relative 'pubsub.rb'
 require "optparse"
+require 'timers'
 
 
 server= "localhost:8082"
@@ -36,7 +37,7 @@ opt_parser=OptionParser.new do |opts|
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
   opts.on("--origin STR", "Set Origin header if appplicable."){|v| origin = v}
-  opts.on("--full-url URL", "full subscriber url") do |v|
+  opts.on("--url URL", "full subscriber url") do |v|
     url = v
   end
   opts.on("--http2", "use HTTP/2"){opt[:http2] = true}
@@ -60,14 +61,33 @@ end
 
 sub = Subscriber.new url, par, opt
 
-nomsgmessage="\r"*30 + "Received message %i, len:%i"
 
+NOMSGF="\r"*30 + "Received message %i, len:%i"
+if no_message
+  class OutputTimer
+    include Celluloid
+    attr_reader :fired, :timer
 
-msg_count=0
+    def initialize(interval = 0.5)
+      @count = 0
+      @last_msg_length = 0 
+      @timer = every(interval) do
+        printf NOMSGF, @count, @last_msg_length
+      end
+    end
+    
+    def incoming(msg)
+      @count += 1
+      @last_msg_length = msg.message.length
+    end
+  end
+  
+  output_timer = OutputTimer.new
+end
+
 sub.on_message do |msg|
   if no_message
-    msg_count+=1
-    printf nomsgmessage, msg_count, msg.message.length
+    output_timer.incoming(msg)
   else
     if msg.content_type
       out = "(#{msg.content_type}) #{msg}"
@@ -93,6 +113,7 @@ end
 
 sub.run
 sub.wait
+output_timer.terminate if output_timer
 
 
 if sub.errors.count > 0

@@ -5,6 +5,8 @@ require "minitest/autorun"
 Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
+require_relative 'authserver.rb'
+
 SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
 PORT=ENV["PUSHMODULE_PORT"] || "8082"
 DEFAULT_CLIENT=:longpoll
@@ -714,6 +716,53 @@ class PubSubTest <  Minitest::Test
   #  sub.wait
   #end
   
+  def dont_test_auth
+    chan = short_id
+    
+    subs = [ :longpoll, :eventsource, :websocket, :multipart ]
+    
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
+      sub.on_failure { false }
+      sub.run
+      sub.wait
+      assert(sub.errors?)
+      assert /code 500/, sub.errors.first
+      sub.terminate
+    end
+    
+    auth_pid = Process.spawn("bundle exec ./authserver.rb -q")
+    while true
+      resp = Typhoeus.get("http://127.0.0.1:8053/", followlocation: true)
+      break unless resp.return_code == :couldnt_connect
+      sleep 0.20
+    end
+    
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
+      sub.on_failure { false }
+      sub.run
+      sub.wait
+      assert(sub.errors?)
+      assert /code 403/, sub.errors.first
+      sub.terminate
+    end
+    
+    pub = Publisher.new url("pub/#{chan}")
+    
+    pub.post [ "wut", "waht", "FIN" ]
+    
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/auth/#{chan}"), 1, client: t, quit_message: 'FIN')
+      sub.on_failure { false }
+      sub.run
+      sub.wait
+      verify pub, sub
+    end
+    
+    Process.kill 2, auth_pid
+  end
+  
   def test_access_control
     
     ver= proc do |bundle| 
@@ -774,6 +823,52 @@ class PubSubTest <  Minitest::Test
     pub.post "FIN"
     sub.wait
     verify pub, sub
+  end
+  
+  def test_issue_212 #https://github.com/slact/nchan/issues/212
+    chan1 = short_id
+    chan2 = short_id
+    sub = Subscriber.new url("/sub/multi/#{chan1}/#{chan2}"), 1, quit_message: 'FIN', client: :eventsource, timeout: 3
+    sub.on_failure { false }
+    pub = Publisher.new url("/pub/#{chan1}")
+    pub_nobuf = Publisher.new url("/pub/nobuffer/#{chan2}")
+    sub.run
+    sub.wait :ready
+
+    pub.post %w(yes what this and also)
+    sleep 1.1
+    pub_nobuf.post "WHAT?!"
+    pub.messages << pub_nobuf.messages.first
+    pub.post %W(foo bar baz bzzzt FIN)
+
+    sub.wait
+    
+    verify pub, sub
+  end
+  
+  def test_changing_buffer_length
+    chan = short_id
+    sub = Subscriber.new url("sub/broadcast/#{chan}"), 30, quit_message: 'FIN'
+    pub_delta = Publisher.new url("/pub/#{chan}")
+    pub_snapshot = Publisher.new url("/pub_1message/#{chan}")
+    
+    pub_delta.post %W(foo bar baz bzzzt FIN)
+    sub.run
+    sub.wait
+    verify pub_delta, sub
+    sub.reset
+    
+    pub_snapshot.post %W(blah anotherblah)
+    pub_snapshot.messages.clear
+    pub_snapshot.post "this is the real thing right here"
+    
+    pub_delta.messages.clear
+    pub_delta.messages << pub_snapshot.messages.first
+    pub_delta.post %W(d1 d2 d3 and_other_deltas FIN)
+    sub.run
+    sub.wait
+    
+    verify pub_delta, sub
   end
 end
 

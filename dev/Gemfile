@@ -15,6 +15,7 @@ gem 'http_parser.rb'
 gem 'http-2', :github => "slact/http-2"
 
 gem 'reel', :github => "celluloid/reel"
+gem 'reel-rack', :github => "slact/reel-rack"
 
 gem "memory_profiler", :github => "slact/memory_profiler"
 

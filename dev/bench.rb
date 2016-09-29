@@ -106,9 +106,6 @@ class BenchSub
         t_now = Time.now.to_f
         t_msg = msg.to_f
         if sub.client_class == Subscriber::LongPollClient
-          t_start = req.original_options[:start_time]
-          measured_time = req.response.time
-        elsif sub.client_class == Subscriber::FastLongPollClient
           t_start = req.time_requested
           measured_time = req.request_time
         elsif sub.client_class == Subscriber::EventSourceClient
