@@ -6,24 +6,65 @@
 #include <store/memory/store.h>
 #endif
 
-ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
-  return sub->cf->storage_engine->subscribe(ch_id, sub);
-}
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:COMMON:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:COMMON:" fmt, ##arg)
 
 typedef struct {
   subscriber_t    *sub;
   ngx_str_t       *ch_id;
   ngx_int_t        rc;
   ngx_int_t        http_response_code;
-} nchan_auth_subrequest_data_t;
+} nchan_subrequest_data_t;
 
 typedef struct {
   ngx_http_post_subrequest_t     psr;
-  nchan_auth_subrequest_data_t   psr_data;
-} nchan_auth_subrequest_stuff_t;
+  nchan_subrequest_data_t        psr_data;
+} nchan_subrequest_stuff_t;
+
+static ngx_int_t generic_subscriber_subrequest(subscriber_t *sub, ngx_http_complex_value_t *url_ccv, ngx_int_t (*handler)(ngx_http_request_t *, void *, ngx_int_t), ngx_http_request_t **subrequest, ngx_str_t *chid) {
+  ngx_str_t                  request_url;
+  nchan_subrequest_stuff_t  *psr_stuff = ngx_palloc(sub->request->pool, sizeof(*psr_stuff));
+  assert(psr_stuff != NULL);
+  
+  //ngx_http_request_t            *fake_parent_req = fake_cloned_parent_request(sub->request);
+  
+  ngx_http_post_subrequest_t    *psr = &psr_stuff->psr;
+  nchan_subrequest_data_t       *psrd = &psr_stuff->psr_data;
+  ngx_http_request_t            *sr;
+  
+  ngx_http_complex_value(sub->request, url_ccv, &request_url);
+  
+  sub->fn->reserve(sub);
+  
+  psr->handler = handler;
+  psr->data = psrd;
+  
+  psrd->sub = sub;
+  if(chid) {
+    psrd->ch_id = chid;
+  }
+  
+  ngx_http_subrequest(sub->request, &request_url, NULL, &sr, psr, 0);
+  
+  sr->request_body = ngx_pcalloc(sub->request->pool, sizeof(ngx_http_request_body_t)); //dummy request body 
+  if (sr->request_body == NULL) {
+    return NGX_ERROR;
+  }
+  
+  sr->header_only = 1;
+  
+  sr->args = sub->request->args;
+  if(subrequest) {
+    *subrequest = sr;
+  }
+  
+  return NGX_OK;
+}
 
 static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
-  nchan_auth_subrequest_data_t *d = ev->data;
+  nchan_subrequest_data_t *d = ev->data;
   
   d->sub->fn->release(d->sub, 1);
   
@@ -44,7 +85,7 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
 }
 
 static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
-  nchan_auth_subrequest_data_t  *d = data;
+  nchan_subrequest_data_t       *d = data;
   ngx_event_t                   *timer;
   
   if (rc == NGX_HTTP_CLIENT_CLOSED_REQUEST) {
@@ -68,49 +109,62 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
   return NGX_OK;
 }
 
-ngx_int_t nchan_subscriber_authorize_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
+ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_str_t *ch_id) {
   
   ngx_http_complex_value_t  *authorize_request_url_ccv = sub->cf->authorize_request_url;
-  ngx_str_t                  auth_request_url;
   
   if(!authorize_request_url_ccv) {
     return nchan_subscriber_subscribe(sub, ch_id);
   }
   else {
-    nchan_auth_subrequest_stuff_t *psr_stuff = ngx_palloc(sub->request->pool, sizeof(*psr_stuff));
-    assert(psr_stuff != NULL);
-    
-    //ngx_http_request_t            *fake_parent_req = fake_cloned_parent_request(sub->request);
-    
-    ngx_http_post_subrequest_t    *psr = &psr_stuff->psr;
-    nchan_auth_subrequest_data_t  *psrd = &psr_stuff->psr_data;
-    ngx_http_request_t            *sr;
-    
-    ngx_http_complex_value(sub->request, authorize_request_url_ccv, &auth_request_url);
-    
-    sub->fn->reserve(sub);
-    
-    psr->handler = subscriber_authorize_callback;
-    psr->data = psrd;
-    
-    psrd->sub = sub;
-    psrd->ch_id = ch_id;
-    
-    ngx_http_subrequest(sub->request, &auth_request_url, NULL, &sr, psr, 0);
-    
-    sr->request_body = ngx_pcalloc(sub->request->pool, sizeof(ngx_http_request_body_t)); //dummy request body 
-    if (sr->request_body == NULL) {
-      return NGX_ERROR;
-    }
-    
-    sr->header_only = 1;
-    
-    sr->args = sub->request->args;
-    
-    return NGX_OK;
+    return generic_subscriber_subrequest(sub, authorize_request_url_ccv, subscriber_authorize_callback, NULL, ch_id);
   }
 }
 
+static ngx_int_t subscriber_unsubscribe_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
+  nchan_subrequest_data_t       *d = data;
+  nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  DBG("callback %p %p %i", r, data, rc);
+  if(d->sub->request->main->blocked || ctx->unsubscribe_request_finalize_code != NGX_DECLINED) {
+    d->sub->request->main->blocked = 0;
+    ngx_http_finalize_request(d->sub->request, ctx->unsubscribe_request_finalize_code);
+  }
+  d->sub->fn->release(d->sub, 0);
+  return NGX_OK;
+}
+
+ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub) {
+  ngx_int_t                    ret;
+  //ngx_http_upstream_conf_t    *ucf;
+  ngx_http_request_t          *subrequest;
+  DBG("yep, unsubscribe_request for %p", sub);
+  ret = generic_subscriber_subrequest(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_callback, &subrequest, NULL);
+  
+  //ucf = ngx_http_get_module_loc_conf(subrequest, ngx_http_upstream_module);
+  //ucf->ignore_client_abort = 1;
+  
+  return ret;
+}
+
+static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
+  nchan_subrequest_data_t       *d = data;
+  d->sub->fn->release(d->sub, 0);
+  return NGX_OK;
+}
+
+ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
+  return generic_subscriber_subrequest(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
+}
+
+
+ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
+  ngx_int_t    ret;
+  ret = sub->cf->storage_engine->subscribe(ch_id, sub);
+  if(ret == NGX_OK && sub->cf->subscribe_request_url) {
+    nchan_subscriber_subscribe_request(sub);
+  }
+  return ret;
+}
 
 ngx_int_t nchan_cleverly_output_headers_only_for_later_response(ngx_http_request_t *r) {
   ngx_int_t                rc;

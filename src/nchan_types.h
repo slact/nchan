@@ -220,6 +220,9 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_http_complex_value_t       *authorize_request_url;
   ngx_http_complex_value_t       *publisher_upstream_request_url;
   
+  ngx_http_complex_value_t       *unsubscribe_request_url;
+  ngx_http_complex_value_t       *subscribe_request_url;
+  
   nchan_complex_value_arr_t       pub_chid;
   nchan_complex_value_arr_t       sub_chid;
   nchan_complex_value_arr_t       pubsub_chid;

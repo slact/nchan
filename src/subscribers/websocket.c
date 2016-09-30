@@ -857,8 +857,12 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
 
 static ngx_int_t websocket_dequeue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  int                 unsub_request = fsub->sub.cf->unsubscribe_request_url != NULL;
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
+  if(unsub_request) {
+    nchan_subscriber_unsubscribe_request(self);
+  }
   self->enqueued = 0;
   
   if(fsub->connected) {
@@ -1483,7 +1487,7 @@ static const subscriber_fn_t websocket_fn = {
   &websocket_reserve,
   &websocket_release,
   &nchan_subscriber_empty_notify,
-  &nchan_subscriber_authorize_subscribe
+  &nchan_subscriber_authorize_subscribe_request
 };
 
 static ngx_str_t     sub_name = ngx_string("websocket");

@@ -520,7 +520,7 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_reserve,
   &longpoll_release,
   &nchan_subscriber_empty_notify,
-  &nchan_subscriber_authorize_subscribe
+  &nchan_subscriber_authorize_subscribe_request
 };
 
 static ngx_str_t  sub_name = ngx_string("longpoll");
