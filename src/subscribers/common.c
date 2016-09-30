@@ -1,6 +1,7 @@
 #include <nchan_module.h>
 #include <assert.h>
 #include "common.h"
+#include <util/nchan_fake_request.h>
 
 #if FAKESHARD
 #include <store/memory/store.h>
@@ -121,13 +122,13 @@ ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_st
   }
 }
 
-static ngx_int_t subscriber_unsubscribe_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
+static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_subrequest_data_t       *d = data;
-  nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  //nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
   DBG("callback %p %p %i", r, data, rc);
-  if(d->sub->request->main->blocked || ctx->unsubscribe_request_finalize_code != NGX_DECLINED) {
+  if(d->sub->request->main->blocked) {
     d->sub->request->main->blocked = 0;
-    ngx_http_finalize_request(d->sub->request, ctx->unsubscribe_request_finalize_code);
+    ngx_http_finalize_request(d->sub->request, NGX_HTTP_OK);
   }
   d->sub->fn->release(d->sub, 0);
   return NGX_OK;
@@ -138,7 +139,7 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub) {
   //ngx_http_upstream_conf_t    *ucf;
   ngx_http_request_t          *subrequest;
   DBG("yep, unsubscribe_request for %p", sub);
-  ret = generic_subscriber_subrequest(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_callback, &subrequest, NULL);
+  ret = generic_subscriber_subrequest(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
   
   //ucf = ngx_http_get_module_loc_conf(subrequest, ngx_http_upstream_module);
   //ucf->ignore_client_abort = 1;
@@ -152,7 +153,32 @@ static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data
   return NGX_OK;
 }
 
+static void prepare_copied_fake_unsubscribe_request(subscriber_t *sub) {
+  ngx_http_request_t  *r = sub->request;
+  ngx_connection_t    *fc;
+  ngx_http_request_t  *fr;
+  
+  fc = nchan_create_fake_connection(NULL);
+  fc->log->file = r->connection->log->file;
+  fc->log->handler = r->connection->log->handler;
+  
+  fr = nchan_create_fake_request(fc);
+  
+  fr->main_conf = r->main_conf;
+  fr->srv_conf = r->srv_conf;
+  fr->loc_conf = r->loc_conf;
+  
+  sub->prepared_unsubscribe_request = fr;
+  
+}
+
 ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
+  if(sub->cf->unsubscribe_request_url) {
+    prepare_copied_fake_unsubscribe_request(sub);
+  }
+  else {
+    sub->prepared_unsubscribe_request = NULL;
+  }
   return generic_subscriber_subrequest(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
 }
 

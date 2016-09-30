@@ -407,11 +407,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
 
-- **nchan_subscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after subscribing.    
-
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
   default: `websocket eventsource longpoll chunked multipart-mixed`  
@@ -465,11 +460,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber_timeout  
   > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.    
 
-- **nchan_unsubscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing.    
-
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  
   default: `0 (none)`  
@@ -480,6 +470,16 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
+
+- **nchan_subscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing.    
+
+- **nchan_unsubscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing.    
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
