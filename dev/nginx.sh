@@ -31,7 +31,7 @@ TMPDIR=""
 MEM="32M"
 
 DEBUGGER_NAME="kdbg"
-DEBUGGER_CMD="kdbg -p %s $SRCDIR/nginx"
+DEBUGGER_CMD="dbus-launch kdbg -p %s $SRCDIR/nginx"
 
 #DEBUGGER_NAME="nemiver"
 #DEBUGGER_CMD="nemiver --attach=%s $SRCDIR/nginx"
