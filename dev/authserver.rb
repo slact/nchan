@@ -33,10 +33,15 @@ class AuthServer
         #meh
       when "/auth_fail"
         code = 403
+      when "/sub"
+        resp << "subbed"
+      when "/pub"
+        resp << "pubbed"
       when "/pub"
         resp << "WEE! + #{body}"
-        headers["Content-Length"]=resp.join("").length.to_s
       end
+      
+      headers["Content-Length"]=resp.join("").length.to_s
       
       [ code, headers, resp ]
     end
