@@ -305,7 +305,6 @@ struct subscriber_s {
   nchan_msg_id_t             last_msgid;
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
-  ngx_http_request_t        *prepared_unsubscribe_request;
   ngx_uint_t                 reserved;
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
