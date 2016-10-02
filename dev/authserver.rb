@@ -7,26 +7,33 @@ require "reel/rack/cli"
 require 'reel/rack'
 require "optparse"
 
-def print_request(env)
-  out = []
-  out << "  #{env["REQUEST_METHOD"]} #{env["PATH_INFO"]}"
-  out << "  Host: #{env["HTTP_HOST"]}"
-  env.each do |k,v|
-    if k != "  HTTP_HOST" && k =~ /^HTTP_/
-      out << "  #{k.split("_").slice(1..-1).each(&:capitalize!).join('-')}: #{v}"
-    end
-  end
-  puts out.join("\n")
-end
-
 class AuthServer
   if __FILE__ != $PROGRAM_NAME
-    include Celluloid::IO
+    include Celluloid
   end
   attr_accessor :app
+  
+  def print_request(env)
+    out = []
+    out << "  #{env["REQUEST_METHOD"]} #{env["PATH_INFO"]}"
+    out << "  Host: #{env["HTTP_HOST"]}"
+    env.each do |k,v|
+      if k != "  HTTP_HOST" && k =~ /^HTTP_/
+        out << "  #{k.split("_").slice(1..-1).each(&:capitalize!).join('-')}: #{v}"
+      end
+    end
+    puts out.join("\n")
+  end
+  
+  execute_block_on_receiver :initialize
+  
   def initialize(opt={})
     @opt = opt || {}
     @opt[:Port] ||= 8053
+    
+    if block_given?
+      opt[:callback]=Proc.new
+    end
     
     @app = proc do |env|
       resp = []
@@ -53,6 +60,10 @@ class AuthServer
         resp << "WEE! + #{body}"
       end
       
+      puts "greetz"
+      if @opt[:callback]
+        @opt[:callback].call(env)
+      end
       headers["Content-Length"]=resp.join("").length.to_s
       
       [ code, headers, resp ]
@@ -74,6 +85,8 @@ if __FILE__ == $PROGRAM_NAME then
   end
   opt_parser.parse!
   
-  auth = AuthServer.new opt
+  auth = AuthServer.new opt do |env|
+    pp "hello"
+  end
   auth.run
 end
