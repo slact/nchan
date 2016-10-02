@@ -155,22 +155,41 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
   
+  if(self->cf->unsubscribe_request_url) {
+    self->request->read_event_handler = nchan_subscriber_unsubscribe_callback_http_test_reading;
+  }
+  
   return NGX_OK;
 }
 
 static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   full_subscriber_t    *fsub = (full_subscriber_t  *)self;
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
+  int                   finalize_now = fsub->data.finalize_request;
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
   DBG("%p dequeue", self);
   fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
+  
+  if(self->enqueued && self->cf->unsubscribe_request_url && ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
+    if(fsub->data.finalize_request) {
+      nchan_subscriber_unsubscribe_request(self, NGX_OK);
+      self->status = DEAD;
+    }
+    else {
+      nchan_subscriber_unsubscribe_request(self, NGX_DONE);
+    }
+    
+    ngx_http_run_posted_requests(self->request->connection);
+    finalize_now = 0;
+  }
+  
   self->enqueued = 0;
   
   ctx->sub = NULL;
   
-  if(fsub->data.finalize_request) {
+  if(finalize_now) {
     DBG("finalize request %p", fsub->sub.request);
     ngx_http_finalize_request(fsub->sub.request, NGX_OK);
     self->status = DEAD;

@@ -124,20 +124,29 @@ ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_st
 
 static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_subrequest_data_t       *d = data;
-  //nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  ngx_int_t                      finalize_code = ctx->unsubscribe_request_callback_finalize_code;
   DBG("callback %p %p %i", r, data, rc);
   if(d->sub->request->main->blocked) {
     d->sub->request->main->blocked = 0;
-    ngx_http_finalize_request(d->sub->request, NGX_HTTP_OK);
   }
+  if(finalize_code != NGX_DONE) {
+    ngx_http_finalize_request(d->sub->request, finalize_code);
+  }
+  
+  ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
+  
   d->sub->fn->release(d->sub, 0);
   return NGX_OK;
 }
 
-ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub) {
+
+ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t finalize_code) {
   ngx_int_t                    ret;
   //ngx_http_upstream_conf_t    *ucf;
+  nchan_request_ctx_t         *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   ngx_http_request_t          *subrequest;
+  ctx->unsubscribe_request_callback_finalize_code = finalize_code;
   DBG("yep, unsubscribe_request for %p", sub);
   ret = generic_subscriber_subrequest(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
   
@@ -173,12 +182,6 @@ static void prepare_copied_fake_unsubscribe_request(subscriber_t *sub) {
 }
 
 ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
-  if(sub->cf->unsubscribe_request_url) {
-    prepare_copied_fake_unsubscribe_request(sub);
-  }
-  else {
-    //sub->prepared_unsubscribe_request = NULL;
-  }
   return generic_subscriber_subrequest(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
 }
 
@@ -394,13 +397,44 @@ void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
   buf->memory = 1;
 }
 
+static void ngx_http_close_request_dup(ngx_http_request_t *r, ngx_int_t rc) {
+  ngx_connection_t  *c;
 
-void nchan_subscriber_http_test_reading(ngx_http_request_t *r) {
+  r = r->main;
+  c = r->connection;
+
+  ngx_log_debug2(NGX_LOG_DEBUG_HTTP, c->log, 0,
+                  "http request count:%d blk:%d", r->count, r->blocked);
+
+  if (r->count == 0) {
+    ngx_log_error(NGX_LOG_ALERT, c->log, 0, "http request count is zero");
+  }
+
+  r->count--;
+
+  if (r->count || r->blocked) {
+    return;
+  }
+
+#if (NGX_HTTP_V2)
+  if (r->stream) {
+    ngx_http_v2_close_stream(r->stream, rc);
+    return;
+  }
+#endif
+
+  ngx_http_free_request(r, rc);
+  ngx_http_close_connection(c);
+}
+
+void nchan_subscriber_unsubscribe_callback_http_test_reading(ngx_http_request_t *r) {
   int                n;
   char               buf[1];
   ngx_err_t          err;
   ngx_event_t       *rev;
   ngx_connection_t  *c;
+  
+  nchan_request_ctx_t  *nchan_ctx;
 
   c = r->connection;
   rev = c->read;
@@ -493,7 +527,7 @@ void nchan_subscriber_http_test_reading(ngx_http_request_t *r) {
   if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && rev->active) {
 
     if (ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
-      ngx_http_close_request(r, 0);
+      ngx_http_close_request_dup(r, 0);
     }
   }
 
@@ -508,6 +542,9 @@ closed:
   ngx_log_error(NGX_LOG_INFO, c->log, err,
                 "client prematurely closed connection");
 
-  ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+  //send the unsubscribe upstream request before finalize the main request.
+  //otherwise, main request pool will have been wiped by the time we need it.
+  nchan_ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  nchan_subscriber_unsubscribe_request(nchan_ctx->sub, NGX_HTTP_CLIENT_CLOSED_REQUEST);
 }
 

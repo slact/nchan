@@ -335,6 +335,8 @@ typedef struct {
   ngx_str_t                      channel_id[NCHAN_MULTITAG_REQUEST_CTX_MAX];
   int                            channel_id_count;
   ngx_str_t                      request_origin_header;
+  
+  ngx_int_t                      unsubscribe_request_callback_finalize_code;
 #if NCHAN_BENCHMARK
   struct timeval                 start_tv;
 #endif
