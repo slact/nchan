@@ -716,6 +716,63 @@ class PubSubTest <  Minitest::Test
   #  sub.wait
   #end
   
+  
+  class CallbackStatus
+    attr_accessor :subbed, :unsubbed
+    def clear
+      @subbed = false
+      @unsubbed = false
+    end
+    def valid?
+      @subbed && @unsubbed
+    end
+  end
+  
+  def test_subscribe_unsubscribe_callbacks
+    require_relative "authserver.rb"
+    
+    cbs = CallbackStatus.new
+    
+    auth = AuthServer.new do |env|
+      if env["PATH_INFO"] == "/sub"
+        print "subbed"
+        cbs.subbed = true
+      elsif env["PATH_INFO"] == "/unsub"
+        print "unsubbed"
+        cbs.unsubbed = true
+      end
+    end
+    
+    auth.async.run
+    
+    [:longpoll, :eventsource, :multipart].each do |client_type|
+      
+      chan = short_id
+      
+      pub = Publisher.new url("pub/#{chan}")
+      cbs.clear
+      
+      sub = Subscriber.new(url("/sub/withcb/#{chan}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 500, verbose: true)
+      sub.on_failure { false }
+      
+      
+      pub.messages.clear
+      sub.messages.clear
+      sub.run
+      sleep 0.5
+      pub.post ["hi", "ho", "hum"]
+      sleep 0.1
+      pub.post "FIN"
+      sub.wait
+      
+      verify pub, sub
+      assert cbs.valid?
+    end
+    
+    auth.terminate
+    puts "heypo"
+  end
+  
   def dont_test_auth
     chan = short_id
     
