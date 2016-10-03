@@ -10,6 +10,7 @@ require "optparse"
 class AuthServer
   if __FILE__ != $PROGRAM_NAME
     include Celluloid
+    execute_block_on_receiver :initialize
   end
   attr_accessor :app
   
@@ -25,7 +26,7 @@ class AuthServer
     puts out.join("\n")
   end
   
-  execute_block_on_receiver :initialize
+  
   
   def initialize(opt={})
     @opt = opt || {}
@@ -60,7 +61,6 @@ class AuthServer
         resp << "WEE! + #{body}"
       end
       
-      puts "greetz"
       if @opt[:callback]
         @opt[:callback].call(env)
       end
@@ -85,8 +85,6 @@ if __FILE__ == $PROGRAM_NAME then
   end
   opt_parser.parse!
   
-  auth = AuthServer.new opt do |env|
-    pp "hello"
-  end
+  auth = AuthServer.new opt
   auth.run
 end
