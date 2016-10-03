@@ -175,6 +175,7 @@ struct full_subscriber_s {
   unsigned                shook_hands:1;
   unsigned                connected:1;
   unsigned                closing:1;
+  unsigned                closing_delayed_until_unsub_callback:1;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
 };// full_subscriber_t
@@ -608,6 +609,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->connected = 0;
   fsub->awaiting_pong = 0;
   fsub->closing = 0;
+  fsub->closing_delayed_until_unsub_callback = 0;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
   fsub->dequeue_handler = empty_handler;
@@ -860,8 +862,11 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   int                 unsub_request = fsub->sub.cf->unsubscribe_request_url != NULL;
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
-  if(unsub_request) {
-    nchan_subscriber_unsubscribe_request(self);
+  if(unsub_request && self->enqueued && fsub->ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
+    self->request->header_only = 0; //need this to avoid tripping an early finalize in ngx_http_upstream_finalize_request
+    fsub->closing_delayed_until_unsub_callback = 1;
+    nchan_subscriber_unsubscribe_request(self, NGX_DONE);
+    ngx_http_run_posted_requests(self->request->connection);
   }
   self->enqueued = 0;
   
@@ -1337,7 +1342,14 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
   fsub->connected = 0;
   if(fsub->closing == 1) {
     DBG("%p already sent close frame");
-    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    if(fsub->closing_delayed_until_unsub_callback
+      && fsub->ctx->unsubscribe_request_callback_finalize_code != NGX_OK //callback hasn't yet been called
+    ) {
+      fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
+    }
+    else {
+      ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    }
   }
   else {
     fsub->closing = 1;
