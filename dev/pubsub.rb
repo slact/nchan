@@ -315,6 +315,14 @@ class Subscriber
       @cooked_ready=Celluloid::Condition.new
     end
     
+    def run
+      raise "Not Implemented"
+    end
+    
+    def stop(msg = "Stopped", src_bundle = nil)
+      @subscriber.on_failure error(0, msg, src_bundle)
+    end
+    
   end
   
   class WebSocketClient < Client
@@ -376,24 +384,18 @@ class Subscriber
       @http2 = opt[:http2]
       if @timeout
         @timer = after(@timeout) do
-          @subscriber.on_failure error(0, "Timeout", b)
-          @ws.each do |b, v|
-            close b
-          end
+          stop "Timeout"
         end
       end
     end
     
-    def try_halt
-      @disconnected ||= 0
-      @disconnected += 1
-      if @disconnected == @concurrency
-        halt
+    def stop(msg = "Stopped", src_bundle = nil)
+      super msg, @ws.first
+      puts "heyyy"
+      @ws.each do |b, v|
+        close b
       end
-    end
-    
-    def halt
-      @halting = true
+      puts "hoyyy"
     end
     
     def run(was_success = nil)
@@ -469,7 +471,6 @@ class Subscriber
     def on_error
       if !@connected[ws]
         @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line)
-        try_halt
       end
     end
     
@@ -762,11 +763,15 @@ class Subscriber
       @http2=opt[:http2] || opt[:h2]
       if @timeout
         @timer = after(@timeout) do 
-          @subscriber.on_failure error(0, "Timeout")
-          @bundles.each do |b, v|
-            close b
-          end
+          stop "Timeout"
         end
+      end
+    end
+    
+    def stop(msg="Stopped", src_bundle=nil)
+      super msg, @bundles.first
+      @bundles.each do |b, v|
+        close b
       end
     end
     
@@ -1328,6 +1333,14 @@ class Subscriber
     end
     @client.async.run
     self
+  end
+  def stop
+    begin
+      @client.stop
+    rescue Celluloid::DeadActorError
+      return false
+    end
+    true
   end
   def terminate
     begin
