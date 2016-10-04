@@ -755,6 +755,32 @@ class PubSubTest <  Minitest::Test
       sub = Subscriber.new(url("/sub/withcb/#{chan}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 500, verbose: true)
       sub.on_failure { false }
       
+      #client-side abort
+      sub.run
+      #sub.wait :ready
+      sleep 1
+      
+      assert cbs.subbed
+      sub.stop
+      sleep 1
+      puts "hello"
+      
+      assert cbs.unsubbed
+      
+      sub.reset
+      cbs.clear
+      sub.run
+      #sub.wait :ready
+      sleep 0.5
+      pub.delete
+      
+      sub.wait
+      
+      sub.reset
+      assert cbs.valid?
+      cbs.clear
+      
+      puts "----------------------------------------"
       
       pub.messages.clear
       sub.messages.clear
