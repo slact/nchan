@@ -180,8 +180,9 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
     else {
       nchan_subscriber_unsubscribe_request(self, NGX_DONE);
     }
-    
-    ngx_http_run_posted_requests(self->request->connection);
+    if(ctx->request_ran_content_handler) {
+      ngx_http_run_posted_requests(self->request->connection);
+    }
     finalize_now = 0;
   }
   

@@ -501,15 +501,17 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         break;
     }
   }
-  
+  ctx->request_ran_content_handler = 1;
   return rc;
   
 forbidden:
   nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+  ctx->request_ran_content_handler = 1;
   return NGX_OK;
 
 bad_msgid:
   nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Message ID invalid", 0);
+  ctx->request_ran_content_handler = 1;
   return NGX_OK;
   
 }

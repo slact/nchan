@@ -47,7 +47,7 @@ static ngx_int_t generic_subscriber_subrequest(subscriber_t *sub, ngx_http_compl
     psrd->ch_id = chid;
   }
   
-  ngx_http_subrequest(sub->request, &request_url, NULL, &sr, psr, 0);
+  ngx_http_subrequest(sub->request, &request_url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
   
   sr->request_body = ngx_pcalloc(sub->request->pool, sizeof(ngx_http_request_body_t)); //dummy request body 
   if (sr->request_body == NULL) {
@@ -135,7 +135,6 @@ static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, 
   }
   
   ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
-  
   d->sub->fn->release(d->sub, 0);
   return NGX_OK;
 }
@@ -147,8 +146,8 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t fina
   nchan_request_ctx_t         *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   ngx_http_request_t          *subrequest;
   ctx->unsubscribe_request_callback_finalize_code = finalize_code;
-  DBG("yep, unsubscribe_request for %p", sub);
   ret = generic_subscriber_subrequest(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
+  ctx->sent_unsubscribe_request = 1;
   
   //ucf = ngx_http_get_module_loc_conf(subrequest, ngx_http_upstream_module);
   //ucf->ignore_client_abort = 1;
@@ -182,7 +181,13 @@ static void prepare_copied_fake_unsubscribe_request(subscriber_t *sub) {
 }
 
 ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
-  return generic_subscriber_subrequest(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+  if(!ctx->sent_unsubscribe_request) {
+    return generic_subscriber_subrequest(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
+  }
+  else {
+    return NGX_OK;
+  }
 }
 
 
@@ -545,6 +550,8 @@ closed:
   //send the unsubscribe upstream request before finalize the main request.
   //otherwise, main request pool will have been wiped by the time we need it.
   nchan_ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-  nchan_subscriber_unsubscribe_request(nchan_ctx->sub, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+  if(!nchan_ctx->sent_unsubscribe_request) {
+    nchan_subscriber_unsubscribe_request(nchan_ctx->sub, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+  }
 }
 
