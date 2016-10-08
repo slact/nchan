@@ -863,8 +863,8 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
   if(unsub_request && self->enqueued && fsub->ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
-    self->request->header_only = 0; //need this to avoid tripping an early finalize in ngx_http_upstream_finalize_request
     fsub->closing_delayed_until_unsub_callback = 1;
+    self->request->main->blocked = 1;
     nchan_subscriber_unsubscribe_request(self, NGX_DONE);
     ngx_http_run_posted_requests(self->request->connection);
   }
