@@ -112,7 +112,12 @@ sub.on_failure do |err_msg|
 end
 
 sub.run
-sub.wait
+begin
+  sub.wait
+rescue Interrupt => e
+  #do nothing
+end
+
 output_timer.terminate if output_timer
 
 
