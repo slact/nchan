@@ -728,17 +728,18 @@ class PubSubTest <  Minitest::Test
     end
   end
   
-  def test_subscribe_unsubscribe_callbacks
+  def test_subscribe_callbacks
     require_relative "authserver.rb"
     
     cbs = CallbackStatus.new
     
-    auth = AuthServer.new do |env|
+    auth = AuthServer.new quiet: true do |env|
+      sleep 0.3
       if env["PATH_INFO"] == "/sub"
-        print "subbed"
+        #print "subbed"
         cbs.subbed = true
       elsif env["PATH_INFO"] == "/unsub"
-        print "unsubbed"
+        #print "unsubbed"
         cbs.unsubbed = true
       end
     end
@@ -746,63 +747,59 @@ class PubSubTest <  Minitest::Test
     auth.async.run
     sleep 1
     
-    [:longpoll, :eventsource, :multipart].each do |client_type|
-      
+    [:longpoll, :multipart, :chunked, :eventsource, :websocket].each do |client_type|
       chan = short_id
       
       pub = Publisher.new url("pub/#{chan}")
       cbs.clear
       
-      sub = Subscriber.new(url("/sub/withcb/#{chan}"), 1, quit_message: 'FIN', retry_delay: 1, verbose: true, timeout: 500, client: client_type)
+      sub = Subscriber.new(url("/sub/withcb/#{chan}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 500, client: client_type)
       sub.on_failure { false }
       
-      if false
-        #client-side abort
-        sub.run
-        #sub.wait :ready
-        sleep 1
-        
-        assert cbs.subbed
-        sub.stop
-        sleep 1
-        
-        assert cbs.unsubbed
-        
-        
-        sub.reset
-        cbs.clear
-        sub.run
-        #sub.wait :ready
-        sleep 0.5
-        pub.delete
-        sub.wait
-        sleep 0.5
-        sub.reset
-        assert cbs.subbed
-        assert cbs.unsubbed
-        cbs.clear
-      end
+      #client-side abort
+      sub.run
+      #sub.wait :ready
+      sleep 1
       
-      puts "----------------------------------------"
+      assert cbs.subbed, "sub callback, client: #{client_type}"
+      sub.stop
+      sleep 1
+      
+      assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+      
+      
+      sub.reset
+      cbs.clear
+      sub.run
+      #sub.wait :ready
+      sleep 0.5
+      pub.delete
+      sub.wait
+      sleep 0.5
+      sub.reset
+      assert cbs.subbed, "sub callback, client: #{client_type}"
+      assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+      cbs.clear
       
       pub.messages.clear
       sub.messages.clear
       
+      sub.run
       sleep 0.5
       pub.post ["hi", "ho", "hum"]
 
       pub.post "FIN"
       sleep 0.5
-      sub.run
       sub.wait
       
       verify pub, sub
-      assert cbs.subbed unless client_type == :longpoll
-      assert cbs.unsubbed
+      sleep 0.7
+      
+      assert cbs.subbed, "sub callback, client: #{client_type}" unless client_type == :longpoll
+      assert cbs.unsubbed, "unsub callback, client: #{client_type}"
     end
     
-    auth.terminate
-    puts "heypo"
+    auth.terminate!
   end
   
   def dont_test_auth
