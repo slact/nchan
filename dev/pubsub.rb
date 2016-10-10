@@ -391,11 +391,9 @@ class Subscriber
     
     def stop(msg = "Stopped", src_bundle = nil)
       super msg, @ws.first
-      puts "heyyy"
       @ws.each do |b, v|
         close b
       end
-      puts "hoyyy"
     end
     
     def run(was_success = nil)
