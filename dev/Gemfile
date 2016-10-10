@@ -4,25 +4,35 @@ gem 'rack'
 gem 'typhoeus'
 gem 'json'
 gem 'nokogiri'
+
 gem 'pry'
-gem 'pry-debundle'
+gem 'pry-byebug'
+gem 'pry-coolline'
+gem 'pry-doc'
+gem 'pry-git'
+gem 'pry-inline'
 gem 'pry-rescue'
+gem 'pry-stack_explorer'
+gem 'pry-state'
+gem 'pry-syntax-hacks'
+gem 'pry-theme'
+
 gem 'celluloid'
 gem 'celluloid-io'
 gem 'websocket'
 gem 'websocket-native'
 gem 'http_parser.rb'
-gem 'http-2', :github => "slact/http-2"
+gem 'http-2', :git => "https://github.com/slact/http-2.git"
 
-gem 'reel', :github => "celluloid/reel"
-gem 'reel-rack', :github => "slact/reel-rack"
+gem 'reel', :git => "https://github.com/celluloid/reel.git"
+gem 'reel-rack', :git => "https://github.com/slact/reel-rack.git"
 
-gem "memory_profiler", :github => "slact/memory_profiler"
+gem "memory_profiler", :git => "https://github.com/slact/memory_profiler.git"
 
 gem 'minitest'
 gem 'minitest-reporters'
 
 
-gem 'fpm', :github => "slact/fpm"
+gem 'fpm', :git => "https://github.com/slact/fpm.git"
 
 gem 'hsss'
