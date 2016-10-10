@@ -460,6 +460,10 @@ class Subscriber
               return 
             end
           end
+        rescue IOError => e
+          @subscriber.on_failure error(0, "Connection closed: #{e}"), bundle
+          close bundle
+          return false
         rescue EOFError
           bundle.sock.close
           close bundle
