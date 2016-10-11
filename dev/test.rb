@@ -733,6 +733,8 @@ class PubSubTest <  Minitest::Test
     define_method "test_subscribe_callbacks_#{client_type}" do
       require_relative "authserver.rb"
       
+      Celluloid.logger = nil
+      
       cbs = CallbackStatus.new
       
       auth = AuthServer.new quiet: true do |env|
@@ -744,7 +746,6 @@ class PubSubTest <  Minitest::Test
           cbs.unsubbed = true
         end
       end
-      
       
       begin
         auth.run
@@ -811,7 +812,7 @@ class PubSubTest <  Minitest::Test
     
   end
   
-  def dont_test_auth
+  def test_auth
     chan = short_id
     
     subs = [ :longpoll, :eventsource, :websocket, :multipart ]
@@ -826,7 +827,11 @@ class PubSubTest <  Minitest::Test
       sub.terminate
     end
     
-    auth_pid = Process.spawn("bundle exec ./authserver.rb -q")
+    
+    auth = AuthServer.new quiet: true
+    auth.run
+    sleep 0.5
+    
     while true
       resp = Typhoeus.get("http://127.0.0.1:8053/", followlocation: true)
       break unless resp.return_code == :couldnt_connect
@@ -855,7 +860,7 @@ class PubSubTest <  Minitest::Test
       verify pub, sub
     end
     
-    Process.kill 2, auth_pid
+    auth.stop
   end
   
   def test_access_control
