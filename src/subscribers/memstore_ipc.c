@@ -131,6 +131,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   if(!ev->timedout) {
     return;
   }
+  ev->timedout = 0;
   
 #if FAKESHARD
   memstore_fakeprocess_push(d->owner);
