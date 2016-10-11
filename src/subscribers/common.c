@@ -161,24 +161,6 @@ static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data
   return NGX_OK;
 }
 
-static void prepare_copied_fake_unsubscribe_request(subscriber_t *sub) {
-  ngx_http_request_t  *r = sub->request;
-  ngx_connection_t    *fc;
-  ngx_http_request_t  *fr;
-  
-  fc = nchan_create_fake_connection(NULL);
-  fc->log->file = r->connection->log->file;
-  fc->log->handler = r->connection->log->handler;
-  
-  fr = nchan_create_fake_request(fc);
-  
-  fr->main_conf = r->main_conf;
-  fr->srv_conf = r->srv_conf;
-  fr->loc_conf = r->loc_conf;
-  
-  //sub->prepared_unsubscribe_request = fr;
-  
-}
 
 ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
