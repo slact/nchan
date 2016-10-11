@@ -8,10 +8,6 @@ require 'reel/rack'
 require "optparse"
 
 class AuthServer
-  if __FILE__ != $PROGRAM_NAME
-    include Celluloid
-    execute_block_on_receiver :initialize
-  end
   attr_accessor :app
   
   def print_request(env)
@@ -68,10 +64,28 @@ class AuthServer
       
       [ code, headers, resp ]
     end
+    
+    @opt = Rack::Handler::Reel::DEFAULT_OPTIONS.merge(@opt)
+    @app = Rack::CommonLogger.new(@app, STDOUT) unless @opt[:quiet]
   end
   
   def run
-    Rack::Handler::Reel.run(app, @opt)
+    ENV['RACK_ENV'] = @opt[:environment].to_s if @opt[:environment]
+    
+    @supervisor = Reel::Rack::Server.supervise(as: :reel_rack_server, args: [@app, @opt])
+    
+    if __FILE__ == $PROGRAM_NAME
+      begin
+        sleep
+      rescue Interrupt
+        Celluloid.logger.info "Interrupt received... shutting down" unless @opt[:quiet] 
+        @supervisor.terminate
+      end
+    end
+  end
+  
+  def stop
+    @supervisor.terminate if @supervisor
   end
 end
 
