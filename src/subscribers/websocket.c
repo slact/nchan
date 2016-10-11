@@ -854,6 +854,10 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
     ngx_add_timer(&fsub->timeout_ev, self->cf->subscriber_timeout * 1000);
   }
   
+  if(self->cf->unsubscribe_request_url) {
+    fsub->closing_delayed_until_unsub_callback = 1;
+  }
+  
   return NGX_OK;
 }
 
@@ -941,6 +945,12 @@ static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len)
   buf->temporary = 0;
   buf->memory = 1;
 }
+
+#define maybe_close_pool(pool) \
+  if (pool != NULL) {          \
+    ngx_destroy_pool(pool);    \
+    pool = NULL;               \
+  }
 
 /* based on code from push stream module, written by
  * Wandenberg Peixoto <wandenberg@gmail.com>, Rogério Carvalho Schneider <stockrt@gmail.com>
@@ -1107,7 +1117,14 @@ static void websocket_reading(ngx_http_request_t *r) {
             }
             DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
             websocket_send_close_frame(fsub, 0, NULL);
-            goto finalize;
+            
+            if(!fsub->closing_delayed_until_unsub_callback) {
+              goto finalize;
+            }
+            else {
+              maybe_close_pool(temp_pool);
+              return;
+            }
             break; //good practice?
         }
         if(free_temp_pool && temp_pool != NULL) {
@@ -1129,10 +1146,7 @@ static void websocket_reading(ngx_http_request_t *r) {
 
 exit:
   
-  if (temp_pool != NULL) {
-    ngx_destroy_pool(temp_pool);
-    temp_pool = NULL;
-  }
+  maybe_close_pool(temp_pool);
   if (rc == NGX_AGAIN) {
     frame->last = buf.last;
     if (!c->read->ready) {
@@ -1154,13 +1168,9 @@ exit:
 
 finalize:
 
-  if (temp_pool != NULL) {
-    ngx_destroy_pool(temp_pool);
-    temp_pool = NULL;
-  }
+  maybe_close_pool(temp_pool);
   
   ngx_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
-  
 }
 
 
@@ -1342,9 +1352,7 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
   fsub->connected = 0;
   if(fsub->closing == 1) {
     DBG("%p already sent close frame");
-    if(fsub->closing_delayed_until_unsub_callback
-      && fsub->ctx->unsubscribe_request_callback_finalize_code != NGX_OK //callback hasn't yet been called
-    ) {
+    if(fsub->closing_delayed_until_unsub_callback) {
       fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
     }
     else {
