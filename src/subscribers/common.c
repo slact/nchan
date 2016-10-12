@@ -384,6 +384,8 @@ void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
   buf->memory = 1;
 }
 
+#if nginx_version >= 1003015
+
 static void ngx_http_close_request_dup(ngx_http_request_t *r, ngx_int_t rc) {
   ngx_connection_t  *c;
 
@@ -552,4 +554,6 @@ closed:
     nchan_subscriber_unsubscribe_request(nchan_ctx->sub, NGX_HTTP_CLIENT_CLOSED_REQUEST);
   }
 }
+
+#endif
 
