@@ -30,3 +30,5 @@ typedef struct {
 ngx_int_t longpoll_enqueue(subscriber_t *self);
 
 void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx_int_t status_code);
+
+ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t status_code, const ngx_str_t *status_line);

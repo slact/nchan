@@ -20,12 +20,8 @@ ngx_int_t nchan_reaper_start(nchan_reaper_t *rp, char *name, int prev, int next,
   rp->ready = ready;
   rp->reap = reap;
   ngx_memzero(&rp->timer, sizeof(rp->timer));
-#if nginx_version >= 1008000
-  rp->timer.cancelable = 1;
-#endif
-  rp->timer.handler = reaper_timer_handler;
-  rp->timer.log = ngx_cycle->log;
-  rp->timer.data = rp;
+  nchan_init_timer(&rp->timer, reaper_timer_handler, rp);
+  
   rp->tick_usec = tick_sec * 1000;
   rp->strategy = RESCAN;
   rp->max_notready_ratio = 0; //disabled
@@ -66,6 +62,12 @@ static ngx_inline void *thing_prev(nchan_reaper_t *rp, void *thing) {
   return *thing_prev_ptr(rp, thing);
 }
 
+void nchan_reaper_each(nchan_reaper_t *rp, void (*cb)(void *thing, void *pd), void *pd) {
+  void                *cur;
+  for(cur = rp->first; cur != NULL; cur = thing_next(rp, cur)) {
+    cb(cur, pd);
+  }
+}
 
 ngx_inline void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
   /*
@@ -102,7 +104,7 @@ ngx_inline void verify_reaper_list(nchan_reaper_t *rp, void *thing) {
 
 static ngx_inline void reaper_reset_timer(nchan_reaper_t *rp) {
   verify_reaper_list(rp, NULL);
-  if (!ngx_exiting && rp->count > 0 && !rp->timer.timer_set) {
+  if (!ngx_exiting && !ngx_quit && rp->count > 0 && !rp->timer.timer_set) {
     DBG("reap %s again later (remaining: %i)", rp->name, rp->count);
     ngx_add_timer(&rp->timer, rp->tick_usec);
   }
@@ -156,7 +158,11 @@ ngx_int_t nchan_reaper_withdraw(nchan_reaper_t *rp, void *thing) {
   
   assert(rp->count > 0);
   rp->count--;
-
+  
+  if(rp->strategy == KEEP_PLACE && rp->position == thing) {
+    rp->position = next;
+  }
+  
   *thing_next_ptr(rp, thing) = NULL;
   *thing_prev_ptr(rp, thing) = NULL;
 
@@ -178,6 +184,9 @@ static ngx_inline void reap_ready_thing(nchan_reaper_t *rp, void *cur, void *nex
   if(next) *thing_prev_ptr(rp, next) = prev;
   if(cur == rp->first) rp->first = next;
   if(cur == rp->last)  rp->last = prev;
+  if(rp->strategy == KEEP_PLACE && rp->position == cur) {
+    rp->position = next;
+  }
   rp->count--;
   
   rp->reap(cur);

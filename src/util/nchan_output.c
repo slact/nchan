@@ -15,11 +15,6 @@
 #define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
 #define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
 
-#define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-
-
 //file descriptor cache
 static void *fd_cache = NULL;
 
@@ -136,7 +131,7 @@ static void nchan_reserve_msg_cleanup(void *pd) {
 }
 
 static void nchan_output_reserve_message_queue(ngx_http_request_t *r, nchan_msg_t *msg) {
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   ngx_http_cleanup_t   *cln;
   if(!ctx->reserved_msg_queue) {
     if((ctx->reserved_msg_queue = ngx_palloc(r->pool, sizeof(*ctx->reserved_msg_queue))) == NULL) {
@@ -246,7 +241,7 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
   ngx_int_t                               rc;
   ngx_event_t                            *wev;
   ngx_connection_t                       *c;
-  nchan_request_ctx_t                    *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t                    *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   c = r->connection;
   wev = c->write;
@@ -298,14 +293,14 @@ ngx_int_t nchan_output_msg_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_c
 
 void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
   if(!ctx) {
-    ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   }
   nchan_loc_conf_t       *cf;
   if(!ctx) {
     return;
   }
   if(ctx->request_origin_header.data) {
-    cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+    cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
     nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, &cf->allow_origin);
   }
 }
@@ -407,11 +402,11 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
 
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
-  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   int8_t                     output_etag = 1, cross_origin;
   
   if(!ctx) {
-    ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   }
   cross_origin = ctx && ctx->request_origin_header.data;
 
@@ -472,7 +467,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
   ngx_buf_t                 *rbuffer;
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   if(ngx_buf_size(buffer) > 0) {
     cb = ngx_palloc(r->pool, sizeof(*cb));
@@ -587,13 +582,19 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
   h->hash = 1;
   h->key.len = header_name->len;
   h->key.data = header_name->data;
-  h->value.len = header_value->len;
-  h->value.data = header_value->data;
+  if(header_value) {
+    h->value.len = header_value->len;
+    h->value.data = header_value->data;
+  }
+  else {
+    h->value.len = 0;
+    h->value.data = NULL;
+  }
   return h;
 }
 
 ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_origin, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods) {
-  nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, allowed_methods);
   
@@ -604,97 +605,3 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_or
   }
   return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
 }
-
-/*
-
-void nchan_copy_preallocated_buffer(ngx_buf_t *buf, ngx_buf_t *cbuf) {
-  if (cbuf!=NULL) {
-    ngx_memcpy(cbuf, buf, sizeof(*buf)); //overkill?
-    if(buf->temporary || buf->memory) { //we don't want to copy mmpapped memory, so no ngx_buf_in_momory(buf)
-      cbuf->pos = (u_char *) (cbuf+1);
-      cbuf->last = cbuf->pos + ngx_buf_size(buf);
-      cbuf->start=cbuf->pos;
-      cbuf->end = cbuf->start + ngx_buf_size(buf);
-      ngx_memcpy(cbuf->pos, buf->pos, ngx_buf_size(buf));
-      cbuf->memory=ngx_buf_in_memory_only(buf) ? 1 : 0;
-    }
-    if (buf->file!=NULL) {
-      cbuf->file = (ngx_file_t *) (cbuf+1) + ((buf->temporary || buf->memory) ? ngx_buf_size(buf) : 0);
-      cbuf->file->fd=buf->file->fd;
-      cbuf->file->log=ngx_cycle->log;
-      cbuf->file->offset=buf->file->offset;
-      cbuf->file->sys_offset=buf->file->sys_offset;
-      cbuf->file->name.len=buf->file->name.len;
-      cbuf->file->name.data=(u_char *) (cbuf->file+1);
-      ngx_memcpy(cbuf->file->name.data, buf->file->name.data, buf->file->name.len);
-    }
-  }
-}
-
-#define NGX_HTTP_BUF_ALLOC_SIZE(buf)                                         \
-(sizeof(*buf) +                                                              \
-(((buf)->temporary || (buf)->memory) ? ngx_buf_size(buf) : 0) +              \
-(((buf)->file!=NULL) ? (sizeof(*(buf)->file) + (buf)->file->name.len + 1) : 0))
-
-//buffer is _copied_
-ngx_chain_t * nchan_create_output_chain(ngx_buf_t *buf, ngx_pool_t *pool, ngx_log_t *log) {
-  ngx_chain_t                    *out;
-  ngx_file_t                     *file;
-  ngx_pool_cleanup_t             *cln = NULL;
-  ngx_pool_cleanup_file_t        *clnf = NULL;
-  if((out = ngx_pcalloc(pool, sizeof(*out)))==NULL) {
-    ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain, can't allocate chain  in pool");
-    return NULL;
-  }
-  ngx_buf_t                      *buf_copy;
-  
-  if((buf_copy = ngx_pcalloc(pool, NGX_HTTP_BUF_ALLOC_SIZE(buf)))==NULL) {
-    //TODO: don't zero the whole thing!
-    ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain, can't allocate buffer copy in pool");
-    return NULL;
-  }
-  nchan_copy_preallocated_buffer(buf, buf_copy);
-  
-  if (buf->file!=NULL) {
-    if(buf->mmap) { //just the mmap, please
-      buf->in_file=0;
-      buf->file=NULL;
-      buf->file_pos=0;
-      buf->file_last=0;
-    }
-    else {
-      file = buf_copy->file;
-      file->log=log;
-      if(file->fd==NGX_INVALID_FILE) {
-        //ngx_log_error(NGX_LOG_ERR, log, 0, "opening invalid file at %s", file->name.data);
-        file->fd=ngx_open_file(file->name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, NGX_FILE_OWNER_ACCESS);
-      }
-      if(file->fd==NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain, file in buffer is invalid");
-        return NULL;
-      }
-      else {
-        //close file on cleanup
-        if((cln = ngx_pool_cleanup_add(pool, sizeof(*clnf))) == NULL) {
-          ngx_close_file(file->fd);
-          file->fd=NGX_INVALID_FILE;
-          ngx_log_error(NGX_LOG_ERR, log, 0, "nchan: can't create output chain file cleanup.");
-          return NULL;
-        }
-        cln->handler = ngx_pool_cleanup_file;
-        clnf = cln->data;
-        clnf->fd = file->fd;
-        clnf->name = file->name.data;
-        clnf->log = pool->log;
-      }
-    }
-  }
-  
-  
-  
-  buf_copy->last_buf = 1;
-  out->buf = buf_copy;
-  out->next = NULL;
-  return out;
-}
-*/

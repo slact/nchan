@@ -5,7 +5,7 @@
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
-typedef enum {MSG_CHANNEL_NOTREADY, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
+typedef enum {MSG_CHANNEL_NOTREADY, MSG_NORESPONSE, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY} chanhead_pubsub_status_t;
 
 typedef enum {
@@ -15,8 +15,21 @@ typedef enum {
 //on with the declarations
 typedef struct {
   size_t                          shm_size;
-  ngx_str_t                       redis_url;
+  ngx_msec_t                      redis_fakesub_timer_interval;
+  size_t                          redis_publish_message_msgkey_size;
 } nchan_main_conf_t;
+
+
+typedef struct {
+  ngx_str_t                     url;
+  ngx_flag_t                    url_enabled;
+  time_t                        ping_interval;
+  ngx_str_t                     upstream_url;
+  ngx_http_upstream_srv_conf_t *upstream;
+  ngx_flag_t                    upstream_inheritable;
+  unsigned                      enabled:1;
+  void                         *privdata;
+} nchan_redis_conf_t;
 
 typedef struct {
   ngx_atomic_int_t  lock;
@@ -24,9 +37,15 @@ typedef struct {
   ngx_int_t         write_pid;
 } ngx_rwlock_t;
 
+
+#define NCHAN_OLDEST_MSGID_TIME 0
+#define NCHAN_NEWEST_MSGID_TIME -1
+#define NCHAN_NTH_MSGID_TIME -2
+
 #define NCHAN_ZERO_MSGID {0, {{0}}, 0, 0}
-#define NCHAN_OLDEST_MSGID {0, {{0}}, 1, 0}
-#define NCHAN_NEWEST_MSGID {-1, {{0}}, 1, 0}
+#define NCHAN_OLDEST_MSGID {NCHAN_OLDEST_MSGID_TIME, {{0}}, 0, 1}
+#define NCHAN_NEWEST_MSGID {NCHAN_NEWEST_MSGID_TIME, {{0}}, 0, 1}
+#define NCHAN_NTH_MSGID {NCHAN_NTH_MSGID_TIME, {{0}}, 0, 1}
 
 #define NCHAN_MULTITAG_MAX 255
 #define NCHAN_FIXED_MULTITAG_MAX 4
@@ -41,6 +60,11 @@ typedef struct {
   unsigned                        tagactive:16;
   unsigned                        tagcount:16;
 } nchan_msg_id_t;
+
+typedef struct {
+  time_t                          time;
+  int16_t                         tag;
+} nchan_msg_tiny_id_t;
 
 //message queue
 
@@ -110,13 +134,19 @@ typedef struct {
   ngx_rwlock_t                   lock;
 } nchan_worker_msg_sentinel_t;
 
-//shared memory
 typedef struct {
-  ngx_rbtree_t                  tree;
-  ngx_uint_t                    channels; //# of channels being used
-  ngx_uint_t                    messages; //# of channels being used
-  nchan_worker_msg_sentinel_t  *ipc; //interprocess stuff
-} nchan_shm_data_t;
+  ngx_atomic_uint_t      channels;
+  ngx_atomic_uint_t      subscribers;
+  ngx_atomic_uint_t      total_published_messages;
+  ngx_atomic_uint_t      messages;
+  ngx_atomic_uint_t      redis_pending_commands;
+  ngx_atomic_uint_t      redis_connected_servers;
+  ngx_atomic_uint_t      ipc_total_alerts_sent;
+  ngx_atomic_uint_t      ipc_total_alerts_received;
+  ngx_atomic_uint_t      ipc_queue_size;
+  ngx_atomic_uint_t      ipc_total_send_delay;
+  ngx_atomic_uint_t      ipc_total_receive_delay;
+} nchan_stub_status_t;
 
 typedef struct subscriber_s subscriber_t;
 
@@ -132,14 +162,14 @@ typedef struct{
   void      (*exit_master)(ngx_cycle_t *cycle);
   
   //async-friendly functions with callbacks
-  ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, callback_pt, void *);
+  ngx_int_t (*get_message) (ngx_str_t *, nchan_msg_id_t *, nchan_loc_conf_t *cf, callback_pt, void *);
   ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *);
-  ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, struct nchan_loc_conf_s *, callback_pt, void *);
+  ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, nchan_loc_conf_t *, callback_pt, void *);
   
-  ngx_int_t (*delete_channel)(ngx_str_t *, callback_pt, void *);
+  ngx_int_t (*delete_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void *);
   
   //channel actions
-  ngx_int_t (*find_channel)(ngx_str_t *, callback_pt, void*);
+  ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
   
   
   
@@ -158,6 +188,7 @@ typedef struct {
 
 typedef struct {
   unsigned                        poll:1; //bleugh
+  unsigned                        http_raw_stream:1; //ugleh
   unsigned                        longpoll:1;
   unsigned                        http_chunked:1;
   unsigned                        http_multipart:1;
@@ -171,19 +202,34 @@ typedef struct {
   ngx_int_t                       n;
 } nchan_complex_value_arr_t;
 
+typedef struct {
+ ngx_atomic_uint_t               message_timeout;
+ ngx_atomic_uint_t               max_messages;
+} nchan_loc_conf_shared_data_t;
+
 struct nchan_loc_conf_s { //nchan_loc_conf_t
   
-  time_t                          buffer_timeout;
+  ngx_int_t                       shared_data_index;
+  
+  time_t                          message_timeout;
   ngx_int_t                       max_messages;
+  
+  ngx_http_complex_value_t       *complex_message_timeout;
+  ngx_http_complex_value_t       *complex_max_messages;
   
   ngx_http_complex_value_t       *authorize_request_url;
   ngx_http_complex_value_t       *publisher_upstream_request_url;
+  
+  ngx_http_complex_value_t       *unsubscribe_request_url;
+  ngx_http_complex_value_t       *subscribe_request_url;
   
   nchan_complex_value_arr_t       pub_chid;
   nchan_complex_value_arr_t       sub_chid;
   nchan_complex_value_arr_t       pubsub_chid;
   ngx_str_t                       channel_group;
   ngx_str_t                       channel_id_split_delimiter;
+  
+  ngx_str_t                       subscriber_http_raw_stream_separator;
 
   ngx_str_t                       allow_origin;
   
@@ -197,17 +243,22 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   time_t                          subscriber_timeout;
   
   ngx_int_t                       longpoll_multimsg;
+  ngx_int_t                       longpoll_multimsg_use_raw_stream_separator;
+  
   ngx_str_t                       eventsource_event;
   
   time_t                          websocket_ping_interval;
   
-  ngx_int_t                       subscriber_start_at_oldest_message;
+  ngx_int_t                       subscriber_first_message;
   
   ngx_http_complex_value_t       *channel_events_channel_id;
   ngx_http_complex_value_t       *channel_event_string;
   
   ngx_int_t                       subscribe_only_existing_channel;
-  ngx_int_t                       use_redis;
+  
+  nchan_redis_conf_t              redis;
+  time_t                          redis_idle_channel_cache_timeout;
+  
   ngx_int_t                       max_channel_id_length;
   ngx_int_t                       max_channel_subscribers;
   time_t                          channel_timeout;
@@ -228,7 +279,7 @@ typedef struct nchan_llist_timed_s {
 } nchan_llist_timed_t;
 
 typedef enum {PUB, SUB} pub_or_sub_t;
-typedef enum {LONGPOLL, HTTP_CHUNKED, HTTP_MULTIPART, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
+typedef enum {LONGPOLL, HTTP_CHUNKED, HTTP_MULTIPART, HTTP_RAW_STREAM, INTERVALPOLL, EVENTSOURCE, WEBSOCKET, INTERNAL, SUBSCRIBER_TYPES} subscriber_type_t;
 typedef void (*subscriber_callback_pt)(subscriber_t *, void *);
 
 typedef struct {
@@ -284,6 +335,10 @@ typedef struct {
   ngx_str_t                      channel_id[NCHAN_MULTITAG_REQUEST_CTX_MAX];
   int                            channel_id_count;
   ngx_str_t                      request_origin_header;
+  
+  ngx_int_t                      unsubscribe_request_callback_finalize_code;
+  unsigned                       sent_unsubscribe_request:1;
+  unsigned                       request_ran_content_handler:1;
 #if NCHAN_BENCHMARK
   struct timeval                 start_tv;
 #endif

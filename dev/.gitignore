@@ -4,3 +4,4 @@ clang-analyzer/*
 Gemfile.lock
 errors*.log
 vgcore.*
+captions.txt

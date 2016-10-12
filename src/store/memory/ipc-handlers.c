@@ -1,12 +1,14 @@
 #include <nchan_module.h>
 #include <ngx_channel.h>
-#include "shmem.h"
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
 #include "store.h"
 #include <assert.h>
-#include "../../subscribers/memstore_ipc.h"
+#include <store/redis/store.h>
+#include <subscribers/memstore_ipc.h>
+#include <subscribers/memstore_redis.h>
+#include <util/nchan_msgid.h>
 
 #define IPC_SUBSCRIBE               1
 #define IPC_SUBSCRIBE_REPLY         2
@@ -15,15 +17,15 @@
 #define IPC_PUBLISH_MESSAGE         5
 #define IPC_PUBLISH_MESSAGE_REPLY   6
 #define IPC_PUBLISH_STATUS          7
-#define IPC_PUBLISH_STATUS_reply    8
+#define IPC_PUBLISH_STATUS_REPLY    8
 #define IPC_GET_MESSAGE             9
 #define IPC_GET_MESSAGE_REPLY       10
 #define IPC_DELETE                  11
 #define IPC_DELETE_REPLY            12
 #define IPC_GET_CHANNEL_INFO        13
 #define IPC_GET_CHANNEL_INFO_REPLY  14
-#define IPC_DOES_CHANNEL_EXIST      15
-#define IPC_DOES_CHANNEL_EXIST_REPLY 16
+#define IPC_GET_CHANNEL_AUTHCHECK   15
+#define IPC_GET_CHANNEL_AUTHCHECK_REPLY 16
 #define IPC_SUBSCRIBER_KEEPALIVE    17
 #define IPC_SUBSCRIBER_KEEPALIVE_REPLY 18
 
@@ -63,40 +65,40 @@ static void str_shm_free(ngx_str_t *str) {
 
 ////////// SUBSCRIBE ////////////////
 union subdata_u {
-  nchan_store_channel_head_t  *origin_chanhead;
+  memstore_channel_head_t     *origin_chanhead;
   subscriber_t                *subscriber;
 };
 
 typedef struct {
   ngx_str_t                   *shm_chid;
   store_channel_head_shm_t    *shared_channel_data;
+  nchan_loc_conf_t            *cf;
   union subdata_u              d;
-  uint8_t                      use_redis;
+  
 } subscribe_data_t;
 
-ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, nchan_store_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
+ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
   DBG("send subscribe to %i, %V", dst, chid);
-  //origin_chanhead->use_redis
+
   subscribe_data_t   data; 
   DEBUG_MEMZERO(&data);
   
-  data.shm_chid = str_shm_copy(chid);
+  if((data.shm_chid = str_shm_copy(chid)) == NULL) {
+    ERR("Out of shared memory, can't send IPC subscrive alert");
+    return NGX_DECLINED;
+  }
   data.shared_channel_data = NULL;
   data.d.origin_chanhead = origin_chanhead;
-  data.use_redis = cf->use_redis;
+  data.cf = cf;
   
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_SUBSCRIBE, &data, sizeof(data));
 }
 static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
-  nchan_store_channel_head_t *head;
+  memstore_channel_head_t    *head;
   subscriber_t               *ipc_sub = NULL;
   
-  nchan_loc_conf_t            fake_conf;
-  //ngx_memzero(&fake_conf, sizeof(fake_conf));
-  fake_conf.use_redis = d->use_redis;
-  
   DBG("received subscribe request for channel %V", d->shm_chid);
-  head = nchan_memstore_get_chanhead(d->shm_chid, &fake_conf);
+  head = nchan_memstore_get_chanhead(d->shm_chid, d->cf);
   
   if(head == NULL) {
     ERR("couldn't get chanhead while receiving subscribe ipc msg");
@@ -104,9 +106,10 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
     d->d.subscriber = NULL;
   }
   else {
-    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, head->use_redis, d->d.origin_chanhead);
+    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->cf, d->d.origin_chanhead);
     d->d.subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
+    assert(d->shared_channel_data);
   }
   
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_SUBSCRIBE_REPLY, d, sizeof(*d));
@@ -117,20 +120,21 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   }
 }
 static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
-  nchan_store_channel_head_t   *head;
-  nchan_loc_conf_t              fake_conf;
+  memstore_channel_head_t      *head;
   store_channel_head_shm_t     *old_shared;
   DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
   
-  //ngx_memzero(&fake_conf, sizeof(fake_conf));
-  fake_conf.use_redis = d->use_redis;
-  
-  head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, &fake_conf);
-  if(head == NULL) {
-    ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
-    assert(0);
+  if(!d->shared_channel_data && !d->d.subscriber) {
+    ERR("failed to subscribe");
+    return;
   }
+  
+  if((head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, d->cf)) == NULL) {
+    ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
+    return;
+  }
+  
   old_shared = head->shared;
   if(old_shared) {
     assert(old_shared == d->shared_channel_data);
@@ -139,9 +143,9 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   head->shared = d->shared_channel_data;
   
   if(old_shared == NULL) {
-    //ERR("%V local sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
-    assert(head->sub_count >= head->internal_sub_count);
-    ngx_atomic_fetch_add(&head->shared->sub_count, head->sub_count - head->internal_sub_count);
+    //ERR("%V local total_sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
+    assert(head->total_sub_count >= head->internal_sub_count);
+    ngx_atomic_fetch_add(&head->shared->sub_count, head->total_sub_count - head->internal_sub_count);
     ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
   }
   else {
@@ -172,12 +176,16 @@ typedef struct {
 ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
   DBG("send unsubscribed to %i %V", dst, chid);
   unsubscribed_data_t        data = {str_shm_copy(chid), privdata};
+  if(data.shm_chid == NULL) {
+    ERR("Out of shared memory, can't send IPC unsubscribe alert");
+    return NGX_DECLINED;
+  }
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_UNSUBSCRIBED, &data, sizeof(data));
 }
 static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
   DBG("received unsubscribed request for channel %V privdata %p", d->shm_chid, d->privdata);
   if(memstore_channel_owner(d->shm_chid) != memstore_slot()) {
-    nchan_store_channel_head_t    *head;
+    memstore_channel_head_t    *head;
     //find channel
     head = nchan_memstore_find_chanhead(d->shm_chid);
     if(head == NULL) {
@@ -186,7 +194,7 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
       return;
     }
     //gc if no subscribers
-    if(head->sub_count == 0) {
+    if(head->total_sub_count == 0) {
       DBG("add %p to GC", head);
       head->foreign_owner_ipc_sub = NULL;
       chanhead_gc_add(head, "received UNSUBSCRIVED over ipc, sub_count == 0");
@@ -214,17 +222,18 @@ typedef struct {
 ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status_code, const ngx_str_t *status_line, callback_pt callback, void *privdata) {
   DBG("IPC: send publish status to %i ch %V", dst, chid);
   publish_status_data_t  data = {str_shm_copy(chid), status_code, status_line, callback, privdata};
+  if(data.shm_chid == NULL) {
+    return NGX_DECLINED;
+  }
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_STATUS, &data, sizeof(data));
 }
 
-
-
 static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
   static ngx_str_t               nullstring = ngx_null_string;
-  nchan_store_channel_head_t    *chead;
+  memstore_channel_head_t       *chead;
   
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
-    if(ngx_exiting) {
+    if(ngx_exiting || ngx_quit) {
       ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
     }
     else {
@@ -246,16 +255,13 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
 typedef struct {
   ngx_str_t                 *shm_chid;
   nchan_msg_t               *shm_msg;
-  uint16_t                   msg_timeout;
-  uint16_t                   max_msgs;
+  nchan_loc_conf_t          *cf;
   callback_pt                callback;
   void                      *callback_privdata;
-  unsigned                   use_redis:1;
   
 } publish_data_t;
 
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  ngx_int_t         ret;
   publish_data_t    data; 
   DEBUG_MEMZERO(&data);
   
@@ -264,18 +270,18 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   assert(shm_msg->temp_allocd == 0);
   assert(chid->data != NULL);
   data.shm_chid = str_shm_copy(chid);
+  if(data.shm_chid == NULL) {
+    return NGX_DECLINED;
+  }
   data.shm_msg = shm_msg;
-  data.msg_timeout = cf->buffer_timeout;
-  data.max_msgs = cf->max_messages;
-  data.use_redis = cf->use_redis;
+  data.cf = cf;
   data.callback = callback;
   data.callback_privdata = privdata;
   
   assert(data.shm_chid->data != NULL);
   assert(msg_reserve(shm_msg, "publish_message") == NGX_OK);
   
-  ret= ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
-  return ret;
+  return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_PUBLISH_MESSAGE, &data, sizeof(data));
 }
 
 typedef struct {
@@ -287,22 +293,17 @@ typedef struct {
 static ngx_int_t publish_message_generic_callback(ngx_int_t, void *, void *);
 
 static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
-  nchan_loc_conf_t              cf;
   
   publish_callback_data         cd_data;
   publish_callback_data        *cd;
-  nchan_store_channel_head_t   *head;
-  
-  cf.buffer_timeout = d->msg_timeout;
-  cf.max_messages = d->max_msgs;
-  cf.use_redis = d->use_redis;
+  memstore_channel_head_t      *head;
 
   assert(d->shm_chid->data != NULL);
   
   DBG("IPC: received publish request for channel %V  msg %p", d->shm_chid, d->shm_msg);
   
   if(memstore_channel_owner(d->shm_chid) == memstore_slot()) {
-    if(cf.use_redis) {
+    if(d->cf->redis.enabled) {
       cd = ngx_alloc(sizeof(*cd) + sizeof(*d), ngx_cycle->log);
       cd->allocd=1;
       cd->d = (publish_data_t *)&cd[1];
@@ -316,12 +317,17 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
     
     cd->sender = sender;
     
-    nchan_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, &cf, publish_message_generic_callback, cd);
+    nchan_store_publish_message_generic(d->shm_chid, d->shm_msg, 1, d->cf, publish_message_generic_callback, cd);
     //string will be freed on publish response
   }
   else {
-    head = nchan_memstore_get_chanhead(d->shm_chid, &cf);
-    nchan_memstore_publish_generic(head, d->shm_msg, 0, NULL);
+    if((head = nchan_memstore_get_chanhead(d->shm_chid, d->cf))) {
+      nchan_memstore_publish_generic(head, d->shm_msg, 0, NULL);
+    }
+    else {
+      ERR("Unable to get chanhead for publishing");
+    }
+    
     //don't deallocate shm_msg
   }
   
@@ -401,17 +407,35 @@ typedef struct {
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
   getmessage_data_t      data;
   
-  data.shm_chid= str_shm_copy(chid);
+  if((data.shm_chid= str_shm_copy(chid)) == NULL) {
+    return NGX_ERROR;
+  }
   data.privdata = privdata;
   data.d.req.msgid = *msgid;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
+  assert(data.shm_chid->len>1);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_MESSAGE, &data, sizeof(data));
 }
+
+
+typedef struct {
+  ngx_int_t            sender;
+  getmessage_data_t    data;
+} getmessage_data_rsub_pd_t;
+
+static void ipc_handler_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status, void *pd) {
+  assert(status == MSG_EXPECTED || status == MSG_NORESPONSE);
+  getmessage_data_rsub_pd_t *gd = (getmessage_data_rsub_pd_t *)pd;
+  gd->data.d.resp.getmsg_code = status;
+  gd->data.d.resp.shm_msg = NULL;
+  ipc_alert(nchan_memstore_get_ipc(), gd->sender, IPC_GET_MESSAGE_REPLY, &gd->data, sizeof(gd->data));
+}
+
 static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
-  nchan_store_channel_head_t  *head;
+  memstore_channel_head_t     *head;
   store_message_t             *msg = NULL;
-  nchan_msg_status_t           status;
+  
   
   assert(d->shm_chid->len>1);
   assert(d->shm_chid->data!=NULL);
@@ -424,14 +448,25 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
     d->d.resp.shm_msg = NULL;
   }
   else {
+    nchan_msg_status_t           status;
     msg = chanhead_find_next_message(head, &d->d.req.msgid, &status);
+    
+    if(msg == NULL && head->cf && head->cf->redis.enabled) {
+      //messages from redis are not requested explicitly, but are delivered from oldest to newest
+      //by the memmstore-redis subscriber. 
+      getmessage_data_rsub_pd_t  rdata = {sender, *d};
+      
+      nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(head->redis_sub, &d->d.req.msgid, ipc_handler_notify_on_MSG_EXPECTED_callback, sizeof(rdata), &rdata);
+      return;
+    }
+    
     d->d.resp.getmsg_code = status;
     d->d.resp.shm_msg = msg == NULL ? NULL : msg->msg;
   }
-  DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   if(d->d.resp.shm_msg) {
     assert(msg_reserve(d->d.resp.shm_msg, "get_message_reply") == NGX_OK);
   }
+  DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_MESSAGE_REPLY, d, sizeof(*d));
 }
 
@@ -462,6 +497,9 @@ typedef struct {
 
 ngx_int_t memstore_ipc_send_delete(ngx_int_t dst, ngx_str_t *chid, callback_pt callback,void *privdata) {
   delete_data_t  data = {str_shm_copy(chid), 0, NULL, 0, callback, privdata};
+  if(data.shm_chid == NULL) {
+    return NGX_ERROR;
+  }
   DBG("IPC: send delete to %i ch %V", dst, chid);
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_DELETE, &data, sizeof(data));
 }
@@ -533,7 +571,10 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, cal
   DBG("send get_channel_info to %i %V", dst, chid);
   channel_info_data_t        data;
   DEBUG_MEMZERO(&data);
-  data.shm_chid = str_shm_copy(chid);
+  if((data.shm_chid = str_shm_copy(chid)) == NULL) {
+    return NGX_ERROR;
+  }
+
   data.channel_info = NULL;
   data.last_msgid = zero_msgid;
   data.callback = callback;
@@ -541,7 +582,7 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, cal
   return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_CHANNEL_INFO, &data, sizeof(data));
 }
 static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
-  nchan_store_channel_head_t    *head;
+  memstore_channel_head_t    *head;
   
   DBG("received get_channel_info request for channel %V privdata %p", d->shm_chid, d->privdata);
   head = nchan_memstore_find_chanhead(d->shm_chid);
@@ -553,8 +594,8 @@ static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
   }
   else {
     d->channel_info = head->shared;
-    assert(head->channel.last_published_msg_id.tagcount <= 1);
-    d->last_msgid = head->channel.last_published_msg_id;
+    assert(head->latest_msgid.tagcount <= 1);
+    d->last_msgid = head->latest_msgid;
   }
   ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_INFO_REPLY, d, sizeof(*d));
 }
@@ -580,36 +621,86 @@ static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t
 }
 
 
-////////// DOES CHANNEL EXIST? ////////////////
+////////// CHANNEL AUTHORIZATION DATA ////////////////
 typedef struct {
   ngx_str_t               *shm_chid;
-  ngx_int_t                channel_exists;
+  unsigned                 auth_ok:1;
+  unsigned                 channel_must_exist:1;
+  nchan_loc_conf_t        *cf;
+  ngx_int_t                max_subscribers;
   callback_pt              callback;
   void                    *privdata;
-} channel_existence_data_t;
+} channel_authcheck_data_t;
 
-ngx_int_t memstore_ipc_send_does_channel_exist(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
-  DBG("send does_channel_exist to %i %V", dst, chid);
-  channel_existence_data_t        data = {str_shm_copy(chid), 0, callback, privdata};
+ngx_int_t memstore_ipc_send_channel_auth_check(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
+  DBG("send channel_auth_check to %i %V", dst, chid);
+  channel_authcheck_data_t        data;
+  if((data.shm_chid = str_shm_copy(chid)) == NULL) {
+    return NGX_ERROR;
+  }
+  data.auth_ok = 0;
+  data.channel_must_exist = cf->subscribe_only_existing_channel;
+  data.cf = cf;
+  data.max_subscribers = cf->max_channel_subscribers;
+  data.callback = callback;
+  data.privdata = privdata;
   
-  return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_DOES_CHANNEL_EXIST, &data, sizeof(data));
+  return ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_CHANNEL_AUTHCHECK, &data, sizeof(data));
 }
 
-static void receive_does_channel_exist(ngx_int_t sender, channel_existence_data_t *d) {
-  nchan_store_channel_head_t    *head;
+typedef struct {
+  ngx_int_t                 sender;
+  channel_authcheck_data_t  d;
+} channel_authcheck_data_callback_t;
+
+static ngx_int_t redis_receive_channel_auth_check_callback(ngx_int_t status, void *ch, void *d) {
+  nchan_channel_t                     *channel = (nchan_channel_t *)ch;
+  channel_authcheck_data_callback_t   *data = (channel_authcheck_data_callback_t *)d;
+  assert(status == NGX_OK);
+  if(channel == NULL) {
+    data->d.auth_ok = !data->d.channel_must_exist;
+  }
+  else if(data->d.max_subscribers == 0) {
+    data->d.auth_ok = 1;
+  }
+  else {
+    data->d.auth_ok = channel->subscribers < data->d.max_subscribers;
+  }
+  ipc_alert(nchan_memstore_get_ipc(), data->sender, IPC_GET_CHANNEL_AUTHCHECK_REPLY, &data->d, sizeof(data->d));
+  ngx_free(d);
+  return NGX_OK;
+}
+
+static void receive_channel_auth_check(ngx_int_t sender, channel_authcheck_data_t *d) {
+  memstore_channel_head_t    *head;
   
-  DBG("received does_channel_exist request for channel %V privdata %p", d->shm_chid, d->privdata);
-  
-  head = nchan_memstore_find_chanhead(d->shm_chid);
+  DBG("received channel_auth_check request for channel %V privdata %p", d->shm_chid, d->privdata);
   
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
-  
-  d->channel_exists = (head != NULL);
-  ipc_alert(nchan_memstore_get_ipc(), sender, IPC_DOES_CHANNEL_EXIST_REPLY, d, sizeof(*d));
+  if(!d->cf->redis.enabled) {
+    head = nchan_memstore_find_chanhead(d->shm_chid);
+    if(head == NULL) {
+      d->auth_ok = !d->channel_must_exist;
+    }
+    else if (d->max_subscribers == 0) {
+      d->auth_ok = 1;
+    }
+    else {
+      assert(head->shared);
+      d->auth_ok = head->shared->sub_count < (ngx_uint_t )d->max_subscribers;
+    }
+    ipc_alert(nchan_memstore_get_ipc(), sender, IPC_GET_CHANNEL_AUTHCHECK_REPLY, d, sizeof(*d));
+  }
+  else {
+    channel_authcheck_data_callback_t    *dd = ngx_alloc(sizeof(*dd), ngx_cycle->log);
+    dd->d = *d;
+    dd->sender = sender;
+    nchan_store_redis.find_channel(d->shm_chid, d->cf, redis_receive_channel_auth_check_callback, dd);
+  }
 }
 
-static void receive_does_channel_exist_reply(ngx_int_t sender, channel_existence_data_t *d) {
-  d->callback(d->channel_exists, NULL, d->privdata);
+static void receive_channel_auth_check_reply(ngx_int_t sender, channel_authcheck_data_t *d) {
+  d->callback(d->auth_ok, NULL, d->privdata);
   str_shm_free(d->shm_chid);
 }
 
@@ -617,20 +708,23 @@ static void receive_does_channel_exist_reply(ngx_int_t sender, channel_existence
 typedef struct {
   ngx_str_t                   *shm_chid;
   subscriber_t                *ipc_sub;
-  nchan_store_channel_head_t  *originator;
+  memstore_channel_head_t     *originator;
   ngx_uint_t                   renew;
   callback_pt                  callback;
   void                        *privdata;
 } sub_keepalive_data_t;
 
-ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, nchan_store_channel_head_t *ch, callback_pt callback, void *privdata) {
+ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, memstore_channel_head_t *ch, callback_pt callback, void *privdata) {
   sub_keepalive_data_t        data = {str_shm_copy(chid), sub, ch, 0, callback, privdata};
+  if(data.shm_chid == NULL) {
+    return NGX_ERROR;
+  }
   DBG("send SUBSCRIBER KEEPALIVE to %i %V", dst, chid);
   ipc_alert(nchan_memstore_get_ipc(), dst, IPC_SUBSCRIBER_KEEPALIVE, &data, sizeof(data));
   return NGX_OK;
 }
 static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t *d) {
-  nchan_store_channel_head_t    *head;
+  memstore_channel_head_t    *head;
   DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, d->shm_chid);
   head = nchan_memstore_find_chanhead(d->shm_chid);
   if(head == NULL) {
@@ -641,7 +735,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
     assert(head == d->originator);
     assert(head->status == READY || head->status == STUBBED);
     assert(head->foreign_owner_ipc_sub == d->ipc_sub);
-    if(head->sub_count == 0) {
+    if(head->total_sub_count == 0) {
       if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
         d->renew = 0;
         DBG("No subscribers lately. Time... to die.");
@@ -698,8 +792,8 @@ static ipc_handler_pt ipc_alert_handler[] = {
   [IPC_DELETE_REPLY] =                (ipc_handler_pt )receive_delete_reply,
   [IPC_GET_CHANNEL_INFO] =            (ipc_handler_pt )receive_get_channel_info,
   [IPC_GET_CHANNEL_INFO_REPLY]=       (ipc_handler_pt )receive_get_channel_info_reply,
-  [IPC_DOES_CHANNEL_EXIST] =          (ipc_handler_pt )receive_does_channel_exist,
-  [IPC_DOES_CHANNEL_EXIST_REPLY]=     (ipc_handler_pt )receive_does_channel_exist_reply,
+  [IPC_GET_CHANNEL_AUTHCHECK] =       (ipc_handler_pt )receive_channel_auth_check,
+  [IPC_GET_CHANNEL_AUTHCHECK_REPLY]=  (ipc_handler_pt )receive_channel_auth_check_reply,
   [IPC_SUBSCRIBER_KEEPALIVE] =        (ipc_handler_pt )receive_subscriber_keepalive,
   [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  (ipc_handler_pt )receive_subscriber_keepalive_reply,
   [IPC_TEST_FLOOD]                 =  (ipc_handler_pt )receive_flood_test

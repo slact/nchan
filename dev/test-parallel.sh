@@ -11,8 +11,8 @@ fi
 
 for ((i = 0; i < $par; i++)); do
 
-    echo ./test.rb ${@:2} 
-    ./test.rb ${@:2} &
+    echo bundle exec ./test.rb ${@:2} 
+    bundle exec ./test.rb ${@:2} &
 done
 
 jobs=$(jobs -p)

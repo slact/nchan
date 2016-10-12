@@ -23,6 +23,10 @@ for opt in $*; do
       ;;
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
+    gcc5)
+      export CC=gcc-5;;
+    gcc4|gcc47|gcc4.7)
+      export CC=gcc-4.7;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     debug-pool|debugpool) 
@@ -40,6 +44,8 @@ for opt in $*; do
       export NO_MAKE=1;;
     nodebug)
       export NO_DEBUG=1;;
+    echo_module)
+      export NGX_ECHO_MODULE=1;;
     O0)
       optimize_level=0;;
     O1)
@@ -134,17 +140,21 @@ export OPTIMIZE_LEVEL=$optimize_level
 if [[ -z $NO_MAKE ]]; then
   
   ./redocument.rb
-  
+
   ./gen_config_commands.rb nchan_config_commands.c
   if ! [ $? -eq 0 ]; then; 
     echo "failed generating nginx directives"; 
     exit 1
   fi
-  ../src/store/redis/genlua.rb file
-  if ! [ $? -eq 0 ]; then; 
-    echo "failed generating redis lua scripts"; 
+
+  rdstore_dir=${MY_PATH}/../src/store/redis
+  bundle exec hsss \
+     --format whole \
+     ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
+  if ! [ $? -eq 0 ]; then;
+    echo "failed generating redis lua scripts";
     exit 1
-  fi
+  fi  
   pushd ./nginx-nchan >/dev/null
   
   _build_nginx

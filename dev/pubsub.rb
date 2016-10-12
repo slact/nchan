@@ -13,6 +13,26 @@ require "http/2"
 
 PUBLISH_TIMEOUT=3 #seconds
 
+module URI
+  class Generic
+    def set_host_unchecked(str)
+      set_host(str)
+    end
+  end
+  def self.parse_possibly_unix_socket(str)
+    u = URI.parse(str)
+    if u && u.scheme == "unix"
+      m = u.path.match "([^:]*):(.*)"
+      if m
+        u.set_host_unchecked("#{u.host}#{m[1]}")
+        u.path=m[2]
+      end
+    end
+    
+    u
+  end
+end
+
 class Message
   attr_accessor :content_type, :message, :times_seen, :etag, :last_modified
   def initialize(msg, last_modified=nil, etag=nil)
@@ -219,10 +239,12 @@ class Subscriber
       end
       def open_socket
         case uri.scheme
+        when /^unix$/
+          @sock = Celluloid::IO::UNIXSocket.new(uri.host)
         when /^(ws|http|h2c)$/
           @sock = Celluloid::IO::TCPSocket.new(uri.host, uri.port)
         when /^(wss|https|h2)$/
-          @sock = Celluloid::IO::SSLSocket.new(uri.host, uri.port)
+          @sock = Celluloid::IO::SSLSocket.new(Celluloid::IO::TCPSocket.new(uri.host, uri.port))
         else
           raise ArgumentError, "unexpected uri scheme #{uri.scheme}"
         end
@@ -293,6 +315,14 @@ class Subscriber
       @cooked_ready=Celluloid::Condition.new
     end
     
+    def run
+      raise "Not Implemented"
+    end
+    
+    def stop(msg = "Stopped", src_bundle = nil)
+      @subscriber.on_failure error(0, msg, src_bundle)
+    end
+    
   end
   
   class WebSocketClient < Client
@@ -354,29 +384,21 @@ class Subscriber
       @http2 = opt[:http2]
       if @timeout
         @timer = after(@timeout) do
-          @subscriber.on_failure error(0, "Timeout", b)
-          @ws.each do |b, v|
-            close b
-          end
+          stop "Timeout"
         end
       end
     end
     
-    def try_halt
-      @disconnected ||= 0
-      @disconnected += 1
-      if @disconnected == @concurrency
-        halt
+    def stop(msg = "Stopped", src_bundle = nil)
+      super msg, @ws.first
+      @ws.each do |b, v|
+        close b
       end
     end
     
-    def halt
-      @halting = true
-    end
-    
     def run(was_success = nil)
-      uri = URI.parse(@url)
-      uri.port ||= (uri.scheme == "ws" ? 80 : 443)
+      uri = URI.parse_possibly_unix_socket(@url)
+      uri.port ||= (uri.scheme == "ws" || uri.scheme == "unix" ? 80 : 443)
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       if @http2
@@ -387,7 +409,7 @@ class Subscriber
         @cooked.signal true
         return
       end
-      raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme.match /^wss?$/
+      raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme == "unix" || uri.scheme.match(/^wss?$/)
       @concurrency.times do
         begin
           sock = ParserBundle.new(uri).open_socket.sock
@@ -396,19 +418,20 @@ class Subscriber
           close nil
           return
         end
-          
-        @handshake = WebSocket::Handshake::Client.new(url: @url)
+        
+        if uri.scheme == "unix"
+          hs_url="http://#{uri.host.match "[^/]+$"}#{uri.path}#{uri.query ? "?#{uri.query}" :""}"
+        else
+          hs_url=@url
+        end        
+        
+        @handshake = WebSocket::Handshake::Client.new(url: hs_url)
         sock << @handshake.to_s
         
         #handshake response
         loop do
           @handshake << sock.readline
-          if @handshake.finished?
-            unless @handshake.valid?
-              @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
-            end
-            break
-          end
+          break if @handshake.finished?
         end
         
         if @handshake.valid?
@@ -417,6 +440,9 @@ class Subscriber
           async.listen bundle
           @notready-=1
           @cooked_ready.signal true if @notready == 0
+        else
+          @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
+          close nil
         end
       end
     end
@@ -432,6 +458,10 @@ class Subscriber
               return 
             end
           end
+        rescue IOError => e
+          @subscriber.on_failure error(0, "Connection closed: #{e}"), bundle
+          close bundle
+          return false
         rescue EOFError
           bundle.sock.close
           close bundle
@@ -443,7 +473,6 @@ class Subscriber
     def on_error
       if !@connected[ws]
         @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line)
-        try_halt
       end
     end
     
@@ -505,9 +534,10 @@ class Subscriber
         @parser = Http::Parser.new
         @done = false
         extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
+        host = uri.host.match "[^/]+$"
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           
@@ -515,7 +545,7 @@ class Subscriber
         
         @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
           GET #{uri.path} HTTP/1.1
-          Host: #{uri.host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
           If-Modified-Since: %s
@@ -735,16 +765,20 @@ class Subscriber
       @http2=opt[:http2] || opt[:h2]
       if @timeout
         @timer = after(@timeout) do 
-          @subscriber.on_failure error(0, "Timeout")
-          @bundles.each do |b, v|
-            close b
-          end
+          stop "Timeout"
         end
       end
     end
     
+    def stop(msg="Stopped", src_bundle=nil)
+      super msg, @bundles.first
+      @bundles.each do |b, v|
+        close b
+      end
+    end
+    
     def run(was_success = nil)
-      uri = URI.parse(@url)
+      uri = URI.parse_possibly_unix_socket(@url)
       uri.port||= uri.scheme.match(/^(ws|http)$/) ? 80 : 443
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
@@ -964,6 +998,10 @@ class Subscriber
         if code != 200
           @subscriber.on_failure error(code, "")
           close b
+          b.on_response do |code, headers, body|
+            @subscriber.finished+=1
+            close b
+          end
         else
           @notready-=1
           @cooked_ready.signal true if @notready == 0
@@ -988,7 +1026,7 @@ class Subscriber
         if !b.subparser.buf_empty?
           b.subparser.parse_line "\n"
         else
-          @subscriber.on_failure error(0, "Response completed unexpectedly", bundle)
+          @subscriber.on_failure error(0, "Response completed unexpectedly", b)
         end
         @subscriber.finished+=1
         close b
@@ -1298,6 +1336,14 @@ class Subscriber
     @client.async.run
     self
   end
+  def stop
+    begin
+      @client.stop
+    rescue Celluloid::DeadActorError
+      return false
+    end
+    true
+  end
   def terminate
     begin
       @client.terminate
@@ -1348,7 +1394,7 @@ end
 
 class Publisher
   #include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose
   def initialize(url, opt={})
     @url= url
     unless opt[:nostore]
@@ -1357,6 +1403,8 @@ class Publisher
     end
     @timeout = opt[:timeout]
     @accept = opt[:accept]
+    @verbose = opt[:verbose]
+    @on_response = opt[:on_response]
   end
   
   def with_url(alt_url)
@@ -1368,6 +1416,11 @@ class Publisher
     else
       self
     end
+  end
+  
+  def on_response(&block)
+    @on_response = block if block_given?
+    @on_response
   end
   
   def on_complete(&block)
@@ -1393,7 +1446,8 @@ class Publisher
       method: method,
       body: body,
       timeout: @timeout || PUBLISH_TIMEOUT,
-      connecttimeout: @timeout || PUBLISH_TIMEOUT
+      connecttimeout: @timeout || PUBLISH_TIMEOUT,
+      verbose: @verbose
     )
     if @messages
       msg=Message.new body
@@ -1413,7 +1467,7 @@ class Publisher
           # aw hell no
           #puts "publisher err: timeout"
           
-          pub_url=URI.parse(response.request.url)
+          pub_url=URI.parse_possibly_unix_socket(response.request.url)
           pub_url = "#{pub_url.path}#{pub_url.query ? "?#{pub_url.query}" : nil}"
           raise "Publisher #{response.request.options[:method]} to #{pub_url} timed out."
         elsif response.code == 0
@@ -1431,7 +1485,8 @@ class Publisher
             raise errmsg
           end
         end
-        block.call(self) if block
+        block.call(self.response_code, self.response_body) if block
+        on_response.call(self.response_code, self.response_body) if on_response
       end
     end
     #puts "publishing to #{@url}"

@@ -15,10 +15,6 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
 
-#define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-
 typedef struct {
   ngx_str_t            id;
   nchan_llist_timed_t  ll;
@@ -142,12 +138,7 @@ void *nchan_thingcache_init(char *name, void *(*create)(ngx_str_t *), ngx_int_t(
   tc->thing_tail = NULL;
   tc->things = NULL;
   ngx_memzero(&tc->gc_timer, sizeof(tc->gc_timer));
-#if nginx_version >= 1008000
-  tc->gc_timer.cancelable = 1;
-#endif
-  tc->gc_timer.handler = nchan_thingcache_gc_timer_handler;
-  tc->gc_timer.data = tc;
-  tc->gc_timer.log=ngx_cycle->log;
+  nchan_init_timer(&tc->gc_timer, nchan_thingcache_gc_timer_handler, tc);
   return (void *)tc;
 }
 

@@ -11,27 +11,9 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:EVENTSOURCE:" fmt, ##arg)
 #include <assert.h> 
 
-#define MSGID_BUF_LEN (10*255)
-
-typedef struct msgidbuf_s msgidbuf_t;
-struct msgidbuf_s {
-  u_char       chr[MSGID_BUF_LEN];
-  msgidbuf_t  *prev;
-  msgidbuf_t  *next;
-};
-
 static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
   return ctx->bcp;
-}
-
-static ngx_inline void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->start = start;
-  buf->pos = start;
-  buf->end = end;
-  buf->last = end;
-  buf->memory = 1;
 }
 
 /*static ngx_inline void str_to_buf(ngx_buf_t *buf, ngx_str_t *str) {
@@ -126,10 +108,9 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   nchan_buf_and_chain_t  *bc;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
   ngx_str_t               msgid;
-  msgidbuf_t             *msgidbuf;
-  ngx_str_t               id_line = ngx_string("id: ");
-  ngx_str_t               event_line = ngx_string("event: ");
-  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(sub->request, nchan_http_module);
+  static ngx_str_t        id_line = ngx_string("id: ");
+  static ngx_str_t        event_line = ngx_string("event: ");
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   
   
   ctx->prev_msg_id = fsub->sub.last_msgid;
@@ -245,10 +226,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
     
   //now how about the mesage tag?
   
-  msgidbuf = nchan_reuse_queue_push(ctx->output_str_queue);
-  msgid.data = &msgidbuf->chr[0];
-  
-  nchan_strcpy(&msgid, msgid_to_str(&sub->last_msgid), MSGID_BUF_LEN);
+  msgid = nchan_subscriber_set_recyclable_msgid_str(ctx, &sub->last_msgid);
   prepend_es_response_line(fsub, &id_line, &first_link, &msgid);
   
   //and maybe the event type?
@@ -277,8 +255,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   }
   
   if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
-    nchan_respond_status(sub->request, status_code, status_line, 1);
-    return NGX_OK;
+    return subscriber_respond_unqueued_status(fsub, status_code, status_line);
   }
   
   es_ensure_headers_sent(fsub);
@@ -319,14 +296,11 @@ static       subscriber_fn_t *eventsource_fn = NULL;
 
 static       ngx_str_t   sub_name = ngx_string("eventsource");
 
-static void *msgidbuf_alloc(void *pd) {
-  return ngx_palloc((ngx_pool_t *)pd, sizeof(msgidbuf_t));
-}
 
 subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
   full_subscriber_t    *fsub = (full_subscriber_t *)sub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   if(eventsource_fn == NULL) {
     eventsource_fn = &eventsource_fn_data;
@@ -341,9 +315,8 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
   ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
   nchan_bufchain_pool_init(ctx->bcp, r->pool);
   
-    //header bufs -- unique per response
-  ctx->output_str_queue = ngx_palloc(r->pool, sizeof(*ctx->output_str_queue));
-  nchan_reuse_queue_init(ctx->output_str_queue, offsetof(msgidbuf_t, prev), offsetof(msgidbuf_t, next), msgidbuf_alloc, NULL, sub->request->pool);
+  //msgid bufs -- unique per response
+  nchan_subscriber_init_msgid_reusepool(ctx, r->pool);
   
   nchan_subscriber_common_setup(sub, EVENTSOURCE, &sub_name, eventsource_fn, 0);
   return sub;

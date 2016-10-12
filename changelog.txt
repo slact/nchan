@@ -1,31 +1,137 @@
+1.0.3 (Sept. 3 2016)
+ feature: nchan_message_timeout and nchan_message_buffer_length 
+      can now use nginx variables for dynamic values
+ fix: unsolicited websocket PONGs disconnected the subscriber in violation of RFC6455
+ fix: possible script error when getting channel from Redis
+ fix: possible incorrect message IDs when using Redis (thanks @supertong)
+ security: possible invalid memory access on publisher GET, POST, or DELETE when
+      using Redis and the publisher connection is terminated before receiving
+      a response
+ fix: correct publisher response code when nchan_authorize_request is unavailable
+      (502 instead of 500)
+ security: crash if publisher POSTs request with no Content-Length header when 
+      using nchan_authorize_request
+1.0.2 (Aug. 29 2016)
+ fix: more informative missed-message warnings
+ fix: invalid memory access when Redis enabled without setting server URL
+ fix: incomplete redis channel deletion
+ fix: Redis command responses may not be processed after large message
+      until next command
+ feature: catch up with missed messages after reconnecting to Redis cluster
+ fix: possible invalid memory access after disconnecting from Redis cluster
+ fix: Redis-stored unbuffered messages may not be delivered
+ fix: possible invalid memory access when using previously idling channels
+ fix: invalid memory access if publisher POST request's connection terminates
+      before receiving response
+ fix: messages published rapidly to Redis via different Ncnan servers may
+      be received out of order
+ fix: possible stack overflow when receiving messages through Redis
+      for multiplexed channels
+ fix: channels with 'nchan_store_messages off' published 1 message per second
+ fix: issue warning when out-of-order published message is detected
+ fix: Redis cluster compatibility with channel ids containing '}' character
+ fix: Redis-stored channel deleted too quickly when publishing short-lived messages
+1.0.1 (Aug. 22 2016)
+ feature: nchan_stub_status shared memory accounting
+ fix: various compiler warnings
+1.0.0 (Aug. 20 2016)
+ fix: incorrectly repeated subscriber_enqueue channel events
+ fix: badly handled Redis messages with TTL < 1 (again)
+ fix: websocket didn't close connection on PING fail
+ feature: nchan_stub_status stats location
+ fix: bad memory access for Redis channels when unsubscribing and very busy
+ optimize: SSE2 & AVX2 optimizations for websocket frame unmasking
+ feature: Redis Cluster support
+ (WARNING:) data in Redis from previous versions will be inaccessible
+ feature: different locations can use different Redis servers
+ feature: nchan_subscriber_first_message can take a number (positive or negative) 
+      for nth message (from first or last)
+ feature: expire Redis-stored idle channels with nchan_redis_idle_channel_cache_timeout
+ fix: some multiplexed channels never garbage-collected when inactive
+ fix: unbuffered message garbage collector was too lazy
+ fix: update nchan_message_buffer_length correctly when using Redis (thanks @supertong)
+ fix: incorrect handling of missing/expired messages in multiplexed channels
+ fix: memory leak when publishing via Websocket on a pubsub location
+ fix: multiplexed channel DELETE when using Redis handled incorrectly
+ fix: rare Redis script error when publishing message
+ fix: Redis connection ping infinite loop when reloading
+ fix: crash if Redis message TTL less than 1 sec
+ fix: message delivery occasionally stopped when using Redis 
+      and rapidly publishing messages
+ fix: logpoll-multipart sometimes failed to respond when using Redis 
+      and rapidly publishing messages
+ fix: don't crash if Redis server is busy loading data
+0.99.16 (Jun 10 2016)
+ fix: invalid memory access when upstream subscriber authorize request failed
+ fix: longpoll-multipart subscriber was managed incorrectly on channel deletion
+ fix: subscribers may not receive messages after Redis reconnection
+0.99.15 (May 31 2016)
+ feature: Redis client keepalive configurable with nchan_redis_ping_interval
+ feature: try to reconnect to Redis after lost connection to Redis
+ fix: invalid memory access after lost connection to Redis
+ fix: use-after-free error if subscriber disconnects before response 
+      from upstream authorize server (thanks Filip Jenicek)
+ fix: corrupt longpoll-multipart boundary data with long messages
+ feature: 'raw' mode for longpoll-multipart
+ feature: http-raw-stream client, like Push Stream Module's 'stream' mode
+ fix: incomplete longpoll-multipart response when using Redis
+ fix: "subrequests cycle" error for websocket publisher for nginx > 1.9.4
+ fix: nchan_channel_id_split_delimiter inheritance
+ fix: subscriber memory leak from 0.99.8
+ fix: reload crash from 0.99.14
+0.99.14 (May 4 2016)
+ fix: trailing NULL character in Publisher response content-type for json, xml, and yaml
+ fix: don't crash when out of shared memory
+ fix: invalid memory access when using nchan_publisher_upstream_request with websocket 
+ fix: incorrect stored messages count when using Redis store
+ fix: incorrect last_message_id on publisher GETs (memstore and Redis)
+ fix: incorrect behavior when subscribing right after startup before all workers are ready
+ fix: some internal event loop timers were not being canceled, leading to slow shutdown
+ fix: resuming some subscribers with valid message ids didn't work when using Redis store
+ fix: possible invalid memory access when restarting Nginx after using multiplexed channels
+ fix: accept url-encoded message ids
+ feature: add ws+meta.nchan websocket subprotocol that include message metadata
+ fix: all requests after X-Accel-Redirect from upstream were treated as GETs
+0.99.13 (Apr. 20 2016)
+ fix: invalid content-length for nchan_authorize_request publisher requests
+ fix: "subrequests cycle" error after 200 websocket publish requests
+ fix: zero-size buf warning when publishing empty messages via websocket
+ fix: nchan_max_channel_subscribers was ignored
+ fix: use a blocking Redis connection for commands during shutdown to ensure commands are sent
+ fix: better TTL handling for Redis keys
+0.99.12 (Apr. 10 2016)
+ fix: SPDY compatibility with EventSource and multipart/mixed subscribers
+ fix: warnings when shutting down Redis storage
+ feature: use system's hiredis library if present
+ fix: incorrect handling of missing messages when publishing to Redis
 0.99.11 (Apr. 3 2016)
  feature: nchan can be built as a dynamic module (for nginx >= 1.9.11)
 0.99.10 (Apr. 2 2016)
  fix: messages not freed until expired after being deleted from channel
  fix: buffering and output issues for large messages
  update: hiredis updated to v0.13.3
- fix: redis publishing and subscribing memory leaks
- optimize: per-channel redis subscriber counts batched into 100-ms intervals
-    to prevent redis roundtrip floods
- fix: redis subscriber memory leak
+ fix: Redis publishing and subscribing memory leaks
+ optimize: per-channel Redis subscriber counts batched into 100-ms intervals
+    to prevent Redis roundtrip floods
+ fix: Redis subscriber memory leak
  refactor: extracted shared subscriber and message store logic
- fix: use-after-free error for redis channels without subscribers
+ fix: use-after-free error for Redis channels without subscribers
  fix: channel readying logic sometimes got confused and tripped up assert()s
  fix: even more proper handling of websocket close frames
  change: 408 Request Timeout instead of 304 No Content status code for timed out subscribers
 0.99.8 (Mar. 13 2016)
  fix: multipart/mixed subscriber output issues
  fix: memory leak for multiplexed > 4 channels
- fix: invalid memory access for aborted subscriber connection with redis
+ fix: invalid memory access for aborted subscriber connection with Redis
       and nchan_subscribe_existing_channels_only
  fix: accept websocket binary data frames
  fix: proper handling of websocket close frames
- fix: incorrect expire calculation for cached redis-stored messages
+ fix: incorrect expire calculation for cached Redis-stored messages
  fix: double free for multiplexed >4 websocket subs
 0.99.7 (Mar. 10 2016)
  fix: websocket infinite ping loop after reload
  feature: nchan_subscriber_message_id_custom_etag_header for misbehaving proxies that eat etags
- fix: 100% cpu after lost redis connection
+ fix: 100% cpu after lost Redis connection
  fix: refined CORS cross-origin access control headers and logic
  fix: longpoll subscriber in multipart mode didn't output all messages
  fix: longpoll subscriber in multipart mode could access invalid memory
@@ -43,8 +149,8 @@
  fix: startup with insufficient file descriptors shouldn't crash
  fix: longpoll-multipart failure to immediately respond
  fix: longpoll-multipart abort handling
- fix: redis-store cached message timeouts
- fix: redis connection-lost handling
+ fix: Redis-store cached message timeouts
+ fix: Redis connection-lost handling
  fix: startup with 'master_process off' (single-process mode)
  feature: EventSource 'event:' line support with custom header or config
 0.98 (Jan 21 2016)
@@ -61,19 +167,19 @@
  fix: compiler warning
 0.96 (Jan 1. 2016)
  feature: websocket ping with nchan_websocket_ping_interval
- fix: unsafe memory access for redis publisher
+ fix: unsafe memory access for Redis publisher
  feature: nchan_publisher_upstream_request
  fix: http/2 compatibility for EventSource and multipart/mixed
  fix: nchan_authorize_request for publisher location endpoints
- fix: publishing long (file-backed) messages to redis-store
+ fix: publishing long (stored in file) messages to Redis-store
 0.95 (Dec. 24 2015)
  feature: configurable nchan_access_control_origin_header, default to *
  fix: recognize non-preflighted CORS requests
- fix: redis invalid memory access after timeout
+ fix: Redis invalid memory access after timeout
 0.94 (Dec. 22 2015)
  feature: last mesage id in channel info response
  feature: subscribe up to 255 channel ids using nchan_channel_id_split_delimiter
- fix: tried connecting to redis when not needed
+ fix: tried connecting to Redis when not needed
  change: "last requested" no longer has a -1 value for 'never requested'.
  fix: "last requested" in channel info sometimes not updated
  fix: deleting empty channels
@@ -97,7 +203,7 @@
  fix: more flexible Websocket handshake for "Connection" header. thanks @eschultz
  fix: out-of-memory safety check. thanks @woodyhymns
 0.903 (Dec 3 2015)
- fix: better redis engine connection initializer
+ fix: better Redis engine connection initializer
  change: simpler message buffer settings
  fix: more backwards-compatibility for pushmodule config settings
 0.9 (Dec. 2 2015) - first beta pre-release tag after rebranding as Nchan
@@ -107,7 +213,7 @@
           works just like the auth_request module.
  feature: channel multiplexing. up to 4 channels can be subscribed to from a single location
  fix: channel ids were not set within if statements in the nginx config
- feature: hybrid memstore + redis storage. local caching + distributed message publishing, the best
+ feature: hybrid memstore + Redis storage. local caching + distributed message publishing, the best
           of both worlds. (still slower than pure memstore though)
  feature: pubsub locations, optional separate publisher and subscriber channel ids per location
  feature: websocket publisher support
@@ -115,7 +221,7 @@
  feature: websocket subscriber support
  huge refactor: completely new in-memory storage engine. No more global lock.
     Actually, no more locks at all!
- feature: redis-backed storage engine. 
+ feature: Redis storage engine. 
 0.73 (Sep. 2 2014)
  fix: turning on gzip cleared Etag subscriber response header
  fix: channels incorrectly deleted when overwhelmed with connections

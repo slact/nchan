@@ -3,7 +3,7 @@
 
 static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_conf_t *cf) {
   if(id->len > (unsigned )cf->max_channel_id_length) {
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, id->len);
+    nchan_log_request_warning(r, "channel id is too long: should be at most %i, is %i.", cf->max_channel_id_length, id->len);
     return NGX_ERROR;
   }
   return NGX_OK;
@@ -19,7 +19,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   
   //static ngx_str_t            empty_string = ngx_string("");
   
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   for(i=0; i < n && n_out < NCHAN_MULTITAG_MAX; i++) {
     ngx_http_complex_value(r, idcf->cv[i], &id[n_out]);
@@ -66,7 +66,7 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   }
 
   if((id_out = ngx_palloc(r->pool, sizeof(*id_out) + sz)) == NULL) {
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: can't allocate space for channel id");
+    nchan_log_warning("can't allocate space for channel id");
     *ret_id = NULL;
     return NGX_ERROR;
   }
@@ -106,13 +106,13 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   ngx_str_t                  *id;
   size_t                      sz;
   u_char                     *cur;
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   ctx->channel_id_count = 0;
   
   vv = ngx_http_get_variable(r, &channel_id_var_name, key);
   if (vv == NULL || vv->not_found || vv->len == 0) {
-    //ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "nchan: the legacy $push_channel_id variable is not set");
+    //nchan_log_warning("the legacy $push_channel_id variable is not set");
     return NGX_ABORT;
   }
   else {
@@ -127,7 +127,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   
   sz = group->len + 1 + tmpid.len;
   if((id = ngx_palloc(r->pool, sizeof(*id) + sz)) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't allocate space for legacy channel id");
+    nchan_log_error("can't allocate space for legacy channel id");
     *ret_id = NULL;
     return NGX_ERROR;
   }
@@ -150,7 +150,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
 
 ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
   static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_int_t                       rc;
   ngx_str_t                      *id = NULL;
   nchan_complex_value_arr_t          *chid_conf;
@@ -168,6 +168,27 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
     rc = nchan_process_legacy_channel_id(r, cf, &id);
   }
   
+  if(cf->redis.enabled && id) {
+    // make sure all closing curlybrace '}' are silently and unambiguously replaced by \31
+    // that's because failing to do so will mess up cluster sharding {channel key strings}
+    // it's not pretty, but it _is_ good enough.
+    ngx_str_t id_cur = *id;
+    char     *cur;
+    if(memchr(id_cur.data, '\31', id_cur.len)) {
+      nchan_log_request_warning(r, "character \\31 not allowed in channel id when using Redis.");
+      id = NULL;
+      rc = NGX_DECLINED;
+      goto done;
+    }
+    
+    while((cur = memchr(id_cur.data, '}', id_cur.len)) != NULL) {
+      *cur='\31';
+      id_cur.len -= (cur - (char *)id_cur.data + 1);
+      id_cur.data = (u_char *)cur + 1;
+    }
+  }
+
+done:
   if(id == NULL && fail_hard) {
     assert(rc != NGX_OK);
     switch(rc) {

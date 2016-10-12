@@ -22,7 +22,7 @@ class CfCmd #let's make a DSL!
     attr_accessor :name, :type, :set, :conf, :offset_name, :min_nginx_version
     attr_accessor :contexts, :args, :legacy, :alt, :disabled
     def type_line
-      lut=OneOf.new(:main => :NGX_HTTP_MAIN_CONF, :srv => :NGX_HTTP_SRV_CONF, :loc => :NGX_HTTP_LOC_CONF, :if => :NGX_HTTP_LIF_CONF, :block => :NGX_CONF_BLOCK)
+      lut=OneOf.new(:main => :NGX_HTTP_MAIN_CONF, :srv => :NGX_HTTP_SRV_CONF, :upstream => :NGX_HTTP_UPS_CONF, :loc => :NGX_HTTP_LOC_CONF, :if => :NGX_HTTP_LIF_CONF, :block => :NGX_CONF_BLOCK)
       args_lut= OneOf.new(0 => :NGX_CONF_NOARGS, false => :NGX_CONF_NOARGS)
       
       (1..7).each{|n| args_lut[n]="NGX_CONF_TAKE#{n}"}
@@ -35,10 +35,10 @@ class CfCmd #let's make a DSL!
     end
     
     def conf_line
-      OneOf.new(loc_conf: :NGX_HTTP_LOC_CONF_OFFSET, main_conf: :NGX_HTTP_MAIN_CONF_OFFSET)[conf]
+      OneOf.new(loc_conf: :NGX_HTTP_LOC_CONF_OFFSET, srv_conf: :NGX_HTTP_SRV_CONF_OFFSET, main_conf: :NGX_HTTP_MAIN_CONF_OFFSET)[conf]
     end
     def offset_line
-      tpdf=OneOf.new(main_conf: :nchan_main_conf_t, loc_conf: :nchan_loc_conf_t)
+      tpdf=OneOf.new(main_conf: :nchan_main_conf_t, srv_conf: :nchan_srv_conf_t, loc_conf: :nchan_loc_conf_t)
       if offset_name
         "offsetof(#{tpdf[conf]}, #{offset_name})"
       else

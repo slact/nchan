@@ -31,7 +31,7 @@ TMPDIR=""
 MEM="32M"
 
 DEBUGGER_NAME="kdbg"
-DEBUGGER_CMD="kdbg -p %s $SRCDIR/nginx"
+DEBUGGER_CMD="dbus-launch kdbg -p %s $SRCDIR/nginx"
 
 #DEBUGGER_NAME="nemiver"
 #DEBUGGER_CMD="nemiver --attach=%s $SRCDIR/nginx"
@@ -41,7 +41,7 @@ REDIS_CONF="$DEVDIR/redis.conf"
 REDIS_PORT=8537
 
 _pkgdir="${DEVDIR}/nginx-nchan/pkg/nginx-nchan-dev"
-_dynamic_module="$_pkgdir/etc/nginx/modules/nchan_module.so"
+_dynamic_module="$_pkgdir/etc/nginx/modules/ngx_nchan_module.so"
 
 _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  server {\\n       listen 8007;\\n       location / { \\n          proxy_cache cache; \\n      }\\n  }\\n"
 
@@ -65,8 +65,12 @@ for opt in $*; do
       VALGRIND_OPT+=( "--vgdb=yes" "--vgdb-error=1" )
       #ATTACH_DDD=1
       ;;
+    massif)
+      VALGRIND_OPT=( "--tool=massif" "--heap=yes" "--stacks=yes" "--massif-out-file=massif-nginx-%p.out")
+      valgrind=1
+      ;;
     callgrind|profile)
-      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
+      VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--branch-sim=yes" "--cache-sim=yes" "--simulate-hwpref=yes" "--simulate-wb=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
       valgrind=1;;
     helgrind)
     VALGRIND_OPT=( "--tool=helgrind" "--free-is-write=yes")
@@ -125,7 +129,7 @@ cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
 
 conf_replace(){
     echo "$1 $2"
-    sed "s|\($1\).*|\1 $2;|g" $NGINX_TEMP_CONFIG -i
+    sed "s|^\(\s*\)\($1\)\(\s\+\).*|\1\2\3$2;|g" $NGINX_TEMP_CONFIG -i
 }
 
 ulimit -c unlimited
@@ -141,7 +145,7 @@ export ASAN_OPTIONS=symbolize=1
 
 echo "nginx $NGINX_OPT"
 if [[ ! -z $ALTPORT ]]; then
-  conf_replace "listen" 8083
+  sed "s|^\(\s\+\)listen\(\s\+\)\(.*\)|\1listen\21\3|g" $NGINX_TEMP_CONFIG -i
 fi
 
 conf_replace "access_log" $ACCESS_LOG

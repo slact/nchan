@@ -4,10 +4,7 @@
 #include <assert.h>
 #include "ipc.h"
 
-#if FAKESHARD
-#include "shmem.h"
 #include "store-private.h"
-#endif
 
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -17,11 +14,20 @@
 
 //#define DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC 100
 
+static ngx_event_t  receive_alert_delay_log_timer;
+static ngx_event_t  send_alert_delay_log_timer;
+static void receive_alert_delay_log_timer_handler(ngx_event_t *ev);
+static void send_alert_delay_log_timer_handler(ngx_event_t *ev);
+
+
 static void ipc_read_handler(ngx_event_t *ev);
 
 ngx_int_t ipc_init(ipc_t *ipc) {
   int                             i = 0;
   ipc_process_t                  *proc;
+  
+  nchan_init_timer(&receive_alert_delay_log_timer, receive_alert_delay_log_timer_handler, NULL);
+  nchan_init_timer(&send_alert_delay_log_timer, send_alert_delay_log_timer_handler, NULL);
   
   for(i=0; i< NGX_MAX_PROCESSES; i++) {
     proc = &ipc->process[i];
@@ -148,6 +154,25 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
+static ngx_uint_t delayed_sent_alerts_count;
+static ngx_uint_t delayed_sent_alerts_delay;
+
+static void send_alert_delay_log_timer_handler(ngx_event_t *ev) {
+  nchan_log_error("Sending %ui interprocess alert%s delayed by %ui sec.", delayed_sent_alerts_count, delayed_sent_alerts_count == 1 ? "" : "s", (ngx_uint_t)(delayed_sent_alerts_count > 0 ? delayed_sent_alerts_delay / delayed_sent_alerts_count : 0));
+  
+  delayed_sent_alerts_count = 0;
+  delayed_sent_alerts_delay = 0;
+}
+
+static void ipc_record_alert_send_delay(ngx_uint_t delay) {
+  delayed_sent_alerts_count ++;
+  delayed_sent_alerts_delay += delay;
+  nchan_update_stub_status(ipc_total_send_delay, delay);
+  if(!send_alert_delay_log_timer.timer_set && !ngx_exiting && !ngx_quit) {
+    ngx_add_timer(&send_alert_delay_log_timer, 1000);
+  }
+}
+
 static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
   int         n;
   ngx_int_t   err;
@@ -166,7 +191,7 @@ static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
   }
   
   if(ngx_time() - alert->time_sent >= 2) {
-    ERR("Sending of IPC alert delayed by %i sec", ngx_time() - alert->time_sent);
+    ipc_record_alert_send_delay(ngx_time() - alert->time_sent);
   }
   return NGX_OK;
 }
@@ -178,10 +203,24 @@ static void ipc_write_handler(ngx_event_t *ev) {
   ipc_process_t           *proc = (ipc_process_t *) c->data;
   ipc_alert_t             *alerts = proc->wbuf.alerts;
   
-  int                      i, first = proc->wbuf.first, last = first + proc->wbuf.n;
+  int                      n = proc->wbuf.n;
+  int                      i, first = proc->wbuf.first, last = first + n;
   uint8_t                  write_aborted = 0;
   
   //DBG("%i alerts to write, with %i in overflow", proc->wbuf.n, proc->wbuf.overflow_n);
+  
+  if(!memstore_ready()) {
+#if nginx_version >= 1008000
+    ev->cancelable = 1;
+#endif
+    ngx_add_timer(ev, 1000);
+    return;
+  }
+#if nginx_version >= 1008000
+  else {
+    ev->cancelable = 0;
+  }
+#endif
   
   for(i = first; i < last; i++) {
     //ERR("send alert at %i", i % IPC_WRITEBUF_SIZE );
@@ -207,6 +246,8 @@ static void ipc_write_handler(ngx_event_t *ev) {
     proc->wbuf.n -= (i - first);
     //DBG("first now at %i, %i alerts remain", i, proc->wbuf.n);
   }
+  
+  nchan_update_stub_status(ipc_queue_size, proc->wbuf.n - n);
   
   if(proc->wbuf.overflow_n > 0 && i - first > 0) {
     ipc_writebuf_overflow_t  *of;
@@ -322,6 +363,25 @@ static ngx_int_t ipc_read_socket(ngx_socket_t s, ipc_alert_t *alert, ngx_log_t *
   return n;
 }
 
+static ngx_uint_t delayed_received_alerts_count;
+static ngx_uint_t delayed_received_alerts_delay;
+
+static void receive_alert_delay_log_timer_handler(ngx_event_t *ev) {
+  nchan_log_error("Received %ui interprocess alert%s delayed by %ui sec.", delayed_received_alerts_count, delayed_received_alerts_count == 1 ? "" : "s", (ngx_uint_t)(delayed_received_alerts_count > 0 ? delayed_received_alerts_delay / delayed_received_alerts_count : 0));
+  
+  delayed_received_alerts_count = 0;
+  delayed_received_alerts_delay = 0;
+}
+
+static void ipc_record_alert_receive_delay(ngx_uint_t delay) {
+  delayed_received_alerts_count ++;
+  delayed_received_alerts_delay += delay;
+  nchan_update_stub_status(ipc_total_receive_delay, delay);
+  if(!receive_alert_delay_log_timer.timer_set && !ngx_exiting && !ngx_quit) {
+    ngx_add_timer(&receive_alert_delay_log_timer, 1000);
+  }
+}
+
 #if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
 typedef struct {
   ngx_event_t   timer;
@@ -332,7 +392,7 @@ static void fake_ipc_alert_delay_handler(ngx_event_t *ev) {
   delayed_alert_glob_t *glob = (delayed_alert_glob_t *)ev->data;
   
   if(ngx_time() - glob->alert.time_sent >= 2) {
-    ERR("got IPC alert delayed by %i sec", ngx_time() - glob->alert.time_sent);
+    ipc_record_alert_receive_delay(ngx_time() - glob->alert.time_sent);
   }
   
   glob->ipc->handler(glob->alert.src_slot, glob->alert.code, glob->alert.data);
@@ -365,31 +425,33 @@ static void ipc_read_handler(ngx_event_t *ev) {
     //ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0, "nchan: channel command: %d", ch.command);
     
     assert(n == sizeof(alert));
-    
+    if(alert.worker_generation < memstore_worker_generation) {
+      ERR("Got IPC alert for previous generation's worker. discarding.");
+    }
+    else {
 #if DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC
-    delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
-    if (NULL == glob) {
-        ERR("Couldn't allocate memory for alert glob data.");
-        return;
-    }
-    ngx_memzero(&glob->timer, sizeof(glob->timer));
-#if nginx_version >= 1008000
-    glob->timer.cancelable = 1;
-#endif
-    glob->timer.handler = fake_ipc_alert_delay_handler;
-    glob->timer.log = ngx_cycle->log;
-    glob->timer.data = glob;
-    glob->alert = alert;
-    glob->ipc = (ipc_t *)c->data;
-    ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);
+      delayed_alert_glob_t   *glob = ngx_alloc(sizeof(*glob), ngx_cycle->log);
+      if (NULL == glob) {
+          ERR("Couldn't allocate memory for alert glob data.");
+          return;
+      }
+      ngx_memzero(&glob->timer, sizeof(glob->timer));
+      nchan_init_timer(&glob->timer, fake_ipc_alert_delay_handler, glob);
+      
+      glob->alert = alert;
+      glob->ipc = (ipc_t *)c->data;
+      ngx_add_timer(&glob->timer, DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC);
 #else
-    if(ngx_time() - alert.time_sent >= 2) {
-      ERR("got IPC alert delayed by %i sec", ngx_time() - alert.time_sent);
-    }
-    ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
+      if(ngx_time() - alert.time_sent >= 2) {
+        ipc_record_alert_receive_delay(ngx_time() - alert.time_sent);
+      }
+      nchan_update_stub_status(ipc_total_alerts_received, 1);
+      ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 #endif
+    }
   }
 }
+
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
@@ -398,13 +460,14 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     ERR("IPC_DATA_SIZE too small. wanted %i, have %i", data_size, IPC_DATA_SIZE);
     assert(0);
   }
-  
+  nchan_update_stub_status(ipc_total_alerts_sent, 1);
 #if (FAKESHARD)
   
   ipc_alert_t         alert = {0};
   
   alert.src_slot = memstore_slot();
   alert.time_sent = ngx_time();
+  alert.worker_generation = memstore_worker_generation;
   alert.code = code;
   ngx_memcpy(alert.data, data, data_size);
   
@@ -421,6 +484,8 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   ipc_alert_t        *alert;
   
   assert(proc->active);
+  
+  nchan_update_stub_status(ipc_queue_size, 1);
   
   if(wb->n < IPC_WRITEBUF_SIZE) {
     alert = &wb->alerts[(wb->first + wb->n++) % IPC_WRITEBUF_SIZE];
@@ -449,6 +514,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert->src_slot = ngx_process_slot;
   alert->time_sent = ngx_time();
   alert->code = code;
+  alert->worker_generation = memstore_worker_generation;
   ngx_memcpy(&alert->data, data, data_size);
   
   ipc_write_handler(proc->c->write);

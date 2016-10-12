@@ -11,6 +11,7 @@
 #include <subscribers/eventsource.h>
 #include <subscribers/http-chunked.h>
 #include <subscribers/http-multipart-mixed.h>
+#include <subscribers/http-raw-stream.h>
 #include <subscribers/websocket.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
@@ -26,13 +27,20 @@
 #include <nchan_websocket_publisher.h>
 
 ngx_int_t           nchan_worker_processes;
-ngx_module_t        nchan_http_module;
+int                 nchan_stub_status_enabled = 0;
+
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
+//#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
+
+typedef struct {
+  ngx_http_request_t    *r;
+  ngx_http_cleanup_t    *cln;
+} safe_request_ptr_t;
+static safe_request_ptr_t *nchan_set_safe_request_ptr(ngx_http_request_t *r);
+static ngx_http_request_t *nchan_get_safe_request_ptr(safe_request_ptr_t *pd);
 
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_event_type_t event_type) {
   static nchan_loc_conf_t            evcf_data;
@@ -49,14 +57,14 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
 
   struct timeval             tv;
   
-  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+  nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_http_complex_value_t  *cv = cf->channel_events_channel_id;
   if(cv==NULL) {
     //nothing to send
     return NGX_OK;
   }
   
-  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t       *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   ngx_str_t                  tmpid;
   size_t                     sz;
   ngx_str_t                 *id;
@@ -90,7 +98,7 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   ngx_http_complex_value(r, cv, &tmpid); 
   sz = group.len + 1 + tmpid.len;
   if((id = ngx_palloc(r->pool, sizeof(*id) + sz)) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: can't allocate space for legacy channel id");
+    nchan_log_request_error(r, "can't allocate space for legacy channel id");
     return NGX_ERROR;
   }
   id->len = sz;
@@ -124,13 +132,16 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   if(evcf == NULL) {
     evcf = &evcf_data;
     ngx_memzero(evcf, sizeof(*evcf));
-    evcf->buffer_timeout = 10;
-    evcf->max_messages = NGX_MAX_INT_T_VALUE;
-    evcf->subscriber_start_at_oldest_message = 0;
-    evcf->channel_timeout = 30;
+
+    evcf->message_timeout = NCHAN_META_CHANNEL_MESSAGE_TTL;
+    evcf->max_messages = NCHAN_META_CHANNEL_MAX_MESSAGES;
+    evcf->complex_max_messages = NULL;
+    evcf->complex_message_timeout = NULL;
+    evcf->subscriber_first_message = 0;
+    evcf->channel_timeout = NCHAN_META_CHANNEL_TIMEOUT;
   }
   evcf->storage_engine = cf->storage_engine;
-  evcf->use_redis = cf->use_redis;
+  evcf->redis = cf->redis;
   
   evcf->storage_engine->publish(id, &msg, evcf, NULL, NULL);
   
@@ -160,11 +171,41 @@ static void memstore_pub_debug_end() {
 }
 #endif
 
+time_t nchan_loc_conf_message_timeout(nchan_loc_conf_t *cf) {
+  time_t                        timeout;
+  nchan_loc_conf_shared_data_t *shcf;
+  
+  if(!cf->complex_message_timeout) {
+    timeout = cf->message_timeout;
+  }
+  else {
+    shcf = memstore_get_conf_shared_data(cf);
+    timeout = shcf->message_timeout;
+  }
+  
+  return timeout != 0 ? timeout : 525600 * 60;
+}
+
+ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf) {  
+  ngx_int_t                     num;
+  nchan_loc_conf_shared_data_t *shcf;
+  
+  if(!cf->complex_max_messages) {
+    num = cf->max_messages;
+  }
+  else {
+    shcf = memstore_get_conf_shared_data(cf);
+    num = shcf->max_messages;
+  }
+  
+  return num;
+}
+
 static void nchan_publisher_body_handler(ngx_http_request_t *r);
 
 static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   ngx_int_t                       rc;
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   static ngx_str_t                publisher_name = ngx_string("http");
   
@@ -187,8 +228,116 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   return NGX_DONE;
 }
 
+ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
+  ngx_buf_t           *b;
+  ngx_chain_t          out;
+  nchan_stub_status_t *stats;
+  
+  float                shmem_used;
+  
+  char     *buf_fmt = "total published messages: %ui\n"
+                      "stored messages: %ui\n"
+                      "shared memory used: %fK\n"
+                      "channels: %ui\n"
+                      "subscribers: %ui\n"
+                      "redis pending commands: %ui\n"
+                      "redis connected servers: %ui\n"
+                      "total interprocess alerts received: %ui\n"
+                      "interprocess alerts in transit: %ui\n"
+                      "interprocess queued alerts: %ui\n"
+                      "total interprocess send delay: %ui\n"
+                      "total interprocess receive delay: %ui\n";
+  
+  if ((b = ngx_pcalloc(r->pool, sizeof(*b) + 800)) == NULL) {
+    nchan_log_request_error(r, "Failed to allocate response buffer for nchan_stub_status.");
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  
+  shmem_used = (float )((float )nchan_get_used_shmem() / 1024.0);
+  
+  stats = nchan_get_stub_status_stats();
+  
+  b->start = (u_char *)&b[1];
+  b->pos = b->start;
+  
+  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, shmem_used, stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, stats->ipc_total_alerts_received, stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay);
+  b->last = b->end;
+
+  b->memory = 1;
+  b->last_buf = 1;
+  
+  r->headers_out.status = NGX_HTTP_OK;
+  r->headers_out.content_type.len = sizeof("text/plain") - 1;
+  r->headers_out.content_type.data = (u_char *) "text/plain";
+  
+  r->headers_out.content_length_n = b->end - b->start;
+  ngx_http_send_header(r);
+  
+  out.buf = b;
+  out.next = NULL;
+  
+  return ngx_http_output_filter(r, &out);
+}
+
+int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {
+  ngx_str_t                      val;
+  nchan_loc_conf_shared_data_t  *shcf;
+  
+  if(!cf->complex_message_timeout && !cf->complex_max_messages) {
+    return 1;
+  }
+  
+  if(cf->complex_message_timeout) {
+    time_t    timeout;
+    if(ngx_http_complex_value(r, cf->complex_message_timeout, &val) != NGX_OK) {
+      nchan_log_request_error(r, "cannot evaluate nchan_message_timeout value");
+      *err = NULL;
+      return 0;
+    }
+    if(val.len == 0) {
+      *err = "missing nchan_message_timeout value";
+      nchan_log_request_error(r, "%s", *err);
+      return 0;
+    }
+    
+    if((timeout = ngx_parse_time(&val, 1)) == (time_t )NGX_ERROR) {
+      *err = "invalid nchan_message_timeout value";
+      nchan_log_request_error(r, "%s '%V'", *err, &val);
+      return 0;
+    }
+    
+    shcf = memstore_get_conf_shared_data(cf);
+    shcf->message_timeout = timeout;
+  }
+  if(cf->complex_max_messages) {
+    ngx_int_t                      num;
+    if(ngx_http_complex_value(r, cf->complex_max_messages, &val) != NGX_OK) {
+      nchan_log_request_error(r, "cannot evaluate nchan_message_buffer_length value");
+      *err = NULL;
+      return 0;
+    }
+    
+    if(val.len == 0) {
+      *err = "missing nchan_message_buffer_length value";
+      nchan_log_request_error(r, "%s", *err);
+      return 0;
+    }
+    
+    num = ngx_atoi(val.data, val.len);
+    if(num == NGX_ERROR || num < 0) {
+      *err = "invalid nchan_message_buffer_length value";
+      nchan_log_request_error(r, "%s %V", *err, &val);
+      return 0;
+    }
+    
+    shcf = memstore_get_conf_shared_data(cf);
+    shcf->max_messages = num;
+  }
+  return 1;
+}
+
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
-  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_str_t              *channel_id;
   subscriber_t           *sub;
   nchan_msg_id_t         *msg_id;
@@ -204,11 +353,17 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
-  ngx_http_set_ctx(r, ctx, nchan_http_module);
+  ngx_http_set_ctx(r, ctx, ngx_nchan_module);
 
 #if NCHAN_BENCHMARK
   ctx->start_tv = tv;
 #endif
+  
+  //X-Accel-Redirected requests get their method mangled to GET. De-mangle it if necessary
+  if(r->upstream && r->upstream->headers_in.x_accel_redirect) {
+    //yep, we got x-accel-redirected. what was the original method?...
+    nchan_recover_x_accel_redirected_request_method(r);
+  }
   
   if((origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) != NULL) {
     ctx->request_origin_header = *origin_header;
@@ -229,6 +384,20 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
+  if(cf->pub.websocket || cf->pub.http) {
+    char *err;
+    if(!nchan_parse_message_buffer_config(r, cf, &err)) {
+      if(err) {
+        nchan_respond_cstring(r, NGX_HTTP_FORBIDDEN, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, err, 0);
+        return NGX_OK;
+      }
+      else {
+        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 0);
+        return NGX_OK;
+      }
+    }
+  }
+  
   if(nchan_detect_websocket_request(r)) {
     //want websocket?
     if(cf->sub.websocket) {
@@ -240,7 +409,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         goto bad_msgid;
       }
       if((sub = websocket_subscriber_create(r, msg_id)) == NULL) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create websocket subscriber");
+        nchan_log_request_error(r, "unable to create websocket subscriber");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
       sub->fn->subscribe(sub, channel_id);
@@ -273,6 +442,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         else if(cf->sub.poll) {
           sub_create = intervalpoll_subscriber_create;
         }
+        else if(cf->sub.http_raw_stream) {
+          sub_create = http_raw_stream_subscriber_create;
+        }
         else if(cf->sub.longpoll) {
           sub_create = longpoll_subscriber_create;
         }
@@ -291,7 +463,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
             goto bad_msgid;
           }
           if((sub = sub_create(r, msg_id)) == NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "unable to create subscriber");
+            nchan_log_request_error(r, "unable to create subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
           }
           
@@ -329,28 +501,84 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         break;
     }
   }
-  
+  ctx->request_ran_content_handler = 1;
   return rc;
   
 forbidden:
   nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+  ctx->request_ran_content_handler = 1;
   return NGX_OK;
 
 bad_msgid:
   nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Message ID invalid", 0);
+  ctx->request_ran_content_handler = 1;
   return NGX_OK;
   
 }
 
-static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
+static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, void *pd) {
+  ngx_http_request_t *r = nchan_get_safe_request_ptr(pd);
+  if(r == NULL) {
+    return NGX_ERROR;
+  }
   ngx_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
   return NGX_OK;
 }
 
-static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request_t *r) {
-  nchan_channel_t       *ch = rptr;
-  nchan_request_ctx_t   *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+static void clear_request_pointer(safe_request_ptr_t *pdata) {
+  if(pdata) {
+    pdata->r = NULL;
+  }
+}
+
+static safe_request_ptr_t *nchan_set_safe_request_ptr(ngx_http_request_t *r) {
+  safe_request_ptr_t           *data = ngx_alloc(sizeof(*data), ngx_cycle->log);
+  ngx_http_cleanup_t           *cln = ngx_http_cleanup_add(r, 0);
+  
+  if(!data || !cln) {
+    nchan_log_request_error(r, "couldn't allocate request cleanup stuff.");
+    if(cln) {
+      cln->data = NULL;
+      cln->handler = (ngx_http_cleanup_pt )clear_request_pointer;
+    }
+    ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    return NULL;
+  }
+  
+  data->cln = cln;
+  data->r = r;
+  
+  cln->data = data;
+  cln->handler = (ngx_http_cleanup_pt )clear_request_pointer;
+  
+  return data;
+}
+
+static ngx_http_request_t *nchan_get_safe_request_ptr(safe_request_ptr_t *d) {
+  ngx_http_request_t    *r = d->r;
+  ngx_http_cleanup_t    *cln = d->cln;
+  
+  ngx_free(d);
+  
+  if(r) {
+    cln->data = NULL;
+  }
+  
+  return r;
+}
+
+
+static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, safe_request_ptr_t *pd) {
+  nchan_request_ctx_t   *ctx;
   static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
+  
+  ngx_http_request_t    *r = nchan_get_safe_request_ptr(pd);
+  
+  if(r == NULL) { // the request has since disappered
+    return NGX_ERROR;
+  }
+  ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  
   //DBG("publish_callback %V owner %i status %i", ch_id, memstore_channel_owner(ch_id), status);
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:
@@ -374,7 +602,7 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: error publishing message");
+      nchan_log_request_error(r, "error publishing message");
       ctx->prev_msg_id = empty_msgid;;
       ctx->msg_id = empty_msgid;
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -384,7 +612,7 @@ static ngx_int_t publish_callback(ngx_int_t status, void *rptr, ngx_http_request
       //for debugging, mostly. I don't expect this branch to behit during regular operation
       ctx->prev_msg_id = empty_msgid;;
       ctx->msg_id = empty_msgid;
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nchan: TOTALLY UNEXPECTED error publishing message, status code %i", status);
+      nchan_log_request_error(r, "TOTALLY UNEXPECTED error publishing message, status code %i", status);
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
   }
@@ -395,12 +623,14 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   struct timeval                  tv;
   nchan_msg_t                    *msg;
   ngx_str_t                      *eventsource_event;
+  
+  safe_request_ptr_t             *pd;
 
 #if FAKESHARD
   memstore_pub_debug_start();
 #endif
   if((msg = ngx_pcalloc(r->pool, sizeof(*msg))) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: can't allocate msg in request pool");
+    nchan_log_request_error(r, "can't allocate msg in request pool");
     ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
     return; 
   }
@@ -426,7 +656,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
     buf = nchan_chain_to_single_buffer(r->pool, request_body_chain, content_length);
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, (r)->connection->log, 0, "nchan: unexpected publisher message request body buffer location. please report this to the nchan developers.");
+    nchan_log_request_error(r, "unexpected publisher message request body buffer location. please report this to the nchan developers.");
     ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
     return;
   }
@@ -442,11 +672,17 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   msg->lbl = r->uri;
 #endif
 #if NCHAN_BENCHMARK
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
   
-  cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, r);
+  
+  if((pd = nchan_set_safe_request_ptr(r)) == NULL) {
+    return;
+  }
+  
+  cf->storage_engine->publish(channel_id, msg, cf, (callback_pt) &publish_callback, pd);
+  nchan_update_stub_status(total_published_messages, 1);
 #if FAKESHARD
   memstore_pub_debug_end();
 #endif
@@ -467,7 +703,7 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
   
   //switch(r->headers_out
   if(rc == NGX_OK) {
-    nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
+    nchan_loc_conf_t         *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
     ngx_int_t                 code = sr->headers_out.status;
     ngx_str_t                *content_type;
     ngx_int_t                 content_length;
@@ -515,10 +751,14 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
 static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_http_complex_value_t       *publisher_upstream_request_url_ccv;
   static ngx_str_t                POST_REQUEST_STRING = {4, (u_char *)"POST "};
+  safe_request_ptr_t             *pd;
   
   switch(r->method) {
     case NGX_HTTP_GET:
-      cf->storage_engine->find_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      if((pd = nchan_set_safe_request_ptr(r)) == NULL){
+        return;
+      }
+      cf->storage_engine->find_channel(channel_id, cf, (callback_pt) &channel_info_callback, pd);
       break;
     
     case NGX_HTTP_PUT:
@@ -534,7 +774,7 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
         nchan_pub_upstream_stuff_t    *psr_stuff;
         
         if((psr_stuff = ngx_palloc(r->pool, sizeof(*psr_stuff))) == NULL) {
-          ERR("can't allocate memory for publisher auth subrequest");
+          nchan_log_request_error(r, "can't allocate memory for publisher auth subrequest");
           ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
           return;
         }
@@ -557,7 +797,10 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
       break;
       
     case NGX_HTTP_DELETE:
-      cf->storage_engine->delete_channel(channel_id, (callback_pt) &channel_info_callback, (void *)r);
+      if((pd = nchan_set_safe_request_ptr(r)) == NULL){
+        return;
+      }
+      cf->storage_engine->delete_channel(channel_id, cf, (callback_pt) &channel_info_callback, pd);
       nchan_maybe_send_channel_event_message(r, CHAN_DELETE);
       break;
       
@@ -581,7 +824,7 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
   nchan_pub_subrequest_data_t  *d = data;
   
   if(rc == NGX_OK) {
-    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->parent, nchan_http_module);
+    nchan_loc_conf_t    *cf = ngx_http_get_module_loc_conf(r->parent, ngx_nchan_module);
     ngx_int_t            code = r->headers_out.status;
     if(code >= 200 && code <299) {
       //authorized. proceed as planned
@@ -592,15 +835,15 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
     }
   }
   else {
-    ngx_http_finalize_request(r->parent, NGX_HTTP_INTERNAL_SERVER_ERROR);
+    ngx_http_finalize_request(r->parent, rc);
   }
   return NGX_OK;
 }
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r) {
   ngx_str_t                      *channel_id;
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
-
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  ngx_table_elt_t                *content_length_elt;
   ngx_http_complex_value_t       *authorize_request_url_ccv = cf->authorize_request_url;
   
   if((channel_id = nchan_get_channel_id(r, PUB, 1))==NULL) {
@@ -615,7 +858,7 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
     nchan_pub_subrequest_stuff_t   *psr_stuff;
     
     if((psr_stuff = ngx_palloc(r->pool, sizeof(*psr_stuff))) == NULL) {
-      ERR("can't allocate memory for publisher auth subrequest");
+      nchan_log_request_error(r, "can't allocate memory for publisher auth subrequest");
       ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
@@ -635,10 +878,25 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
     ngx_http_subrequest(r, &auth_request_url, NULL, &sr, psr, 0);
     
     if((sr->request_body = ngx_pcalloc(r->pool, sizeof(ngx_http_request_body_t))) == NULL) {
-      ERR("can't allocate memory for publisher auth subrequest body");
+      nchan_log_request_error(r, "can't allocate memory for publisher auth subrequest body");
       ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
       return;
     }
+    if((content_length_elt = ngx_palloc(r->pool, sizeof(*content_length_elt))) == NULL) {
+      nchan_log_request_error(r, "can't allocate memory for publisher auth subrequest content-length header");
+      ngx_http_finalize_request(r, r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
+    
+    if(sr->headers_in.content_length) {
+      *content_length_elt = *sr->headers_in.content_length;
+      content_length_elt->value.len=1;
+      content_length_elt->value.data=(u_char *)"0";
+      sr->headers_in.content_length = content_length_elt;
+    }
+    
+    sr->headers_in.content_length_n = 0;
+    sr->args = r->args;
     sr->header_only = 1;
   }
 }

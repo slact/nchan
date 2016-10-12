@@ -60,9 +60,9 @@ ngx_int_t nchan_reuse_queue_flush(nchan_reuse_queue_t *rq) {
     next = thing_next(rq, thing);
     if(rq->free) rq->free(pd, thing);
   }
+  rq->reserve = rq->first;
   rq->first = NULL;
   rq->last = NULL;
-  rq->reserve = rq->first;
   return i;
 }
 
@@ -103,6 +103,7 @@ void *nchan_reuse_queue_push(nchan_reuse_queue_t *rq) {
   }
   else {
     q = rq->alloc(rq->pd);
+    rq->size++;
   }
   *thing_next_ptr(rq, q) = NULL;
   *thing_prev_ptr(rq, q) = rq->last;
@@ -113,7 +114,6 @@ void *nchan_reuse_queue_push(nchan_reuse_queue_t *rq) {
   if(!rq->first) {
     rq->first = q;
   }
-  rq->size++;
   //check_queue(rq);
   return q;
 }

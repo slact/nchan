@@ -1,4 +1,36 @@
-ngx_addon_name=nchan
+ngx_addon_name=ngx_nchan_module
+
+#do we have hiredis on the platform?
+ngx_feature="hiredis"
+ngx_feature_run=yes
+ngx_feature_incs="#include <hiredis/hiredis.h>"
+ngx_feature_test="if(HIREDIS_SONAME < 0.13) { return 1; }"
+ngx_feature_libs="-lhiredis"
+. auto/feature
+if [ $ngx_found = no ]; then
+  _NCHAN_HIREDIS_SRCS="\
+    ${ngx_addon_dir}/src/hiredis/hiredis.c \
+    ${ngx_addon_dir}/src/hiredis/read.c \
+    ${ngx_addon_dir}/src/hiredis/async.c \
+    ${ngx_addon_dir}/src/hiredis/sds.c \
+    ${ngx_addon_dir}/src/hiredis/net.c \
+  "
+  ngx_feature_libs=""
+else
+  _NCHAN_HIREDIS_SRCS=""
+fi
+
+#do we have libsrtp on the platform?
+ngx_feature="libsrtp"
+ngx_feature_run=yes
+ngx_feature_incs="#include <srtp/srtp_priv.h>"
+ngx_feature_test="err_status_t status = srtp_init(); if(status) { exit(1); }"
+ngx_feature_libs="-lsrtp"
+. auto/feature
+if [ $ngx_found = no ]; then
+  exit 1
+fi
+
 
 _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/common.c \
@@ -7,6 +39,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/eventsource.c \
   ${ngx_addon_dir}/src/subscribers/http-chunked.c \
   ${ngx_addon_dir}/src/subscribers/http-multipart-mixed.c \
+  ${ngx_addon_dir}/src/subscribers/http-raw-stream.c \
   ${ngx_addon_dir}/src/subscribers/websocket.c \
   ${ngx_addon_dir}/src/nchan_websocket_publisher.c \
   ${ngx_addon_dir}/src/subscribers/internal.c \
@@ -16,27 +49,28 @@ _NCHAN_SUBSCRIBERS_SRCS="\
 "
 
 _NCHAN_REDIS_STORE_SRCS="\
-  ${ngx_addon_dir}/src/hiredis/hiredis.c \
-  ${ngx_addon_dir}/src/hiredis/read.c \
-  ${ngx_addon_dir}/src/hiredis/async.c \
-  ${ngx_addon_dir}/src/hiredis/sds.c \
-  ${ngx_addon_dir}/src/hiredis/net.c \
+  ${_NCHAN_HIREDIS_SRCS} \
   ${ngx_addon_dir}/src/store/redis/cmp.c \
+  ${ngx_addon_dir}/src/store/redis/cluster.c \
   ${ngx_addon_dir}/src/store/redis/rdsstore.c \
   ${ngx_addon_dir}/src/store/redis/redis_nginx_adapter.c \
 "
 _NCHAN_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/ipc.c \
-  ${ngx_addon_dir}/src/store/memory/shmem.c \
   ${ngx_addon_dir}/src/store/memory/ipc-handlers.c \
   ${ngx_addon_dir}/src/store/memory/memstore.c \
 "
 
 _nchan_util_dir="${ngx_addon_dir}/src/util"
 _NCHAN_UTIL_SRCS=" \
+  $_nchan_util_dir/nchan_list.c \
+  $_nchan_util_dir/ngx_nchan_hacked_slab.c \
+  $_nchan_util_dir/shmem.c \
+  $_nchan_util_dir/nchan_rbtree.c \
   $_nchan_util_dir/nchan_reuse_queue.c \
   $_nchan_util_dir/nchan_output.c \
   $_nchan_util_dir/nchan_util.c \
+  $_nchan_util_dir/nchan_fake_request.c \
   $_nchan_util_dir/nchan_bufchainpool.c \
   $_nchan_util_dir/nchan_channel_id.c \
   $_nchan_util_dir/nchan_channel_info.c \
@@ -46,8 +80,7 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_subrequest.c \
 "
 
-_NCHAN_STORE_SRCS="  
-  ${ngx_addon_dir}/src/store/rbtree_util.c \
+_NCHAN_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
   ${ngx_addon_dir}/src/store/store_common.c \
@@ -64,23 +97,39 @@ _NCHAN_SRCS="\
   ${ngx_addon_dir}/src/nchan_module.c \
 "
 
+_NCHAN_STREAM_SRCS="\
+  
+  
+"
 
 ngx_module_incs=$ngx_addon_dir/src
 
 have=NGX_HTTP_HEADERS . auto/have
 
-if [ $ngx_module_link = DYNAMIC ] ; then
-  ngx_module_type=HTTP
-  ngx_module_name=nchan_http_module
-  ngx_module_srcs="$_NCHAN_SRCS"
-  . auto/module
-elif [ $ngx_module_link = ADDON ] ; then
-  ngx_module_type=HTTP
-  ngx_module_name=nchan_http_module
-  ngx_module_srcs="$_NCHAN_SRCS"
-  . auto/module
+if test -n "$ngx_module_link"; then
+  if [ $ngx_module_link = DYNAMIC ] ; then
+    ngx_module_name="$ngx_addon_name ngx_stream_nchan_module"
+    ngx_module_srcs="$_NCHAN_SRCS"
+    ngx_module_libs=$ngx_feature_libs
+    . auto/module
+  elif [ $ngx_module_link = ADDON ] ; then
+    
+    ngx_module_type=HTTP
+    ngx_module_name="$ngx_addon_name"
+    ngx_module_srcs="$_NCHAN_SRCS"
+    ngx_module_libs=$ngx_feature_libs
+    . auto/module
+    
+    ngx_module_type=STREAM
+    ngx_module_name="ngx_stream_nchan_module"
+    ngx_module_srcs=""
+    ngx_module_libs=""
+    . auto/module
+  fi
 else
   NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_NCHAN_SRCS"
+  CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
   CORE_INCS="$CORE_INCS $ngx_module_incs"
-  HTTP_MODULES="$HTTP_MODULES nchan_http_module"
+  HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"
+  STREAM_MODULES="$HTTP_MODULES ngx_stream_nchan_module"
 fi

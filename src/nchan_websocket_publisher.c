@@ -59,7 +59,7 @@ static ngx_str_t   pub_name = ngx_string("websocket");
 ngx_int_t nchan_create_websocket_publisher(ngx_http_request_t  *r) {
   subscriber_t         *sub;
   nchan_llist_timed_t  *sub_link;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   if(ctx) {
     ctx->publisher_type = &pub_name;
   }

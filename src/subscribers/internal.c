@@ -35,28 +35,27 @@ ngx_int_t internal_subscriber_set_respond_status_handler(subscriber_t *sub, call
   ((internal_subscriber_t *)sub)->respond_status = handler;
   return NGX_OK;
 }
+ngx_int_t internal_subscriber_set_destroy_handler(subscriber_t *sub, callback_pt handler) {
+  ((internal_subscriber_t *)sub)->destroy = handler;
+  return NGX_OK;
+}
 
 static ngx_str_t     subscriber_name = ngx_string("internal");
-static nchan_loc_conf_t              dummy_config;
-static nchan_loc_conf_t             *dummy_config_ptr = NULL;
 
-subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
+subscriber_t *internal_subscriber_create(ngx_str_t *name, nchan_loc_conf_t *cf, size_t pd_size, void **pd) {
   internal_subscriber_t               *fsub;
-  if(dummy_config_ptr == NULL) {
-    ngx_memzero(&dummy_config, sizeof(dummy_config));
-    dummy_config.buffer_timeout = 0;
-    dummy_config.max_messages = -1;
-    dummy_config_ptr = &dummy_config;
-  }
   
-  if((fsub = ngx_alloc(sizeof(*fsub), ngx_cycle->log)) == NULL) {
+  if((fsub = ngx_alloc(sizeof(*fsub) + pd_size, ngx_cycle->log)) == NULL) {
     ERR("Unable to allocate");
     return NULL;
+  }
+  if(pd) {
+    *pd = pd_size > 0 ? &fsub[1] : NULL;
   }
   
   nchan_subscriber_init(&fsub->sub, &new_internal_sub, NULL, NULL);
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
-  fsub->sub.cf = &dummy_config;
+  fsub->sub.cf = cf;
   fsub->sub.name= (name == NULL ? &subscriber_name : name);
   
   fsub->enqueue = empty_callback;
@@ -64,9 +63,10 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   fsub->respond_message = empty_callback;
   fsub->respond_status = empty_callback;
   fsub->notify = empty_callback;
+  fsub->destroy = empty_callback;
   
-  DBG("%p create %V with privdata %p", fsub, fsub->sub.name, privdata);
-  fsub->privdata = privdata;
+  DBG("%p create %V with privdata %p", fsub, fsub->sub.name, *pd);
+  fsub->privdata = pd_size == 0 ? NULL : *pd;
   
   fsub->already_dequeued = 0;
   fsub->awaiting_destruction = 0;
@@ -80,15 +80,15 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, void *privdata) {
   return &fsub->sub;
 }
 
-subscriber_t *internal_subscriber_create_init(ngx_str_t *sub_name, void *privdata, callback_pt enqueue, callback_pt dequeue, callback_pt respond_message, callback_pt respond_status, callback_pt notify_handler) {
+subscriber_t *internal_subscriber_create_init(ngx_str_t *sub_name, nchan_loc_conf_t *cf, size_t pd_sz, void **pd, callback_pt enqueue, callback_pt dequeue, callback_pt respond_message, callback_pt respond_status, callback_pt notify_handler, callback_pt destroy_handler) {
   subscriber_t          *sub;
   
-  if(privdata == NULL) {
-    ERR("couldn't allocate %V subscriber data", sub_name);
+  if(pd == NULL) {
+    ERR("nowhere to allocate %V subscriber data", sub_name);
     return NULL;
   }
   
-  sub = internal_subscriber_create(sub_name, privdata);
+  sub = internal_subscriber_create(sub_name, cf, pd_sz, pd);
   if(enqueue)
     internal_subscriber_set_enqueue_handler(sub, enqueue);
   if(dequeue)
@@ -99,6 +99,8 @@ subscriber_t *internal_subscriber_create_init(ngx_str_t *sub_name, void *privdat
     internal_subscriber_set_respond_status_handler(sub, respond_status);
   if(notify_handler)
     internal_subscriber_set_notify_handler(sub, notify_handler);
+  if(destroy_handler) 
+    internal_subscriber_set_destroy_handler(sub, destroy_handler);
   return sub;
 }
 
@@ -113,6 +115,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
 #endif
+    fsub->destroy(NGX_OK, NULL, fsub->privdata);
     nchan_free_msg_id(&sub->last_msgid);
     ngx_free(fsub);
   }
@@ -125,12 +128,14 @@ static ngx_int_t internal_reserve(subscriber_t *self) {
   self->reserved++;
   return NGX_OK;
 }
-static ngx_int_t internal_release(subscriber_t *self, uint8_t nodestroy) {
-  internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
-  DBG("%p (%V) release", self, fsub->sub.name);
-  self->reserved--;
-  if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
-    DBG("%p (%V) free", self, fsub->sub.name);
+static ngx_int_t internal_release(subscriber_t *sub, uint8_t nodestroy) {
+  internal_subscriber_t  *fsub = (internal_subscriber_t  *)sub;
+  DBG("%p (%V) release", sub, fsub->sub.name);
+  sub->reserved--;
+  if(nodestroy == 0 && fsub->awaiting_destruction == 1 && sub->reserved == 0) {
+    DBG("%p (%V) free", sub, fsub->sub.name);
+    fsub->destroy(NGX_OK, NULL, fsub->privdata);
+    nchan_free_msg_id(&sub->last_msgid);
     ngx_free(fsub);
     return NGX_ABORT;
   }
@@ -160,7 +165,7 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
     //add timeout timer
     reset_timer(fsub);
   }
-  fsub->enqueue(fsub->sub.cf->buffer_timeout, NULL, fsub->privdata);
+  fsub->enqueue(NGX_OK, NULL, fsub->privdata);
   self->enqueued = 1;
   return NGX_OK;
 }

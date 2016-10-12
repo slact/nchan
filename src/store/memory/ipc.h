@@ -5,6 +5,7 @@ typedef struct {
   char            data[IPC_DATA_SIZE];
   time_t          time_sent;
   int16_t         src_slot;
+  uint16_t        worker_generation;
   uint8_t         code;
 } ipc_alert_t;
 

@@ -15,6 +15,19 @@ void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out
   }
 }
 
+void nchan_expand_tiny_msgid(nchan_msg_tiny_id_t *tinyid, nchan_msg_id_t *id) {
+  id->time = tinyid->time;
+  id->tag.fixed[0]=tinyid->tag;
+  id->tagcount = 1;
+  id->tagactive = 1;
+}
+
+void nchan_shrink_normal_msgid(nchan_msg_id_t *id, nchan_msg_tiny_id_t *tinyid) {
+  assert(id->tagcount <= 1);
+  tinyid->time = id->time;
+  tinyid->tag = id->tag.fixed[0];
+}
+
 ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
   ngx_memcpy(dst, src, sizeof(*src));
   if(src->tagcount > NCHAN_FIXED_MULTITAG_MAX) {
@@ -64,7 +77,7 @@ ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
   return NGX_OK;
 }
 
-static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid) {
+static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid, char **err) {
   int16_t  *tags1 = id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
   int16_t  *tags2 = id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
   if(id1->time > 0 && id2->time > 0) {
@@ -78,7 +91,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         for(j=0; j < max; j++) {
           if(tags2[j] != -1) {
             if( i != -1) {
-              ERR("verify_msg_id: more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg. fail.");
+              *err = "more than one tag set to something besides -1. that means this isn't a single channel's forwarded multi msg";
               return NGX_ERROR;
             }
             else {
@@ -87,7 +100,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
           }
         }
         if(msgidtags[i] != 0) {
-          ERR("verify_msg_id: only the first message in a given second is ok. anything else means a missed message.");
+          *err = "only the first message in a given second is ok. anything else means a missed message.";
           return NGX_ERROR;
         }
         //ok, it's just the first-per-second message of a channel from a multi-channel
@@ -95,14 +108,14 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
         return NGX_OK;
       }
       else {
-        ERR("verify_msg_id: not a multimsg tag, different times. could be a missed message.");
+        *err = "previous message id times don't match";
         return NGX_ERROR;
       }
     }
     
     if(id1->tagcount == 1) {
       if(tags1[0] != tags2[0]){
-        ERR("verify_msg_id: tag mismatch. missed message?");
+        *err = "previous message id tags don't match";
         return NGX_ERROR;
       }
     }
@@ -110,7 +123,7 @@ static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_m
       int   i, max = id1->tagcount;
       for(i=0; i < max; i++) {
         if(tags2[i] != -1 && tags1[i] != tags2[i]) {
-          ERR("verify_msg_id: multitag mismatch. missed message?");
+          *err = "previous message multitag mismatch";
           return NGX_ERROR;
         }
       }
@@ -183,7 +196,8 @@ void nchan_update_multi_msgid(nchan_msg_id_t *oldid, nchan_msg_id_t *newid, int1
 
 ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
   if(msg) {
-    if(verify_msg_id(&sub->last_msgid, &msg->prev_id, &msg->id) == NGX_ERROR) {
+    char *err, *huh;
+    if(verify_msg_id(&sub->last_msgid, &msg->prev_id, &msg->id, &err) == NGX_ERROR) {
       struct timeval    tv;
       time_t            time;
       int               ttl = msg->expires - msg->id.time;
@@ -191,10 +205,17 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
       time = tv.tv_sec;
       
       if(sub->last_msgid.time + ttl <= time) {
-        ERR("missed a message because it probably expired");
+        huh = "The message probably expired.";
       }
       else {
-        ERR("missed a message for an unknown reason. Maybe it's a bug or maybe the message queue length is too small.");
+        huh = "Try increasing the message buffer length.";
+      }
+      
+      if(sub->type == INTERNAL) {
+        nchan_log_warning("Missed message for internal %V subscriber: %s. %s", sub->name, err, huh);
+      }
+      else {
+        nchan_log_request_warning(sub->request, "Missed message for %V subscriber: %s. %s", sub->name, err, huh);
       }
     }
     
@@ -256,6 +277,45 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
   return NGX_OK;
 }
 
+ngx_int_t nchan_extract_from_multi_msgid(nchan_msg_id_t *src, uint16_t n, nchan_msg_id_t *dst) {
+  uint8_t count = src->tagcount;
+  int16_t *tags;
+  
+  if(src->time == NCHAN_OLDEST_MSGID_TIME || src->time == NCHAN_NEWEST_MSGID_TIME) {
+    dst->time = src->time;
+    dst->tag.fixed[0] = 0;
+    dst->tagcount = 1;
+    dst->tagactive = 0;
+    return NGX_OK;
+  }
+  else if(src->time == NCHAN_NTH_MSGID_TIME) {
+    dst->time = src->time;
+    dst->tag.fixed[0] = src->tag.fixed[0];
+    dst->tagcount = 1;
+    dst->tagactive = 0;
+    return NGX_OK; 
+  }
+  
+  if(n > count) {
+    ERR("can't extract msgid %i from multi-msg of count %i", n, count);
+    return NGX_ERROR;
+  }
+  tags = (count <= NCHAN_FIXED_MULTITAG_MAX) ? src->tag.fixed : src->tag.allocd;
+  
+  dst->time = src->time;
+  if(tags[n] == -1) {
+    dst->time --;
+    dst->tag.fixed[0] = 32767; //eeeeeh this is bad. but it's good enough.
+  }
+  else {
+    dst->tag.fixed[0] = tags[n];
+  }
+  dst->tagcount = 1;
+  dst->tagactive = 0;
+  
+  return NGX_OK; 
+}
+
 static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
 #if nginx_version >= 1008000
   return r->headers_in.if_none_match ? &r->headers_in.if_none_match->value : NULL;
@@ -281,14 +341,25 @@ static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
 #endif
 }
 
-static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count){
+ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count) {
   u_char       *split, *last;
   ngx_int_t     time;
+  uint8_t       len;
   //"<msg_time>:<msg_tag>"
   last = str->data + str->len;
   if((split = ngx_strlchr(str->data, last, ':')) != NULL) {
+    len = 1;
+  }
+  else if( (str->len > 3 && (split = ngx_strnstr(str->data, "%3A", str->len)) != NULL)
+        || (str->len > 3 && (split = ngx_strnstr(str->data, "%3a", str->len)) != NULL)) {
+    len = 3;
+  }
+  else {
+    len = 0; //placate dumb GCC warning
+  }
+  if(split) {
     time = ngx_atoi(str->data, split - str->data);
-    split++;
+    split += len;
     if(time != NGX_ERROR) {
       id->time = time;
       return nchan_parse_msg_tag(split, last, id, expected_tag_count);
@@ -300,17 +371,24 @@ static ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, 
   return NGX_DECLINED;
 }
 
+
+
 nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
+  static nchan_msg_id_t           nth_msg_id = NCHAN_NTH_MSGID;
+  static nchan_msg_id_t           oldest_msg_id = NCHAN_OLDEST_MSGID;
+  static nchan_msg_id_t           newest_msg_id = NCHAN_NEWEST_MSGID;
+  
   ngx_str_t                      *if_none_match;
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, nchan_http_module);
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, nchan_http_module);
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   int                             i;
   ngx_int_t                       rc;
   
+  if_none_match = nchan_subscriber_get_etag(r);
+  
   if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
     id.time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-    if_none_match = nchan_subscriber_get_etag(r);
     
     if(if_none_match==NULL) {
       id.tagcount=1;
@@ -323,7 +401,7 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
     }
     return &id;
   }
-  else if(cf->msg_in_etag_only && (if_none_match = nchan_subscriber_get_etag(r)) != NULL) {
+  else if((cf->msg_in_etag_only || r->headers_in.if_modified_since == NULL) && if_none_match) {
     rc = nchan_parse_compound_msgid(&id, if_none_match, ctx->channel_id_count);
     if(rc == NGX_OK) {
       return &id;
@@ -357,12 +435,81 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   }
   
   //eh, we didn't find a valid alt_msgid value from variables. use the defaults
-  id.time = cf->subscriber_start_at_oldest_message ? 0 : -1;
-  id.tagcount=1;
-  id.tagactive=0;
-  id.tag.fixed[0] = 0;
+  switch(cf->subscriber_first_message) {
+    case 1:
+      id = oldest_msg_id;
+      break;
+    case 0: 
+      id = newest_msg_id;
+      break;
+    default:
+      id = nth_msg_id;
+      id.tag.fixed[0] = cf->subscriber_first_message;
+      break;
+  }
   return &id;
 }
 
 
+int8_t nchan_compare_msgid_tags(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  uint8_t active = id2->tagactive;
+  int16_t *tags1, *tags2;
+  int16_t t1, t2;
+  
+  tags1 = (id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id1->tag.fixed : id1->tag.allocd;
+  tags2 = (id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX) ? id2->tag.fixed : id2->tag.allocd;
+  
+  //debugstuff that prevents this function from getting inlined
+  assert(id1->time == id2->time);
+  int i, nonnegs = 0;
+  for (i=0; i < id2->tagcount; i++) {
+    if(tags2[i] >= 0) nonnegs++;
+  }
+  assert(nonnegs == 1);
+  
+  if(id1->time == 0 && id2->time == 0) return 0; //always equal on zero-time
+  
+  t1 = (active < id1->tagcount) ? tags1[active] : -1;
+  t2 = tags2[active];
+  
+  //ERR("Comparing msgids: id1: %V --", msgid_to_str(id1));
+  //ERR("  --- id2: %V --", msgid_to_str(id2));
+  
+  if(t1 < t2){ 
+    //ERR("id1 is smaller. -1");
+    return -1;
+  }
+  if(t1 > t2){
+    //ERR("id1 is larger. 1");
+    return  1;
+  }
+  //ERR("id1 equals id2. 0");
+  return 0;
+}
 
+int8_t nchan_compare_msgids(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
+  assert(id1->tagcount == id2->tagcount);
+  if(id1->time < id2->time) {
+    return -1;
+  }
+  else if(id1->time > id2->time) {
+    return 1;
+  }
+  else {
+    assert(id1->tagcount == id2->tagcount);
+    if(id1->tagcount == 1) {
+      if(id1->tag.fixed[0] < id2->tag.fixed[0]) {
+        return -1;
+      }
+      else if(id1->tag.fixed[0] > id2->tag.fixed[0]) {
+        return 1;
+      }
+      else {
+        return 0;
+      }
+    }
+    else {
+      return nchan_compare_msgid_tags(id1, id2);
+    }
+  }
+}

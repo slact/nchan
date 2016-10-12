@@ -25,6 +25,7 @@ const ngx_str_t NCHAN_HEADER_UPGRADE = ngx_string("Upgrade");
 const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_KEY = ngx_string("Sec-WebSocket-Key");
 const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT = ngx_string("Sec-WebSocket-Accept");
 const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_VERSION = ngx_string("Sec-WebSocket-Version");
+const ngx_str_t NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL = ngx_string("Sec-WebSocket-Protocol");
 
 //and some wobsockety values
 const ngx_str_t NCHAN_UPGRADE = ngx_string("Upgrade");
@@ -36,6 +37,7 @@ const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE = ngx_string("no-cache");
 
 //status strings
 const  ngx_str_t NCHAN_HTTP_STATUS_101 = ngx_string("101 Switching Protocols");
+const  ngx_str_t NCHAN_HTTP_STATUS_204 = ngx_string("204 No Content");
 const  ngx_str_t NCHAN_HTTP_STATUS_304 = ngx_string("304 Not Modified");
 const  ngx_str_t NCHAN_HTTP_STATUS_408 = ngx_string("408 Request Timeout");
 const  ngx_str_t NCHAN_HTTP_STATUS_409 = ngx_string("409 Conflict");
@@ -54,7 +56,6 @@ const  ngx_str_t NCHAN_MSG_RESPONSE_ALLOWED_HEADERS = ngx_string("Last-Modified,
 const  char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF = "Last-Modified, %V, Content-Type";
 
 const ngx_str_t  NCHAN_CONTENT_TYPE_TEXT_PLAIN = ngx_string("text/plain");
-
 
 const ngx_str_t NCHAN_CHANNEL_INFO_PLAIN = ngx_string(
   "queued messages: %ui" CRLF

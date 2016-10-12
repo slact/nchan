@@ -1,10 +1,12 @@
 #!/bin/zsh
-_nginx_ver_latest=1.9.13
-_nginx_ver_stable=1.8.1
-_nginx_ver_nopool=1.9.7
-_nginx_ver_legacy=1.6.3
-_nginx_ver_old=1.0.15
+_nginx_ver_latest=1.11.4
+_nginx_ver_stable=1.10.1
+_nginx_ver_nopool=1.11.2
+_nginx_ver_legacy=1.8.1
+_nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
+
+_ngx_echo_module_ver=0.60
 
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
@@ -12,13 +14,14 @@ if [[ -z $NO_DEBUG ]]; then
   CFLAGS=" -ggdb -fvar-tracking-assignments -O$OPTIMIZE_LEVEL"
 fi
 
-CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs"
+CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs -Wsign-compare"
 
 _include_http2=0
 
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nginx_ver_nopool
   _include_http2=1
+  _include_stream=1
 elif [[ $NGINX_LEGACYVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_legacy
 elif [[ $NGINX_OLDVERSION == 1 ]]; then
@@ -27,9 +30,12 @@ elif [[ $NGINX_VERYOLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_very_old
 elif [[ $NGINX_STABLEVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_stable
+  _include_spdy=1
+  _include_stream=1
 else
   _nginx_ver=$_nginx_ver_latest
   _include_http2=1
+  _include_stream=1
 fi
 
 _pkgname="nginx"
@@ -82,6 +88,7 @@ _group=http
 _nginx_source="http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
 _no_pool_patch_source="https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
 _ngx_debug_pool_url="https://github.com/chobits/ngx_debug_pool.git"
+_ngx_echo_module="https://github.com/openresty/echo-nginx-module/archive/v${_ngx_echo_module_ver}.tar.gz"
 
 source=("$_nginx_source"
   "nginx.conf"
@@ -89,6 +96,7 @@ source=("$_nginx_source"
   "nginx.service"
   "git+${_ngx_debug_pool_url}"
   "$_no_pool_patch_source"
+  "$_ngx_echo_module"
   "bl.txt")
 
 md5sums=('SKIP'
@@ -97,7 +105,8 @@ md5sums=('SKIP'
          '62d494d23aef31d0b867161f9fffa6eb'
          'SKIP'
          'SKIP'
-         'SKIP')
+         'SKIP'
+	 'SKIP')
 
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
@@ -158,9 +167,21 @@ build() {
   if [[ $_include_http2 == 1 ]]; then
     CONFIGURE+=( "--with-http_v2_module" )
   fi
+  
+  if [[ $_include_stream == 1 ]]; then
+    CONFIGURE+=( "--with-stream" )
+  fi
+  
+  if [[ $_include_spdy == 1 ]]; then
+    CONFIGURE+=( "--with-http_spdy_module" )
+  fi
     
   if [[ $NGX_DEBUG_POOL == 1 ]]; then
     CONFIGURE+=( "--add-module=../ngx_debug_pool" )
+  fi
+
+  if [[ $NGX_ECHO_MODULE == 1 ]]; then
+    CONFIGURE+=( "--add-module=../echo-nginx-module-${_ngx_echo_module_ver}")
   fi
   
   if [[ -z $NGINX_VERYOLDVERSION ]]; then

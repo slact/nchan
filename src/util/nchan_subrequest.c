@@ -165,3 +165,86 @@ ngx_int_t nchan_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method, ngx
 
   return NGX_OK;
 }
+#if (NGX_HTTP_V2) || (NGX_HTTP_SPDY)
+static void nchan_recover_upstream_hacky_request_method(ngx_http_request_t *r) {
+  ngx_uint_t           i;
+  ngx_buf_t            request_buf;
+  u_char              *str;
+  ngx_int_t            len;
+  
+  static const struct {
+    int8_t            len;
+    const u_char      method[11];
+    uint32_t          code;
+  } tests[] = {
+    { 3, "GET ",       NGX_HTTP_GET },
+    { 4, "POST ",      NGX_HTTP_POST },
+    { 4, "HEAD ",      NGX_HTTP_HEAD },
+    { 7, "OPTIONS ",   NGX_HTTP_OPTIONS },
+    { 8, "PROPFIND ",  NGX_HTTP_PROPFIND },
+    { 3, "PUT ",       NGX_HTTP_PUT },
+    { 5, "MKCOL ",     NGX_HTTP_MKCOL },
+    { 6, "DELETE ",    NGX_HTTP_DELETE },
+    { 4, "COPY ",      NGX_HTTP_COPY },
+    { 4, "MOVE ",      NGX_HTTP_MOVE },
+    { 9, "PROPPATCH ", NGX_HTTP_PROPPATCH },
+    { 4, "LOCK ",      NGX_HTTP_LOCK },
+    { 6, "UNLOCK ",    NGX_HTTP_UNLOCK },
+    { 5, "PATCH ",     NGX_HTTP_PATCH },
+    { 5, "TRACE ",     NGX_HTTP_TRACE }
+  };
+  
+  request_buf = *r->upstream->request_bufs->buf;
+  str= request_buf.start;
+  len = request_buf.end - request_buf.start;
+  
+  for(i=0; i < sizeof(tests) / sizeof(tests[0]); i++) {
+    if(len >= tests[i].len + 1 && ngx_strncmp(str, tests[i].method, tests[i].len + 1) == 0) {
+      r->method = tests[i].code;
+      r->method_name.len = tests[i].len;
+      r->method_name.data = (u_char *)tests[i].method;
+      break;
+    }
+  }
+}
+#endif
+
+
+static void nchan_recover_http_request_method(ngx_http_request_t *r) {
+  ngx_http_request_t       rdummy;
+  ngx_buf_t                header_in_buf = *r->header_in;
+  ngx_int_t                rc;
+  
+  header_in_buf.pos = header_in_buf.start;
+  ngx_memzero(&rdummy, sizeof(rdummy));
+  rdummy.request_line = r->request_line;
+  
+  rc = ngx_http_parse_request_line(&rdummy, &header_in_buf);
+
+  if (rc == NGX_OK) {
+    r->method_name.len = rdummy.method_end - rdummy.request_start + 1;
+    r->method_name.data = rdummy.request_line.data;
+    r->method = rdummy.method;
+  }
+}
+
+ngx_int_t nchan_recover_x_accel_redirected_request_method(ngx_http_request_t *r) {
+#if (NGX_HTTP_V2)
+  if(r->stream) {
+    nchan_recover_upstream_hacky_request_method(r);
+  }
+  else {
+    nchan_recover_http_request_method(r);
+  }
+#elif (NGX_HTTP_SPDY)
+  if(r->spdy_stream) {
+    nchan_recover_upstream_hacky_request_method(r);
+  }
+  else {
+    nchan_recover_http_request_method(r);
+  }
+#else
+  nchan_recover_http_request_method(r);
+#endif
+  return NGX_OK;
+}

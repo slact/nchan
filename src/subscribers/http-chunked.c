@@ -42,7 +42,7 @@ static void chunked_ensure_headers_sent(full_subscriber_t *fsub) {
 
 static ngx_int_t chunked_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
-  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, nchan_http_module);
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
   chunksizebuf_t         *chunksizebuf = nchan_reuse_queue_push(ctx->output_str_queue);
   u_char                 *chunk_start = &chunksizebuf->chr[0];
   static u_char          *chunk_end=(u_char *)"\r\n";
@@ -137,8 +137,7 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   }
   
   if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code < 600) {
-    nchan_respond_status(sub->request, status_code, status_line, 1);
-    return NGX_OK;
+    return subscriber_respond_unqueued_status(fsub, status_code, status_line);
   }
   
   chunked_ensure_headers_sent(fsub);
@@ -173,7 +172,7 @@ static       ngx_str_t   sub_name = ngx_string("http-chunked");
 subscriber_t *http_chunked_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
   subscriber_t         *sub = longpoll_subscriber_create(r, msg_id);
   full_subscriber_t    *fsub = (full_subscriber_t *)sub;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, nchan_http_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   if(chunked_fn == NULL) {
     chunked_fn = &chunked_fn_data;
     *chunked_fn = *sub->fn;

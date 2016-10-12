@@ -17,7 +17,7 @@ void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_cha
         *format = subtypes[i].format;
         *priority = start;
         content_type->data=cur;
-        content_type->len= off + 1 + subtypes[i].len;
+        content_type->len= off + subtypes[i].len;
       }
     }
   }
@@ -79,7 +79,7 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
   
   if(len > 512) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN: Channel info string too long: max: 512, is: %i", len);
+    nchan_log_error("NCHAN: Channel info string too long: max: 512, is: %i", len);
   }
   
   b->last = ngx_snprintf(b->start, 512, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
