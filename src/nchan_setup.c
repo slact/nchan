@@ -728,7 +728,11 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   }
   value = cf->args->elts;
   ngx_memzero(usrv, sizeof(*usrv));
+#if nginx_version >= 1007002
   usrv->name = value[1];
+#endif
+  usrv->addrs = ngx_pcalloc(cf->pool, sizeof(ngx_addr_t));
+  usrv->addrs->name = value[1];
   
   uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
   return NGX_CONF_OK;
