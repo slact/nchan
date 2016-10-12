@@ -1,7 +1,9 @@
 #include <nchan_module.h>
 #include <subscribers/common.h>
 #include <util/nchan_subrequest.h>
+#if nginx_version >= 1000003
 #include <ngx_crypt.h>
+#endif
 #include <ngx_sha1.h>
 #include <nginx.h>
 
