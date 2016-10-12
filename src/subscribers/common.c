@@ -440,6 +440,18 @@ void nchan_subscriber_unsubscribe_callback_http_test_reading(ngx_http_request_t 
   }
 
 #endif
+#if (NGX_HTTP_SPDY)
+
+    if (r->spdy_stream) {
+        if (c->error) {
+            err = 0;
+            goto closed;
+        }
+
+        return;
+    }
+
+#endif
 
 #if (NGX_HAVE_KQUEUE)
 
@@ -459,13 +471,17 @@ void nchan_subscriber_unsubscribe_callback_http_test_reading(ngx_http_request_t 
 #endif
 
 #if (NGX_HAVE_EPOLLRDHUP)
-
+#if nginx_version >= 1011000
   if ((ngx_event_flags & NGX_USE_EPOLL_EVENT) && ngx_use_epoll_rdhup) {
     socklen_t  len;
 
     if (!rev->pending_eof) {
         return;
     }
+#else
+  if ((ngx_event_flags & NGX_USE_EPOLL_EVENT) && rev->pending_eof) {
+    socklen_t  len;
+#endif
 
     rev->eof = 1;
     c->error = 1;
