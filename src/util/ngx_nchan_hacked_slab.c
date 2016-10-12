@@ -661,12 +661,12 @@ nchan_slab_alloc_pages(ngx_slab_pool_t *pool, ngx_uint_t pages)
             return page;
         }
     }
-
+#if nginx_version >= 1005003
     if (pool->log_nomem) {
         ngx_slab_error(pool, NGX_LOG_CRIT,
                        "ngx_slab_alloc() failed: no memory");
     }
-
+#endif
     return NULL;
 }
 
