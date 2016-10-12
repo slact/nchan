@@ -588,7 +588,12 @@ static void *framebuf_alloc(void *pd) {
 
 static void closing_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+  if(fsub->closing_delayed_until_unsub_callback) {
+    fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
+  }
+  else {
+    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+  }
 }
 
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
