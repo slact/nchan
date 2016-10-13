@@ -265,7 +265,7 @@ NchanSubscriber.prototype.initializeTransport = function(possibleTransports) {
     }
     else {
       for(i in this.SubscriberClass) {
-        if (this.SubscriberClass.hasOwnProperty(key) && tryInitializeTransport(i)) {
+        if (this.SubscriberClass.hasOwnProperty(i) && i[0] != "_" && tryInitializeTransport(i)) {
           break;
         }
       }
