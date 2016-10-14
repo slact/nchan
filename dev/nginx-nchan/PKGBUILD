@@ -18,23 +18,54 @@ CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wn
 
 _include_http2=0
 
+_semver_lt() {
+  _ver1=(${1//./ })
+  _ver2=(${2//./ })
+  
+  if (( ${_ver1[0]} < ${_ver2[0]} )); then
+    return 0
+  elif (( ${_ver1[0]} == ${_ver2[0]} && ${_ver1[1]} < ${_ver2[1]} )); then
+    return 0
+  elif (( ${_ver1[0]} == ${_ver2[0]} && ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} < ${_ver2[2]} )); then
+    return 0
+  else
+    return 1
+  fi
+}
+
+_semver_gteq() {
+  if (_semver_lt "$1" "$2"); then
+    return 1
+  else
+    return 0
+  fi
+}
+
 if [[ $NO_POOL == 1 ]]; then
   _nginx_ver=$_nginx_ver_nopool
-  _include_http2=1
 elif [[ $NGINX_LEGACYVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_legacy
-  _include_spdy=1
 elif [[ $NGINX_OLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_old
 elif [[ $NGINX_VERYOLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_very_old
 elif [[ $NGINX_STABLEVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_stable
-  _include_http2=1
 elif [[ $NGINX_CUSTOM_VERSION ]]; then
   _nginx_ver=$NGINX_CUSTOM_VERSION
 else
   _nginx_ver=$_nginx_ver_latest
+fi
+
+if [[ $_nginx_ver ]]; then
+  if (_semver_gteq $_nginx_ver 1.9.5); then
+    _include_http2=1
+  elif (_semver_gteq $_nginx_ver 1.3.15); then
+    _include_spdy=1
+  fi
+  _nginx_git_source_fragment="#tag=release-${_nginx_ver}"
+else
+  #using master
   _include_http2=1
 fi
 
@@ -86,11 +117,14 @@ _user=http
 _group=http
 
 _nginx_source="http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
+
+_nginx_git_source="git+https://github.com/nginx/nginx.git${_nginx_git_source_fragment}"
+
 _no_pool_patch_source="https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
 _ngx_debug_pool_url="https://github.com/chobits/ngx_debug_pool.git"
 _ngx_echo_module="https://github.com/openresty/echo-nginx-module/archive/v${_ngx_echo_module_ver}.tar.gz"
 
-source=("$_nginx_source"
+source=("$_nginx_git_source"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
@@ -110,7 +144,7 @@ md5sums=('SKIP'
 
 build() {
   local _src_dir="${srcdir}/nginx-$_nginx_ver"
-  ln -sfT "$_src_dir" "$srcdir/nginx"
+  #ln -sfT "$_src_dir" "$srcdir/nginx"
   ln -sfT "$_nchan_dir" "$srcdir/nchan"
   local _build_dir="${_src_dir}/objs"
   cd "$srcdir/nginx"
@@ -208,6 +242,11 @@ build() {
     if [[ ! -z $EXPLICIT_CFLAGS ]]; then
       CONFIGURE+=( "--with-cc-opt=${CFLAGS}" )
     fi
+    
+    if [[ ! -f ./configure ]]; then
+      ln -s auto/configure ./
+    fi
+    
     echo "./configure ${CONFIGURE[@]}"
     ./configure ${CONFIGURE[@]}
     make
@@ -216,7 +255,7 @@ build() {
 
 package() {
   echo "make install >/dev/null"
-  cd "${srcdir}/nginx-${_nginx_ver}"
+  cd "${srcdir}/nginx"
   make DESTDIR="$pkgdir/" install >/dev/null
   
   sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/$_conf_path/conf/nginx.conf
@@ -230,8 +269,8 @@ package() {
   #install -D -m644 "${srcdir}/nginx.logrotate" "${pkgdir}/etc/logrotate.d/${_pkgname}" #no default logrotate.
   install -D -m644 "${srcdir}/nginx.conf" "${pkgdir}/etc/conf.d/nginx"
   install -D -m644 "${srcdir}/nginx.service" "${pkgdir}/lib/systemd/system/nginx.service"
-  install -D -m644 "LICENSE" "${pkgdir}/usr/share/licenses/nginx/LICENSE"
-  if [[ -z $NGINX_VERYOLDVERSION ]]; then
-    install -D -m644 "man/nginx.8" "${pkgdir}/usr/share/man/man8/nginx.8"
-  fi
+  #install -D -m644 "LICENSE" "${pkgdir}/usr/share/licenses/nginx/LICENSE"
+  #if [[ -z $NGINX_VERYOLDVERSION ]]; then
+  #  install -D -m644 "man/nginx.8" "${pkgdir}/usr/share/man/man8/nginx.8"
+  #fi
 }
