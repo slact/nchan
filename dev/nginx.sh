@@ -47,6 +47,9 @@ _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  se
 
 NGINX_CONF_FILE="nginx.conf"
 
+NGINX_VER=$($DEVDIR/nginx -v 2>&1)
+NGINX_VER=${NGINX_VER:21}
+
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
     WORKERS=$opt
@@ -132,6 +135,29 @@ conf_replace(){
     sed "s|^\(\s*\)\($1\)\(\s\+\).*|\1\2\3$2;|g" $NGINX_TEMP_CONFIG -i
 }
 
+_semver_lt() {
+  _ver1=(${(s/./)1:t})
+  _ver2=(${(s/./)2:t})
+  
+  if (( ${_ver1[1]} < ${_ver2[1]} )); then
+    return 0
+  elif (( ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} < ${_ver2[2]} )); then
+    return 0
+  elif (( ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} == ${_ver2[2]} && ${_ver1[3]} < ${_ver2[3]} )); then
+    return 0
+  else
+    return 1
+  fi
+}
+
+_semver_gteq() {
+  if (_semver_lt "$1" "$2"); then
+    return 1
+  else
+    return 0
+  fi
+}
+
 ulimit -c unlimited
 
 if [[ ! -z $NGINX_CONF ]]; then
@@ -159,6 +185,14 @@ if [[ ! -z $CACHE ]]; then
   tmpdir=`pwd`"/.tmp"
   mkdir $tmpdir 2>/dev/null
   sed "s|_CACHEDIR_|\"$tmpdir\"|g" $NGINX_TEMP_CONFIG -i
+fi
+
+if (_semver_gteq $NGINX_VER 1.9.5); then
+  #do nothing, http2 is on by default
+elif (_semver_gteq $NGINX_VER 1.3.15); then
+  sed "s|^\(\s*listen\s\+8085\s\+\).*|\1 spdy;|g" $NGINX_TEMP_CONFIG -i
+else
+  sed "s|^\(\s*listen\s\+8085\s\+\).*|\1;|g" $NGINX_TEMP_CONFIG -i
 fi
 
 if [[ -f "$_dynamic_module" ]]; then
