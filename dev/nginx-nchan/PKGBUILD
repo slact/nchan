@@ -1,11 +1,10 @@
 #!/bin/zsh
-_nginx_ver_latest=1.11.4
+_nginx_ver_latest=1.11.5
 _nginx_ver_stable=1.10.1
 _nginx_ver_nopool=1.11.2
 _nginx_ver_legacy=1.8.1
 _nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
-
 _ngx_echo_module_ver=0.60
 
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
