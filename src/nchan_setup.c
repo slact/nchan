@@ -605,6 +605,15 @@ static char *nchan_set_message_buffer_length(ngx_conf_t *cf, ngx_command_t *cmd,
   return NGX_CONF_OK;
 }
 
+static char *ngx_http_set_unsubscribe_request_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+#if nginx_version >= 1003015
+  return ngx_http_set_complex_value_slot(cf, cmd, conf);
+#else
+  ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "%V not available on nginx version: %s, must be at least 1.3.15", &cmd->name, NGINX_VERSION);
+  return NGX_CONF_ERROR;
+#endif
+}
+
 static char *nchan_set_message_timeout(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t    *lcf = conf;
   ngx_str_t *val = cf->args->elts;
@@ -723,13 +732,19 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   
   uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
   
-  
+  if(uscf->servers == NULL) {
+        uscf->servers = ngx_array_create(cf->pool, 4, sizeof(ngx_http_upstream_server_t));
+  }
   if ((usrv = ngx_array_push(uscf->servers)) == NULL) {
     return NGX_CONF_ERROR;
   }
   value = cf->args->elts;
   ngx_memzero(usrv, sizeof(*usrv));
+#if nginx_version >= 1007002
   usrv->name = value[1];
+#endif
+  usrv->addrs = ngx_pcalloc(cf->pool, sizeof(ngx_addr_t));
+  usrv->addrs->name = value[1];
   
   uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
   return NGX_CONF_OK;

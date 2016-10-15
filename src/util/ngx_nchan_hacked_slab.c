@@ -661,12 +661,12 @@ nchan_slab_alloc_pages(ngx_slab_pool_t *pool, ngx_uint_t pages)
             return page;
         }
     }
-
+#if nginx_version >= 1005003
     if (pool->log_nomem) {
         ngx_slab_error(pool, NGX_LOG_CRIT,
                        "ngx_slab_alloc() failed: no memory");
     }
-
+#endif
     return NULL;
 }
 
@@ -675,9 +675,12 @@ static void
 nchan_slab_free_pages(ngx_slab_pool_t *pool, ngx_slab_page_t *page,
     ngx_uint_t pages)
 {
+#if nginx_version >= 1007002
     ngx_uint_t        type;
     ngx_slab_page_t  *prev, *join;
-
+#else
+    ngx_slab_page_t  *prev;
+#endif
     nchan_track_slab_reserved_pages(pool, -pages);
     
     page->slab = pages--;
@@ -691,6 +694,7 @@ nchan_slab_free_pages(ngx_slab_pool_t *pool, ngx_slab_page_t *page,
         prev->next = page->next;
         page->next->prev = page->prev;
     }
+#if nginx_version >= 1007002
 
     join = page + page->slab;
 
@@ -744,6 +748,7 @@ nchan_slab_free_pages(ngx_slab_pool_t *pool, ngx_slab_page_t *page,
     if (pages) {
         page[pages].prev = (uintptr_t) page;
     }
+#endif
 
     page->prev = (uintptr_t) &pool->free;
     page->next = pool->free.next;

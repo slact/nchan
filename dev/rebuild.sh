@@ -66,6 +66,8 @@ for opt in $*; do
       export NGINX_OLDVERSION=1;;
     veryoldversion|veryold)
       export NGINX_VERYOLDVERSION=1;;
+    version=*)
+      export NGINX_CUSTOM_VERSION="${opt:8}";;
     slabpatch|slab)
       export NGX_SLAB_PATCH=1;;
     withdebug)

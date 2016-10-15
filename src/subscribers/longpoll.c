@@ -154,10 +154,13 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
     //add timeout timer
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
+
   
+#if nginx_version >= 1003015
   if(self->cf->unsubscribe_request_url) {
     self->request->read_event_handler = nchan_subscriber_unsubscribe_callback_http_test_reading;
   }
+#endif
   
   return NGX_OK;
 }

@@ -205,7 +205,7 @@ CfCmd.new do
       info: "Send GET request to internal location (which may proxy to an upstream server) after subscribing."
   
   nchan_unsubscribe_request [:srv, :loc, :if], 
-      :ngx_http_set_complex_value_slot,
+      :ngx_http_set_unsubscribe_request_url,
       [:loc_conf, :unsubscribe_request_url],
       
       group: "pubsub",
