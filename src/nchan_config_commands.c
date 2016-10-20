@@ -171,7 +171,7 @@ static ngx_command_t  nchan_commands[] = {
 
   { ngx_string("nchan_unsubscribe_request"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
-    ngx_http_set_complex_value_slot,
+    ngx_http_set_unsubscribe_request_url,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, unsubscribe_request_url),
     NULL } ,

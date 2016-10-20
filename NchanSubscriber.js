@@ -265,7 +265,7 @@ NchanSubscriber.prototype.initializeTransport = function(possibleTransports) {
     }
     else {
       for(i in this.SubscriberClass) {
-        if (this.SubscriberClass.hasOwnProperty(key) && tryInitializeTransport(i)) {
+        if (this.SubscriberClass.hasOwnProperty(i) && i[0] != "_" && tryInitializeTransport(i)) {
           break;
         }
       }
@@ -516,6 +516,142 @@ function addLastMsgIdToQueryString(url, msgid) {
 }
 
 NchanSubscriber.prototype.SubscriberClass = {
+  'websocket': (function() {
+    function WSWrapper(emit) {
+      WebSocket;
+      this.emit = emit;
+    }
+    
+    WSWrapper.prototype.websocketizeURL = function(url) {
+      var m = url.match(/^((\w+:)?\/\/([^\/]+))?(\/)?(.*)/);
+      var protocol = m[2];
+      var host = m[3];
+      var absolute = m[4];
+      var path = m[5];
+      
+      var loc;
+      if(typeof window == "object") {
+        loc = window.location;
+      }
+      
+      if(!protocol && loc) {
+        protocol = loc.protocol;
+      }
+      if(protocol == "https:") {
+        protocol = "wss:";
+      }
+      else if(protocol == "http:") {
+        protocol = "ws:";
+      }
+      else {
+        protocol = "wss:"; //default setting: secure
+      }
+      
+      if(!host && loc) {
+        host = loc.host;
+      }
+      
+      if(!absolute) {
+        path = loc ? loc.pathname.match(/(.*\/)[^/]*/)[1] + path : "/" + path;
+      }
+      else {
+        path = "/" + path;
+      }
+      
+      return protocol + "//" + host + path;
+    };
+    
+    WSWrapper.prototype.listen = function(url, msgid) {
+      url = this.websocketizeURL(url);
+      url = addLastMsgIdToQueryString(url, msgid);
+      //console.log(url);
+      if(this.listener) {
+        throw "websocket already listening";
+      }
+      this.listener = new WebSocket(url, 'ws+meta.nchan');
+      var l = this.listener;
+      l.onmessage = ughbind(function(evt) {
+        var m = evt.data.match(/^id: (.*)\n(content-type: (.*)\n)?\n/m);
+        this.emit('message', evt.data.substr(m[0].length), {'id': m[1], 'content-type': m[3]});
+      }, this);
+      
+      l.onopen = ughbind(function(evt) {
+        this.emit('connect', evt);
+        //console.log("connect", evt);
+      }, this);
+      
+      l.onerror = ughbind(function(evt) {
+        //console.log("error", evt);
+        this.emit('error', evt, l);
+        delete this.listener;
+      }, this);
+      
+      l.onclose = ughbind(function(evt) {
+        this.emit('__disconnect', evt);
+        delete this.listener;
+      }, this);
+    };
+    
+    WSWrapper.prototype.cancel = function() {
+      if(this.listener) {
+        this.listener.close();
+        delete this.listener;
+      }
+    };
+    
+    return WSWrapper;
+  })(),
+ 
+  'eventsource': (function() {
+    function ESWrapper(emit) {
+      EventSource;
+      this.emit = emit;
+    }
+    
+    ESWrapper.prototype.listen= function(url, msgid) {
+      url = addLastMsgIdToQueryString(url, msgid);
+      if(this.listener) {
+        throw "there's a ES listener running already";
+      }
+      this.listener = new EventSource(url);
+      var l = this.listener;
+      l.onmessage = ughbind(function(evt){
+        //console.log("message", evt);
+        this.emit('message', evt.data, {id: evt.lastEventId});
+      }, this);
+      
+      l.onopen = ughbind(function(evt) {
+        this.reconnecting = false;
+        //console.log("connect", evt);
+        this.emit('connect', evt);
+      }, this);
+      
+      l.onerror = ughbind(function(evt) {
+        //EventSource will try to reconnect by itself
+        //console.log("onerror", this.listener.readyState, evt);
+        if(this.listener.readyState == EventSource.CONNECTING && !this.reconnecting) {
+          if(!this.reconnecting) {
+            this.reconnecting = true;
+            this.emit('__disconnect', evt);
+          }
+        }
+        else {
+          this.emit('__disconnect', evt);
+          //console.log('other __disconnect', evt);
+        }
+      }, this);
+    };
+    
+    ESWrapper.prototype.cancel= function() {
+      if(this.listener) {
+        this.listener.close();
+        delete this.listener;
+      }
+    };
+    
+    return ESWrapper;
+  })(),
+  
   'longpoll': (function () {
     function Longpoll(emit) {
       this.headers = {};
@@ -634,142 +770,6 @@ NchanSubscriber.prototype.SubscriberClass = {
     };
     
     return Longpoll;
-  })(),
-  
-  'eventsource': (function() {
-    function ESWrapper(emit) {
-      EventSource;
-      this.emit = emit;
-    }
-    
-    ESWrapper.prototype.listen= function(url, msgid) {
-      url = addLastMsgIdToQueryString(url, msgid);
-      if(this.listener) {
-        throw "there's a ES listener running already";
-      }
-      this.listener = new EventSource(url);
-      var l = this.listener;
-      l.onmessage = ughbind(function(evt){
-        //console.log("message", evt);
-        this.emit('message', evt.data, {id: evt.lastEventId});
-      }, this);
-      
-      l.onopen = ughbind(function(evt) {
-        this.reconnecting = false;
-        //console.log("connect", evt);
-        this.emit('connect', evt);
-      }, this);
-      
-      l.onerror = ughbind(function(evt) {
-        //EventSource will try to reconnect by itself
-        //console.log("onerror", this.listener.readyState, evt);
-        if(this.listener.readyState == EventSource.CONNECTING && !this.reconnecting) {
-          if(!this.reconnecting) {
-            this.reconnecting = true;
-            this.emit('__disconnect', evt);
-          }
-        }
-        else {
-          this.emit('__disconnect', evt);
-          //console.log('other __disconnect', evt);
-        }
-      }, this);
-    };
-    
-    ESWrapper.prototype.cancel= function() {
-      if(this.listener) {
-        this.listener.close();
-        delete this.listener;
-      }
-    };
-    
-    return ESWrapper;
-  })(),
-  
-  'websocket': (function() {
-    function WSWrapper(emit) {
-      WebSocket;
-      this.emit = emit;
-    }
-    
-    WSWrapper.prototype.websocketizeURL = function(url) {
-      var m = url.match(/^((\w+:)?\/\/([^\/]+))?(\/)?(.*)/);
-      var protocol = m[2];
-      var host = m[3];
-      var absolute = m[4];
-      var path = m[5];
-      
-      var loc;
-      if(typeof window == "object") {
-        loc = window.location;
-      }
-      
-      if(!protocol && loc) {
-        protocol = loc.protocol;
-      }
-      if(protocol == "https:") {
-        protocol = "wss:";
-      }
-      else if(protocol == "http:") {
-        protocol = "ws:";
-      }
-      else {
-        protocol = "wss:"; //default setting: secure
-      }
-      
-      if(!host && loc) {
-        host = loc.host;
-      }
-      
-      if(!absolute) {
-        path = loc ? loc.pathname.match(/(.*\/)[^/]*/)[1] + path : "/" + path;
-      }
-      else {
-        path = "/" + path;
-      }
-      
-      return protocol + "//" + host + path;
-    };
-    
-    WSWrapper.prototype.listen = function(url, msgid) {
-      url = this.websocketizeURL(url);
-      url = addLastMsgIdToQueryString(url, msgid);
-      //console.log(url);
-      if(this.listener) {
-        throw "websocket already listening";
-      }
-      this.listener = new WebSocket(url, 'ws+meta.nchan');
-      var l = this.listener;
-      l.onmessage = ughbind(function(evt) {
-        var m = evt.data.match(/^id: (.*)\n(content-type: (.*)\n)?\n/m);
-        this.emit('message', evt.data.substr(m[0].length), {'id': m[1], 'content-type': m[3]});
-      }, this);
-      
-      l.onopen = ughbind(function(evt) {
-        this.emit('connect', evt);
-        //console.log("connect", evt);
-      }, this);
-      
-      l.onerror = ughbind(function(evt) {
-        //console.log("error", evt);
-        this.emit('error', evt, l);
-        delete this.listener;
-      }, this);
-      
-      l.onclose = ughbind(function(evt) {
-        this.emit('__disconnect', evt);
-        delete this.listener;
-      }, this);
-    };
-    
-    WSWrapper.prototype.cancel = function() {
-      if(this.listener) {
-        this.listener.close();
-        delete this.listener;
-      }
-    };
-    
-    return WSWrapper;
   })(),
   
   '__slave': (function() {

@@ -1,0 +1,4 @@
+fun:*ngx_pstrdup*
+src:ngx_string.c
+src:ngx_http_gzip_filter_module.c
+fun:ngx_writev

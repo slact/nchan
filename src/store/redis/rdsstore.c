@@ -2355,7 +2355,11 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
       ngx_str_t                   *upstream_url;
       
       for(i=0; i < servers->nelts; i++) {
+#if nginx_version >= 1007002
         upstream_url = &usrv[i].name;
+#else
+        upstream_url = &usrv[i].addrs->name;
+#endif
         redis_add_connection_data(rcf, cur->loc_conf, upstream_url);
       }
     }
