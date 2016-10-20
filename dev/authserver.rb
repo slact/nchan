@@ -42,7 +42,7 @@ class AuthServer
       
       case env["REQUEST_PATH"] || env["PATH_INFO"]
       when "/accel_redirect"  
-        chid="foo"
+        chid=env["HTTP_X_CHANNEL_ID"]
         headers["X-Accel-Redirect"]="/sub/internal/#{chid}"
         headers["X-Accel-Buffering"] = "no"
       when "/auth"
