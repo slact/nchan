@@ -420,7 +420,7 @@ class Subscriber
         end
         
         if uri.scheme == "unix"
-          hs_url="http://#{uri.host.match "[^/]+$"}#{uri.path}#{uri.query ? "?#{uri.query}" :""}"
+          hs_url="http://#{uri.host.match "[^/]+$"}#{uri.path}#{uri.query && "?#{uri.query}"}"
         else
           hs_url=@url
         end        
@@ -536,7 +536,7 @@ class Subscriber
         extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
         host = uri.host.match "[^/]+$"
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path} HTTP/1.1
+          GET #{uri.path}#{uri.query && "?#{uri.query}"} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
@@ -544,7 +544,7 @@ class Subscriber
         END
         
         @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path} HTTP/1.1
+          GET #{uri.path}#{uri.query && "?#{uri.query}"} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
@@ -643,7 +643,7 @@ class Subscriber
         @head = {
           ':scheme' => uri.scheme,
           ':method' => GET_METHOD,
-          ':path' => uri.path,
+          ':path' => "#{uri.path}#{uri.query && "?#{uri.query}"}",
           ':authority' => [uri.host, uri.port].join(':'),
           'user-agent' => "#{user_agent || "HTTP2Bundle"}",
           'accept' => accept
