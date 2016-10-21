@@ -728,16 +728,26 @@ class PubSubTest <  Minitest::Test
     end
   end
   
+  def start_authserver(opt={}, &block)
+    auth = AuthServer.new opt, &block
+    auth.run
+    while true
+      resp = Typhoeus.get("http://127.0.0.1:8053/", followlocation: true)
+      break unless resp.return_code == :couldnt_connect
+      sleep 0.20
+    end
+    return auth
+  end
+  
   [:longpoll, :multipart, :chunked, :eventsource, :websocket].each do |client_type|
     
     define_method "test_subscribe_callbacks_#{client_type}" do
-      require_relative "authserver.rb"
       
       Celluloid.logger = nil
       
       cbs = CallbackStatus.new
       
-      auth = AuthServer.new quiet: true do |env|
+      auth = start_authserver quiet: true do |env|
         if env["PATH_INFO"] == "/sub"
           #print "subbed"
           cbs.subbed = true
@@ -748,10 +758,6 @@ class PubSubTest <  Minitest::Test
       end
       
       begin
-        auth.run
-        
-        sleep 0.5
-        
         chan = short_id
         
         #puts client_type
@@ -858,6 +864,27 @@ class PubSubTest <  Minitest::Test
       sub.run
       sub.wait
       verify pub, sub
+    end
+    
+    auth.stop
+  end
+  
+  def test_x_accel_redirect
+    
+    auth = start_authserver quiet: true
+    
+    subs = [ :longpoll, :chunked, :eventsource, :websocket, :multipart ]
+    
+    subs.each do |t|
+      chan = short_id
+      pub = Publisher.new url("pub/#{chan}")
+      sub = Subscriber.new(url("upstream_redirect?id=#{chan}"), 1, client: t)
+      sub.run
+      sleep 0.5
+      pub.post [ "wut", "waht", "FIN" ]
+      sub.wait
+      verify pub, sub
+      sub.terminate
     end
     
     auth.stop
