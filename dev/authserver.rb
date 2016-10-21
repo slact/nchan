@@ -12,7 +12,7 @@ class AuthServer
   
   def print_request(env)
     out = []
-    out << "  #{env["REQUEST_METHOD"]} #{env["PATH_INFO"]}"
+    out << "  #{env["REQUEST_METHOD"]} #{env["PATH_INFO"]}#{env['QUERY_STRING']!="" ? "?#{env['QUERY_STRING']}" : ""}"
     out << "  Host: #{env["HTTP_HOST"]}"
     env.each do |k,v|
       if k != "  HTTP_HOST" && k =~ /^HTTP_/
@@ -51,8 +51,6 @@ class AuthServer
         code = 403
       when "/sub"
         resp << "subbed"
-      when "/pub"
-        resp << "pubbed"
       when "/pub"
         resp << "WEE! + #{body}"
       end
