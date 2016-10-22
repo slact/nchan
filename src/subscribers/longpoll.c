@@ -175,7 +175,10 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   DBG("%p dequeue", self);
   fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
   
-  if(self->enqueued && self->cf->unsubscribe_request_url && ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
+  if(self->enqueued 
+   && (self->type != LONGPOLL && self->type != INTERVALPOLL) //disabled for longpoll & intervalpoll for now
+   && self->cf->unsubscribe_request_url 
+   && ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
     self->request->main->blocked = 1;
     if(fsub->data.finalize_request) {
       nchan_subscriber_unsubscribe_request(self, NGX_OK);

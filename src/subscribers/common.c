@@ -143,6 +143,12 @@ static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, 
 ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t finalize_code) {
   ngx_int_t                    ret;
   //ngx_http_upstream_conf_t    *ucf;
+  
+  if(sub->type == LONGPOLL || sub->type == INTERVALPOLL) {
+    //don't do this for longpoll subscribers. It's still buggy and not efficient anyway
+    return NGX_OK;
+  }
+  
   nchan_request_ctx_t         *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   ngx_http_request_t          *subrequest;
   ctx->unsubscribe_request_callback_finalize_code = finalize_code;
@@ -174,9 +180,10 @@ ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
 
 
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
-  ngx_int_t    ret;
+  ngx_int_t         ret;
+  subscriber_type_t sub_type = sub->type;
   ret = sub->cf->storage_engine->subscribe(ch_id, sub);
-  if(ret == NGX_OK && sub->cf->subscribe_request_url) {
+  if(ret == NGX_OK && sub_type != LONGPOLL && sub_type != INTERVALPOLL && sub->cf->subscribe_request_url) {
     nchan_subscriber_subscribe_request(sub);
   }
   return ret;
@@ -550,7 +557,7 @@ closed:
   //send the unsubscribe upstream request before finalize the main request.
   //otherwise, main request pool will have been wiped by the time we need it.
   nchan_ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-  if(!nchan_ctx->sent_unsubscribe_request) {
+  if(!nchan_ctx->sent_unsubscribe_request && nchan_ctx->sub) {
     nchan_subscriber_unsubscribe_request(nchan_ctx->sub, NGX_HTTP_CLIENT_CLOSED_REQUEST);
   }
 }
