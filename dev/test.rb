@@ -809,10 +809,10 @@ class PubSubTest <  Minitest::Test
         assert cbs.subbed, "sub callback, client: #{client_type}" unless client_type == :longpoll
         assert cbs.unsubbed, "unsub callback, client: #{client_type}"
         
-        auth.stop
       rescue SystemCallError => e
-        auth.stop if auth
         assert false, "Error: #{e}"
+      ensure
+        auth.stop
       end
     end
     
