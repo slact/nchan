@@ -1272,6 +1272,8 @@ static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opco
 
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
   nchan_buf_and_chain_t *bc;
+  ngx_file_t            *file_copy;
+  ngx_buf_t             *chained_msgbuf;
   size_t                 sz = ngx_buf_size((msg->buf));
   if(fsub->ws_meta_subprotocol) {
     static ngx_str_t          id_line = ngx_string("id: ");
@@ -1312,16 +1314,19 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     
     //now the message
     *cur->buf = *msg->buf;
+    chained_msgbuf = cur->buf;
     assert(cur->next == NULL);
   }
   else {
     bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
     //message first
+    chained_msgbuf = &bc->buf;
     bc->buf = *msg->buf;
   }
   
   if(msg->buf->file) {
-    nchan_msg_buf_open_fd_if_needed(&bc->buf, nchan_bufchain_pool_reserve_file(fsub->ctx->bcp), NULL);
+    file_copy = nchan_bufchain_pool_reserve_file(fsub->ctx->bcp);
+    nchan_msg_buf_open_fd_if_needed(chained_msgbuf, file_copy, NULL);
   }
   
   //now the header
