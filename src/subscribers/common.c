@@ -174,9 +174,13 @@ ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
 
 
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
-  ngx_int_t    ret;
+  ngx_int_t             ret;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+  nchan_loc_conf_t     *cf = sub->cf;
+  
   ret = sub->cf->storage_engine->subscribe(ch_id, sub);
-  if(ret == NGX_OK && sub->cf->subscribe_request_url) {
+  //don't access sub directly, it might have already been freed
+  if(ret == NGX_OK && cf->subscribe_request_url) {
     nchan_subscriber_subscribe_request(sub);
   }
   return ret;
