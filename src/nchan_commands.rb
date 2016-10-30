@@ -202,7 +202,7 @@ CfCmd.new do
       
       group: "pubsub",
       value: "<url>",
-      info: "Send GET request to internal location (which may proxy to an upstream server) after subscribing."
+      info: "Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers."
   
   nchan_unsubscribe_request [:srv, :loc, :if], 
       :ngx_http_set_unsubscribe_request_url,
@@ -210,7 +210,7 @@ CfCmd.new do
       
       group: "pubsub",
       value: "<url>",
-      info: "Send GET request to internal location (which may proxy to an upstream server) after unsubscribing."
+      info: "Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers."
   
   nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,

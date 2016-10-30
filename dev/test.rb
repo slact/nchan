@@ -775,8 +775,13 @@ class PubSubTest <  Minitest::Test
         sub.stop
         sleep 1
         
-        assert cbs.subbed, "sub callback, client: #{client_type}"
-        assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+        if client_type == :longpoll || client_type == :intervalpoll
+          assert !cbs.subbed, "sub callback, client: #{client_type}"
+          assert !cbs.unsubbed, "unsub callback, client: #{client_type}"
+        else
+          assert cbs.subbed, "sub callback, client: #{client_type}"
+          assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+        end
         
         
         sub.reset
@@ -788,8 +793,13 @@ class PubSubTest <  Minitest::Test
         sub.wait
         sleep 0.5
         sub.reset
-        assert cbs.subbed, "sub callback, client: #{client_type}"
-        assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+        if client_type == :longpoll || client_type == :intervalpoll
+          assert !cbs.subbed, "sub callback, client: #{client_type}"
+          assert !cbs.unsubbed, "unsub callback, client: #{client_type}"
+        else
+          assert cbs.subbed, "sub callback, client: #{client_type}"
+          assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+        end
         cbs.clear
         
         pub.messages.clear
@@ -806,13 +816,18 @@ class PubSubTest <  Minitest::Test
         verify pub, sub
         sleep 0.5
         
-        assert cbs.subbed, "sub callback, client: #{client_type}" unless client_type == :longpoll
-        assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+        if client_type == :longpoll || client_type == :intervalpoll
+          assert !cbs.subbed, "sub callback, client: #{client_type}"
+          assert !cbs.unsubbed, "unsub callback, client: #{client_type}"
+        else
+          assert cbs.subbed, "sub callback, client: #{client_type}"
+          assert cbs.unsubbed, "unsub callback, client: #{client_type}"
+        end
         
-        auth.stop
       rescue SystemCallError => e
-        auth.stop if auth
         assert false, "Error: #{e}"
+      ensure
+        auth.stop
       end
     end
     
@@ -844,29 +859,31 @@ class PubSubTest <  Minitest::Test
       sleep 0.20
     end
     
-    subs.each do |t|
-      sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
-      sub.on_failure { false }
-      sub.run
-      sub.wait
-      assert(sub.errors?)
-      assert /code 403/, sub.errors.first
-      sub.terminate
+    begin 
+      subs.each do |t|
+        sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
+        sub.on_failure { false }
+        sub.run
+        sub.wait
+        assert(sub.errors?)
+        assert /code 403/, sub.errors.first
+        sub.terminate
+      end
+      
+      pub = Publisher.new url("pub/#{chan}")
+      
+      pub.post [ "wut", "waht", "FIN" ]
+      
+      subs.each do |t|
+        sub = Subscriber.new(url("sub/auth/#{chan}"), 1, client: t, quit_message: 'FIN')
+        sub.on_failure { false }
+        sub.run
+        sub.wait
+        verify pub, sub
+      end
+    ensure
+      auth.stop
     end
-    
-    pub = Publisher.new url("pub/#{chan}")
-    
-    pub.post [ "wut", "waht", "FIN" ]
-    
-    subs.each do |t|
-      sub = Subscriber.new(url("sub/auth/#{chan}"), 1, client: t, quit_message: 'FIN')
-      sub.on_failure { false }
-      sub.run
-      sub.wait
-      verify pub, sub
-    end
-    
-    auth.stop
   end
   
   def test_x_accel_redirect

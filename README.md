@@ -10,7 +10,7 @@ For use in a web browser, you can use Websocket or EventSource directly, or try 
 
 ## Status and History
 
-The latest Nchan release is v1.0.3 (September 3, 2016) ([changelog](https://nchan.slact.net/changelog)).
+The latest Nchan release is v1.0.4 (October 28, 2016) ([changelog](https://nchan.slact.net/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, especially Redis Cluster may be a bit buggy.
 
@@ -474,12 +474,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_subscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after subscribing.    
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
 
 - **nchan_unsubscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing.    
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
