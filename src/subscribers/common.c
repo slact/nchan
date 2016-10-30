@@ -181,7 +181,7 @@ ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
 
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   ngx_int_t             ret;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+  //nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   subscriber_type_t     sub_type = sub->type;
   nchan_loc_conf_t     *cf = sub->cf;
   
