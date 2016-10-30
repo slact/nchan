@@ -2373,6 +2373,9 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
 
 static void nchan_store_create_main_conf(ngx_conf_t *cf, nchan_main_conf_t *mcf) {
   mcf->redis_publish_message_msgkey_size=NGX_CONF_UNSET_SIZE;
+  
+  //reset redis_conf_head for reloads
+  redis_conf_head = NULL;
 }
 
 void redis_store_prepare_to_exit_worker() {
