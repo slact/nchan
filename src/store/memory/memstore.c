@@ -1962,11 +1962,8 @@ static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, vo
     if(channel == NULL) {
       channel_status = cf->subscribe_only_existing_channel ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
     }
-    else if(cf->max_channel_subscribers == 0) {
-      channel_status = SUB_CHANNEL_AUTHORIZED;
-    }
     else {
-      channel_status = channel->subscribers >= cf->max_channel_subscribers ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+      channel_status = SUB_CHANNEL_AUTHORIZED;
     }
     nchan_store_subscribe_continued(channel_status, NULL, data);
   }
