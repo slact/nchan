@@ -1627,14 +1627,18 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
 }
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
+  ngx_core_conf_t *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  
   DBG("exit master from pid %i", ngx_pid);
   
   ipc_close(ipc, cycle);
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
  #endif
-  shm_free(shm, shdata);
-  shm_destroy(shm);
+  if (ccf->master != 0) {
+    shm_free(shm, shdata);
+    shm_destroy(shm);
+  }
 }
 
 static ngx_int_t validate_chanhead_messages(memstore_channel_head_t *ch) {
