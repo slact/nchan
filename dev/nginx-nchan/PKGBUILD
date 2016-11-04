@@ -50,7 +50,7 @@ elif [[ $NGINX_VERYOLDVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_very_old
 elif [[ $NGINX_STABLEVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_stable
-elif [[ $NGINX_CUSTOM_VERSION ]]; then
+elif [[ ! -z $NGINX_CUSTOM_VERSION ]]; then
   _nginx_ver=$NGINX_CUSTOM_VERSION
 else
   _nginx_ver=$_nginx_ver_latest
