@@ -21,11 +21,11 @@ _semver_lt() {
   _ver1=(${1//./ })
   _ver2=(${2//./ })
   
-  if (( ${_ver1[0]} < ${_ver2[0]} )); then
+  if (( "${_ver1[0]}" < "${_ver2[0]}" )); then
     return 0
-  elif (( ${_ver1[0]} == ${_ver2[0]} && ${_ver1[1]} < ${_ver2[1]} )); then
+  elif (( "${_ver1[0]}" == "${_ver2[0]}" && "${_ver1[1]}" < "${_ver2[1]}" )); then
     return 0
-  elif (( ${_ver1[0]} == ${_ver2[0]} && ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} < ${_ver2[2]} )); then
+  elif (( "${_ver1[0]}" == "${_ver2[0]}" && "${_ver1[1]}" == "${_ver2[1]}" && "${_ver1[2]}" < "${_ver2[2]}" )); then
     return 0
   else
     return 1
