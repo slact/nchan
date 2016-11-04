@@ -128,6 +128,8 @@ _build_nginx() {
     popd
   fi
 
+  ln -s "${srcdir}/nginx-${_nginx_ver}" "${srcdir}/nginx"
+  
   build
 
   pushd "${srcdir}/nginx-${_nginx_ver}"
