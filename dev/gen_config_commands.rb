@@ -1,4 +1,4 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 ROOT_DIR=".."
 SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
