@@ -1065,7 +1065,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       unsigned    chid_present = 0;
       ngx_str_t   extracted_channel_id;
       unsigned    msgbuf_size_changed = 0;
-      int64_t     msgbuf_size;
+      int64_t     msgbuf_size = 0;
       //maybe a message?
       set_buf(&mpbuf, (u_char *)el->str, el->len);
       cmp_init(&cmp, &mpbuf, ngx_buf_reader, ngx_buf_writer);
@@ -1890,7 +1890,7 @@ static void nchan_store_find_channel_send(rdstore_data_t *rdata, void *pd) {
 }
 
 static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privdata) {
-  rdstore_data_t                 *rdata;
+  rdstore_data_t                 *rdata = NULL;
   
   if(ac) {
     rdata = ac->data;
