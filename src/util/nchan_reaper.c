@@ -193,7 +193,7 @@ static ngx_inline void reap_ready_thing(nchan_reaper_t *rp, void *cur, void *nex
   
   assert(rp->count >= 0);
   verify_reaper_list(rp, cur);
-  DBG("reaped %s %p (waiting to be reaped: %l)", rp->name, cur, rp->count);
+  DBG("reaped %s %p (waiting to be reaped: %i)", rp->name, cur, rp->count);
 }
 
 static void its_reaping_time(nchan_reaper_t *rp, uint8_t force) {

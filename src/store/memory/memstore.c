@@ -866,7 +866,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8
   }
   assert(!head->stub && head->cf);
   owner = head->owner;
-  DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, head->status, head->foreign_owner_ipc_sub);
+  DBG("ensure chanhead ready: chanhead %p, status %i, foreign_ipc_sub:%p", head, (ngx_int_t )head->status, head->foreign_owner_ipc_sub);
   if(head->in_gc_queue) {//recycled chanhead
     chanhead_gc_withdraw(head, "readying INACTIVE");
   }

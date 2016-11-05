@@ -5,7 +5,7 @@ typedef enum {RESCAN, ROTATE, KEEP_PLACE} nchan_reaper_strategy_t;
 
 typedef struct {
   char                      *name;
-  int                        count;
+  ngx_int_t                  count;
   int                        next_ptr_offset;
   int                        prev_ptr_offset;
   void                      *last;
