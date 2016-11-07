@@ -45,6 +45,9 @@ static int verify_ipc_alert(ipc_alert_t *alert) {
     ERR("Received alert for wrong process slot %i (my slot: %i)", alert->dst_slot, ngx_process_slot);
     valid = 0;
   }
+  if(valid) {
+    DBG("Valid checksum for alert #%i (m:%i,d:%i)", alert->num, (ngx_int_t )alert->checksum.meta, (ngx_int_t )alert->checksum.data);
+  }
   return valid;
 }
 
@@ -500,7 +503,6 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
 #if IPC_ALERT_DEBUG
   ngx_uint_t num = nchan_update_stub_status(ipc_total_alerts_sent, 1);
-  DBG("IPC send alert #%i code %i to slot %i", num, code, slot);
 #else
   nchan_update_stub_status(ipc_total_alerts_sent, 1);
   DBG("IPC send alert code %i to slot %i", code, slot);
@@ -522,6 +524,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert.num = num;
   alert.dst_slot = slot;
   alert.checksum = ipc_alert_checksum(&alert);
+  DBG("IPC send alert #%i code %i (checksum m:%i,d:%i) to slot %i", num, code, (ngx_int_t )alert.checksum.meta, (ngx_int_t )alert.checksum.data, slot);
 #endif
   
   //switch to destination
@@ -574,6 +577,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   alert->num = num;
   alert->dst_slot = slot;
   alert->checksum = ipc_alert_checksum(alert);
+  DBG("IPC send alert #%i code %i (checksum m:%i,d:%i) to slot %i", num, code, (ngx_int_t )alert->checksum.meta, (ngx_int_t )alert->checksum.data, slot);
 #endif
   
   ipc_write_handler(proc->c->write);
