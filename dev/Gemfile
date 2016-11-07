@@ -1,6 +1,5 @@
 #!/usr/bin/ruby
 source 'https://rubygems.org'
-gem 'rack'
 gem 'typhoeus'
 gem 'json'
 gem 'nokogiri'
@@ -22,11 +21,17 @@ gem 'celluloid-io'
 gem 'websocket'
 gem 'websocket-native'
 gem 'http_parser.rb'
-gem 'http-2', :git => "https://github.com/slact/http-2.git"
+
+if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.2')
+  gem 'http-2', :git => "https://github.com/slact/http-2.git"
+  gem 'rack'
+else
+  gem 'rack', '~> 1.6.4'
+end
 
 gem 'reel', :git => "https://github.com/celluloid/reel.git"
 gem 'reel-rack', :git => "https://github.com/slact/reel-rack.git"
-
+  
 gem "memory_profiler", :git => "https://github.com/slact/memory_profiler.git"
 
 gem 'minitest'
