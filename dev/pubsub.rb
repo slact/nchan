@@ -12,7 +12,7 @@ require "http/parser"
 
 begin
   require "http/2"
-rescue
+rescue Exception => e
   HTTP2_MISSING=true
 end
   
