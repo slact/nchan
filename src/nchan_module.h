@@ -51,7 +51,7 @@ ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf);
 ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_event_type_t);
 
 #define nchan_update_stub_status(counter_name, count) __memstore_update_stub_status(offsetof(nchan_stub_status_t, counter_name), count)
-void __memstore_update_stub_status(off_t offset, int count);
+ngx_uint_t __memstore_update_stub_status(off_t offset, int count);
 nchan_stub_status_t *nchan_get_stub_status_stats(void);
 size_t nchan_get_used_shmem(void);
 

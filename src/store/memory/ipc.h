@@ -1,9 +1,25 @@
 #define IPC_DATA_SIZE 56
 //#define IPC_DATA_SIZE 80
 
+#define  IPC_ALERT_DEBUG 1
+
+
+#if IPC_ALERT_DEBUG
+typedef struct {
+  uint32_t meta;
+  uint32_t data;
+} alert_checksum_t;
+
+#endif
+
 typedef struct {
   char            data[IPC_DATA_SIZE];
   time_t          time_sent;
+#if IPC_ALERT_DEBUG
+  ngx_int_t       num;
+  alert_checksum_t checksum;
+  int16_t         dst_slot;
+#endif
   int16_t         src_slot;
   uint16_t        worker_generation;
   uint8_t         code;
