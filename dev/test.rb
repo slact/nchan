@@ -925,13 +925,13 @@ class PubSubTest <  Minitest::Test
     end
     
     #test forbidding stuff
-    pub, sub = pubsub 1, extra_headers: { "Origin": "http://forbidden.com" }, pub: "pub/from_foo.bar/", sub: "sub/from_foo.bar/", timeout: 1
+    pub, sub = pubsub 1, extra_headers: { "Origin" => "http://forbidden.com" }, pub: "pub/from_foo.bar/", sub: "sub/from_foo.bar/", timeout: 1
     
-    pub.extra_headers={ "Origin": "http://foo.bar" }
+    pub.extra_headers={ "Origin" => "http://foo.bar" }
     pub.post "yeah"
     
     assert_match /20[12]/, pub.response_code.to_s
-    pub.extra_headers={ "Origin": "http://forbidden.com" }
+    pub.extra_headers={ "Origin" => "http://forbidden.com" }
     post_failed = false
     begin 
       pub.post "yeah"
