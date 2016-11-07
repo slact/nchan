@@ -1215,7 +1215,7 @@ class Subscriber
     end
     
     def new_bundle(uri, user_agent)
-      super uri, user_agent, "*/*", {"TE": "Chunked"}
+      super uri, user_agent, "*/*", {"TE" => "Chunked"}
     end
     
     def setup_bundle(b)
