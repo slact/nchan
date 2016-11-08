@@ -1,3 +1,5 @@
+ change: nchan_max_channel_subscribers now always refers to subscribers on this instance of
+      Nchan, even when using Redis.
 1.0.4 (Oct. 28 2016)
  security: fix crash when receiving large messages over websocket with ws+nchan subprotocol
 1.0.3 (Sept. 3 2016)

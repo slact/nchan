@@ -591,7 +591,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `0 (unlimited)`  
   context: http, server, location  
   legacy name: push_max_channel_subscribers  
-  > Maximum concurrent subscribers.    
+  > Maximum concurrent subscribers to the channel on this Nchan server. Does not include subscribers on other Nchan instances when using a shared Redis server.    
 
 - **nchan_channel_timeout**  
   arguments: 1  

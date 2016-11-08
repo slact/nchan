@@ -394,7 +394,7 @@ CfCmd.new do
       group: "security",
       value: "<number>",
       default: "0 (unlimited)",
-      info: "Maximum concurrent subscribers."
+      info: "Maximum concurrent subscribers to the channel on this Nchan server. Does not include subscribers on other Nchan instances when using a shared Redis server."
   
   nchan_channel_timeout [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,
