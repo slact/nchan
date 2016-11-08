@@ -1966,6 +1966,14 @@ static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, vo
     if(channel == NULL) {
       channel_status = cf->subscribe_only_existing_channel ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
     }
+    /*
+    else if (cf->max_channel_subscribers > 0) {
+      // don't check this anymore -- a total subscribers count check is less
+      // useful as a per-instance check, which is handled in nchan_store_subscribe_continued
+      // shared total subscriber count check can be re-enabled with another config setting
+      channel_status = channel->subscribers >= cf->max_channel_subscribers ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+    }
+    */
     else {
       channel_status = SUB_CHANNEL_AUTHORIZED;
     }
@@ -1998,7 +2006,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     
     case SUB_CHANNEL_NOTSURE:
       if(use_redis) {
-        if(cf->subscribe_only_existing_channel && cf->max_channel_subscribers == 0) {
+        if(cf->subscribe_only_existing_channel) {
+          //we used to also check if cf->max_channel_subscribers == 0 here, but that's
+          //no longer necessary, as the shared subscriber total check is now disabled
           if((chanhead = nchan_memstore_find_chanhead(d->channel_id)) != NULL) {
             break;
           }
