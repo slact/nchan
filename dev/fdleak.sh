@@ -1,5 +1,5 @@
 #!/bin/bash
 while true; do
     php ./fdleak.php
-    ss -xp | grep ncnan | wc -l
+    ss -xp | grep nchan | wc -l
 done
