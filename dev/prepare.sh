@@ -6,13 +6,13 @@ case $UNAME in
     echo "it's debian"
     
     #stuff needed to build nginx + nchan
-    sudo apt-get install libssl-dev libpcre3-dev zsh
+    sudo apt-get install -y libssl-dev libpcre3-dev zsh
     
     #ruby deps
-    sudo apt-get install libxslt-dev libxml2-dev
+    sudo apt-get install -y libxslt-dev libxml2-dev
     
     #build tools
-    sudo apt-get install lua5.2 ruby bundler
+    sudo apt-get install -y lua5.2 ruby bundler
     bundle install
     
     #convenience tools
