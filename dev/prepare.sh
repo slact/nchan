@@ -6,7 +6,7 @@ case $UNAME in
     echo "it's debian"
     
     #stuff needed to build nginx + nchan
-    sudo apt-get install libssl-dev libpcre3-dev 
+    sudo apt-get install libssl-dev libpcre3-dev zsh
     
     #ruby deps
     sudo apt-get install libxslt-dev libxml2-dev
