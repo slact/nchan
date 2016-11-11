@@ -17,7 +17,7 @@ VG_MEMCHECK_OPT+=("--num-callers=20")
 #VG_MEMCHECK_OPT+=("--gen-suppressions=all")
 
 #track files
-#VG_MEMCHECK_OPT+=("--track-fds=yes")
+VG_MEMCHECK_OPT+=("--track-fds=yes")
 
 
 
@@ -26,7 +26,7 @@ NGINX_DAEMON="off"
 NGINX_CONF=""
 ACCESS_LOG="/dev/null"
 ERROR_LOG="stderr"
-ERRLOG_LEVEL="notice"
+ERRLOG_LEVEL="info"
 TMPDIR=""
 MEM="32M"
 
