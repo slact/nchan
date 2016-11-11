@@ -1,5 +1,22 @@
-#!/usr/bin/bash
+#!/bin/bash
+UNAME=$(uname -a)
 
-if $(uname -a | grep -i "debian"); then
-  echo "it's debian"
-fi
+case $UNAME in 
+  *Debian*)
+    echo "it's debian"
+    
+    #stuff needed to build nginx + nchan
+    sudo apt-get install libssl-dev libpcre3-dev 
+    
+    #ruby deps
+    sudo apt-get install libxslt-dev libxml2-dev
+    
+    #build tools
+    sudo apt-get install lua5.2 ruby bundler
+    bundle install
+    
+    #convenience tools
+    sudo apt-get install -y emacs-nox htop lsof strace ack-grep
+    
+    ;;
+esac
