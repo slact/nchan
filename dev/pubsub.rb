@@ -542,8 +542,9 @@ class Subscriber
         @done = false
         extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
         host = uri.host.match "[^/]+$"
+        request_uri = "#{uri.path}#{uri.query && "?#{uri.query}"}"
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path}#{uri.query && "?#{uri.query}"} HTTP/1.1
+          GET #{request_uri} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
@@ -551,7 +552,7 @@ class Subscriber
         END
         
         @send_withid_fmt= <<-END.gsub(/^ {10}/, '')
-          GET #{uri.path}#{uri.query && "?#{uri.query}"} HTTP/1.1
+          GET #{request_uri.gsub("%", "%%")} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
           User-Agent: #{user_agent || "HTTPBundle"}
@@ -604,7 +605,12 @@ class Subscriber
         @last_modified = msg_time.to_s if msg_time
         @etag = msg_tag.to_s if msg_tag
         @sndbuf.clear 
-        data = @last_modified ? sprintf(@send_withid_fmt, @last_modified, @etag) : @send_noid_str
+        begin
+          data = @last_modified ? sprintf(@send_withid_fmt, @last_modified, @etag) : @send_noid_str
+        rescue Exception => e
+          binding.pry
+        end
+        
         @sndbuf << data
         
         if @headers && @headers["Connection"]=="close" && [200, 201, 202, 304, 408].member?(@parser.status_code) && reconnect?
