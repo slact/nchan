@@ -230,7 +230,7 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(memstore_channel_h
       DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
       return NGX_OK;
     }
-    else if(ch->channel.messages > 0 || (ch->churn_start_time )) {
+    else if(ch->channel.messages > 0) {
       assert(ch->msg_first != NULL);
       DBG("not ready to reap %p %V, %i messages left", ch, &ch->id, ch->channel.messages);
       return NGX_DECLINED;
