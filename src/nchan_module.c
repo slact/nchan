@@ -419,7 +419,6 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     }
     else if(cf->pub.websocket) {
       //no need to subscribe, but keep a connection open for publishing
-      //not yet implemented
       nchan_create_websocket_publisher(r);
     }
     else goto forbidden;
