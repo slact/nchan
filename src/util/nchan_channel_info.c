@@ -123,11 +123,10 @@ ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_req
     else if (status_code == NGX_HTTP_ACCEPTED) {
       ngx_memcpy(&r->headers_out.status_line, &ACCEPTED_LINE, sizeof(ngx_str_t));
     }
-    nchan_channel_info(r, messages, subscribers, last_seen, msgid);
+    return nchan_channel_info(r, messages, subscribers, last_seen, msgid);
   }
   else {
     //404!
-    nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 0);
+    return nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 0);
   }
-  return NGX_OK;
 }

@@ -174,7 +174,7 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
     if (!wev->delayed) {
       ngx_log_error(NGX_LOG_INFO, c->log, NGX_ETIMEDOUT, "request timed out");
       c->timedout = 1;
-      ngx_http_finalize_request(r, NGX_HTTP_REQUEST_TIME_OUT);
+      nchan_http_finalize_request(r, NGX_HTTP_REQUEST_TIME_OUT);
       return;
     }
     wev->timedout = 0;
@@ -183,7 +183,7 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
     if (!wev->ready) {
       ngx_add_timer(wev, clcf->send_timeout);
       if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-        ngx_http_finalize_request(r, 0);
+        nchan_http_finalize_request(r, 0);
       }
       return;
     }
@@ -192,7 +192,7 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
   if (wev->delayed || r->aio) {
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, wev->log, 0, "http writer delayed");
     if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-      ngx_http_finalize_request(r, 0);
+      nchan_http_finalize_request(r, 0);
     }
     return;
   }
@@ -202,7 +202,7 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
   //ngx_log_debug3(NGX_LOG_DEBUG_HTTP, c->log, 0, "http writer output filter: %d, \"%V?%V\"", rc, &r->uri, &r->args);
 
   if (rc == NGX_ERROR) {
-    ngx_http_finalize_request(r, rc);
+    nchan_http_finalize_request(r, rc);
     return;
   }
 
@@ -211,7 +211,7 @@ static void nchan_flush_pending_output(ngx_http_request_t *r) {
       ngx_add_timer(wev, clcf->send_timeout);
     }
     if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
-      ngx_http_finalize_request(r, 0);
+      nchan_http_finalize_request(r, 0);
       return;
     }
   }
@@ -319,7 +319,7 @@ ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, con
   
   rc= ngx_http_send_header(r);
   if(finalize) {
-    ngx_http_finalize_request(r, rc);
+    nchan_http_finalize_request(r, rc);
   }
   return rc;
 }
@@ -521,7 +521,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   }
   
   if(finalize) {
-    ngx_http_finalize_request(r, rc);
+    nchan_http_finalize_request(r, rc);
   }
   return rc;
 }
@@ -564,12 +564,13 @@ ngx_int_t nchan_respond_string(ngx_http_request_t *r, ngx_int_t status_code, con
     b->end = body->data + body->len;
     b->last = b->end;
     
-    ngx_http_send_header(r);
-    rc= nchan_output_filter(r, chain);
+    if ((rc = ngx_http_send_header(r)) == NGX_OK) {
+      rc= nchan_output_filter(r, chain);
+    }
   }
   
   if(finalize) {
-    ngx_http_finalize_request(r, rc);
+    nchan_http_finalize_request(r, rc);
   }
   return rc;
 }
@@ -604,4 +605,15 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_or
     nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS, allowed_methods);
   }
   return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
+}
+
+void nchan_http_finalize_request(ngx_http_request_t *r, ngx_int_t code) {
+  if(r->connection && r->connection->write->error) {
+    r->write_event_handler = NULL;
+    //this will close the connection when request is finalized
+    ngx_http_finalize_request(r, NGX_ERROR);
+  }
+  else {
+    ngx_http_finalize_request(r, code);
+  }
 }

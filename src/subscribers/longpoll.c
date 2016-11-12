@@ -167,7 +167,8 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
 
 static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   full_subscriber_t    *fsub = (full_subscriber_t  *)self;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
+  ngx_http_request_t   *r = fsub->sub.request;
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   int                   finalize_now = fsub->data.finalize_request;
   if(fsub->data.timeout_ev.timer_set) {
     ngx_del_timer(&fsub->data.timeout_ev);
@@ -179,7 +180,7 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
    && (self->type != LONGPOLL && self->type != INTERVALPOLL) //disabled for longpoll & intervalpoll for now
    && self->cf->unsubscribe_request_url 
    && ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
-    self->request->main->blocked = 1;
+    r->main->blocked = 1;
     if(fsub->data.finalize_request) {
       nchan_subscriber_unsubscribe_request(self, NGX_OK);
       self->status = DEAD;
@@ -188,7 +189,7 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
       nchan_subscriber_unsubscribe_request(self, NGX_DONE);
     }
     if(ctx->request_ran_content_handler) {
-      ngx_http_run_posted_requests(self->request->connection);
+      ngx_http_run_posted_requests(r->connection);
     }
     finalize_now = 0;
   }
@@ -198,8 +199,8 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   ctx->sub = NULL;
   
   if(finalize_now) {
-    DBG("finalize request %p", fsub->sub.request);
-    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    DBG("finalize request %p", r);
+    nchan_http_finalize_request(r, NGX_OK);
     self->status = DEAD;
   }
   

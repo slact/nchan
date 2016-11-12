@@ -200,7 +200,7 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 static void websocket_maybe_send_unsubscribe_request(full_subscriber_t *);
 
 static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
-  ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+  nchan_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
 }
 
 
@@ -596,7 +596,7 @@ static void closing_ev_handler(ngx_event_t *ev) {
     fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
   }
   else {
-    ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+    nchan_http_finalize_request(fsub->sub.request, NGX_OK);
   }
 }
 
@@ -839,7 +839,7 @@ static void ping_ev_handler(ngx_event_t *ev) {
     ev->timedout=0;
     if(fsub->awaiting_pong) {
       //never got a PONG back
-      ngx_http_finalize_request(fsub->sub.request, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+      nchan_http_finalize_request(fsub->sub.request, NGX_HTTP_CLIENT_CLOSED_REQUEST);
     }
     else {
       fsub->awaiting_pong = 1;
@@ -1189,7 +1189,7 @@ finalize:
 
   maybe_close_pool(temp_pool);
   
-  ngx_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
+  nchan_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
 }
 
 
@@ -1380,7 +1380,7 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
       fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
     }
     else {
-      ngx_http_finalize_request(fsub->sub.request, NGX_OK);
+      nchan_http_finalize_request(fsub->sub.request, NGX_OK);
     }
   }
   else {

@@ -17,6 +17,8 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_or
 ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_id_t *msgid, ngx_int_t finalize, char **err);
 void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx);
 
+void nchan_http_finalize_request(ngx_http_request_t *r, ngx_int_t code);
+
 ngx_fd_t nchan_fdcache_get(ngx_str_t *filename);
 
 ngx_int_t nchan_msg_buf_open_fd_if_needed(ngx_buf_t *buf, ngx_file_t *file, ngx_http_request_t *r);

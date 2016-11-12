@@ -131,7 +131,7 @@ static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, 
     d->sub->request->main->blocked = 0;
   }
   if(finalize_code != NGX_DONE) {
-    ngx_http_finalize_request(d->sub->request, finalize_code);
+    nchan_http_finalize_request(d->sub->request, finalize_code);
   }
   
   ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
