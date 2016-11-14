@@ -1,5 +1,10 @@
+ fix: file descriptor leak when listening on a unix socket and suddenly 
+      aborting client connections
+ fix: invalid memory access after reloading twice with redis enabled
+ fix: crash after shutting down nginx when 'master_process' set to 'off'
  change: nchan_max_channel_subscribers now always refers to subscribers on this instance of
       Nchan, even when using Redis.
+ feature: subscribe/unsubscribe callbacks with nchan_subscribe_request and nchan_unsubscribe_request
 1.0.4 (Oct. 28 2016)
  security: fix crash when receiving large messages over websocket with ws+nchan subprotocol
 1.0.3 (Sept. 3 2016)
