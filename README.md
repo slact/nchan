@@ -14,6 +14,7 @@ In a web browser, you can use Websocket or EventSource directly, or try the [Nch
  - No-repeat, no-loss message delivery guarantees with per-channel configurable message buffers.
  - Subscribe to many channels with a single subscriber connection.
  - HTTP request callbacks and hooks for easy integration.
+ - Introspection with [channel events](#nchan_channel_events_channel_id) and [url for monitoring performance statistics](/details#nchan_stub_status).
  - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
  - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
  - Highly Available with no single point of failure (using [Redis Cluster](https://nchan.slact.net/details#redis-cluster)).
@@ -125,6 +126,8 @@ Publisher endpoints are Nginx config *locations* with the [*`nchan_publisher`*](
 
 Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
 
+<!-- tag:publisher -->
+
 ##### Publishing Messages
 
 Requests and websocket messages are responded to with information about the channel at time of message publication. Here's an example from publishing with `curl`:
@@ -224,6 +227,8 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   The response headers are sent right away, and each message will be sent as an individual chunk. Note that because a zero-length chunk terminates the transfer, **zero-length messages will not be sent** to the subscriber.  
   Unlike the other subscriber types, the `chunked` subscriber cannot be used with http/2 because it dissallows chunked encoding.
   
+<!-- tag:subscriber -->
+
 #### PubSub Endpoint  
 
 PubSub endpoints are Nginx config *locations* with the [*`nchan_pubsub`*](#nchan_pubsub) directive.
@@ -249,6 +254,8 @@ A more applicable setup may set different publisher and subscriber channel ids:
 ```
 
 Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar`. This can be useful when setting up websocket proxying between web clients and your application.
+
+<!-- tag:pubsub -->
 
 ### The Channel ID
 
@@ -276,6 +283,8 @@ So far the examples have used static channel ids, which is not very useful in pr
     nchan_channel_id $1; #first capture of the location match
   }
 ```
+
+<!-- tag:channel-id -->
 
 #### Channel Multiplexing
 
@@ -324,6 +333,8 @@ Nchan can stores messages in memory, on disk, or via Redis. Memory storage is mu
 
 This storage method uses a segment of shared memory to store messages and channel data. Large messages as determined by Nginx's caching layer are stored on-disk. The size of the memory segment is configured with `nchan_max_reserved_memory`. Data stored here is not persistent, and is lost if Nginx is restarted or reloaded.
 
+<!-- tag:memstore -->
+
 ### Redis
 
 Nchan can also store messages and channels on a Redis server, or in a Redis cluster. To use a Redis server, set `nchan_use_redis on;` and set the server url with `nchan_redis_url`. These two settings are inheritable by nested locations, so it is enough to set them within an `http { }` block to enable Redis for all Nchan locations in that block. Different locations can also use different Redis servers.
@@ -354,6 +365,8 @@ To use Redis Cluster in an Nchan location, use the `nchan_redis_pass` setting:
 Note that `nchan_redis_pass` implies `nchan_use_redis on;`, and that this setting is *not* inherited by nested locations.
 
 When connecting several Nchan servers to the same Redis server (or cluster), the servers **must have their times synced up**. Failure to do so may result in missing and duplicated messages.
+
+<!-- tag:redis -->
 
 ## Variables
 
@@ -469,7 +482,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `oldest`  
   context: server, location, if  
-  > Controls the first message received by a new subscriber. 'oldest' starts at the oldest available message in a channel's message queue, 'newest' waits until a message arrives. If a number `n` is specified, starts at `n`th message from the oldest. (`-n` start at `n`th from now). 0 is equivalent to 'newest'.    
+  > Controls the first message received by a new subscriber. 'oldest' starts at the oldest available message in a channel's message queue, 'newest' waits until a message arrives. If a number `n` is specified, starts at `n`th message from the oldest. (`-n` starts at `n`th from now). 0 is equivalent to 'newest'.    
 
 - **nchan_subscriber_http_raw_stream_separator** `<string>`  
   arguments: 1  

@@ -48,11 +48,12 @@ class CfCmd #let's make a DSL!
   class Cmd
     attr_accessor :name, :type, :set, :conf, :offset_name
     attr_accessor :contexts, :args, :legacy, :alt, :disabled, :undocumented
-    attr_accessor :group, :default, :info, :value
+    attr_accessor :group, :tags, :default, :info, :value
 
     def initialize(name, func)
       self.name=name
       self.set=func
+      @tags = []
     end
     
     def group
@@ -208,6 +209,7 @@ class CfCmd #let's make a DSL!
     cmd.value = opt[:value]
     cmd.default = opt[:default]
     cmd.info = opt[:info]
+    cmd.tags = opt[:tags] || []
     
     @cmds << cmd if !cmd.disabled && !cmd.undocumented
   end
@@ -250,12 +252,12 @@ end
 
 
 
-cmds.map! do |cmd|
+text_cmds=cmds.map do |cmd|
   cmd.to_md(:mysite => mysite)
 end
 
 
-config_documentation= cmds.join "\n\n"
+config_documentation= text_cmds.join "\n\n"
 
 #if mysite
 #  config_documentation = "<div class='configuration'><markdown>#{config_documentation}</markdown></div>"
@@ -274,6 +276,15 @@ if mysite
   
   #add a table-of-contents div right before the first heading
   text.sub! /^#/, "<div class=\"tableOfContents\"></div>\n#"
+  
+  text.gsub! /^<!--\s?tag:(\w+)\s?-->/ do |whole|
+    tag = Regexp.last_match[1]
+    mycmds = cmds.select{|cmd| cmd.tags.member? tag}
+    
+    mycmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
+    
+    "<p class=\"relevant-directives\">\n Relevant Configs: #{mycmds.join ", "}"
+  end
 end
 
 config_heading = "## Configuration Directives"
