@@ -1,3 +1,4 @@
+1.0.5 (Nov. 15 2016)
  fix: file descriptor leak when listening on a unix socket and suddenly 
       aborting client connections
  fix: invalid memory access after reloading twice with redis enabled
