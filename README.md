@@ -2,19 +2,28 @@
 
 https://nchan.slact.net
 
-Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many nginx server instances with [Redis](http://redis.io).
+Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many Nginx servers with [Redis](http://redis.io).
 
 Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or websockets, and [subscribed](#subscriber-endpoint) also through websockets, [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipart-mixed). Each subscriber can listen to [up to 255 channels](#channel-multiplexing) per connection, and can be optionally [authenticated](https://nchan.slact.net/details#authenticate-with-nchan_authorize_request) via a custom application url. An [events](#nchan_channel_event_string) [meta channel](#nchan_channel_events_channel_id) is also available for debugging.
 
-For use in a web browser, you can use Websocket or EventSource directly, or try the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options.
+In a web browser, you can use Websocket or EventSource directly, or try the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options.
+
+## Features
+ - RESTful, HTTP-native API.
+ - Supports [Websocket](https://nchan.slact.net/#websocket), [EventSource (Server-Sent Events)](https://nchan.slact.net/#eventsource), [Long-Polling](https://nchan.slact.net/#long-polling) and other HTTP-based subscribers.
+ - No-repeat, no-loss message delivery guarantees with per-channel configurable message buffers.
+ - Subscribe to many channels with a single subscriber connection.
+ - HTTP request callbacks and hooks for easy integration.
+ - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
+ - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
+ - Highly Available with no single point of failure (using [Redis Cluster](https://nchan.slact.net/details#redis-cluster)).
+ 
 
 ## Status and History
 
 The latest Nchan release is v1.0.4 (October 28, 2016) ([changelog](https://nchan.slact.net/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, especially Redis Cluster may be a bit buggy.
-
-Please help make the entire codebase ready for production use! Report any quirks, bugs, leaks, crashes, or larvae you find.
 
 #### Upgrade from Nginx HTTP Push Module
 
@@ -36,7 +45,7 @@ Currently, Nchan's performance is limited by available memory bandwidth. This ca
 #### Download Packages
  - [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
- - [Debian](https://www.debian.org/): A dynamic module build for is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/unstable/main/libnginx-mod-nchan).  
+ - [Debian](https://www.debian.org/): A dynamic module build for is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.slact.net/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
  - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.slact.net/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will add them to their repository?...
  - [Fedora](https://fedoraproject.org): A 64-bit binary rpm and a source rpm are available: [nginx-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-nchan.x86-64.rpm), [ngx-nchan.src.rpm](https://nchan.slact.net/download/nginx-nchan.src.rpm). 
@@ -52,6 +61,33 @@ Grab the latest copy of Nginx from [nginx.org](http://nginx.org). Grab the lates
 If you're using Nginx  > 1.9.11, you can build Nchan as a [dynamic module](https://www.nginx.com/blog/dynamic-modules-nginx-1-9-11/) with `--add-dynamic-module=path/to/nchan`
 
 Run `make`, `make install`, and enjoy. (Caution, contents may be hot.)
+
+## Getting Started
+
+Once you've built and installed Nchan, it's very easy to start using. Add two locations to your nginx config:
+
+```nginx
+#...
+http {  
+  server {
+    #...
+    
+    location = /sub {
+      nchan_subscriber;
+      nchan_channel_id $arg_id;
+    }
+    
+    location = /pub {
+      nchan_publisher;
+      nchan_channel_id $arg_id;
+    }
+  }
+}
+```
+
+You can now publish messages to channels by `POST`ing data to `/sub?id=channel_id` , and subscribe by pointing Websocket, EventSource, or [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) to `sub/?id=channel_id`. It's that simple.
+
+But Nchan is very flexible and highly configurable. So, of course, it can get a lot more complicated...
 
 ## Conceptual Overview
 
