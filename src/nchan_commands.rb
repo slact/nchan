@@ -10,7 +10,7 @@ CfCmd.new do
       default: "(none)",
       tags: [ 'channel-id' ],
       info: "Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.",
-      uri: "/#the-channel-id"
+      uri: "#the-channel-id"
   
   nchan_publisher_channel_id [:srv, :loc, :if],
       :nchan_set_pub_channel_id,
@@ -45,7 +45,7 @@ CfCmd.new do
       tags: [ 'channel-id', 'channel-multiplexing' ],
       default: "(none)",
       info: "Split the channel id into several ids for multiplexing using the delimiter string provided.",
-      uri: "/#channel-multiplexing"
+      uri: "#channel-multiplexing"
   
   nchan_subscriber_channel_id [:srv, :loc, :if],
       :nchan_set_sub_channel_id,
@@ -68,7 +68,7 @@ CfCmd.new do
       value: ["http", "websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed", "http-raw-stream"],
       default: ["http", "websocket", "eventsource", "longpoll", "chunked", "multipart-mixed"],
       info: "Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.",
-      uri: '/#pubsub-endpoint'
+      uri: '#pubsub-endpoint'
   
   
   nchan_longpoll_multipart_response [:srv, :loc, :if],
@@ -104,7 +104,7 @@ CfCmd.new do
       value: ["websocket", "eventsource", "longpoll", "intervalpoll", "chunked", "multipart-mixed", "http-raw-stream"],
       default: ["websocket", "eventsource", "longpoll", "chunked", "multipart-mixed"],
       info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." ,
-      uri: "/#subscriber-endpoints"
+      uri: "#subscriber-endpoints"
   
   nchan_subscriber_compound_etag_message_id [:srv, :loc, :if], 
       :ngx_conf_set_flag_slot,
@@ -199,7 +199,7 @@ CfCmd.new do
       value: ["http", "websocket"],
       default: ["http", "websocket"],
       info: "Defines a server or location as a publisher endpoint. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.",
-      uri: "/#publisher-endpoints"
+      uri: "#publisher-endpoints"
   
   nchan_subscriber_timeout [:main, :srv, :loc, :if],
       :ngx_conf_set_sec_slot,
@@ -264,7 +264,7 @@ CfCmd.new do
       value: "<size>",
       default: "32M",
       info: "The size of the shared memory chunk this module will use for message queuing and buffering.",
-      uri: "/#memory-storage"
+      uri: "#memory-storage"
     
   nchan_redis_url [:main, :srv, :loc],
       :ngx_conf_set_redis_url,

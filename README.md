@@ -176,15 +176,12 @@ Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*
 
 Nchan supports several different kinds of subscribers for receiving messages: [*Websocket*](#websocket), [*EventSource*](#eventsource) (Server Sent Events),  [*Long-Poll*](#long-polling), [*Interval-Poll*](#interval-polling). [*HTTP chunked transfer*](#http-chunked-transfer), and [*HTTP multipart/mixed*](#http-multipart-mixed).
 
-<!-- tag:subscriber -->
-
 - ##### Long-Polling
   The tried-and-true server-push method supported by every browser out there.  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
   The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
   Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the oldest message in a channel's message queue, or waits until the next published message, depending on the value of the `nchan_subscriber_first_message` config directive.  
   A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
-  
   <!-- tag:subscriber-longpoll -->
   
 - ##### Interval-Polling
@@ -236,7 +233,9 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   The response headers are sent right away, and each message will be sent as an individual chunk. Note that because a zero-length chunk terminates the transfer, **zero-length messages will not be sent** to the subscriber.  
   Unlike the other subscriber types, the `chunked` subscriber cannot be used with http/2 because it dissallows chunked encoding.
   <!-- tag:subscriber-chunked -->
-  
+
+<!-- tag:subscriber -->
+
 #### PubSub Endpoint  
 
 PubSub endpoints are Nginx config *locations* with the [*`nchan_pubsub`*](#nchan_pubsub) directive.
@@ -333,9 +332,13 @@ Publishing to multiple channels with a single request is also possible, with sim
     nchan_channel_id "$1" "$2" "another_channel";
   }
 ```
+<!-- tag: channel-multiplexing -->
+
 ## Storage
 
 Nchan can stores messages in memory, on disk, or via Redis. Memory storage is much faster, whereas Redis has additional overhead as is considerably slower for publishing messages, but offers near unlimited scalability for broadcast use cases with far more subscribers than publishers.
+
+<!-- tag: storage -->
 
 ### Memory Storage
 
@@ -420,12 +423,14 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `(none)`  
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
+  [details](#the-channel-id)  
 
 - **nchan_channel_id_split_delimiter**  
   arguments: 1  
   default: `(none)`  
   context: server, location, if  
   > Split the channel id into several ids for multiplexing using the delimiter string provided.    
+  [details](#channel-multiplexing)  
 
 - **nchan_eventsource_event**  
   arguments: 1  
@@ -445,6 +450,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   legacy name: push_publisher  
   > Defines a server or location as a publisher endpoint. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.    
+  [details](#publisher-endpoints)  
 
 - **nchan_publisher_channel_id**  
   arguments: 1 - 7  
@@ -457,12 +463,14 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Send POST request to internal location (which may proxy to an upstream server) with published message in the request body. Useful for bridging websocket publishers with HTTP applications, or for transforming message via upstream application before publishing to a channel.    
   > The upstream response code determine how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.    
+  [details](https://nchan/slact/net/details#message-publishing-callbacks)  
 
 - **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 6  
   default: `http websocket eventsource longpoll chunked multipart-mixed`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
+  [details](#pubsub-endpoint)  
 
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
@@ -471,6 +479,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber  
   > Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.    
   >  The value is a list of permitted subscriber types.    
+  [details](#subscriber-endpoints)  
 
 - **nchan_subscriber_channel_id**  
   arguments: 1 - 7  
@@ -485,6 +494,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Override the default behavior of using both `Last-Modified` and `Etag` headers for the message id.    
   > Enabling this option packs the entire message id into the `Etag` header, and discards  
   > `Last-Modified` and `If-Modified-Since` headers.    
+  [details]()  
 
 - **nchan_subscriber_first_message** `[ oldest | newest | <number> ]`  
   arguments: 1  
@@ -527,16 +537,19 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
+  [details](https://nchan/slact/net/details#request-authorization)  
 
 - **nchan_subscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
+  [details](https://nchan/slact/net/details#subsribe-and-unsubscribe-callbacks)  
 
 - **nchan_unsubscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
+  [details](https://nchan/slact/net/details#subsribe-and-unsubscribe-callbacks)  
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
@@ -544,6 +557,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   legacy name: push_max_reserved_memory  
   > The size of the shared memory chunk this module will use for message queuing and buffering.    
+  [details](#memory-storage)  
 
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
@@ -569,6 +583,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: http, server, location  
   > Use an upstream config block for Redis servers.    
+  [details](https://nchan/slact/net/details#using-redis)  
 
 - **nchan_redis_ping_interval**  
   arguments: 1  
@@ -580,12 +595,14 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: upstream  
   > Used in upstream { } blocks to set redis servers.    
+  [details](https://nchan/slact/net/details#using-redis)  
 
 - **nchan_redis_url**  
   arguments: 1  
   default: `127.0.0.1:6379`  
   context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
+  [details](https://nchan/slact/net/details#using-redis)  
 
 - **nchan_store_messages** `[ on | off ]`  
   arguments: 1  
@@ -599,6 +616,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
+  [details](https://nchan/slact/net/details#using-redis)  
 
 - **nchan_access_control_allow_origin** `<string>`  
   arguments: 1  
@@ -630,11 +648,13 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'.    
+  [details](https://nchan/slact/net/details#channel-events)  
 
 - **nchan_stub_status**  
   arguments: 0  
   context: location  
   > Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.    
+  [details](https://nchan/slact/net/details#nchan_stub_status)  
 
 - **nchan_max_channel_id_length** `<number>`  
   arguments: 1  

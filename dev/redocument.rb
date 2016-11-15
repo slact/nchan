@@ -48,7 +48,7 @@ class CfCmd #let's make a DSL!
   class Cmd
     attr_accessor :name, :type, :set, :conf, :offset_name
     attr_accessor :contexts, :args, :legacy, :alt, :disabled, :undocumented
-    attr_accessor :group, :tags, :default, :info, :value
+    attr_accessor :group, :uri, :tags, :default, :info, :value
 
     def initialize(name, func)
       self.name=name
@@ -119,6 +119,11 @@ class CfCmd #let's make a DSL!
           "  > #{line.chomp}  "
         end
         lines << out.join("\n")
+      end
+      
+      if uri
+        url = opt[:mysite] ? uri : (uri[0]=='/' ? "https://nchan/slact/net#{uri}" : uri)
+        lines << "  [details](#{url})"
       end
       
       lines.map! {|l| "#{l}  "}
@@ -210,6 +215,7 @@ class CfCmd #let's make a DSL!
     cmd.default = opt[:default]
     cmd.info = opt[:info]
     cmd.tags = opt[:tags] || []
+    cmd.uri = opt[:uri]
     
     @cmds << cmd if !cmd.disabled && !cmd.undocumented
   end
@@ -251,6 +257,12 @@ cmds.sort! do |c1, c2|
 end
 
 
+tags=[]
+cmds.each do |cmd|
+  tags+= cmd.tags
+end
+tags.uniq!
+puts tags.sort.join " "
 
 text_cmds=cmds.map do |cmd|
   cmd.to_md(:mysite => mysite)
@@ -283,7 +295,11 @@ if mysite
     
     mycmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
     
-    "<p class=\"relevant-directives\">\n Relevant Configs: #{mycmds.join ", "}"
+    if mycmds.count > 0
+      "<p class=\"relevant-directives\">\n Relevant Configs: #{mycmds.join ", "}</p>"
+    else 
+      ""
+    end
   end
 end
 
