@@ -12,8 +12,8 @@ In a web browser, you can use Websocket or EventSource directly, or try the [Nch
  - RESTful, HTTP-native API.
  - Supports [Websocket](https://nchan.slact.net/#websocket), [EventSource (Server-Sent Events)](https://nchan.slact.net/#eventsource), [Long-Polling](https://nchan.slact.net/#long-polling) and other HTTP-based subscribers.
  - No-repeat, no-loss message delivery guarantees with per-channel configurable message buffers.
- - Subscribe to many channels with a single subscriber connection.
- - HTTP request callbacks and hooks for easy integration.
+ - Subscribe to [many channels](#channel-multiplexing) with a single subscriber connection.
+ - HTTP request [callbacks and hooks](https://nchan.slact.net/details#application-callbacks) for easy integration.
  - Introspection with [channel events](https://nchan.slact.net/details#channel-events) and [url for monitoring performance statistics](https://nchan.slact.net/details#nchan_stub_status).
  - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
  - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
