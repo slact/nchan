@@ -14,7 +14,7 @@ In a web browser, you can use Websocket or EventSource directly, or try the [Nch
  - No-repeat, no-loss message delivery guarantees with per-channel configurable message buffers.
  - Subscribe to many channels with a single subscriber connection.
  - HTTP request callbacks and hooks for easy integration.
- - Introspection with [channel events](#nchan_channel_events_channel_id) and [url for monitoring performance statistics](/details#nchan_stub_status).
+ - Introspection with [channel events](https://nchan.slact.net/details#channel-events) and [url for monitoring performance statistics](https://nchan.slact.net/details#nchan_stub_status).
  - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
  - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
  - Highly Available with no single point of failure (using [Redis Cluster](https://nchan.slact.net/details#redis-cluster)).

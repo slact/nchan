@@ -122,8 +122,8 @@ class CfCmd #let's make a DSL!
       end
       
       if uri
-        url = opt[:mysite] ? uri : (uri[0]=='/' ? "https://nchan/slact/net#{uri}" : uri)
-        lines << "  [details](#{url})"
+        url = opt[:mysite] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
+        lines << "  [more details](#{url})"
       end
       
       lines.map! {|l| "#{l}  "}
