@@ -123,7 +123,6 @@ class CfCmd #let's make a DSL!
       
       if uri
         url = opt[:mysite] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
-        lines << "  "
         lines << "  [more details](#{url})"
       end
       
@@ -258,12 +257,12 @@ cmds.sort! do |c1, c2|
 end
 
 
-tags=[]
-cmds.each do |cmd|
-  tags+= cmd.tags
-end
-tags.uniq!
-puts tags.sort.join " "
+#tags=[]
+#cmds.each do |cmd|
+#  tags+= cmd.tags
+#end
+#tags.uniq!
+#puts tags.sort.join " "
 
 text_cmds=cmds.map do |cmd|
   cmd.to_md(:mysite => mysite)

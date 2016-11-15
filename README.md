@@ -424,7 +424,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `(none)`  
   context: server, location, if  
   > Channel id for a publisher or subscriber location. Can have up to 4 values to subscribe to up to 4 channels.    
-    
   [more details](#the-channel-id)  
 
 - **nchan_channel_id_split_delimiter**  
@@ -432,7 +431,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `(none)`  
   context: server, location, if  
   > Split the channel id into several ids for multiplexing using the delimiter string provided.    
-    
   [more details](#channel-multiplexing)  
 
 - **nchan_eventsource_event**  
@@ -453,7 +451,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   legacy name: push_publisher  
   > Defines a server or location as a publisher endpoint. Requests to a publisher location are treated as messages to be sent to subscribers. See the protocol documentation for a detailed description.    
-    
   [more details](#publisher-endpoints)  
 
 - **nchan_publisher_channel_id**  
@@ -467,7 +464,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Send POST request to internal location (which may proxy to an upstream server) with published message in the request body. Useful for bridging websocket publishers with HTTP applications, or for transforming message via upstream application before publishing to a channel.    
   > The upstream response code determine how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.    
-    
   [more details](https://nchan.slact.net/details#message-publishing-callbacks)  
 
 - **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
@@ -475,7 +471,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `http websocket eventsource longpoll chunked multipart-mixed`  
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
-    
   [more details](#pubsub-endpoint)  
 
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
@@ -485,7 +480,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber  
   > Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.    
   >  The value is a list of permitted subscriber types.    
-    
   [more details](#subscriber-endpoints)  
 
 - **nchan_subscriber_channel_id**  
@@ -501,7 +495,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Override the default behavior of using both `Last-Modified` and `Etag` headers for the message id.    
   > Enabling this option packs the entire message id into the `Etag` header, and discards  
   > `Last-Modified` and `If-Modified-Since` headers.    
-    
   [more details]()  
 
 - **nchan_subscriber_first_message** `[ oldest | newest | <number> ]`  
@@ -545,21 +538,18 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
-    
   [more details](https://nchan.slact.net/details#request-authorization)  
 
 - **nchan_subscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
-    
   [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
 
 - **nchan_unsubscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-    
   [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
 
 - **nchan_max_reserved_memory** `<size>`  
@@ -568,7 +558,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   legacy name: push_max_reserved_memory  
   > The size of the shared memory chunk this module will use for message queuing and buffering.    
-    
   [more details](#memory-storage)  
 
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
@@ -595,7 +584,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: http, server, location  
   > Use an upstream config block for Redis servers.    
-    
   [more details](https://nchan.slact.net/details#using-redis)  
 
 - **nchan_redis_ping_interval**  
@@ -608,7 +596,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: upstream  
   > Used in upstream { } blocks to set redis servers.    
-    
   [more details](https://nchan.slact.net/details#using-redis)  
 
 - **nchan_redis_url**  
@@ -616,7 +603,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `127.0.0.1:6379`  
   context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
-    
   [more details](https://nchan.slact.net/details#using-redis)  
 
 - **nchan_store_messages** `[ on | off ]`  
@@ -631,7 +617,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
-    
   [more details](https://nchan.slact.net/details#using-redis)  
 
 - **nchan_access_control_allow_origin** `<string>`  
@@ -664,14 +649,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'.    
-    
   [more details](https://nchan.slact.net/details#channel-events)  
 
 - **nchan_stub_status**  
   arguments: 0  
   context: location  
   > Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.    
-    
   [more details](https://nchan.slact.net/details#nchan_stub_status)  
 
 - **nchan_max_channel_id_length** `<number>`  
