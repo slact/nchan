@@ -123,6 +123,7 @@ class CfCmd #let's make a DSL!
       
       if uri
         url = opt[:mysite] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
+        lines << "  "
         lines << "  [more details](#{url})"
       end
       
