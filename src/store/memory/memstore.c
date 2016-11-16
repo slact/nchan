@@ -2538,7 +2538,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     
     cur = copy_preallocated_str_to_cur(&buf->file->name, &mbuf->file->name, cur);
     //ensure last char is NUL
-    *(++cur) = '\0';
+    *(cur++) = '\0';
   }
   
   if(buf_body_size > 0) {
