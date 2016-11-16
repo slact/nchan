@@ -296,7 +296,7 @@ if mysite
     mycmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
     
     if mycmds.count > 0
-      "<p class=\"relevant-directives\">\n relevant configs: #{mycmds.join ", "}</p>"
+      "<p class=\"relevant-directives\">\n related configuration: #{mycmds.join ", "}</p>"
     else 
       ""
     end
