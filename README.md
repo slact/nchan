@@ -333,13 +333,13 @@ Publishing to multiple channels with a single request is also possible, with sim
     nchan_channel_id "$1" "$2" "another_channel";
   }
 ```
-<!-- tag: channel-multiplexing -->
+<!-- tag:channel-multiplexing -->
 
 ## Storage
 
 Nchan can stores messages in memory, on disk, or via Redis. Memory storage is much faster, whereas Redis has additional overhead as is considerably slower for publishing messages, but offers near unlimited scalability for broadcast use cases with far more subscribers than publishers.
 
-<!-- tag: storage -->
+<!-- tag:storage -->
 
 ### Memory Storage
 

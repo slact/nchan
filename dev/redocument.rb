@@ -289,7 +289,7 @@ if mysite
   #add a table-of-contents div
   text.sub! /^<!--\s?toc\s?-->/, "<div class=\"tableOfContents\"></div>\n#"
   
-  text.gsub! /<!--\s?tag:(\S+)\s?-->/ do |whole|
+  text.gsub! /<!--\s?tag:\s?(\S+)\s?-->/ do |whole|
     tag = Regexp.last_match[1]
     mycmds = cmds.select{|cmd| cmd.tags.member? tag}
     
