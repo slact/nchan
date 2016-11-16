@@ -598,7 +598,24 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
     sub.terminate
   end
+  
+  def test_publish_multi
+    chans= [short_id, short_id, short_id]
+    subs= chans.map do |id|
+      Subscriber.new url("sub/broadcast/#{id}"), 2, client: :eventsource, quit_message: 'FIN'
+    end
+    pub = Publisher.new url("pub_multi/#{chans.join '/'}")
     
+    subs.each &:run
+    pub.post ["hey", "thing", "did it", "FIN"]
+    
+    subs.each &:wait
+    
+    subs.each do |sub|
+      verify pub, sub
+    end
+  end
+  
   def test_subscriber_timeout
     chan=SecureRandom.hex
     sub=Subscriber.new(url("sub/timeout/#{chan}"), 5, timeout: 10)

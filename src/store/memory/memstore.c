@@ -2706,8 +2706,29 @@ static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
   }
 }
 
+static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+  if(cf->redis.enabled) {
+    assert(!msg_in_shm);
+    nchan_update_stub_status(messages, 1);
+    fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
+    if(callback == NULL) {
+      callback = empty_callback;
+    }
+    return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
+  }
+  else {
+    memstore_channel_head_t  *chead;
+    if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
+      ERR("can't get chanhead for id %V", channel_id);
+      //we probably just ran out of shared memory
+      callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
+      return NGX_ERROR;
+    }
+    return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
+  }
+}
+
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  memstore_channel_head_t  *chead;
   
   if(is_multi_id(channel_id)) {
     ngx_int_t             i, n = 0;
@@ -2727,33 +2748,12 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     ngx_memzero(&pd->ch, sizeof(pd->ch));
     
     for(i=0; i<n; i++) {
-      if((chead = nchan_memstore_get_chanhead(&ids[i], cf)) == NULL) {
-        ERR("can't get chanhead for id %V", ids[i]);
-        //we probably just ran out of shared memory
-        callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
-        return NGX_ERROR;
-      }
-      nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, publish_multi_callback, pd);
+      nchan_store_publish_message_to_single_channel_id(&ids[i], msg, msg_in_shm, cf, publish_multi_callback, pd);
     }
     return NGX_OK;
   }
   else {
-    if(cf->redis.enabled) {
-      assert(!msg_in_shm);
-      nchan_update_stub_status(messages, 1);
-      fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
-      if(callback == NULL) {
-        callback = empty_callback;
-      }
-      return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
-    }
-    
-    if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
-      ERR("can't get chanhead for id %V", channel_id);
-      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
-      return NGX_ERROR;
-    }
-    return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
+    return nchan_store_publish_message_to_single_channel_id(channel_id, msg, msg_in_shm, cf, callback, privdata);
   }
 }
 
