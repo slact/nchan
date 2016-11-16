@@ -1,4 +1,5 @@
-1.0.5 (Nov. 15 2016)
+1.0.6 (Nov. 15 2016)
+ fix: large messages were sometimes incorrectly cleaned up, leaving behind temp files
  fix: file descriptor leak when listening on a unix socket and suddenly 
       aborting client connections
  fix: invalid memory access after reloading twice with redis enabled

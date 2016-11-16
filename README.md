@@ -23,7 +23,7 @@ In a web browser, you can use Websocket or EventSource directly, or try the [Nch
 
 ## Status and History
 
-The latest Nchan release is v1.0.5 (November 15, 2016) ([changelog](https://nchan.slact.net/changelog)).
+The latest Nchan release is v1.0.6 (November 15, 2016) ([changelog](https://nchan.slact.net/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, especially Redis Cluster may be a bit buggy.
 
