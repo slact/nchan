@@ -1340,46 +1340,47 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  ngx_int_t                owner;
-  if(!is_multi_id(channel_id)) {
-    if(cf->redis.enabled) {
-      return nchan_store_redis.delete_channel(channel_id, cf, callback, privdata);
-    }
-    else if(memstore_slot() != (owner = memstore_channel_owner(channel_id))) {
-      memstore_ipc_send_delete(owner, channel_id, callback, privdata);
-    }
-    else {
-      nchan_memstore_force_delete_channel(channel_id, callback, privdata);
-    }
+static ngx_int_t nchan_memstore_force_delete_chanhead(memstore_channel_head_t *ch, callback_pt callback, void *privdata);
+
+static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+  ngx_int_t                owner, mine;
+  
+  assert(!is_multi_id(channel_id));
+  owner = memstore_channel_owner(channel_id);
+  
+  if(cf->redis.enabled) {
+    return nchan_store_redis.delete_channel(channel_id, cf, callback, privdata);
+  }
+  else if(owner == memstore_slot()) {
+    return nchan_memstore_force_delete_channel(channel_id, callback, privdata);
   }
   else {
-    //delete a multichannel
-    ngx_int_t              i, max, slot;
+    return memstore_ipc_send_delete(owner, channel_id, callback, privdata);
+  }
+}
+
+static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+  if(!is_multi_id(channel_id)) {
+    return nchan_store_delete_single_channel_id(channel_id, cf, callback, privdata);
+  }
+  else {
+    //send the delete to all the individually multiplexed channels
+    ngx_int_t             i, n = 0;
+    ngx_str_t             ids[NCHAN_MULTITAG_MAX];
+    
+    n = parse_multi_id(channel_id, ids);
+    
+
+    
     delete_multi_data_t   *d = ngx_calloc(sizeof(*d), ngx_cycle->log);
     assert(d);
     //everyone might have this multi. broadcast the delete everywhere
-#if FAKESHARD
-    max = MAX_FAKE_WORKERS;
-#else
-    max = shdata->max_workers;
-#endif
-    d->n = max;
+    d->n = n;
     d->cb = callback;
     d->pd = privdata;
-    
-    for(i=0; i < max; i++) {
-#if FAKESHARD
-      slot = i;
-#else
-      slot = shdata->procslot[i + memstore_procslot_offset];
-#endif
-      if(slot == memstore_slot()) {
-        nchan_memstore_force_delete_channel(channel_id, (callback_pt )delete_multi_callback_handler, d);
-      }
-      else {
-        memstore_ipc_send_delete(slot, channel_id, (callback_pt )delete_multi_callback_handler, d);
-      }
+
+    for(i=0; i<n; i++) {
+      nchan_store_delete_single_channel_id(&ids[i], cf, (callback_pt )delete_multi_callback_handler, d);
     }
     
   }
@@ -1388,10 +1389,34 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_con
 
 static ngx_int_t chanhead_delete_message(memstore_channel_head_t *ch, store_message_t *msg);
 
+static ngx_int_t nchan_memstore_force_delete_chanhead(memstore_channel_head_t *ch, callback_pt callback, void *privdata) {
+  
+  nchan_channel_t                chaninfo_copy;
+  store_message_t               *msg = NULL;
+  
+  assert(ch->owner == memstore_slot());
+  if(callback == NULL) {
+    callback = empty_callback;
+  }
+  chaninfo_copy.messages = ch->shared->stored_message_count;
+  chaninfo_copy.subscribers = ch->shared->sub_count;
+  chaninfo_copy.last_seen = ch->shared->last_seen;
+  chaninfo_copy.last_published_msg_id = ch->latest_msgid;
+  
+  nchan_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
+  callback(NGX_OK, &chaninfo_copy, privdata);
+  //delete all messages
+  while((msg = ch->msg_first) != NULL) {
+    chanhead_delete_message(ch, msg);
+  }
+  chanhead_gc_add(ch, "forced delete");
+  
+  return NGX_OK;
+}
+
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   memstore_channel_head_t       *ch;
   nchan_channel_t                chaninfo_copy;
-  store_message_t               *msg = NULL;
   
   assert(memstore_channel_owner(channel_id) == memstore_slot());
   
@@ -1399,18 +1424,7 @@ ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt
     callback = empty_callback;
   }
   if((ch = nchan_memstore_find_chanhead(channel_id))) {
-    chaninfo_copy.messages = ch->shared->stored_message_count;
-    chaninfo_copy.subscribers = ch->shared->sub_count;
-    chaninfo_copy.last_seen = ch->shared->last_seen;
-    chaninfo_copy.last_published_msg_id = ch->latest_msgid;
-    
-    nchan_memstore_publish_generic(ch, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
-    callback(NGX_OK, &chaninfo_copy, privdata);
-    //delete all messages
-    while((msg = ch->msg_first) != NULL) {
-      chanhead_delete_message(ch, msg);
-    }
-    chanhead_gc_add(ch, "forced delete");
+    nchan_memstore_force_delete_chanhead(ch, callback, privdata);
   }
   else {
     callback(NGX_OK, NULL, privdata);

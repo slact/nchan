@@ -315,7 +315,7 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
 
-  def test_deletion
+  def test_delete
     #delete active channel
     par=5
     pub, sub = pubsub par, timeout: 10
@@ -614,6 +614,42 @@ class PubSubTest <  Minitest::Test
     subs.each do |sub|
       verify pub, sub
     end
+  end
+  
+    def test_delete_multi
+    chans= [short_id, short_id, short_id]
+    keeper = short_id
+    subs= chans.map do |id|
+      Subscriber.new url("sub/broadcast/#{id}"), 2, client: :eventsource, quit_message: 'FIN'
+    end
+    
+    subs << Subscriber.new(url("sub/multi/#{chans[0]}/#{keeper}"), 2, client: :eventsource, quit_message: 'FIN')
+    
+    
+    pub_keep, sub_keep = pubsub 1, channel: keeper, timeout: 10
+    
+    pub = Publisher.new url("pub_multi/#{chans.join '/'}")
+    
+    sub_keep.run
+    subs.each &:run
+    
+    pub.post ["hey", "thing", "did it"]
+    sleep 0.5
+    pub.delete
+    
+    pub_keep.post ["yeah this", "it's a thing, too"]
+    
+    subs.each &:wait
+    
+    subs.each do |sub|
+      assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
+      sub.errors.clear
+      verify pub, sub
+    end
+    
+    pub_keep.post ["also this", "FIN"]
+    sub_keep.wait
+    verify pub_keep, sub_keep
   end
   
   def test_subscriber_timeout
