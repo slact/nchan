@@ -323,8 +323,6 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
   }
 ```
 
-`DELETE` requests on any channel are forwarded to relevant multi-channel subscribers, and their connections are terminated.
-
 Publishing to multiple channels with a single request is also possible, with similar configuration:
 
 ```nginx
@@ -333,6 +331,9 @@ Publishing to multiple channels with a single request is also possible, with sim
     nchan_channel_id "$1" "$2" "another_channel";
   }
 ```
+
+`DELETE` requests to a multiplexed channel broadcast the deletion to each of the channels it multiplexes, deletes all their messages and kicks out all clients subscribed to any of the channel ids.
+
 <!-- tag:channel-multiplexing -->
 
 ## Storage
