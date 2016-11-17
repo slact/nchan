@@ -1465,7 +1465,7 @@ class Publisher
       connecttimeout: @timeout || PUBLISH_TIMEOUT,
       verbose: @verbose
     )
-    if @messages
+    if body && @messages
       msg=Message.new body
       msg.content_type=content_type
     end
@@ -1478,7 +1478,7 @@ class Publisher
         self.response_body=response.response_body
         if response.success?
           #puts "published message #{msg.to_s[0..15]}"
-          @messages << msg if @messages
+          @messages << msg if @messages && msg
         elsif response.timed_out?
           # aw hell no
           #puts "publisher err: timeout"
