@@ -1343,8 +1343,8 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
 static ngx_int_t nchan_memstore_force_delete_chanhead(memstore_channel_head_t *ch, callback_pt callback, void *privdata);
 
 static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  ngx_int_t                owner, mine;
-  
+  ngx_int_t                owner;
+
   assert(!is_multi_id(channel_id));
   owner = memstore_channel_owner(channel_id);
   
@@ -1416,8 +1416,7 @@ static ngx_int_t nchan_memstore_force_delete_chanhead(memstore_channel_head_t *c
 
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata) {
   memstore_channel_head_t       *ch;
-  nchan_channel_t                chaninfo_copy;
-  
+
   assert(memstore_channel_owner(channel_id) == memstore_slot());
   
   if(callback == NULL) {
