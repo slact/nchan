@@ -929,10 +929,13 @@ static ngx_int_t ws_recv(ngx_connection_t *c, ngx_event_t *rev, ngx_buf_t *buf, 
   if (n == NGX_AGAIN) {
     return NGX_AGAIN;
   }
-
-  if ((n == NGX_ERROR) || (n == 0)) {
+  else if (n == NGX_ERROR) {
     return NGX_ERROR;
   }
+  else if (n == 0) {
+    return NGX_DONE;
+  }
+  
   buf->pos = buf->last;
   buf->last += n;
 
@@ -1150,8 +1153,8 @@ static void websocket_reading(ngx_http_request_t *r) {
           ngx_destroy_pool(temp_pool);
           temp_pool = NULL;
         }
-        return;
         
+        return websocket_reading(r);
         break;
         
       default:
