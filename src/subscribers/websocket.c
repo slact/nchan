@@ -883,6 +883,20 @@ static void websocket_maybe_send_unsubscribe_request(full_subscriber_t *fsub) {
   }
 }
 
+static void websocket_delete_timers(full_subscriber_t *fsub) {
+  if(fsub->ping_ev.timer_set) {
+    ngx_del_timer(&fsub->ping_ev);
+  }
+  
+  if(fsub->closing_ev.timer_set) {
+    ngx_del_timer(&fsub->closing_ev);
+  }
+  
+  if(fsub->timeout_ev.timer_set) {
+    ngx_del_timer(&fsub->timeout_ev);
+  }
+}
+
 static ngx_int_t websocket_dequeue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("%p dequeue", self);
@@ -897,17 +911,7 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
     websocket_send_close_frame(fsub, CLOSE_NORMAL, &close_msg);
   }
   
-  if(fsub->ping_ev.timer_set) {
-    ngx_del_timer(&fsub->ping_ev);
-  }
-  
-  if(fsub->closing_ev.timer_set) {
-    ngx_del_timer(&fsub->closing_ev);
-  }
-  
-  if(fsub->timeout_ev.timer_set) {
-    ngx_del_timer(&fsub->timeout_ev);
-  }
+  websocket_delete_timers(fsub);
   
   if(self->destroy_after_dequeue) {
     websocket_subscriber_destroy(self);
@@ -978,6 +982,8 @@ static void websocket_reading_finalize(ngx_http_request_t *r, ngx_pool_t *temp_p
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
 
+  websocket_delete_timers(fsub);
+  
   maybe_close_pool(temp_pool);
   
   nchan_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
