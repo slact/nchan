@@ -973,6 +973,16 @@ static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len)
     pool = NULL;               \
   }
 
+static void websocket_reading_finalize(ngx_http_request_t *r, ngx_pool_t *temp_pool) {
+  ngx_connection_t           *c = r->connection;
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
+
+  maybe_close_pool(temp_pool);
+  
+  nchan_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
+}
+  
 /* based on code from push stream module, written by
  * Wandenberg Peixoto <wandenberg@gmail.com>, Rogério Carvalho Schneider <stockrt@gmail.com>
  * thanks, guys!
@@ -1000,7 +1010,7 @@ static void websocket_reading(ngx_http_request_t *r) {
 
   for (;;) {
     if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof) {
-      goto finalize;
+      return websocket_reading_finalize(r, temp_pool);
     }
     
     switch (frame->step) {
@@ -1059,7 +1069,7 @@ static void websocket_reading(ngx_http_request_t *r) {
       case WEBSOCKET_READ_GET_PAYLOAD_STEP:
         if ((frame->opcode != WEBSOCKET_OPCODE_TEXT) && (frame->opcode != WEBSOCKET_OPCODE_CLOSE) && (frame->opcode != WEBSOCKET_OPCODE_PING) && (frame->opcode != WEBSOCKET_OPCODE_PONG)) {
           websocket_send_frame(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0, NULL);
-          goto finalize;
+          return websocket_reading_finalize(r, temp_pool);
         }
         
         if (frame->payload_len > 0) {
@@ -1067,11 +1077,11 @@ static void websocket_reading(ngx_http_request_t *r) {
           if (temp_pool == NULL) {
             if ((temp_pool = ngx_create_pool(NCHAN_WS_TMP_POOL_SIZE, r->connection->log)) == NULL) {
               ERR("unable to allocate memory for temporary pool");
-              goto finalize;
+              return websocket_reading_finalize(r, temp_pool);
             }
             if ((frame->payload = ngx_pcalloc(temp_pool, frame->payload_len)) == NULL) {
               ERR("unable to allocate memory for payload");
-              goto finalize;
+              return websocket_reading_finalize(r, temp_pool);
             }
             frame->last = frame->payload;
           }
@@ -1091,7 +1101,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         switch(frame->opcode) {
           case WEBSOCKET_OPCODE_TEXT:
             if (!is_utf8(frame->payload, frame->payload_len)) {
-              goto finalize;
+              return websocket_reading_finalize(r, temp_pool);
             }
             //intentional fall-through
           case WEBSOCKET_OPCODE_BINARY:
@@ -1141,7 +1151,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             websocket_send_close_frame(fsub, 0, NULL);
             
             if(!fsub->closing_delayed_until_unsub_callback) {
-              goto finalize;
+              return websocket_reading_finalize(r, temp_pool);
             }
             else {
               maybe_close_pool(temp_pool);
@@ -1159,8 +1169,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         
       default:
         nchan_log(NGX_LOG_ERR, c->log, 0, "unknown websocket step (%d)", frame->step);
-        goto finalize;
-        break;
+        return websocket_reading_finalize(r, temp_pool);
     }
     
     set_buffer(&buf, frame->header, NULL, 8);
@@ -1174,7 +1183,7 @@ exit:
     if (!c->read->ready) {
       if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
         nchan_log(NGX_LOG_INFO, c->log, ngx_socket_errno, "websocket client: failed to restore read events");
-        goto finalize;
+        return websocket_reading_finalize(r, temp_pool);
       }
     }
   }
@@ -1183,16 +1192,8 @@ exit:
     rev->eof = 1;
     c->error = 1;
     nchan_log(NGX_LOG_INFO, c->log, ngx_socket_errno, "websocket client prematurely closed connection");
-    goto finalize;
+    return websocket_reading_finalize(r, temp_pool);
   }
-
-  return;
-
-finalize:
-
-  maybe_close_pool(temp_pool);
-  
-  nchan_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
 }
 
 
