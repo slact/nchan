@@ -253,7 +253,7 @@ size_t nchan_subrequest_content_length(ngx_http_request_t *sr) {
   size_t                            len = 0;
   ngx_http_upstream_headers_in_t   *headers_in = &sr->upstream->headers_in;
   ngx_chain_t                      *chain;
-  if(headers_in->chunked) {
+  if(headers_in->chunked || headers_in->content_length_n == -1) {
     //count it
     for(chain = sr->upstream->out_bufs; chain != NULL; chain = chain->next) {
       len += ngx_buf_size((chain->buf));
