@@ -714,7 +714,7 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
       case NGX_HTTP_ACCEPTED:
         if(sr->upstream) {
           content_type = (sr->upstream->headers_in.content_type ? &sr->upstream->headers_in.content_type->value : NULL);
-          content_length = sr->upstream->headers_in.content_length_n > 0 ? sr->upstream->headers_in.content_length_n : 0;
+          content_length = nchan_subrequest_content_length(sr);
           request_chain = sr->upstream->out_bufs;
         }
         else {
@@ -766,6 +766,8 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
       if(publisher_upstream_request_url_ccv == NULL) {
         ngx_str_t    *content_type = (r->headers_in.content_type ? &r->headers_in.content_type->value : NULL);
         ngx_int_t     content_length = r->headers_in.content_length_n > 0 ? r->headers_in.content_length_n : 0;
+        // no need to check for chunked transfer-encoding, nginx automatically sets the 
+        // content-length either way.
         
         nchan_publisher_post_request(r, content_type, content_length, r->request_body->bufs, channel_id, cf);
       }

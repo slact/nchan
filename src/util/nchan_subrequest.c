@@ -248,3 +248,20 @@ ngx_int_t nchan_recover_x_accel_redirected_request_method(ngx_http_request_t *r)
 #endif
   return NGX_OK;
 }
+
+size_t nchan_subrequest_content_length(ngx_http_request_t *sr) {
+  size_t                            len = 0;
+  ngx_http_upstream_headers_in_t   *headers_in = &sr->upstream->headers_in;
+  ngx_chain_t                      *chain;
+  if(headers_in->chunked) {
+    //count it
+    for(chain = sr->upstream->out_bufs; chain != NULL; chain = chain->next) {
+      len += ngx_buf_size((chain->buf));
+    }
+  }
+  else {
+    len = headers_in->content_length_n > 0 ? headers_in->content_length_n : 0;
+  }
+  
+  return len;
+}

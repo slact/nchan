@@ -397,7 +397,7 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
         if(sr->upstream) {
           ngx_buf_t    *buf;
           
-          content_length = sr->upstream->headers_in.content_length_n > 0 ? sr->upstream->headers_in.content_length_n : 0;
+          content_length = nchan_subrequest_content_length(sr);
           request_chain = sr->upstream->out_bufs;
           
           if (request_chain->next != NULL) {
