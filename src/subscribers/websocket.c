@@ -396,27 +396,36 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
       case NGX_HTTP_ACCEPTED:
         if(sr->upstream) {
           ngx_buf_t    *buf;
+          ngx_buf_t     emptybuf;
           
           content_length = nchan_subrequest_content_length(sr);
           request_chain = sr->upstream->out_bufs;
           
-          if (request_chain->next != NULL) {
-            buf = nchan_chain_to_single_buffer(d->framebuf_pool, request_chain, content_length);
+          if(content_length > 0 && request_chain) {
+            if (request_chain->next != NULL) {
+              buf = nchan_chain_to_single_buffer(d->framebuf_pool, request_chain, content_length);
+            }
+            else {
+              buf = request_chain->buf;
+              if(buf->memory) {
+                buf->start = buf->pos;
+                buf->end = buf->last;
+                buf->last_in_chain = 1;
+                buf->last_buf = 1;
+              }
+            }
           }
           else {
-            buf = request_chain->buf;
-            if(buf->memory) {
-              buf->start = buf->pos;
-              buf->end = buf->last;
-              buf->last_in_chain = 1;
-              buf->last_buf = 1;
-            }
+            ngx_memzero((&emptybuf), sizeof(emptybuf));
+            emptybuf.memory=1;
+            emptybuf.last_in_chain=1;
+            emptybuf.last_buf=1;
+            buf=&emptybuf;
           }
           
           websocket_publish_continue(fsub, buf);
         }
         else {
-          //content_length = 0;
           request_chain = NULL;
           ERR("upstream missing from upstream subrequest");
         }
