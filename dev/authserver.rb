@@ -37,6 +37,7 @@ class AuthServer
       headers = {}
       code = 200
       body = env["rack.input"].read
+      chunked = false
       
       print_request env if @opt[:verbose]
       
@@ -53,12 +54,23 @@ class AuthServer
         resp << "subbed"
       when "/pub"
         resp << "WEE! + #{body}"
+      when "/pub_chunked"
+        resp << "WEE! + "
+        resp << body
+        chunked = true
+      when "/pub_empty"
+        #nothing
+      else
+        code = 404
+        resp << (env["REQUEST_PATH"] || env["PATH_INFO"])
+        resp << " not found"
       end
       
       if @opt[:callback]
         @opt[:callback].call(env)
       end
-      headers["Content-Length"]=resp.join("").length.to_s
+      
+      headers["Content-Length"]=resp.join("").length.to_s unless chunked
       
       [ code, headers, resp ]
     end
