@@ -296,7 +296,7 @@ So far the examples have used static channel ids, which is not very useful in pr
 
 #### Channel Multiplexing
 
-Any subscriber location can be an endpoint for up to 255 channels. Messages published to all the specified channels will be delivered in-order to the subscriber. There are two ways to enable multiplexing:
+With channel multiplexing, subscribers can subscribe to up to 255 channels per connection. Messages published to all the specified channels will be delivered in-order to the subscriber. There are two ways to enable multiplexing:
 
 Up to 7 channel ids can be specified for the `nchan_channel_id` or `nchan_channel_subscriber_id` config directive:
 
