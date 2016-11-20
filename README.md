@@ -2,17 +2,17 @@
 
 https://nchan.slact.net
 
-Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and tens, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many Nginx servers with [Redis](http://redis.io).
+Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and hundreds, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many Nginx servers with [Redis](http://redis.io).
 
-Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or websockets, and [subscribed](#subscriber-endpoint) also through websockets, [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipart-mixed). Each subscriber can listen to [up to 255 channels](#channel-multiplexing) per connection, and can be optionally [authenticated](https://nchan.slact.net/details#authenticate-with-nchan_authorize_request) via a custom application url. An [events](#nchan_channel_event_string) [meta channel](#nchan_channel_events_channel_id) is also available for debugging.
+Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or Websocket, and [subscribed](#subscriber-endpoint) also through [Websocket](#websocket), [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipart-mixed).
 
-In a web browser, you can use Websocket or EventSource directly, or try the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options.
+In a web browser, you can use Websocket or EventSource directly, or the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options.
 
 ## Features
  - RESTful, HTTP-native API.
  - Supports [Websocket](https://nchan.slact.net/#websocket), [EventSource (Server-Sent Events)](https://nchan.slact.net/#eventsource), [Long-Polling](https://nchan.slact.net/#long-polling) and other HTTP-based subscribers.
  - No-repeat, no-loss message delivery guarantees with per-channel configurable message buffers.
- - Subscribe to [many channels](#channel-multiplexing) with a single subscriber connection.
+ - Subscribe to [hundreds of channels](#channel-multiplexing) over a single subscriber connection.
  - HTTP request [callbacks and hooks](https://nchan.slact.net/details#application-callbacks) for easy integration.
  - Introspection with [channel events](https://nchan.slact.net/details#channel-events) and [url for monitoring performance statistics](https://nchan.slact.net/details#nchan_stub_status).
  - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
