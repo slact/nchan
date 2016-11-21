@@ -171,6 +171,8 @@ Metadata can be added to a message when using an HTTP POST request for publishin
 
 **HTTP `DELETE`** requests delete a channel and end all subscriber connections. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
+For an in-depth explanation of how settings are applied to channels from publisher locations, see the [details page](https://nchan.slact.net/details#publisher-endpoint-configs).
+
 #### Subscriber Endpoints
 
 Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*](#nchan_subscriber) directive.
@@ -334,6 +336,8 @@ Publishing to multiple channels with a single request is also possible, with sim
 
 `DELETE` requests to a multiplexed channel broadcast the deletion to each of the channels it multiplexes, deletes all their messages and kicks out all clients subscribed to any of the channel ids.
 
+See the [details page](https://nchan.slact.net/details#securing-channels) for more information about using good IDs and keeping channels secure.
+
 <!-- tag:channel-multiplexing -->
 
 ## Storage
@@ -378,6 +382,8 @@ To use Redis Cluster in an Nchan location, use the `nchan_redis_pass` setting:
 Note that `nchan_redis_pass` implies `nchan_use_redis on;`, and that this setting is *not* inherited by nested locations.
 
 When connecting several Nchan servers to the same Redis server (or cluster), the servers **must have their times synced up**. Failure to do so may result in missing and duplicated messages.
+
+See the [details page](https://nchan.slact.net/details#using-redis) for more information on using Redis.
 
 <!-- tag:redis -->
 
