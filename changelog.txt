@@ -1,3 +1,9 @@
+ fix: potential stack overflow with very large message buffers
+ fix: invalid memory access with empty nchan_publisher_upstream_request for websocket publisher
+ fix: incorrect handling of chunked response from nchan_publisher_upstream_request
+ fix: publishing through websocket too fast may result in buffered messages that never arrive
+ fix: DELETE to multiplexed channel should delete all listed channels
+ fix: abort if publishing to multiple channels while using redis
 1.0.6 (Nov. 15 2016)
  fix: large messages were sometimes incorrectly cleaned up, leaving behind temp files
  fix: file descriptor leak when listening on a unix socket and suddenly 
