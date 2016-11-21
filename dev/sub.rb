@@ -30,10 +30,10 @@ opt_parser=OptionParser.new do |opts|
   opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
   opts.on("-t", "--timeout SEC (#{opt[:timeout]})", "Long-poll timeout"){|v| opt[:timeout] = v}
   opts.on("-q", "--quit STRING (#{opt[:quit_message]})", "Quit message"){|v| opt[:quit_message] = v}
-  opts.on("-l", "--client STRING (#{opt[:client]})", "sub client (one of #{Subscriber::Client.unique_aliases.join ', '})") do |v|
+  opts.on("-c", "--client STRING (#{opt[:client]})", "sub client (one of #{Subscriber::Client.unique_aliases.join ', '})") do |v|
     opt[:client] = v.to_sym
   end
-  opts.on("-c", "--content-type", "show received content-type"){|v| print_content_type = true}
+  opts.on("--content-type", "show received content-type"){|v| print_content_type = true}
   opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
   opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
   opts.on("--origin STR", "Set Origin header if appplicable."){|v| origin = v}
