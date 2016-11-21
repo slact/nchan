@@ -25,6 +25,12 @@ struct subscriber_pool_s {
   nchan_msg_t                *msg;
   nchan_msg_status_t          msg_status;
   spooled_subscriber_t       *first;
+  
+  //stack overflow prevention
+  ngx_uint_t                  fetchmsg_prev_msec;
+  ngx_int_t                   fetchmsg_current_count;
+  ngx_event_t                 fetchmsg_ev;
+  
   ngx_pool_t                 *pool;
   ngx_uint_t                  sub_count;
   ngx_uint_t                  non_internal_sub_count;

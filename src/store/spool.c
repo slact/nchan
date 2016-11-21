@@ -9,6 +9,7 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 
 #define NCHAN_MSG_NORESPONSE_RETRY_TIME 200
+#define NCHAN_SPOOL_FETCHMSG_MAX_TIMES 20
 
 //////// SPOOLs -- Subscriber Pools  /////////
 
@@ -140,6 +141,12 @@ ngx_event_t *spooler_add_timer(channel_spooler_t *spl, ngx_msec_t timeout, void 
   return &spl_ev->ev;
 }
 
+static void fetchmsg_ev_handler(ngx_event_t *ev) {
+  subscriber_pool_t *spool = (subscriber_pool_t *)ev->data;
+  DBG("stack-overflow-buster fetchmsg event for spool %p", spool);
+  spool_fetch_msg(spool);
+}
+
 static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spool, nchan_msg_id_t *id) {
   nchan_copy_new_msg_id(&spool->id, id);
   spool->msg = NULL;
@@ -151,6 +158,10 @@ static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spo
   spool->non_internal_sub_count = 0;
   spool->generation = 0;
   spool->responded_count = 0;
+  ngx_memzero(&spool->fetchmsg_ev, sizeof(spool->fetchmsg_ev));
+  nchan_init_timer(&spool->fetchmsg_ev, fetchmsg_ev_handler, spool);
+  spool->fetchmsg_current_count=0;
+  spool->fetchmsg_prev_msec=0;
   
   spool->spooler = spl;
 }
@@ -404,6 +415,25 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
 static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   fetchmsg_data_t        *data;
   channel_spooler_t      *spl = spool->spooler;
+  
+  
+  //stack overflow protector
+  //ERR("spool->fetchmsg_prev_msec %i (ngx_timeofday())->msec %i spool->fetchmsg_current_count %i", spool->fetchmsg_prev_msec, (ngx_timeofday())->msec, spool->fetchmsg_current_count);
+  if(spool->fetchmsg_prev_msec == (ngx_timeofday())->msec) {
+    if(spool->fetchmsg_current_count > NCHAN_SPOOL_FETCHMSG_MAX_TIMES) {
+      ngx_add_timer(&spool->fetchmsg_ev, 0);
+      spool->fetchmsg_current_count = 0;
+      return NGX_DONE;
+    }
+    else {
+      spool->fetchmsg_current_count++;
+    }
+  }
+  else {
+    spool->fetchmsg_current_count = 0;
+    spool->fetchmsg_prev_msec = (ngx_timeofday())->msec;
+  }
+  
   if(*spl->channel_status != READY) {
     DBG("%p wanted to fetch msg %V, but channel %V not ready", spool, msgid_to_str(&spool->id), spl->chid);
     spool->msg_status = MSG_CHANNEL_NOTREADY;
@@ -1128,9 +1158,14 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool) {
   DBG("remove spool node %p", node);
   
   assert(spool->spooler->running);
+  
+  if(spool->fetchmsg_ev.timer_set) {
+    ngx_del_timer(&spool->fetchmsg_ev);
+  }
+  
   nchan_free_msg_id(&spool->id);
   rbtree_remove_node(&spl->spoolseed, rbtree_node_from_data(spool));
-
+  
   //assert((node = rbtree_find_node(&spl->spoolseed, &spool->id)) == NULL);
   //double-check that it's gone 
   
