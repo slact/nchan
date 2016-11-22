@@ -13,7 +13,7 @@ if [[ -z $NO_DEBUG ]]; then
   CFLAGS=" -ggdb -fvar-tracking-assignments -O$OPTIMIZE_LEVEL"
 fi
 
-CFLAGS="$CFLAGS -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs -Wsign-compare"
+CFLAGS="$CFLAGS -Wno-error -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs -Wsign-compare"
 
 _include_http2=0
 
