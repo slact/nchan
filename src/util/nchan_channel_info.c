@@ -92,12 +92,8 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
 ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *msgid) {
   ngx_buf_t                      *b;
   ngx_str_t                      *content_type;
-  ngx_str_t                      *accept_header = NULL;
-  
-  if(r->headers_in.accept) {
-    accept_header = &r->headers_in.accept->value;
-  }
-  
+  ngx_str_t                      *accept_header = nchan_get_accept_header_value(r);
+
   b = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, &content_type);
   
   return nchan_respond_membuf(r, NGX_HTTP_OK, content_type, b, 0);

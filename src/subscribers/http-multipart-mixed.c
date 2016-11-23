@@ -277,13 +277,9 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
 }
 
 ngx_int_t nchan_detect_multipart_subscriber_request(ngx_http_request_t *r) {
-  ngx_str_t       *accept_header;
-  if(r->headers_in.accept == NULL) {
-    return 0;
-  }
-  accept_header = &r->headers_in.accept->value;
+  ngx_str_t       *accept_header = nchan_get_accept_header_value(r);
 
-  if(ngx_strnstr(accept_header->data, "multipart/mixed", accept_header->len)) {
+  if(accept_header && ngx_strnstr(accept_header->data, "multipart/mixed", accept_header->len)) {
     return 1;
   }
   

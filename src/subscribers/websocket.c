@@ -313,9 +313,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
         //so it should only be recieving messages
         return NGX_OK;
       }
-      if(r->headers_in.accept) {
-        accept_header = &r->headers_in.accept->value;
-      }
+      accept_header = nchan_get_accept_header_value(r);
       bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
       tmp_buf = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, NULL);
       ngx_memcpy(&bc->buf, tmp_buf, sizeof(*tmp_buf));

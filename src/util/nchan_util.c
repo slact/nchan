@@ -121,6 +121,20 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
   return NULL;
 }
 
+ngx_str_t *nchan_get_accept_header_value(ngx_http_request_t *r) {
+#if (NGX_HTTP_HEADERS)  
+  if(r->headers_in.accept == NULL) {
+    return NULL;
+  }
+  else {
+    return &r->headers_in.accept->value;
+  }
+#else
+  ngx_str_t             accept_header_name = ngx_string("Accept");
+  return nchan_get_header_value(r, accept_header_name);
+#endif
+}
+
 static int nchan_strmatch_va_list(ngx_str_t *val, ngx_int_t n, va_list args) {
   u_char   *match;
   ngx_int_t i;
