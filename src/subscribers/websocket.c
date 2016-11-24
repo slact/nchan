@@ -27,7 +27,7 @@
     
 #elif __SSE2__
   #define WEBSOCKET_OPTIMIZED_UNMASK 1
-  #include <emmintrin.h>                     // SSE2 instrinsics
+  #include <emmintrin.h>                     // SSE2 intrinsics
   
   #define __vector_size_bytes 16
   #define __vector_type __m128i
@@ -262,7 +262,7 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
   
   assert(fastlen % __vector_size_bytes == 0);
   
-  for (/*void*/; i < fastlen; i += __vector_size_bytes) {           // note that N must be multiple of [__vector_size_bytes]
+  for (/*void*/; i < fastlen; i += __vector_size_bytes) {           // note that i must be multiple of [__vector_size_bytes]
     w = __vector_load_intrinsic((__vector_type *)&payload[i]);       // load [__vector_size_bytes] bytes
     w = __vector_xor_intrinsic(w, w_mask);           // XOR with mask
     __vector_store_intrinsic((__vector_type *)&payload[i], w);   // store [__vector_size_bytes] masked bytes
