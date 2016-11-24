@@ -1002,7 +1002,7 @@ static ngx_int_t ws_recv(ngx_connection_t *c, ngx_event_t *rev, ngx_buf_t *buf, 
   if (n == NGX_AGAIN) {
     return NGX_AGAIN;
   }
-  else if (n == NGX_ERROR) {
+  else if (n == NGX_ERROR || rev->eof) {
     return NGX_ERROR;
   }
   else if (n == 0) {
@@ -1085,7 +1085,7 @@ static void websocket_reading(ngx_http_request_t *r) {
   rev = c->read;
 
   for (;;) {
-    if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof) {
+    if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
       return websocket_reading_finalize(r, temp_pool);
     }
     
