@@ -222,6 +222,16 @@ static void sudden_abort_handler(subscriber_t *sub) {
 #endif
 }
 
+static void ws_request_empty_handler(ngx_http_request_t *r) {
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;  
+  
+  if(r->connection->read->eof) {
+    //sudden disconnect
+    nchan_add_oneshot_timer((void (*)(void *))sudden_abort_handler, &fsub->sub, 0);
+  }
+}
+
 /*
 static void sudden_upstream_request_abort_handler(full_subscriber_t *fsub) {
   
@@ -442,6 +452,7 @@ static void upstream_subrequest_ev_handler(ngx_event_t *ev) {
   full_subscriber_t            *fsub = ev->data;
   send_next_publish_subrequest(fsub);
   clean_after_upstream_response(fsub, 0);
+  //assert(fsub->sub.request->write_event_handler == ws_request_empty_handler);
 }
 
 static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, void *data, ngx_int_t rc) {
@@ -858,7 +869,7 @@ static void websocket_reading(ngx_http_request_t *r);
 static void ensure_request_hold(full_subscriber_t *fsub) {
   if(fsub->holding == 0) {
     fsub->sub.request->read_event_handler = websocket_reading;
-    fsub->sub.request->write_event_handler = ngx_http_request_empty_handler;
+    fsub->sub.request->write_event_handler = ws_request_empty_handler;
     fsub->sub.request->main->count++; //this is the right way to hold and finalize the
     fsub->holding = 1;
   }
