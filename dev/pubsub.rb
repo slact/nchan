@@ -355,13 +355,36 @@ class Subscriber
       attr_accessor :ws, :sock, :last_message_time
       def initialize(handshake, sock)
         @buf=""
-        self.ws = WebSocket::Frame::Incoming::Client.new(version: handshake.version)
+        @handshake = handshake
+        self.ws = WebSocket::Frame::Incoming::Client.new(version: @handshake.version)
         self.sock = sock
       end
       
       def read
         @buf.clear
         ws << sock.readpartial(4096, @buf)
+      end
+      
+      def send_frame(opt)
+        out = WebSocket::Frame::Outgoing::Client.new(opt.merge(version: @handshake.version))
+        sock.write out.to_s
+      end
+      
+      def send_data(data)
+        send_frame type: :text, data: data
+      end
+      
+      def send_ping(data=nil)
+        send_frame type: :ping, data: data
+      end
+      
+      def send_pong(data=nil)
+        send_frame type: :pong, data: data
+      end
+        
+      def send_close(code=1000, reason=nil)
+        puts "sending close"
+        send_frame type: :close, code: code, data: reason
       end
       
       def next
@@ -486,14 +509,12 @@ class Subscriber
     def on_message(data, type, bundle)
       #puts "Received message: #{data} type: #{type}"
       if type==:close
-        close_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, type: :close)
-        bundle.sock << close_frame.to_s
+        bundle.send_close
         #server should close the connection, just reply
         data.match(/(\d+)\s(.*)/)
         @subscriber.on_failure error(($~[1] || 0).to_i, $~[2] || "", true)
       elsif type==:ping
-        ping_frame = WebSocket::Frame::Outgoing::Client.new(version: @handshake.version, data: data, type: :pong)
-        bundle.sock << ping_frame.to_s
+        bundle.send_pong(data: data)
       elsif type==:text
         msg= @nomsg ? data : Message.new(data)
         bundle.last_message_time=Time.now.to_f
@@ -501,6 +522,16 @@ class Subscriber
       else
         raise "unexpected websocket frame #{type} data #{data}"
       end
+    end
+    
+    def send_ping(data=nil)
+      bundle.send_ping data
+    end
+    def send_close(code=1000, reason=nil)
+      bundle.send_close code, reason
+    end
+    def send(data=nil)
+      bundle.send_data data
     end
     
     def close(bundle)
@@ -1421,6 +1452,22 @@ class Publisher
     @accept = opt[:accept]
     @verbose = opt[:verbose]
     @on_response = opt[:on_response]
+    
+    if opt[:ws] || opt[:websocket]
+      @ws = Subscriber.new url, 1, timeout: 100000
+      @ws_sent_msg = []
+      sub.on_message do |msg|
+        sent_msg = @ws_sent_msg.shify
+        @messages << sent_msg if @messages && sent_msg
+        
+        self.response=Typhoeus::Response.new
+        self.response_code=200 #fake it
+        self.response_body=msg
+        
+        on_response.call(self.response_code, self.response_body) if on_response
+
+      end
+    end
   end
   
   def with_url(alt_url)
@@ -1444,6 +1491,17 @@ class Publisher
     @on_complete = block
   end
   
+  def submit_ws(body, &block)
+    @ws.send(body)
+    if body && @messages
+      msg=Message.new body
+      @ws_sent_msg << msg
+    else
+      @ws_sent_msg << body
+    end
+  end
+  private :submit_ws
+  
   def submit(body, method=:POST, content_type= :'text/plain', &block)
     self.response=nil
     self.response_code=nil
@@ -1454,6 +1512,9 @@ class Publisher
       body.each{|b| i+=1; submit(b, method, content_type, &block)}
       return i
     end
+    
+    return submit_ws body, &block if @ws
+    
     headers = {:'Content-Type' => content_type, :'Accept' => accept}
     headers.merge! @extra_headers if @extra_headers
     post = Typhoeus::Request.new(
