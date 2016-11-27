@@ -1,4 +1,4 @@
-1.0.7 (Nov. 23 2016)
+1.0.7 (Nov. 27 2016)
  fix: memory leak after websocket publisher uncleanly aborts connection
  fix: misbehaving websocket publisher with nchan_publisher_upstream_request
  fix: potential stack overflow with very large message buffers
