@@ -50,7 +50,7 @@ Currently, Nchan's main bottleneck is not CPU load but memory bandwidth. This ca
  - [Debian](https://www.debian.org/): A dynamic module build for is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.slact.net/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
  - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.slact.net/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will add them to their repository?...
- - [Fedora](https://fedoraproject.org): A 64-bit binary rpm and a source rpm are available: [nginx-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-nchan.x86-64.rpm), [ngx-nchan.src.rpm](https://nchan.slact.net/download/nginx-nchan.src.rpm). 
+ - [Fedora](https://fedoraproject.org): Dynamic module builds for Nginx > 1.10.0 are available: [nginx-mod-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-mod-nchan.x86-64.rpm), [nginx-mod-nchan.src.rpm](https://nchan.slact.net/download/nginx-mod-nchan.src.rpm). 
  - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
 
 
