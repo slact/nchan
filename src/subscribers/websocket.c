@@ -138,11 +138,8 @@ typedef struct full_subscriber_s full_subscriber_t;
 typedef struct nchan_pub_upstream_request_data_s nchan_pub_upstream_request_data_t;
 struct nchan_pub_upstream_request_data_s {
   ngx_http_request_t                 *sr;
-  ngx_http_request_body_t            *sr_body;
-  size_t                              sr_body_size;
-  ngx_http_post_subrequest_t          psr;
+  ngx_buf_t                           body_buf;
   full_subscriber_t                  *fsub;
-  ngx_buf_t                           buf;
   nchan_pub_upstream_request_data_t  *next;
   unsigned                            sent:1;
 };
@@ -178,12 +175,12 @@ struct full_subscriber_s {
   unsigned                shook_hands:1;
   unsigned                connected:1;
   unsigned                closing:1;
-  unsigned                closing_delayed_until_unsub_callback:1;
   unsigned                already_sent_unsub_request:1;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
 };// full_subscriber_t
 
+static void empty_handler() { }
 
 static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *chain);
 static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str);
@@ -201,21 +198,58 @@ static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
 static void websocket_delete_timers(full_subscriber_t *fsub);
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg);
 
-static void websocket_maybe_send_unsubscribe_request(full_subscriber_t *);
-
-static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
-  nchan_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+ngx_int_t websocket_finalize_upstream_handler(subscriber_t *sub, ngx_http_request_t *sr, ngx_int_t rc, void *pd) {
+  ngx_http_request_t *r = sub->request;
+  DBG("websocket_finalize_upstream_handler");
+  r->main->blocked = 0;
+  websocket_release(sub, 0);
+  
+  nchan_http_finalize_request(r, NGX_HTTP_OK);
+  return NGX_OK;
 }
 
+static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
+  subscriber_t       *sub = &fsub->sub;
+  ngx_http_request_t *r = sub->request;
+  
+  fsub->cln->handler = (ngx_http_cleanup_pt )empty_handler;
+  if(sub->cf->unsubscribe_request_url && sub->enqueued) {
+    if(!fsub->already_sent_unsub_request) {
+      r->main->blocked = 1;
+      fsub->already_sent_unsub_request = 1;
+      websocket_reserve(&fsub->sub);
+      if(sub->enqueued) {
+        sub->fn->dequeue(sub);
+      }
+      if(subscriber_cv_subrequest(sub, sub->cf->unsubscribe_request_url, NULL, websocket_finalize_upstream_handler, NULL)) {
+        ngx_http_run_posted_requests(r->connection);
+      }
+    }
+  }
+  else {
+    if(sub->enqueued) {
+      sub->fn->dequeue(sub);
+    }
+    nchan_http_finalize_request(r, NGX_HTTP_OK);
+  }
+  return NGX_OK;
+}
+
+static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
+  if(fsub) {
+    websocket_finalize_request(fsub);
+  }
+}
 
 static void sudden_abort_handler(subscriber_t *sub) {
-  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  DBG("sudden abort handler for sub %p request %p", sub, sub->request);
 #if FAKESHARD
+  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->sub.owner);
 #endif
-  fsub->connected = 0;
   sub->request->read_event_handler = aborted_ws_close_request_rev_handler;
-  sub->status = DEAD;
   sub->fn->dequeue(sub);
 #if FAKESHARD
   memstore_fakeprocess_pop();
@@ -323,16 +357,6 @@ static ngx_int_t ws_output_msg_filter(full_subscriber_t *fsub, nchan_msg_t *msg)
   }
 }
 
-static void websocket_maybe_send_unsubscribe_request(full_subscriber_t *fsub) {
-  if(fsub->sub.cf->unsubscribe_request_url != NULL && fsub->sub.enqueued && fsub->ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST && !fsub->already_sent_unsub_request) {
-    fsub->closing_delayed_until_unsub_callback = 1;
-    fsub->sub.request->main->blocked = 1;
-    fsub->already_sent_unsub_request = 1;
-    nchan_subscriber_unsubscribe_request(&fsub->sub, NGX_DONE);
-    ngx_http_run_posted_requests(fsub->sub.request->connection);
-  }
-}
-
 static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *ch, full_subscriber_t *fsub) {
   time_t                 last_seen = 0;
   ngx_uint_t             subscribers = 0;
@@ -402,63 +426,11 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   nchan_update_stub_status(total_published_messages, 1);
   
 }
-static void send_next_publish_subrequest(full_subscriber_t *fsub) {
-  static ngx_str_t                   POST_REQUEST_STRING = {4, (u_char *)"POST "};
-  nchan_pub_upstream_stuff_t        *sup = fsub->publish_upstream;
-  nchan_pub_upstream_request_data_t *scur;
-  
-  if(!sup || !sup->upstream_request_data_head) return;
-  
-  scur = sup->upstream_request_data_head;
-  
-  //sup->upstream_request_data_current = scur;
-  
-  if(ngx_http_subrequest(fsub->sub.request, &sup->request_url, NULL, &scur->sr, &scur->psr, NGX_HTTP_SUBREQUEST_IN_MEMORY) == NGX_ERROR) {
-    ERR("failed sending subrequest");
-  }
-  else {
-    nchan_adjust_subrequest(scur->sr, NGX_HTTP_POST, &POST_REQUEST_STRING, scur->sr_body, scur->sr_body_size, NULL);
-    ngx_http_run_posted_requests(fsub->sub.request->connection);
-  }
-  sup->upstream_request_data_head->sent = 1;
-}
 
-static void clean_after_upstream_response(full_subscriber_t *fsub, ngx_int_t force) {
-  nchan_pub_upstream_stuff_t   *sup = fsub->publish_upstream;
-  if(sup) 
-    ERR("running_upstream_request_count %i", sup->running_upstream_request_count);
-  if(sup && (sup->upstream_request_data_head == NULL || force)) {
-    if(!force) assert(sup->running_upstream_request_count == 0);
-    ngx_http_cleanup_t *cln = fsub->sub.request->cleanup;
-    while(cln && cln != fsub->cln) {
-      if (cln->handler) {
-        ERR("run handler");
-        cln->handler(cln->data);
-      }
-      cln = cln->next;
-    }
-    fsub->sub.request->cleanup = cln;
-    
-    //no need for tmp_pool anymore
-    if(sup->temp_request_pool) {
-      ngx_destroy_pool(sup->temp_request_pool);
-      fsub->sub.request->pool = sup->real_request_pool;
-      sup->temp_request_pool = NULL;
-    }
-  }
-}
-
-static void upstream_subrequest_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t            *fsub = ev->data;
-  send_next_publish_subrequest(fsub);
-  clean_after_upstream_response(fsub, 0);
-  //assert(fsub->sub.request->write_event_handler == ws_request_empty_handler);
-}
-
-static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, void *data, ngx_int_t rc) {
+static ngx_int_t websocket_publisher_upstream_handler(subscriber_t *sub, ngx_http_request_t *sr, ngx_int_t rc, void *data) {
   ngx_http_request_t                  *r = sr->parent;
   nchan_pub_upstream_request_data_t   *d = (nchan_pub_upstream_request_data_t *)data;
-  full_subscriber_t                   *fsub = d->fsub;
+  full_subscriber_t                   *fsub = (full_subscriber_t *)sub;
   nchan_pub_upstream_stuff_t          *sup = fsub->publish_upstream;
 #if nginx_version <= 1009004
   r->main->subrequests++; //avoid tripping up subrequest loop detection
@@ -520,7 +492,7 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
         break;
       
       case NGX_HTTP_NOT_MODIFIED:
-        websocket_publish_continue(fsub, &d->buf);
+        websocket_publish_continue(fsub, &d->body_buf);
         
         break;
         
@@ -553,6 +525,55 @@ static ngx_int_t websocket_publisher_upstream_handler(ngx_http_request_t *sr, vo
   return NGX_OK;
 }
 
+static void send_next_publish_subrequest(full_subscriber_t *fsub) {
+  nchan_pub_upstream_stuff_t        *sup = fsub->publish_upstream;
+  nchan_pub_upstream_request_data_t *scur;
+  ngx_http_request_t                *sr;
+  
+  if(!sup || !sup->upstream_request_data_head) return;
+  
+  scur = sup->upstream_request_data_head;
+  
+  //typedef ngx_int_t (*subrequest_callback_pt)(subscriber_t *sub, ngx_http_request_t *r, ngx_int_t rc, void *);
+  
+  sr = subscriber_subrequest(&fsub->sub, &sup->request_url, &scur->body_buf, websocket_publisher_upstream_handler, scur);
+  scur->sr = sr;
+  scur->sent = 1;
+  ngx_http_run_posted_requests(fsub->sub.request->connection);
+}
+
+static void clean_after_upstream_response(full_subscriber_t *fsub, ngx_int_t force) {
+  nchan_pub_upstream_stuff_t   *sup = fsub->publish_upstream;
+  if(sup) 
+    DBG("running_upstream_request_count %i", sup->running_upstream_request_count);
+  if(sup && (sup->upstream_request_data_head == NULL || force)) {
+    if(!force) assert(sup->running_upstream_request_count == 0);
+    ngx_http_cleanup_t *cln = fsub->sub.request->cleanup;
+    while(cln && cln != fsub->cln) {
+      if (cln->handler) {
+        DBG("run handler");
+        cln->handler(cln->data);
+      }
+      cln = cln->next;
+    }
+    fsub->sub.request->cleanup = cln;
+    
+    //no need for tmp_pool anymore
+    if(sup->temp_request_pool) {
+      ngx_destroy_pool(sup->temp_request_pool);
+      fsub->sub.request->pool = sup->real_request_pool;
+      sup->temp_request_pool = NULL;
+    }
+  }
+}
+
+static void upstream_subrequest_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t            *fsub = ev->data;
+  send_next_publish_subrequest(fsub);
+  clean_after_upstream_response(fsub, 0);
+  //assert(fsub->sub.request->write_event_handler == ws_request_empty_handler);
+}
+
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
   static ngx_str_t         nopublishing = ngx_string("Publishing not allowed.");
   
@@ -568,11 +589,8 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
     websocket_publish_continue(fsub, buf);
   }
   else {
-    ngx_http_post_subrequest_t        *psr;
     nchan_pub_upstream_request_data_t *psrd;
     ngx_http_request_t                *r = fsub->sub.request;
-    ngx_chain_t                       *fakebody_chain;
-    ngx_buf_t                         *fakebody_buf;
     size_t                             sz;
     ngx_pool_t                        *tmp_pool;
     nchan_pub_upstream_stuff_t        *sup = fsub->publish_upstream;
@@ -598,36 +616,17 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
     psrd->next = NULL;
     psrd->sent = 0;
     psrd->fsub = fsub;
-    psrd->buf = *buf;
     
-    psr = &psrd->psr;
-    psr->handler = websocket_publisher_upstream_handler;
-    psr->data = psrd;
+    //copy body out of the websocket framebuffer to the upstream temp pool buffer
+    sz = ngx_buf_size(buf);
+    psrd->body_buf = *buf;
+    psrd->body_buf.start = ngx_palloc(tmp_pool, sz);
+    ngx_memcpy(psrd->body_buf.start, buf->start, sz);
+    psrd->body_buf.end = psrd->body_buf.start + sz;
+    psrd->body_buf.pos = psrd->body_buf.start;
+    psrd->body_buf.last = psrd->body_buf.end;
     
     //ERR("request %p tmp pool %p", r, r->pool);
-    
-    psrd->sr_body = ngx_pcalloc(tmp_pool, sizeof(*psrd->sr_body));
-    if(ngx_buf_size(buf) > 0) {
-      fakebody_chain = ngx_palloc(tmp_pool, sizeof(*fakebody_chain));
-      fakebody_buf = ngx_palloc(tmp_pool, sizeof(*fakebody_buf));
-      psrd->sr_body->bufs = fakebody_chain;
-      fakebody_chain->next = NULL;
-      fakebody_chain->buf = fakebody_buf;
-      init_msg_buf(fakebody_buf);
-      
-      //just copy the buffer contents. it's inefficient but I don't care at the moment.
-      //this can and should be optimized later
-      sz = ngx_buf_size(buf);
-      fakebody_buf->start = ngx_palloc(tmp_pool, sz); //huuh?
-      ngx_memcpy(fakebody_buf->start, buf->start, sz);
-      fakebody_buf->end = fakebody_buf->start + sz;
-      fakebody_buf->pos = fakebody_buf->start;
-      fakebody_buf->last = fakebody_buf->end;
-    }
-    else {
-      sz = 0;
-    }
-    psrd->sr_body_size = sz;
     
     
     sup->running_upstream_request_count++;
@@ -638,8 +637,6 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
   
   return NGX_OK;
 }
-
-static void empty_handler() { }
 
 static void websocket_init_frame(ws_frame_t *frame) {
   ngx_memzero(frame, sizeof(*frame)); 
@@ -654,13 +651,10 @@ static void *framebuf_alloc(void *pd) {
 
 static void closing_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
-  DBG("closing_ev timer handler for %p", fsub);
-  if(fsub->closing_delayed_until_unsub_callback) {
-    fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
-  }
-  else {
-    nchan_http_finalize_request(fsub->sub.request, NGX_OK);
-  }
+  DBG("closing_ev timer handler for %p, delayed", fsub);
+  //fsub->connected = 0;
+  //fsub->sub.status = DEAD;
+  websocket_finalize_request(fsub);
 }
 
 subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *msg_id) {
@@ -684,7 +678,6 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->connected = 0;
   fsub->awaiting_pong = 0;
   fsub->closing = 0;
-  fsub->closing_delayed_until_unsub_callback = 0;
   fsub->already_sent_unsub_request = 0;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
@@ -782,6 +775,7 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     websocket_delete_timers(fsub);
     nchan_free_msg_id(&sub->last_msgid);
     //debug 
+    DBG("Begone, websocket %p", fsub);
     ngx_memset(fsub, 0x13, sizeof(*fsub));
     ngx_free(fsub);
   }
@@ -890,14 +884,14 @@ static ngx_int_t websocket_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
   self->reserved++;
-  DBG("%p reserve for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
+  //DBG("%p reserve for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
   return NGX_OK;
 }
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;
-  DBG("%p release for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
+  //DBG("%p release for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
     websocket_subscriber_destroy(self);
     return NGX_ABORT;
@@ -913,7 +907,8 @@ static void ping_ev_handler(ngx_event_t *ev) {
     ev->timedout=0;
     if(fsub->awaiting_pong) {
       //never got a PONG back
-      nchan_http_finalize_request(fsub->sub.request, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+      //NGX_HTTP_CLIENT_CLOSED_REQUEST?
+      websocket_finalize_request(fsub);
     }
     else {
       fsub->awaiting_pong = 1;
@@ -938,10 +933,6 @@ static ngx_int_t websocket_enqueue(subscriber_t *self) {
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
     ngx_add_timer(&fsub->timeout_ev, self->cf->subscriber_timeout * 1000);
-  }
-  
-  if(self->cf->unsubscribe_request_url) {
-    fsub->closing_delayed_until_unsub_callback = 1;
   }
   
   return NGX_OK;
@@ -970,8 +961,6 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   DBG("%p dequeue", self);
   fsub->dequeue_handler(&fsub->sub, fsub->dequeue_handler_data);
-  
-  websocket_maybe_send_unsubscribe_request(fsub);
   
   self->enqueued = 0;
   
@@ -1047,15 +1036,17 @@ static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len)
   }
 
 static void websocket_reading_finalize(ngx_http_request_t *r, ngx_pool_t *temp_pool) {
-  ngx_connection_t           *c = r->connection;
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
-
-  websocket_delete_timers(fsub);
   
   maybe_close_pool(temp_pool);
   
-  nchan_http_finalize_request(r, c->error ? NGX_HTTP_CLIENT_CLOSED_REQUEST : NGX_OK);
+  //fsub->connected = 0;
+  //fsub->sub.status = DEAD;
+  if(fsub) {
+    websocket_delete_timers(fsub);
+    websocket_finalize_request(fsub);
+  }
 }
   
 /* based on code from push stream module, written by
@@ -1079,13 +1070,15 @@ static void websocket_reading(ngx_http_request_t *r) {
   
   set_buffer(&buf, frame->header, frame->last, 8);
 
-  //ERR("fsub: %p, frame: %p", fsub, frame);
+  //DBG("websocket_reading fsub: %p, frame: %p", fsub, frame);
   
   c = r->connection;
   rev = c->read;
 
   for (;;) {
     if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
+      //ERR("c->error %i c->timedout %i c->close %i c->destroyed %i rev->closed %i rev->eof %i", c->error, c->timedout, c->close, c->destroyed, rev->closed, rev->eof);
+      fsub->connected = 0;
       return websocket_reading_finalize(r, temp_pool);
     }
     
@@ -1165,6 +1158,7 @@ static void websocket_reading(ngx_http_request_t *r) {
           set_buffer(&buf, frame->payload, frame->last, frame->payload_len);
           
           if ((rc = ws_recv(c, rev, &buf, frame->payload_len)) != NGX_OK) {
+            ERR("ws_recv NOT OK when receiving payload");
             goto exit;
           }
           
@@ -1223,16 +1217,9 @@ static void websocket_reading(ngx_http_request_t *r) {
               close_reason.len = 0;
             }
             DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
-            websocket_maybe_send_unsubscribe_request(fsub);
             websocket_send_close_frame(fsub, 0, NULL);
-            
-            if(!fsub->closing_delayed_until_unsub_callback) {
-              return websocket_reading_finalize(r, temp_pool);
-            }
-            else {
-              maybe_close_pool(temp_pool);
-              return;
-            }
+            maybe_close_pool(temp_pool);
+            return websocket_reading_finalize(r, temp_pool);
             break; //good practice?
         }
         if(free_temp_pool && temp_pool != NULL) {
@@ -1456,12 +1443,7 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
   fsub->connected = 0;
   if(fsub->closing == 1) {
     DBG("%p already sent close frame");
-    if(fsub->closing_delayed_until_unsub_callback) {
-      fsub->ctx->unsubscribe_request_callback_finalize_code = NGX_OK;
-    }
-    else {
-      nchan_http_finalize_request(fsub->sub.request, NGX_OK);
-    }
+    websocket_finalize_request(fsub);
   }
   else {
     fsub->closing = 1;
@@ -1510,6 +1492,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 
   return hdr_chain;
 }
+
 
 static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   ngx_int_t        rc;

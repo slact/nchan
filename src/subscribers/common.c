@@ -1,7 +1,8 @@
 #include <nchan_module.h>
 #include <assert.h>
 #include "common.h"
-#include <util/nchan_fake_request.h>
+//#include <util/nchan_fake_request.h>
+#include <util/nchan_subrequest.h>
 
 #if FAKESHARD
 #include <store/memory/store.h>
@@ -19,12 +20,95 @@ typedef struct {
   ngx_int_t        http_response_code;
 } nchan_subrequest_data_t;
 
+
+typedef struct {
+  subscriber_t            *sub;
+  subrequest_callback_pt   cb;
+  void                    *cb_data;
+} nchan_subrequest_data_cb_t;
+
 typedef struct {
   ngx_http_post_subrequest_t     psr;
   nchan_subrequest_data_t        psr_data;
 } nchan_subrequest_stuff_t;
 
-static ngx_int_t generic_subscriber_subrequest(subscriber_t *sub, ngx_http_complex_value_t *url_ccv, ngx_int_t (*handler)(ngx_http_request_t *, void *, ngx_int_t), ngx_http_request_t **subrequest, ngx_str_t *chid) {
+static ngx_int_t subscriber_subrequest_handler(ngx_http_request_t *sr, void *pd, ngx_int_t rc) {
+  nchan_subrequest_data_cb_t    *psrd = (nchan_subrequest_data_cb_t *)pd;
+  
+  psrd->sub->fn->release(psrd->sub, 1);
+  
+  if(psrd->cb) {
+    psrd->cb(psrd->sub, sr, rc, psrd->cb_data);
+  }
+  return NGX_OK;
+}
+
+
+ngx_http_request_t *subscriber_cv_subrequest(subscriber_t *sub, ngx_http_complex_value_t *url_ccv, ngx_buf_t *body, subrequest_callback_pt cb, void *cb_data) {
+  ngx_str_t                     request_url;
+  ngx_http_complex_value(sub->request, url_ccv, &request_url);
+  return subscriber_subrequest(sub, &request_url, body, cb, cb_data);
+}
+
+
+ngx_http_request_t *subscriber_subrequest(subscriber_t *sub, ngx_str_t *url, ngx_buf_t *body, subrequest_callback_pt cb, void *cb_data) {
+  ngx_http_request_t            *r = sub->request;
+  ngx_http_post_subrequest_t    *psr = ngx_pcalloc(r->pool, sizeof(*psr));
+  nchan_subrequest_data_cb_t    *psrd = ngx_pcalloc(r->pool, sizeof(*psrd));
+  ngx_http_request_t            *sr;
+
+  sub->fn->reserve(sub);
+  
+  psr->handler = subscriber_subrequest_handler;
+  psr->data = psrd;
+  psrd->sub = sub;
+  psrd->cb_data = cb_data;
+  psrd->cb = cb;
+  
+  ngx_http_subrequest(r, url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
+  
+  if((sr->request_body = ngx_pcalloc(r->pool, sizeof(*sr->request_body))) == NULL) { //dummy request body 
+    return NULL;
+  }
+  
+  if(body && ngx_buf_size(body) > 0) {
+    static ngx_str_t                   POST_REQUEST_STRING = {4, (u_char *)"POST "};
+    size_t                             sz;
+    ngx_http_request_body_t           *sr_body = sr->request_body;
+    ngx_chain_t                       *fakebody_chain;
+    ngx_buf_t                         *fakebody_buf;
+    
+    fakebody_chain = ngx_palloc(r->pool, sizeof(*fakebody_chain));
+    fakebody_buf = ngx_palloc(r->pool, sizeof(*fakebody_buf));
+    sr_body->bufs = fakebody_chain;
+    fakebody_chain->next = NULL;
+    fakebody_chain->buf = fakebody_buf;
+    ngx_memzero(fakebody_buf, sizeof(*fakebody_buf));
+    fakebody_buf->last_buf = 1;
+    fakebody_buf->last_in_chain = 1;
+    fakebody_buf->flush = 1;
+    fakebody_buf->memory = 1;
+    
+    //just copy the buffer contents. it's inefficient but I don't care at the moment.
+    //this can and should be optimized later
+    sz = ngx_buf_size(body);
+    fakebody_buf->start = ngx_palloc(r->pool, sz); //huuh?
+    ngx_memcpy(fakebody_buf->start, body->start, sz);
+    fakebody_buf->end = fakebody_buf->start + sz;
+    fakebody_buf->pos = fakebody_buf->start;
+    fakebody_buf->last = fakebody_buf->end;
+    
+    nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, sr_body, sz, NULL);
+  }
+  else {
+    sr->header_only = 1;
+  }
+  sr->args = sub->request->args;
+  
+  return sr;
+}
+
+static ngx_int_t generic_subscriber_subrequest_old(subscriber_t *sub, ngx_http_complex_value_t *url_ccv, ngx_int_t (*handler)(ngx_http_request_t *, void *, ngx_int_t), ngx_http_request_t **subrequest, ngx_str_t *chid) {
   ngx_str_t                  request_url;
   nchan_subrequest_stuff_t  *psr_stuff = ngx_palloc(sub->request->pool, sizeof(*psr_stuff));
   assert(psr_stuff != NULL);
@@ -118,7 +202,7 @@ ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_st
     return nchan_subscriber_subscribe(sub, ch_id);
   }
   else {
-    return generic_subscriber_subrequest(sub, authorize_request_url_ccv, subscriber_authorize_callback, NULL, ch_id);
+    return generic_subscriber_subrequest_old(sub, authorize_request_url_ccv, subscriber_authorize_callback, NULL, ch_id);
   }
 }
 
@@ -152,7 +236,7 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t fina
   nchan_request_ctx_t         *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   ngx_http_request_t          *subrequest;
   ctx->unsubscribe_request_callback_finalize_code = finalize_code;
-  ret = generic_subscriber_subrequest(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
+  ret = generic_subscriber_subrequest_old(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
   ctx->sent_unsubscribe_request = 1;
   
   //ucf = ngx_http_get_module_loc_conf(subrequest, ngx_http_upstream_module);
@@ -160,6 +244,7 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t fina
   
   return ret;
 }
+
 
 static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_subrequest_data_t       *d = data;
@@ -171,7 +256,7 @@ static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data
 ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   if(!ctx->sent_unsubscribe_request) {
-    return generic_subscriber_subrequest(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
+    return generic_subscriber_subrequest_old(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
   }
   else {
     return NGX_OK;
