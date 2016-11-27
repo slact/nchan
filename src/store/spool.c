@@ -1048,7 +1048,7 @@ static ngx_int_t its_time_for_a_spooling(rbtree_seed_t *seed, subscriber_pool_t 
   assert(spool->msg_status == MSG_CHANNEL_NOTREADY);
   spool->msg_status = MSG_INVALID;
   rc = spool_fetch_msg(spool);
-  assert(rc == NGX_OK);
+  assert(rc == NGX_OK || rc == NGX_DONE);
   return rc;
 }
 
