@@ -1,0 +1,11 @@
+--- config.orig	2016-11-24 00:55:25.825028144 -0500
++++ config	2016-11-24 01:03:24.898558057 -0500
+@@ -89,7 +89,7 @@
+ 
+ ngx_module_incs=$ngx_addon_dir/src
+ 
+-have=NGX_HTTP_HEADERS . auto/have
++#have=NGX_HTTP_HEADERS . auto/have
+ 
+ if test -n "$ngx_module_link"; then
+   ngx_module_type=HTTP

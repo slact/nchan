@@ -1,0 +1,13 @@
+--- auto/cc/gcc.orig	2007-03-22 08:34:53.000000000 -0600
++++ auto/cc/gcc	2007-03-22 08:58:47.000000000 -0600
+@@ -172,7 +172,9 @@
+ 
+ 
+ # stop on warning
+-CFLAGS="$CFLAGS -Werror"
++# This combined with Fedora's FORTIFY_SOURCE=2 option causes it nginx
++# to not compile.
++#CFLAGS="$CFLAGS -Werror"
+ 
+ # debug
+ CFLAGS="$CFLAGS -g"
