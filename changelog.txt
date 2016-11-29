@@ -1,3 +1,5 @@
+1.0.8 (Nov. 28 2016)
+ fix: possible crash under severely heavy load, introduced in 1.0.7 with stack-overflow fix
 1.0.7 (Nov. 27 2016)
  fix: memory leak after websocket publisher uncleanly aborts connection
  fix: misbehaving websocket publisher with nchan_publisher_upstream_request
