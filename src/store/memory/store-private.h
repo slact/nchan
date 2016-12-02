@@ -2,6 +2,7 @@
 #define MEMSTORE_PRIVATE_HEADER
 #include <util/shmem.h>
 #include "ipc.h"
+#include "groups.h"
 //#define MEMSTORE_CHANHEAD_RESERVE_DEBUG 0
 #include "uthash.h"
 typedef struct memstore_channel_head_s memstore_channel_head_t;
@@ -124,6 +125,7 @@ memstore_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *chann
 store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status);
 shmem_t *nchan_memstore_get_shm(void);
 ipc_t *nchan_memstore_get_ipc(void);
+memstore_groups_t *nchan_memstore_get_groups(void);
 ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_status_t findmsg_status, void *d);
 
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);

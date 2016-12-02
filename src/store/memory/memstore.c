@@ -296,6 +296,9 @@ static shm_data_t      *shdata = NULL;
 static ipc_t            ipc_data;
 static ipc_t           *ipc = NULL;
 
+static memstore_groups_t groups_data;
+static memstore_groups_t *groups = NULL;
+
 #if FAKESHARD
 
 static memstore_data_t  mdata[MAX_FAKE_WORKERS];
@@ -336,6 +339,10 @@ shmem_t *nchan_memstore_get_shm(void){
 
 ipc_t *nchan_memstore_get_ipc(void){
   return ipc;
+}
+
+memstore_groups_t *nchan_memstore_get_groups(void) {
+  return groups;
 }
 
 static ngx_int_t                  shared_loc_conf_count = 0;
@@ -1531,6 +1538,11 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
   }
   ipc_open(ipc, cycle, shdata->max_workers, &init_shdata_procslots);
 
+  if(groups == NULL) {
+    groups = &groups_data;
+    memstore_groups_init(groups);
+  }
+  
   //initialize default shared multi-channel config
   ngx_memzero(&default_multiconf, sizeof(default_multiconf));
   default_multiconf.complex_message_timeout = NULL;
@@ -1617,6 +1629,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     assert(0);
   }
   
+  memstore_groups_shutdown(groups);
   ipc_close(ipc, cycle);
   
   if(shdata->reloading == 0) {

@@ -3,6 +3,7 @@
 #include <ngx_channel.h>
 #include <assert.h>
 #include "ipc.h"
+#include "groups.h"
 
 #include "store-private.h"
 
@@ -18,7 +19,6 @@ static ngx_event_t  receive_alert_delay_log_timer;
 static ngx_event_t  send_alert_delay_log_timer;
 static void receive_alert_delay_log_timer_handler(ngx_event_t *ev);
 static void send_alert_delay_log_timer_handler(ngx_event_t *ev);
-
 
 static void ipc_read_handler(ngx_event_t *ev);
 

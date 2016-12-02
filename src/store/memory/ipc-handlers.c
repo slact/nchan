@@ -775,7 +775,7 @@ ngx_int_t memstore_ipc_send_get_group(ngx_int_t dst, ngx_str_t *group_id) {
 static void receive_get_group(ngx_int_t sender, ngx_str_t *group_id) {
   DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, group_id);
   
-  //do GET_GROUPy stuff
+  assert(memstore_group_owner_find(nchan_memstore_get_groups(), group_id) != NULL);
   
   str_shm_free(group_id);
 }
