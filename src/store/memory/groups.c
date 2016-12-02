@@ -107,9 +107,22 @@ nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name)
   return gtn ? gtn->group : NULL;
 }
 
+
+nchan_group_t *memstore_group_find_now(memstore_groups_t *gp, ngx_str_t *name) {
+  ngx_rbtree_node_t      *node;
+  group_tree_node_t      *gtn = NULL;
+  if((node = rbtree_find_node(&gp->tree, name)) != NULL) {
+    gtn = rbtree_data_from_node(node);
+  }
+  else if(memstore_str_owner(name) == memstore_slot()) {
+    gtn = group_owner_create_node(gp, name);
+  }
+  return gtn ? gtn->group : NULL;
+}
+
 ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
   ngx_rbtree_node_t      *node;
-  group_tree_node_t      *gtn;
+  group_tree_node_t      *gtn = NULL;
   if((node = rbtree_find_node(&gp->tree, name)) != NULL) {
     gtn = rbtree_data_from_node(node);
   }

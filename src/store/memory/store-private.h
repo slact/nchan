@@ -67,6 +67,8 @@ struct memstore_channel_head_s {
   unsigned                        meta:1;
   
   nchan_loc_conf_t               *cf;
+  
+  nchan_group_t                  *group;
 
   subscriber_t                   *redis_sub;
   ngx_int_t                       delta_fakesubs;

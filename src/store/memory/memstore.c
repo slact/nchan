@@ -962,11 +962,28 @@ static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
   }
 }
 
+static ngx_int_t group_find_callback(ngx_int_t rc, void *group_data, void *chid_data) {
+  ngx_str_t                *chid = chid_data;
+  nchan_group_t            *shm_group = group_data;
+  memstore_channel_head_t  *ch = nchan_memstore_find_chanhead(chid);
+
+  if(shm_group && ch) {
+    ch->group = shm_group;
+  }
+  
+  //TODO: some other stuff maybe
+  
+  ngx_free(chid);
+  return NGX_OK;
+}
+
 static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   memstore_channel_head_t      *head;
   ngx_int_t                     owner = memstore_channel_owner(channel_id);
   ngx_str_t                     ids[NCHAN_MULTITAG_MAX];
   ngx_int_t                     i, n = 0;
+  ngx_str_t                     group_name;
+  nchan_group_t                *shm_group;
   
   head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   
@@ -1117,6 +1134,22 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   
   start_chanhead_spooler(head);
 
+  //get group
+  group_name = nchan_get_group_from_channel_id(&head->id);
+  if((shm_group = memstore_group_find_now(groups, &group_name)) != NULL) {
+    head->group = shm_group;
+  }
+  else { //group not available yet
+    ngx_str_t *chid_copy;
+    if((chid_copy = ngx_alloc(sizeof(*chid_copy) + head->id.len, ngx_cycle->log)) != NULL) {
+      chid_copy->len = head->id.len;
+      chid_copy->data = (u_char *)&chid_copy[1];
+      ngx_memcpy(chid_copy->data, head->id.data, head->id.len);
+      
+      memstore_group_find(groups, &group_name, group_find_callback, chid_copy);
+    }
+  }
+  
   CHANNEL_HASH_ADD(head);
   
   return head;
