@@ -13,13 +13,12 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   ngx_int_t                   i, n = idcf->n, n_out = 0;
   ngx_str_t                   id[NCHAN_MULTITAG_MAX];
   ngx_str_t                  *id_out;
-  ngx_str_t                  *group = &cf->channel_group;
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  ngx_str_t                  *group = &ctx->channel_group_name;
   size_t                      sz = 0, grouplen = group->len;
   u_char                     *cur;
   
   //static ngx_str_t            empty_string = ngx_string("");
-  
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   for(i=0; i < n && n_out < NCHAN_MULTITAG_MAX; i++) {
     ngx_http_complex_value(r, idcf->cv[i], &id[n_out]);
@@ -101,12 +100,13 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   static ngx_str_t            channel_id_var_name = ngx_string("push_channel_id");
   ngx_uint_t                  key = ngx_hash_key(channel_id_var_name.data, channel_id_var_name.len);
   ngx_http_variable_value_t  *vv = NULL;
-  ngx_str_t                  *group = &cf->channel_group;
+  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  ngx_str_t                  *group = &ctx->channel_group_name;
   ngx_str_t                   tmpid;
   ngx_str_t                  *id;
   size_t                      sz;
   u_char                     *cur;
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  
   
   ctx->channel_id_count = 0;
   
@@ -153,7 +153,25 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_int_t                       rc;
   ngx_str_t                      *id = NULL;
-  nchan_complex_value_arr_t          *chid_conf;
+  nchan_complex_value_arr_t      *chid_conf;
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  ngx_str_t                      *group;
+  
+  //group
+  group = &cf->channel_group;
+  ctx->channel_group_name = *group;
+  
+  //validate group
+  if(group->len == 1 && group->data[0]=='m') {
+    nchan_log_request_warning(r, "channel group \"m\" is reserved and cannot be used in a request.");
+    rc = NGX_DECLINED;
+    goto done;
+  }
+  else if(memchr(group->data, '/', group->len)) {
+    nchan_log_request_warning(r, "character \"/\" not allowed in channel group.");
+    rc = NGX_DECLINED;
+    goto done;
+  }
   
   chid_conf = what == PUB ? &cf->pub_chid : &cf->sub_chid;
   if(chid_conf->n == 0) {
