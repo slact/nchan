@@ -1,3 +1,6 @@
+#ifndef NCHAN_IPC_H
+#define NCHAN_IPC_H
+
 #define IPC_DATA_SIZE 56
 //#define IPC_DATA_SIZE 80
 
@@ -53,3 +56,5 @@ ngx_int_t ipc_register_worker(ipc_t *ipc, ngx_cycle_t *cycle);
 ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle);
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code,  void *data, size_t data_size);
+
+#endif //NCHAN_IPC_H
