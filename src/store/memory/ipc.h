@@ -47,6 +47,9 @@ struct ipc_s {
   ipc_process_t         process[NGX_MAX_PROCESSES];
   
   void                  (*handler)(ngx_int_t, ngx_uint_t, void*);
+  
+  ngx_int_t             workers;
+  ngx_int_t             worker_slots[NGX_MAX_PROCESSES];
 }; //ipc_t
 
 ngx_int_t ipc_init(ipc_t *ipc);
@@ -55,6 +58,7 @@ ngx_int_t ipc_set_handler(ipc_t *ipc, void (*alert_handler)(ngx_int_t, ngx_uint_
 ngx_int_t ipc_register_worker(ipc_t *ipc, ngx_cycle_t *cycle);
 ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle);
 
+ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t data_size);
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code,  void *data, size_t data_size);
 
 #endif //NCHAN_IPC_H

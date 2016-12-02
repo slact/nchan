@@ -43,6 +43,11 @@ ngx_int_t ipc_init(ipc_t *ipc) {
     proc->wbuf.overflow_last = NULL;
     proc->wbuf.overflow_n = 0;
   }
+  
+  for(i=0; i < NGX_MAX_PROCESSES + 1; i++) {
+    ipc->worker_slots[i]=NGX_ERROR;
+  }
+  ipc->workers = NGX_ERROR;
   return NGX_OK;
 }
 
@@ -86,6 +91,8 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers, void (*slo
       slot_callback(s, i);
     }
     
+    ipc->worker_slots[i] = s;
+    
     proc = &ipc->process[s];
 
     socks = proc->pipe;
@@ -120,6 +127,7 @@ ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers, void (*slo
     
     s++; //NEXT!!
   }
+  ipc->workers = workers;
   
   //ERR("ipc_alert_t size %i bytes", sizeof(ipc_alert_t));
   
@@ -452,6 +460,21 @@ static void ipc_read_handler(ngx_event_t *ev) {
   }
 }
 
+
+ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t data_size) {
+  ngx_int_t   i, slot, rc, ret = NGX_OK;
+  ngx_int_t   my_slot = memstore_slot();
+  for(i=0; i < ipc->workers; i++) {
+    slot = ipc->worker_slots[i];
+    if(my_slot != slot) {
+      if((rc = ipc_alert(ipc, slot, code, data, data_size)) != NGX_OK)  {
+        ERR("Error sending alert to slot %i", slot);
+        ret = NGX_ERROR;
+      }
+    }
+  }
+  return ret;
+}
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
   DBG("IPC send alert code %i to slot %i", code, slot);
