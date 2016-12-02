@@ -11,7 +11,7 @@ ngx_int_t memstore_groups_init(memstore_groups_t *);
 ngx_int_t memstore_groups_shutdown(memstore_groups_t *);
 
 
-ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, void (*cb)(nchan_group_t *, void *), void *pd);
+ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd);
 nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name);
 ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group);
 

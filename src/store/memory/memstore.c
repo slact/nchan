@@ -2893,6 +2893,10 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   return rc;
 }
 
+static ngx_int_t nchan_store_get_group(ngx_str_t *name, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  return memstore_group_find(groups, name, cb, pd);
+}
+
 nchan_store_t  nchan_store_memory = {
     //init
     &nchan_store_init_module,
@@ -2912,7 +2916,7 @@ nchan_store_t  nchan_store_memory = {
     &nchan_store_delete_channel, //+callback
     &nchan_store_find_channel, //+callback
     
-    NULL, //get_group
+    &nchan_store_get_group, //get_group
     
     //message stuff
     NULL,

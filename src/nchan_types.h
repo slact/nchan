@@ -182,7 +182,7 @@ typedef struct{
   //channel actions
   ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
   
-  nchan_group_t (*get_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
+  ngx_int_t (*get_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
   
   //message actions and properties
   ngx_str_t * (*message_etag)(nchan_msg_t *msg, ngx_pool_t *pool);

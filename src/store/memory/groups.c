@@ -10,7 +10,7 @@
 
 typedef struct group_callback_s group_callback_t ;
 struct group_callback_s {
-  void              (*cb)(nchan_group_t *, void *);
+  callback_pt         cb;
   void               *pd;
   group_callback_t   *next;
 };
@@ -107,7 +107,7 @@ nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name)
   return gtn ? gtn->group : NULL;
 }
 
-ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, void (*cb)(nchan_group_t *, void *), void *pd) {
+ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
   ngx_rbtree_node_t      *node;
   group_tree_node_t      *gtn;
   if((node = rbtree_find_node(&gp->tree, name)) != NULL) {
@@ -115,17 +115,17 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, void (*cb)
   }
   else if(memstore_str_owner(name) == memstore_slot()) {
     if((gtn = group_owner_create_node(gp, name)) != NULL) {
-      cb(gtn->group, pd);
+      cb(NGX_OK, gtn->group, pd);
       return NGX_OK;
     }
     else {
-      cb(NULL, pd);
+      cb(NGX_ERROR, NULL, pd);
       return NGX_ERROR;
     }
   }
   else {
     if((gtn = group_create_node(gp, name, NULL)) == NULL) {
-      cb(NULL, pd);
+      cb(NGX_ERROR, NULL, pd);
       return NGX_ERROR;
     }
   }
@@ -137,20 +137,24 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, void (*cb)
     //not ready yet, queue up the callback
     group_callback_t  *gcb;
     if((gcb = ngx_alloc(sizeof(*gcb), ngx_cycle->log)) == NULL) {
-      gcb->cb = cb;
-      gcb->pd = pd;
-      gcb->next = NULL;
-      
-      if(gtn->when_ready_tail) {
-        gtn->when_ready_tail->next = gcb;
-      }
-      
-      if(!gtn->when_ready_head) {
-        gtn->when_ready_head = gcb;
-      }
-      
-      gtn->when_ready_tail = gcb;
+      ERR("couldn't allocate callback link for group %V", name);
+      cb(NGX_ERROR, NULL, pd);
+      return NGX_ERROR;
     }
+    
+    gcb->cb = cb;
+    gcb->pd = pd;
+    gcb->next = NULL;
+    
+    if(gtn->when_ready_tail) {
+      gtn->when_ready_tail->next = gcb;
+    }
+    
+    if(!gtn->when_ready_head) {
+      gtn->when_ready_head = gcb;
+    }
+    
+    gtn->when_ready_tail = gcb;
   }
   return NGX_OK;
 }
@@ -166,17 +170,22 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
     gtn = rbtree_data_from_node(node);  
     for(gcb = gtn->when_ready_head; gcb != NULL; gcb =  next_gcb) {
       next_gcb = gcb->next;
-      gcb->cb(shm_group, gcb->pd);
+      gcb->cb(NGX_OK, shm_group, gcb->pd);
       ngx_free(gcb);
     }
     gtn->when_ready_head = NULL;
     gtn->when_ready_tail = NULL;
     
-    gtn->group = shm_group;
   }
   else {
     gtn = group_create_node(gp, &shm_group->name, shm_group);
   }
-
-  return NGX_OK;
+  
+  if(gtn) {
+    gtn->group = shm_group;
+    return NGX_OK;
+  }
+  else {
+    return NGX_ERROR;
+  }
 }
