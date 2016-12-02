@@ -409,8 +409,6 @@ void memstore_fakeprocess_push_random(void) {
 
 #endif
 
-static ngx_int_t is_multi_id(ngx_str_t *id);
-
 ngx_int_t memstore_str_owner(ngx_str_t *str) {
   uint32_t        h;
   ngx_int_t       workers;
@@ -440,7 +438,7 @@ ngx_int_t memstore_str_owner(ngx_str_t *str) {
 }
 
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
-  return is_multi_id(id) ? memstore_slot() : memstore_str_owner(id);
+  return nchan_channel_id_is_multi(id) ? memstore_slot() : memstore_str_owner(id);
 }
 
 
@@ -937,18 +935,13 @@ ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8
 }
 
 
-static ngx_int_t is_multi_id(ngx_str_t *id) {
-  u_char         *cur = id->data;
-  return (cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR);
-}
-
 static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
   ngx_int_t       n = 0;
   u_char         *cur = id->data;
   u_char         *last = cur + id->len;
   u_char         *sep;
   
-  if(is_multi_id(id)) {
+  if(nchan_channel_id_is_multi(id)) {
     cur += 3;
     while((sep = ngx_strlchr(cur, last, NCHAN_MULTI_SEP_CHR)) != NULL) {
       ids[n].data=cur;
@@ -1353,7 +1346,7 @@ static ngx_int_t nchan_memstore_force_delete_chanhead(memstore_channel_head_t *c
 static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t                owner;
 
-  assert(!is_multi_id(channel_id));
+  assert(!nchan_channel_id_is_multi(channel_id));
   owner = memstore_channel_owner(channel_id);
   
   if(cf->redis.enabled) {
@@ -1368,7 +1361,7 @@ static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nch
 }
 
 static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  if(!is_multi_id(channel_id)) {
+  if(!nchan_channel_id_is_multi(channel_id)) {
     return nchan_store_delete_single_channel_id(channel_id, cf, callback, privdata);
   }
   else {
@@ -2403,7 +2396,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
     return NGX_ERROR;
   }
   
-  if(is_multi_id(channel_id)) {
+  if(nchan_channel_id_is_multi(channel_id)) {
     return nchan_store_async_get_multi_message(channel_id, msg_id, callback, privdata);
   }
   
@@ -2757,7 +2750,7 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
 
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   
-  if(is_multi_id(channel_id)) {
+  if(nchan_channel_id_is_multi(channel_id)) {
     ngx_int_t             i, n = 0;
     ngx_str_t             ids[NCHAN_MULTITAG_MAX];
     publish_multi_data_t *pd;

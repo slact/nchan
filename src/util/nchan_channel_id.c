@@ -9,6 +9,13 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
   return NGX_OK;
 }
 
+ngx_int_t nchan_channel_id_is_multi(ngx_str_t *id) {
+  u_char         *cur = id->data;
+  return (cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR);
+}
+
+
+
 static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_complex_value_arr_t *idcf, nchan_loc_conf_t *cf, ngx_str_t **ret_id) {
   ngx_int_t                   i, n = idcf->n, n_out = 0;
   ngx_str_t                   id[NCHAN_MULTITAG_MAX];
@@ -146,6 +153,29 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   
   *ret_id = id;
   return NGX_OK;
+}
+
+ngx_str_t nchan_get_group_from_channel_id(ngx_str_t *id) {
+  ngx_str_t group;
+  u_char *cur, *end;
+  size_t  len;
+  if(nchan_channel_id_is_multi(id)) {
+    cur = &id->data[2];
+    len = id->len - 2;
+  }
+  else {
+    cur = id->data;
+    len = id->len;
+  }
+  end = memchr(cur, '/', len);
+  
+  assert(end); //if slash wasn't found, we have a malformed id string. 
+  //this is crashworthy to investigate how it happened.
+  
+  group.data = cur;
+  group.len = (end - cur);
+  
+  return group;
 }
 
 ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
