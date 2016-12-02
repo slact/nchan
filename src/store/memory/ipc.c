@@ -42,9 +42,6 @@ ngx_int_t ipc_init(ipc_t *ipc) {
     proc->wbuf.overflow_first = NULL;
     proc->wbuf.overflow_last = NULL;
     proc->wbuf.overflow_n = 0;
-  }
-  
-  for(i=0; i < NGX_MAX_PROCESSES + 1; i++) {
     ipc->worker_slots[i]=NGX_ERROR;
   }
   ipc->workers = NGX_ERROR;
