@@ -150,6 +150,17 @@ typedef struct {
 
 typedef struct subscriber_s subscriber_t;
 
+
+typedef struct {
+  ngx_atomic_uint_t               channels;
+  ngx_atomic_uint_t               multiplexed_channels;
+  ngx_atomic_uint_t               subscribers;
+  ngx_atomic_uint_t               messages;
+  ngx_atomic_uint_t               messages_shmem_bytes;
+  ngx_atomic_uint_t               messages_file_bytes;
+  ngx_str_t                       name;
+} nchan_group_t;
+
 typedef struct{
   //init
   ngx_int_t (*init_module)(ngx_cycle_t *cycle);
@@ -171,7 +182,7 @@ typedef struct{
   //channel actions
   ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
   
-  
+  nchan_group_t (*get_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
   
   //message actions and properties
   ngx_str_t * (*message_etag)(nchan_msg_t *msg, ngx_pool_t *pool);

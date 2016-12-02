@@ -47,6 +47,7 @@ _NCHAN_REDIS_STORE_SRCS="\
 _NCHAN_MEMORY_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/memory/ipc.c \
   ${ngx_addon_dir}/src/store/memory/ipc-handlers.c \
+  ${ngx_addon_dir}/src/store/memory/groups.c \
   ${ngx_addon_dir}/src/store/memory/memstore.c \
 "
 

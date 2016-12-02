@@ -1,7 +1,8 @@
  #ifndef MEMSTORE_PRIVATE_HEADER
 #define MEMSTORE_PRIVATE_HEADER
 #include <util/shmem.h>
-//#define MESTORE_CHANHEAD_RESERVE_DEBUG 0
+#include "ipc.h"
+//#define MEMSTORE_CHANHEAD_RESERVE_DEBUG 0
 #include "uthash.h"
 typedef struct memstore_channel_head_s memstore_channel_head_t;
 typedef struct store_message_s store_message_t;
@@ -141,6 +142,8 @@ ngx_int_t memstore_fakeprocess_pop(void);
 #endif
 
 ngx_int_t memstore_slot(void);
+ngx_int_t memstore_str_owner(ngx_str_t *str);
+
 int memstore_ready(void);
 ngx_int_t chanhead_gc_add(memstore_channel_head_t *head, const char *);
 ngx_int_t chanhead_gc_withdraw(memstore_channel_head_t *chanhead, const char *);

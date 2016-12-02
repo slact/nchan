@@ -2798,6 +2798,8 @@ nchan_store_t nchan_store_redis = {
     &nchan_store_delete_channel, //+callback
     &nchan_store_find_channel, //+callback
     
+    NULL, //get_group
+    
     //message stuff
     &nchan_store_etag_from_message,
     &nchan_store_content_type_from_message,

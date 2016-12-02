@@ -28,8 +28,10 @@
 #define IPC_GET_CHANNEL_AUTHCHECK_REPLY 16
 #define IPC_SUBSCRIBER_KEEPALIVE    17
 #define IPC_SUBSCRIBER_KEEPALIVE_REPLY 18
+#define IPC_GET_GROUP               19
+#define IPC_GROUP                   20
 
-#define IPC_TEST_FLOOD                 30
+#define IPC_TEST_FLOOD              30
 
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -757,6 +759,41 @@ static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_d
   str_shm_free(d->shm_chid);
 }
 
+
+/////////// GROUPS ///////////
+
+ngx_int_t memstore_ipc_send_get_group(ngx_int_t dst, ngx_str_t *group_id) {
+  ngx_str_t         *shm_id = str_shm_copy(group_id);
+  if(shm_id == NULL) {
+    return NGX_ERROR;
+  }
+  DBG("send GET GROUP to %i %V", dst, shm_id);
+  ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_GROUP, shm_id, sizeof(shm_id));
+  return NGX_OK;
+}
+
+static void receive_get_group(ngx_int_t sender, ngx_str_t *group_id) {
+  DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, group_id);
+  
+  //do GET_GROUPy stuff
+  
+  str_shm_free(group_id);
+}
+
+ngx_int_t memstore_ipc_broadcast_group(nchan_group_t *shared_group) {
+  DBG("send GROUP %V to everyone but me", &shared_group->name);
+  
+  ipc_broadcast_alert(nchan_memstore_get_ipc(), IPC_GROUP, shared_group, sizeof(shared_group));
+  
+  return NGX_OK;
+}
+
+static void receive_group(ngx_int_t sender, nchan_group_t *shared_group) {
+  DBG("receive GROUP %V to everyone but me", &shared_group->name);
+  
+  //do GROUPy stuff
+}
+
 /////////// FLOOD TEST ///////////
 typedef struct {
   uint64_t          n;
@@ -796,7 +833,9 @@ static ipc_handler_pt ipc_alert_handler[] = {
   [IPC_GET_CHANNEL_AUTHCHECK_REPLY]=  (ipc_handler_pt )receive_channel_auth_check_reply,
   [IPC_SUBSCRIBER_KEEPALIVE] =        (ipc_handler_pt )receive_subscriber_keepalive,
   [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  (ipc_handler_pt )receive_subscriber_keepalive_reply,
-  [IPC_TEST_FLOOD]                 =  (ipc_handler_pt )receive_flood_test
+  [IPC_GET_GROUP] =                   (ipc_handler_pt )receive_get_group,
+  [IPC_GROUP]                      =  (ipc_handler_pt )receive_group,
+  [IPC_TEST_FLOOD]                 =  (ipc_handler_pt )receive_flood_test,
 };
 
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {

@@ -8,6 +8,7 @@
 #include "ipc.h"
 #include "ipc-handlers.h"
 #include "store-private.h"
+#include "groups.h"
 #include <store/spool.h>
 
 #include <util/nchan_reaper.h>
@@ -403,16 +404,12 @@ void memstore_fakeprocess_push_random(void) {
 
 static ngx_int_t is_multi_id(ngx_str_t *id);
 
-ngx_int_t memstore_channel_owner(ngx_str_t *id) {
+ngx_int_t memstore_str_owner(ngx_str_t *str) {
   uint32_t        h;
   ngx_int_t       workers;
-  //multi is always self-owned
-  if(is_multi_id(id)) {
-    return memstore_slot();
-  }
   
   workers = shdata->max_workers;
-  h = ngx_crc32_short(id->data, id->len);
+  h = ngx_crc32_short(str->data, str->len);
 #if FAKESHARD
   #ifdef ONE_FAKE_CHANNEL_OWNER
   h++; //just to avoid the unused variable warning
@@ -425,7 +422,7 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   i = h % workers;
   assert(i >= 0);
   slot = shdata->procslot[i + memstore_procslot_offset];
-  //DBG("channel owner for %V workers=%i (max=%i active=%i) h=%ui m_p_off=%i i=%i slot=%i", id, workers, shdata->max_workers, shdata->total_active_workers, h, memstore_procslot_offset, i, slot);
+  //DBG("owner for %V workers=%i (max=%i active=%i) h=%ui m_p_off=%i i=%i slot=%i", str, workers, shdata->max_workers, shdata->total_active_workers, h, memstore_procslot_offset, i, slot);
   if(slot == NCHAN_INVALID_SLOT) {
     ERR("something went wrong, the channel owner is invalid. i: %i h: %ui, workers: %i", i, h, workers);
     assert(0);
@@ -433,6 +430,10 @@ ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   }
   return slot;
 #endif
+}
+
+ngx_int_t memstore_channel_owner(ngx_str_t *id) {
+  return is_multi_id(id) ? memstore_slot() : memstore_str_owner(id);
 }
 
 
@@ -2897,6 +2898,8 @@ nchan_store_t  nchan_store_memory = {
     
     &nchan_store_delete_channel, //+callback
     &nchan_store_find_channel, //+callback
+    
+    NULL, //get_group
     
     //message stuff
     NULL,
