@@ -237,7 +237,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_complex_value_arr_t       pub_chid;
   nchan_complex_value_arr_t       sub_chid;
   nchan_complex_value_arr_t       pubsub_chid;
-  ngx_str_t                       channel_group;
+  ngx_http_complex_value_t       *channel_group;
   ngx_str_t                       channel_id_split_delimiter;
   
   ngx_str_t                       subscriber_http_raw_stream_separator;

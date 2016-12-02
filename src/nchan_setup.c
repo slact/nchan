@@ -88,6 +88,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->publisher_upstream_request_url = NULL;
   lcf->unsubscribe_request_url = NULL;
   lcf->subscribe_request_url = NULL;
+  lcf->channel_group = NULL;
   
   lcf->message_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
@@ -212,7 +213,6 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->subscriber_http_raw_stream_separator, prev->subscriber_http_raw_stream_separator, "\n");
   
   ngx_conf_merge_str_value(conf->channel_id_split_delimiter, prev->channel_id_split_delimiter, "");
-  ngx_conf_merge_str_value(conf->channel_group, prev->channel_group, "");
   ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
   ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");
   ngx_conf_merge_str_value(conf->custom_msgtag_header, prev->custom_msgtag_header, "");
@@ -236,6 +236,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   MERGE_CONF(conf, prev, publisher_upstream_request_url);
   MERGE_CONF(conf, prev, unsubscribe_request_url);
   MERGE_CONF(conf, prev, subscribe_request_url);
+  MERGE_CONF(conf, prev, channel_group);
   
   if(conf->pub_chid.n == 0) {
     conf->pub_chid = prev->pub_chid;

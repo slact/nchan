@@ -188,8 +188,15 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
   ngx_str_t                      *group;
   
   //group
-  group = &cf->channel_group;
-  ctx->channel_group_name = *group;
+  if(cf->channel_group == NULL) {
+    ctx->channel_group_name.len = 0;
+    ctx->channel_group_name.data = NULL;
+    group = &ctx->channel_group_name;
+  }
+  else {
+    group = &ctx->channel_group_name;
+    ngx_http_complex_value(r, cf->channel_group, group);
+  }
   
   //validate group
   if(group->len == 1 && group->data[0]=='m') {

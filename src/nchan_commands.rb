@@ -390,7 +390,7 @@ CfCmd.new do
       info: "Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`."
   
   nchan_channel_group [:srv, :loc, :if], 
-      :ngx_conf_set_str_slot, 
+      :ngx_http_set_complex_value_slot, 
       [:loc_conf, :channel_group],
       legacy: "push_channel_group",
       
@@ -398,7 +398,7 @@ CfCmd.new do
       tags: ['publisher', 'subscriber', 'channel-events'],
       value: "<string>",
       default: "(none)",
-      info: "Because settings are bound to locations and not individual channels, it is useful to be able to have channels that can be reached only from some locations and never others. That's where this setting comes in. Think of it as a prefix string for the channel id."
+      info: "The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables."
   
   nchan_channel_events_channel_id [:srv, :loc, :if],
       :nchan_set_channel_events_channel_id,

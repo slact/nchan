@@ -637,7 +637,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `(none)`  
   context: server, location, if  
   legacy name: push_channel_group  
-  > Because settings are bound to locations and not individual channels, it is useful to be able to have channels that can be reached only from some locations and never others. That's where this setting comes in. Think of it as a prefix string for the channel id.    
+  > The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables.    
 
 - **nchan_subscribe_existing_channels_only** `[ on | off ]`  
   arguments: 1  
