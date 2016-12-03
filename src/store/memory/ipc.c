@@ -138,6 +138,8 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
   ipc_process_t            *proc;
   ipc_writebuf_overflow_t  *of, *of_next;
   
+  DBG("start closing");
+  
   for (i=0; i<NGX_MAX_PROCESSES; i++) {
     proc = &ipc->process[i];
     if(!proc->active) continue;
@@ -156,6 +158,7 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle) {
     ipc_try_close_fd(&proc->pipe[1]);
     ipc->process[i].active = 0;
   }
+  DBG("done closing");
   return NGX_OK;
 }
 
@@ -461,6 +464,7 @@ static void ipc_read_handler(ngx_event_t *ev) {
 ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t data_size) {
   ngx_int_t   i, slot, rc, ret = NGX_OK;
   ngx_int_t   my_slot = memstore_slot();
+  DBG("broadcast alert");
   for(i=0; i < ipc->workers; i++) {
     slot = ipc->worker_slots[i];
     if(my_slot != slot) {

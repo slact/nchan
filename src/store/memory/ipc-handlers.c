@@ -34,14 +34,14 @@
 #define IPC_TEST_FLOOD              30
 
 
-//#define DEBUG_LEVEL NGX_LOG_WARN
-#define DEBUG_LEVEL NGX_LOG_DEBUG
+#define DEBUG_LEVEL NGX_LOG_WARN
+//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 
-//#define DEBUG_MEMZERO(var) ngx_memzero(var, sizeof(*(var)))
-#define DEBUG_MEMZERO(var) /*nothing*/
+#define DEBUG_MEMZERO(var) ngx_memzero(var, sizeof(*(var)))
+//#define DEBUG_MEMZERO(var) /*nothing*/
 
 //lots of copypasta here, but it's the fastest way for me to write these IPC handlers
 //maybe TODO: simplify this stuff, but probably not as it's not a performance penalty and the code is simple
@@ -767,31 +767,31 @@ ngx_int_t memstore_ipc_send_get_group(ngx_int_t dst, ngx_str_t *group_id) {
   if(shm_id == NULL) {
     return NGX_ERROR;
   }
-  DBG("send GET GROUP to %i %V", dst, shm_id);
-  ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_GROUP, shm_id, sizeof(shm_id));
+  DBG("send GET GROUP to %i %p %V", dst, shm_id, shm_id);
+  ipc_alert(nchan_memstore_get_ipc(), dst, IPC_GET_GROUP, &shm_id, sizeof(shm_id));
   return NGX_OK;
 }
 
-static void receive_get_group(ngx_int_t sender, ngx_str_t *group_id) {
-  DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, group_id);
+static void receive_get_group(ngx_int_t sender, ngx_str_t **group_id) {
+  DBG("received GET GROUP from %i %p %V", sender, *group_id, *group_id);
   
-  assert(memstore_group_owner_find(nchan_memstore_get_groups(), group_id) != NULL);
+  assert(memstore_group_owner_find(nchan_memstore_get_groups(), *group_id) != NULL);
   
-  str_shm_free(group_id);
+  str_shm_free(*group_id);
 }
 
 ngx_int_t memstore_ipc_broadcast_group(nchan_group_t *shared_group) {
   DBG("send GROUP %V to everyone but me", &shared_group->name);
   
-  ipc_broadcast_alert(nchan_memstore_get_ipc(), IPC_GROUP, shared_group, sizeof(shared_group));
+  ipc_broadcast_alert(nchan_memstore_get_ipc(), IPC_GROUP, &shared_group, sizeof(shared_group));
   
   return NGX_OK;
 }
 
-static void receive_group(ngx_int_t sender, nchan_group_t *shared_group) {
-  DBG("receive GROUP %V to everyone but me", &shared_group->name);
+static void receive_group(ngx_int_t sender, nchan_group_t **shared_group) {
+  DBG("receive GROUP %V to everyone but me", &(*shared_group)->name);
   
-  //do GROUPy stuff
+  memstore_group_receive(nchan_memstore_get_groups(), *shared_group);
 }
 
 /////////// FLOOD TEST ///////////
