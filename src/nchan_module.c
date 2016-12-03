@@ -336,9 +336,73 @@ int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *c
   return 1;
 }
 
-ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
+static ngx_int_t group_handler_callback(ngx_int_t status, nchan_group_t *group, ngx_http_request_t *r) {
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  
+  if(!group) {
+    group = ngx_pcalloc(r->pool, sizeof(*group));
+  }
+  
+  if(!ctx->request_ran_content_handler) {
+    r->main->count--;
+  }
+  
+  nchan_respond_cstring(r, NGX_HTTP_OK, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "all good", 0);
   
   return NGX_OK;
+}
+
+ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  nchan_request_ctx_t    *ctx;
+  ngx_int_t               rc = NGX_DONE;
+  ngx_str_t              *group;
+  
+  if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  ngx_http_set_ctx(r, ctx, ngx_nchan_module);
+  
+  
+  group = nchan_parse_channel_group(r, cf, ctx);
+  if(group == NULL) {
+    nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No group specified", 0);
+    return NGX_OK;
+  }
+  
+  switch(r->method) {
+    case NGX_HTTP_GET:
+      if(!cf->group.get) {
+        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+      }
+      r->main->count++;
+      cf->storage_engine->get_group(group, cf, (callback_pt )group_handler_callback, r);
+      
+      break;
+      
+    case NGX_HTTP_POST:
+      if(!cf->group.set) {
+        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+      }
+      r->main->count++;
+      cf->storage_engine->get_group(group, cf, (callback_pt )group_handler_callback, r);
+      break;
+      
+    case NGX_HTTP_DELETE:
+      if(!cf->group.delete) {
+        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+      }
+      r->main->count++;
+      cf->storage_engine->get_group(group, cf, (callback_pt )group_handler_callback, r);
+      break;
+      
+    case NGX_HTTP_OPTIONS:
+        rc= nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_GROUP_HEADERS, &NCHAN_ALLOW_GET_POST_DELETE);
+      break;
+  }
+  ctx->request_ran_content_handler = 1;
+  return rc;
 }
 
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {

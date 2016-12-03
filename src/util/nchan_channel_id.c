@@ -178,13 +178,7 @@ ngx_str_t nchan_get_group_from_channel_id(ngx_str_t *id) {
   return group;
 }
 
-ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
-  static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
-  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
-  ngx_int_t                       rc;
-  ngx_str_t                      *id = NULL;
-  nchan_complex_value_arr_t      *chid_conf;
-  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+ngx_str_t *nchan_parse_channel_group(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_request_ctx_t *ctx) {
   ngx_str_t                      *group;
   
   //group
@@ -197,6 +191,18 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
     group = &ctx->channel_group_name;
     ngx_http_complex_value(r, cf->channel_group, group);
   }
+  
+  return group;
+}
+
+ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
+  static const ngx_str_t          NO_CHANNEL_ID_MESSAGE = ngx_string("No channel id provided.");
+  nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  ngx_int_t                       rc;
+  ngx_str_t                      *id = NULL;
+  nchan_complex_value_arr_t      *chid_conf;
+  nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  ngx_str_t                      *group = nchan_parse_channel_group(r, cf, ctx);
   
   //validate group
   if(group->len == 1 && group->data[0]=='m') {

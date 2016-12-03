@@ -46,10 +46,13 @@ const  ngx_str_t NCHAN_HTTP_STATUS_410 = ngx_string("410 Gone");
 //other stuff
 const  ngx_str_t NCHAN_SUBSCRIBER_TIMEOUT= ngx_string("Subscriber Timeout");
 const  ngx_str_t NCHAN_ANYSTRING= ngx_string("*");
+const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_GROUP_HEADERS = ngx_string("Accept, Content-Type");
 const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS = ngx_string("Content-Type");
 const  ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS = ngx_string("If-None-Match, If-Modified-Since, Content-Type, Cache-Control, X-EventSource-Event");
 const  ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DELETE");
 const  ngx_str_t NCHAN_ALLOW_GET= ngx_string("GET");
+const  ngx_str_t NCHAN_ALLOW_GET_POST_DELETE= ngx_string("GET, POST, DELETE");
+
 
 const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
 const  ngx_str_t NCHAN_MSG_RESPONSE_ALLOWED_HEADERS = ngx_string("Last-Modified, Etag, Content-Type");
