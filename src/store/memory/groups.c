@@ -144,7 +144,10 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_p
     }
   }
   
-  if (!gtn->group) {
+  if (gtn->group) {
+    cb(NGX_OK, NULL, pd);
+  }
+  else {
     
     memstore_ipc_send_get_group(memstore_str_owner(name), name);
     
