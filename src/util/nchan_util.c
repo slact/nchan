@@ -30,6 +30,34 @@ int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
   return memcmp(str1->data, str2->data, str1->len) == 0;
 }
 
+
+ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last) {
+  //inspired by ngx_strnstr
+  char   *s2 = (char *)find->data;
+  u_char *s1 = *cur;
+  size_t  len = last - s1;
+  u_char  c1, c2;
+  size_t  n;
+  c2 = *(u_char *) s2++;
+  n = find->len - 1;
+  do {
+    do {
+      if (len-- == 0) {
+        return 0;
+      }
+      c1 = *s1++;
+      if (c1 == 0) {
+        return 0;
+      }
+    } while (c1 != c2);
+    if (n > len) {
+      return 0;
+    }
+  } while (ngx_strncmp(s1, (u_char *) s2, n) != 0);
+  *cur = s1 + n;
+  return 1;
+}
+
 ngx_int_t ngx_http_complex_value_noalloc(ngx_http_request_t *r, ngx_http_complex_value_t *val, ngx_str_t *value, size_t maxlen) {
   size_t                        len;
   ngx_http_script_code_pt       code;

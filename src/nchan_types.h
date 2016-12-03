@@ -8,6 +8,8 @@ typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 typedef enum {MSG_CHANNEL_NOTREADY, MSG_NORESPONSE, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY} chanhead_pubsub_status_t;
 
+typedef enum {NCHAN_CONTENT_TYPE_PLAIN, NCHAN_CONTENT_TYPE_JSON, NCHAN_CONTENT_TYPE_XML, NCHAN_CONTENT_TYPE_YAML, NCHAN_CONTENT_TYPE_HTML} nchan_content_type_t;
+
 typedef enum {
   SUB_ENQUEUE, SUB_DEQUEUE, SUB_RECEIVE_MESSAGE, SUB_RECEIVE_STATUS, 
   CHAN_PUBLISH, CHAN_DELETE  
@@ -275,12 +277,6 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   time_t                          channel_timeout;
   nchan_store_t                  *storage_engine;
 };// nchan_loc_conf_t;
-
-typedef struct {
-  char              *subtype;
-  size_t             len;
-  const ngx_str_t   *format;
-} nchan_content_subtype_t;
 
 typedef struct nchan_llist_timed_s {
   struct nchan_llist_timed_s     *prev;

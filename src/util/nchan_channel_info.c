@@ -1,26 +1,53 @@
 #include <nchan_module.h>
 
-void nchan_match_channel_info_subtype(size_t off, u_char *cur, size_t rem, u_char **priority, const ngx_str_t **format, ngx_str_t *content_type) {
-  static nchan_content_subtype_t subtypes[] = {
-    { "json"  , 4, &NCHAN_CHANNEL_INFO_JSON },
-    { "yaml"  , 4, &NCHAN_CHANNEL_INFO_YAML },
-    { "xml"   , 3, &NCHAN_CHANNEL_INFO_XML  },
-    { "x-json", 6, &NCHAN_CHANNEL_INFO_JSON },
-    { "x-yaml", 6, &NCHAN_CHANNEL_INFO_YAML }
+typedef struct {
+  ngx_str_t            subtype;
+  nchan_content_type_t ct;
+} nchan_content_subtype_t;
+
+nchan_content_type_t nchan_channel_info_type(ngx_str_t *accept) {
+  nchan_content_subtype_t subtypes[] = {
+    { ngx_string("plain"),    NCHAN_CONTENT_TYPE_PLAIN },
+    { ngx_string("json"),     NCHAN_CONTENT_TYPE_JSON },
+    { ngx_string("x-json"),   NCHAN_CONTENT_TYPE_JSON },
+    { ngx_string("yaml"),     NCHAN_CONTENT_TYPE_YAML },
+    { ngx_string("x-yaml"),   NCHAN_CONTENT_TYPE_YAML },
+    { ngx_string("xml"),      NCHAN_CONTENT_TYPE_XML }
   };
-  u_char                         *start = cur + off;
-  ngx_uint_t                      i;
   
-  for(i=0; i<(sizeof(subtypes)/sizeof(nchan_content_subtype_t)); i++) {
-    if(ngx_strncmp(start, subtypes[i].subtype, rem<subtypes[i].len ? rem : subtypes[i].len)==0) {
-      if(*priority>start) {
-        *format = subtypes[i].format;
-        *priority = start;
-        content_type->data=cur;
-        content_type->len= off + subtypes[i].len;
+  ngx_str_t  text_ = ngx_string("text/");
+  ngx_str_t  application_ = ngx_string("application/");
+  
+  if(!accept) {
+    return NCHAN_CONTENT_TYPE_PLAIN;
+  }
+  
+  unsigned i;
+  size_t len;
+  u_char *cur, *last, *curend;
+  
+  for(cur = accept->data, last = accept->data + accept->len; cur < last; cur = curend) {
+    if((curend = memchr(cur, ',', last - cur)) != NULL) {
+      curend++;
+    }
+    else {
+      curend = last;
+    }
+    
+    if(nchan_strscanstr(&cur, &text_, curend) || nchan_strscanstr(&cur, &application_, curend)) {
+      len = curend - cur;
+      for(i=0; i<(sizeof(subtypes)/sizeof(nchan_content_subtype_t)); i++) {
+        if(len >= subtypes[i].subtype.len && ngx_memcmp(cur, subtypes[i].subtype.data, subtypes[i].subtype.len) == 0) {
+          return subtypes[i].ct;
+        }
       }
     }
+    else {
+      continue;
+    }
   }
+  
+  return NCHAN_CONTENT_TYPE_PLAIN;
 }
 
 ngx_buf_t                       channel_info_buf;
@@ -30,15 +57,25 @@ ngx_str_t                       channel_info_content_type;
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type) {
   ngx_buf_t                      *b = &channel_info_buf;
   ngx_uint_t                      len;
-  const ngx_str_t                *format = &NCHAN_CHANNEL_INFO_PLAIN;
+  const ngx_str_t                *format;
   time_t                          time_elapsed = ngx_time() - last_seen;
   static nchan_msg_id_t           zero_msgid = NCHAN_ZERO_MSGID;
+  nchan_content_type_t            ct;
+  
+  static struct {
+    ngx_str_t        content_type;
+    const ngx_str_t *format_string;
+  } content_type_map[] = {
+    [NCHAN_CONTENT_TYPE_PLAIN]    = { ngx_string("text/plain"), &NCHAN_CHANNEL_INFO_PLAIN }, 
+    [NCHAN_CONTENT_TYPE_JSON]     = { ngx_string("text/json"), &NCHAN_CHANNEL_INFO_JSON },
+    [NCHAN_CONTENT_TYPE_YAML]     = { ngx_string("text/yaml"), &NCHAN_CHANNEL_INFO_YAML },
+    [NCHAN_CONTENT_TYPE_XML]      = { ngx_string("text/xml"), &NCHAN_CHANNEL_INFO_XML }
+  };
+  
   if(!last_msgid) {
     last_msgid = &zero_msgid;
   }
  
-  ngx_memcpy(&channel_info_content_type, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, sizeof(NCHAN_CONTENT_TYPE_TEXT_PLAIN));
-  
   b->start = channel_info_buf_str;
   b->pos = b->start;
   b->last_buf = 1;
@@ -46,35 +83,13 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   b->flush = 1;
   b->memory = 1;
   
-  if(accept_header) {
-    //lame content-negotiation (without regard for qvalues)
-    u_char                    *accept = accept_header->data;
-    len = accept_header->len;
-    size_t                     rem;
-    u_char                    *cur = accept;
-    u_char                    *priority=&accept[len-1];
-    
-    for(rem=len; (cur = ngx_strnstr(cur, "text/", rem))!=NULL; cur += sizeof("text/")-1) {
-      rem=len - ((size_t)(cur-accept)+sizeof("text/")-1);
-      if(ngx_strncmp(cur+sizeof("text/")-1, "plain", rem<5 ? rem : 5)==0) {
-        if(priority) {
-          format = &NCHAN_CHANNEL_INFO_PLAIN;
-          priority = cur+sizeof("text/")-1;
-          //content-type is already set by default
-        }
-      }
-      nchan_match_channel_info_subtype(sizeof("text/")-1, cur, rem, &priority, &format, &channel_info_content_type);
-    }
-    cur = accept;
-    for(rem=len; (cur = ngx_strnstr(cur, "application/", rem))!=NULL; cur += sizeof("application/")-1) {
-      rem=len - ((size_t)(cur-accept)+sizeof("application/")-1);
-      nchan_match_channel_info_subtype(sizeof("application/")-1, cur, rem, &priority, &format, &channel_info_content_type);
-    }
+  ct = nchan_channel_info_type(accept_header);
+
+  if(generated_content_type) {
+    *generated_content_type = &content_type_map[ct].content_type;
   }
   
-  if(generated_content_type) {
-    *generated_content_type = &channel_info_content_type;
-  }
+  format = content_type_map[ct].format_string;
   
   len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
   
