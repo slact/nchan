@@ -82,6 +82,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->sub.websocket=0;
   lcf->sub.http_chunked=0;
   
+  // lcf->group is already zeroed
+  
   lcf->shared_data_index=NGX_CONF_UNSET;
   
   lcf->authorize_request_url = NULL;
@@ -154,6 +156,36 @@ static char * create_complex_value_from_ngx_str(ngx_conf_t *cf, ngx_http_complex
   return NGX_CONF_OK;
 }
 
+static int is_pub_location(nchan_loc_conf_t *lcf) {
+  return lcf->pub.http || lcf->pub.websocket;
+}
+static int is_sub_location(nchan_loc_conf_t *lcf) {
+  nchan_conf_subscriber_types_t s = lcf->sub;
+  return s.poll || s.http_raw_stream || s.longpoll || s.http_chunked || s.http_multipart || s.eventsource || s.websocket;
+}
+static int is_group_location(nchan_loc_conf_t *lcf) {
+  return lcf->group.get || lcf->group.set || lcf->group.delete;
+}
+
+static int is_valid_location(ngx_conf_t *cf, nchan_loc_conf_t *lcf) {
+  
+  if(is_group_location(lcf)) {
+    if(is_pub_location(lcf) && is_sub_location(lcf)) {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Can't have a publisher and subscriber location and also be a group access location (nchan_group + nchan_publisher, nchan_subscriber or nchan_pubsub)");
+      return 0;
+    }
+    else if(is_pub_location(lcf)) {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Can't have a publisher location and also be a group access location (nchan_group + nchan_publisher)");
+      return 0;
+    }
+    else if(is_sub_location(lcf)) {
+      ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Can't have a subscriber location and also be a group access location (nchan_group + nchan_subscriber)");
+      return 0;
+    }
+  }
+  return 1;
+}
+
 static char *ngx_conf_set_redis_upstream(ngx_conf_t *cf, ngx_str_t *url, void *conf) {  
   ngx_url_t             upstream_url;
   nchan_loc_conf_t     *lcf = conf;
@@ -189,6 +221,16 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_bitmask_value(conf->sub.eventsource, prev->sub.eventsource, 0);
   ngx_conf_merge_bitmask_value(conf->sub.http_chunked, prev->sub.http_chunked, 0);
   ngx_conf_merge_bitmask_value(conf->sub.websocket, prev->sub.websocket, 0);
+  
+  //group request types
+  ngx_conf_merge_bitmask_value(conf->group.get, prev->group.get, 0);
+  ngx_conf_merge_bitmask_value(conf->group.set, prev->group.set, 0);
+  ngx_conf_merge_bitmask_value(conf->group.delete, prev->group.delete, 0);
+  
+  //validate location
+  if(!is_valid_location(cf, conf)) {
+    return NGX_CONF_ERROR;
+  }
   
   ngx_conf_merge_sec_value(conf->message_timeout, prev->message_timeout, NCHAN_DEFAULT_MESSAGE_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
@@ -237,6 +279,12 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   MERGE_CONF(conf, prev, unsubscribe_request_url);
   MERGE_CONF(conf, prev, subscribe_request_url);
   MERGE_CONF(conf, prev, channel_group);
+  
+  MERGE_CONF(conf, prev, group.max_channels);
+  MERGE_CONF(conf, prev, group.max_subscribers);
+  MERGE_CONF(conf, prev, group.max_messages);
+  MERGE_CONF(conf, prev, group.max_messages_shm_bytes);
+  MERGE_CONF(conf, prev, group.max_messages_file_bytes);
   
   if(conf->pub_chid.n == 0) {
     conf->pub_chid = prev->pub_chid;
@@ -339,6 +387,7 @@ static char *nchan_publisher_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd,
   ngx_str_t            *val;
   ngx_uint_t            i;
   
+  
   nchan_conf_publisher_types_t *pubt = &lcf->pub;
   
   if(cf->args->nelts == 1){ //no arguments
@@ -361,6 +410,10 @@ static char *nchan_publisher_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd,
         return NGX_CONF_ERROR;
       }
     }
+  }
+  
+  if(!is_valid_location(cf, lcf)) {
+    return NGX_CONF_ERROR;
   }
   
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
@@ -426,6 +479,11 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
       }
     }
   }
+  
+  if(!is_valid_location(cf, lcf)) {
+    return NGX_CONF_ERROR;
+  }
+  
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
 }
 
@@ -436,6 +494,7 @@ static char *nchan_subscriber_directive(ngx_conf_t *cf, ngx_command_t *cmd, void
 static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   ngx_str_t            *val;
   ngx_uint_t            i;
+  nchan_loc_conf_t     *lcf = conf;
   nchan_publisher_directive_parse(cf, cmd, conf, 0);
   nchan_subscriber_directive_parse(cf, cmd, conf, 0);
   for(i=1; i < cf->args->nelts; i++) {
@@ -447,7 +506,54 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
       return NGX_CONF_ERROR;
     }
   }
+  
+  if(!is_valid_location(cf, lcf)) {
+    return NGX_CONF_ERROR;
+  }
+  
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+}
+
+static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t     *lcf = conf;
+  ngx_str_t            *val;
+  ngx_uint_t            i;
+  nchan_conf_group_t   *group = &lcf->group;
+  
+  if(cf->args->nelts == 1){ //no arguments
+    group->get=1;
+    group->set=1;
+    group->delete=1;
+  }
+  else {
+    for(i=1; i < cf->args->nelts; i++) {
+      val = &((ngx_str_t *) cf->args->elts)[i];
+      if(nchan_strmatch(val, 1, "get")) {
+        group->get=1;
+      }
+      else if(nchan_strmatch(val, 1, "set")) {
+        group->set=1;
+      }
+      else if(nchan_strmatch(val, 1, "delete")) {
+        group->delete=1;
+      }
+      else if(nchan_strmatch(val, 1, "off")) {
+        group->get=0;
+        group->set=0;
+        group->delete=0;
+      }
+      else {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V", &cmd->name, val);
+        return NGX_CONF_ERROR;
+      }
+    }
+  }
+  
+  if(!is_valid_location(cf, lcf)) {
+    return NGX_CONF_ERROR;
+  }
+  
+  return nchan_setup_handler(cf, conf, &nchan_group_handler);
 }
 
 static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

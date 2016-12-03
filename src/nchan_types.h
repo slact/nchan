@@ -209,6 +209,18 @@ typedef struct {
   unsigned                        websocket:1;
 } nchan_conf_subscriber_types_t;
 
+typedef struct {
+  unsigned                        get:1;
+  unsigned                        set:1;
+  unsigned                        delete:1;
+  
+  ngx_http_complex_value_t       *max_channels;
+  ngx_http_complex_value_t       *max_subscribers;
+  ngx_http_complex_value_t       *max_messages;
+  ngx_http_complex_value_t       *max_messages_shm_bytes;
+  ngx_http_complex_value_t       *max_messages_file_bytes;
+} nchan_conf_group_t;
+
 #define NCHAN_COMPLEX_VALUE_ARRAY_MAX 8
 typedef struct {
   ngx_http_complex_value_t       *cv[NCHAN_COMPLEX_VALUE_ARRAY_MAX];
@@ -240,6 +252,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_complex_value_arr_t       sub_chid;
   nchan_complex_value_arr_t       pubsub_chid;
   ngx_http_complex_value_t       *channel_group;
+  
   ngx_str_t                       channel_id_split_delimiter;
   
   ngx_str_t                       subscriber_http_raw_stream_separator;
@@ -252,6 +265,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   nchan_conf_publisher_types_t    pub;
   nchan_conf_subscriber_types_t   sub; 
+  nchan_conf_group_t              group;
   
   time_t                          subscriber_timeout;
   

@@ -336,6 +336,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, channel_group),
     NULL } ,
 
+  { ngx_string("nchan_group"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
+    nchan_group_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_channel_events_channel_id"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_set_channel_events_channel_id,

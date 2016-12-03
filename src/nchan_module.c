@@ -336,6 +336,11 @@ int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *c
   return 1;
 }
 
+ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
+  
+  return NGX_OK;
+}
+
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_str_t              *channel_id;

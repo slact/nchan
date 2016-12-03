@@ -400,6 +400,17 @@ CfCmd.new do
       default: "(none)",
       info: "The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables."
   
+  nchan_group [:loc], 
+      :nchan_group_directive, 
+      [:loc_conf],
+      args: 0..3,
+      
+      group: "security",
+      tags: ['group'],
+      value: ["get", "set", "delete", "off"],
+      default: ["get", "set", "delete"],
+      info: "Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group."
+  
   nchan_channel_events_channel_id [:srv, :loc, :if],
       :nchan_set_channel_events_channel_id,
       :loc_conf,

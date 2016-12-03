@@ -43,6 +43,7 @@ extern int nchan_stub_status_enabled;
 
 ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r);
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
+ngx_int_t nchan_group_handler(ngx_http_request_t *r);
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type);
 
 time_t nchan_loc_conf_message_timeout(nchan_loc_conf_t *cf);
