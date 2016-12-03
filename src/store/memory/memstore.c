@@ -1635,6 +1635,8 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   }
 #endif
   
+  memstore_groups_shutdown(groups);
+  
   shmtx_lock(shm);
   
   if(shdata->old_max_workers == NGX_CONF_UNSET) {
@@ -1654,8 +1656,6 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     ERR("my procslot not found! I don't know what to do!");
     assert(0);
   }
-  
-  memstore_groups_shutdown(groups);
   ipc_close(ipc, cycle);
   
   if(shdata->reloading == 0) {
