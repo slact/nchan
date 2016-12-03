@@ -32,17 +32,18 @@ ngx_int_t memstore_groups_init(memstore_groups_t *gp) {
 
 
 ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) {
-  group_tree_node_t *node = (group_tree_node_t *)node_data;
+  group_tree_node_t *gtn = (group_tree_node_t *)node_data;
   shmem_t *          shm = nchan_memstore_get_shm();
   ngx_int_t          myslot = memstore_slot();
-  if(memstore_str_owner(&node->name) == myslot) {
-    shm_free(shm, node->group);
+  if(memstore_str_owner(&gtn->name) == myslot) {
+    shm_free(shm, gtn->group);
   }
   return NGX_OK;
 }
 
 ngx_int_t memstore_groups_shutdown(memstore_groups_t *gp) {
-  return rbtree_empty(&gp->tree, shutdown_walker, NULL);
+  rbtree_empty(&gp->tree, shutdown_walker, NULL);
+  return NGX_OK;
 }
 
 static group_tree_node_t *group_create_node(memstore_groups_t *gp, ngx_str_t *name, nchan_group_t *shm_group) {
