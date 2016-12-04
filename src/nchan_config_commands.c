@@ -59,6 +59,12 @@ static ngx_command_t  nchan_commands[] = {
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
     NULL } ,
+  { ngx_string("nchan_pubsub_location"), //alt for nchan_pubsub
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5|NGX_CONF_TAKE6,
+    nchan_pubsub_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
 
   { ngx_string("nchan_longpoll_multipart_response"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
@@ -81,6 +87,12 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
   { ngx_string("push_subscriber"), //legacy for nchan_subscriber
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5,
+    nchan_subscriber_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+  { ngx_string("nchan_subscriber_location"), //alt for nchan_subscriber
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5,
     nchan_subscriber_directive,
     NGX_HTTP_LOC_CONF_OFFSET,
@@ -136,6 +148,12 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
   { ngx_string("push_publisher"), //legacy for nchan_publisher
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2,
+    nchan_publisher_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+  { ngx_string("nchan_publisher_location"), //alt for nchan_publisher
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2,
     nchan_publisher_directive,
     NGX_HTTP_LOC_CONF_OFFSET,
@@ -336,7 +354,7 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, channel_group),
     NULL } ,
 
-  { ngx_string("nchan_group"),
+  { ngx_string("nchan_group_location"),
     NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
     nchan_group_directive,
     NGX_HTTP_LOC_CONF_OFFSET,

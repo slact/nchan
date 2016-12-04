@@ -62,6 +62,7 @@ CfCmd.new do
       :nchan_pubsub_directive,
       :loc_conf,
       args: 0..6,
+      alt: ["nchan_pubsub_location"],
       
       group: "pubsub",
       tags: [ 'publisher', 'subscriber', 'pubsub' ],
@@ -98,6 +99,7 @@ CfCmd.new do
       :loc_conf,
       args: 0..5,
       legacy: "push_subscriber",
+      alt: ["nchan_subscriber_location"],
       
       group: "pubsub",
       tags: ['subscriber'],
@@ -193,6 +195,7 @@ CfCmd.new do
       :loc_conf,
       args: 0..2,
       legacy: "push_publisher",
+      alt: ["nchan_publisher_location"],
       
       group: "pubsub",
       tags: ['publisher'],
@@ -400,7 +403,7 @@ CfCmd.new do
       default: "(none)",
       info: "The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables."
   
-  nchan_group [:loc], 
+  nchan_group_location [:loc], 
       :nchan_group_directive, 
       [:loc_conf],
       args: 0..3,
