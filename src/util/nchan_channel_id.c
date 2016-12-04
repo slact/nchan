@@ -160,8 +160,8 @@ ngx_str_t nchan_get_group_from_channel_id(ngx_str_t *id) {
   u_char *cur, *end;
   size_t  len;
   if(nchan_channel_id_is_multi(id)) {
-    cur = &id->data[2];
-    len = id->len - 2;
+    cur = &id->data[3];
+    len = id->len - 3;
   }
   else {
     cur = id->data;
