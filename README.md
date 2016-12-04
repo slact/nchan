@@ -645,6 +645,30 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: location  
   > Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group.    
 
+- **nchan_group_max_channels** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum number of channels allowed in the group.    
+
+- **nchan_group_max_messages** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum number of messages allowed for all the channels in the group.    
+
+- **nchan_group_max_messages_disk** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum amount of disk space allowed for the messages of all the channels in the group.    
+
+- **nchan_group_max_messages_memory** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum amount of shared memory allowed for the messages of all the channels in the group.    
+
 - **nchan_subscribe_existing_channels_only** `[ on | off ]`  
   arguments: 1  
   default: `off`  

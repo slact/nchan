@@ -2923,6 +2923,59 @@ static ngx_int_t nchan_store_get_group(ngx_str_t *name, nchan_loc_conf_t *cf, ca
   return memstore_group_find(groups, name, cb, pd);
 }
 
+typedef struct {
+  callback_pt           cb;
+  void                 *pd;
+  nchan_group_limits_t  limits;
+} group_callback_data_pt;
+
+#define APPLY_GROUP_LIMIT_IF_SET(limits, group, limit_name) \
+if((limits).limit_name != -1) (group)->limit.limit_name = (limits).limit_name
+
+static ngx_int_t set_group_limits_callback(ngx_int_t rc, nchan_group_t *group, group_callback_data_pt *ppd) {
+  
+  if(group) {
+    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, channels);
+    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, subscribers);
+    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages);
+    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages_shm_bytes);
+    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages_file_bytes);
+  }
+  
+  ppd->cb(rc, group, ppd->pd);
+  ngx_free(ppd);
+  return NGX_OK;
+}
+
+static ngx_int_t delete_group_callback(ngx_int_t rc, nchan_group_t *group, group_callback_data_pt *ppd) {
+  
+  ppd->cb(rc, group, ppd->pd);
+  ngx_free(ppd);
+  return NGX_OK;
+}
+#define INIT_GROUP_DOUBLE_CALLBACK(double_privdata, callback, privdata) \
+  if((double_privdata = ngx_alloc(sizeof(*double_privdata), ngx_cycle->log)) == NULL) { \
+    callback(NGX_ERROR, NULL, privdata);                                \
+    return NGX_ERROR;                                                   \
+  }                                                                     \
+  double_privdata->cb = callback;                                       \
+  double_privdata->pd = privdata
+
+
+static ngx_int_t nchan_store_set_group_limits(ngx_str_t *name, nchan_loc_conf_t *cf, nchan_group_limits_t *limits, callback_pt cb, void *pd) {
+  group_callback_data_pt   *ppd;
+  INIT_GROUP_DOUBLE_CALLBACK(ppd, cb, pd);
+  ppd->limits = *limits;
+  
+  return memstore_group_find(groups, name, (callback_pt )set_group_limits_callback, ppd);
+}
+static ngx_int_t nchan_store_delete_group(ngx_str_t *name, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  group_callback_data_pt   *ppd;
+  INIT_GROUP_DOUBLE_CALLBACK(ppd, cb, pd);
+  
+  return memstore_group_find(groups, name, (callback_pt )delete_group_callback, ppd);
+}
+
 nchan_store_t  nchan_store_memory = {
     //init
     &nchan_store_init_module,
@@ -2942,7 +2995,9 @@ nchan_store_t  nchan_store_memory = {
     &nchan_store_delete_channel, //+callback
     &nchan_store_find_channel, //+callback
     
-    &nchan_store_get_group, //get_group
+    &nchan_store_get_group, //+callback
+    &nchan_store_set_group_limits, //+callback
+    &nchan_store_delete_group, //+callback
     
     //message stuff
     NULL,

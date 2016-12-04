@@ -356,6 +356,36 @@ static ngx_int_t group_handler_callback(ngx_int_t status, nchan_group_t *group, 
   return NGX_OK;
 }
 
+
+static ngx_int_t parse_size_limit(u_char *data, size_t len) {
+  ngx_str_t  str;
+  str.data = data;
+  str.len = len;
+  return ngx_parse_offset(&str);
+}
+
+static ngx_int_t set_group_num_limit(ngx_http_request_t *r, ngx_http_complex_value_t *cv, ngx_atomic_int_t *dst, ngx_int_t (*parsefunc)(u_char *, size_t), char *errstr) {
+  ngx_str_t               tmp;
+  ngx_int_t               num;
+  if(cv) {
+    ngx_http_complex_value(r, cv, &tmp);
+    if(tmp.len == 0) {
+      *dst = -1;
+      return 1;
+    }
+    else if((num = parsefunc(tmp.data, tmp.len)) == NGX_ERROR || num < 0) {
+      nchan_respond_cstring(r, NGX_HTTP_FORBIDDEN, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, errstr, 0);
+      return 0;
+    }
+    *dst = num;
+  }
+  else {
+    *dst = -1;
+  }
+  return 1;
+}
+
+
 ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   nchan_request_ctx_t    *ctx;
@@ -388,8 +418,21 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
       if(!cf->group.set) {
         rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
       }
+      
+      nchan_group_limits_t     limits;
+      
+      set_group_num_limit(r, cf->group.max_channels, &limits.channels, ngx_atoi, "invalid nchan_group_max_channels value");
+      set_group_num_limit(r, cf->group.max_subscribers, &limits.subscribers, ngx_atoi, "invalid nchan_group_max_subscribers value");
+      set_group_num_limit(r, cf->group.max_messages, &limits.messages, ngx_atoi, "invalid nchan_group_max_messages value");
+      set_group_num_limit(r, cf->group.max_messages_shm_bytes, &limits.messages_shm_bytes, parse_size_limit, "invalid nchan_group_max_messages_memory value");
+      set_group_num_limit(r, cf->group.max_messages_file_bytes, &limits.messages_file_bytes, parse_size_limit, "invalid nchan_group_max_messages_disk value");
+      
+      if(r->headers_out.status == NGX_HTTP_FORBIDDEN) {
+        return NGX_OK;
+      }
+      
       r->main->count++;
-      cf->storage_engine->get_group(group, cf, (callback_pt )group_handler_callback, r);
+      cf->storage_engine->set_group_limits(group, cf, &limits, (callback_pt )group_handler_callback, r);
       break;
       
     case NGX_HTTP_DELETE:

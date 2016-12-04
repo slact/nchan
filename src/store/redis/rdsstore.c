@@ -2799,6 +2799,8 @@ nchan_store_t nchan_store_redis = {
     &nchan_store_find_channel, //+callback
     
     NULL, //get_group
+    NULL,
+    NULL,
     
     //message stuff
     &nchan_store_etag_from_message,

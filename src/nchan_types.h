@@ -152,15 +152,23 @@ typedef struct {
 
 typedef struct subscriber_s subscriber_t;
 
+typedef struct {
+  ngx_atomic_int_t                channels;
+  ngx_atomic_int_t                subscribers;
+  ngx_atomic_int_t                messages;
+  ngx_atomic_int_t                messages_shm_bytes;
+  ngx_atomic_int_t                messages_file_bytes;
+} nchan_group_limits_t;
 
 typedef struct {
-  ngx_atomic_uint_t               channels;
-  ngx_atomic_uint_t               multiplexed_channels;
-  ngx_atomic_uint_t               subscribers;
-  ngx_atomic_uint_t               messages;
-  ngx_atomic_uint_t               messages_shmem_bytes;
-  ngx_atomic_uint_t               messages_file_bytes;
-  ngx_str_t                       name;
+  ngx_atomic_int_t               channels;
+  ngx_atomic_int_t               multiplexed_channels;
+  ngx_atomic_int_t               subscribers;
+  ngx_atomic_int_t               messages;
+  ngx_atomic_int_t               messages_shmem_bytes;
+  ngx_atomic_int_t               messages_file_bytes;
+  nchan_group_limits_t           limit;
+  ngx_str_t                      name;
 } nchan_group_t;
 
 typedef struct{
@@ -185,6 +193,8 @@ typedef struct{
   ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
   
   ngx_int_t (*get_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
+  ngx_int_t (*set_group_limits)(ngx_str_t *name, nchan_loc_conf_t *, nchan_group_limits_t *limits, callback_pt, void *);
+  ngx_int_t (*delete_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
   
   //message actions and properties
   ngx_str_t * (*message_etag)(nchan_msg_t *msg, ngx_pool_t *pool);

@@ -411,6 +411,46 @@ CfCmd.new do
       default: ["get", "set", "delete"],
       info: "Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group."
   
+  nchan_group_max_channels [:loc], 
+      :ngx_http_set_complex_value_slot, 
+      [:loc_conf, "group.max_channels"],
+      
+      group: "security",
+      tags: ['group', 'security'],
+      value: "<number>",
+      default: "0 (unlimited)",
+      info: "Maximum number of channels allowed in the group."
+  
+  nchan_group_max_messages [:loc], 
+      :ngx_http_set_complex_value_slot, 
+      [:loc_conf, "group.max_messages"],
+      
+      group: "security",
+      tags: ['group', 'security'],
+      value: "<number>",
+      default: "0 (unlimited)",
+      info: "Maximum number of messages allowed for all the channels in the group."
+  
+  nchan_group_max_messages_memory [:loc], 
+      :ngx_http_set_complex_value_slot, 
+      [:loc_conf, "group.max_messages_shm_bytes"],
+      
+      group: "security",
+      tags: ['group', 'security'],
+      value: "<number>",
+      default: "0 (unlimited)",
+      info: "Maximum amount of shared memory allowed for the messages of all the channels in the group."
+  
+  nchan_group_max_messages_disk [:loc], 
+      :ngx_http_set_complex_value_slot, 
+      [:loc_conf, "group.max_messages_file_bytes"],
+      
+      group: "security",
+      tags: ['group', 'security'],
+      value: "<number>",
+      default: "0 (unlimited)",
+      info: "Maximum amount of disk space allowed for the messages of all the channels in the group."
+  
   nchan_channel_events_channel_id [:srv, :loc, :if],
       :nchan_set_channel_events_channel_id,
       :loc_conf,
