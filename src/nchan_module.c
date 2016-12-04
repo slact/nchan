@@ -337,7 +337,6 @@ int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *c
 }
 
 static ngx_int_t group_handler_callback(ngx_int_t status, nchan_group_t *group, ngx_http_request_t *r) {
-  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   if(!group) {
@@ -346,9 +345,13 @@ static ngx_int_t group_handler_callback(ngx_int_t status, nchan_group_t *group, 
   
   if(!ctx->request_ran_content_handler) {
     r->main->count--;
+    nchan_group_info(r, group);
+  }
+  else {
+    nchan_http_finalize_request(r, nchan_group_info(r, group));
   }
   
-  nchan_respond_cstring(r, NGX_HTTP_OK, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "all good", 0);
+  
   
   return NGX_OK;
 }

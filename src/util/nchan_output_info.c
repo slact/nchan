@@ -5,7 +5,7 @@ typedef struct {
   nchan_content_type_t ct;
 } nchan_content_subtype_t;
 
-nchan_content_type_t nchan_channel_info_type(ngx_str_t *accept) {
+nchan_content_type_t nchan_output_info_type(ngx_str_t *accept) {
   nchan_content_subtype_t subtypes[] = {
     { ngx_string("plain"),    NCHAN_CONTENT_TYPE_PLAIN },
     { ngx_string("json"),     NCHAN_CONTENT_TYPE_JSON },
@@ -50,11 +50,10 @@ nchan_content_type_t nchan_channel_info_type(ngx_str_t *accept) {
   return NCHAN_CONTENT_TYPE_PLAIN;
 }
 
-ngx_buf_t                       channel_info_buf;
-u_char                          channel_info_buf_str[512]; //big enough
-ngx_str_t                       channel_info_content_type;
-
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type) {
+  static ngx_buf_t                channel_info_buf;
+  static u_char                   channel_info_buf_str[512]; //big enough
+  
   ngx_buf_t                      *b = &channel_info_buf;
   ngx_uint_t                      len;
   const ngx_str_t                *format;
@@ -83,7 +82,7 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   b->flush = 1;
   b->memory = 1;
   
-  ct = nchan_channel_info_type(accept_header);
+  ct = nchan_output_info_type(accept_header);
 
   if(generated_content_type) {
     *generated_content_type = &content_type_map[ct].content_type;
@@ -94,13 +93,100 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
   
   if(len > 512) {
-    nchan_log_error("NCHAN: Channel info string too long: max: 512, is: %i", len);
+    nchan_log_error("Channel info string too long: max: 512, is: %i", len);
   }
   
   b->last = ngx_snprintf(b->start, 512, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
   b->end = b->last;
   
   return b;
+}
+
+
+static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_group_t *group, ngx_str_t **generated_content_type) {
+  static ngx_buf_t                info_buf;
+  static u_char                   info_buf_str[512]; //big enough
+  
+  ngx_buf_t                      *b = &info_buf;
+  ngx_uint_t                      len;
+  const ngx_str_t                *format;
+  nchan_content_type_t            ct;
+  
+  static struct {
+    ngx_str_t        content_type;
+    const ngx_str_t  format_string;
+  } content_type_map[] = {
+    [NCHAN_CONTENT_TYPE_PLAIN]    = { ngx_string("text/plain"), ngx_string(
+      "channels: %ui" CRLF
+      "subscribers: %ui" CRLF
+      "messages: %ui" CRLF
+      "shared memory for messages: %ui bytes" CRLF
+      "disk for messages: %ui bytes" CRLF
+    )}, 
+    [NCHAN_CONTENT_TYPE_JSON]     = { ngx_string("text/json"), ngx_string(
+      "{ \"channels\": %ui, "
+      "\"subscribers\": %ui, "
+      "\"messages\": %ui, "
+      "\"messages_memory\": %ui, "
+      "\"messages_disk\": %ui }"
+    )},
+    [NCHAN_CONTENT_TYPE_YAML]     = { ngx_string("text/yaml"), ngx_string(
+      "---" CRLF
+      "channels: %ui" CRLF
+      "subscribers: %ui" CRLF
+      "messages: %ui" CRLF
+      "messages_memory: %ui" CRLF
+      "messages_disk: %ui" CRLF
+      CRLF
+    )},
+    [NCHAN_CONTENT_TYPE_XML]      = { ngx_string("text/xml"), ngx_string(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" CRLF
+      "<group>" CRLF
+      "  <channels>%ui</channels>" CRLF
+      "  <subscribers>%ui</subscribers>" CRLF
+      "  <messages>%ui</messages>" CRLF
+      "  <messages_memory>%ui</messages_memory>" CRLF
+      "  <messages_disk>%ui</messages_disk>" CRLF
+      "</group>"
+    )}
+  };
+ 
+  b->start = info_buf_str;
+  b->pos = b->start;
+  b->last_buf = 1;
+  b->last_in_chain = 1;
+  b->flush = 1;
+  b->memory = 1;
+  
+  ct = nchan_output_info_type(accept_header);
+
+  if(generated_content_type) {
+    *generated_content_type = &content_type_map[ct].content_type;
+  }
+  
+  format = &content_type_map[ct].format_string;
+  
+  len = format->len + 5*NGX_INT_T_LEN; //minus 8 sprintf
+  
+  if(len > 512) {
+    nchan_log_error("Group info string too long: max: 512, is: %i", len);
+  }
+  
+  b->last = ngx_snprintf(b->start, 512, (char *)format->data, group->channels, group->subscribers, group->messages, group->messages_shmem_bytes, group->messages_file_bytes);
+  b->end = b->last;
+  
+  return b;
+}
+
+//print information about a group
+ngx_int_t nchan_group_info(ngx_http_request_t *r, const nchan_group_t *group) {
+  ngx_buf_t                      *b;
+  ngx_str_t                      *content_type;
+  ngx_str_t                      *accept_header = nchan_get_accept_header_value(r);
+
+  b = nchan_group_info_buf(accept_header, group, &content_type);
+  
+  return nchan_respond_membuf(r, NGX_HTTP_OK, content_type, b, 0);
 }
 
 //print information about a channel
