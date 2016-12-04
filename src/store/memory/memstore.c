@@ -782,6 +782,9 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
       memstore_fakesub_add(head, 1);
     }
     nchan_update_stub_status(subscribers, 1);
+    if(head->groupnode) {
+      ngx_atomic_fetch_add(&head->groupnode->group->subscribers, 1);
+    }
     if(head->multi) {
       ngx_int_t      i, max = head->multi_count;
       subscriber_t  *msub;
@@ -831,6 +834,9 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
           sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)-count);
         }
       }
+    }
+    if(head->groupnode) {
+      ngx_atomic_fetch_add(&head->groupnode->group->subscribers, -(count));
     }
   }
   head->total_sub_count -= count;
