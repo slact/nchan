@@ -1815,6 +1815,17 @@ static ngx_int_t chanhead_delete_message(memstore_channel_head_t *ch, store_mess
   
   ngx_atomic_fetch_add(&ch->shared->stored_message_count, -1);
   
+  if(ch->groupnode) {
+    ngx_atomic_fetch_add(&ch->groupnode->group->messages, -1);
+    if(ngx_buf_in_memory_only((msg->msg->buf))) {
+      ngx_atomic_fetch_add(&ch->groupnode->group->messages_shmem_bytes, -(ngx_buf_size((msg->msg->buf))));
+    }
+    else {
+      assert(msg->msg->buf->in_file);
+      ngx_atomic_fetch_add(&ch->groupnode->group->messages_file_bytes, -(ngx_buf_size((msg->msg->buf))));
+    }
+  }
+  
   if(ch->channel.messages == 0) {
     assert(ch->msg_first == NULL);
     assert(ch->msg_last == NULL);
@@ -2540,6 +2551,17 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   ngx_atomic_fetch_add(&ch->shared->stored_message_count, 1);
   ngx_atomic_fetch_add(&ch->shared->total_message_count, 1);
 
+  if(ch->groupnode) {
+    ngx_atomic_fetch_add(&ch->groupnode->group->messages, 1);
+    if(ngx_buf_in_memory_only((msg->msg->buf))) {
+      ngx_atomic_fetch_add(&ch->groupnode->group->messages_shmem_bytes, ngx_buf_size((msg->msg->buf)));
+    }
+    else {
+      assert(msg->msg->buf->in_file);
+      ngx_atomic_fetch_add(&ch->groupnode->group->messages_file_bytes, ngx_buf_size((msg->msg->buf)));
+    }
+  }
+  
   ch->msg_last = msg;
   
   //DBG("create %V %V", msgid_to_str(&msg->msg->id), chanhead_msg_to_str(msg));
