@@ -656,6 +656,22 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     nchan_free_msg_id(&ch->latest_msgid);
     nchan_free_msg_id(&ch->oldest_msgid);
   }
+  
+  if(ch->groupnode && (ch->owner == memstore_slot())) {
+    if(ch->groupnode_prev) {
+      assert(ch->groupnode_prev->groupnode_next == ch);
+      ch->groupnode_prev->groupnode_next = ch->groupnode_next;
+    }
+    if(ch->groupnode_next) {
+      assert(ch->groupnode_next->groupnode_prev == ch);
+      ch->groupnode_next->groupnode_prev = ch->groupnode_prev;
+    }
+    if(ch->groupnode->owned_chanhead_head == ch) {
+      ch->groupnode->owned_chanhead_head = ch->groupnode_next;
+    }
+    ngx_atomic_fetch_add(&ch->groupnode->group->channels, -1);
+  }
+  
   ngx_free(ch);
 }
 
@@ -962,14 +978,28 @@ static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
   }
 }
 
-static ngx_int_t group_find_callback(ngx_int_t rc, void *group_data, void *chid_data) {
+static void chanhead_set_groupnode(memstore_channel_head_t *ch, group_tree_node_t *gnd) {
+  if(gnd) {
+    assert(gnd->group);
+    assert(ch);
+    ngx_atomic_fetch_add(&gnd->group->channels, 1);
+    ch->groupnode = gnd;
+    if(!ch->multi && ch->owner == memstore_slot()) {
+      ch->groupnode_next = gnd->owned_chanhead_head;
+      if(gnd->owned_chanhead_head) {
+        gnd->owned_chanhead_head->groupnode_prev = ch;
+      }
+      gnd->owned_chanhead_head = ch;
+    }
+  }
+}
+
+static ngx_int_t groupnode_find_callback(ngx_int_t rc, void *groupnode_data, void *chid_data) {
   ngx_str_t                *chid = chid_data;
-  nchan_group_t            *shm_group = group_data;
+  group_tree_node_t        *gnd = groupnode_data;
   memstore_channel_head_t  *ch = nchan_memstore_find_chanhead(chid);
 
-  if(shm_group && ch) {
-    ch->group = shm_group;
-  }
+  chanhead_set_groupnode(ch, gnd);
   
   //TODO: some other stuff maybe
   
@@ -983,7 +1013,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   ngx_str_t                     ids[NCHAN_MULTITAG_MAX];
   ngx_int_t                     i, n = 0;
   ngx_str_t                     group_name;
-  nchan_group_t                *shm_group;
+  group_tree_node_t            *groupnode;
   
   head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   
@@ -1136,8 +1166,8 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
 
   //get group
   group_name = nchan_get_group_from_channel_id(&head->id);
-  if((shm_group = memstore_group_find_now(groups, &group_name)) != NULL) {
-    head->group = shm_group;
+  if((groupnode = memstore_groupnode_find_now(groups, &group_name)) != NULL) {
+    chanhead_set_groupnode(head, groupnode);
   }
   else { //group not available yet
     ngx_str_t *chid_copy;
@@ -1146,7 +1176,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
       chid_copy->data = (u_char *)&chid_copy[1];
       ngx_memcpy(chid_copy->data, head->id.data, head->id.len);
       
-      memstore_group_find(groups, &group_name, group_find_callback, chid_copy);
+      memstore_groupnode_find(groups, &group_name, groupnode_find_callback, chid_copy);
     }
   }
   

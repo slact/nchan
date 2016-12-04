@@ -8,20 +8,6 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 
-typedef struct group_callback_s group_callback_t ;
-struct group_callback_s {
-  callback_pt         cb;
-  void               *pd;
-  group_callback_t   *next;
-};
-
-typedef struct {
-  ngx_str_t          name; //local memory copy of group name
-  nchan_group_t     *group;
-  group_callback_t  *when_ready_head;
-  group_callback_t  *when_ready_tail;
-} group_tree_node_t;
-
 static void *group_id(void *d) {
   return &((group_tree_node_t *)d)->name;
 }
@@ -35,6 +21,7 @@ ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) 
   group_tree_node_t *gtn = (group_tree_node_t *)node_data;
   shmem_t *          shm = nchan_memstore_get_shm();
   ngx_int_t          myslot = memstore_slot();
+  DBG("shutdown_walker %V group %p", &gtn->name, gtn->group);
   if(memstore_str_owner(&gtn->name) == myslot) {
     shm_free(shm, gtn->group);
   }
@@ -43,6 +30,7 @@ ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) 
 
 ngx_int_t memstore_groups_shutdown(memstore_groups_t *gp) {
   rbtree_empty(&gp->tree, shutdown_walker, NULL);
+  DBG("empties rbtree");
   return NGX_OK;
 }
 
@@ -65,6 +53,8 @@ static group_tree_node_t *group_create_node(memstore_groups_t *gp, ngx_str_t *na
   gtn->when_ready_head = NULL;
   gtn->when_ready_tail = NULL;
   
+  gtn->owned_chanhead_head = NULL;
+  
   rbtree_insert_node(&gp->tree, node);
   
   return gtn;
@@ -83,6 +73,8 @@ static group_tree_node_t *group_owner_create_node(memstore_groups_t *gp, ngx_str
   group->name.len = name->len;
   group->name.data = (u_char *)(&group[1]);
   ngx_memcpy(group->name.data, name->data, name->len);
+  
+  ERR("created group %p", group);
   
   if((gtn = group_create_node(gp, name, group)) == NULL) {
     shm_free(nchan_memstore_get_shm(), group);
@@ -109,7 +101,7 @@ nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name)
 }
 
 
-nchan_group_t *memstore_group_find_now(memstore_groups_t *gp, ngx_str_t *name) {
+group_tree_node_t *memstore_groupnode_find_now(memstore_groups_t *gp, ngx_str_t *name) {
   ngx_rbtree_node_t      *node;
   group_tree_node_t      *gtn = NULL;
   if((node = rbtree_find_node(&gp->tree, name)) != NULL) {
@@ -118,10 +110,10 @@ nchan_group_t *memstore_group_find_now(memstore_groups_t *gp, ngx_str_t *name) {
   else if(memstore_str_owner(name) == memstore_slot()) {
     gtn = group_owner_create_node(gp, name);
   }
-  return gtn ? gtn->group : NULL;
+  return gtn;
 }
 
-ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
+static ngx_int_t memstore_group_find_generic(memstore_groups_t *gp, ngx_str_t *name, int want_whole_node, callback_pt cb, void *pd) {
   ngx_rbtree_node_t      *node;
   group_tree_node_t      *gtn = NULL;
   if((node = rbtree_find_node(&gp->tree, name)) != NULL) {
@@ -129,7 +121,7 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_p
   }
   else if(memstore_str_owner(name) == memstore_slot()) {
     if((gtn = group_owner_create_node(gp, name)) != NULL) {
-      cb(NGX_OK, gtn->group, pd);
+      cb(NGX_OK, want_whole_node ? (void *)gtn : (void *)gtn->group, pd);
       return NGX_OK;
     }
     else {
@@ -145,7 +137,7 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_p
   }
   
   if (gtn->group) {
-    cb(NGX_OK, NULL, pd);
+    cb(NGX_OK, want_whole_node ? (void *)gtn : (void *)gtn->group, pd);
   }
   else {
     
@@ -161,6 +153,7 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_p
     
     gcb->cb = cb;
     gcb->pd = pd;
+    gcb->want_node = want_whole_node;
     gcb->next = NULL;
     
     if(gtn->when_ready_tail) {
@@ -176,9 +169,17 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_p
   return NGX_OK;
 }
 
+ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
+  return memstore_group_find_generic(gp, name, 0, cb, pd);
+}
+
+ngx_int_t memstore_groupnode_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
+  return memstore_group_find_generic(gp, name, 1, cb, pd);
+}
+
 ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group) {
   ngx_rbtree_node_t      *node;
-  group_tree_node_t      *gtn;
+  group_tree_node_t      *gtn = NULL;
   group_callback_t       *gcb, *next_gcb;
   
   assert(memstore_str_owner(&shm_group->name) != memstore_slot());
@@ -187,7 +188,7 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
     gtn = rbtree_data_from_node(node);  
     for(gcb = gtn->when_ready_head; gcb != NULL; gcb =  next_gcb) {
       next_gcb = gcb->next;
-      gcb->cb(NGX_OK, shm_group, gcb->pd);
+      gcb->cb(NGX_OK, gcb->want_node ? (void *)gtn : (void *)shm_group , gcb->pd);
       ngx_free(gcb);
     }
     gtn->when_ready_head = NULL;

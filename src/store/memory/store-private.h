@@ -2,11 +2,12 @@
 #define MEMSTORE_PRIVATE_HEADER
 #include <util/shmem.h>
 #include "ipc.h"
-#include "groups.h"
 //#define MEMSTORE_CHANHEAD_RESERVE_DEBUG 0
 #include "uthash.h"
 typedef struct memstore_channel_head_s memstore_channel_head_t;
 typedef struct store_message_s store_message_t;
+
+#include "groups.h"
 
 struct store_message_s {
   nchan_msg_t               *msg;
@@ -68,7 +69,9 @@ struct memstore_channel_head_s {
   
   nchan_loc_conf_t               *cf;
   
-  nchan_group_t                  *group;
+  group_tree_node_t              *groupnode;
+  memstore_channel_head_t        *groupnode_prev;
+  memstore_channel_head_t        *groupnode_next;
 
   subscriber_t                   *redis_sub;
   ngx_int_t                       delta_fakesubs;
