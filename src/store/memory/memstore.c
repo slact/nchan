@@ -646,6 +646,27 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     }
     memstore_redis_subscriber_destroy(ch->redis_sub);
   }
+  
+  if(ch->groupnode) {
+    if(ch->multi) {
+      ngx_atomic_fetch_add(&ch->groupnode->group->multiplexed_channels, -1);
+    }
+    else if(ch->owner == memstore_slot()) {
+      if(ch->groupnode_prev) {
+        assert(ch->groupnode_prev->groupnode_next == ch);
+        ch->groupnode_prev->groupnode_next = ch->groupnode_next;
+      }
+      if(ch->groupnode_next) {
+        assert(ch->groupnode_next->groupnode_prev == ch);
+        ch->groupnode_next->groupnode_prev = ch->groupnode_prev;
+      }
+      if(ch->groupnode->owned_chanhead_head == ch) {
+        ch->groupnode->owned_chanhead_head = ch->groupnode_next;
+      }
+      ngx_atomic_fetch_add(&ch->groupnode->group->channels, -1);
+    }
+  }
+  
   if(ch->multi) {
     for(i=0; i < ch->multi_count; i++) {
       if(ch->multi[i].sub) {
@@ -655,21 +676,6 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     ngx_free(ch->multi);
     nchan_free_msg_id(&ch->latest_msgid);
     nchan_free_msg_id(&ch->oldest_msgid);
-  }
-  
-  if(ch->groupnode && (ch->owner == memstore_slot())) {
-    if(ch->groupnode_prev) {
-      assert(ch->groupnode_prev->groupnode_next == ch);
-      ch->groupnode_prev->groupnode_next = ch->groupnode_next;
-    }
-    if(ch->groupnode_next) {
-      assert(ch->groupnode_next->groupnode_prev == ch);
-      ch->groupnode_next->groupnode_prev = ch->groupnode_prev;
-    }
-    if(ch->groupnode->owned_chanhead_head == ch) {
-      ch->groupnode->owned_chanhead_head = ch->groupnode_next;
-    }
-    ngx_atomic_fetch_add(&ch->groupnode->group->channels, -1);
   }
   
   ngx_free(ch);
@@ -795,7 +801,6 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
         }
       }
     }
-    
   }
 
   assert(head->total_sub_count >= head->internal_sub_count);
@@ -988,9 +993,14 @@ static void chanhead_set_groupnode(memstore_channel_head_t *ch, group_tree_node_
   if(gnd) {
     assert(gnd->group);
     assert(ch);
-    ngx_atomic_fetch_add(&gnd->group->channels, 1);
+    
+    if(ch->multi) {
+      ngx_atomic_fetch_add(&gnd->group->multiplexed_channels, 1);
+    }
+
     ch->groupnode = gnd;
     if(!ch->multi && ch->owner == memstore_slot()) {
+      ngx_atomic_fetch_add(&gnd->group->channels, 1);
       ch->groupnode_next = gnd->owned_chanhead_head;
       if(gnd->owned_chanhead_head) {
         gnd->owned_chanhead_head->groupnode_prev = ch;
