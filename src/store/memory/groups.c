@@ -207,3 +207,24 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
     return NGX_ERROR;
   }
 }
+
+nchan_group_t *memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name) {
+  static nchan_group_t        group = *gtn->group;
+  group_tree_node_t          *gtn;
+  memstore_channel_head_t    *cur;
+  memstore_ipc_broadcast_group_delete(name);
+  gtn = memstore_groupnode_find_now(gp, name);
+  
+  while((cur = gtn->owned_chanhead_head) != NULL) {
+    
+    
+    
+    
+  }
+
+  return &group;
+}
+ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, ngx_str_t *name) {
+  return NGX_OK;
+}
+

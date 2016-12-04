@@ -36,5 +36,7 @@ ngx_int_t memstore_groupnode_find(memstore_groups_t *gp, ngx_str_t *name, callba
 group_tree_node_t *memstore_groupnode_find_now(memstore_groups_t *gp, ngx_str_t *name);
 nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name);
 ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group);
+ngx_int_t memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name);
+ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, ngx_str_t *name);
 
 #endif //MEMSTORE_GROUPS_HEADER
