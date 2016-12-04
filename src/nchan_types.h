@@ -224,6 +224,8 @@ typedef struct {
   unsigned                        set:1;
   unsigned                        delete:1;
   
+  ngx_int_t                       enable_accounting;
+  
   ngx_http_complex_value_t       *max_channels;
   ngx_http_complex_value_t       *max_subscribers;
   ngx_http_complex_value_t       *max_messages;

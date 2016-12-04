@@ -83,6 +83,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->sub.http_chunked=0;
   
   // lcf->group is already zeroed
+  lcf->group.enable_accounting = NGX_CONF_UNSET;
   
   lcf->shared_data_index=NGX_CONF_UNSET;
   
@@ -226,6 +227,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_bitmask_value(conf->group.get, prev->group.get, 0);
   ngx_conf_merge_bitmask_value(conf->group.set, prev->group.set, 0);
   ngx_conf_merge_bitmask_value(conf->group.delete, prev->group.delete, 0);
+  
+  ngx_conf_merge_value(conf->group.enable_accounting, prev->group.enable_accounting, 0);
   
   //validate location
   if(!is_valid_location(cf, conf)) {

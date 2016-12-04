@@ -639,6 +639,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_channel_group  
   > The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables.    
 
+- **nchan_channel_group_accounting**  
+  arguments: 1  
+  default: `off`  
+  context: server, location  
+  > Enable tracking channel, subscriber, and message information on a per-channel-group basis. Can be used to place upper limits on channel groups.    
+
 - **nchan_group_location** `[ get | set | delete | off ]`  
   arguments: 0 - 3  
   default: `get set delete`  

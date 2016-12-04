@@ -403,6 +403,15 @@ CfCmd.new do
       default: "(none)",
       info: "The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables."
   
+  nchan_channel_group_accounting [:srv, :loc], 
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, "group.enable_accounting"],
+      
+      group: "security",
+      tags: ['group', 'security'],
+      default: "off",
+      info: "Enable tracking channel, subscriber, and message information on a per-channel-group basis. Can be used to place upper limits on channel groups."
+  
   nchan_group_location [:loc], 
       :nchan_group_directive, 
       [:loc_conf],

@@ -398,6 +398,11 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
   ngx_http_set_ctx(r, ctx, ngx_nchan_module);
   
   
+  if(!cf->group.enable_accounting) {
+    nchan_respond_cstring(r, NGX_HTTP_FORBIDDEN, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Channel group accounting is disabled.", 0);
+    return NGX_OK;
+  }
+  
   group = nchan_parse_channel_group(r, cf, ctx);
   if(group == NULL) {
     nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No group specified", 0);

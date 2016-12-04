@@ -1181,18 +1181,20 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   start_chanhead_spooler(head);
 
   //get group
-  group_name = nchan_get_group_from_channel_id(&head->id);
-  if((groupnode = memstore_groupnode_find_now(groups, &group_name)) != NULL) {
-    chanhead_set_groupnode(head, groupnode);
-  }
-  else { //group not available yet
-    ngx_str_t *chid_copy;
-    if((chid_copy = ngx_alloc(sizeof(*chid_copy) + head->id.len, ngx_cycle->log)) != NULL) {
-      chid_copy->len = head->id.len;
-      chid_copy->data = (u_char *)&chid_copy[1];
-      ngx_memcpy(chid_copy->data, head->id.data, head->id.len);
-      
-      memstore_groupnode_find(groups, &group_name, groupnode_find_callback, chid_copy);
+  if(cf->group.enable_accounting) {
+    group_name = nchan_get_group_from_channel_id(&head->id);
+    if((groupnode = memstore_groupnode_find_now(groups, &group_name)) != NULL) {
+      chanhead_set_groupnode(head, groupnode);
+    }
+    else { //group not available yet
+      ngx_str_t *chid_copy;
+      if((chid_copy = ngx_alloc(sizeof(*chid_copy) + head->id.len, ngx_cycle->log)) != NULL) {
+        chid_copy->len = head->id.len;
+        chid_copy->data = (u_char *)&chid_copy[1];
+        ngx_memcpy(chid_copy->data, head->id.data, head->id.len);
+        
+        memstore_groupnode_find(groups, &group_name, groupnode_find_callback, chid_copy);
+      }
     }
   }
   
@@ -2988,7 +2990,13 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
 }
 
 static ngx_int_t nchan_store_get_group(ngx_str_t *name, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
-  return memstore_group_find(groups, name, cb, pd);
+  if(cf->group.enable_accounting) {
+    return memstore_group_find(groups, name, cb, pd);
+  }
+  else {
+    cb(NGX_ERROR, NULL, pd);
+    return NGX_ERROR;
+  }
 }
 
 typedef struct {
@@ -3032,6 +3040,11 @@ static ngx_int_t delete_group_callback(ngx_int_t rc, nchan_group_t *group, group
 
 static ngx_int_t nchan_store_set_group_limits(ngx_str_t *name, nchan_loc_conf_t *cf, nchan_group_limits_t *limits, callback_pt cb, void *pd) {
   group_callback_data_pt   *ppd;
+  
+  if(!cf->group.enable_accounting) {
+    cb(NGX_ERROR, NULL, pd);
+  }
+  
   INIT_GROUP_DOUBLE_CALLBACK(ppd, cb, pd);
   ppd->limits = *limits;
   
@@ -3039,6 +3052,11 @@ static ngx_int_t nchan_store_set_group_limits(ngx_str_t *name, nchan_loc_conf_t 
 }
 static ngx_int_t nchan_store_delete_group(ngx_str_t *name, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
   group_callback_data_pt   *ppd;
+  
+  if(!cf->group.enable_accounting) {
+    cb(NGX_ERROR, NULL, pd);
+  }
+  
   INIT_GROUP_DOUBLE_CALLBACK(ppd, cb, pd);
   
   return memstore_group_find(groups, name, (callback_pt )delete_group_callback, ppd);
