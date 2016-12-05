@@ -208,23 +208,98 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
   }
 }
 
+ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, nchan_group_t *shm_group) {
+  memstore_channel_head_t    *cur;
+  group_tree_node_t          *gtn;
+  
+  gtn = memstore_groupnode_find_now(gp, &shm_group->name);
+  if(gtn) {
+    while((cur = gtn->owned_chanhead_head) != NULL) {
+      nchan_memstore_force_delete_channel(&cur->id, NULL, NULL);
+    }
+  }
+  
+  return NGX_OK;
+}
+
 nchan_group_t *memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name) {
-  static nchan_group_t        group = *gtn->group;
+  static nchan_group_t        group;
   group_tree_node_t          *gtn;
   memstore_channel_head_t    *cur;
-  memstore_ipc_broadcast_group_delete(name);
+  
   gtn = memstore_groupnode_find_now(gp, name);
   
-  while((cur = gtn->owned_chanhead_head) != NULL) {
+  if(gtn) {
+    group = *gtn->group;
+    while((cur = gtn->owned_chanhead_head) != NULL) {
+      nchan_memstore_force_delete_channel(&cur->id, NULL, NULL);
+    }
     
-    
-    
-    
+    memstore_ipc_broadcast_group_delete(gtn->group);
+    return &group;
+  }
+  else {
+    return NULL;
   }
 
-  return &group;
 }
-ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, ngx_str_t *name) {
-  return NGX_OK;
+void memstore_group_add_channel(memstore_channel_head_t *ch, group_tree_node_t *gnd) {
+  assert(ch->groupnode == NULL);
+  ch->groupnode = gnd;
+  if(ch->multi) {
+    ngx_atomic_fetch_add(&gnd->group->multiplexed_channels, 1);
+  }
+  else if (ch->owner == memstore_slot()) {
+    ngx_atomic_fetch_add(&gnd->group->channels, 1);
+  }
+}
+
+void memstore_group_remove_channel(memstore_channel_head_t *ch) {
+  assert(ch->groupnode != NULL);
+
+  if(ch->multi) {
+    ngx_atomic_fetch_add(&ch->groupnode->group->multiplexed_channels, -1);
+  }
+  else if (ch->owner == memstore_slot()) {
+    ngx_atomic_fetch_add(&ch->groupnode->group->channels, -1);
+  }
+  ch->groupnode = NULL;
+}
+
+
+void memstore_group_associate_own_channel(memstore_channel_head_t *ch) {
+  group_tree_node_t *gnd = ch->groupnode;
+  assert(gnd->group);
+  assert(ch);
+  
+  if(!ch->multi && ch->owner == memstore_slot()) {
+    ch->groupnode_next = gnd->owned_chanhead_head;
+    if(gnd->owned_chanhead_head) {
+      gnd->owned_chanhead_head->groupnode_prev = ch;
+    }
+    gnd->owned_chanhead_head = ch;
+    
+  }
+  verify_gnd(ch);
+}
+
+void memstore_group_dissociate_own_channel(memstore_channel_head_t *ch) {
+  if(!ch->multi && ch->owner == memstore_slot()) {
+    if(ch->groupnode->owned_chanhead_head == ch) {
+      ch->groupnode->owned_chanhead_head = ch->groupnode_next;
+    }
+    if(ch->groupnode_prev) {
+      assert(ch->groupnode_prev->groupnode_next == ch);
+      ch->groupnode_prev->groupnode_next = ch->groupnode_next;
+    }
+    if(ch->groupnode_next) {
+      assert(ch->groupnode_next->groupnode_prev == ch);
+      ch->groupnode_next->groupnode_prev = ch->groupnode_prev;
+    }
+    
+    ch->groupnode_prev = NULL;
+    ch->groupnode_next = NULL;
+  }
+  assert(ch->groupnode->owned_chanhead_head != ch);
 }
 

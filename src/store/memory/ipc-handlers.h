@@ -15,4 +15,5 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, cal
 ngx_int_t memstore_ipc_send_channel_auth_check(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata);
 ngx_int_t memstore_ipc_broadcast_group(nchan_group_t *shared_group);
 ngx_int_t memstore_ipc_send_get_group(ngx_int_t dst, ngx_str_t *group_id);
+ngx_int_t memstore_ipc_broadcast_group_delete(nchan_group_t *shared_group);
 ngx_int_t memstore_ipc_send_flood_test(ngx_int_t dst);

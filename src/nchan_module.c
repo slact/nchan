@@ -445,7 +445,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
         rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
       }
       r->main->count++;
-      cf->storage_engine->get_group(group, cf, (callback_pt )group_handler_callback, r);
+      cf->storage_engine->delete_group(group, cf, (callback_pt )group_handler_callback, r);
       break;
       
     case NGX_HTTP_OPTIONS:

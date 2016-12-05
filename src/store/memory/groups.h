@@ -36,7 +36,12 @@ ngx_int_t memstore_groupnode_find(memstore_groups_t *gp, ngx_str_t *name, callba
 group_tree_node_t *memstore_groupnode_find_now(memstore_groups_t *gp, ngx_str_t *name);
 nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name);
 ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group);
-ngx_int_t memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name);
-ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, ngx_str_t *name);
+nchan_group_t *memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name);
+ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, nchan_group_t *shm_group);
 
+void memstore_group_add_channel(memstore_channel_head_t *ch, group_tree_node_t *gnd);
+void memstore_group_remove_channel(memstore_channel_head_t *ch);
+
+void memstore_group_associate_own_channel(memstore_channel_head_t *ch);
+void memstore_group_dissociate_own_channel(memstore_channel_head_t *ch);
 #endif //MEMSTORE_GROUPS_HEADER

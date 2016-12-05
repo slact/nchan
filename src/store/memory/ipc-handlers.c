@@ -30,6 +30,7 @@
 #define IPC_SUBSCRIBER_KEEPALIVE_REPLY 18
 #define IPC_GET_GROUP               19
 #define IPC_GROUP                   20
+#define IPC_GROUP_DELETE            21
 
 #define IPC_TEST_FLOOD              30
 
@@ -781,7 +782,7 @@ static void receive_get_group(ngx_int_t sender, ngx_str_t **group_id) {
 }
 
 ngx_int_t memstore_ipc_broadcast_group(nchan_group_t *shared_group) {
-  DBG("send GROUP %V to everyone but me", &shared_group->name);
+  DBG("broadcast GROUP %V to everyone but me", &shared_group->name);
   
   ipc_broadcast_alert(nchan_memstore_get_ipc(), IPC_GROUP, &shared_group, sizeof(shared_group));
   
@@ -789,9 +790,21 @@ ngx_int_t memstore_ipc_broadcast_group(nchan_group_t *shared_group) {
 }
 
 static void receive_group(ngx_int_t sender, nchan_group_t **shared_group) {
-  DBG("receive GROUP %V to everyone but me", &(*shared_group)->name);
+  DBG("receive GROUP %V", &(*shared_group)->name);
   
   memstore_group_receive(nchan_memstore_get_groups(), *shared_group);
+}
+
+ngx_int_t memstore_ipc_broadcast_group_delete(nchan_group_t *shared_group) {
+  DBG("send DELETE GROUP");
+  ipc_broadcast_alert(nchan_memstore_get_ipc(), IPC_GROUP_DELETE, &shared_group, sizeof(shared_group));
+  return NGX_OK;
+}
+
+static void receive_group_delete(ngx_int_t sender, nchan_group_t **shared_group) {
+  DBG("receive GROUP DELETE %V", &(*shared_group)->name);
+  
+  memstore_group_receive_delete(nchan_memstore_get_groups(), *shared_group);
 }
 
 /////////// FLOOD TEST ///////////
@@ -835,6 +848,7 @@ static ipc_handler_pt ipc_alert_handler[] = {
   [IPC_SUBSCRIBER_KEEPALIVE_REPLY] =  (ipc_handler_pt )receive_subscriber_keepalive_reply,
   [IPC_GET_GROUP] =                   (ipc_handler_pt )receive_get_group,
   [IPC_GROUP]                      =  (ipc_handler_pt )receive_group,
+  [IPC_GROUP_DELETE]               =  (ipc_handler_pt )receive_group_delete,
   [IPC_TEST_FLOOD]                 =  (ipc_handler_pt )receive_flood_test,
 };
 
