@@ -148,8 +148,7 @@ static void call_whenready_callbacks(group_tree_node_t *gtn, nchan_group_t *shm_
   gtn->when_ready_tail = NULL;
 }
 
-ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
-  group_tree_node_t  *gtn = memstore_groupnode_get(gp, name);
+ngx_int_t memstore_group_find_from_groupnode(memstore_groups_t *gp, group_tree_node_t *gtn, callback_pt cb, void *pd) {
   if(!gtn) {
     cb(NGX_ERROR, NULL, pd);
     return NGX_ERROR;
@@ -161,6 +160,11 @@ ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_p
     add_whenready_callback(gtn, "group find", cb, pd);
   }
   return NGX_OK;
+}
+
+ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
+  group_tree_node_t  *gtn = memstore_groupnode_get(gp, name);
+  return memstore_group_find_from_groupnode(gp, gtn, cb, pd);
 }
 
 group_tree_node_t *memstore_groupnode_get(memstore_groups_t *gp, ngx_str_t *name) {

@@ -645,7 +645,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
   }
   
   if(ch->groupnode) {
-    if(ch->owner == memstore_slot) {
+    if(ch->owner == memstore_slot()) {
       memstore_group_dissociate_own_channel(ch);
     }
     memstore_group_remove_channel(ch);
@@ -966,6 +966,25 @@ static ngx_int_t parse_multi_id(ngx_str_t *id, ngx_str_t ids[]) {
     return n;
   }
   return 0;
+}
+
+static int count_channel_id(ngx_str_t *id) {
+  int       n = 0;
+  u_char   *cur = id->data;
+  u_char   *last = cur + id->len;
+  u_char   *sep;
+  
+  if(nchan_channel_id_is_multi(id)) {
+    cur += 3;
+    while((sep = ngx_strlchr(cur, last, NCHAN_MULTI_SEP_CHR)) != NULL) {
+      cur = sep + 1;
+      n++;
+    }
+    return n;
+  }
+  else {
+    return 1;
+  }
 }
 
 static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
@@ -2042,6 +2061,33 @@ static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, vo
   return NGX_OK;
 }
 
+static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *shm_group, subscribe_data_t *d) {
+  
+  if(d->sub->status != DEAD) {
+    if(shm_group) {
+      if(shm_group->limit.subscribers && shm_group->subscribers < shm_group->limit.subscribers) { 
+        //not an atomic comparison but we don't really care
+        d->chanhead->spooler.fn->add(&d->chanhead->spooler, d->sub);
+      }
+      else {
+        d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+      }
+    }
+    else {
+      ERR("coldn't find group ");
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    }
+  }
+  
+  if(d->reserved) {
+    d->sub->fn->release(d->sub, 0);
+  }
+  memstore_chanhead_release(d->chanhead, "group accounting check");
+  
+  subscribe_data_free(d);
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   memstore_channel_head_t       *chanhead = NULL;
   //store_message_t             *chmsg;
@@ -2119,7 +2165,28 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     d->reserved = 0;
   }
   if(chanhead && not_dead) {
-    chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+    
+    if(cf->group.enable_accounting || chanhead->groupnode) {
+      //per-group max subscriber check
+      assert(d->allocd);
+      d->sub->fn->reserve(d->sub);
+      d->reserved = 1;
+      memstore_chanhead_reserve(chanhead, "group accounting check");
+      if(chanhead->groupnode) {
+        memstore_group_find_from_groupnode(groups, chanhead->groupnode, (callback_pt )group_subscribe_accounting_check, d);
+      }
+      else {
+        // this means group accounting was disabled when the channel was created.
+        // that's okay though, we should check it anyway.
+        // this is definitely less efficient though. maybe TODO: issue a warning about it...
+        ngx_str_t  group_name = nchan_get_group_from_channel_id(&chanhead->id);
+        memstore_group_find(groups, &group_name, (callback_pt )group_subscribe_accounting_check, d);
+      }
+      return rc;
+    }
+    else {
+      chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
+    }
   }
 
   subscribe_data_free(d);
@@ -2752,8 +2819,116 @@ static ngx_int_t publish_multi_callback(ngx_int_t status, void *rptr, void *priv
   return NGX_OK;
 }
 
+typedef struct {
+  ngx_str_t        *chid;
+  ngx_str_t         groupname;
+  nchan_msg_t      *msg;
+  nchan_loc_conf_t *cf;
+  callback_pt       cb;
+  void             *pd;
+} group_publish_accounting_check_data_t;
+
+static ngx_int_t group_publish_accounting_channelcheck(ngx_int_t rc, nchan_channel_t *chaninfo, group_publish_accounting_check_data_t *d) {
+  if(chaninfo) {
+    //channel already exists. we may proceed.
+    nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
+  }
+  else {
+    char *err = "Group limit reached for number of channels.";
+    ERR("%s (group %V)", err, &d->groupname);
+    d->cb(NGX_HTTP_FORBIDDEN, err, d->pd);
+  }
+  ngx_free(d);
+  return NGX_OK;
+}
+
+static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm_group, group_publish_accounting_check_data_t *d) {
+  int     n;
+  int     ok = 0;
+  char   *err;
+  
+  if(!shm_group) {
+    ERR("couldn't find group %V for publishing accounting check.", &d->groupname);
+    d->cb(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->pd);
+    ngx_free(d);
+    return NGX_ERROR;
+  }
+  
+  if((ok = shm_group->limit.messages && shm_group->messages >= shm_group->limit.messages) == 0) {
+    err = "Group limit reached for number of messages.";
+  }
+
+  if(ok) {
+    n = count_channel_id(d->chid);
+    if(ngx_buf_in_memory_only((d->msg->buf))) {
+      ok = !shm_group->limit.messages_shmem_bytes || (shm_group->messages_shmem_bytes + n * ngx_buf_size((d->msg->buf)) <= shm_group->limit.messages_shmem_bytes);
+      if(!ok) err = "Group limit reached for memory used by messages.";
+    }
+    else {
+      ok = !shm_group->messages_file_bytes || (shm_group->messages_file_bytes + ngx_buf_size((d->msg->buf)) <= shm_group->limit.messages_file_bytes);
+      // no need to multiply ngx_buf_size by n because the file is shared for all the messages.
+      if(!ok) err = "Group limit reached for disk space used by messages.";
+    }
+  }
+  
+  if(ok && shm_group->limit.channels) {
+    //channel check
+    if(shm_group->channels + 1 == shm_group->limit.channels) {
+      //need to check if publishing will create a channel
+      memstore_channel_head_t *ch;
+      
+      //first try it the easy way
+      ch = nchan_memstore_find_chanhead(d->chid);
+      if(!ch) {
+        //this is going to be kind of costly...
+        nchan_store_find_channel(d->chid, d->cf, (callback_pt )group_publish_accounting_channelcheck, d);
+        return NGX_OK;
+      }
+    }
+    else if(shm_group->channels >= shm_group->limit.channels) {
+      ok = 0;
+      err = "Group limit reached for number of channels.";
+    }
+  }
+  
+  if(ok) {
+    nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
+  }
+  else {
+    ERR("%s (group %V)", err, &d->groupname);
+    d->cb(NGX_HTTP_FORBIDDEN, err, d->pd);
+  }
+  
+  ngx_free(d);
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
+  if(cf->group.enable_accounting) {
+    // it might be better to do this later when a chanhead is available,
+    // so we can avoid the group lookup in the group-tree and use chanhead->groupnode.
+    
+    // but the code is much cleaner doing it the less efficient way, and I don't think
+    // publishing is really going to be a bottleneck. Still, a possible TODO for later.
+    group_publish_accounting_check_data_t  *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+    if(d == NULL) {
+      ERR("Couldn't allocate data for group publishing check");
+      callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, privdata);
+      return NGX_ERROR;
+    }
+    
+    d->chid = channel_id;
+    d->groupname = nchan_get_group_from_channel_id(channel_id);
+    d->msg = msg;
+    d->cf = cf;
+    d->cb = callback;
+    d->pd = privdata;
+    
+    return memstore_group_find(groups, &d->groupname, (callback_pt )group_publish_accounting_check, d);
+  }
+  else {
+    return nchan_store_publish_message_generic(channel_id, msg, 0, cf, callback, privdata);
+  }
 }
 
 static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
@@ -2784,6 +2959,7 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
       callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
       return NGX_ERROR;
     }
+    
     return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
   }
 }
@@ -2951,7 +3127,7 @@ static ngx_int_t set_group_limits_callback(ngx_int_t rc, nchan_group_t *group, g
     APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, channels);
     APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, subscribers);
     APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages);
-    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages_shm_bytes);
+    APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages_shmem_bytes);
     APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages_file_bytes);
   }
   

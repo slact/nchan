@@ -429,7 +429,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
       set_group_num_limit(r, cf->group.max_channels, &limits.channels, ngx_atoi, "invalid nchan_group_max_channels value");
       set_group_num_limit(r, cf->group.max_subscribers, &limits.subscribers, ngx_atoi, "invalid nchan_group_max_subscribers value");
       set_group_num_limit(r, cf->group.max_messages, &limits.messages, ngx_atoi, "invalid nchan_group_max_messages value");
-      set_group_num_limit(r, cf->group.max_messages_shm_bytes, &limits.messages_shm_bytes, parse_size_limit, "invalid nchan_group_max_messages_memory value");
+      set_group_num_limit(r, cf->group.max_messages_shm_bytes, &limits.messages_shmem_bytes, parse_size_limit, "invalid nchan_group_max_messages_memory value");
       set_group_num_limit(r, cf->group.max_messages_file_bytes, &limits.messages_file_bytes, parse_size_limit, "invalid nchan_group_max_messages_disk value");
       
       if(r->headers_out.status == NGX_HTTP_FORBIDDEN) {

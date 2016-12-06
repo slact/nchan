@@ -156,7 +156,7 @@ typedef struct {
   ngx_atomic_int_t                channels;
   ngx_atomic_int_t                subscribers;
   ngx_atomic_int_t                messages;
-  ngx_atomic_int_t                messages_shm_bytes;
+  ngx_atomic_int_t                messages_shmem_bytes;
   ngx_atomic_int_t                messages_file_bytes;
 } nchan_group_limits_t;
 
