@@ -16,7 +16,7 @@ struct group_callback_s {
   callback_pt         cb;
   void               *pd;
   group_callback_t   *next;
-  unsigned            want_node:1;
+  char               *label;
 };
 
 struct group_tree_node_s {
@@ -32,16 +32,20 @@ ngx_int_t memstore_groups_shutdown(memstore_groups_t *);
 
 
 ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd);
-ngx_int_t memstore_groupnode_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd);
-group_tree_node_t *memstore_groupnode_find_now(memstore_groups_t *gp, ngx_str_t *name);
+group_tree_node_t *memstore_groupnode_get(memstore_groups_t *gp, ngx_str_t *name);
 nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name);
 ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group);
-nchan_group_t *memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name);
+ngx_int_t memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd);
 ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, nchan_group_t *shm_group);
 
-void memstore_group_add_channel(memstore_channel_head_t *ch, group_tree_node_t *gnd);
-void memstore_group_remove_channel(memstore_channel_head_t *ch);
+ngx_int_t memstore_group_add_channel(memstore_channel_head_t *ch);
+ngx_int_t memstore_group_remove_channel(memstore_channel_head_t *ch);
 
 void memstore_group_associate_own_channel(memstore_channel_head_t *ch);
 void memstore_group_dissociate_own_channel(memstore_channel_head_t *ch);
+
+ngx_int_t memstore_group_add_message(group_tree_node_t *gtn, nchan_msg_t *msg);
+ngx_int_t memstore_group_remove_message(group_tree_node_t *gtn, nchan_msg_t *msg);
+
+ngx_int_t memstore_group_add_subscribers(group_tree_node_t *gtn, int count);
 #endif //MEMSTORE_GROUPS_HEADER

@@ -155,6 +155,10 @@ int memstore_ready(void);
 ngx_int_t chanhead_gc_add(memstore_channel_head_t *head, const char *);
 ngx_int_t chanhead_gc_withdraw(memstore_channel_head_t *chanhead, const char *);
 
+
+void memstore_chanhead_release(memstore_channel_head_t *ch, char *label);
+void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *label);
+
 uint16_t  memstore_worker_generation; //times nginx has been restarted + 1
 
 #endif /*MEMSTORE_PRIVATE_HEADER*/

@@ -96,8 +96,6 @@ static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
 static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
-static void chanhead_remove_from_group(memstore_channel_head_t *ch);
-
 /*
 static void log_memstore_chanhead_reservations(memstore_channel_head_t *ch) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
@@ -122,7 +120,7 @@ static int memstore_chanhead_reservations(memstore_channel_head_t *ch) {
 #endif
 }
 
-static void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *lbl) {
+void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *lbl) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   char   **label = nchan_list_append(&ch->reserved);
   *label = (char *)lbl;
@@ -131,7 +129,7 @@ static void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *l
 #endif
 }
 
-static void memstore_chanhead_release(memstore_channel_head_t *ch, char *label) {
+void memstore_chanhead_release(memstore_channel_head_t *ch, char *label) {
 #if MESTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_el_t  *cur;
   char            **lbl;
@@ -647,7 +645,9 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
   }
   
   if(ch->groupnode) {
-    memstore_group_dissociate_own_channel(ch);
+    if(ch->owner == memstore_slot) {
+      memstore_group_dissociate_own_channel(ch);
+    }
     memstore_group_remove_channel(ch);
   }
   assert(ch->groupnode_prev == NULL);
@@ -776,7 +776,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
     }
     nchan_update_stub_status(subscribers, 1);
     if(head->groupnode) {
-      ngx_atomic_fetch_add(&head->groupnode->group->subscribers, 1);
+      memstore_group_add_subscribers(head->groupnode, 1);
     }
     if(head->multi) {
       ngx_int_t      i, max = head->multi_count;
@@ -828,7 +828,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       }
     }
     if(head->groupnode) {
-      ngx_atomic_fetch_add(&head->groupnode->group->subscribers, -(count));
+      memstore_group_add_subscribers(head->groupnode, -(count));
     }
   }
   head->total_sub_count -= count;
@@ -974,20 +974,6 @@ static void delta_fakesubs_timer_handler(ngx_event_t *ev) {
     ev->timedout = 0;
     ngx_add_timer(ev, redis_fakesub_timer_interval);
   }
-}
-
-static ngx_int_t groupnode_find_callback(ngx_int_t rc, void *groupnode_data, void *chid_data) {
-  ngx_str_t                *chid = chid_data;
-  group_tree_node_t        *gnd = groupnode_data;
-  memstore_channel_head_t  *ch = nchan_memstore_find_chanhead(chid);
-
-  memstore_group_add_channel(ch, gnd);
-  memstore_group_associate_own_channel(ch);
-  
-  //TODO: some other stuff maybe
-  
-  ngx_free(chid);
-  return NGX_OK;
 }
 
 static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
@@ -1150,18 +1136,14 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   //get group
   if(cf->group.enable_accounting) {
     group_name = nchan_get_group_from_channel_id(&head->id);
-    if((groupnode = memstore_groupnode_find_now(groups, &group_name)) != NULL) {
-      memstore_group_add_channel(head, groupnode);
-      memstore_group_associate_own_channel(head);
+    if((groupnode = memstore_groupnode_get(groups, &group_name)) == NULL) {
+      ERR("couldn't get groupnode %V for chanhead %V", &group_name, &head->id);
     }
-    else { //group not available yet
-      ngx_str_t *chid_copy;
-      if((chid_copy = ngx_alloc(sizeof(*chid_copy) + head->id.len, ngx_cycle->log)) != NULL) {
-        chid_copy->len = head->id.len;
-        chid_copy->data = (u_char *)&chid_copy[1];
-        ngx_memcpy(chid_copy->data, head->id.data, head->id.len);
-        
-        memstore_groupnode_find(groups, &group_name, groupnode_find_callback, chid_copy);
+    else {
+      head->groupnode = groupnode;
+      memstore_group_add_channel(head);
+      if(head->owner == head->slot) {
+        memstore_group_associate_own_channel(head);
       }
     }
   }
@@ -1235,10 +1217,6 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
   
   assert(ch->slot == slot);
   
-  if(ch->groupnode) {
-    memstore_group_dissociate_own_channel(ch);
-  }
-  
   if(! ch->in_gc_queue) {
     ch->gc_start_time = ngx_time();
     ch->status = INACTIVE;
@@ -1264,10 +1242,6 @@ ngx_int_t chanhead_gc_withdraw(memstore_channel_head_t *ch, const char *reason) 
   }
   if(ch->owner == ch->slot) {
     chanhead_churner_add(ch);
-  }
-  
-  if(ch->groupnode) {
-    memstore_group_associate_own_channel(ch);
   }
   
   return NGX_OK;
@@ -1811,14 +1785,7 @@ static ngx_int_t chanhead_delete_message(memstore_channel_head_t *ch, store_mess
   ngx_atomic_fetch_add(&ch->shared->stored_message_count, -1);
   
   if(ch->groupnode) {
-    ngx_atomic_fetch_add(&ch->groupnode->group->messages, -1);
-    if(ngx_buf_in_memory_only((msg->msg->buf))) {
-      ngx_atomic_fetch_add(&ch->groupnode->group->messages_shmem_bytes, -(ngx_buf_size((msg->msg->buf))));
-    }
-    else {
-      assert(msg->msg->buf->in_file);
-      ngx_atomic_fetch_add(&ch->groupnode->group->messages_file_bytes, -(ngx_buf_size((msg->msg->buf))));
-    }
+    memstore_group_remove_message(ch->groupnode, msg->msg);
   }
   
   if(ch->channel.messages == 0) {
@@ -2547,7 +2514,7 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   ngx_atomic_fetch_add(&ch->shared->total_message_count, 1);
 
   if(ch->groupnode) {
-    memstore_group_add_message(ch->groupnode, msg->msg->buf);
+    memstore_group_add_message(ch->groupnode, msg->msg);
   }
   
   ch->msg_last = msg;
@@ -2993,12 +2960,6 @@ static ngx_int_t set_group_limits_callback(ngx_int_t rc, nchan_group_t *group, g
   return NGX_OK;
 }
 
-static ngx_int_t delete_group_callback(ngx_int_t rc, nchan_group_t *group, group_callback_data_pt *ppd) {
-  group = memstore_group_delete(groups, &group->name);
-  ppd->cb(rc, group, ppd->pd);
-  ngx_free(ppd);
-  return NGX_OK;
-}
 #define INIT_GROUP_DOUBLE_CALLBACK(double_privdata, callback, privdata) \
   if((double_privdata = ngx_alloc(sizeof(*double_privdata), ngx_cycle->log)) == NULL) { \
     callback(NGX_ERROR, NULL, privdata);                                \
@@ -3021,15 +2982,13 @@ static ngx_int_t nchan_store_set_group_limits(ngx_str_t *name, nchan_loc_conf_t 
   return memstore_group_find(groups, name, (callback_pt )set_group_limits_callback, ppd);
 }
 static ngx_int_t nchan_store_delete_group(ngx_str_t *name, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
-  group_callback_data_pt   *ppd;
   
   if(!cf->group.enable_accounting) {
     cb(NGX_ERROR, NULL, pd);
+    return NGX_OK;
   }
   
-  INIT_GROUP_DOUBLE_CALLBACK(ppd, cb, pd);
-  
-  return memstore_group_find(groups, name, (callback_pt )delete_group_callback, ppd);
+  return memstore_group_delete(groups, name, cb, pd);
 }
 
 nchan_store_t  nchan_store_memory = {
