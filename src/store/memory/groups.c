@@ -222,6 +222,7 @@ ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, nchan_group_t *sh
     call_whenready_callbacks(gtn, NULL);
     
     while((cur = gtn->owned_chanhead_head) != NULL) {
+      memstore_group_dissociate_own_channel(cur);
       nchan_store_memory.delete_channel(&cur->id, cur->cf, NULL, NULL);
     }
   }
