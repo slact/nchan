@@ -1953,6 +1953,8 @@ typedef struct {
   nchan_msg_id_t               msg_id;
   callback_pt                  cb;
   void                        *cb_privdata;
+  unsigned                     channel_exists:1;
+  unsigned                     group_channel_limit_pass:1;
   unsigned                     reserved:1;
   unsigned                     subbed:1;
   unsigned                     allocd:1;
@@ -2001,6 +2003,8 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->sub = sub;
   d->subbed = 0;
   d->reserved = 0;
+  d->channel_exists = 0;
+  d->group_channel_limit_pass = 0;
   d->msg_id = sub->last_msgid;
   
   if(sub->cf->subscribe_only_existing_channel || sub->cf->max_channel_subscribers > 0) {
@@ -2037,6 +2041,9 @@ static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, vo
   subscribe_data_t   *data = (subscribe_data_t *)d;
   nchan_loc_conf_t   *cf = data->sub->cf;
   ngx_int_t           channel_status;
+  
+  data->channel_exists = channel != NULL;
+  
   if(status == NGX_OK) {
     if(channel == NULL) {
       channel_status = cf->subscribe_only_existing_channel ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
@@ -2051,6 +2058,7 @@ static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, vo
     */
     else {
       channel_status = SUB_CHANNEL_AUTHORIZED;
+
     }
     nchan_store_subscribe_continued(channel_status, NULL, data);
   }
@@ -2074,7 +2082,7 @@ static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *s
       }
     }
     else {
-      ERR("coldn't find group ");
+      ERR("coldn't find group for group_subscribe_accounting_check");
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     }
   }
@@ -2088,18 +2096,96 @@ static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *s
   return NGX_OK;
 }
 
+
+static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_channel_t *chaninfo, subscribe_data_t *d) {
+  //no new hannels!
+  if(d->sub->status != DEAD) {
+    if(chaninfo) {
+      //ok, channel already exists.
+      nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+    }
+    else {
+      //nope. no channel, no subscribing.
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+      if(d->reserved)  d->sub->fn->release(d->sub, 0);
+      subscribe_data_free(d);
+    }
+  }
+  else {
+    if(d->reserved)  d->sub->fn->release(d->sub, 0);
+    subscribe_data_free(d);
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t *shm_group, subscribe_data_t *d) {
+  if(d->sub->status != DEAD) {
+    if(shm_group) {
+      //well that's unusual...
+      if(!shm_group->limit.channels || (shm_group->channels < shm_group->limit.channels)) {
+        d->group_channel_limit_pass = 1;
+        nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+      }
+      else if (shm_group->limit.channels && shm_group->channels == shm_group->limit.channels){
+        //no new channels!
+        nchan_store_find_channel(&d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
+      }
+      else {
+        nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+      }
+      
+    }
+    else {
+      ERR("coldn't find group for group_subscribe_channel_limit_check");
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+      if(d->reserved)  d->sub->fn->release(d->sub, 0);
+      subscribe_data_free(d);
+    }
+    return NGX_OK;
+  }
+  else {
+    if(d->reserved)  d->sub->fn->release(d->sub, 0);
+    subscribe_data_free(d);
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   memstore_channel_head_t       *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
-  ngx_int_t                      not_dead;
   ngx_int_t                      use_redis = d->sub->cf->redis.enabled;
   nchan_loc_conf_t              *cf = d->sub->cf;
   ngx_int_t                      rc = NGX_OK;
+  nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  
+  if(d->sub->status == DEAD) {
+    if(d->reserved) {
+      d->sub->fn->release(d->sub, 0);
+      d->reserved = 0;
+    }
+    subscribe_data_free(d);
+    return NGX_OK;
+  }
   
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
-      chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
+      if(cf->group.enable_accounting) {
+        //now we dance the careful dance of making sure the group channel limit is not exceeded
+        //it isn't a pretty dance.
+        if(d->group_channel_limit_pass || d->channel_exists) {
+          //already checked, or no need to check
+          chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
+        }
+        else if((chanhead = nchan_memstore_find_chanhead(d->channel_id)) != NULL) {
+          //well, the channel exists already, so using it won't exceed the limit
+          d->group_channel_limit_pass = 1;
+        }
+        else {
+          //can't find the channel. gotta check if it really does exist
+          memstore_group_find(groups, &ctx->channel_group_name, (callback_pt )group_subscribe_channel_limit_check, d);
+        }
+      }
       break;
     
     case SUB_CHANNEL_UNAUTHORIZED:
@@ -2115,7 +2201,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
             break;
           }
         }
-        nchan_store_redis.find_channel(d->channel_id, cf, redis_subscribe_channel_authcheck_callback, d);
+        nchan_store_redis.find_channel(d->channel_id, cf, redis_subscribe_channel_existence_callback, d);
         return NGX_OK;
       }
       else {
@@ -2124,14 +2210,12 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
   }
   
-  not_dead = d->sub->status != DEAD;
 
   if ((channel_status == SUB_CHANNEL_UNAUTHORIZED) || 
       (!chanhead && cf->subscribe_only_existing_channel) ||
       (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= (ngx_uint_t )cf->max_channel_subscribers)) {
-    if(not_dead) {
-      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
-    }
+    
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     
     if(d->reserved) {
       d->sub->fn->release(d->sub, 0);
@@ -2150,12 +2234,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   
   if(!chanhead) { //nchan_memstore_get_chanhead could fail when out of shared memory
-    if(not_dead) {
       //this response does something funny (i.e. crashy) to the finalize_request function
       //no response for now, but TODO: get this right
       //d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
       rc = NGX_ERROR;
-    }
   }
   
   d->chanhead = chanhead;
@@ -2164,7 +2246,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     d->sub->fn->release(d->sub, 1);
     d->reserved = 0;
   }
-  if(chanhead && not_dead) {
+  if(chanhead) {
     
     if(cf->group.enable_accounting || chanhead->groupnode) {
       //per-group max subscriber check
@@ -2178,9 +2260,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       else {
         // this means group accounting was disabled when the channel was created.
         // that's okay though, we should check it anyway.
-        // this is definitely less efficient though. maybe TODO: issue a warning about it...
-        ngx_str_t  group_name = nchan_get_group_from_channel_id(&chanhead->id);
-        memstore_group_find(groups, &group_name, (callback_pt )group_subscribe_accounting_check, d);
+        memstore_group_find(groups, &ctx->channel_group_name, (callback_pt )group_subscribe_accounting_check, d);
       }
       return rc;
     }
