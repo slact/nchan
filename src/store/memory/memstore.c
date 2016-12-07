@@ -1987,7 +1987,7 @@ static void subscribe_data_free(subscribe_data_t *d) {
 #define SUB_CHANNEL_AUTHORIZED 1
 #define SUB_CHANNEL_NOTSURE 2
 
-static ngx_int_t nchan_store_subscribe_sub_auth_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d);
+static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 
 static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub) {
@@ -2007,7 +2007,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
     sub->fn->reserve(sub);
     d->reserved = 1;
     if(memstore_slot() != owner) {
-      memstore_ipc_send_channel_auth_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_sub_auth_check_callback, d);
+      memstore_ipc_send_channel_existence_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
     }
     else {
       nchan_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
@@ -2020,7 +2020,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_subscribe_sub_auth_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
+static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     d->reserved = 0;
     return nchan_store_subscribe_continued(channel_status, _, d);
@@ -2032,7 +2032,7 @@ static ngx_int_t nchan_store_subscribe_sub_auth_check_callback(ngx_int_t channel
   }
 }
 
-static ngx_int_t redis_subscribe_channel_authcheck_callback(ngx_int_t status, void *ch, void *d) {
+static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, void *ch, void *d) {
   nchan_channel_t    *channel = (nchan_channel_t *)ch;
   subscribe_data_t   *data = (subscribe_data_t *)d;
   nchan_loc_conf_t   *cf = data->sub->cf;

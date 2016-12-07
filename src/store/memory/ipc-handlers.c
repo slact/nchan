@@ -635,7 +635,7 @@ typedef struct {
   void                    *privdata;
 } channel_authcheck_data_t;
 
-ngx_int_t memstore_ipc_send_channel_auth_check(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
+ngx_int_t memstore_ipc_send_channel_existence_check(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
   DBG("send channel_auth_check to %i %V", dst, chid);
   channel_authcheck_data_t        data;
   if((data.shm_chid = str_shm_copy(chid)) == NULL) {
