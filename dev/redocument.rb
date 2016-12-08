@@ -287,7 +287,7 @@ if mysite
   text.prepend "<a id=\"about\"></a>\n"
   
   #add a table-of-contents div
-  text.sub! /^<!--\s?toc\s?-->/, "<div class=\"tableOfContents\"></div>\n#"
+  #text.sub! /^<!--\s?toc\s?-->/, "<div class=\"tableOfContents\"></div>\n#"
   
   text.gsub! /<!--\s?tag:\s?(\S+)\s?-->/ do |whole|
     tag = Regexp.last_match[1]

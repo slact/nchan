@@ -12,13 +12,11 @@
 %global with_mailcap_mimetypes 1
 %endif
 
-%define nchan_from_master 1
+%define nchan_ver 1.0.7
 
-%if 0%{?nchan_from_master}
-  %define         nchan_ver master
+%if "%{nchan_ver}" == "master"
   %define         nchan_tag %{nchan_ver}
 %else
-  %define         nchan_ver 1.0.7
   %define         nchan_tag v%{nchan_ver}
 %endif
   

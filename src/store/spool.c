@@ -144,7 +144,9 @@ ngx_event_t *spooler_add_timer(channel_spooler_t *spl, ngx_msec_t timeout, void 
 static void fetchmsg_ev_handler(ngx_event_t *ev) {
   subscriber_pool_t *spool = (subscriber_pool_t *)ev->data;
   DBG("stack-overflow-buster fetchmsg event for spool %p", spool);
-  spool_fetch_msg(spool);
+  if(spool->msg_status == MSG_INVALID) {
+    spool_fetch_msg(spool);
+  }
 }
 
 static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spool, nchan_msg_id_t *id) {
