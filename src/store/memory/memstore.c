@@ -758,7 +758,6 @@ static void memstore_spooler_use_handler(channel_spooler_t *spl, void *d) {
 static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
   head->total_sub_count++;
-  head->channel.subscribers++;
   if(sub->type == INTERNAL) {
     head->internal_sub_count++;
     if(head->shared) {
@@ -789,7 +788,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
       }
     }
   }
-
+  head->channel.subscribers = head->total_sub_count - head->internal_sub_count;
   assert(head->total_sub_count >= head->internal_sub_count);
 }
 

@@ -239,6 +239,7 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
   if(fsub) {
+    ctx->sub->status = DEAD;
     websocket_finalize_request(fsub);
   }
 }
@@ -765,6 +766,7 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   if(sub->reserved > 0) {
     DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->awaiting_destruction = 1;
+    sub->status = DEAD;
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
