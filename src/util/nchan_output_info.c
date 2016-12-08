@@ -105,7 +105,7 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
 
 static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_group_t *group, ngx_str_t **generated_content_type) {
   static ngx_buf_t                info_buf;
-  static u_char                   info_buf_str[512]; //big enough
+  static u_char                   info_buf_str[768]; //big enough
   
   ngx_buf_t                      *b = &info_buf;
   ngx_uint_t                      len;
@@ -120,15 +120,30 @@ static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_gro
       "channels: %ui" CRLF
       "subscribers: %ui" CRLF
       "messages: %ui" CRLF
-      "shared memory for messages: %ui bytes" CRLF
-      "disk for messages: %ui bytes" CRLF
+      "shared memory used by messages: %ui bytes" CRLF
+      "disk space used by messages: %ui bytes" CRLF
+      "limits:" CRLF
+      "  max channels: %ui" CRLF
+      "  max subscribers: %ui" CRLF
+      "  max messages: %ui" CRLF
+      "  max messages shared memory: %ui" CRLF
+      "  max messages disk space: %ui" CRLF
     )}, 
     [NCHAN_CONTENT_TYPE_JSON]     = { ngx_string("text/json"), ngx_string(
-      "{ \"channels\": %ui, "
-      "\"subscribers\": %ui, "
-      "\"messages\": %ui, "
-      "\"messages_memory\": %ui, "
-      "\"messages_disk\": %ui }"
+      "{" CRLF
+      "  \"channels\": %ui," CRLF
+      "  \"subscribers\": %ui," CRLF
+      "  \"messages\": %ui," CRLF
+      "  \"messages_memory\": %ui," CRLF
+      "  \"messages_disk\": %ui," CRLF
+      "  \"limits\": {" CRLF
+      "    \"channels\": %ui," CRLF
+      "    \"subscribers\": %ui," CRLF
+      "    \"messages\": %ui," CRLF
+      "    \"messages_memory\": %ui,"CRLF
+      "    \"messages_disk\": %ui" CRLF  
+      "  }" CRLF
+      "}"
     )},
     [NCHAN_CONTENT_TYPE_YAML]     = { ngx_string("text/yaml"), ngx_string(
       "---" CRLF
@@ -137,6 +152,12 @@ static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_gro
       "messages: %ui" CRLF
       "messages_memory: %ui" CRLF
       "messages_disk: %ui" CRLF
+      "limits:" CRLF
+      "  channels: %ui" CRLF
+      "  subscribers: %ui" CRLF
+      "  messages: %ui" CRLF
+      "  messages_memory: %ui" CRLF
+      "  messages_disk: %ui" CRLF
       CRLF
     )},
     [NCHAN_CONTENT_TYPE_XML]      = { ngx_string("text/xml"), ngx_string(
@@ -147,6 +168,13 @@ static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_gro
       "  <messages>%ui</messages>" CRLF
       "  <messages_memory>%ui</messages_memory>" CRLF
       "  <messages_disk>%ui</messages_disk>" CRLF
+      "  <limits>" CRLF
+      "    <channels>%ui</channels>" CRLF
+      "    <subscribers>%ui</subscribers>" CRLF
+      "    <messages>%ui</messages>" CRLF
+      "    <messages_memory>%ui</messages_memory>" CRLF
+      "    <messages_disk>%ui</messages_disk>" CRLF
+      "  </limits>" CRLF
       "</group>"
     )}
   };
@@ -172,7 +200,19 @@ static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_gro
     nchan_log_error("Group info string too long: max: 512, is: %i", len);
   }
   
-  b->last = ngx_snprintf(b->start, 512, (char *)format->data, group->channels, group->subscribers, group->messages, group->messages_shmem_bytes, group->messages_file_bytes);
+  b->last = ngx_snprintf(b->start, 512, (char *)format->data, 
+                         group->channels, 
+                         group->subscribers, 
+                         group->messages, 
+                         group->messages_shmem_bytes, 
+                         group->messages_file_bytes, 
+                         //now limits
+                         group->limit.channels, 
+                         group->limit.subscribers,
+                         group->limit.messages,
+                         group->limit.messages_shmem_bytes,
+                         group->limit.messages_file_bytes
+                        );
   b->end = b->last;
   
   return b;
