@@ -180,7 +180,6 @@ ngx_str_t nchan_get_group_from_channel_id(ngx_str_t *id) {
 
 ngx_str_t *nchan_parse_channel_group(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_request_ctx_t *ctx) {
   ngx_str_t                      *group;
-  
   //group
   if(cf->channel_group == NULL) {
     ctx->channel_group_name.len = 0;

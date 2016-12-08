@@ -675,6 +675,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: location  
   > Maximum amount of shared memory allowed for the messages of all the channels in the group.    
 
+- **nchan_group_max_subscribers** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum number of subscribers allowed for the messages of all the channels in the group.    
+
 - **nchan_subscribe_existing_channels_only** `[ on | off ]`  
   arguments: 1  
   default: `off`  

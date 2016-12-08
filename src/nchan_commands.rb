@@ -463,6 +463,16 @@ CfCmd.new do
       default: "0 (unlimited)",
       info: "Maximum amount of disk space allowed for the messages of all the channels in the group."
   
+  nchan_group_max_subscribers [:loc], 
+      :ngx_http_set_complex_value_slot, 
+      [:loc_conf, "group.max_subscribers"],
+      
+      group: "security",
+      tags: ['group', 'security'],
+      value: "<number>",
+      default: "0 (unlimited)",
+      info: "Maximum number of subscribers allowed for the messages of all the channels in the group."
+  
   nchan_channel_events_channel_id [:srv, :loc, :if],
       :nchan_set_channel_events_channel_id,
       :loc_conf,

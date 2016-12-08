@@ -2073,7 +2073,7 @@ static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *s
   
   if(d->sub->status != DEAD) {
     if(shm_group) {
-      if(shm_group->limit.subscribers && shm_group->subscribers < shm_group->limit.subscribers) { 
+      if(!shm_group->limit.subscribers || shm_group->subscribers < shm_group->limit.subscribers) { 
         //not an atomic comparison but we don't really care
         d->chanhead->spooler.fn->add(&d->chanhead->spooler, d->sub);
       }
@@ -2121,14 +2121,13 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
 static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t *shm_group, subscribe_data_t *d) {
   if(d->sub->status != DEAD) {
     if(shm_group) {
-      //well that's unusual...
       if(!shm_group->limit.channels || (shm_group->channels < shm_group->limit.channels)) {
         d->group_channel_limit_pass = 1;
         nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
       }
       else if (shm_group->limit.channels && shm_group->channels == shm_group->limit.channels){
         //no new channels!
-        nchan_store_find_channel(&d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
+        nchan_store_find_channel(d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
       }
       else {
         nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
@@ -2136,6 +2135,7 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t
       
     }
     else {
+      //well that's unusual...
       ERR("coldn't find group for group_subscribe_channel_limit_check");
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
       if(d->reserved)  d->sub->fn->release(d->sub, 0);
@@ -2183,7 +2183,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         }
         else {
           //can't find the channel. gotta check if it really does exist
-          memstore_group_find(groups, &ctx->channel_group_name, (callback_pt )group_subscribe_channel_limit_check, d);
+          return memstore_group_find(groups, &ctx->channel_group_name, (callback_pt )group_subscribe_channel_limit_check, d);
         }
       }
       break;
@@ -2934,7 +2934,7 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
     return NGX_ERROR;
   }
   
-  if((ok = shm_group->limit.messages && shm_group->messages >= shm_group->limit.messages) == 0) {
+  if((ok = !shm_group->limit.messages || shm_group->messages < shm_group->limit.messages) == 0) {
     err = "Group limit reached for number of messages.";
   }
 

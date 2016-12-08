@@ -396,6 +396,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, group.max_messages_file_bytes),
     NULL } ,
 
+  { ngx_string("nchan_group_max_subscribers"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_http_set_complex_value_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, group.max_subscribers),
+    NULL } ,
+
   { ngx_string("nchan_channel_events_channel_id"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_set_channel_events_channel_id,

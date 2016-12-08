@@ -687,9 +687,10 @@ static ngx_http_request_t *nchan_get_safe_request_ptr(safe_request_ptr_t *d) {
 }
 
 
-static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, safe_request_ptr_t *pd) {
+static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr_t *pd) {
   nchan_request_ctx_t   *ctx;
   static nchan_msg_id_t  empty_msgid = NCHAN_ZERO_MSGID;
+  nchan_channel_t       *ch = data;
   
   ngx_http_request_t    *r = nchan_get_safe_request_ptr(pd);
   
@@ -722,10 +723,21 @@ static ngx_int_t publish_callback(ngx_int_t status, nchan_channel_t *ch, safe_re
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
       nchan_log_request_error(r, "error publishing message");
-      ctx->prev_msg_id = empty_msgid;;
+      ctx->prev_msg_id = empty_msgid;
       ctx->msg_id = empty_msgid;
       nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
+      
+    case NGX_HTTP_FORBIDDEN:
+      ctx->prev_msg_id = empty_msgid;
+      ctx->msg_id = empty_msgid;
+      if(data) {
+        nchan_respond_cstring(r, NGX_HTTP_FORBIDDEN, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, (char *)data, 1);
+      }
+      else {
+        nchan_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+      }
+      return NGX_OK;
       
     default:
       //for debugging, mostly. I don't expect this branch to behit during regular operation
