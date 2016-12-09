@@ -21,7 +21,10 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
   ngx_str_t                   id[NCHAN_MULTITAG_MAX];
   ngx_str_t                  *id_out;
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-  ngx_str_t                  *group = &ctx->channel_group_name;
+  ngx_str_t                  *group = nchan_get_group_name(r, cf, ctx);
+  if(group == NULL) {
+    return NGX_ERROR;
+  }
   size_t                      sz = 0, grouplen = group->len;
   u_char                     *cur;
   
@@ -108,7 +111,7 @@ static ngx_int_t nchan_process_legacy_channel_id(ngx_http_request_t *r, nchan_lo
   ngx_uint_t                  key = ngx_hash_key(channel_id_var_name.data, channel_id_var_name.len);
   ngx_http_variable_value_t  *vv = NULL;
   nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-  ngx_str_t                  *group = &ctx->channel_group_name;
+  ngx_str_t                  *group = nchan_get_group_name(r, cf, ctx);
   ngx_str_t                   tmpid;
   ngx_str_t                  *id;
   size_t                      sz;
@@ -178,20 +181,23 @@ ngx_str_t nchan_get_group_from_channel_id(ngx_str_t *id) {
   return group;
 }
 
-ngx_str_t *nchan_parse_channel_group(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_request_ctx_t *ctx) {
-  ngx_str_t                      *group;
-  //group
-  if(cf->channel_group == NULL) {
-    ctx->channel_group_name.len = 0;
-    ctx->channel_group_name.data = NULL;
-    group = &ctx->channel_group_name;
-  }
-  else {
-    group = &ctx->channel_group_name;
-    ngx_http_complex_value(r, cf->channel_group, group);
+ngx_str_t *nchan_get_group_name(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_request_ctx_t *ctx) {
+  if(!ctx->channel_group_name) {
+    if((ctx->channel_group_name = ngx_palloc(r->pool, sizeof(*ctx->channel_group_name))) == NULL) {
+      nchan_log_request_error(r, "couldn't allocate a tiny little channel group string.");
+      return NULL;
+    }
+    
+    if(cf->channel_group == NULL) {
+      ctx->channel_group_name->len = 0;
+      ctx->channel_group_name->data = NULL;
+    }
+    else {
+      ngx_http_complex_value(r, cf->channel_group, ctx->channel_group_name);
+    }
   }
   
-  return group;
+  return ctx->channel_group_name;
 }
 
 ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_int_t fail_hard) {
@@ -201,7 +207,7 @@ ngx_str_t *nchan_get_channel_id(ngx_http_request_t *r, pub_or_sub_t what, ngx_in
   ngx_str_t                      *id = NULL;
   nchan_complex_value_arr_t      *chid_conf;
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-  ngx_str_t                      *group = nchan_parse_channel_group(r, cf, ctx);
+  ngx_str_t                      *group = nchan_get_group_name(r, cf, ctx);
   
   //validate group
   if(group->len == 1 && group->data[0]=='m') {

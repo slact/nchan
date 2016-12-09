@@ -1,6 +1,5 @@
 #include "groups.h"
 #include "store.h"
-#include "store-private.h"
 #include "ipc-handlers.h"
 #include <assert.h>
 
@@ -450,16 +449,14 @@ ngx_int_t memstore_group_remove_channel(memstore_channel_head_t *ch) {
 }
 
 static ngx_int_t group_add_message_callback(ngx_int_t rc, nchan_group_t *shm_group, group_callback_data_t *d) {
-  
   nchan_msg_t   *msg = d->data;
+  size_t         msg_sz = memstore_msg_memsize(msg);
   if(shm_group) {
     ngx_atomic_fetch_add(&shm_group->messages, d->n);
-    if(ngx_buf_in_memory_only((msg->buf))) {
-      ngx_atomic_fetch_add(&shm_group->messages_shmem_bytes, d->n * ngx_buf_size((msg->buf)));
-    }
-    else {
-      assert(msg->buf->in_file);
-      ngx_atomic_fetch_add(&shm_group->messages_file_bytes, d->n * ngx_buf_size((msg->buf)));
+    ngx_atomic_fetch_add(&shm_group->messages_shmem_bytes, d->n * msg_sz);
+    if(!ngx_buf_in_memory_only((&msg->buf))) {
+      assert(msg->buf.in_file);
+      ngx_atomic_fetch_add(&shm_group->messages_file_bytes, d->n * ngx_buf_size((&msg->buf)));
     }
   }
   if(d->allocd) {

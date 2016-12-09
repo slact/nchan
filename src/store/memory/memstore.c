@@ -2182,7 +2182,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         }
         else {
           //can't find the channel. gotta check if it really does exist
-          return memstore_group_find(groups, &ctx->channel_group_name, (callback_pt )group_subscribe_channel_limit_check, d);
+          return memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_channel_limit_check, d);
         }
       }
       break;
@@ -2259,7 +2259,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       else {
         // this means group accounting was disabled when the channel was created.
         // that's okay though, we should check it anyway.
-        memstore_group_find(groups, &ctx->channel_group_name, (callback_pt )group_subscribe_accounting_check, d);
+        memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d);
       }
       return rc;
     }
@@ -2937,17 +2937,17 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
     err = "Group limit reached for number of messages.";
   }
 
-  if(ok) {
+  if(ok && shm_group->limit.messages_shmem_bytes) {
     n = count_channel_id(d->chid);
-    if(ngx_buf_in_memory_only((d->msg->buf))) {
-      ok = !shm_group->limit.messages_shmem_bytes || (shm_group->messages_shmem_bytes + n * ngx_buf_size((d->msg->buf)) <= shm_group->limit.messages_shmem_bytes);
-      if(!ok) err = "Group limit reached for memory used by messages.";
-    }
-    else {
-      ok = !shm_group->messages_file_bytes || (shm_group->messages_file_bytes + ngx_buf_size((d->msg->buf)) <= shm_group->limit.messages_file_bytes);
-      // no need to multiply ngx_buf_size by n because the file is shared for all the messages.
-      if(!ok) err = "Group limit reached for disk space used by messages.";
-    }
+    msg_sz = memstore_msg_memsize(d->msg);
+    ok = (shm_group->messages_shmem_bytes + n * msg_sz) <= shm_group->limit.messages_shmem_bytes;
+    if(!ok) err = "Group limit reached for memory used by messages.";
+  }
+  
+  if(ok && shm_group->limit.messages_file_bytes) {
+    ok = shm_group->messages_file_bytes + ngx_buf_size((&d->msg->buf)) <= shm_group->limit.messages_file_bytes;
+    // no need to multiply ngx_buf_size by n because the file is shared for all the messages.
+    if(!ok) err = "Group limit reached for disk space used by messages.";
   }
   
   if(ok && shm_group->limit.channels) {
@@ -2974,7 +2974,7 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
     nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
   }
   else {
-    ERR("%s (group %V)", err, &d->groupname);
+    nchan_log_warning("%s (group %V)", err, &d->groupname);
     d->cb(NGX_HTTP_FORBIDDEN, err, d->pd);
   }
   
@@ -3210,7 +3210,9 @@ static ngx_int_t set_group_limits_callback(ngx_int_t rc, nchan_group_t *group, g
     APPLY_GROUP_LIMIT_IF_SET(ppd->limits, group, messages_file_bytes);
   }
   
-  ppd->cb(rc, group, ppd->pd);
+  if(ppd->cb) {
+    ppd->cb(rc, group, ppd->pd);
+  }
   ngx_free(ppd);
   return NGX_OK;
 }
@@ -3228,7 +3230,25 @@ static ngx_int_t nchan_store_set_group_limits(ngx_str_t *name, nchan_loc_conf_t 
   group_callback_data_pt   *ppd;
   
   if(!cf->group.enable_accounting) {
-    cb(NGX_ERROR, NULL, pd);
+    if(cb)
+      cb(NGX_ERROR, NULL, pd);
+    return NGX_OK;
+  }
+  
+  if(cb == NULL) {
+    ngx_atomic_int_t         *limit;
+    int                       limit_set = 0;
+    //do we even have any limits to set?...
+    //because if not, this whole thing can be bypassed, as there's no callback to run afterwards
+    for(limit = (ngx_atomic_int_t *)limits; limit < (ngx_atomic_int_t *)(limits + 1); limit++) {
+      if (*limit != -1) {
+        limit_set ++;
+        break;
+      }
+    }
+    if(limit_set == 0) {
+      return NGX_OK;
+    }
   }
   
   INIT_GROUP_DOUBLE_CALLBACK(ppd, cb, pd);

@@ -6,6 +6,7 @@
 #include "uthash.h"
 typedef struct memstore_channel_head_s memstore_channel_head_t;
 typedef struct store_message_s store_message_t;
+size_t memstore_msg_memsize(nchan_msg_t *m);
 
 #include "groups.h"
 
@@ -141,6 +142,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8
 ngx_int_t memstore_ready_chanhead_unless_stub(memstore_channel_head_t *head);
 void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n);
 ngx_int_t memstore_chanhead_messages_gc(memstore_channel_head_t *ch);
+
 
 #if FAKESHARD
 void memstore_fakeprocess_push(ngx_int_t slot);

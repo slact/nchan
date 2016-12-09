@@ -153,6 +153,7 @@ typedef struct {
 typedef struct subscriber_s subscriber_t;
 
 typedef struct {
+  //must be made entirely of ngx_atomic_int_t
   ngx_atomic_int_t                channels;
   ngx_atomic_int_t                subscribers;
   ngx_atomic_int_t                messages;
