@@ -385,6 +385,15 @@ static ngx_int_t set_group_num_limit(ngx_http_request_t *r, ngx_http_complex_val
   return 1;
 }
 
+static ngx_int_t parse_group_limits(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_group_limits_t *limits) {
+  set_group_num_limit(r, cf->group.max_channels, &limits->channels, ngx_atoi, "invalid nchan_group_max_channels value");
+  set_group_num_limit(r, cf->group.max_subscribers, &limits->subscribers, ngx_atoi, "invalid nchan_group_max_subscribers value");
+  set_group_num_limit(r, cf->group.max_messages, &limits->messages, ngx_atoi, "invalid nchan_group_max_messages value");
+  set_group_num_limit(r, cf->group.max_messages_shm_bytes, &limits->messages_shmem_bytes, parse_size_limit, "invalid nchan_group_max_messages_memory value");
+  set_group_num_limit(r, cf->group.max_messages_file_bytes, &limits->messages_file_bytes, parse_size_limit, "invalid nchan_group_max_messages_disk value");
+  
+  return r->headers_out.status != NGX_HTTP_FORBIDDEN ? NGX_OK : NGX_ERROR;
+}
 
 ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
@@ -403,7 +412,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
     return NGX_OK;
   }
   
-  group = nchan_parse_channel_group(r, cf, ctx);
+  group = nchan_get_group_name(r, cf, ctx);
   if(group == NULL) {
     nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No group specified", 0);
     return NGX_OK;
@@ -426,13 +435,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
       
       nchan_group_limits_t     limits;
       
-      set_group_num_limit(r, cf->group.max_channels, &limits.channels, ngx_atoi, "invalid nchan_group_max_channels value");
-      set_group_num_limit(r, cf->group.max_subscribers, &limits.subscribers, ngx_atoi, "invalid nchan_group_max_subscribers value");
-      set_group_num_limit(r, cf->group.max_messages, &limits.messages, ngx_atoi, "invalid nchan_group_max_messages value");
-      set_group_num_limit(r, cf->group.max_messages_shm_bytes, &limits.messages_shmem_bytes, parse_size_limit, "invalid nchan_group_max_messages_memory value");
-      set_group_num_limit(r, cf->group.max_messages_file_bytes, &limits.messages_file_bytes, parse_size_limit, "invalid nchan_group_max_messages_disk value");
-      
-      if(r->headers_out.status == NGX_HTTP_FORBIDDEN) {
+      if(parse_group_limits(r, cf, &limits) != NGX_OK) {
         return NGX_OK;
       }
       
@@ -464,6 +467,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   ngx_int_t               rc = NGX_DONE;
   nchan_request_ctx_t    *ctx;
   ngx_str_t              *origin_header;
+  nchan_group_limits_t    group_limits;
   
 #if NCHAN_BENCHMARK
   struct timeval          tv;
@@ -503,7 +507,23 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     //just get the subscriber_channel_id for now. the publisher one is handled elsewhere
     return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
+  
+  if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
+    goto bad_msgid;
+  }
+  
+  if(parse_group_limits(r, cf, &group_limits) == NGX_OK) {
+    // unless the group already exists, these limits may only be set after this incoming request.
+    // TODO: fix this, although that will lead to even gnarlier control flow.
+    cf->storage_engine->set_group_limits(nchan_get_group_name(r, cf, ctx), cf, &group_limits, NULL, NULL);
+  }
+  else {
+    // there waas an error parsing group limit strings, and it has already been sent in the response. 
+    // just quit.
+    return NGX_OK;
+  }
 
+  
   if(cf->pub.websocket || cf->pub.http) {
     char *err;
     if(!nchan_parse_message_buffer_config(r, cf, &err)) {
