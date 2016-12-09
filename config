@@ -74,17 +74,17 @@ _NCHAN_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/spool.c \
   ${ngx_addon_dir}/src/store/ngx_rwlock.c \
   ${ngx_addon_dir}/src/store/store_common.c \
-  $_NCHAN_REDIS_STORE_SRCS \
   $_NCHAN_MEMORY_STORE_SRCS \
+  $_NCHAN_REDIS_STORE_SRCS \
 "
 
 _NCHAN_SRCS="\
-  $_NCHAN_UTIL_SRCS \
-  $_NCHAN_SUBSCRIBERS_SRCS \
-  $_NCHAN_STORE_SRCS \
   ${ngx_addon_dir}/src/nchan_defs.c \
   ${ngx_addon_dir}/src/nchan_variables.c \
   ${ngx_addon_dir}/src/nchan_module.c \
+  $_NCHAN_UTIL_SRCS \
+  $_NCHAN_SUBSCRIBERS_SRCS \
+  $_NCHAN_STORE_SRCS \
 "
 
 
