@@ -25,6 +25,7 @@ struct group_tree_node_s {
   group_callback_t         *when_ready_head;
   group_callback_t         *when_ready_tail;
   memstore_channel_head_t  *owned_chanhead_head;
+  unsigned                  getting_group:1;
 };
 
 ngx_int_t memstore_groups_init(memstore_groups_t *);

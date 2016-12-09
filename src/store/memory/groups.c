@@ -55,6 +55,8 @@ static group_tree_node_t *group_create_node(memstore_groups_t *gp, ngx_str_t *na
   
   gtn->owned_chanhead_head = NULL;
   
+  gtn->getting_group = 0;
+  
   rbtree_insert_node(&gp->tree, node);
   
   return gtn;
@@ -131,6 +133,11 @@ static ngx_int_t add_whenready_callback(group_tree_node_t *gtn, char *lbl, callb
     DBG("  whenready %s", gcb->label);
   }
   
+  if(gtn->getting_group == 0) {
+    gtn->getting_group = 1;
+    memstore_ipc_send_get_group(memstore_str_owner(&gtn->name), &gtn->name);    
+  }
+  
   return NGX_OK;
 }
 
@@ -180,6 +187,7 @@ group_tree_node_t *memstore_groupnode_get(memstore_groups_t *gp, ngx_str_t *name
     }
     else {
       if((gtn = group_create_node(gp, name, NULL))!=NULL) {
+        gtn->getting_group=1;
         memstore_ipc_send_get_group(memstore_str_owner(name), name);
       }
     }
@@ -199,7 +207,7 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
   if((node = rbtree_find_node(&gp->tree, &shm_group->name)) != NULL) {
     gtn = rbtree_data_from_node(node);  
     gtn->group = shm_group;
-    
+    gtn->getting_group = 0;
     call_whenready_callbacks(gtn, shm_group);
     
   }
@@ -521,7 +529,6 @@ ngx_int_t memstore_group_add_subscribers(group_tree_node_t *gtn, int count) {
       return NGX_ERROR;
     }
     else {
-      ERR("didn't add subscriber yet");
       d->n = count;
       d->data = NULL;
       d->allocd = 1;
