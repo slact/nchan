@@ -70,7 +70,6 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   ngx_str_t                 *id;
   u_char                    *cur;
   ngx_str_t                  evstr;
-  ngx_buf_t                  buf;
   nchan_msg_t                msg;
   
   switch(event_type) {
@@ -113,21 +112,20 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   
   //the event message
   ngx_http_complex_value(r, cf->channel_event_string, &evstr);
-  ngx_memzero(&buf, sizeof(buf)); //do we really need this?...
-  buf.temporary = 1;
-  buf.memory = 1;
-  buf.last_buf = 1;
-  buf.pos = evstr.data;
-  buf.last = evstr.data + evstr.len;
-  buf.start = buf.pos;
-  buf.end = buf.last;
   
   ngx_memzero(&msg, sizeof(msg));
+  
+  msg.buf.temporary = 1;
+  msg.buf.memory = 1;
+  msg.buf.last_buf = 1;
+  msg.buf.pos = evstr.data;
+  msg.buf.last = evstr.data + evstr.len;
+  msg.buf.start = msg.buf.pos;
+  msg.buf.end = msg.buf.last;
+  
   ngx_gettimeofday(&tv);
   msg.id.time = tv.tv_sec;
   msg.id.tagcount = 1;
-  msg.buf = &buf;
-  
   
   if(evcf == NULL) {
     evcf = &evcf_data;
@@ -601,6 +599,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
             goto bad_msgid;
           }
+          
           if((sub = sub_create(r, msg_id)) == NULL) {
             nchan_log_request_error(r, "unable to create subscriber");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -789,15 +788,15 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   
   
   if(cf->eventsource_event.len > 0) {
-    msg->eventsource_event = cf->eventsource_event;
+    msg->eventsource_event = &cf->eventsource_event;
   }
   else if((eventsource_event = nchan_get_header_value(r, NCHAN_HEADER_EVENTSOURCE_EVENT)) != NULL) {
-    msg->eventsource_event = *eventsource_event;
+    msg->eventsource_event = eventsource_event;
   }
   
   //content type
   if(content_type) {
-    msg->content_type = *content_type;
+    msg->content_type = content_type;
   }
   
   if(content_length == 0) {
@@ -818,7 +817,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   msg->id.tagactive = 0;
   msg->id.tagcount = 1;
   
-  msg->buf = buf;
+  msg->buf = *buf;
 #if NCHAN_MSG_LEAK_DEBUG
   msg->lbl = r->uri;
 #endif

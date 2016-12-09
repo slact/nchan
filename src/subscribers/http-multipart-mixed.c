@@ -72,7 +72,7 @@ static void *headerbuf_alloc(void *pd) {
 static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
-  ngx_buf_t              *buf, *msg_buf = msg->buf, *msgid_buf;
+  ngx_buf_t              *buf, *msg_buf = &msg->buf, *msgid_buf;
   ngx_int_t               rc;
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, ngx_nchan_module);
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
@@ -107,7 +107,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   }
   
   n=4;
-  if(msg->content_type.len == 0) {
+  if(!msg->content_type) {
     //don't need content_type buf'n'chain
     n--;
   }
@@ -130,7 +130,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   chain->buf->pos = headerbuf->charbuf;
   
   //content_type maybe
-  if(msg->content_type.len > 0) {
+  if(msg->content_type) {
     chain = chain->next;
     buf = chain->buf;
     
@@ -141,7 +141,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     buf->memory = 1;
     buf->start = cur;
     buf->pos = cur;
-    buf->last = ngx_snprintf(cur, 255, "Content-Type: %V\r\n\r\n", &msg->content_type);
+    buf->last = ngx_snprintf(cur, 255, "Content-Type: %V\r\n\r\n", msg->content_type);
     buf->end = buf->last;
   }
   else {

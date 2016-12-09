@@ -405,9 +405,9 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
       size += ngx_buf_size((chain->buf));
       chain = chain->next;
       
-      content_type = &cur->msg->content_type;
+      content_type = cur->msg->content_type;
       buf = chain->buf;
-      if (content_type->data != NULL) {
+      if (content_type) {
         u_char    *char_cur = ngx_pcalloc(r->pool, content_type->len + 25);
         ngx_init_set_membuf(buf, char_cur, ngx_snprintf(char_cur, content_type->len + 25, "\r\nContent-Type: %V\r\n\r\n", content_type));
       }
@@ -418,9 +418,9 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
       chain = chain->next;
     }
       
-    if(ngx_buf_size(cur->msg->buf) > 0) {
+    if(ngx_buf_size((&cur->msg->buf)) > 0) {
       buf = chain->buf;
-      *buf = *cur->msg->buf;
+      *buf = cur->msg->buf;
       
       if(buf->file) {
         ngx_file_t  *file_copy = nchan_bufchain_pool_reserve_file(ctx->bcp);

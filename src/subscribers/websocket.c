@@ -410,10 +410,9 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   ngx_http_request_t      *r = fsub->sub.request;
   ngx_memzero(&msg, sizeof(msg));
   
-  msg.buf=buf;
+  msg.buf=*buf;
   if(r->headers_in.content_type) {
-    msg.content_type.data = r->headers_in.content_type->value.data;
-    msg.content_type.len = r->headers_in.content_type->value.len;
+    msg.content_type = &r->headers_in.content_type->value;
   }
   
   ngx_gettimeofday(&tv);
@@ -1381,14 +1380,14 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   nchan_buf_and_chain_t *bc;
   ngx_file_t            *file_copy;
   ngx_buf_t             *chained_msgbuf;
-  size_t                 sz = ngx_buf_size((msg->buf));
+  size_t                 sz = ngx_buf_size((&msg->buf));
   if(fsub->ws_meta_subprotocol) {
     static ngx_str_t          id_line = ngx_string("id: ");
     static ngx_str_t          content_type_line = ngx_string("\ncontent-type: ");
     static ngx_str_t          two_newlines = ngx_string("\n\n");
     ngx_chain_t              *cur;
     ngx_str_t                 msgid;
-    bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 4 + (msg->content_type.len > 0 ? 2 : 0));
+    bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 4 + (msg->content_type ? 2 : 0));
     cur = &bc->chain;
     
     // id: 
@@ -1402,15 +1401,15 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     sz += msgid.len;
     cur = cur->next;
     
-    if(msg->content_type.len > 0) {
+    if(msg->content_type) {
       // content-type: 
       ngx_init_set_membuf(cur->buf, content_type_line.data, content_type_line.data + content_type_line.len);
       sz += content_type_line.len;
       cur = cur->next;
       
       //content-type value
-      ngx_init_set_membuf(cur->buf, msg->content_type.data, msg->content_type.data + msg->content_type.len);
-      sz += msg->content_type.len;
+      ngx_init_set_membuf(cur->buf, msg->content_type->data, msg->content_type->data + msg->content_type->len);
+      sz += msg->content_type->len;
       cur = cur->next;
     }
     
@@ -1420,7 +1419,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     cur = cur->next;
     
     //now the message
-    *cur->buf = *msg->buf;
+    *cur->buf = msg->buf;
     chained_msgbuf = cur->buf;
     assert(cur->next == NULL);
   }
@@ -1428,10 +1427,10 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
     //message first
     chained_msgbuf = &bc->buf;
-    bc->buf = *msg->buf;
+    bc->buf = msg->buf;
   }
   
-  if(msg->buf->file) {
+  if(msg->buf.file) {
     file_copy = nchan_bufchain_pool_reserve_file(fsub->ctx->bcp);
     nchan_msg_buf_open_fd_if_needed(chained_msgbuf, file_copy, NULL);
   }

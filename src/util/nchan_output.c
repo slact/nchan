@@ -462,7 +462,7 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
 }
 
 ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_id_t *msgid, ngx_int_t finalize, char **err) {
-  ngx_buf_t                 *buffer = msg->buf;
+  ngx_buf_t                 *buffer = &msg->buf;
   nchan_buf_and_chain_t     *cb;
   ngx_int_t                  rc;
   ngx_chain_t               *rchain = NULL;
@@ -491,9 +491,8 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
     r->header_only = 1;
   }
 
-  if (msg->content_type.data!=NULL) {
-    r->headers_out.content_type.len=msg->content_type.len;
-    r->headers_out.content_type.data = msg->content_type.data;
+  if (msg->content_type) {
+    r->headers_out.content_type = *msg->content_type;
   }
   
   if(msgid == NULL) {

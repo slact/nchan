@@ -103,7 +103,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   static ngx_str_t        terminal_newlines=ngx_string("\n\n");
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
   u_char                 *cur = NULL, *last = NULL;
-  ngx_buf_t              *msg_buf = msg->buf;
+  ngx_buf_t              *msg_buf = &msg->buf;
   ngx_buf_t               databuf;
   nchan_buf_and_chain_t  *bc;
   ngx_chain_t            *first_link = NULL, *last_link = NULL;
@@ -233,8 +233,8 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   if(sub->cf->eventsource_event.len > 0) {
     prepend_es_response_line(fsub, &event_line, &first_link, &sub->cf->eventsource_event);
   }
-  else if(msg->eventsource_event.len > 0) {
-    prepend_es_response_line(fsub, &event_line, &first_link, &msg->eventsource_event);
+  else if(msg->eventsource_event) {
+    prepend_es_response_line(fsub, &event_line, &first_link, msg->eventsource_event);
   }
   
   return nchan_output_msg_filter(fsub->sub.request, msg, first_link);

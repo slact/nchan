@@ -1736,7 +1736,7 @@ static ngx_int_t validate_chanhead_messages(memstore_channel_head_t *ch) {
 }
 
 static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
-  ngx_buf_t         *buf = msg->buf;
+  ngx_buf_t         *buf = &msg->buf;
   ngx_file_t        *f = buf->file;
   
   assert(msg->refcount == MSG_REFCOUNT_INVALID);
@@ -2673,12 +2673,6 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   return ch->msg_last == msg ? NGX_OK : NGX_ERROR;
 }
 
-typedef struct {
-  nchan_msg_t             msg;
-  ngx_buf_t               buf;
-  ngx_file_t              file;
-} shmsg_memspace_t;
-
 static u_char* copy_preallocated_str_to_cur(ngx_str_t *dst, ngx_str_t *src, u_char *cur) {
   size_t   sz = src->len;
   dst->len = sz; 
@@ -2692,63 +2686,96 @@ static u_char* copy_preallocated_str_to_cur(ngx_str_t *dst, ngx_str_t *src, u_ch
   return cur + sz;
 }
 
-static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
-  shmsg_memspace_t        *stuff;
-  nchan_msg_t             *msg;
-  ngx_buf_t               *mbuf = NULL, *buf=NULL;
-  u_char                  *cur;
-  mbuf = m->buf;
-  
-  size_t                  total_sz, buf_body_size = 0, content_type_size = 0, buf_filename_size = 0, eventsource_event_size = 0;
-  
-  eventsource_event_size += m->eventsource_event.len;
-  content_type_size += m->content_type.len;
+size_t memstore_msg_memsize(nchan_msg_t *m) {
+  size_t                  total_sz, buf_body_size = 0, content_type_size = 0, buf_filestuff_size = 0, eventsource_event_size = 0;
+  ngx_buf_t              *mbuf = &m->buf;
+  if(m->eventsource_event) eventsource_event_size += m->eventsource_event->len + sizeof(ngx_str_t);
+  if(m->content_type) content_type_size += m->content_type->len + sizeof(ngx_str_t);
   if(ngx_buf_in_memory_only(mbuf)) {
     buf_body_size = ngx_buf_size(mbuf);
   }
   if(mbuf->in_file && mbuf->file != NULL) {
-    buf_filename_size = mbuf->file->name.len + 1; //+1 to ensure NUL-terminated filename string
+    buf_filestuff_size = sizeof(ngx_file_t) + mbuf->file->name.len + 1; //+1 to ensure NUL-terminated filename string
   }
   
-  total_sz = sizeof(*stuff) + (buf_filename_size + content_type_size + eventsource_event_size +  buf_body_size);
+  total_sz = sizeof(nchan_msg_t) + (buf_filestuff_size + content_type_size + eventsource_event_size +  buf_body_size);
 #if NCHAN_MSG_LEAK_DEBUG
   size_t    debug_sz = m->lbl.len;
   total_sz += debug_sz;
 #endif
   
-  if((stuff = shm_alloc(shm, total_sz, "message")) == NULL) {
+  return total_sz;
+}
+
+//#define NCHAN_CREATE_SHM_MSG_DEBUG 1
+
+static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
+  nchan_msg_t             *msg;
+  ngx_buf_t               *mbuf = NULL, *buf=NULL;
+  u_char                  *cur;
+  size_t                   buf_mem_body_size = 0;
+  size_t                   memsize = memstore_msg_memsize(m);
+
+#if NCHAN_CREATE_SHM_MSG_DEBUG
+  memsize += 5;
+#endif
+  mbuf = &m->buf;
+    
+  if((msg = shm_alloc(shm, memsize, "message")) == NULL) {
     ERR("can't allocate 'shared' memory for msg for channel id");
     return NULL;
   }
-  cur = (u_char *)&stuff[1];
+  buf = &msg->buf;
   
+#if NCHAN_CREATE_SHM_MSG_DEBUG
+  cur = (u_char *)msg;
+  cur[memsize+1]='e';
+  cur[memsize+2]='n';
+  cur[memsize+3]='d';
+  cur[memsize+4]='\0';
+#endif
+  
+  cur = (u_char *)&msg[1];
   assert(m->id.tagcount == 1);
   
-  msg = &stuff->msg;
-  buf = &stuff->buf;
+  *msg = *m;
   
-  ngx_memcpy(msg, m, sizeof(*msg));
-  ngx_memcpy(buf, mbuf, sizeof(*buf));
+  if(m->content_type) {
+    msg->content_type = (ngx_str_t *)cur;
+    cur = (u_char *)(&msg->content_type[1]);
+    cur = copy_preallocated_str_to_cur(msg->content_type, m->content_type, cur);
+  }
+  else {
+    msg->content_type = NULL;
+  }
   
-  msg->buf = buf;
-  
-  cur = copy_preallocated_str_to_cur(&msg->content_type, &m->content_type, cur);
-  
-  cur = copy_preallocated_str_to_cur(&msg->eventsource_event, &m->eventsource_event, cur);
+  if(m->eventsource_event) {
+    msg->eventsource_event = (ngx_str_t *)cur;
+    cur = (u_char *)(&msg->eventsource_event[1]);
+    cur = copy_preallocated_str_to_cur(msg->eventsource_event, m->eventsource_event, cur);
+  }
+  else {
+    msg->eventsource_event = NULL;
+  }
   
   if(mbuf->file!=NULL) {
-    buf->file = &stuff->file;
+    buf->file = (ngx_file_t *)cur;
     *buf->file = *mbuf->file;
     buf->file->fd =NGX_INVALID_FILE;
     buf->file->log = ngx_cycle->log;
     
+    cur = (u_char *)&buf->file[1];
     cur = copy_preallocated_str_to_cur(&buf->file->name, &mbuf->file->name, cur);
     //ensure last char is NUL
     *(cur++) = '\0';
   }
   
-  if(buf_body_size > 0) {
-    ngx_str_t   dst_str, src_str = {buf_body_size, mbuf->pos};
+  if(ngx_buf_in_memory_only(mbuf)) {
+    buf_mem_body_size = ngx_buf_size(mbuf);
+  }
+  
+  if(buf_mem_body_size > 0) {
+    ngx_str_t   dst_str, src_str = {buf_mem_body_size, mbuf->pos};
     
     //cur = copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
     copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
@@ -2772,7 +2799,9 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   
   msg_debug_add(msg);
 #endif
-  
+#if NCHAN_CREATE_SHM_MSG_DEBUG
+  assert(ngx_memcmp(((u_char *)msg) + memsize + 1, "bend", 4) == 0);
+#endif
   return msg;
 }
 
@@ -2914,7 +2943,7 @@ static ngx_int_t group_publish_accounting_channelcheck(ngx_int_t rc, nchan_chann
   }
   else {
     char *err = "Group limit reached for number of channels.";
-    ERR("%s (group %V)", err, &d->groupname);
+    nchan_log_warning("%s (group %V)", err, &d->groupname);
     d->cb(NGX_HTTP_FORBIDDEN, err, d->pd);
   }
   ngx_free(d);

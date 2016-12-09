@@ -85,14 +85,14 @@ typedef struct nchan_msg_s nchan_msg_t;
 struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
-  ngx_str_t                       content_type;
-  ngx_str_t                       eventsource_event;
+  ngx_str_t                      *content_type;
+  ngx_str_t                      *eventsource_event;
   //  ngx_str_t                   charset;
-  ngx_buf_t                      *buf;
+  ngx_buf_t                       buf;
   time_t                          expires;
   ngx_atomic_int_t                refcount;
   
-  struct nchan_msg_s             *reload_next;
+  //struct nchan_msg_s             *reload_next;
   
   unsigned                        shared:1; //for debugging
   unsigned                        temp_allocd:1;
