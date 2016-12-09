@@ -2,7 +2,11 @@
 #define MEMSTORE_PRIVATE_HEADER
 #include <util/shmem.h>
 #include "ipc.h"
-//#define MEMSTORE_CHANHEAD_RESERVE_DEBUG 0
+//#define MEMSTORE_CHANHEAD_RESERVE_DEBUG 1
+
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
+#include <util/nchan_list.h>
+#endif
 #include "uthash.h"
 typedef struct memstore_channel_head_s memstore_channel_head_t;
 typedef struct store_message_s store_message_t;
@@ -44,7 +48,7 @@ struct memstore_channel_head_s {
   ngx_int_t                       internal_sub_count;
   time_t                          last_subscribed_local;
 
-#if MESTORE_CHANHEAD_RESERVE_DEBUG
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_t                    reserved;
 #else
   uint16_t                        reserved;

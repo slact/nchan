@@ -96,24 +96,24 @@ static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
 
 static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
-/*
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
 static void log_memstore_chanhead_reservations(memstore_channel_head_t *ch) {
-#if MESTORE_CHANHEAD_RESERVE_DEBUG
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_el_t  *cur;
   char            **lbl;
-  ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved.n);
+  DBG("%p %V reservations: %i", ch, &ch->id, ch->reserved.n);
   for(cur = ch->reserved.head; cur != NULL; cur = cur->next) {
     lbl = nchan_list_data_from_el(cur);
-    ERR("   %s", *lbl);
+    DBG("   %s", *lbl);
   }
 #else
-  ERR("%p %V reservations: %i", ch, &ch->id, ch->reserved);
+  DBG("%p %V reservations: %i", ch, &ch->id, ch->reserved);
 #endif
 }
-*/
+#endif
 
 static int memstore_chanhead_reservations(memstore_channel_head_t *ch) {
-#if MESTORE_CHANHEAD_RESERVE_DEBUG
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
   return ch->reserved.n;
 #else
   return ch->reserved;
@@ -121,7 +121,7 @@ static int memstore_chanhead_reservations(memstore_channel_head_t *ch) {
 }
 
 void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *lbl) {
-#if MESTORE_CHANHEAD_RESERVE_DEBUG
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
   char   **label = nchan_list_append(&ch->reserved);
   *label = (char *)lbl;
 #else
@@ -130,7 +130,7 @@ void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *lbl) {
 }
 
 void memstore_chanhead_release(memstore_channel_head_t *ch, char *label) {
-#if MESTORE_CHANHEAD_RESERVE_DEBUG
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_el_t  *cur;
   char            **lbl;
   for(cur = ch->reserved.head; cur != NULL; cur = cur->next) {
@@ -188,8 +188,10 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *
     }
     
     if(memstore_chanhead_reservations(ch) > 0) {
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
       DBG("not ready to reap %V, still reserved:", &ch->id);
-      //log_memstore_chanhead_reservations(ch);
+      log_memstore_chanhead_reservations(ch);
+#endif
       return NGX_DECLINED;
     }
     
@@ -1068,7 +1070,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   head->foreign_owner_ipc_sub = NULL;
   head->last_subscribed_local = 0;
   
-#if MESTORE_CHANHEAD_RESERVE_DEBUG
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
   nchan_list_init(&head->reserved, sizeof(char *), "chanhead reserve (debug)");
 #else
   head->reserved = 0;
