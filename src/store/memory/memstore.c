@@ -2118,6 +2118,7 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
 }
 
 static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t *shm_group, subscribe_data_t *d) {
+  DBG("group subscribe limit check");
   if(d->sub->status != DEAD) {
     if(shm_group) {
       if(!shm_group->limit.channels || (shm_group->channels < shm_group->limit.channels)) {
@@ -2253,6 +2254,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     
     if(cf->group.enable_accounting || chanhead->groupnode) {
       //per-group max subscriber check
+      DBG("per-group max subscriber check");
       assert(d->allocd);
       d->sub->fn->reserve(d->sub);
       d->reserved = 1;
@@ -2804,7 +2806,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   msg_debug_add(msg);
 #endif
 #if NCHAN_CREATE_SHM_MSG_DEBUG
-  assert(ngx_memcmp(((u_char *)msg) + memsize + 1, "bend", 4) == 0);
+  assert(ngx_memcmp(((u_char *)msg) + memsize + 1, "end", 4) == 0);
 #endif
   return msg;
 }
