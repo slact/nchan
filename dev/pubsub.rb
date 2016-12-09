@@ -1594,11 +1594,11 @@ class Publisher
   def delete
     submit nil, :DELETE
   end
-  def post(body, content_type=nil, &block)
-    submit body, :POST, content_type, &block
+  def post(body, content_type=nil, es_event=nil, &block)
+    submit body, :POST, content_type, es_event, &block
   end
-  def put(body, content_type=nil, &block)
-    submit body, :PUT, content_type, &block
+  def put(body, content_type=nil, es_event=nil, &block)
+    submit body, :PUT, content_type, es_event, &block
   end
 
   

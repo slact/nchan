@@ -67,11 +67,11 @@ while repeat do
       STDIN.gets
     end
     if msg
-      pub.submit msg, method, content_type, &on_response
+      pub.submit msg, method, content_type, eventsource_event, &on_response
     elsif msg_gen
       this_msg = msg_gen.call(i).to_s
       puts this_msg
-      pub.submit this_msg, method, content_type, &on_response
+      pub.submit this_msg, method, content_type, eventsource_event, &on_response
     end
   else
     if loop
@@ -84,7 +84,7 @@ while repeat do
     end
     message=message[0..-2] #remove trailing newline
     
-    pub.submit message, method, content_type, eventsource_event &on_response
+    pub.submit message, method, content_type, eventsource_event, &on_response
     puts ""
   end
   i+=1
