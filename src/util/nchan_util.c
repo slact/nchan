@@ -353,6 +353,35 @@ ngx_int_t nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay
   return NGX_OK;
 }
 
+
+typedef struct {
+  ngx_event_t    ev;
+  ngx_msec_t     wait;
+  int          (*cb)(void *pd);
+} interval_timer_t;
+
+void interval_timer_callback(ngx_event_t *ev) {
+  interval_timer_t  *timer = container_of(ev, interval_timer_t, ev);
+  int again = timer->cb(ev->data);
+  if(again && ev->timedout) {
+    ev->timedout=0;
+    ngx_add_timer(&timer->ev, timer->wait);
+  }
+  else {
+    ngx_free(timer);
+  }
+}
+
+ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t interval) {
+  interval_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
+  ngx_memzero(&timer->ev, sizeof(timer->ev));
+  timer->cb = cb;
+  timer->wait = interval;
+  nchan_init_timer(&timer->ev, interval_timer_callback, pd);
+  ngx_add_timer(&timer->ev, interval);
+  return NGX_OK;
+}
+
 int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   //naive non-null-terminated string matcher. don't use it in tight loops!
   char *cur;

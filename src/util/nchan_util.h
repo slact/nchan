@@ -16,6 +16,7 @@ int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2);
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen);
 ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd);
 ngx_int_t nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay);
+ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t interval);
 char *nchan_msgstatus_to_str(nchan_msg_status_t status);
 ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last);
 
