@@ -2182,6 +2182,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         }
         else {
           //can't find the channel. gotta check if it really does exist
+          if(!d->reserved) {
+            d->sub->fn->reserve(d->sub);
+            d->reserved = 1;
+          }
           return memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_channel_limit_check, d);
         }
       }
