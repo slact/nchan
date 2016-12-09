@@ -2953,7 +2953,9 @@ static ngx_int_t group_publish_accounting_channelcheck(ngx_int_t rc, nchan_chann
 static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm_group, group_publish_accounting_check_data_t *d) {
   int     n;
   int     ok = 0;
+  ssize_t msg_sz;
   char   *err;
+  
   
   if(!shm_group) {
     ERR("couldn't find group %V for publishing accounting check.", &d->groupname);
