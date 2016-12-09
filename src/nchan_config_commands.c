@@ -209,13 +209,13 @@ static ngx_command_t  nchan_commands[] = {
 
   { ngx_string("nchan_max_reserved_memory"),
     NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_size_slot,
+    nchan_conf_set_size_slot,
     NGX_HTTP_MAIN_CONF_OFFSET,
     offsetof(nchan_main_conf_t, shm_size),
     NULL } ,
   { ngx_string("push_max_reserved_memory"), //legacy for nchan_max_reserved_memory
     NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_size_slot,
+    nchan_conf_set_size_slot,
     NGX_HTTP_MAIN_CONF_OFFSET,
     offsetof(nchan_main_conf_t, shm_size),
     NULL } ,

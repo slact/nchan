@@ -258,7 +258,7 @@ CfCmd.new do
       info: "Publisher configuration. \"`off`\" is equivalent to setting `nchan_message_buffer_length 0`, which disables the buffering of old messages. Using this setting is not recommended when publishing very quickly, as it may result in missed messages."
     
   nchan_max_reserved_memory [:main],
-      :ngx_conf_set_size_slot,
+      :nchan_conf_set_size_slot,
       [:main_conf, :shm_size],
       legacy: "push_max_reserved_memory",
       

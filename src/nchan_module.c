@@ -359,7 +359,7 @@ static ngx_int_t parse_size_limit(u_char *data, size_t len) {
   ngx_str_t  str;
   str.data = data;
   str.len = len;
-  return ngx_parse_offset(&str);
+  return nchan_parse_size(&str);
 }
 
 static ngx_int_t set_group_num_limit(ngx_http_request_t *r, ngx_http_complex_value_t *cv, ngx_atomic_int_t *dst, ngx_int_t (*parsefunc)(u_char *, size_t), char *errstr) {

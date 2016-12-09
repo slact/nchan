@@ -395,6 +395,129 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   return 0;
 }
 
+//converts string to positive double float
+static double nchan_atof(u_char *line, ssize_t n) {
+  ssize_t cutoff, cutlim;
+  double  value = 0;
+  
+  u_char *decimal, *cur, *last = line + n;
+  
+  if (n == 0) {
+    return NGX_ERROR;
+  }
+
+  cutoff = NGX_MAX_SIZE_T_VALUE / 10;
+  cutlim = NGX_MAX_SIZE_T_VALUE % 10;
+  
+  decimal = memchr(line, '.', n);
+  
+  if(decimal == NULL) {
+    decimal = line + n;
+  }
+  
+  for (n = decimal - line; n-- > 0; line++) {
+    if (*line < '0' || *line > '9') {
+      return NGX_ERROR;
+    }
+
+    if (value >= cutoff && (value > cutoff || (*line - '0') > cutlim)) {
+      return NGX_ERROR;
+    }
+
+    value = value * 10 + (*line - '0');
+  }
+  
+  double decval = 0;
+  
+  
+  
+  for(cur = (decimal - last) > 10 ? decimal + 10 : last-1; cur > decimal && cur < last; cur--) {
+    if (*cur < '0' || *cur > '9') {
+      return NGX_ERROR;
+    }
+    decval = decval / 10 + (*cur - '0');
+  }
+  value = value + decval/10;
+  
+  return value;
+}
+
+ssize_t nchan_parse_size(ngx_str_t *line) {
+  u_char   unit;
+  size_t   len;
+  ssize_t  size, scale, max;
+  double   floaty;
+  
+  len = line->len;
+  unit = line->data[len - 1];
+
+  switch (unit) {
+  case 'K':
+  case 'k':
+      len--;
+      max = NGX_MAX_SIZE_T_VALUE / 1024;
+      scale = 1024;
+      break;
+
+  case 'M':
+  case 'm':
+      len--;
+      max = NGX_MAX_SIZE_T_VALUE / (1024 * 1024);
+      scale = 1024 * 1024;
+      break;
+  
+  case 'G':
+  case 'g':
+      len--;
+      max = NGX_MAX_SIZE_T_VALUE / (1024 * 1024 * 1024);
+      scale = 1024 * 1024 * 1024;
+      break;
+
+  default:
+      max = NGX_MAX_SIZE_T_VALUE;
+      scale = 1;
+  }
+
+  floaty = nchan_atof(line->data, len);
+  
+  if (floaty == NGX_ERROR || floaty > max) {
+      return NGX_ERROR;
+  }
+
+  size = floaty * scale;
+
+  return size;
+}
+
+char *nchan_conf_set_size_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  char  *p = conf;
+
+  size_t           *sp;
+  ngx_str_t        *value;
+  ngx_conf_post_t  *post;
+
+
+  sp = (size_t *) (p + cmd->offset);
+  if (*sp != NGX_CONF_UNSET_SIZE) {
+      return "is duplicate";
+  }
+
+  value = cf->args->elts;
+
+  *sp = nchan_parse_size(&value[1]);
+  if (*sp == (size_t) NGX_ERROR) {
+    return "invalid value";
+  }
+
+  if (cmd->post) {
+    post = cmd->post;
+    return post->post_handler(cf, post, sp);
+  }
+
+  return NGX_CONF_OK;
+}
+
+
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited
 static ngx_str_t            debug_pool_str;
