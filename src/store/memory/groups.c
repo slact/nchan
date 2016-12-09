@@ -3,8 +3,8 @@
 #include "ipc-handlers.h"
 #include <assert.h>
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 
@@ -74,7 +74,7 @@ static group_tree_node_t *group_owner_create_node(memstore_groups_t *gp, ngx_str
   group->name.data = (u_char *)(&group[1]);
   ngx_memcpy(group->name.data, name->data, name->len);
   
-  ERR("created group %p %V", group, &group->name);
+  DBG("created group %p %V", group, &group->name);
   
   if((gtn = group_create_node(gp, name, group)) == NULL) {
     shm_free(nchan_memstore_get_shm(), group);

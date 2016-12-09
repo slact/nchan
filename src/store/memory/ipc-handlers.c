@@ -41,8 +41,8 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 
-#define DEBUG_MEMZERO(var) ngx_memzero(var, sizeof(*(var)))
-//#define DEBUG_MEMZERO(var) /*nothing*/
+//#define DEBUG_MEMZERO(var) ngx_memzero(var, sizeof(*(var)))
+#define DEBUG_MEMZERO(var) /*nothing*/
 
 //lots of copypasta here, but it's the fastest way for me to write these IPC handlers
 //maybe TODO: simplify this stuff, but probably not as it's not a performance penalty and the code is simple
