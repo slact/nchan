@@ -7,6 +7,7 @@ msg=false
 loop=false
 repeat_sec=0.5
 content_type=nil
+eventsource_event=nil
 msg_gen = false
 on_response=Proc.new {}
 method=:POST
@@ -27,6 +28,7 @@ opt=OptionParser.new do |opts|
   opts.on("-1", "--once", "run once then exit"){runonce=true}
   opts.on("-a", "--accept TYPE", "set Accept header"){|v| accept=v}
   opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
+  opts.on(      "--eventsource_event EVENT", "event: line for eversource subscribers"){|v| eventsource_event=v}
   opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
   opts.on("-d", "--delete", "delete channel via a DELETE request"){method = :DELETE}
   opts.on("-p", "--put", "create channel without submitting message"){method = :PUT}
@@ -82,7 +84,7 @@ while repeat do
     end
     message=message[0..-2] #remove trailing newline
     
-    pub.submit message, method, content_type, &on_response
+    pub.submit message, method, content_type, eventsource_event &on_response
     puts ""
   end
   i+=1

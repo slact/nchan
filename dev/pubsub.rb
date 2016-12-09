@@ -1502,7 +1502,7 @@ class Publisher
   end
   private :submit_ws
   
-  def submit(body, method=:POST, content_type= :'text/plain', &block)
+  def submit(body, method=:POST, content_type= :'text/plain', eventsource_event=nil, &block)
     self.response=nil
     self.response_code=nil
     self.response_body=nil
@@ -1516,6 +1516,7 @@ class Publisher
     return submit_ws body, &block if @ws
     
     headers = {:'Content-Type' => content_type, :'Accept' => accept}
+    headers[:'X-Eventsource-Event'] = eventsource_event if eventsource_event
     headers.merge! @extra_headers if @extra_headers
     post = Typhoeus::Request.new(
       @url,
