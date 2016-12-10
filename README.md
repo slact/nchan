@@ -587,6 +587,11 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   > A Redis-stored channel and its messages are removed from memory (local cache) after this timeout, provided there are no local subscribers.    
 
+- **nchan_redis_namespace** `<string>`  
+  arguments: 1  
+  context: http, server, upstream  
+  > Prefix all Redis keys with this string. All Nchan-related keys in redis will be of the form "nchan_redis_namespace:*" . Default is empty.    
+
 - **nchan_redis_pass**  
   arguments: 1  
   context: http, server, location  

@@ -2273,6 +2273,7 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   
   rdata->ping_interval = rcf->ping_interval;
   rdata->connect_url = url;
+  rdata->namespace = rcf->namespace;
   
   if(rbtree_insert_node(&redis_data_tree, node) != NGX_OK) {
     ERR("couldn't insert redis date node");

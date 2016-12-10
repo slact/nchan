@@ -141,6 +141,7 @@ typedef struct {
 struct rdstore_data_s {
   ngx_str_t                       *connect_url;
   redis_connect_params_t           connect_params;
+  ngx_str_t                        namespace;
   
   redisAsyncContext               *ctx;
   redisAsyncContext               *sub_ctx;

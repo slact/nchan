@@ -26,6 +26,7 @@ typedef struct {
   ngx_str_t                     url;
   ngx_flag_t                    url_enabled;
   time_t                        ping_interval;
+  ngx_str_t                     namespace;
   ngx_str_t                     upstream_url;
   ngx_http_upstream_srv_conf_t *upstream;
   ngx_flag_t                    upstream_inheritable;

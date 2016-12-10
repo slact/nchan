@@ -317,6 +317,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->redis.url_enabled, prev->redis.url_enabled, 0);
   ngx_conf_merge_value(conf->redis.upstream_inheritable, prev->redis.upstream_inheritable, 0);
   ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
+  ngx_conf_merge_str_value(conf->redis.namespace, prev->redis.namespace, "");
   ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
   if(conf->redis.url_enabled) {
     conf->redis.enabled = 1;
@@ -864,6 +865,34 @@ static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   
   if(lcf->redis.upstream) {
     return "can't be set here: already using nchan_redis_pass";
+  }
+  
+  return ngx_conf_set_str_slot(cf, cmd, conf);
+}
+
+static char *ngx_conf_set_redis_namespace_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  //raise(SIGSTOP);
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *arg = &val[1];
+
+  if(memchr(arg->data, '{', arg->len)) {
+    return "can't contain character '{'";
+  }
+  
+  if(memchr(arg->data, '}', arg->len)) {
+    return "can't contain character '}'";
+  }
+  
+  if(arg->len > 0 && arg->data[arg->len-1] != ':') {
+    u_char  *nns;
+    if((nns = ngx_palloc(cf->pool, sizeof(arg->len + 2))) == NULL) {
+      return "couldn't allocate redis namespace data";
+    }
+    ngx_memcpy(nns, arg->data, arg->len);
+    nns[arg->len]=':';
+    nns[arg->len+1]='\0';
+    arg->len++;
+    arg->data=nns;
   }
   
   return ngx_conf_set_str_slot(cf, cmd, conf);

@@ -329,6 +329,16 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
+    nchan_redis_namespace [:main, :srv, :upstream], 
+      :ngx_conf_set_redis_namespace_slot,
+      [:loc_conf, :"redis.namespace"],
+      args: 1,
+      
+      group: "storage",
+      value: "<string>",
+      tags: ['redis'],
+      info: "Prefix all Redis keys with this string. All Nchan-related keys in redis will be of the form \"nchan_redis_namespace:*\" . Default is empty."
+  
   nchan_redis_fakesub_timer_interval [:main],
       :ngx_conf_set_msec_slot,
       [:main_conf, :redis_fakesub_timer_interval],
