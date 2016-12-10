@@ -91,8 +91,8 @@ end
 
 local subs_count = tonumber(channel.subscribers)
 
-local found_msg_id
 if msg_id==nil then
+  local found_msg_key
   if new_channel then
     --dbg("new channel")
     return {418, "", "", "", "", subs_count}
@@ -101,23 +101,22 @@ if msg_id==nil then
     
     if no_msgid_order == 'FIFO' then --most recent message
       --dbg("get most recent")
-      found_msg_id=channel.current_message
+      found_msg_key=channel.current_message
     elseif no_msgid_order == 'FILO' then --oldest message
       --dbg("get oldest")
-      
-      found_msg_id=oldestmsg(key.messages, msgkey_fmt)
+      found_msg_key=oldestmsg(key.messages, msgkey_fmt)
     end
-    if found_msg_id == nil then
+    
+    if found_msg_key == nil then
       --we await a message
       return {418, "", "", "", "", subs_count}
     else
-      msg_id = found_msg_id
-      local msg=tohash(redis.call('HGETALL', msg_id))
+      local msg=tohash(redis.call('HGETALL', found_msg_key))
       if not next(msg) then --empty
         return {404, "", "", "", "", subs_count}
       else
         --dbg(("found msg %s:%s  after %s:%s"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))
-        local ttl = redis.call('TTL', msg_id)
+        local ttl = redis.call('TTL', found_msg_key)
         return {200, ttl, tonumber(msg.time) or "", tonumber(msg.tag) or "", tonumber(msg.prev_time) or "", tonumber(msg.prev_tag) or "", msg.data or "", msg.content_type or "", msg.eventsource_event or "", subs_count}
       end
     end
