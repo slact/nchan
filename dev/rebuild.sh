@@ -151,6 +151,10 @@ if [[ -z $NO_MAKE ]]; then
   fi
   
   ./redocument.rb
+  if ! [ $? -eq 0 ]; then; 
+    echo "failed generating documentation"; 
+    exit 1
+  fi
 
   rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \
