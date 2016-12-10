@@ -144,13 +144,13 @@ export OPTIMIZE_LEVEL=$optimize_level
 
 if [[ -z $NO_MAKE ]]; then
   
-  ./redocument.rb
-
   ./gen_config_commands.rb nchan_config_commands.c
   if ! [ $? -eq 0 ]; then; 
     echo "failed generating nginx directives"; 
     exit 1
   fi
+  
+  ./redocument.rb
 
   rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \

@@ -4,6 +4,8 @@ SRC_DIR="src"
 CONFIG_IN="nchan_commands.rb"
 CONFIG_OUT=ARGV[0]
 
+filepath = "#{ROOT_DIR}/#{SRC_DIR}/#{CONFIG_IN}"
+
 class CfCmd #let's make a DSL!
   class OneOf
     def initialize(arg) 
@@ -114,10 +116,15 @@ class CfCmd #let's make a DSL!
     END
   end
 end
+
+
+
 begin
-  cf=eval File.read("#{ROOT_DIR}/#{SRC_DIR}/#{CONFIG_IN}")
+  #cf = require_relative "#{ROOT_DIR}/#{SRC_DIR}/#{CONFIG_IN}"
+  cf=eval File.read(filepath), nil, filepath
 rescue Exception => e
-  STDERR.puts e.message.gsub(/^\(eval\)/, "#{SRC_DIR}/#{CONFIG_IN}")
+  STDERR.puts e.message
+  STDERR.puts e.backtrace.map {|x| "  #{x}"}
   exit 1
 end
 
