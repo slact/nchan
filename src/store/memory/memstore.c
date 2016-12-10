@@ -1503,7 +1503,12 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   else if(memstore_slot() == owner) {
     ch = nchan_memstore_find_chanhead(channel_id);
     if(ch == NULL) {
-      callback(NGX_OK, NULL, privdata);
+      if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_BACKUP) {
+        return nchan_store_redis.find_channel(channel_id, cf, callback, privdata);
+      }
+      else {
+        callback(NGX_OK, NULL, privdata);
+      }
     }
     else {
       chaninfo = ch->channel;
@@ -1516,7 +1521,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
     
   }
   else {
-    memstore_ipc_send_get_channel_info(owner, channel_id, callback, privdata);
+    memstore_ipc_send_get_channel_info(owner, channel_id, cf, callback, privdata);
   }
   return NGX_OK;
 }

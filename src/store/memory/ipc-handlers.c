@@ -586,13 +586,14 @@ static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
 ////////// GET CHANNEL INFO ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
+  nchan_loc_conf_t          *cf;
   store_channel_head_shm_t  *channel_info;
   nchan_msg_id_t             last_msgid;
   callback_pt                callback;
   void                      *privdata;
 } channel_info_data_t;
 
-ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
+ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
   DBG("send get_channel_info to %i %V", dst, chid);
   channel_info_data_t        data;
   DEBUG_MEMZERO(&data);
@@ -602,6 +603,7 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, cal
 
   data.channel_info = NULL;
   data.last_msgid = zero_msgid;
+  data.cf = cf;
   data.callback = callback;
   data.privdata = privdata;
   return ipc_cmd(get_channel_info, dst, &data);
@@ -613,6 +615,9 @@ static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
   head = nchan_memstore_find_chanhead(d->shm_chid);
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
   if(head == NULL) {
+    if(d->cf->redis.enabled && d->cf->redis.storage_mode == REDIS_MODE_BACKUP) {
+      //whuht?...
+    }
     //already deleted maybe?
     DBG("channel not for for get_channel_info");
     d->channel_info = NULL;
