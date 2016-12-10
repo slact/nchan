@@ -12,7 +12,7 @@
 
 
 //macro black magic, AKA X-Macros
-#define LIST_IPC_COMMANDS \
+#define LIST_IPC_COMMANDS(L) \
   L(subscribe) \
   L(subscribe_reply) \
   L(unsubscribed) \
@@ -34,22 +34,21 @@
   L(group_delete) \
   L(flood_test)
 
+
+
+#define MAKE_ipc_handlers_t(val) ipc_handler_pt val;
 typedef struct {
-#define L(val) ipc_handler_pt val;
-  LIST_IPC_COMMANDS
-#undef L
+  LIST_IPC_COMMANDS(MAKE_ipc_handlers_t)
 } ipc_handlers_t;
 
+#define MAKE_ipc_command_codes_t(val) int val;
 typedef struct {
-#define L(val) int val;
-  LIST_IPC_COMMANDS
-#undef L
+  LIST_IPC_COMMANDS(MAKE_ipc_command_codes_t);
 } ipc_command_codes_t;
 
+#define MAKE_ipc_cmd(val) offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt),
 static ipc_command_codes_t ipc_cmd = {
-#define L(val) offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt),
-  LIST_IPC_COMMANDS
-#undef L
+  LIST_IPC_COMMANDS(MAKE_ipc_cmd)
 };
 
 #define IPC_CMDS (sizeof(ipc_handlers_t)/sizeof(ipc_handler_pt))
@@ -850,10 +849,9 @@ static void receive_flood_test(ngx_int_t sender, flood_data_t *d) {
   nanosleep(&tv, NULL);
 }
 
+#define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,
 static ipc_handler_pt ipc_cmd_handler[] = {
-#define L(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,
-  LIST_IPC_COMMANDS
-#undef L
+  LIST_IPC_COMMANDS(MAKE_ipc_cmd_handler)
 };
 
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {
