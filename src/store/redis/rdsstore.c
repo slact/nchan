@@ -98,6 +98,21 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb
   }while(0)
   
 
+#define redis_script(script_name, rdata, cb, pd, fmt, args...)                         \
+  redis_command(rdata, cb, pd, "EVALSHA %s " fmt, redis_lua_scripts.script_name.hash, ##args)
+
+#define redis_sync_script(script_name, rdata, fmt, args...)                    \
+  redis_sync_command(rdata, "EVALSHA %s " fmt, redis_lua_scripts.script_name.hash, ##args)
+  
+
+#define nchan_redis_script(script_name, rdata, cb, pd, channel_id, fmt, args...)       \
+  redis_script(script_name, rdata, cb, pd, "0 %b %b " fmt, STR(&rdata->namespace), STR(channel_id), ##args)
+
+#define nchan_redis_sync_script(script_name, rdata, channel_id, fmt, args...)  \
+  redis_sync_script(script_name, rdata, "0 %b %b " fmt, STR(&rdata->namespace), STR(channel_id), ##args)
+  
+  
+
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
 #define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
 #define CHECK_REPLY_STRNVAL(reply, v, n) ( CHECK_REPLY_STR(reply) && ngx_strncmp((reply)->str, v, n) == 0 )
