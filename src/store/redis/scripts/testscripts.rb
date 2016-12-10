@@ -12,6 +12,7 @@ require "pry"
 REDIS_HOST="127.0.0.1"
 REDIS_PORT=8537
 REDIS_DB=1
+NAMESPACE="nchan:"
 
 class PubSubTest < Minitest::Test
   @@redis=nil
@@ -121,14 +122,14 @@ class PubSubTest < Minitest::Test
     end
 
     msg.time= Time.now.utc.to_i unless msg.time
-    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [msg.chid, msg.time, msg.data, msg.content_type, msg.eventsource_event, msg.ttl, msg.max_buf_size]
+    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [NAMESPACE, msg.chid, msg.time, msg.data, msg.content_type, msg.eventsource_event, msg.ttl, msg.max_buf_size]
     msg.tag=msg_tag
     msg.channel_info=channel_info
     return msg
   end
 
   def delete(ch_id)
-    redis.evalsha hashes[:delete], [], [ch_id]
+    redis.evalsha hashes[:delete], [], [NAMESPACE, ch_id]
   end
 
   def getmsg(msg, opt={})
@@ -146,7 +147,7 @@ class PubSubTest < Minitest::Test
     traverse_order=((Hash === opt) && opt[:getfirst]) ? 'FIFO' : 'FILO'
     msg_tag=0 if msg_time && msg_tag.nil?
     #binding.pry
-    status, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, msg_data, msg_content_type, msg_eventsource_event, subscriber_count = redis.evalsha hashes[:get_message], [], [ch_id, msg_time || 0, msg_tag || 0, traverse_order, 15 ]
+    status, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, msg_data, msg_content_type, msg_eventsource_event, subscriber_count = redis.evalsha hashes[:get_message], [], [NAMESPACE, ch_id, msg_time || 0, msg_tag || 0, traverse_order, 15 ]
     if status == 404
       return nil
     elsif status == 418 #not ready

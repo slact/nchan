@@ -1,11 +1,11 @@
---input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
+--input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
 --output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
 -- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
 -- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
 -- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
-local id, time, tag, subscribe_if_current = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])
-local no_msgid_order=ARGV[4]
-local create_channel_ttl=tonumber(ARGV[5]) or 0
+local ns, id, time, tag, subscribe_if_current = ARGV[1], ARGV[2], tonumber(ARGV[3]), tonumber(ARGV[4])
+local no_msgid_order=ARGV[5]
+local create_channel_ttl=tonumber(ARGV[6]) or 0
 local msg_id
 if time and time ~= 0 and tag then
   msg_id=("%s:%s"):format(time, tag)
@@ -20,7 +20,7 @@ end
 -- redis doesn't do includes. It could be generated pre-insertion into redis, 
 -- but then error messages become less useful, complicating debugging. If you 
 -- have a solution to this, please help.
-local ch=('{channel:%s}'):format(id)
+local ch=('%s{channel:%s}'):format(ns, id)
 local msgkey_fmt=ch..':msg:%s'
 local key={
   next_message= msgkey_fmt, --hash

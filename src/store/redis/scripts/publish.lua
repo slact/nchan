@@ -1,7 +1,7 @@
---input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
 --output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
-local id=ARGV[1]
+local ns, id=ARGV[1], ARGV[2]
 local time
 if redis.replicate_commands then
   -- we're on redis >= 3.2. We can use We can use 'script effects replication' to allow
@@ -12,22 +12,22 @@ if redis.replicate_commands then
   time = tonumber(redis.call('TIME')[1])
 else
   --fallback to the provided time
-  time = tonumber(ARGV[2])
+  time = tonumber(ARGV[3])
 end
 
 local msg={
   id=nil,
-  data= ARGV[3],
-  content_type=ARGV[4],
-  eventsource_event=ARGV[5],
-  ttl= tonumber(ARGV[6]),
+  data= ARGV[4],
+  content_type=ARGV[5],
+  eventsource_event=ARGV[6],
+  ttl= tonumber(ARGV[7]),
   time= time,
   tag= 0
 }
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
 end
-local store_at_most_n_messages = tonumber(ARGV[7])
+local store_at_most_n_messages = tonumber(ARGV[8])
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 7, max_msg_buf_size, can't be empty"}
 end
@@ -35,7 +35,7 @@ if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
-local msgpacked_pubsub_cutoff = tonumber(ARGV[8])
+local msgpacked_pubsub_cutoff = tonumber(ARGV[9])
 
 --[[local dbg = function(...)
   local arg = {...}
@@ -88,7 +88,7 @@ local tohash=function(arr)
   return h
 end
 
-local ch = ('{channel:%s}'):format(id)
+local ch = ('%s{channel:%s}'):format(ns, id)
 local msg_fmt = ch..':msg:%s'
 local key={
   last_message= msg_fmt, --not finished yet

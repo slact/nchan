@@ -8,26 +8,26 @@ typedef struct {
 } redis_lua_script_t;
 
 typedef struct {
-  //input:  keys: [], values: [channel_id, number]
+  //input:  keys: [], values: [namespace, channel_id, number]
   //output: current_fake_subscribers
   redis_lua_script_t add_fakesub;
 
-  //input:  keys: [], values: [channel_id, ttl]
+  //input:  keys: [], values: [namespace, channel_id, ttl]
   // ttl is for when there are no messages but at least 1 subscriber.
   //output: seconds until next keepalive is expected, or -1 for "let it disappear"
   redis_lua_script_t channel_keepalive;
 
-  //input: keys: [],  values: [ channel_id ]
+  //input: keys: [],  values: [ namespace, channel_id ]
   //output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
   // delete this channel and all its messages
   redis_lua_script_t delete;
 
-  //input: keys: [],  values: [ channel_id ]
+  //input: keys: [],  values: [ namespace, channel_id ]
   //output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
   // finds and return the info hash of a channel, or nil of channel not found
   redis_lua_script_t find_channel;
 
-  //input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
+  //input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
   //output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
   // no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
   // create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
@@ -38,24 +38,24 @@ typedef struct {
   //output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
   redis_lua_script_t get_message_from_key;
 
-  //input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
   //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   redis_lua_script_t publish;
 
-  //input:  keys: [], values: [channel_id, status_code]
+  //input:  keys: [], values: [namespace, channel_id, status_code]
   //output: current_subscribers
   redis_lua_script_t publish_status;
 
   //redis-store consistency check
   redis_lua_script_t rsck;
 
-  //input: keys: [], values: [channel_id, subscriber_id, active_ttl]
+  //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl]
   //  'subscriber_id' can be '-' for new id, or an existing id
   //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
   //output: subscriber_id, num_current_subscribers, next_keepalive_time
   redis_lua_script_t subscriber_register;
 
-  //input: keys: [], values: [channel_id, subscriber_id, empty_ttl]
+  //input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]
   // 'subscriber_id' is an existing id
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
   //output: subscriber_id, num_current_subscribers
@@ -64,18 +64,19 @@ typedef struct {
 } redis_lua_scripts_t;
 
 static redis_lua_scripts_t redis_lua_scripts = {
-  {"add_fakesub", "b6511d02062dd6f2a1e99d761fe57ef8c987f299",
-   "--input:  keys: [], values: [channel_id, number]\n"
+  {"add_fakesub", "2b24b12742c1398a52b6bf74cdb9c267e40c61c4",
+   "--input:  keys: [], values: [namespace, channel_id, number]\n"
    "--output: current_fake_subscribers\n"
    "  \n"
    "redis.call('echo', ' ####### FAKESUBS ####### ')\n"
-   "local id=ARGV[1]\n"
-   "local num=tonumber(ARGV[2])\n"
+   "local ns=ARGV[1]\n"
+   "local id=ARGV[2]\n"
+   "local num=tonumber(ARGV[3])\n"
    "if num==nil then\n"
    "  return {err=\"fakesub number not given\"}\n"
    "end\n"
    "\n"
-   "local chan_key = ('{channel:%s}'):format(id)\n"
+   "local chan_key = ('%s{channel:%s}'):format(ns, id)\n"
    "\n"
    "local res = redis.pcall('EXISTS', chan_key)\n"
    "if type(res) == \"table\" and res[\"err\"] then\n"
@@ -95,13 +96,14 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return cur\n"},
 
-  {"channel_keepalive", "e291b7ccc0c11cbd85292ae8b6a443b37f2220f2",
-   "--input:  keys: [], values: [channel_id, ttl]\n"
+  {"channel_keepalive", "7e213d514486887425875dc9835564edfe14e677",
+   "--input:  keys: [], values: [namespace, channel_id, ttl]\n"
    "-- ttl is for when there are no messages but at least 1 subscriber.\n"
    "--output: seconds until next keepalive is expected, or -1 for \"let it disappear\"\n"
    "redis.call('ECHO', ' ####### CHANNEL KEEPALIVE ####### ')\n"
-   "local id=ARGV[1]\n"
-   "local ttl=tonumber(ARGV[2])\n"
+   "local ns=ARGV[1]\n"
+   "local id=ARGV[2]\n"
+   "local ttl=tonumber(ARGV[3])\n"
    "if not ttl then\n"
    "  return {err=\"Invalid channel keepalive TTL (2nd arg)\"}\n"
    "end\n"
@@ -109,7 +111,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "local random_safe_next_ttl = function(ttl)\n"
    "  return math.floor(ttl/2 + ttl/2.1 * math.random())\n"
    "end\n"
-   "local ch = ('{channel:%s}'):format(id)\n"
+   "local ch = ('%s{channel:%s}'):format(ns, id)\n"
    "local key={\n"
    "  channel=   ch, --hash\n"
    "  messages=  ch..':messages', --list\n"
@@ -131,12 +133,13 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return -1\n"
    "end\n"},
 
-  {"delete", "fa52ada69e16947a687f9592529063f3c2d429bd",
-   "--input: keys: [],  values: [ channel_id ]\n"
+  {"delete", "b25e736d622d801f291b4b51326bb22dc6c9c069",
+   "--input: keys: [],  values: [ namespace, channel_id ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
    "-- delete this channel and all its messages\n"
-   "local id = ARGV[1]\n"
-   "local ch = ('{channel:%s}'):format(id)\n"
+   "local ns = ARGV[1]\n"
+   "local id = ARGV[2]\n"
+   "local ch = ('%s{channel:%s}'):format(ns, id)\n"
    "local key_msg=    ch..':msg:%s' --not finished yet\n"
    "local key_channel=ch\n"
    "local messages=   ch..':messages'\n"
@@ -191,12 +194,13 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return nearly_departed\n"},
 
-  {"find_channel", "efe9c3f1dd606b1534ee6948d07c7710c604e233",
-   "--input: keys: [],  values: [ channel_id ]\n"
+  {"find_channel", "cddcb39ae98d8b03308302bc6745e91e8982026b",
+   "--input: keys: [],  values: [ namespace, channel_id ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
    "-- finds and return the info hash of a channel, or nil of channel not found\n"
-   "local id = ARGV[1]\n"
-   "local channel_key = ('{channel:%s}'):format(id)\n"
+   "local ns = ARGV[1]\n"
+   "local id = ARGV[2]\n"
+   "local channel_key = ('%s{channel:%s}'):format(ns, id)\n"
    "local messages_key = channel_key..':messages'\n"
    "\n"
    "redis.call('echo', ' #######  FIND_CHANNEL ######## ')\n"
@@ -249,15 +253,15 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return nil\n"
    "end\n"},
 
-  {"get_message", "cc3d8f6503731b6580f3a5a5d0de97bfc18c19ca",
-   "--input:  keys: [], values: [channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
+  {"get_message", "a6e4973ab71daa0880cf993b03d8176f284d2e11",
+   "--input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
    "--output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
    "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
    "-- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.\n"
    "-- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available\n"
-   "local id, time, tag, subscribe_if_current = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])\n"
-   "local no_msgid_order=ARGV[4]\n"
-   "local create_channel_ttl=tonumber(ARGV[5]) or 0\n"
+   "local ns, id, time, tag, subscribe_if_current = ARGV[1], ARGV[2], tonumber(ARGV[3]), tonumber(ARGV[4])\n"
+   "local no_msgid_order=ARGV[5]\n"
+   "local create_channel_ttl=tonumber(ARGV[6]) or 0\n"
    "local msg_id\n"
    "if time and time ~= 0 and tag then\n"
    "  msg_id=(\"%s:%s\"):format(time, tag)\n"
@@ -272,7 +276,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "-- redis doesn't do includes. It could be generated pre-insertion into redis, \n"
    "-- but then error messages become less useful, complicating debugging. If you \n"
    "-- have a solution to this, please help.\n"
-   "local ch=('{channel:%s}'):format(id)\n"
+   "local ch=('%s{channel:%s}'):format(ns, id)\n"
    "local msgkey_fmt=ch..':msg:%s'\n"
    "local key={\n"
    "  next_message= msgkey_fmt, --hash\n"
@@ -407,10 +411,9 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  end\n"
    "end\n"},
 
-  {"get_message_from_key", "173ff5fb759e434296433d6ff2a554ec7a57cbdb",
+  {"get_message_from_key", "6d11dc52904bf6666aa86fa504f6965db3f46381",
    "--input:  keys: [message_key], values: []\n"
    "--output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
-   "\n"
    "local key = KEYS[1]\n"
    "\n"
    "local ttl = redis.call('TTL', key)\n"
@@ -418,11 +421,11 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "a3ef246c361dbe55269bce8afc4974c6e555a482",
-   "--input:  keys: [], values: [channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
+  {"publish", "017cca69716e7c7c5bc06e354a93cd218a81b4e2",
+   "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
    "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
-   "local id=ARGV[1]\n"
+   "local ns, id=ARGV[1], ARGV[2]\n"
    "local time\n"
    "if redis.replicate_commands then\n"
    "  -- we're on redis >= 3.2. We can use We can use 'script effects replication' to allow\n"
@@ -433,22 +436,22 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  time = tonumber(redis.call('TIME')[1])\n"
    "else\n"
    "  --fallback to the provided time\n"
-   "  time = tonumber(ARGV[2])\n"
+   "  time = tonumber(ARGV[3])\n"
    "end\n"
    "\n"
    "local msg={\n"
    "  id=nil,\n"
-   "  data= ARGV[3],\n"
-   "  content_type=ARGV[4],\n"
-   "  eventsource_event=ARGV[5],\n"
-   "  ttl= tonumber(ARGV[6]),\n"
+   "  data= ARGV[4],\n"
+   "  content_type=ARGV[5],\n"
+   "  eventsource_event=ARGV[6],\n"
+   "  ttl= tonumber(ARGV[7]),\n"
    "  time= time,\n"
    "  tag= 0\n"
    "}\n"
    "if msg.ttl == 0 then\n"
    "  msg.ttl = 126144000 --4 years\n"
    "end\n"
-   "local store_at_most_n_messages = tonumber(ARGV[7])\n"
+   "local store_at_most_n_messages = tonumber(ARGV[8])\n"
    "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
    "  return {err=\"Argument 7, max_msg_buf_size, can't be empty\"}\n"
    "end\n"
@@ -456,7 +459,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  msg.unbuffered = 1\n"
    "end\n"
    "\n"
-   "local msgpacked_pubsub_cutoff = tonumber(ARGV[8])\n"
+   "local msgpacked_pubsub_cutoff = tonumber(ARGV[9])\n"
    "\n"
    "--[[local dbg = function(...)\n"
    "  local arg = {...}\n"
@@ -509,7 +512,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return h\n"
    "end\n"
    "\n"
-   "local ch = ('{channel:%s}'):format(id)\n"
+   "local ch = ('%s{channel:%s}'):format(ns, id)\n"
    "local msg_fmt = ch..':msg:%s'\n"
    "local key={\n"
    "  last_message= msg_fmt, --not finished yet\n"
@@ -698,20 +701,20 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "--dbg(\"channel \", id, \" ttl: \",channel.ttl, \", subscribers: \", channel.subscribers, \"(fake: \", channel.fake_subscribers or \"nil\", \"), messages: \", num_messages)\n"
    "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}\n"},
 
-  {"publish_status", "cb9ff03713d74f854e3a90f4f77030a0791d3028",
-   "--input:  keys: [], values: [channel_id, status_code]\n"
+  {"publish_status", "2f2ce1443b22c8c9cf069d5588bad4bab58d70aa",
+   "--input:  keys: [], values: [namespace, channel_id, status_code]\n"
    "--output: current_subscribers\n"
    "\n"
    "redis.call('echo', ' ####### PUBLISH STATUS ####### ')\n"
    "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
-   "local id=ARGV[1]\n"
-   "local code=tonumber(ARGV[2])\n"
+   "local ns, id=ARGV[1], ARGV[2]\n"
+   "local code=tonumber(ARGV[3])\n"
    "if code==nil then\n"
    "  return {err=\"non-numeric status code given, bailing!\"}\n"
    "end\n"
    "\n"
    "local pubmsg = \"status:\"..code\n"
-   "local ch = ('{channel:%s}'):format(id)\n"
+   "local ch = ('%s{channel:%s}'):format(ns, id)\n"
    "local subs_key = ch..':subscribers'\n"
    "local chan_key = ch\n"
    "--local channel_pubsub = ch..':pubsub'\n"
@@ -726,8 +729,12 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "--what?... redis.call('PUBLISH', channel_pubsub, pubmsg)\n"
    "return redis.call('HGET', chan_key, 'subscribers') or 0\n"},
 
-  {"rsck", "71beb40b0e39f61f6e53dc81d6f8849fd3b23632",
+  {"rsck", "2fca046fa783d6cc25e493c993c407e59998e6e8",
    "--redis-store consistency check\n"
+   "local ns = ARGV[1]\n"
+   "if ns and #ns > 0 then\n"
+   "  ns = ns..\":\"\n"
+   "end\n"
    "\n"
    "local concat = function(...)\n"
    "  local arg = {...}\n"
@@ -793,9 +800,22 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "local known_msgkeys = {}\n"
    "local known_channel_keys = {}\n"
    "\n"
+   "\n"
+   "local k = {\n"
+   "  channel = function(chid)\n"
+   "    return (\"%s{channel:%s}\"):format(chid)\n"
+   "  end,\n"
+   "  msg = function (chid, msgid)\n"
+   "    return (\"%s:msg:%s\"):format(k.channel(chid), msgid)\n"
+   "  end,\n"
+   "  messages = function(chid)\n"
+   "    return k.channel(chid) .. \":messages\"\n"
+   "  end\n"
+   "}\n"
+   "\n"
    "local check_msg = function(chid, msgid, prev_msgid, next_msgid, description)\n"
    "  description = description and \"msg (\" .. description ..\")\" or \"msg\"\n"
-   "  local msgkey = \"{channel:\"..chid..\"}:msg:\"..msgid\n"
+   "  local msgkey = k.msg(chid, msgid)\n"
    "  if not known_msgkeys[msgkey] then\n"
    "    known_msgs_count = known_msgs_count + 1\n"
    "  end\n"
@@ -804,13 +824,13 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  if t == \"none\" then\n"
    "    --message is missing, but maybe it expired under normal circumstances. \n"
    "    --check if any earlier messages are present\n"
-   "    local msgids = redis.call('LRANGE', \"{channel:\"..chid..\"}:messages\", 0, -1)\n"
+   "    local msgids = redis.call('LRANGE', k.messages(chid), 0, -1)\n"
    "    local founds = 0\n"
    "    for i=#msgids, 1, -1 do\n"
    "      if msgids[i] == msgid then \n"
    "        break\n"
    "      end\n"
-   "      local thismsgkey = \"{channel:\"..chid..\"}:msg:\".. msgids[i]\n"
+   "      local thismsgkey = k.msg(chid, msgids[i])\n"
    "      local ttt = redis.call('type', thismsgkey)['ok']\n"
    "      redis.breakpoint()\n"
    "      if ttt == \"hash\" then\n"
@@ -845,8 +865,8 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "local check_channel = function(id)\n"
    "  local key={\n"
-   "    ch = \"{channel:\"..id..\"}\",\n"
-   "    msgs = \"{channel:\"..id..\"}:messages\"\n"
+   "    ch = k.channel(id),\n"
+   "    msgs = k.messages(id)\n"
    "  }\n"
    "  \n"
    "  local ok, chkey_type = type_is(key.ch, \"hash\", \"channel hash\")\n"
@@ -891,10 +911,10 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "local channel_ids = {}\n"
    "\n"
-   "for i, chkey in ipairs(redis.call(\"KEYS\", \"{channel:*}\")) do\n"
-   "  local msgs_chid_match = chkey:match(\"^{channel:(.*)}:messages\")\n"
+   "for i, chkey in ipairs(redis.call(\"KEYS\", k.channel(\"*\"))) do\n"
+   "  local msgs_chid_match = chkey:match(\"^\"..k.messages(\"*\"))\n"
    "  if msgs_chid_match then\n"
-   "    type_is(\"{channel:\" .. msgs_chid_match..\"}\", \"hash\", \"channel messages' corresponding hash key\")\n"
+   "    type_is(k.channel(msgs_chid_match), \"hash\", \"channel messages' corresponding hash key\")\n"
    "  elseif not chkey:match(\":msg$\") then\n"
    "    table.insert(channel_ids, chkey);\n"
    "    known_channel_keys[chkey] = true\n"
@@ -903,11 +923,11 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "dbg(\"found\", #channel_ids, \"channels\")\n"
    "for i, chkey in ipairs(channel_ids) do\n"
-   "  local chid = chkey:match(\"^{channel:(.*)}\")\n"
+   "  local chid = chkey:match(\"^\" .. k.channel(\".*\"))\n"
    "  check_channel(chid)\n"
    "end\n"
    "\n"
-   "for i, msgkey in ipairs(redis.call(\"KEYS\", \"{channel:*}:msg\")) do\n"
+   "for i, msgkey in ipairs(redis.call(\"KEYS\", k.channel(\"*\")..\":msg\")) do\n"
    "  if not known_msgkeys[msgkey] then\n"
    "    local ok, t = type_is(msgkey, \"hash\")\n"
    "    if ok then\n"
@@ -927,18 +947,18 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return concat(#channel_ids, \"channels,\", known_msgs_count, \"messages, all ok\")\n"
    "end\n"},
 
-  {"subscriber_register", "4e04dbb8bcb66052b49c87e95c30f91a224e9144",
-   "--input: keys: [], values: [channel_id, subscriber_id, active_ttl]\n"
+  {"subscriber_register", "c5ca76cdec3f09ac71483a4b809f48e553c7c4e2",
+   "--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl]\n"
    "--  'subscriber_id' can be '-' for new id, or an existing id\n"
    "--  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec\n"
    "--output: subscriber_id, num_current_subscribers, next_keepalive_time\n"
    "\n"
-   "local id, sub_id, active_ttl, concurrency = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20, ARGV[4]\n"
+   "local ns, id, sub_id, active_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20\n"
    "\n"
    "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
    "\n"
    "redis.call('echo', ' ######## SUBSCRIBER REGISTER SCRIPT ####### ')\n"
-   "local ch=(\"{channel:%s}\"):format(id)\n"
+   "local ch=(\"%s{channel:%s}\"):format(ns, id)\n"
    "local keys = {\n"
    "  channel =     ch,\n"
    "  messages =    ch..':messages:',\n"
@@ -979,18 +999,18 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_id, sub_count, next_keepalive}\n"},
 
-  {"subscriber_unregister", "841cddb1a9ae8af8f25df7ee53fa8739abdd6f76",
-   "--input: keys: [], values: [channel_id, subscriber_id, empty_ttl]\n"
+  {"subscriber_unregister", "a98e07b21485951a7d34cf80736e53db1b6e87a6",
+   "--input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]\n"
    "-- 'subscriber_id' is an existing id\n"
    "-- 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec\n"
    "--output: subscriber_id, num_current_subscribers\n"
    "\n"
-   "local id, sub_id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20\n"
+   "local ns, id, sub_id, empty_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20\n"
    "\n"
    "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
    "\n"
    "redis.call('echo', ' ######## SUBSCRIBER UNREGISTER SCRIPT ####### ')\n"
-   "local ch=('{channel:%s}'):format(id)\n"
+   "local ch=('%s{channel:%s}'):format(ns, id)\n"
    "local keys = {\n"
    "  channel =     ch,\n"
    "  messages =    ch..':messages',\n"

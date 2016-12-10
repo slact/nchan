@@ -1,14 +1,14 @@
---input: keys: [], values: [channel_id, subscriber_id, active_ttl]
+--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl]
 --  'subscriber_id' can be '-' for new id, or an existing id
 --  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
 --output: subscriber_id, num_current_subscribers, next_keepalive_time
 
-local id, sub_id, active_ttl, concurrency = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20, ARGV[4]
+local ns, id, sub_id, active_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20
 
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
 
 redis.call('echo', ' ######## SUBSCRIBER REGISTER SCRIPT ####### ')
-local ch=("{channel:%s}"):format(id)
+local ch=("%s{channel:%s}"):format(ns, id)
 local keys = {
   channel =     ch,
   messages =    ch..':messages:',

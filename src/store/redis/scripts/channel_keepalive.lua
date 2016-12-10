@@ -1,9 +1,10 @@
---input:  keys: [], values: [channel_id, ttl]
+--input:  keys: [], values: [namespace, channel_id, ttl]
 -- ttl is for when there are no messages but at least 1 subscriber.
 --output: seconds until next keepalive is expected, or -1 for "let it disappear"
 redis.call('ECHO', ' ####### CHANNEL KEEPALIVE ####### ')
-local id=ARGV[1]
-local ttl=tonumber(ARGV[2])
+local ns=ARGV[1]
+local id=ARGV[2]
+local ttl=tonumber(ARGV[3])
 if not ttl then
   return {err="Invalid channel keepalive TTL (2nd arg)"}
 end
@@ -11,7 +12,7 @@ end
 local random_safe_next_ttl = function(ttl)
   return math.floor(ttl/2 + ttl/2.1 * math.random())
 end
-local ch = ('{channel:%s}'):format(id)
+local ch = ('%s{channel:%s}'):format(ns, id)
 local key={
   channel=   ch, --hash
   messages=  ch..':messages', --list

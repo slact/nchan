@@ -1,8 +1,9 @@
---input: keys: [],  values: [ channel_id ]
+--input: keys: [],  values: [ namespace, channel_id ]
 --output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
 -- delete this channel and all its messages
-local id = ARGV[1]
-local ch = ('{channel:%s}'):format(id)
+local ns = ARGV[1]
+local id = ARGV[2]
+local ch = ('%s{channel:%s}'):format(ns, id)
 local key_msg=    ch..':msg:%s' --not finished yet
 local key_channel=ch
 local messages=   ch..':messages'

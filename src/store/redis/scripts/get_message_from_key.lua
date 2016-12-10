@@ -1,6 +1,5 @@
 --input:  keys: [message_key], values: []
 --output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
-
 local key = KEYS[1]
 
 local ttl = redis.call('TTL', key)

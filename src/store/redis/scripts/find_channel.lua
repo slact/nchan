@@ -1,8 +1,9 @@
---input: keys: [],  values: [ channel_id ]
+--input: keys: [],  values: [ namespace, channel_id ]
 --output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
 -- finds and return the info hash of a channel, or nil of channel not found
-local id = ARGV[1]
-local channel_key = ('{channel:%s}'):format(id)
+local ns = ARGV[1]
+local id = ARGV[2]
+local channel_key = ('%s{channel:%s}'):format(ns, id)
 local messages_key = channel_key..':messages'
 
 redis.call('echo', ' #######  FIND_CHANNEL ######## ')

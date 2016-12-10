@@ -1,16 +1,16 @@
---input:  keys: [], values: [channel_id, status_code]
+--input:  keys: [], values: [namespace, channel_id, status_code]
 --output: current_subscribers
 
 redis.call('echo', ' ####### PUBLISH STATUS ####### ')
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
-local id=ARGV[1]
-local code=tonumber(ARGV[2])
+local ns, id=ARGV[1], ARGV[2]
+local code=tonumber(ARGV[3])
 if code==nil then
   return {err="non-numeric status code given, bailing!"}
 end
 
 local pubmsg = "status:"..code
-local ch = ('{channel:%s}'):format(id)
+local ch = ('%s{channel:%s}'):format(ns, id)
 local subs_key = ch..':subscribers'
 local chan_key = ch
 --local channel_pubsub = ch..':pubsub'
