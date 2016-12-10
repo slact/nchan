@@ -927,7 +927,7 @@ ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8
     }
   }
   else {
-    if(head->cf && head->cf->redis.enabled && !head->multi && head->status != READY) {
+    if(head->cf && head->cf->redis.enabled && !head->multi && head->status != READY) { //both redis BACKUP and DISTRIBUTED storage modes
       if(head->redis_sub == NULL) {
         head->redis_sub = memstore_redis_subscriber_create(head);
         nchan_store_redis.subscribe(&head->id, head->redis_sub);
@@ -1032,7 +1032,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->cf = NULL;
   }
   
-  if(head->cf && head->cf->redis.enabled && !head->multi) {
+  if(head->cf && head->cf->redis.enabled && !head->multi) { // both DISTRIBUTED and BACKUP redis storage modes
     head->delta_fakesubs = 0;
     nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
     head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
@@ -1402,9 +1402,15 @@ static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nch
   owner = memstore_channel_owner(channel_id);
   
   if(cf->redis.enabled) {
-    return nchan_store_redis.delete_channel(channel_id, cf, callback, privdata);
+    if(cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+      return nchan_store_redis.delete_channel(channel_id, cf, callback, privdata);
+    }
+    else {
+      nchan_store_redis.delete_channel(channel_id, cf, NULL, NULL);
+    }
   }
-  else if(owner == memstore_slot()) {
+  
+  if(owner == memstore_slot()) {
     return nchan_memstore_force_delete_channel(channel_id, callback, privdata);
   }
   else {
@@ -1488,7 +1494,10 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   ngx_int_t                    owner = memstore_channel_owner(channel_id);
   memstore_channel_head_t     *ch;
   nchan_channel_t              chaninfo;
-  if(cf->redis.enabled) {
+  
+  //TODO: WORK IN PROGRESS
+  
+  if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
     return nchan_store_redis.find_channel(channel_id, cf, callback, privdata);
   }
   else if(memstore_slot() == owner) {
@@ -2156,7 +2165,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   memstore_channel_head_t       *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
-  ngx_int_t                      use_redis = d->sub->cf->redis.enabled;
+  ngx_int_t                      check_redis = d->sub->cf->redis.enabled && d->sub->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
   nchan_loc_conf_t              *cf = d->sub->cf;
   ngx_int_t                      rc = NGX_OK;
   nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
@@ -2185,6 +2194,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         }
         else {
           //can't find the channel. gotta check if it really does exist
+          DBG("can't find the channel. gotta check if it really does exist");
           if(!d->reserved) {
             d->sub->fn->reserve(d->sub);
             d->reserved = 1;
@@ -2199,7 +2209,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
     
     case SUB_CHANNEL_NOTSURE:
-      if(use_redis) {
+      if(check_redis) {
         if(cf->subscribe_only_existing_channel) {
           //we used to also check if cf->max_channel_subscribers == 0 here, but that's
           //no longer necessary, as the shared subscriber total check is now disabled
@@ -2262,11 +2272,13 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       d->reserved = 1;
       memstore_chanhead_reserve(chanhead, "group accounting check");
       if(chanhead->groupnode) {
+        DBG("memstore_group_find_from_groupnode(groups, chanhead->groupnode, (callback_pt )group_subscribe_accounting_check, d) sub: %p", d->sub);
         memstore_group_find_from_groupnode(groups, chanhead->groupnode, (callback_pt )group_subscribe_accounting_check, d);
       }
       else {
         // this means group accounting was disabled when the channel was created.
         // that's okay though, we should check it anyway.
+        DBG("memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d); sub: %p", d->sub);
         memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d);
       }
       return rc;
@@ -2579,7 +2591,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   nchan_msg_status_t           findmsg_status;
   memstore_channel_head_t     *chead;
   
-  ngx_int_t                    use_redis = 0;
+  ngx_int_t                    ask_redis = 0;
   
   if(callback==NULL) {
     ERR("no callback given for async get_message. someone's using the API wrong!");
@@ -2592,7 +2604,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   chead = nchan_memstore_find_chanhead(channel_id);
   if(chead) {
-    use_redis = chead->cf && chead->cf->redis.enabled;
+    ask_redis = chead->cf && chead->cf->redis.enabled && chead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
   }
   d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
@@ -2610,7 +2622,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   else {
     chmsg = chanhead_find_next_message(d->chanhead, &d->msg_id, &findmsg_status);
     
-    if(chmsg == NULL && use_redis) {
+    if(chmsg == NULL && ask_redis) {
       int       was_it_allocd = d->allocd;
       d->allocd = 0;
       nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(chead->redis_sub, msg_id, async_get_message_notify_on_MSG_EXPECTED_callback, sizeof(*d), d);
@@ -2656,7 +2668,7 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   if(ch->msg_last && ch->msg_last->msg->id.time == msg->msg->id.time) {
     msg->msg->id.tag.fixed[0] = ch->msg_last->msg->id.tag.fixed[0] + 1;
   }
-  else if(!ch->cf->redis.enabled) {
+  else if(!ch->cf->redis.enabled || ch->cf->redis.storage_mode == REDIS_MODE_BACKUP) {
     msg->msg->id.tag.fixed[0] = 0;
   }
 

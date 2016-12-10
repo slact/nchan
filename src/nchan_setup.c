@@ -129,6 +129,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.url_enabled=NGX_CONF_UNSET;
   lcf->redis.ping_interval = NGX_CONF_UNSET;
   lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
+  lcf->redis.storage_mode = REDIS_MODE_CONF_UNSET;
   
   return lcf;
 }
@@ -326,6 +327,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   if(conf->redis.upstream_inheritable && !conf->redis.upstream && prev->redis.upstream && prev->redis.upstream_url.len > 0) {
     conf->redis.upstream_url = prev->redis.upstream_url;
     ngx_conf_set_redis_upstream(cf, &conf->redis.upstream_url, conf);
+  }
+  if(conf->redis.storage_mode == REDIS_MODE_CONF_UNSET) {
+    conf->redis.storage_mode = prev->redis.storage_mode == REDIS_MODE_CONF_UNSET ? REDIS_MODE_DISTRIBUTED : prev->redis.storage_mode;
   }
   
   return NGX_CONF_OK;
@@ -896,6 +900,32 @@ static char *ngx_conf_set_redis_namespace_slot(ngx_conf_t *cf, ngx_command_t *cm
   }
   
   return ngx_conf_set_str_slot(cf, cmd, conf);
+}
+
+static char *ngx_conf_set_redis_storage_mode_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  char                         *p = conf;
+  ngx_str_t                    *val = cf->args->elts;
+  ngx_str_t                    *arg = &val[1];
+  
+  nchan_redis_storage_mode_t   *field;
+
+  field = (nchan_redis_storage_mode_t *) (p + cmd->offset);
+  
+  if(*field != REDIS_MODE_CONF_UNSET) {
+    return "is duplicate";
+  }
+  
+  if(nchan_strmatch(arg, 1, "backup")) {
+    *field = REDIS_MODE_BACKUP;
+  }
+  else if(nchan_strmatch(arg, 1, "distributed")) {
+    *field = REDIS_MODE_DISTRIBUTED;
+  }
+  else {
+    return "is invalid, must be either 'distributed' or 'backup'";
+  }
+  
+  return NGX_CONF_OK;
 }
 
 static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
