@@ -1550,6 +1550,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
     ch = nchan_memstore_find_chanhead(channel_id);
     if(ch == NULL) {
       if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_BACKUP) {
+        DBG("channel %V not found in backup mode. Try Redis...", channel_id);
         return nchan_store_redis.find_channel(channel_id, cf, callback, privdata);
       }
       else {
