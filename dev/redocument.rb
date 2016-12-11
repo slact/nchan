@@ -320,10 +320,46 @@ end
 if opt[:newversion]
   now = DateTime.now
   text.gsub!(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{opt[:newversion]} (#{now.strftime("%B %-d, %Y")})")
+
+  changelog = File.read changelog_file
   
-  #File.open changelog_file do |f|
-  #  f.readline
-  #end
+  l = changelog.lines.first
+  changes_logged = l.match(/^\s+/) && true
+  unless changes_logged
+    prev_ver = l.match(/(\d+\.\d+\.\d+\w*)/)
+    unless prev_ver
+      STDERR.puts "Invalid changelog.txt first line: expected a version, got something weird..."
+      exit 1
+    end
+    prev_ver = prev_ver.to_s
+    unless opt[:newversion] == prev_ver
+      STDERR.puts "No changes logged to changelog.txt between previous version and #{opt[:newversion]}."
+      STDERR.puts "Did someone forget to update the changelog?"
+      exit 1
+    end
+  else
+    prev_ver = nil
+    changelog.lines.each do |l|
+      prev_ver = l.match(/(\d+\.\d+\.\d+\w*)/)
+      if prev_ver
+        prev_ver = prev_ver.to_s
+        break
+      end
+    end
+    if prev_ver
+      if Gem::Version.new(opt[:newversion]) <= Gem::Version.new(prev_ver)
+        STDERR.puts "New version #{opt[:newversion]} must be greater than old version #{prev_ver} in changelog.txt"
+        exit 1
+      end
+    end
+  end
+  
+  File.open changelog_file, 'w' do |f|
+    now = DateTime.now
+    f.print "#{opt[:newversion]} (#{now.strftime("%b#{now.strftime('%b') == now.strftime('%B') ? "" : "."} %-d %Y")})\n"
+    f.print changelog
+  end
+  
 end
 
 if opt[:nchapp]
