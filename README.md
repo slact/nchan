@@ -47,9 +47,9 @@ Currently, Nchan's main bottleneck is not CPU load but memory bandwidth. This ca
 #### Download Packages
  - [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
- - [Debian](https://www.debian.org/): A dynamic module build for is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
+ - [Debian](https://www.debian.org/): A dynamic module build is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.slact.net/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
- - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.slact.net/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will add them to their repository?...
+ - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.slact.net/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will Nchan to their repository?...
  - [Fedora](https://fedoraproject.org): Dynamic module builds for Nginx > 1.10.0 are available: [nginx-mod-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-mod-nchan.x86-64.rpm), [nginx-mod-nchan.src.rpm](https://nchan.slact.net/download/nginx-mod-nchan.src.rpm). 
  - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
 
@@ -480,6 +480,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
   [more details](#pubsub-endpoint)  
 
+- **nchan_subscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
+
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
   default: `websocket eventsource longpoll chunked multipart-mixed`  
@@ -535,6 +541,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber_timeout  
   > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.    
 
+- **nchan_unsubscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
+
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  
   default: `0 (none)`  
@@ -546,18 +558,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](https://nchan.slact.net/details#request-authorization)  
-
-- **nchan_subscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
-
-- **nchan_unsubscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
@@ -609,6 +609,14 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Used in upstream { } blocks to set redis servers.    
   [more details](https://nchan.slact.net/details#using-redis)  
+
+- **nchan_redis_storage_mode** `[ distributed | backup ]`  
+  arguments: 1  
+  default: `distributed`  
+  context: http, server, upstream  
+  > The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but had the penalty of all message publishing going through Redis first.  
+  >   
+  > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.    
 
 - **nchan_redis_url**  
   arguments: 1  
