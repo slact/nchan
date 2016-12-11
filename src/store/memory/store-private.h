@@ -130,6 +130,7 @@ typedef struct {
 } shm_data_t;
 
 memstore_channel_head_t *nchan_memstore_find_chanhead(ngx_str_t *channel_id);
+ngx_int_t nchan_memstore_find_chanhead_with_backup(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt cb, void *pd);
 memstore_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf);
 memstore_channel_head_t *nchan_memstore_get_chanhead_no_ipc_sub(ngx_str_t *channel_id, nchan_loc_conf_t *cf);
 store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_msg_id_t *msgid, nchan_msg_status_t *status);

@@ -1190,6 +1190,52 @@ memstore_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
   return ensure_chanhead_ready_or_trash_chanhead(head, 1);
 }
 
+typedef struct {
+  ngx_str_t        *chid;
+  nchan_loc_conf_t *cf;
+  callback_pt       cb;
+  void             *pd;
+} find_ch_backup_data_t;
+
+
+static ngx_int_t memstore_find_chanhead_with_backup_callback(ngx_int_t rc, void *vd, void *pd) {
+  nchan_channel_t             *chinfo = vd;
+  find_ch_backup_data_t       *d = pd;
+  memstore_channel_head_t     *ch = NULL;
+  if(chinfo) {
+    ch = nchan_memstore_get_chanhead(d->chid, d->cf);
+    assert(ch->owner == ch->slot);
+    d->cb(NGX_OK, ch, d->pd);
+  }
+  else {
+    d->cb(NGX_OK, NULL, d->pd);
+  }
+  
+  ngx_free(d);
+  return NGX_OK;
+}
+
+ngx_int_t nchan_memstore_find_chanhead_with_backup(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  memstore_channel_head_t     *head = NULL;
+  if((head = nchan_memstore_find_chanhead(channel_id)) == NULL) {
+    find_ch_backup_data_t     *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+    if(!d) {
+      ERR("couldn't allocate data for nchan_memstore_find_chanhead_with_backup");
+      cb(NGX_ERROR, NULL, pd);
+      return NGX_ERROR;
+    }
+    d->chid = channel_id;
+    d->cf = cf;
+    d->cb = cb;
+    d->pd = pd;
+    
+    return nchan_store_redis.find_channel(channel_id, cf, memstore_find_chanhead_with_backup_callback, d);
+  }
+  
+  cb(NGX_OK, head, pd);
+  return NGX_OK;
+}
+
 memstore_channel_head_t *nchan_memstore_get_chanhead(ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   memstore_channel_head_t          *head;
   head = nchan_memstore_find_chanhead(channel_id);
