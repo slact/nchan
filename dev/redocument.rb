@@ -12,7 +12,8 @@ opt = {
 opt_parser=OptionParser.new do |opts|
   opts.on("--path (#{opt[:root]})", "Path to Nchan project root") {|v| opt[:root] = v}
   opts.on("--stdout", "Output to stdout instead of overwriting Readme.") { opt[:out] = :stdout }
-  opts.on("--nchapp", "Generate Nchan documentation for Nchapp, the Nchan documentation app. Implies --stdout.") { opt[:nchapp] = true; opt[:out] = :stdout }
+  opts.on("--nchapp", "Generate Nchan documentation for Nchapp, the Nchan documentation app.") { opt[:nchapp] = true; }
+  opts.on("--output FILE", "Output to given file instead of overwriting README.md") { |v| opt[:out] = v }
   opts.on("--release VERSION", "Document a new version release in Readme and changelog") { |v| opt[:newversion] = v }
 end
 opt_parser.parse!
@@ -330,9 +331,9 @@ if opt[:nchapp]
 end
 
 case opt[:out]
-when :readme
-  File.open(readme_file, "w") {|file| file.puts text }
 when :stdout
   puts text
+else
+  File.open(opt[:out] == :readme ? readme_file : opt[:out], "w") {|file| file.puts text }
 end
 
