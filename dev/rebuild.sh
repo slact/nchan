@@ -68,6 +68,8 @@ for opt in $*; do
       export NGINX_VERYOLDVERSION=1;;
     version=*)
       export NGINX_CUSTOM_VERSION="${opt:8}";;
+    release=*)
+      RELEASE="${opt:8}";;
     slabpatch|slab)
       export NGX_SLAB_PATCH=1;;
     withdebug)
@@ -150,7 +152,11 @@ if [[ -z $NO_MAKE ]]; then
     exit 1
   fi
   
-  ./redocument.rb
+  if [[ -n $RELEASE ]]; then
+    ./redocument.rb --release $RELEASE
+  else
+    ./redocument.rb
+  fi
   if ! [ $? -eq 0 ]; then; 
     echo "failed generating documentation"; 
     exit 1
