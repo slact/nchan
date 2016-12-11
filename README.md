@@ -401,7 +401,7 @@ Nchan makes several variables usabled in the config file:
   For subscriber locations, this variable is set to the subscriber type (websocket, longpoll, etc.).
 
 - `$nchan_publisher_type`  
-  For subscriber locations, this variable is set to the subscriber type (http or websocket).
+  For publisher locations, this variable is set to the subscriber type (http or websocket).
   
 - `$nchan_prev_message_id`, `$nchan_message_id`
   The current and previous (if applicable) message id for publisher request or subscriber response.
@@ -609,14 +609,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Used in upstream { } blocks to set redis servers.    
   [more details](https://nchan.slact.net/details#using-redis)  
-
-- **nchan_redis_storage_mode** `[ distributed | backup ]`  
-  arguments: 1  
-  default: `distributed`  
-  context: http, server, upstream  
-  > The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but had the penalty of all message publishing going through Redis first.  
-  >   
-  > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.    
 
 - **nchan_redis_url**  
   arguments: 1  
