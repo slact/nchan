@@ -144,7 +144,7 @@ export OPTIMIZE_LEVEL=$optimize_level
 
 if [[ -z $NO_MAKE ]]; then
   
-  ./gen_config_commands.rb nchan_config_commands.c
+  ./gen_config_commands.rb
   if ! [ $? -eq 0 ]; then; 
     echo "failed generating nginx directives"; 
     exit 1

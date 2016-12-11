@@ -1,32 +1,33 @@
 #!/usr/bin/env ruby
 require "date"
-require "pry"
+require "optparse"
 
-SRC_DIR="src"
-CONFIG_IN="nchan_commands.rb"
+opt = {
+  out: :readme,
+  nchapp: false,
+  root: "..",
+  newversion: nil
+}
 
-
-README_FILE="README.md"
-
-if ARGV[0]
-  ROOT_DIR = ARGV[0]
-  readme_path = "#{ROOT_DIR}/#{README_FILE}"
-  readme_output_path = ARGV[1]
-  mysite = true
-else
-  ROOT_DIR = ".."
-  readme_path = "#{ROOT_DIR}/#{README_FILE}"
-  readme_output_path = readme_path
-  mysite = nil
+opt_parser=OptionParser.new do |opts|
+  opts.on("--path (#{opt[:root]})", "Path to Nchan project root") {|v| opt[:root] = v}
+  opts.on("--stdout", "Output to stdout instead of overwriting Readme.") { opt[:out] = :stdout }
+  opts.on("--nchapp", "Generate Nchan documentation for Nchapp, the Nchan documentation app. Implies --stdout.") { opt[:nchapp] = true; opt[:out] = :stdout }
+  opts.on("--release VERSION", "Document a new version release in Readme and changelog") { |v| opt[:newversion] = v }
 end
+opt_parser.parse!
 
-current_release = nil
-current_release_date = nil
-Dir.chdir ROOT_DIR do
-  current_release=(`git describe --abbrev=0 --tags`).chomp
-  current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
-  current_release_date = DateTime.parse(current_release_date).strftime("%B %-d, %Y")
-end
+readme_file = "#{opt[:root]}/README.md"
+changelog_file = "#{opt[:root]}/changelog.txt"
+cmds_file = "#{opt[:root]}/src/nchan_commands.rb"
+
+#current_release = nil
+#current_release_date = nil
+#Dir.chdir ROOT_DIR do
+#  current_release=(`git describe --abbrev=0 --tags`).chomp
+#  current_release_date = (`git log -1 --format=%ai #{current_release}`).chomp
+#  current_release_date = DateTime.parse(current_release_date).strftime("%B %-d, %Y")
+#end
 
 
 class CfCmd #let's make a DSL!
@@ -49,7 +50,9 @@ class CfCmd #let's make a DSL!
     attr_accessor :name, :type, :set, :conf, :offset_name
     attr_accessor :contexts, :args, :legacy, :alt, :disabled, :undocumented
     attr_accessor :group, :uri, :tags, :default, :info, :value
-
+    
+    attr_accessor :declaration_order
+    
     def initialize(name, func)
       self.name=name
       self.set=func
@@ -61,7 +64,7 @@ class CfCmd #let's make a DSL!
     end
     
     def descr(str, opt)
-      if opt[:mysite]
+      if opt[:nchapp]
         "<span class=\"description\">#{str}:</span>"
       else
         "#{str}:"
@@ -76,7 +79,7 @@ class CfCmd #let's make a DSL!
         val = "#{value}"
       end
       
-      if opt[:mysite]
+      if opt[:nchapp]
         namestr = "<a class=\"directive\" id=\"#{name}\" href=\"##{name}\">#{name}</a>"
       else
         namestr = "**#{name}**"
@@ -89,7 +92,7 @@ class CfCmd #let's make a DSL!
       end
       
       if Range === args
-        lines << "  #{descr 'arguments', opt} #{args.first} #{opt[:mysite] ? "&ndash;" : "-"} #{args.exclude_end? ? args.last - 1 : args.last}"
+        lines << "  #{descr 'arguments', opt} #{args.first} #{opt[:nchapp] ? "&ndash;" : "-"} #{args.exclude_end? ? args.last - 1 : args.last}"
       elsif Numeric === args
         lines << "  #{descr 'arguments', opt} #{args}"
       else
@@ -122,7 +125,7 @@ class CfCmd #let's make a DSL!
       end
       
       if uri
-        url = opt[:mysite] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
+        url = opt[:nchapp] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
         lines << "  [more details](#{url})"
       end
       
@@ -216,7 +219,7 @@ class CfCmd #let's make a DSL!
     cmd.info = opt[:info]
     cmd.tags = opt[:tags] || []
     cmd.uri = opt[:uri]
-    
+    cmd.declaration_order = @cmds.count
     @cmds << cmd if !cmd.disabled && !cmd.undocumented
   end
  
@@ -238,21 +241,23 @@ class Order
 end
 
 begin
-  cf=eval File.read("#{ROOT_DIR}/#{SRC_DIR}/#{CONFIG_IN}")
+  cf=eval File.read(cmds_file), nil, cmds_file
 rescue Exception => e
-  STDERR.puts e.message.gsub(/^\(eval\)/, "#{SRC_DIR}/#{CONFIG_IN}")
+  STDERR.puts e.message
+  STDERR.puts e.backtrace.map{|v| "  #{v}"}
   exit 1
 end
 
 cmds = cf.cmds
 
-group_order=Order.new(:pubsub, :security, :storage, :meta, :none, :development)
+group_order=Order.new(:channel, :publish, :subscribe, :pubsub, :hook, :security, :storage, :meta, :none, :development)
 
 cmds.sort! do |c1, c2|
   if c1.group != c2.group
     group_order[c1] - group_order[c2]
   else
-    (c1.name < c2.name) ? -1 : 1
+    c1.name < c2.name ? -1 : 1
+    #(c1.declaration_order < c2.declaration_order) ? -1 : 1
   end
 end
 
@@ -265,19 +270,19 @@ end
 #puts tags.sort.join " "
 
 text_cmds=cmds.map do |cmd|
-  cmd.to_md(:mysite => mysite)
+  cmd.to_md(:nchapp => opt[:nchapp])
 end
 
 
 config_documentation= text_cmds.join "\n\n"
 
-#if mysite
+#if opt[:nchapp]
 #  config_documentation = "<div class='configuration'><markdown>#{config_documentation}</markdown></div>"
 #end
 
-text = File.read(readme_path)
+text = File.read(readme_file)
 
-if mysite
+if opt[:nchapp]
   #remove first line
   text.sub!(/^<.*?>$\n\n?/m, "")
   #remove second line
@@ -306,17 +311,28 @@ end
 config_heading = "## Configuration Directives"
 text.gsub!(/(?<=^#{config_heading}$).*(?=^## )/m, "\n\n#{config_documentation}\n\n")
 
-if mysite
+if opt[:nchapp]
   contrib_heading = "## Contribute"
   text.gsub!(/(^#{contrib_heading}$).*(?=^## )?/m, "")
 end
 
+if opt[:newversion]
+  now = DateTime.now
+  text.gsub!(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{opt[:newversion]} (#{now.strftime("%B %-d, %Y")})")
+  
+  #File.open changelog_file do |f|
+  #  f.readline
+  #end
+end
 
-text.gsub!(/(?<=^The latest Nchan release is )\S+\s+\([^)]+\)/, "#{current_release} (#{current_release_date})")
-
-if mysite
+if opt[:nchapp]
   text.gsub!(/https:\/\/nchan\.slact\.net\//, "/")
 end
 
-File.open(readme_output_path, "w") {|file| file.puts text }
+case opt[:out]
+when :readme
+  File.open(readme_file, "w") {|file| file.puts text }
+when :stdout
+  puts text
+end
 
