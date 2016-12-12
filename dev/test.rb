@@ -947,8 +947,8 @@ class PubSubTest <  Minitest::Test
     
     subs.each do |t|
       chan = short_id
-      pub = Publisher.new url("pub/#{chan}")
-      sub = Subscriber.new(url("upstream_redirect?id=#{chan}"), 1, client: t, quit_message: 'FIN')
+      pub = Publisher.new url("upstream_redirect/pub/#{chan}")
+      sub = Subscriber.new(url("upstream_redirect/sub/#{chan}"), 1, client: t, quit_message: 'FIN')
       sub.run
       sleep 0.5
       pub.post [ "wut", "waht", "FIN" ]

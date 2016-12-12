@@ -45,10 +45,16 @@ class AuthServer
       print_request env, body
       
       case env["REQUEST_PATH"] || env["PATH_INFO"]
-      when "/accel_redirect"  
-        chid=env["HTTP_X_CHANNEL_ID"]
-        headers["X-Accel-Redirect"]="/sub/internal/#{chid}"
+      when /^\/accel_redirect\/(\w+)\/(\w+)/
+        what=$1
+        chid=$2
+        if what == "sub"
+          headers["X-Accel-Redirect"]="/sub/internal/#{chid}"
+        else
+          headers["X-Accel-Redirect"]="/pub/#{chid}"
+        end
         headers["X-Accel-Buffering"] = "no"
+        
       when "/auth"
         #meh
       when "/auth_fail"
