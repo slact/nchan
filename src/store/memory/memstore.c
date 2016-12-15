@@ -626,7 +626,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
-  if(ch->cf && ch->cf->redis.enabled && !ch->multi) {
+  if(ch->cf && ch->cf->redis.enabled && ch->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !ch->multi) {
     send_redis_fakesub_delta(ch);
     if(ch->delta_fakesubs_timer_ev.timer_set) {
       ngx_del_timer(&ch->delta_fakesubs_timer_ev);
@@ -734,6 +734,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 #define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (!head->stub && head->cf->redis.enabled == 1 && head->status == WAITING && head->owner == head->slot)
 
 void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n) {
+  assert(head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED);
   if(redis_fakesub_timer_interval == 0) {
     nchan_store_redis_fakesub_add(&head->id, head->cf, n, head->shutting_down);
   }
@@ -772,7 +773,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
       assert(CHANHEAD_SHARED_OKAY(head));
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
-    if(head->cf && head->cf->redis.enabled && !head->multi) {
+    if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !head->multi) {
       memstore_fakesub_add(head, 1);
     }
     nchan_update_stub_status(subscribers, 1);
@@ -812,7 +813,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       assert(head->shutting_down == 1);
     }
     */
-    if(head->cf && head->cf->redis.enabled && !head->multi) {
+    if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !head->multi) {
       memstore_fakesub_add(head, -count);
     }
     
@@ -1033,8 +1034,8 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   }
   
   if(head->cf && head->cf->redis.enabled && !head->multi) { // both DISTRIBUTED and BACKUP redis storage modes
-    head->delta_fakesubs = 0;
     nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
+    head->delta_fakesubs = 0;
     head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
   }
   else {
@@ -2656,7 +2657,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   chead = nchan_memstore_find_chanhead(channel_id);
   if(chead) {
-    ask_redis = chead->cf && chead->cf->redis.enabled && chead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
+    ask_redis = chead->cf && chead->cf->redis.enabled;// && chead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
   }
   d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
@@ -2720,7 +2721,7 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   if(ch->msg_last && ch->msg_last->msg->id.time == msg->msg->id.time) {
     msg->msg->id.tag.fixed[0] = ch->msg_last->msg->id.tag.fixed[0] + 1;
   }
-  else if(!ch->cf->redis.enabled || ch->cf->redis.storage_mode == REDIS_MODE_BACKUP) {
+  else if(!ch->cf->redis.enabled || ch->cf->redis.storage_mode == REDIS_MODE_BACKUP) { //TODO: check this logic
     msg->msg->id.tag.fixed[0] = 0;
   }
 
@@ -3124,26 +3125,34 @@ static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
 }
 
 static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+  memstore_channel_head_t  *chead;
+  
+  if(callback == NULL) {
+    callback = empty_callback;
+  }
+  
   if(cf->redis.enabled) {
     assert(!msg_in_shm);
-    nchan_update_stub_status(messages, 1);
-    fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
-    if(callback == NULL) {
-      callback = empty_callback;
-    }
-    return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
-  }
-  else {
-    memstore_channel_head_t  *chead;
-    if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
-      ERR("can't get chanhead for id %V", channel_id);
-      //we probably just ran out of shared memory
-      callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
-      return NGX_ERROR;
-    }
     
-    return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
+    fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
+    
+    if(cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+      nchan_update_stub_status(messages, 1);
+      return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
+    }
+    else { //BACKUP mode
+      nchan_store_redis.publish(channel_id, msg, cf, empty_callback, NULL);
+    }
   }
+  
+  if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
+    ERR("can't get chanhead for id %V", channel_id);
+    //we probably just ran out of shared memory
+    callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
+    return NGX_ERROR;
+  }
+  
+  return nchan_store_chanhead_publish_message_generic(chead, msg, msg_in_shm, cf, callback, privdata);
 }
 
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
