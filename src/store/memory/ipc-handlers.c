@@ -261,9 +261,9 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
       ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
     }
     else {
-      ERR("can't find chanhead for id %V", d->shm_chid);
-      assert(0);
+      ERR("Can't find chanhead for id %V while publishing status %i. This is not a big deal if you just reloaded Nchan.", d->shm_chid, d->status_code);
     }
+    str_shm_free(d->shm_chid);
     return;
   }
   
