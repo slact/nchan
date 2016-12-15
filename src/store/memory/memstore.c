@@ -2218,10 +2218,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   memstore_channel_head_t       *chanhead = NULL;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
-  ngx_int_t                      check_redis = d->sub->cf->redis.enabled && d->sub->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
+  ngx_int_t                      check_redis = d->sub->cf->redis.enabled; // for BACKUP and DISTRIBUTED mode
   nchan_loc_conf_t              *cf = d->sub->cf;
   ngx_int_t                      rc = NGX_OK;
-  nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  nchan_request_ctx_t           *ctx;
   
   if(d->sub->status == DEAD) {
     if(d->reserved) {
@@ -2231,6 +2231,8 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     subscribe_data_free(d);
     return NGX_OK;
   }
+  
+  ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
   
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
@@ -2254,6 +2256,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
           }
           return memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_channel_limit_check, d);
         }
+      }
+      else {
+        chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
       }
       break;
     
@@ -3202,7 +3207,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   fill_message_timedata(msg, timeout);
   
-  assert(!cf->redis.enabled);
+  assert(!cf->redis.enabled || cf->redis.storage_mode == REDIS_MODE_BACKUP);
   
   if(memstore_slot() != owner) {
     if((publish_msg = create_shm_msg(msg)) == NULL) {
@@ -3287,7 +3292,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
   
-  assert(!cf->redis.enabled);
   callback(rc, channel_copy, privdata);
 
   return rc;

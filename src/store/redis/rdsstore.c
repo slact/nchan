@@ -1573,6 +1573,7 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch) {
   rdstore_data_t     *rdata;
   if(ch->pubsub_status != SUBBED && ch->rdt->storage_mode == REDIS_MODE_DISTRIBUTED && (rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
+    DBG("SUBSCRIBING to %b{channel:%b}:pubsub", STR(&rdata->namespace), STR(&ch->id));
     ch->pubsub_status = SUBBING;
     redis_subscriber_command(rdata, redis_subscriber_callback, ch, "SUBSCRIBE %b{channel:%b}:pubsub", STR(&rdata->namespace), STR(&ch->id));
   }
@@ -1634,14 +1635,16 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
     redis_associate_chanhead_with_rdata(head, rdata);
   }
   
+  if(head->rdt->storage_mode == REDIS_MODE_BACKUP) {
+    head->status = READY;
+  }
+  
   head->spooler.running=0;
   start_chanhead_spooler(head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
   
-  
-  DBG("SUBSCRIBING to {channel:%V}:pubsub", channel_id);
   ensure_chanhead_pubsub_subscribed_if_needed(head);
   CHANNEL_HASH_ADD(head);
   
