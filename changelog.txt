@@ -1,3 +1,9 @@
+ feature: nchan_access_control_allow_origin can accept nginx variables
+ fix: possible crash after reloading when using several instances of Nchan with Redis
+ feature: Redis key namespaces
+ feature: all size configurations can now parse decimal values
+ fix: off-by-one subscriber count when using multiplexed channels
+ feature: accounting and dynamic limits for channel groups
 1.0.8 (Nov. 28 2016)
  fix: possible crash under severely heavy load, introduced in 1.0.7 with stack-overflow fix
 1.0.7 (Nov. 27 2016)
