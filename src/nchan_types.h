@@ -274,7 +274,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   ngx_str_t                       subscriber_http_raw_stream_separator;
 
-  ngx_str_t                       allow_origin;
+  ngx_http_complex_value_t       *allow_origin;
   
   nchan_complex_value_arr_t       last_message_id;
   ngx_str_t                       custom_msgtag_header;
@@ -373,7 +373,9 @@ typedef struct {
   ngx_str_t                      channel_id[NCHAN_MULTITAG_REQUEST_CTX_MAX];
   int                            channel_id_count;
   ngx_str_t                     *channel_group_name;
-  ngx_str_t                      request_origin_header;
+  
+  ngx_str_t                     *request_origin_header;
+  ngx_str_t                     *allow_origin;
   
   ngx_int_t                      unsubscribe_request_callback_finalize_code;
   unsigned                       sent_unsubscribe_request:1;

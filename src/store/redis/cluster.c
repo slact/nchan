@@ -209,7 +209,7 @@ static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) 
   if(cur[0]=='\0')
     return NULL;
   
-  nchan_scan_nearest_chr(&max, &rest_line, 2, '\n', '\0');
+  nchan_scan_split_by_chr(&max, strlen(max), &rest_line, '\n');
   l->line = rest_line;
   
   nchan_scan_until_chr_on_line(&rest_line, &l->id,           ' ');

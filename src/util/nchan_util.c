@@ -149,6 +149,25 @@ ngx_str_t *nchan_get_header_value(ngx_http_request_t * r, ngx_str_t header_name)
   return NULL;
 }
 
+ngx_str_t *nchan_get_header_value_origin(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
+  ngx_str_t         *origin_header;
+  static ngx_str_t   empty_str = ngx_string("");
+  if(!ctx) {
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  }
+  
+  if(!ctx->request_origin_header) {
+    if((origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) != NULL) {
+      ctx->request_origin_header = origin_header;
+    }
+    else {
+      ctx->request_origin_header = &empty_str;
+    }
+  }
+  
+  return ctx->request_origin_header == &empty_str ? NULL : ctx->request_origin_header;
+}
+
 ngx_str_t *nchan_get_accept_header_value(ngx_http_request_t *r) {
 #if (NGX_HTTP_HEADERS)  
   if(r->headers_in.accept == NULL) {
@@ -204,29 +223,25 @@ int nchan_cstr_startswith(char *cstr, char *match) {
   return 1;
 }
 
-void nchan_scan_nearest_chr(u_char **cur, ngx_str_t *str, ngx_int_t n, ...) {
-  u_char    chr;
-  va_list   args;
+void nchan_scan_split_by_chr(u_char **cur, size_t max_len, ngx_str_t *str, u_char chr) {
   u_char   *shortest = NULL;
+  u_char   *start = *cur;
+  u_char   *tmp_cur;
   
-  u_char *tmp_cur;
-  
-  ngx_int_t i;
-  
-  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur[-1] != '\0'); tmp_cur++) {
-    va_start(args, n);
-    for(i=0; shortest == NULL && i<n; i++) {
-      chr = (u_char )va_arg(args, int);
-      if(*tmp_cur == chr) {
-        shortest = tmp_cur;
-      }
+  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur - start < (ssize_t )max_len); tmp_cur++) {
+    if(*tmp_cur == chr) {
+      shortest = tmp_cur;
     }
-    va_end(args);
   }
   if(shortest) {
     str->data = (u_char *)*cur;
     str->len = shortest - *cur;
     *cur = shortest + 1;
+  }
+  else if(tmp_cur - start == (ssize_t )max_len) {
+    str->data = start;
+    str->len = max_len;
+    *cur = start + max_len;
   }
   else {
     str->data = NULL;
@@ -269,6 +284,50 @@ static ngx_buf_t *ensure_last_buf(ngx_pool_t *pool, ngx_buf_t *buf) {
     cbuf->last_buf = 1;
     return cbuf;
   }
+}
+
+ngx_str_t *nchan_get_allow_origin_value(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_request_ctx_t *ctx) {
+  if(!ctx) ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  if(!cf)  cf  = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  if(!ctx->allow_origin && cf->allow_origin) {
+    ngx_str_t                 *allow_origin = ngx_palloc(r->pool, sizeof(*allow_origin));
+    ngx_http_complex_value(r, cf->allow_origin, allow_origin);
+    ctx->allow_origin = allow_origin;
+  }
+  
+  return ctx->allow_origin;
+}
+
+int nchan_match_origin_header(ngx_http_request_t *r, nchan_loc_conf_t *cf, nchan_request_ctx_t *ctx) {
+  ngx_str_t                 *origin_header;
+  ngx_str_t                 *allow_origin;
+  ngx_str_t                  curstr;
+  u_char                    *cur, *end;
+  
+  if(cf->allow_origin == NULL) { //default is to always match
+    return 1;
+  }
+  
+  if((origin_header = nchan_get_header_value_origin(r, ctx)) == NULL) {
+    return 1;
+  }
+
+  allow_origin = nchan_get_allow_origin_value(r, cf, ctx);
+  
+  cur = allow_origin->data;
+  end = cur + allow_origin->len;
+  
+  while(cur < end) {
+    nchan_scan_split_by_chr(&cur, end - cur, &curstr, ' ');
+    if(curstr.len == 1 && curstr.data[0] == '*') {
+      return 1;
+    }
+    if(nchan_ngx_str_match(&curstr, origin_header)) {
+      return 1;
+    }
+  }
+  
+  return 0;
 }
 
 // this function adapted from push stream module. thanks Wandenberg Peixoto <wandenberg@gmail.com> and Rogério Carvalho Schneider <stockrt@gmail.com>

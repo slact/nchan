@@ -336,6 +336,8 @@ if opt[:newversion]
       STDERR.puts "No changes logged to changelog.txt between previous version and #{opt[:newversion]}."
       STDERR.puts "Did someone forget to update the changelog?"
       exit 1
+    else
+      changelog = changelog.lines.drop(1).join
     end
   else
     prev_ver = nil
