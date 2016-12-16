@@ -346,6 +346,8 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   int                    use_raw_stream_separator = cf->longpoll_multimsg_use_raw_stream_separator;
   nchan_buf_and_chain_t *bc;
   
+  ngx_init_set_membuf_char(&double_newline_buf, "\r\n\r\n");
+  
   nchan_longpoll_multimsg_t *first, *cur;
   
   //disable abort handler
@@ -373,8 +375,6 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
     nchan_request_set_content_type_multipart_boundary_header(r, ctx);
     char_boundary = ngx_palloc(r->pool, 50);
     char_boundary_last = ngx_snprintf(char_boundary, 50, ("\r\n--%V--\r\n"), nchan_request_multipart_boundary(r, ctx));
-    
-    ngx_init_set_membuf_char(&double_newline_buf, "\r\n\r\n");
     
     //set up the boundaries
     ngx_init_set_membuf(&boundary[0], &char_boundary[2], &char_boundary_last[-4]);
