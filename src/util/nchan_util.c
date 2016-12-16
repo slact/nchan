@@ -223,12 +223,12 @@ int nchan_cstr_startswith(char *cstr, char *match) {
   return 1;
 }
 
-void nchan_scan_split_by_chr(u_char **cur, ssize_t max_len, ngx_str_t *str, u_char chr) {
+void nchan_scan_split_by_chr(u_char **cur, size_t max_len, ngx_str_t *str, u_char chr) {
   u_char   *shortest = NULL;
   u_char   *start = *cur;
   u_char   *tmp_cur;
   
-  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur - start < max_len); tmp_cur++) {
+  for(tmp_cur = *cur; shortest == NULL && (tmp_cur == *cur || tmp_cur - start < (ssize_t )max_len); tmp_cur++) {
     if(*tmp_cur == chr) {
       shortest = tmp_cur;
     }
@@ -238,7 +238,7 @@ void nchan_scan_split_by_chr(u_char **cur, ssize_t max_len, ngx_str_t *str, u_ch
     str->len = shortest - *cur;
     *cur = shortest + 1;
   }
-  else if(tmp_cur - start == max_len) {
+  else if(tmp_cur - start == (ssize_t )max_len) {
     str->data = start;
     str->len = max_len;
     *cur = start + max_len;
