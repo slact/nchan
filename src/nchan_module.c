@@ -450,7 +450,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
       break;
       
     case NGX_HTTP_OPTIONS:
-        rc= nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_GROUP_HEADERS, &NCHAN_ALLOW_GET_POST_DELETE);
+        rc= nchan_OPTIONS_respond(r, &NCHAN_ACCESS_CONTROL_ALLOWED_GROUP_HEADERS, &NCHAN_ALLOW_GET_POST_DELETE);
       break;
   }
   ctx->request_ran_content_handler = 1;
@@ -464,7 +464,6 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_msg_id_t         *msg_id;
   ngx_int_t               rc = NGX_DONE;
   nchan_request_ctx_t    *ctx;
-  ngx_str_t              *origin_header;
   nchan_group_limits_t    group_limits;
   
 #if NCHAN_BENCHMARK
@@ -487,18 +486,8 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     nchan_recover_x_accel_redirected_request_method(r);
   }
   
-  if((origin_header = nchan_get_header_value(r, NCHAN_HEADER_ORIGIN)) != NULL) {
-    ctx->request_origin_header = *origin_header;
-    if(!(cf->allow_origin.len == 1 && cf->allow_origin.data[0] == '*')) {
-      if(!(origin_header->len == cf->allow_origin.len && ngx_strnstr(origin_header->data, (char *)cf->allow_origin.data, origin_header->len) != NULL)) {
-        //CORS origin match failed! return a 403 forbidden
-        goto forbidden;
-      }
-    }
-  }
-  else {
-    ctx->request_origin_header.len=0;
-    ctx->request_origin_header.data=NULL;
+  if(!nchan_match_origin_header(r, cf, ctx)) {
+    goto forbidden;
   }
   
   if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
@@ -630,10 +619,10 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
       
       case NGX_HTTP_OPTIONS:
         if(cf->pub.http) {
-          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE);
+          nchan_OPTIONS_respond(r, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE);
         }
         else if(cf->sub.poll || cf->sub.longpoll || cf->sub.eventsource || cf->sub.websocket) {
-          nchan_OPTIONS_respond(r, &cf->allow_origin, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET);
+          nchan_OPTIONS_respond(r, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET);
         }
         else goto forbidden;
         break;

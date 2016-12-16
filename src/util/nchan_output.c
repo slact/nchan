@@ -292,16 +292,23 @@ ngx_int_t nchan_output_msg_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_c
 }
 
 void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
+  ngx_str_t          *origin;
+  ngx_str_t          *allow_origin_val;
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   }
-  nchan_loc_conf_t       *cf;
   if(!ctx) {
     return;
   }
-  if(ctx->request_origin_header.data) {
-    cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
-    nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, &cf->allow_origin);
+  
+  if((origin = nchan_get_header_value_origin(r, ctx)) != NULL) {
+    allow_origin_val = nchan_get_allow_origin_value(r, NULL, ctx);
+    if(allow_origin_val && allow_origin_val->len == 1 && allow_origin_val->data[0]=='*') {
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, allow_origin_val);
+    }
+    else { //otherwise echo the origin
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    }
   }
 }
 
@@ -403,12 +410,15 @@ ngx_str_t *msgid_to_str(nchan_msg_id_t *id) {
 ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid) {
   ngx_str_t                 *etag, *tmp_etag;
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
-  int8_t                     output_etag = 1, cross_origin;
+  int8_t                     output_etag = 1;
+  ngx_str_t                 *origin_header;
   
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   }
-  cross_origin = ctx && ctx->request_origin_header.data;
+  if(ctx) {
+    origin_header = nchan_get_header_value_origin(r, ctx);
+  }
 
   if(!cf->msg_in_etag_only) {
     //last-modified
@@ -435,7 +445,7 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
     if(output_etag) {
       nchan_add_response_header(r, &NCHAN_HEADER_ETAG, etag);
     }
-    if(cross_origin) {
+    if(origin_header) {
       nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS, &NCHAN_MSG_RESPONSE_ALLOWED_HEADERS);
     }
   }
@@ -443,7 +453,7 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
     if(output_etag) {
       nchan_add_response_header(r, &cf->custom_msgtag_header, etag);
     }
-    if(cross_origin) {
+    if(origin_header) {
       u_char        *cur = ngx_palloc(r->pool, 255);
       if(cur == NULL) {
         return NGX_ERROR;
@@ -593,12 +603,12 @@ ngx_table_elt_t * nchan_add_response_header(ngx_http_request_t *r, const ngx_str
   return h;
 }
 
-ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allow_origin, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods) {
+ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allowed_headers, const ngx_str_t *allowed_methods) {
   nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
   nchan_add_response_header(r, &NCHAN_HEADER_ALLOW, allowed_methods);
   
-  if(ctx && ctx->request_origin_header.data) {
+  if(ctx && nchan_get_header_value_origin(r, ctx)) {
     //Access-Control-Allow-Origin is included later
     nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS, allowed_headers);
     nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS, allowed_methods);

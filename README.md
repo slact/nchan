@@ -633,9 +633,9 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_access_control_allow_origin** `<string>`  
   arguments: 1  
-  default: `*`  
+  default: `$http_origin`  
   context: http, server, location  
-  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the publisher or subscriber request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
+  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the incoming request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
 
 - **nchan_channel_group** `<string>`  
   arguments: 1  

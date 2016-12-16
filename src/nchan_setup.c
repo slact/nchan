@@ -258,7 +258,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->subscriber_http_raw_stream_separator, prev->subscriber_http_raw_stream_separator, "\n");
   
   ngx_conf_merge_str_value(conf->channel_id_split_delimiter, prev->channel_id_split_delimiter, "");
-  ngx_conf_merge_str_value(conf->allow_origin, prev->allow_origin, "*");
+  MERGE_CONF(conf, prev, allow_origin);
   ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");
   ngx_conf_merge_str_value(conf->custom_msgtag_header, prev->custom_msgtag_header, "");
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);

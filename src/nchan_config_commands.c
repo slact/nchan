@@ -343,7 +343,7 @@ static ngx_command_t  nchan_commands[] = {
 
   { ngx_string("nchan_access_control_allow_origin"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
+    ngx_http_set_complex_value_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(nchan_loc_conf_t, allow_origin),
     NULL } ,
