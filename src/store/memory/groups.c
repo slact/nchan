@@ -428,7 +428,10 @@ static ngx_int_t group_add_channel_callback(ngx_int_t rc, nchan_group_t *shm_gro
 
 static ngx_int_t memstore_group_add_channel_generic(memstore_channel_head_t *ch, int n) {
   if(ch->groupnode->group) {
-    group_callback_data_t d = {n, ch, 0};
+    group_callback_data_t d;
+    d.n = n;
+    d.data = ch;
+    d.allocd = 0;
     group_add_channel_callback(NGX_OK, ch->groupnode->group, &d);
   }
   else {
@@ -475,7 +478,10 @@ static ngx_int_t group_add_message_callback(ngx_int_t rc, nchan_group_t *shm_gro
 
 static ngx_int_t memstore_group_add_message_generic(group_tree_node_t *gtn, nchan_msg_t *msg, int n) {
   if(gtn->group) {
-    group_callback_data_t d = {n, msg, 0};
+    group_callback_data_t d;
+    d.n = n;
+    d.data = msg;
+    d.allocd = 0;
     group_add_message_callback(NGX_OK, gtn->group, &d);
   }
   else {
