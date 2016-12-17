@@ -9,6 +9,7 @@
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 
 //#define NCHAN_DEBUG_GROUP_NOCACAHE 1
+#define MAX_GETGROUP_WAIT_TIME_BEFORE_RETRY 5
 
 static void *group_id(void *d) {
   return &((group_tree_node_t *)d)->name;
@@ -21,7 +22,7 @@ ngx_int_t clear_group_if_not_owner(rbtree_seed_t *seed, void *node_data, void *p
   
   if(memstore_str_owner(&gtn->name) != myslot) {
     gtn->group = NULL; //asshole.
-    DBG("cleared group %V shared data", &gtn->name);
+    //DBG("cleared group %V shared data", &gtn->name);
   }
   return NGX_OK;
 }
@@ -110,15 +111,17 @@ static group_tree_node_t *group_owner_create_node(memstore_groups_t *gp, ngx_str
   return gtn;
 }
 
-nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name) {
+nchan_group_t *memstore_group_owner_find(memstore_groups_t *gp, ngx_str_t *name, int *group_just_created) {
   ngx_rbtree_node_t      *node;
   group_tree_node_t      *gtn;
   assert(memstore_str_owner(name) == memstore_slot());
   if((node = rbtree_find_node(&gp->tree, name)) != NULL) {
     gtn = rbtree_data_from_node(node);
+    if(group_just_created) *group_just_created = 0;
   }
   else {
     gtn = group_owner_create_node(gp, name);
+    if(group_just_created) *group_just_created = 1;
   }
   
   return gtn ? gtn->group : NULL;
@@ -155,8 +158,8 @@ static ngx_int_t add_whenready_callback(group_tree_node_t *gtn, char *lbl, callb
     DBG("  whenready %s", gcb->label);
   }
   
-  if(gtn->getting_group == 0) {
-    gtn->getting_group = 1;
+  if(ngx_time() - gtn->getting_group > MAX_GETGROUP_WAIT_TIME_BEFORE_RETRY) {
+    gtn->getting_group = ngx_time();
     memstore_ipc_send_get_group(memstore_str_owner(&gtn->name), &gtn->name);    
   }
   
@@ -193,7 +196,8 @@ ngx_int_t memstore_group_find_from_groupnode(memstore_groups_t *gp, group_tree_n
 ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
 #if NCHAN_DEBUG_GROUP_NOCACAHE
   static int hmm = 0;
-  nchan_add_interval_timer(jerk_group_clearer, gp, 100);
+  if(!hmm) {
+    nchan_add_interval_timer(jerk_group_clearer, gp, 100);
     hmm = 1; 
   }
 #endif
@@ -231,7 +235,9 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
   group_tree_node_t      *gtn = NULL;
   
   assert(memstore_str_owner(&shm_group->name) != memstore_slot());
+  
   DBG("memstore group receive %V", &shm_group->name);
+  
   if((node = rbtree_find_node(&gp->tree, &shm_group->name)) != NULL) {
     gtn = rbtree_data_from_node(node);  
     gtn->group = shm_group;
@@ -274,19 +280,11 @@ ngx_int_t memstore_group_receive_delete(memstore_groups_t *gp, nchan_group_t *sh
 }
 
 typedef struct {
-  int       n;
-  void     *data;
-  unsigned  allocd:1;
-} group_callback_data_t;
-
-typedef struct {
   callback_pt        cb;
   void              *pd;
   memstore_groups_t *gp;
   unsigned           owned;
 } group_delete_callback_data_t;
-  
-
 
 static ngx_int_t group_delete_callback(ngx_int_t rc, nchan_group_t *shm_group, group_delete_callback_data_t *d) {
   static nchan_group_t  group;
@@ -307,7 +305,7 @@ static ngx_int_t group_delete_callback(ngx_int_t rc, nchan_group_t *shm_group, g
   return NGX_OK;
 }
 
- ngx_int_t memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
+ngx_int_t memstore_group_delete(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
   group_tree_node_t            *gtn = NULL;
   ngx_int_t                     owner = memstore_str_owner(name);
   group_delete_callback_data_t *d;
@@ -439,40 +437,45 @@ void memstore_group_dissociate_own_channel(memstore_channel_head_t *ch) {
 
 
 
-static ngx_int_t group_add_channel_internal(nchan_group_t *shm_group, memstore_channel_head_t *ch, int n) {
+static ngx_int_t group_add_channel_internal(nchan_group_t *shm_group, int multi, int self_owned, int n) {
   if(shm_group) {
-    if(ch->multi) {
+    if(multi) {
       ngx_atomic_fetch_add(&shm_group->multiplexed_channels, n);
     }
-    else if (ch->owner == memstore_slot()) {
+    else if (self_owned) {
       ngx_atomic_fetch_add(&shm_group->channels, n);
     }
   }
   return NGX_OK;
 }
 
-static ngx_int_t group_add_channel_callback(ngx_int_t rc, nchan_group_t *shm_group, group_callback_data_t *d) {
-  group_add_channel_internal(shm_group, (memstore_channel_head_t *)d->data, d->n);
-  memstore_chanhead_release((memstore_channel_head_t *)d->data, "group_addchannel");
+typedef struct {
+  int       n;
+  unsigned  multi:1;
+  unsigned  self_owned:1;
+} add_channel_count_callback_data_t;
+
+static ngx_int_t group_add_channel_callback(ngx_int_t rc, nchan_group_t *shm_group, add_channel_count_callback_data_t *d) {
+  group_add_channel_internal(shm_group, d->multi, d->self_owned, d->n);
   ngx_free(d);
   return NGX_OK;
 }
 
 static ngx_int_t memstore_group_add_channel_generic(memstore_channel_head_t *ch, int n) {
+  int self_owned = ch->owner == memstore_slot();
   if(ch->groupnode->group) {
-    group_add_channel_internal(ch->groupnode->group, ch, n);
+    group_add_channel_internal(ch->groupnode->group, ch->multi != NULL, self_owned, n);
   }
   else {
-    group_callback_data_t *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+    add_channel_count_callback_data_t             *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     if(!d) {
       ERR("Couldn't allocate group_add_channel data");
       return NGX_ERROR;
     }
     else {
       d->n = n;
-      d->data = ch;
-      d->allocd = 1;
-      memstore_chanhead_reserve(ch, "group_addchannel");
+      d->multi = ch->multi != NULL;
+      d->self_owned = self_owned;
       add_whenready_callback(ch->groupnode, "add channel", (callback_pt )group_add_channel_callback, d);
     }
   }
@@ -487,42 +490,46 @@ ngx_int_t memstore_group_remove_channel(memstore_channel_head_t *ch) {
   return memstore_group_add_channel_generic(ch, -1);
 }
 
-static ngx_int_t group_add_message_internal(nchan_group_t *shm_group, nchan_msg_t *msg, int n) {
-  size_t         msg_sz = memstore_msg_memsize(msg);
+static ngx_int_t group_add_message_internal(nchan_group_t *shm_group, size_t mem_sz, size_t file_sz, int n) {
+  
   if(shm_group) {
     ngx_atomic_fetch_add(&shm_group->messages, n);
-    ngx_atomic_fetch_add(&shm_group->messages_shmem_bytes, n * msg_sz);
-    if(!ngx_buf_in_memory_only((&msg->buf))) {
-      assert(msg->buf.in_file);
-      ngx_atomic_fetch_add(&shm_group->messages_file_bytes, n * ngx_buf_size((&msg->buf)));
+    ngx_atomic_fetch_add(&shm_group->messages_shmem_bytes, n * mem_sz);
+    if(file_sz > 0) {
+      ngx_atomic_fetch_add(&shm_group->messages_file_bytes, n * file_sz);
     }
   }
   return NGX_OK;
 }
 
-static ngx_int_t group_add_message_callback(ngx_int_t rc, void *vd, void *pd) {
-  nchan_group_t          *shm_group = vd;
-  group_callback_data_t  *d = pd;
-  group_add_message_internal(shm_group, (nchan_msg_t *)d->data, d->n);
-  msg_release((nchan_msg_t *)d->data, "group_add_message");
+typedef struct {
+  int n;
+  size_t mem_sz;
+  size_t file_sz;
+} add_message_callback_data_t;
+
+static ngx_int_t group_add_message_callback(ngx_int_t rc, nchan_group_t *shm_group, add_message_callback_data_t *d) {
+  group_add_message_internal(shm_group, d->mem_sz, d->file_sz, d->n);
+  ngx_free(d);
   return NGX_OK;
 }
 
 static ngx_int_t memstore_group_add_message_generic(group_tree_node_t *gtn, nchan_msg_t *msg, int n) {
+  size_t         mem_sz = memstore_msg_memsize(msg);
+  size_t         file_sz = ngx_buf_in_memory_only((&msg->buf)) ? 0 : ngx_buf_size((&msg->buf));
   if(gtn->group) {
-    group_add_message_internal(gtn->group, msg, n);
+    group_add_message_internal(gtn->group, mem_sz, file_sz, n);
   }
   else {
-    group_callback_data_t *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+    add_message_callback_data_t *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
     if(!d) {
       ERR("Couldn't allocate group_add_message data");
       return NGX_ERROR;
     }
     else {
       d->n = n;
-      d->data = msg;
-      d->allocd = 1;
-      msg_reserve(msg, "group_add_message");
+      d->mem_sz = mem_sz;
+      d->file_sz = file_sz;
       add_whenready_callback(gtn, "add message", (callback_pt )group_add_message_callback, d);
     }
   }
@@ -546,11 +553,8 @@ static ngx_int_t group_add_subscribers_internal(nchan_group_t *shm_group, int n)
   return NGX_OK;
 }
 
-static ngx_int_t group_add_subscribers_callback(ngx_int_t rc, nchan_group_t *shm_group, group_callback_data_t *d) {
-  
-  group_add_subscribers_internal(shm_group, d->n);
-  
-  ngx_free(d);
+static ngx_int_t group_add_subscribers_callback(ngx_int_t rc, nchan_group_t *shm_group, intptr_t n) {
+  group_add_subscribers_internal(shm_group, n);
   return NGX_OK;
 }
 
@@ -559,17 +563,7 @@ ngx_int_t memstore_group_add_subscribers(group_tree_node_t *gtn, int count) {
     group_add_subscribers_internal(gtn->group, count);
   }
   else {
-    group_callback_data_t *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
-    if(!d) {
-      ERR("Couldn't allocate group_add_subscribers data");
-      return NGX_ERROR;
-    }
-    else {
-      d->n = count;
-      d->data = NULL;
-      d->allocd = 1;
-      add_whenready_callback(gtn, "add subscribers", (callback_pt )group_add_subscribers_callback, d);
-    }
+    add_whenready_callback(gtn, "add subscribers", (callback_pt )group_add_subscribers_callback, (void *)(intptr_t )count);
   }
   return NGX_OK;
 }

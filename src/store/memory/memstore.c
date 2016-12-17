@@ -2072,7 +2072,9 @@ static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, vo
 
 static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *shm_group, subscribe_data_t *d) {
   
-  if(d->sub->status != DEAD) {
+  memstore_channel_head_t  *ch = ensure_chanhead_ready_or_trash_chanhead(d->chanhead, 0);
+  
+  if(ch && d->sub->status != DEAD) {
     if(shm_group) {
       if(!shm_group->limit.subscribers || shm_group->subscribers < shm_group->limit.subscribers) { 
         //not an atomic comparison but we don't really care

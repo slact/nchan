@@ -795,9 +795,14 @@ ngx_int_t memstore_ipc_send_get_group(ngx_int_t dst, ngx_str_t *group_id) {
 }
 
 static void receive_get_group(ngx_int_t sender, ngx_str_t **group_id) {
+  nchan_group_t  *shared_group;
+  int             new_group;
   DBG("received GET GROUP from %i %p %V", sender, *group_id, *group_id);
   
-  assert(memstore_group_owner_find(nchan_memstore_get_groups(), *group_id) != NULL);
+  shared_group = memstore_group_owner_find(nchan_memstore_get_groups(), *group_id, &new_group);
+  if(!new_group) { //new group is automatically broadcast to everyone, this one already exists.
+    ipc_cmd(group, sender, &shared_group);
+  }
   
   str_shm_free(*group_id);
 }
