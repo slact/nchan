@@ -8,14 +8,36 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
 
+//#define NCHAN_DEBUG_GROUP_NOCACAHE 1
+
 static void *group_id(void *d) {
   return &((group_tree_node_t *)d)->name;
 }
 
+#if NCHAN_DEBUG_GROUP_NOCACAHE
+ngx_int_t clear_group_if_not_owner(rbtree_seed_t *seed, void *node_data, void *pd) {
+  group_tree_node_t *gtn = node_data;
+  ngx_int_t          myslot = memstore_slot();
+  
+  if(memstore_str_owner(&gtn->name) != myslot) {
+    gtn->group = NULL; //asshole.
+    DBG("cleared group %V shared data", &gtn->name);
+  }
+  return NGX_OK;
+}
+
+int jerk_group_clearer(void *pd) {
+  memstore_groups_t *gp = pd;
+  
+  rbtree_walk(&gp->tree, clear_group_if_not_owner, NULL);
+  
+  return 1;
+}
+#endif
+
 ngx_int_t memstore_groups_init(memstore_groups_t *gp) {
   return rbtree_init(&gp->tree, "memstore groups", group_id, NULL, NULL);
 }
-
 
 ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) {
   group_tree_node_t *gtn = (group_tree_node_t *)node_data;
@@ -169,6 +191,12 @@ ngx_int_t memstore_group_find_from_groupnode(memstore_groups_t *gp, group_tree_n
 }
 
 ngx_int_t memstore_group_find(memstore_groups_t *gp, ngx_str_t *name, callback_pt cb, void *pd) {
+#if NCHAN_DEBUG_GROUP_NOCACAHE
+  static int hmm = 0;
+  nchan_add_interval_timer(jerk_group_clearer, gp, 100);
+    hmm = 1; 
+  }
+#endif
   group_tree_node_t  *gtn = memstore_groupnode_get(gp, name);
   return memstore_group_find_from_groupnode(gp, gtn, cb, pd);
 }
@@ -209,6 +237,10 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
     gtn->group = shm_group;
     gtn->getting_group = 0;
     call_whenready_callbacks(gtn, shm_group);
+    
+#if NCHAN_DEBUG_GROUP_NOCACAHE
+    gtn->group = NULL;
+#endif
     
   }
   else {
