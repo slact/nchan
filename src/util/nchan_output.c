@@ -416,9 +416,7 @@ ngx_int_t nchan_set_msgid_http_response_headers(ngx_http_request_t *r, nchan_req
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   }
-  if(ctx) {
-    origin_header = nchan_get_header_value_origin(r, ctx);
-  }
+  origin_header = ctx ? nchan_get_header_value_origin(r, ctx) : NULL; 
 
   if(!cf->msg_in_etag_only) {
     //last-modified
