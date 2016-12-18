@@ -673,7 +673,7 @@ class PubSubTest <  Minitest::Test
   def test_access_control_options
     chan=SecureRandom.hex
     
-    request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS, headers: { 'Origin' =>'example.com' }
+    request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS, headers: { 'Origin' =>'http://example.com' }
     resp = request.run
     
     assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
@@ -690,9 +690,9 @@ class PubSubTest <  Minitest::Test
     end
     
     
-    request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS, headers: { 'Origin' => "example.com" }
+    request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS, headers: { 'Origin' => "https://example.com" }
     resp = request.run
-    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    assert_equal "https://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET POST DELETE ).each do |v| 
       assert_header_includes resp, "Access-Control-Allow-Methods", v
       assert_header_includes resp, "Allow", v
