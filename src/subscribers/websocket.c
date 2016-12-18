@@ -1532,7 +1532,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   
   if(!fsub->shook_hands) {
     //still in HTTP land
-    return nchan_respond_status(fsub->sub.request, status_code, status_line, 0);
+    return nchan_respond_status(fsub->sub.request, status_code, status_line, 1);
   }
   
   switch(status_code) {
