@@ -70,9 +70,6 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_add(&fsub->sub);
-  //set debug label
-  fsub->sub.lbl = ngx_calloc(r->uri.len+1, ngx_cycle->log);
-  ngx_memcpy(fsub->sub.lbl, r->uri.data, r->uri.len);
 #endif
   
   //http request sudden close cleanup
@@ -102,7 +99,6 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
     assert(sub->status == DEAD);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
-    ngx_free(sub->lbl);
     ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
 #endif
     ngx_free(fsub);
@@ -562,4 +558,8 @@ static const subscriber_t new_longpoll_sub = {
   1, //deque after response
   1, //destroy after dequeue
   0, //enqueued
+  
+#if NCHAN_SUBSCRIBER_LEAK_DEBUG
+  NULL, NULL, NULL
+#endif
 };

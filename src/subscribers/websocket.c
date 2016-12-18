@@ -1613,7 +1613,6 @@ static const subscriber_t new_websocket_sub = {
   1, //destroy after dequeue
   0, //enqueued
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
-  NULL,
-  NULL
+  NULL, NULL, NULL
 #endif
 };

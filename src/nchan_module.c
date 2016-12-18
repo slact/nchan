@@ -1082,6 +1082,14 @@ void subscriber_debug_add(subscriber_t *sub) {
     assert(subdebug_head->dbg_prev == NULL);
     subdebug_head->dbg_prev = sub;
   }
+  if(sub->request) {
+    sub->lbl = ngx_calloc(sub->request->uri.len+1, ngx_cycle->log);
+    ngx_memcpy(sub->lbl, sub->request->uri.data, sub->request->uri.len);
+  }
+  else {
+    sub->lbl = NULL;
+  }
+  
   subdebug_head = sub;
 }
 void subscriber_debug_remove(subscriber_t *sub) {
@@ -1106,8 +1114,16 @@ void subscriber_debug_remove(subscriber_t *sub) {
   
   sub->dbg_next = NULL;
   sub->dbg_prev = NULL;
+  ngx_free(sub->lbl);
+  sub->lbl = NULL;
 }
 void subscriber_debug_assert_isempty(void) {
-  assert(subdebug_head == NULL);
+  if(subdebug_head != NULL) {
+    subscriber_t *cur;
+    for(cur = subdebug_head; cur != NULL; cur = cur->dbg_next) {
+      nchan_log_error("  LEFTOVER: %V sub (req. %p cf %p) lbl %s", cur->name, cur->request, cur->cf, cur->lbl ? cur->lbl : (u_char *)"nolbl");
+    }
+    raise(SIGABRT);
+  }
 }
 #endif
