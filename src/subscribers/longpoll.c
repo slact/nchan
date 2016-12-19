@@ -19,6 +19,9 @@ static const subscriber_t new_longpoll_sub;
 static void empty_handler() { }
 
 static void sudden_abort_handler(subscriber_t *sub) {
+  if(sub->request && sub->status != DEAD) {
+    sub->request->headers_out.status = NGX_HTTP_CLIENT_CLOSED_REQUEST;
+  }
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->sub.owner);
@@ -511,6 +514,7 @@ void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
     fsub->data.finalize_request=1;
+    fsub->sub.request->headers_out.status = status_code;
     fsub->sub.fn->dequeue(&fsub->sub);
   }
 }

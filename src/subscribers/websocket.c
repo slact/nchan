@@ -240,6 +240,7 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
   full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
   if(fsub) {
     ctx->sub->status = DEAD;
+    fsub->sub.request->headers_out.status = NGX_HTTP_CLIENT_CLOSED_REQUEST;
     websocket_finalize_request(fsub);
   }
 }
@@ -1079,6 +1080,7 @@ static void websocket_reading(ngx_http_request_t *r) {
   for (;;) {
     if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
       //ERR("c->error %i c->timedout %i c->close %i c->destroyed %i rev->closed %i rev->eof %i", c->error, c->timedout, c->close, c->destroyed, rev->closed, rev->eof);
+      fsub->sub.request->headers_out.status = NGX_HTTP_CLIENT_CLOSED_REQUEST;
       fsub->connected = 0;
       return websocket_reading_finalize(r, temp_pool);
     }
@@ -1087,6 +1089,7 @@ static void websocket_reading(ngx_http_request_t *r) {
       case WEBSOCKET_READ_START_STEP:
         //reading frame header
         if ((rc = ws_recv(c, rev, &buf, 2)) != NGX_OK) {
+          fsub->sub.request->headers_out.status = NGX_HTTP_CLIENT_CLOSED_REQUEST;
           goto exit;
         }
         
@@ -1538,19 +1541,23 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   switch(status_code) {
     case 410:
       close_code = CLOSE_GOING_AWAY;
+      fsub->sub.request->headers_out.status = NGX_HTTP_GONE;
       close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_410);
       break;
     case 403:
       close_code = CLOSE_POLICY_VIOLATION;
+      fsub->sub.request->headers_out.status = NGX_HTTP_FORBIDDEN;
       close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_403);
       break;
     case 500: 
       close_code = CLOSE_INTERNAL_SERVER_ERROR;
+      fsub->sub.request->headers_out.status = NGX_HTTP_INTERNAL_SERVER_ERROR;
       close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_500);
       break;
     default:
       if((status_code >= 400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
         custom_close_msg.data=msgbuf;
+        fsub->sub.request->headers_out.status = status_code;
         custom_close_msg.len = ngx_sprintf(msgbuf,"%i %v", status_code, (status_line ? status_line : &empty)) - msgbuf;
         close_msg = &custom_close_msg;
         close_code = CLOSE_NORMAL;

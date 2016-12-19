@@ -273,6 +273,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   if((status_code >=400 && status_code <599) || status_code == NGX_HTTP_NOT_MODIFIED) {
     fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
     fsub->sub.request->keepalive=0;
+    sub->request->headers_out.status = status_code;
     fsub->data.finalize_request=1;
     sub->fn->dequeue(sub);
   }
