@@ -230,14 +230,14 @@ ngx_int_t nchan_group_info(ngx_http_request_t *r, const nchan_group_t *group) {
 }
 
 //print information about a channel
-ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *msgid) {
+ngx_int_t nchan_channel_info(ngx_http_request_t *r, ngx_int_t status_code, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *msgid) {
   ngx_buf_t                      *b;
   ngx_str_t                      *content_type;
   ngx_str_t                      *accept_header = nchan_get_accept_header_value(r);
 
   b = nchan_channel_info_buf(accept_header, messages, subscribers, last_seen, msgid, &content_type);
   
-  return nchan_respond_membuf(r, NGX_HTTP_OK, content_type, b, 0);
+  return nchan_respond_membuf(r, status_code, content_type, b, 0);
 }
 
 ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_request_t *r, ngx_int_t status_code) {
@@ -253,14 +253,14 @@ ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_req
     last_seen = channel->last_seen;
     messages  = channel->messages;
     msgid = &channel->last_published_msg_id;
-    r->headers_out.status = status_code == (ngx_int_t) NULL ? NGX_HTTP_OK : status_code;
+    r->headers_out.status = status_code == NGX_OK ? NGX_HTTP_OK : status_code;
     if (status_code == NGX_HTTP_CREATED) {
       ngx_memcpy(&r->headers_out.status_line, &CREATED_LINE, sizeof(ngx_str_t));
     }
     else if (status_code == NGX_HTTP_ACCEPTED) {
       ngx_memcpy(&r->headers_out.status_line, &ACCEPTED_LINE, sizeof(ngx_str_t));
     }
-    return nchan_channel_info(r, messages, subscribers, last_seen, msgid);
+    return nchan_channel_info(r, r->headers_out.status, messages, subscribers, last_seen, msgid);
   }
   else {
     //404!
