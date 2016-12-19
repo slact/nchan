@@ -60,8 +60,8 @@ union nchan_msg_multitag {
 typedef struct {
   time_t                          time; //tag message by time
   union nchan_msg_multitag        tag;
-  unsigned                        tagactive:16;
-  unsigned                        tagcount:16;
+  int16_t                         tagactive;
+  int16_t                         tagcount;
 } nchan_msg_id_t;
 
 typedef struct {

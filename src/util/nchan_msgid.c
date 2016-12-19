@@ -238,7 +238,7 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
   int16_t           val = 0;
   static int16_t    tags[NCHAN_MULTITAG_MAX];
   
-  while(cur <= last && i < NCHAN_MULTITAG_MAX) {
+  while(first != NULL && last != NULL && cur <= last && i < NCHAN_MULTITAG_MAX) {
     if(cur == last) {
       tags[i]=(val == 0 && sign == -1) ? -1 : val * sign; //shorthand "-" for "-1";
       i++;
@@ -263,9 +263,14 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
     }
     cur++;
   }
-  if(expected_tag_count > i) {
-    return NGX_ERROR;
+  
+  // We fullfill the rest of the tag needed with value '-1'
+  while (i < expected_tag_count) {
+    if (i == 0) mid->tagactive = -1; // No tag is in active
+    tags[i] = -1;
+    i++;
   }
+
   mid->tagcount = i;
   
   if(i <= NCHAN_FIXED_MULTITAG_MAX) {
@@ -296,7 +301,7 @@ ngx_int_t nchan_extract_from_multi_msgid(nchan_msg_id_t *src, uint16_t n, nchan_
     return NGX_OK; 
   }
   
-  if(n > count) {
+  if(n >= count) {
     ERR("can't extract msgid %i from multi-msg of count %i", n, count);
     return NGX_ERROR;
   }
@@ -389,16 +394,17 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   
   if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
     id.time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
-    
-    if(if_none_match==NULL) {
-      id.tagcount=1;
-      id.tagactive=0;
+
+    u_char *first = NULL, *last = NULL;
+    if(if_none_match != NULL) {
+      first = if_none_match->data;
+      last = if_none_match->data + if_none_match->len;
     }
-    else {
-      if(nchan_parse_msg_tag(if_none_match->data, if_none_match->data + if_none_match->len, &id, ctx->channel_id_count) == NGX_ERROR) {
-        return NULL;
-      }
+
+    if(nchan_parse_msg_tag(first, last, &id, ctx->channel_id_count) == NGX_ERROR) {
+      return NULL;
     }
+
     return &id;
   }
   else if((cf->msg_in_etag_only || r->headers_in.if_modified_since == NULL) && if_none_match) {
