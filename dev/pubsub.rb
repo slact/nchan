@@ -162,6 +162,16 @@ class MessageStore
       @msgs.each {|key, msg| yield msg }
     end
   end
+  
+  def select
+    cpy = self.class.new(noid: @array ? true : nil)
+    cpy.name = self.name
+    self.each do |msg|
+      cpy << msg if yield msg
+    end
+    cpy
+  end
+  
   def <<(msg)
     if @array
       @msgs << msg

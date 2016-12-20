@@ -753,6 +753,36 @@ class PubSubTest <  Minitest::Test
     sub.wait
   end
   
+  def test_empty_message
+    chan_id=short_id
+    pub = Publisher.new url("/pub/#{chan_id}?test=test_empty_message")
+    subs = [:longpoll, :eventsource, :websocket, :multipart, :chunked].map do |type|
+      Subscriber.new(url("/sub/broadcast/#{chan_id}?test=test_test_empty_message"), 1, quit_message: 'FIN', retry_delay: 2, client: type, timeout: 10)
+    end
+    subs.each do |s| 
+      s.on_failure {false}
+      s.run
+    end
+    pub.post ["hey", "here's a blank...", "", "", "one more", "", "ok then", "FIN"]
+    subs.each &:wait
+    subs.each do |sub|
+      if Subscriber::HTTPChunkedClient === sub.client
+        #chunked clients don't receive blank messages
+        nonempty = pub.messages.select{|m| m.message.length != 0}
+        assert sub.errors.empty?
+        ret, err = sub.messages.matches?(nonempty)
+        assert ret, err || "Messages don't match"
+        i=0
+        sub.messages.each do |msg|
+          assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i}."
+          i+=1
+        end
+      else
+        verify pub, sub
+      end
+    end
+    
+  end
   #def test_expired_messages_with_subscribers
   #  chan = short_id
   #  pub, sub = pubsub 1, pub: "/pub/2_sec_message_timeout/", sub: "/sub/intervalpoll/", client: :intervalpoll, timeout: 9000, channel: short_id

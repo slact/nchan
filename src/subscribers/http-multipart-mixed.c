@@ -150,10 +150,10 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     msgid_buf->end = cur;
   }
   
-  chain = chain->next;
-  buf = chain->buf;
   //msgbuf
   if(ngx_buf_size(msg_buf) > 0) {
+    chain = chain->next;
+    buf = chain->buf;
     ngx_memcpy(buf, msg_buf, sizeof(*msg_buf));
     if(msg_buf->file) {
       file_copy = nchan_bufchain_pool_reserve_file(ctx->bcp);
