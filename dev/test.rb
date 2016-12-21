@@ -753,6 +753,45 @@ class PubSubTest <  Minitest::Test
     sub.wait
   end
   
+  def test_missing_message_tag
+    chan_id=short_id
+    pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+    
+    pub.post "1. one!!"
+    pub.post "2. tooo"
+    pub.post "3. throo"
+    sleep 1
+    pub.post "4. fooo"
+    n = 0
+    
+    subs = ["/sub/multi/#{short_id}/#{short_id}/#{chan_id}", "/sub/broadcast/#{chan_id}"].map do |path|
+    
+      sub = Subscriber.new(url(path), 1, quit_message: 'FIN', retry_delay: 1, timeout: 5)
+    
+      first_msg = nil
+      sub.on_message do |msg, bundle|  
+        bundle.etag=nil
+        if first_msg
+          assert( msg.message == first_msg.message && msg.id == first_msg.id)
+          false
+        else
+          first_msg = msg
+        end
+      end
+      
+      sub.on_failure do |err|
+        assert_match /code 400/, err
+        false
+      end
+      
+      sub
+    end
+    
+    
+    subs.each &:run
+    subs.each &:wait
+  end
+  
   #def test_expired_messages_with_subscribers
   #  chan = short_id
   #  pub, sub = pubsub 1, pub: "/pub/2_sec_message_timeout/", sub: "/sub/intervalpoll/", client: :intervalpoll, timeout: 9000, channel: short_id
