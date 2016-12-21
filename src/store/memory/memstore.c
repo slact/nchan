@@ -2485,8 +2485,6 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   multi = chead->multi;
   
-  memstore_chanhead_reserve(chead, "multimsg");
-  
   //init loop
   for(i = 0; i < n; i++) {
     want[i] = 0;
@@ -2528,6 +2526,13 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
     }
   }
   
+  if(getting == 0) { //don't need to explicitly fetch messages, we know all the responses will be MSG_EXPECTED
+    ERR("don't need to explicitly fetch messages for %V (msgid %V), we know all the responses will be MSG_EXPECTED", chid, msgid_to_str(msg_id));
+    callback(MSG_EXPECTED, NULL, privdata);
+    return;
+  }
+  
+  memstore_chanhead_reserve(chead, "multimsg");
   
   get_multi_message_data_t         *d;
   get_multi_message_data_single_t  *sd;
