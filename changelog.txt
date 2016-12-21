@@ -1,7 +1,12 @@
+ fix: possible lingering subscriber if connection is closed just before subscribing
+ fix: possible memory leak when using multiplexed channels
  security fix: subscribing with If-Modified-Since and without If-None-Match headers
       crashed the Nginx worker (thanks @supertong)
- feature: nchan_access_control_allow_origin can accept nginx variables
+ security fix: sending an empty message to multipart/mixed subscriber crashed Nginx worker
+ fix: publisher & subscriber response codes were logged incorrectly
+ fix: websocket subscriber memory leak on upstream authentication failure
  fix: possible crash after reloading when using several instances of Nchan with Redis
+ feature: nchan_access_control_allow_origin can accept nginx variables
  feature: Redis key namespaces
  feature: all size configurations can now parse decimal values
  fix: off-by-one subscriber count when using multiplexed channels
