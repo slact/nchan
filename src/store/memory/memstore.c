@@ -2529,7 +2529,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   if(getting == 0) { //don't need to explicitly fetch messages, we know all the responses will be MSG_EXPECTED
     ERR("don't need to explicitly fetch messages for %V (msgid %V), we know all the responses will be MSG_EXPECTED", chid, msgid_to_str(msg_id));
     callback(MSG_EXPECTED, NULL, privdata);
-    return;
+    return NGX_OK;
   }
   
   memstore_chanhead_reserve(chead, "multimsg");
