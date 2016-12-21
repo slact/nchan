@@ -2491,8 +2491,6 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   }
   
   //DBG("get multi msg %V (count: %i)", msgid_to_str(msg_id), n);
-  
-  
   if(msg_id->time == 0) {
     for(i = 0; i < n; i++) {
       assert(nchan_extract_from_multi_msgid(msg_id, i, &req_msgid[i]) == NGX_OK);

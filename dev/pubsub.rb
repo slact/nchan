@@ -602,6 +602,15 @@ class Subscriber
           
         END
         
+        @send_withid_no_etag_fmt= <<-END.gsub(/^ {10}/, '')
+          GET #{request_uri.gsub("%", "%%")} HTTP/1.1
+          Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
+          #{extra_headers}Accept: #{@accept}
+          User-Agent: #{user_agent || "HTTPBundle"}
+          If-Modified-Since: %s
+          
+        END
+        
         @parser.on_headers_complete = proc do |h|
           if verbose 
             puts "< HTTP/1.1 #{@parser.status_code} [...]\r\n#{h.map {|k,v| "< #{k}: #{v}"}.join "\r\n"}"
@@ -647,7 +656,11 @@ class Subscriber
         @etag = msg_tag.to_s if msg_tag
         @sndbuf.clear 
         begin
-          data = @last_modified ? sprintf(@send_withid_fmt, @last_modified, @etag) : @send_noid_str
+          data = if @last_modified
+            @etag ? sprintf(@send_withid_fmt, @last_modified, @etag) : sprintf(@send_withid_no_etag_fmt, @last_modified)
+          else
+            @send_noid_str
+          end
         rescue Exception => e
           binding.pry
         end

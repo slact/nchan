@@ -1,3 +1,5 @@
+ security fix: subscribing with If-Modified-Since and without If-None-Match headers
+      crashed the Nginx worker (thanks @supertong)
  feature: nchan_access_control_allow_origin can accept nginx variables
  fix: possible crash after reloading when using several instances of Nchan with Redis
  feature: Redis key namespaces
