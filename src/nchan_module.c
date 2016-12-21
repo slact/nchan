@@ -404,6 +404,10 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
   }
   ngx_http_set_ctx(r, ctx, ngx_nchan_module);
   
+  if(r->connection && (r->connection->read->eof || r->connection->read->pending_eof)) {
+    ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+    return NGX_ERROR;
+  }
   
   if(!cf->group.enable_accounting) {
     nchan_respond_cstring(r, NGX_HTTP_FORBIDDEN, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Channel group accounting is disabled.", 0);
@@ -470,6 +474,11 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   struct timeval          tv;
   ngx_gettimeofday(&tv);
 #endif
+  
+  if(r->connection && (r->connection->read->eof || r->connection->read->pending_eof)) {
+    ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+    return NGX_ERROR;
+  }  
   
   if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
