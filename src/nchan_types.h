@@ -10,6 +10,8 @@ typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY} chanhead_pubsub_statu
 
 typedef enum {NCHAN_CONTENT_TYPE_PLAIN, NCHAN_CONTENT_TYPE_JSON, NCHAN_CONTENT_TYPE_XML, NCHAN_CONTENT_TYPE_YAML, NCHAN_CONTENT_TYPE_HTML} nchan_content_type_t;
 
+typedef enum {REDIS_MODE_CONF_UNSET = NGX_CONF_UNSET, REDIS_MODE_BACKUP = 1, REDIS_MODE_DISTRIBUTED = 2} nchan_redis_storage_mode_t;
+
 typedef enum {
   SUB_ENQUEUE, SUB_DEQUEUE, SUB_RECEIVE_MESSAGE, SUB_RECEIVE_STATUS, 
   CHAN_PUBLISH, CHAN_DELETE  
@@ -27,6 +29,7 @@ typedef struct {
   ngx_flag_t                    url_enabled;
   time_t                        ping_interval;
   ngx_str_t                     namespace;
+  nchan_redis_storage_mode_t    storage_mode;
   ngx_str_t                     upstream_url;
   ngx_http_upstream_srv_conf_t *upstream;
   ngx_flag_t                    upstream_inheritable;

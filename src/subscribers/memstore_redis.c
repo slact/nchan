@@ -155,6 +155,8 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
     case NGX_HTTP_NO_CONTENT:
       d->last_msg_status = MSG_EXPECTED;
       respond_msgexpected_callbacks(d, MSG_EXPECTED);
+      //TODO: stuff about REDIS_MODE_BACKUP
+      
       break;
       
     default:

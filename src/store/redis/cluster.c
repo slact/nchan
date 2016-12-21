@@ -887,7 +887,7 @@ static ngx_int_t cluster_set_status(redis_cluster_t *cluster, redis_cluster_stat
     while((ch_cur = cluster->orphan_channels_head) != NULL) {
       redis_chanhead_gc_withdraw(ch_cur);
       
-      ensure_chanhead_pubsub_subscribed(ch_cur);
+      ensure_chanhead_pubsub_subscribed_if_needed(ch_cur);
       
       cluster->orphan_channels_head = ch_cur->rd_next;
       if(cluster->orphan_channels_head) {

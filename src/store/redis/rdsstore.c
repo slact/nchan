@@ -258,6 +258,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
 
   rdata = redis_cluster_rdata_from_channel(ch);
   if(ch->pubsub_status == SUBBED) {
+    assert(ch->rdt->storage_mode == REDIS_MODE_DISTRIBUTED);
     ch->pubsub_status = UNSUBBING;
     redis_subscriber_command(rdata, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(&rdata->namespace), STR(&ch->id));
   }
@@ -1234,7 +1235,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_STRVAL(reply->element[0], "subscribe")
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
-
+    
     if(chanhead != NULL){
       if(chanhead->pubsub_status != SUBBING) {
         ERR("expected previous pubsub_status for channel %p (id: %V) to be SUBBING (%i), was %i", chanhead, &chanhead->id, SUBBING, chanhead->pubsub_status);
@@ -1260,14 +1261,14 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       }
     }
     
-    DBG("REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    ERR("REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
   }
   else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "unsubscribe")
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
 
-    DBG("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    ERR("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
     if(chanhead->pubsub_status == UNSUBBING) {
       chanhead->pubsub_status = UNSUBBED;
       free_chanhead(chanhead);
@@ -1569,9 +1570,10 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
   rdata->channels_head = head;
 }
 
-ngx_int_t ensure_chanhead_pubsub_subscribed(rdstore_channel_head_t *ch) {
+ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch) {
   rdstore_data_t     *rdata;
-  if(ch->pubsub_status != SUBBED && (rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
+  if(ch->pubsub_status != SUBBED && ch->rdt->storage_mode == REDIS_MODE_DISTRIBUTED && (rdata = redis_cluster_rdata_from_channel(ch)) != NULL) {
+    DBG("SUBSCRIBING to %b{channel:%b}:pubsub", STR(&rdata->namespace), STR(&ch->id));
     ch->pubsub_status = SUBBING;
     redis_subscriber_command(rdata, redis_subscriber_callback, ch, "SUBSCRIBE %b{channel:%b}:pubsub", STR(&rdata->namespace), STR(&ch->id));
   }
@@ -1633,14 +1635,17 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
     redis_associate_chanhead_with_rdata(head, rdata);
   }
   
+  if(head->rdt->storage_mode == REDIS_MODE_BACKUP) {
+    head->status = READY;
+  }
+  
   head->spooler.running=0;
   start_chanhead_spooler(head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
   
-  DBG("SUBSCRIBING to {channel:%V}:pubsub", channel_id);
-  ensure_chanhead_pubsub_subscribed(head);
+  ensure_chanhead_pubsub_subscribed_if_needed(head);
   CHANNEL_HASH_ADD(head);
   
   return head;
@@ -1659,10 +1664,15 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
   }
   
   if (head->status == INACTIVE) { //recycled chanhead
-    ensure_chanhead_pubsub_subscribed(head);
+    ensure_chanhead_pubsub_subscribed_if_needed(head);
     redis_chanhead_gc_withdraw(head);
     
-    head->status = head->pubsub_status == SUBBED ? READY : NOTREADY;
+    if(head->rdt->storage_mode == REDIS_MODE_BACKUP) {
+      head->status = READY;
+    }
+    else {
+      head->status = head->pubsub_status == SUBBED ? READY : NOTREADY;
+    }
   }
 
   if(!head->spooler.running) {
@@ -2316,6 +2326,8 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->ping_interval = rcf->ping_interval;
   rdata->connect_url = url;
   rdata->namespace = rcf->namespace;
+  rdata->storage_mode = rcf->storage_mode;
+  assert(rdata->storage_mode != REDIS_MODE_CONF_UNSET);
   
   if(rbtree_insert_node(&redis_data_tree, node) != NGX_OK) {
     ERR("couldn't insert redis date node");

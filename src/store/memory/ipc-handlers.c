@@ -585,13 +585,14 @@ static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
 ////////// GET CHANNEL INFO ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
+  nchan_loc_conf_t          *cf;
   store_channel_head_shm_t  *channel_info;
   nchan_msg_id_t             last_msgid;
   callback_pt                callback;
   void                      *privdata;
 } channel_info_data_t;
 
-ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, callback_pt callback, void* privdata) {
+ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
   DBG("send get_channel_info to %i %V", dst, chid);
   channel_info_data_t        data;
   DEBUG_MEMZERO(&data);
@@ -601,15 +602,18 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, cal
 
   data.channel_info = NULL;
   data.last_msgid = zero_msgid;
+  data.cf = cf;
   data.callback = callback;
   data.privdata = privdata;
   return ipc_cmd(get_channel_info, dst, &data);
 }
-static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
-  memstore_channel_head_t    *head;
-  
-  DBG("received get_channel_info request for channel %V privdata %p", d->shm_chid, d->privdata);
-  head = nchan_memstore_find_chanhead(d->shm_chid);
+
+typedef struct {
+  channel_info_data_t   d;
+  ngx_int_t             sender;
+} channel_info_find_chanhead_backup_data_t;
+
+static void receive_get_channel_info_continued(ngx_int_t sender, channel_info_data_t *d, memstore_channel_head_t *head) {
   assert(memstore_slot() == memstore_channel_owner(d->shm_chid));
   if(head == NULL) {
     //already deleted maybe?
@@ -622,6 +626,32 @@ static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
     d->last_msgid = head->latest_msgid;
   }
   ipc_cmd(get_channel_info_reply, sender, d);
+}
+
+static ngx_int_t find_chanhead_w_backup_callback(ngx_int_t rc, void *vd, void *pd) {
+  channel_info_find_chanhead_backup_data_t *d = pd;
+  memstore_channel_head_t                  *head = vd;
+  
+  receive_get_channel_info_continued(d->sender, &d->d, head);
+  
+  ngx_free(d);
+  return NGX_OK;
+}
+
+static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
+  memstore_channel_head_t    *head;
+  
+  DBG("received get_channel_info request for channel %V privdata %p", d->shm_chid, d->privdata);
+  if(d->cf->redis.enabled && d->cf->redis.storage_mode == REDIS_MODE_BACKUP) {
+    channel_info_find_chanhead_backup_data_t *dd = ngx_alloc(sizeof(*dd), ngx_cycle->log);
+    dd->d = *d;
+    dd->sender = sender;
+    nchan_memstore_find_chanhead_with_backup(d->shm_chid, d->cf, find_chanhead_w_backup_callback, dd);
+  }
+  else {
+    head = nchan_memstore_find_chanhead(d->shm_chid);
+    receive_get_channel_info_continued(sender, d, head);
+  }
 }
 
 static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t *d) {

@@ -309,6 +309,20 @@ CfCmd.new do
       info: "Used in upstream { } blocks to set redis servers.",
       uri: "/details#using-redis"
   
+  nchan_redis_storage_mode [:main, :srv, :upstream], 
+      :ngx_conf_set_redis_storage_mode_slot,
+      [:loc_conf, :"redis.storage_mode"],
+      
+      group: "storage",
+      tags: ['redis'],
+      value: ["distributed", "backup"],
+      default: "distributed",
+      info: <<-EOS.gsub(/^ {8}/, '')
+        The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but had the penalty of all message publishing going through Redis first.
+        
+        In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.
+      EOS
+  
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,
       [:loc_conf, :"redis.url_enabled"],

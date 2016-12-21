@@ -1,3 +1,4 @@
+ feature: Redis storage 'backup' mode strictly for data persistence
  fix: possible lingering subscriber if connection is closed just before subscribing
  fix: possible memory leak when using multiplexed channels
  security fix: subscribing with If-Modified-Since and without If-None-Match headers
