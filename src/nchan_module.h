@@ -33,6 +33,7 @@
 #include <util/nchan_output_info.h>
 #include <util/nchan_msgid.h>
 #include <util/nchan_output.h>
+#include <util/nchan_debug.h>
 
 extern ngx_pool_t *nchan_pool;
 extern ngx_int_t nchan_worker_processes;
@@ -54,12 +55,6 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_e
 void __memstore_update_stub_status(off_t offset, int count);
 nchan_stub_status_t *nchan_get_stub_status_stats(void);
 size_t nchan_get_used_shmem(void);
-
-#if NCHAN_SUBSCRIBER_LEAK_DEBUG
-void subscriber_debug_add(subscriber_t *);
-void subscriber_debug_remove(subscriber_t *);
-void subscriber_debug_assert_isempty(void);
-#endif
 
 #if NCHAN_BENCHMARK
 int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);

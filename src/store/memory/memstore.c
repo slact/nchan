@@ -12,6 +12,7 @@
 #include <store/spool.h>
 
 #include <util/nchan_reaper.h>
+#include <util/nchan_debug.h>
 
 #include <store/redis/store.h>
 #include <store/store_common.h>
