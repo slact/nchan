@@ -518,7 +518,6 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     // just quit.
     return NGX_OK;
   }
-
   
   if(cf->pub.websocket || cf->pub.http) {
     char *err;
@@ -943,6 +942,7 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
         
         ngx_http_subrequest(r, &publisher_upstream_request_url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
         nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, r->request_body, r->headers_in.content_length_n, NULL);
+        sr->args = r->args;
       }
       break;
       
