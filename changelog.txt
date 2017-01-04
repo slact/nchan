@@ -1,3 +1,6 @@
+ feature: websocket subscribers now receive "application/octent-stream" messages
+      in binary frame rather than text
+ fix: publisher request variables not always [assed tp nchan_publisher_upstream_request
  feature: Redis storage 'backup' mode strictly for data persistence
  fix: possible lingering subscriber if connection is closed just before subscribing
  fix: possible memory leak when using multiplexed channels
