@@ -205,7 +205,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   </pre>   
   The `content-type:` line may be omitted.  
     
-  Messages are delivered in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is develevered in a `binary` frame.
+  Messages are delivered in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is delivered in a `binary` frame.
   <!-- tag:subscriber-websocket -->
   
 - ##### EventSource
