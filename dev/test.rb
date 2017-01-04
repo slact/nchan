@@ -6,19 +6,46 @@ Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require 'securerandom'
 require_relative 'pubsub.rb'
 require_relative 'authserver.rb'
+require "optparse"
 
-SERVER=ENV["PUSHMODULE_SERVER"] || "127.0.0.1"
-PORT=ENV["PUSHMODULE_PORT"] || "8082"
-DEFAULT_CLIENT=:longpoll
-OMIT_LONGMSG=ENV["OMIT_LONGMSG"]
-#Typhoeus::Config.verbose = true
+$server_url="htp://127.0.0.1:8002"
+$default_client=:longpoll
+$omit_longmsg=false
+$verbose=false
+
+extra_opts = []
+orig_args = ARGV.dup
+
+opt=OptionParser.new do |opts|
+  opts.on("--server SERVER (#{$server_url})", "server url."){|v| $server_url=v}
+  opts.on("--default-subscriber TRANSPORT (#{$default_client})", "default subscriber type"){|v| $default_client=v.to_sym}
+  opts.on("--verbose", "set Accept header") do |v| 
+    verbose = true
+    Typhoeus::Config.verbose = true
+  end
+  opts.on("--omit-longmsg", "skip long-message tests"){$omit_longmsg = true}
+  opts.on_tail('-h', '--help', 'Show this message!!!!') do
+    puts opts
+    raise OptionParser::InvalidOption , "--help"
+  end
+end
+
+begin
+  opt.parse!(ARGV)
+rescue OptionParser::InvalidOption => e
+  extra_opts << e.args
+  retry
+end
+
+(orig_args & ( ARGV | extra_opts.flatten )).each { |arg| ARGV << arg }
+
 def short_id
   SecureRandom.hex.to_i(16).to_s(36)[0..5]
 end
 
 def url(part="")
   part=part[1..-1] if part[0]=="/"
-  "http://#{SERVER}:#{PORT}/#{part}"
+  "#{$server_url}/#{part}"
 end
 puts "Server at #{url}"
 def pubsub(concurrent_clients=1, opt={})
@@ -28,7 +55,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || DEFAULT_CLIENT, extra_headers: opt[:extra_headers], verbose: opt[:verbose]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}"), timeout: timeout
   return pub, sub
 end
@@ -532,7 +559,7 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  unless OMIT_LONGMSG
+  unless $omit_longmsg
     #[5, 9, 9.5, 9.9, 10, 11, 15, 16, 17, 18, 19, 20, 30,  50, 100, 200, 300, 600, 900, 3000].each do |n|
     [5, 10, 20, 200, 900].each do |n|
       define_method "test_long_message_#{n}Kb" do 
