@@ -15,6 +15,7 @@ In a web browser, you can use Websocket or EventSource directly, or the [NchanSu
  - Subscribe to [hundreds of channels](#channel-multiplexing) over a single subscriber connection.
  - HTTP request [callbacks and hooks](https://nchan.slact.net/details#application-callbacks) for easy integration.
  - Introspection with [channel events](https://nchan.slact.net/details#channel-events) and [url for monitoring performance statistics](https://nchan.slact.net/details#nchan_stub_status).
+ - Channel group usage accounting and limits.
  - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
  - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
  - Highly Available with no single point of failure (using [Redis Cluster](https://nchan.slact.net/details#redis-cluster)).
@@ -346,6 +347,127 @@ See the [details page](https://nchan.slact.net/details#securing-channels) for mo
 
 <!-- tag:channel-multiplexing -->
 
+### Channel Groups
+
+Channels can be associated with groups to avoid channel ID conflicts:
+
+```nginx
+  location /test_pubsub {
+    nchan_pubsub;
+    nchan_channel_group "test";
+    nchan_channel_id "foo";
+  }
+  
+  location /pubsub {
+    nchan_pubsub;
+    nchan_channel_group "production";
+    nchan_channel_id "foo";
+    #same channel id, different channel group. Thus, different channel.
+  }
+  
+  location /flexgroup_pubsub {
+    nchan_pubsub;
+    nchan_channel_group $arg_group;
+    nchan_channel_id "foo";
+    #group can be set with request variables too
+  }
+```
+
+#### Group Limits and Accounting
+
+Groups can be used to track aggregate channel usage, as well as set limits on the number of channels, subscribers, stored messages, memory use, etc:
+
+```nginx
+  #enable group accounting
+  nchan_channel_group_accounting on;
+  
+  location ~ /pubsub/(\w+)$ {
+    nchan_pubsub;
+    nchan_channel_group "limited";
+    nchan_channel_id $1;
+  }
+  
+  location ~ /prelimited_pubsub/(\w+)$ {
+    nchan_pubsub;
+    nchan_channel_group "limited";
+    nchan_channel_id $1;
+    nchan_group_max_subscribers 100;
+    nchan_group_max_messages_memory 50M;
+  }
+  
+  location /group {
+    nchan_channel_group limited;
+    nchan_group_location;
+    nchan_group_max_channels $arg_max_channels;
+    nchan_group_max_messages $arg_max_messages;
+    nchan_group_max_messages_memory $arg_max_messages_mem;
+    nchan_group_max_messages_disk $arg_max_messages_disk;
+    nchan_group_max_subscribers $arg_max_subs;
+  }
+```
+
+Here, `/group` is an `nchan_group_location`, which is used for accessing and modifying group data. To get group data, send a `GET` request to a `nchan_group_location`:
+
+```sh
+>  curl http://localhost/group
+
+channels: 10
+subscribers: 0
+messages: 219
+shared memory used by messages: 42362 bytes
+disk space used by messages: 0 bytes
+limits:
+  max channels: 0
+  max subscribers: 0
+  max messages: 0
+  max messages shared memory: 0
+  max messages disk space: 0  
+```
+
+By default, the data is returned in human-readable plaintext, but can also be formatted as JSON, XML, or YAML:
+
+```sh
+>  curl -H "Accept: text/json" http://localhost/group
+
+{
+  "channels": 21,
+  "subscribers": 40,
+  "messages": 53,
+  "messages_memory": 19941,
+  "messages_disk": 0,
+  "limits": {
+    "channels": 0,
+    "subscribers": 0,
+    "messages": 0,
+    "messages_memory": 0,
+    "messages_disk": 0
+  }
+}
+```
+
+The data in the response are for the single Nchan instance only, regardless of whether Redis is used. A limit of 0 means 'unlimited'.
+
+Limits can be set per-location, as with the above `/prelimited_pubsub/...` location, or with a POST request to the `nchan_group_location`:
+```sh
+>  curl -X POST "http://localhost/group?max_channels=15&max_subs=1000&max_messages_disk=0.5G"
+
+channels: 0
+subscribers: 0
+messages: 0
+shared memory used by messages: 0 bytes
+disk space used by messages: 0 bytes
+limits:
+  max channels: 15
+  max subscribers: 1000
+  max messages: 0
+  max messages shared memory: 0
+  max messages disk space: 536870912
+
+```
+
+Limits are only applied locally, regardless of whether Redis is enabled. 
+If a publisher or subscriber request exceeds a group limit, Nchan will respond to it with a `403 Forbidden` response.
+
 ## Storage
 
 Nchan can stores messages in memory, on disk, or via Redis. Memory storage is much faster, whereas Redis has additional overhead as is considerably slower for publishing messages, but offers near unlimited scalability for broadcast use cases with far more subscribers than publishers.
@@ -620,7 +742,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `distributed`  
   context: http, server, upstream  
-  > The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but had the penalty of all message publishing going through Redis first.  
+  > The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but suffers the latency penalty of all message publishing going through Redis first.  
   >   
   > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.    
 

@@ -422,7 +422,7 @@ CfCmd.new do
       legacy: "push_channel_group",
       
       group: "security",
-      tags: ['publisher', 'subscriber', 'channel-events'],
+      tags: ['publisher', 'subscriber', 'channel-events', 'group'],
       value: "<string>",
       default: "(none)",
       info: "The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables."
