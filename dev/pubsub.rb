@@ -393,7 +393,7 @@ class Subscriber
       end
         
       def send_close(code=1000, reason=nil)
-        puts "sending close"
+        #puts "sending close"
         send_frame type: :close, code: code, data: reason
       end
       
