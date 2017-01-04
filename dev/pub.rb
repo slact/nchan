@@ -18,9 +18,11 @@ runonce=false
 accept = nil
 timeout = 3
 verbose = nil
+url=nil
 
 opt=OptionParser.new do |opts|
-  opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
+  opts.on("-s", "--server SERVER (#{server})", "server and port.") {|v| server=v}
+  opts.on("--url FULL_URL", "publishing url") {|v| url=v}
   opts.on("-v", "--verbose", "Blabberhttp"){verbose=true}
   opts.on("-l", "--loop [SECONDS]", "re-send message every N seconds (#{repeat_sec})") do |v| 
     loop=true
@@ -46,7 +48,7 @@ end
 opt.banner="Usage: pub.rb [options] url"
 opt.parse!
 
-url = "http://#{server}#{ARGV.last}"
+url ||= "http://#{server}#{ARGV.last}"
 
 puts "Publishing to #{url}."
 
