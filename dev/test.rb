@@ -639,7 +639,7 @@ class PubSubTest <  Minitest::Test
     subs.each &:run
     
     pub.post ["hey", "thing", "did it"]
-    sleep 0.5
+    sleep 1
     pub.delete
     
     pub_keep.post ["yeah this", "it's a thing, too"]
