@@ -115,7 +115,7 @@ if __FILE__ == $PROGRAM_NAME then
   opt = {}
   opt_parser=OptionParser.new do |opts|
     opts.on("-q", "--quiet", "Be quiet!"){ opt[:quiet] = true}
-    opts.on("-vv", "--very-verbose", "Be very loud."){ opt[:very_verbose] = true; opt[:verbose] = true}
+    opts.on("--very-verbose", "Be very loud."){ opt[:very_verbose] = true; opt[:verbose] = true}
     opts.on("-v", "--verbose", "Be loud."){ opt[:verbose] = true}
   end
   opt_parser.parse!
