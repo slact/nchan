@@ -1491,7 +1491,7 @@ class Publisher
       @ws = Subscriber.new url, 1, timeout: 100000
       @ws_sent_msg = []
       sub.on_message do |msg|
-        sent_msg = @ws_sent_msg.shify
+        sent_msg = @ws_sent_msg.shift
         @messages << sent_msg if @messages && sent_msg
         
         self.response=Typhoeus::Response.new
