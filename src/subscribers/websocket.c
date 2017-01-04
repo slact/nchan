@@ -93,6 +93,7 @@
 static const u_char WEBSOCKET_PAYLOAD_LEN_16_BYTE = 126;
 static const u_char WEBSOCKET_PAYLOAD_LEN_64_BYTE = 127;
 static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT  | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_BINARY_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_BINARY  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
@@ -1384,6 +1385,13 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   ngx_file_t            *file_copy;
   ngx_buf_t             *chained_msgbuf;
   size_t                 sz = ngx_buf_size((&msg->buf));
+  ngx_str_t              binary_mimetype = ngx_string("application/octet-stream");
+  u_char                 frame_opcode = WEBSOCKET_TEXT_LAST_FRAME_BYTE;
+  
+  if(msg->content_type && nchan_ngx_str_match(msg->content_type, &binary_mimetype)) {
+    frame_opcode = WEBSOCKET_BINARY_LAST_FRAME_BYTE;
+  }
+  
   if(fsub->ws_meta_subprotocol) {
     static ngx_str_t          id_line = ngx_string("id: ");
     static ngx_str_t          content_type_line = ngx_string("\ncontent-type: ");
@@ -1439,7 +1447,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   }
   
   //now the header
-  return websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, sz, &bc->chain);
+  return websocket_frame_header_chain(fsub, frame_opcode, sz, &bc->chain);
 }
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {

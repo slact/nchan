@@ -328,6 +328,7 @@ class PubSubTest <  Minitest::Test
     assert_equal par, pub.response_body.match(/subscribers:\s+(\d)/)[1].to_i, "subscriber count after deletion"
     sub.wait
     assert sub.match_errors(/code 410/), "Expected subscriber code 410: Gone, instead was \"#{sub.errors.first}\""
+    sub.terminate
 
     #delete channel with no subscribers
     pub, sub = pubsub 5, timeout: 1
@@ -341,6 +342,7 @@ class PubSubTest <  Minitest::Test
     pub.nofail=true
     pub.delete
     assert_equal 404, pub.response_code
+    sub.terminate
   end
 
   def test_no_message_buffer
@@ -360,12 +362,13 @@ class PubSubTest <  Minitest::Test
     pub.post "received2"
     sleep 1
     pub.post "FIN"
-    sub.each {|s| s.wait}
+    sub.each &:wait
     sub.each do |s|
       assert s.errors.empty?, "There were subscriber errors: \r\n#{s.errors.join "\r\n"}"
       ret, err = s.messages.matches? ["received1", "received2", "FIN"]
       assert ret, err || "Messages don't match"
     end
+    sub.each &:terminate
   end
   
   def test_channel_isolation
@@ -391,7 +394,7 @@ class PubSubTest <  Minitest::Test
     pub.each_with_index do |p, i|
       verify p, sub[i]
     end
-    sub.each {|s| s.terminate }
+    sub.each &:terminate
   end
   
   def test_broadcast_3
@@ -426,6 +429,7 @@ class PubSubTest <  Minitest::Test
       sub.run
       sub.wait
       verify pub, sub
+      sub.terminate
       sleep 0.1
     end
   end
@@ -613,6 +617,7 @@ class PubSubTest <  Minitest::Test
     
     subs.each do |sub|
       verify pub, sub
+      sub.terminate
     end
   end
   
@@ -650,6 +655,9 @@ class PubSubTest <  Minitest::Test
     pub_keep.post ["also this", "FIN"]
     sub_keep.wait
     verify pub_keep, sub_keep
+    
+    subs.each &:terminate
+    sub_keep.terminate
   end
   
   def test_subscriber_timeout
@@ -676,7 +684,7 @@ class PubSubTest <  Minitest::Test
     request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS, headers: { 'Origin' =>'http://example.com' }
     resp = request.run
     
-    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    assert_equal "http://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET ).each do |v| 
       assert_header_includes resp, "Access-Control-Allow-Methods", v
       assert_header_includes resp, "Allow", v
@@ -751,6 +759,7 @@ class PubSubTest <  Minitest::Test
     pub.post "5. faaa"
     pub.post "FIN"
     sub.wait
+    sub.terminate
   end
   
   def test_missing_message_tag
@@ -790,6 +799,7 @@ class PubSubTest <  Minitest::Test
     
     subs.each &:run
     subs.each &:wait
+    subs.each &:terminate
   end
   
   
@@ -811,17 +821,17 @@ class PubSubTest <  Minitest::Test
         nonempty = pub.messages.select{|m| m.message.length != 0}
         assert sub.errors.empty?
         ret, err = sub.messages.matches?(nonempty)
-        assert ret, err || "Messages don't match"
+        assert ret, err ? "#{sub.client}: #{err}" : "#{sub.client}: Messages don't match"
         i=0
         sub.messages.each do |msg|
-          assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i}."
+          assert_equal sub.concurrency, msg.times_seen, "#{sub.client}: Concurrent subscribers didn't all receive message #{i}."
           i+=1
         end
       else
         verify pub, sub
       end
     end
-    
+    subs.each &:terminate
   end
   #def test_expired_messages_with_subscribers
   #  chan = short_id
@@ -937,7 +947,7 @@ class PubSubTest <  Minitest::Test
         sub.wait
         
         verify pub, sub
-        sleep 0.5
+        sub.terminate
         
         if client_type == :longpoll || client_type == :intervalpoll
           assert !cbs.subbed, "sub callback, client: #{client_type}"
@@ -1003,6 +1013,7 @@ class PubSubTest <  Minitest::Test
         sub.run
         sub.wait
         verify pub, sub
+        sub.terminate
       end
     ensure
       auth.stop
@@ -1033,7 +1044,7 @@ class PubSubTest <  Minitest::Test
   def test_access_control
     
     ver= proc do |bundle| 
-      assert_equal "*", bundle.headers["Access-Control-Allow-Origin"] 
+      assert_equal "example.com", bundle.headers["Access-Control-Allow-Origin"] 
     end
     generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
       verify pub, sub
@@ -1073,7 +1084,6 @@ class PubSubTest <  Minitest::Test
       assert_match /code 403/, err
     end
     sub.terminate
-    
   end
   
   def test_gzip
@@ -1090,6 +1100,7 @@ class PubSubTest <  Minitest::Test
     pub.post "FIN"
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_issue_212 #https://github.com/slact/nchan/issues/212
@@ -1111,6 +1122,7 @@ class PubSubTest <  Minitest::Test
     sub.wait
     
     verify pub, sub
+    sub.terminate
   end
   
   def test_changing_buffer_length
@@ -1136,6 +1148,37 @@ class PubSubTest <  Minitest::Test
     sub.wait
     
     verify pub_delta, sub
+    sub.terminate
+  end
+  
+  def test_websocket_binary_frame
+    pub, sub=pubsub 1, client: :websocket
+    n=0
+    msgs = [
+      ["hey there",               nil],
+      ["this is binary",          "application/octet-stream"],
+      ["what",                    "text/x-whatever"],
+      [((0..255).map &:chr).join,  "application/octet-stream"],
+      ["FIN",                     nil]
+    ]
+    
+    sub.on_message do |msg, bundle|
+      if msgs[n][1]=="application/octet-stream" then #should be binary
+        assert(bundle.last_frame.type==:binary, "websoket frame should be binary")
+      else
+        assert(bundle.last_frame.type==:text, "websoket frame should be text")
+      end
+      n+= 1
+    end
+    
+    sub.run
+    msgs.each do |msg|
+      msg[0].force_encoding("ascii-8bit") if msg[1]=="application/octet-stream"
+      pub.post msg[0], msg[1]
+    end
+    sub.wait
+    verify pub, sub
+    sub.terminate
   end
 end
 

@@ -362,7 +362,7 @@ class Subscriber
     end
     
     class WebSocketBundle
-      attr_accessor :ws, :sock, :last_message_time
+      attr_accessor :ws, :sock, :last_message_time, :last_frame
       def initialize(handshake, sock)
         @buf=""
         @handshake = handshake
@@ -398,7 +398,9 @@ class Subscriber
       end
       
       def next
-        ws.next
+        _frame = ws.next
+        @last_frame = _frame if _frame
+        _frame
       end
     end
     
@@ -525,7 +527,8 @@ class Subscriber
         @subscriber.on_failure error(($~[1] || 0).to_i, $~[2] || "", true)
       elsif type==:ping
         bundle.send_pong(data: data)
-      elsif type==:text
+      elsif type==:text || type ==:binary
+        data.force_encoding("ASCII-8BIT") if type == :binary
         msg= @nomsg ? data : Message.new(data)
         bundle.last_message_time=Time.now.to_f
         @subscriber.on_message(msg, bundle)
@@ -684,10 +687,18 @@ class Subscriber
         @rcvbuf.clear
         begin
           sock.readpartial(1024*10000, @rcvbuf)
-          unless @bypass_parser
-            @parser << @rcvbuf
-          else
-            handle_chunk @rcvbuf
+          while @rcvbuf.size > 0
+            unless @bypass_parser
+              offset = @parser << @rcvbuf
+              if offset < @rcvbuf.size
+                @rcvbuf = @rcvbuf[offset..-1]
+              else
+                @rcvbuf.clear
+              end
+            else
+              handle_chunk @rcvbuf
+              @rcvbuf.clear
+            end
           end
         rescue HTTP::Parser::Error => e
           on_error "Invalid HTTP Respose - #{e}", e
@@ -1480,7 +1491,7 @@ class Publisher
       @ws = Subscriber.new url, 1, timeout: 100000
       @ws_sent_msg = []
       sub.on_message do |msg|
-        sent_msg = @ws_sent_msg.shify
+        sent_msg = @ws_sent_msg.shift
         @messages << sent_msg if @messages && sent_msg
         
         self.response=Typhoeus::Response.new
