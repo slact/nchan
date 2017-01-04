@@ -1,4 +1,7 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'bundler/setup'
+
 require 'securerandom'
 require_relative 'pubsub.rb'
 require "optparse"

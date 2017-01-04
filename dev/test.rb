@@ -1,4 +1,7 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'bundler/setup'
+
 require 'minitest'
 require 'minitest/reporters'
 require "minitest/autorun"
@@ -8,7 +11,7 @@ require_relative 'pubsub.rb'
 require_relative 'authserver.rb'
 require "optparse"
 
-$server_url="htp://127.0.0.1:8002"
+$server_url="http://127.0.0.1:8082"
 $default_client=:longpoll
 $omit_longmsg=false
 $verbose=false
