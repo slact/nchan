@@ -1137,6 +1137,36 @@ class PubSubTest <  Minitest::Test
     
     verify pub_delta, sub
   end
+  
+  def test_websocket_binary_frame
+    pub, sub=pubsub 1, client: :websocket
+    n=0
+    msgs = [
+      ["hey there",               nil],
+      ["this is binary",          "application/octet-stream"],
+      ["what",                    "text/x-whatever"],
+      [((0..255).map &:chr).join,  "application/octet-stream"],
+      ["FIN",                     nil]
+    ]
+    
+    sub.on_message do |msg, bundle|
+      if msgs[n][1]=="application/octet-stream" then #should be binary
+        assert(bundle.last_frame.type==:binary, "websoket frame should be binary")
+      else
+        assert(bundle.last_frame.type==:text, "websoket frame should be text")
+      end
+      n+= 1
+    end
+    
+    sub.run
+    msgs.each do |msg|
+      msg[0].force_encoding("ascii-8bit") if msg[1]=="application/octet-stream"
+      pub.post msg[0], msg[1]
+    end
+    sub.wait
+    verify pub, sub
+    sub.terminate
+  end
 end
 
 

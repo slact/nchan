@@ -362,7 +362,7 @@ class Subscriber
     end
     
     class WebSocketBundle
-      attr_accessor :ws, :sock, :last_message_time
+      attr_accessor :ws, :sock, :last_message_time, :last_frame
       def initialize(handshake, sock)
         @buf=""
         @handshake = handshake
@@ -398,7 +398,9 @@ class Subscriber
       end
       
       def next
-        ws.next
+        _frame = ws.next
+        @last_frame = _frame if _frame
+        _frame
       end
     end
     
@@ -525,7 +527,8 @@ class Subscriber
         @subscriber.on_failure error(($~[1] || 0).to_i, $~[2] || "", true)
       elsif type==:ping
         bundle.send_pong(data: data)
-      elsif type==:text
+      elsif type==:text || type ==:binary
+        data.force_encoding("ASCII-8BIT") if type == :binary
         msg= @nomsg ? data : Message.new(data)
         bundle.last_message_time=Time.now.to_f
         @subscriber.on_message(msg, bundle)
