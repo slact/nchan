@@ -1,4 +1,4 @@
- feature: websocket subscribers now receive "application/octent-stream" messages
+1.1.0 (Jan. 4 2017)
  feature: websocket subscribers now receive "application/octet-stream" messages
       in binary frame rather than text
  fix: publisher request variables not always [assed tp nchan_publisher_upstream_request
