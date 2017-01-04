@@ -684,7 +684,7 @@ class PubSubTest <  Minitest::Test
     request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS, headers: { 'Origin' =>'http://example.com' }
     resp = request.run
     
-    assert_equal "*", resp.headers["Access-Control-Allow-Origin"]
+    assert_equal "http://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET ).each do |v| 
       assert_header_includes resp, "Access-Control-Allow-Methods", v
       assert_header_includes resp, "Allow", v
@@ -821,10 +821,10 @@ class PubSubTest <  Minitest::Test
         nonempty = pub.messages.select{|m| m.message.length != 0}
         assert sub.errors.empty?
         ret, err = sub.messages.matches?(nonempty)
-        assert ret, err || "Messages don't match"
+        assert ret, err ? "#{sub.client}: #{err}" : "#{sub.client}: Messages don't match"
         i=0
         sub.messages.each do |msg|
-          assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i}."
+          assert_equal sub.concurrency, msg.times_seen, "#{sub.client}: Concurrent subscribers didn't all receive message #{i}."
           i+=1
         end
       else
@@ -1044,7 +1044,7 @@ class PubSubTest <  Minitest::Test
   def test_access_control
     
     ver= proc do |bundle| 
-      assert_equal "*", bundle.headers["Access-Control-Allow-Origin"] 
+      assert_equal "example.com", bundle.headers["Access-Control-Allow-Origin"] 
     end
     generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
       verify pub, sub
