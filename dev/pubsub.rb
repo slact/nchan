@@ -687,10 +687,18 @@ class Subscriber
         @rcvbuf.clear
         begin
           sock.readpartial(1024*10000, @rcvbuf)
-          unless @bypass_parser
-            @parser << @rcvbuf
-          else
-            handle_chunk @rcvbuf
+          while @rcvbuf.size > 0
+            unless @bypass_parser
+              offset = @parser << @rcvbuf
+              if offset < @rcvbuf.size
+                @rcvbuf = @rcvbuf[offset..-1]
+              else
+                @rcvbuf.clear
+              end
+            else
+              handle_chunk @rcvbuf
+              @rcvbuf.clear
+            end
           end
         rescue HTTP::Parser::Error => e
           on_error "Invalid HTTP Respose - #{e}", e
