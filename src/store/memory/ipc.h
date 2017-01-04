@@ -1,7 +1,7 @@
 #ifndef NCHAN_IPC_H
 #define NCHAN_IPC_H
 
-#define IPC_DATA_SIZE 56
+#define IPC_DATA_SIZE 64
 //#define IPC_DATA_SIZE 80
 
 typedef struct {
