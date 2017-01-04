@@ -340,7 +340,7 @@ It is also possible to publish to multiple channels with a single request as wel
   }
 ```
 
-**Be careful when deleting channels that may be multiplexed for some subscribers. When any channel is deleted, each subscriber's connection is closed, thereby terminating subscriptions to any other channels that were multiplexed in the same connection.** For example, suppose a subscriber is subscribed to channels "foo" and "bar" via a single multiplexed connection. If "foo" is deleted, the connection is closed, and the subscriber therefore loses the "bar" subscription as well. To resume the "bar" subscription, the subscriber must re-subscribe to "bar" with a new `GET` request.
+When a channel is deleted, all of its messages are deleted, and all of its subscribers' connection are closed -- including ones subscribing through a multiplexed location. For example, suppose a subscriber is subscribed to channels "foo" and "bar" via a single multiplexed connection. If "foo" is deleted, the connection is closed, and the subscriber therefore loses the "bar" subscription as well.
 
 See the [details page](https://nchan.slact.net/details#securing-channels) for more information about using good IDs and keeping channels secure.
 
