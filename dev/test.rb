@@ -151,6 +151,7 @@ class PubSubTest <  Minitest::Test
     assert_equal subs, info_json["subscribers"]
     
     sub.wait
+    sleep 0.5
     
     pub.get "text/json"
     info_json=JSON.parse pub.response_body
