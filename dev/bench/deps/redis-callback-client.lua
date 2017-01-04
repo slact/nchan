@@ -1,6 +1,6 @@
 --[[lit-meta
 name = "slact/redis-callback-client"
-version = "0.0.5"
+version = "0.0.6"
 description = "A full-featured callback-based Redis client for Luvit"
 tags = {"redis"}
 license = "MIT"
@@ -44,23 +44,53 @@ return function(url)
   local Redis = Emitter:extend()
   function Redis:send(...)
     local arg = {...}
-    if type(arg[#arg]) == "function" then
-      --add callback
-      table.insert(callbacks, table.remove(arg, #arg))
-    else
-      table.insert(callbacks, false)
-    end
     local cmd = arg[1]:lower()
+    local callback = type(arg[#arg]) == "function" and table.remove(arg, #arg)
     if cmd == "multi" then
       socket:cork()
     elseif cmd == "exec" or cmd == "discard" then
       socket:uncork()
+    elseif cmd == "hmset" and type(arg[3]) == "table" then
+      local rearg = {}
+      table.insert(rearg, arg[1])
+      table.insert(rearg, arg[2])
+      for k,v in pairs(arg[3]) do
+        table.insert(rearg, k)
+        table.insert(rearg, v)
+      end
+      arg = rearg
+    elseif callback and cmd == "hgetall" or cmd == "hmget" then
+      local originalCallback = callback
+      callback = function(err, data)
+        if not err and data then
+          local tdata={}
+          if type(data) == "table" then
+            local k = nil
+            for i, v in ipairs(data) do
+              if not k then
+                k = v
+              else
+                tdata[k]=v
+                k = nil
+              end
+            end
+            data = tdata
+          end
+        end
+        originalCallback(err, data)
+      end
     end
+    
+    table.insert(callbacks, callback)
+    
     socket:write(redisCodec.encode(arg))
     
     return self
   end
     
+  p(getmetatable(Redis))
+  os.exit(1)
+  
   function Redis:subscribe(channel, callback)
     self:send("subscribe", channel, function(err, d)
       --p("subscribe", channel, err, d)
