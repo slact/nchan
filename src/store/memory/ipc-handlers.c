@@ -689,6 +689,7 @@ typedef struct {
 ngx_int_t memstore_ipc_send_channel_existence_check(ngx_int_t dst, ngx_str_t *chid, nchan_loc_conf_t *cf, callback_pt callback, void* privdata) {
   DBG("send channel_auth_check to %i %V", dst, chid);
   channel_authcheck_data_t        data;
+  DEBUG_MEMZERO(&data);
   if((data.shm_chid = str_shm_copy(chid)) == NULL) {
     return NGX_ERROR;
   }
@@ -769,7 +770,15 @@ typedef struct {
 } sub_keepalive_data_t;
 
 ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, memstore_channel_head_t *ch, callback_pt callback, void *privdata) {
-  sub_keepalive_data_t        data = {str_shm_copy(chid), sub, ch, 0, callback, privdata};
+  sub_keepalive_data_t        data;
+  DEBUG_MEMZERO(&data);
+  data.shm_chid = str_shm_copy(chid);
+  data.ipc_sub = sub;
+  data.originator = ch;
+  data.renew = 0;
+  data.callback = callback;
+  data.privdata = privdata;
+  
   if(data.shm_chid == NULL) {
     return NGX_ERROR;
   }
