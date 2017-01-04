@@ -33,12 +33,12 @@ def pubsub(concurrent_clients=1, opt={})
   return pub, sub
 end
 def verify(pub, sub, check_errors=true)
-  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"}" if check_errors
+  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"} (sub url #{sub.url})" if check_errors
   ret, err = sub.messages.matches?(pub.messages)
-  assert ret, err || "Messages don't match"
+  assert ret, err ? "#{err} (sub url #{sub.url})" : "Messages don't match (sub url #{sub.url})"
   i=0
   sub.messages.each do |msg|
-    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i}."
+    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i} (sub url #{sub.url})"
     i+=1
   end
 end
@@ -188,7 +188,7 @@ class PubSubTest <  Minitest::Test
     scrambles = 5
     subs = []
     scrambles.times do |i|
-      sub = Subscriber.new(url(sub_url), n, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+      sub = Subscriber.new(url("#{sub_url}?meh=#{short_id}"), n, quit_message: 'FIN', retry_delay: 1, timeout: 20)
       sub.on_failure { false }
       subs << sub
     end
@@ -213,7 +213,7 @@ class PubSubTest <  Minitest::Test
       end
     end
     
-    latesubs = Subscriber.new(url(sub_url), n, quit_message: 'FIN')
+    latesubs = Subscriber.new(url("#{sub_url}?late&meh=#{short_id}"), n, quit_message: 'FIN')
     latesubs.on_failure { false }
     subs << latesubs
     latesubs.run
@@ -243,7 +243,7 @@ class PubSubTest <  Minitest::Test
             break
           end
         end
-        assert_equal matched, true, "message not matched"
+        assert_equal matched, true, "message not matched, sub url #{sub.url}"
       end
       
       sub.terminate
