@@ -327,16 +327,20 @@ For more than 7 channels, `nchan_channel_id_split_delimiter` can be used to spli
   }
 ```
 
-Publishing to multiple channels with a single request is also possible, with similar configuration:
+It is also possible to publish to multiple channels with a single request as well as delete multiple channels with a single request, with similar configuration:
 
 ```nginx
   location ~ /multipub/(\w+)/(\w+)$ {
     nchan_publisher;
     nchan_channel_id "$1" "$2" "another_channel";
+    #POST /multipub/foo/bar will publish to:
+    # channels 'foo', 'bar', 'another_channel'
+    #DELETE /multipub/foo/bar will delete:
+    # channels 'foo', 'bar', 'another_channel'
   }
 ```
 
-`DELETE` requests to a multiplexed channel broadcast the deletion to each of the channels it multiplexes, deletes all their messages and kicks out all clients subscribed to any of the channel ids.
+When a channel is deleted, all of its messages are deleted, and all of its subscribers' connection are closed -- including ones subscribing through a multiplexed location. For example, suppose a subscriber is subscribed to channels "foo" and "bar" via a single multiplexed connection. If "foo" is deleted, the connection is closed, and the subscriber therefore loses the "bar" subscription as well.
 
 See the [details page](https://nchan.slact.net/details#securing-channels) for more information about using good IDs and keeping channels secure.
 
