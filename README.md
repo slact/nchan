@@ -373,7 +373,7 @@ Channels can be associated with groups to avoid channel ID conflicts:
   }
 ```
 
-#### Group Limits and Accounting
+#### Limits and Accounting
 
 Groups can be used to track aggregate channel usage, as well as set limits on the number of channels, subscribers, stored messages, memory use, etc:
 
@@ -467,6 +467,8 @@ limits:
 
 Limits are only applied locally, regardless of whether Redis is enabled. 
 If a publisher or subscriber request exceeds a group limit, Nchan will respond to it with a `403 Forbidden` response.
+
+ <!-- tag:group -->
 
 ## Storage
 
