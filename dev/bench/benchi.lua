@@ -6,13 +6,12 @@ package.cpath=package.cpath:gsub("/local", "")
 local argparse = require "argparse"
 local timer = require 'timer'
 
-local Publisher = setfenv(loadfile "lib/pub.lua", _G)()
-local uv = require "uv"
+local Json = require "cjson"
 
 local parser = argparse("script", "thing thinger.")
 parser:option("--redis", "Redis orchestration server url.", "redis://127.0.0.1:6379")
 parser:option("--subscribers", "Subscriber mode: Max. subscribers per thread. Publisher mode: Subscribers needed per channel", 10000)
-parser:option("--threads", "Max. slave subscriber threads", 2)
+parser:option("--slave-threads", "Max. slave subscriber threads", 2)
 parser:flag("--master", "Be master")
 parser:flag("--slave", "Be slave")
 
@@ -20,19 +19,9 @@ parser:flag("--slave", "Be slave")
 --parser:option("--q", "Server url for publishing or subscribing")
 
 table.remove(args, 1) --luvit places the interpreter at index [0], unlike lua5.1's [-1]
-local b = parser:parse(args)
-
-local subs = {}
-
-
-
-
-local n=0
-function onMsg(msg)
-  p(msg)
-end
-
-p(getmetatable(hdr))
+local opt = parser:parse(args)
+opt.slave_threads = tonumber(opt.slave_threads)
+opt.subscribers = tonumber(opt.subscribers)
 
 local time = (function()
   local gettimeofday = require("posix.sys.time").gettimeofday
@@ -53,8 +42,7 @@ end)()
 
 local channel = tostring(math.random(100000))
 
-local pub = Publisher("http://localhost:8082/pub/" .. channel)
-pub:connect()
+--pub:connect()
 
 --[[
 local subs={}
@@ -75,10 +63,10 @@ end)
 
 function newHistogram()
   local hdrhistogram = require "hdrhistogram"
-  return hdrhistogram.new(1,360000,3, 0.001, "ms")
+  return hdrhistogram.new(1,360000,3, {multiplier=0.001, unit="ms"})
 end
 
-function beSlave(redis_url, max_subscribers)
+function beSlave(arg, max_subscribers)
   local Json = require "cjson"
   local hdrhistogram = require "hdrhistogram"
   local Redis = require "redis-callback-client"
@@ -90,15 +78,15 @@ function beSlave(redis_url, max_subscribers)
   local id = math.random(100000000)
   local subskey = ("benchi:subs:%d"):format(id)
   
-  local redis = Redis(redis_url)
-    :send("hmset", subskey, {id=id, max_subscribers=max_subscribers})
+  local redis = Redis(arg.redis)
+    :send("hmset", subskey, {id=id, max_subscribers=arg.subscribers})
     :send("sadd", "benchi:subs", id)
-    :publish("benchi", Json.encode({action="sub-waiting", id=id}))
+    :send("publish", "benchi", Json.encode({action="sub-waiting", id=id}))
   
   local subs = {}
   local running = nil
   
-  local redisListener = Redis(redis_url):subscribe("bench:sub:"..id, function(msg)
+  local redisListener = Redis(arg.redis):subscribe("bench:sub:"..id, function(msg)
     local data = Json.decode(msg)
     if data.action == "start" then
       for i=1,tonumber(data.n) do
@@ -145,16 +133,25 @@ end
 
 
 
-function beMaster(redis_url, arg_json)
+function beMaster(arg)
+  local channel = "foo"
+  
+  local Publisher = setfenv(loadfile "lib/pub.lua", _G)()
+  
+  
+  local pub = Publisher("http://localhost:8082/pub/" .. channel)
   local Json = require "cjson"
-  local arg = Json.decode(arg_json)
   local Redis = require "redis-callback-client"
   
-  local redis = Redis(redis_url)
-  local redisListener = Redis(redis_url)
+  p("masterr", arg.redis)
+  
+  local redis = Redis(arg.redis)
+  local redisListener = Redis(arg.redis)
   
   local HDRHistogram = require "hdrhistogram"
   local hdrh = newHistogram()
+  
+  p("yeah!!")
   
   local slaves = {}
   
@@ -163,7 +160,7 @@ function beMaster(redis_url, arg_json)
     
     if numsubs then
       local possible = 0
-      for i,slave in pairs(slaves)
+      for i,slave in pairs(slaves) do
         possible = possible + tonumber(slave.max_subscribers) 
       end
       if possible < tonumber(arg.subscribers) then
@@ -188,6 +185,8 @@ function beMaster(redis_url, arg_json)
     maybeStartPublishing()
   end
   
+  p("hmm")
+  
   redis:send("smembers", "benchi:subs", function(err, data)
     if err then error(err) end
     for i,v in ipairs(data) do
@@ -202,11 +201,42 @@ function beMaster(redis_url, arg_json)
     elseif data.action == "stats" then
       local hdr_incoming = HDRHistogram.unserialize(data.hdr)
       hdrh:add(hdr_incoming)
-      p(hdrh:latency_stats)
+      p(hdrh:latency_stats())
     end
   end)
   
-  
-  
-  
+
 end
+
+
+local json_opt = Json.encode(opt)
+local Thread = require "thread"
+
+local posix = require "posix"
+
+if opt.slave then
+  --[[for i=1,opt.slave_threads do
+    local pid = posix.fork()
+    if pid == -1 then
+      error("fork failed")
+    elseif pid == 0 then --i am fork.
+      beSlave(opt)
+    end
+  end
+  ]]
+  beSlave(opt)
+  p("we wuz slave n shiet")
+end
+
+if opt.master then
+  beMaster(opt)
+  p("we wuz master n shiet")
+end
+
+--[[if opt.slave then
+  for i=1, opt.slave_threads do
+    p("be slave thread " .. i)
+    Thread.start(beSlave, json_opt)
+  end
+end
+]]

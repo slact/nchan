@@ -58,7 +58,7 @@ local transport = {
             elseif frame.opcode == 9 then --ping
               self.sub.sock:write(wsEncode{opcode=10, payload=frame.payload})
             else
-              p(frame)
+              --p(frame)
               error("unhandled websocket frame opcode " .. tostring(frame.opcode))
             end
             
@@ -102,7 +102,7 @@ local transport = {
       
       parseData = function(self, data)
         for line in data:gmatch("[^\n]*\n") do
-          p(line)
+          --p(line)
           if line:match("^:") then --comment
             --ignore
           elseif line == "\n" then

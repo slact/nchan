@@ -1,6 +1,6 @@
 --[[lit-meta
 name = "slact/redis-callback-client"
-version = "0.0.6"
+version = "0.0.7"
 description = "A full-featured callback-based Redis client for Luvit"
 tags = {"redis"}
 license = "MIT"
@@ -88,9 +88,6 @@ return function(url)
     return self
   end
     
-  p(getmetatable(Redis))
-  os.exit(1)
-  
   function Redis:subscribe(channel, callback)
     self:send("subscribe", channel, function(err, d)
       --p("subscribe", channel, err, d)
