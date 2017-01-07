@@ -1,11 +1,11 @@
 --[[lit-meta
-name = "creationix/redis-codec"
-version = "1.0.2"
-description = "Pure Lua codec for RESP (REdis Serialization Protocol)"
+name = "slact/redis-codec"
+version = "1.0.3"
+description = "Pure Lua codec for RESP (REdis Serialization Protocol) + nils-in-lists-fix"
 tags = {"codec", "redis"}
 license = "MIT"
 author = { name = "Tim Caswell" }
-homepage = "https://github.com/creationix/redis-luvit"
+homepage = "https://github.com/slact/redis-luvit"
 ]]
 
 local function encode(list)
@@ -58,8 +58,8 @@ local function innerDecode(chunk, index)
     for i = 1, len do
       local value
       value, index = innerDecode(chunk, index)
-      if not value then return end
-      list[i] = value
+      --if not value then return end
+      list[i] = value or false
     end
     return list, index
   else

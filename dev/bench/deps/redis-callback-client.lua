@@ -1,13 +1,13 @@
 --[[lit-meta
 name = "slact/redis-callback-client"
-version = "0.0.7"
+version = "0.0.11"
 description = "A full-featured callback-based Redis client for Luvit"
 tags = {"redis"}
 license = "MIT"
 author = { name = "slact" }
 homepage = "https://github.com/slact/luvit-redis-callback-client"
 dependencies = {
-  "creationix/redis-codec",
+  "slact/redis-codec",
   "creationix/sha1",
 }
 ]]
@@ -35,6 +35,9 @@ return function(url)
   
   local socket
   
+  local multi=false
+  local multiCallbacks={}
+  
   local failHard=function(err, ok)
     if(err) then error(err) end
   end
@@ -48,8 +51,36 @@ return function(url)
     local callback = type(arg[#arg]) == "function" and table.remove(arg, #arg)
     if cmd == "multi" then
       socket:cork()
-    elseif cmd == "exec" or cmd == "discard" then
+    elseif cmd == "exec" then
       socket:uncork()
+      multi=false
+      do
+        local mCb = multiCallbacks
+        local originalCallback = callback
+        callback = function(err, data)
+          if not err and type(data)=="table" and #data == #mCb then
+            for i, d in ipairs(data) do
+              if type(d)=="table" and d.error then
+                mCb[i].cb(d.error, nil)
+              elseif d == false then
+                mCb[i].cb(nil, nil)
+              else
+                mCb[i].cb(nil, d)
+              end
+            end
+          end
+          
+          if originalCallback then
+            originalCallback(err, data)
+          end
+        end
+      end
+      multiCallbacks = {}
+      
+    elseif cmd == "discard" then
+      socket:uncork()
+      multi=false
+      multiCallbacks = {}
     elseif cmd == "hmset" and type(arg[3]) == "table" then
       local rearg = {}
       table.insert(rearg, arg[1])
@@ -59,7 +90,7 @@ return function(url)
         table.insert(rearg, v)
       end
       arg = rearg
-    elseif callback and cmd == "hgetall" or cmd == "hmget" then
+    elseif callback and cmd == "hgetall" then
       local originalCallback = callback
       callback = function(err, data)
         if not err and data then
@@ -81,7 +112,16 @@ return function(url)
       end
     end
     
-    table.insert(callbacks, callback)
+    if multi then
+      table.insert(multiCallbacks, {cmd=cmd, cb=callback})
+      table.insert(callbacks, {cmd=cmd, cb=false})
+    else
+      table.insert(callbacks, {cmd=cmd, cb=callback})
+    end
+    
+    if cmd == "multi" then
+      multi = true
+    end
     
     socket:write(redisCodec.encode(arg))
     
@@ -180,18 +220,18 @@ return function(url)
   
   socket:on('data', function(data)
     -- If error, print and close connection
-    --p("onData", data)
-    
-    while #data>0 do
+    while data and #data>0 do
       local d
       d, data = redisCodec.decode(data)
       if type(d)=="table" and d[1]=="message" then
         pubsub[d[2]](d[3])
-      elseif callbacks[1] then
-        if type(d)=="table" and d.error then
-          callbacks[1](d.error, nil)
-        else
-          callbacks[1](nil, d)
+      else
+        if callbacks[1].cb then
+          if type(d)=="table" and d.error then
+            callbacks[1].cb(d.error, nil)
+          else
+            callbacks[1].cb(nil, d)
+          end
         end
         table.remove(callbacks, 1)
       end

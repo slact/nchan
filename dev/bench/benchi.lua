@@ -5,8 +5,9 @@ package.cpath=package.cpath:gsub("/local", "")
 
 local argparse = require "argparse"
 local timer = require 'timer'
-
 local Json = require "cjson"
+local Thread = require "thread"
+local posix = require "posix"
 
 local parser = argparse("script", "thing thinger.")
 parser:option("--redis", "Redis orchestration server url.", "redis://127.0.0.1:6379")
@@ -86,7 +87,7 @@ function beSlave(arg, max_subscribers)
   local subs = {}
   local running = nil
   
-  local redisListener = Redis(arg.redis):subscribe("bench:sub:"..id, function(msg)
+  local redisListener = Redis(arg.redis):subscribe("benchi:sub:"..id, function(msg)
     local data = Json.decode(msg)
     if data.action == "start" then
       for i=1,tonumber(data.n) do
@@ -143,20 +144,18 @@ function beMaster(arg)
   local Json = require "cjson"
   local Redis = require "redis-callback-client"
   
-  p("masterr", arg.redis)
-  
   local redis = Redis(arg.redis)
   local redisListener = Redis(arg.redis)
   
   local HDRHistogram = require "hdrhistogram"
   local hdrh = newHistogram()
   
-  p("yeah!!")
-  
   local slaves = {}
   
   local maybeStartPublishing = function()
     local numsubs = tonumber(arg.subscribers)
+    
+    p("maybe?")
     
     if numsubs then
       local possible = 0
@@ -170,34 +169,48 @@ function beMaster(arg)
     end
     
     for id, slave in pairs(slaves) do
-      redis:send("publish", "bench:sub:"..id, Json.encode({
+      redis:send("publish", "benchi:sub:"..id, Json.encode({
         action="subscribe",
         url=arg.url,
         n=slave.max_subscribers
       }))
     end
-    
   end
   
-  local getSlaveData = function(err, data)
-    if err then error(err) end
-    slaves[data.id]=data
-    maybeStartPublishing()
+  local getSlaveData = function(slave_id)
+    local parseSlaveData = coroutine.wrap(function(err, data)
+      if err then error(err) end
+      local d = data
+      
+      err, data = coroutine.yield()
+      p("getslavedata", slave_id, err, data)
+      if err then error(err) end
+      assert(data[1]=="benchi:sub:".. slave_id)
+      if data[2] == "1" or data[2] > 0 then
+        slaves[d.id]=d
+        maybeStartPublishing()
+      else
+        redis:send("del", "benchi:subs:"..slave_id):send("srem", "benchi:subs", slave_id)
+      end
+    end)
+    redis:send("multi")
+      :send("hgetall", ("benchi:subs:".. slave_id), parseSlaveData)
+      :send("pubsub", "numsub", "benchi:sub:".. slave_id, parseSlaveData)
+    :send("exec")
   end
-  
-  p("hmm")
   
   redis:send("smembers", "benchi:subs", function(err, data)
     if err then error(err) end
+    p("wuuh", err, data)
     for i,v in ipairs(data) do
-      redis:send("hgetall", ("benchi:subs:%d"):format(v), getSlaveData)
+      getSlaveData(v)
     end
   end)
   
   redisListener:subscribe("benchi", function(msg)
     local data = Json.decode(msg)
     if data.action == "sub-waiting" then
-      redis:send("hgetall", ("benchi:subs:%d"):format(v), getSlaveData)
+      getSlaveData(data.id)
     elseif data.action == "stats" then
       local hdr_incoming = HDRHistogram.unserialize(data.hdr)
       hdrh:add(hdr_incoming)
@@ -207,12 +220,6 @@ function beMaster(arg)
   
 
 end
-
-
-local json_opt = Json.encode(opt)
-local Thread = require "thread"
-
-local posix = require "posix"
 
 if opt.slave then
   --[[for i=1,opt.slave_threads do
