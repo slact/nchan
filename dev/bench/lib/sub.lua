@@ -1,6 +1,3 @@
-print(getfenv()._G)
-print(_G.require)
-print(require)
 local Url = require "url"
 local tls = require "tls"
 local regex = require "rex"
@@ -144,18 +141,20 @@ function Subscriber:initialize(url, subscriber_type)
 end
 
 function Subscriber:connect()
-  local opt = {port = self.url.port, host = self.url.hostname}
+  local opt = {port = self.url.port, host = self.url.hostname, timeout=100}
   --p(opt)
   self.sock = (self.use_tls and tls or net).connect(opt, function(sock, err) 
     self.transport:connect()
   end)
   --p(self.sock)
-  self.sock:on("end", function() p("end") end)
+  self.sock:on("end", function(err) p("end", err) end)
+  self.sock:on("timeout", function(err) p("timeout", err) end)
   self.sock:on("finish", function() p("finish") end)
   self.sock:on("_socketEnd", function() p("_socketEnd") end)
   self.sock:on("start", function() p("start") end)
-  --self.sock:on("connect", function() p("connect") end)
-  --self.sock:on("disconnect", function() p("disconnect") end)
+  self.sock:on("connect", function() end)
+  self.sock:on("disconnect", function() p("disconnect") end)
+  self.sock:on("error", function(err) self:emit("error", err) end)
   self.sock:on("data", utils.bind(self.transport.recv, self.transport))
 
 end
