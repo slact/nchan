@@ -1,11 +1,13 @@
 #!/usr/bin/luajit
 local cqueues = require "cqueues"
+local signal = require "cqueues.signal"
 local lrc = require "lredis.cqueues"
 local websocket = require "http.websocket"
 local request = require "http.request"
 local argparse = require "argparse"
 local Json = require "cjson"
 local HDRHistogram = require "hdrhistogram"
+local pp = require('pprint')
 
 
 local parser = argparse("script", "thing thinger.")
@@ -56,14 +58,14 @@ opt.subscribers = tonumber(opt.subscribers)
 
 local cq=cqueues.new()
 
-local timeout = function(timeout_sec, cb)
+function timeout(timeout_sec, cb)
   cq:wrap(function()
     cqueues.sleep(timeout_sec)
     cb()
   end)
 end
 
-local timeoutRepeat = function(fn)
+function timeoutRepeat(fn)
   cq:wrap(function()
     local n
     while true do
@@ -77,18 +79,31 @@ local timeoutRepeat = function(fn)
   end)
 end
 
+function handleSignal(signame, fn)
+  if type(signame) == "table" then
+    for k, v in pairs(signame) do
+      handleSignal(v, fn)
+    end
+  else
+    signal.discard(signal[signame])
+    signal.block(signal[signame])
+    cq:wrap(function()
+      local sig = signal.listen(signal[signame])
+      sig:wait()
+      fn()
+    end)
+  end
+end
 
-
-
-
-
-
-local time = (function()
+local now = (function()
   local gettimeofday = require("posix.sys.time").gettimeofday
+  local monotime = cqueues.monotime
+  local tv=gettimeofday()
+  local off = monotime()
+  local t0=tv.tv_sec + tv.tv_usec/1000000
+  
   return function()
-    local tv = gettimeofday()
-    return tv.tv_sec * 1000 + tv.tv_usec/1000
-    --print(tv.tv_sec, tv.tv_usec, cached_time_msec)
+    return t0 + (monotime() - off)
   end
 end)()
 
@@ -181,70 +196,219 @@ do
   end
 end
 
+function tryConnectSubscribers(url, needed)
+  local atonce = 1
+  local connected, pending, failed, msgs = 0,0,0,0
 
-local needed = 10000
-local atonce = 1
-local n = {
-  connected = 0,
-  pending = 0,
-  failed = 0,
-  msgs = 0
-}
+  timeoutRepeat(function()
+    local this_round = needed - connected - pending
+    if pending > atonce then
+      atonce = math.ceil(atonce / 2)
+    elseif atonce < 8000 then
+      atonce = math.floor(atonce * 2)
+    end
+    if this_round > atonce then
+      this_round = atonce
+    end
+    for i=1, this_round do
+      local sub = Subscriber(url)
+      
+      sub:on("start", function()
+        --print("START", sub)
+        pending = pending+1
+      end)
+      sub.on("error", function(err)
+        --print("ERROR", sub, err)
+        if sub.connecting then
+          ending = pending-1
+        end
+        failed = failed+1
+      end)
+      sub:on("connect", function()
+        --print("connect", sub)
+        pending = pending-1
+        connected = connected + 1
+      end)
+      sub:on("message", function(msg)
+        --print("message", sub)
+        msgs = msgs + 1
+      end)
+      sub:connect()
+    end
+    if connected == needed then
+      print("all connected")
+      return nil
+    elseif pending > atonce then 
+      return 1
+    elseif connected + pending < needed then 
+      return 0.1
+    end
+  end)
+  
+  timeoutRepeat(function()
+    print(("needed: %d, connected: %d, pending: %d, failed: %d"):format(needed, connected, pending, failed))
+    return connected < needed and 1
+  end)
+end
 
-local ii=1
-timeoutRepeat(function()
-  local this_round = needed - n.connected - n.pending
-  if n.pending > atonce then
-    atonce = math.ceil(atonce / 2)
-  elseif atonce < 8000 then
-    atonce = math.floor(atonce * 2)
-  end
-  if this_round > atonce then
-    this_round = atonce
-  end
-  for i=1, this_round do
-    local sub = Subscriber("ws://localhost:8082/sub/broadcast/foo")
+function beSlave(arg)
+  local hdr = newHistogram()
+  local id = math.random(100000000)
+  local subskey = "benchi:subs:"..id
+  cq:wrap(function()
+    local redis = lrc.connect(arg.redis)
+    local redisListener = lrc.connect(arg.redis)
+    redisListener:subscribe("benchi:sub:"..id)
     
-    sub:on("start", function()
-      --print("START", sub)
-      n.pending = n.pending+1
-    end)
-    sub.on("error", function(err)
-      --print("ERROR", sub, err)
-      if sub.connecting then
-        n.pending = n.pending-1
+    redis:hmset(subskey, {id=id, max_subscribers=arg.subs})
+    redis:call("sadd", "benchi:subs", tostring(id))
+    redis:call("publish", "benchi", Json.encode({action="sub-waiting", id=id}))
+    
+    while true do
+      local item = redisListener:get_next()
+      if item == nil then break end
+      if item[1] == "message" then
+        local data = Json.decode(item[3])
+        if data.action == "start" then
+          tryConnectSubscribers(data.url, data.n)
+        elseif data.action == "quit" then
+          error("want to quit yeah");
+        else
+          pp("WEIRD ACTION", data)
+        end
       end
-      n.failed = n.failed+1
+    end
+  end)
+end
+
+
+function beMaster(arg)
+  cq:wrap(function()
+    local hdrh = newHistogram()
+    
+    local pubs = {}
+    local slaves = {}
+    local num_slaves = 0
+    local num_subs = 0
+    
+    local redis = lrc.connect(arg.redis)
+    local redisListener = lrc.connect(arg.redis)
+    
+    local maybeStartPublishing = function()
+      local init = {}
+      for i, cf in pairs(arg.config) do
+        local n = cf.n
+        for slave_id, slave in pairs(slaves) do
+          local subs = n > slave.max_subscribers and slave.max_subscribers or n
+          n = n - subs
+          
+          table.insert(init, function()
+            redis:call("publish", "benchi:sub:"..slave_id, Json.encode({
+              action="start",
+              url=cf.sub,
+              n=subs
+            }))
+          end)
+          
+          if n == 0 then
+            break
+          end
+        end
+        
+        if n > 0 then
+          print("Not enough slaves/subscribers yet to subscribe to channel, still need at least " .. n .. " subscribers.")
+          return
+        end
+      end
+      
+      for i, v in ipairs(init) do
+        v()
+      end
+      print( "Start the thing!" )
+    end
+  
+    local getSlaveData = function(slave_id)
+      local data = redis:hgetall("benchi:subs:".. slave_id)
+      data.max_subscribers = tonumber(data.max_subscribers)
+      
+      local numsub = redis:call("pubsub", "numsub", "benchi:sub:".. slave_id)
+      assert(numsub[1]=="benchi:sub:".. slave_id)
+      if numsub[2] == "1" or numsub[2] > 0 then
+        if not slaves[slave_id] then
+          num_slaves = num_slaves + 1
+        else
+          num_subs = slaves[slave_id].max_subscribers
+        end
+        slaves[slave_id] = data
+        num_subs = num_subs + data.max_subscribers
+        maybeStartPublishing()
+      else
+        redis:call("del", "benchi:subs:"..slave_id)
+        redis:call("srem", "benchi:subs", slave_id)
+      end
+      
+      pp(data)
+      pp(numsub)
+    end
+    
+    local sub_ids = redis:call("smembers", "benchi:subs")
+    for i,v in ipairs(sub_ids) do
+      getSlaveData(v)
+    end
+    
+    cq:wrap(function() 
+      redisListener:subscribe("benchi")
+      while true do
+        local item = redisListener:get_next()
+        if item == nil then break end
+        if item[1] == "message" then
+          pp("DECODE2", item)
+          local data = Json.decode(item[3])
+          if data.action == "sub-waiting" then
+            getSlaveData(data.id)
+          elseif data.action == "stats" then
+            local hdr_incoming = HDRHistogram.unserialize(data.hdr)
+            hdrh:add(hdr_incoming)
+            p(hdrh:latency_stats())
+          end
+        end
+      end
     end)
-    sub:on("connect", function()
-      --print("connect", sub)
-      n.pending = n.pending-1
-      n.connected = n.connected + 1
-    end)
-    sub:on("message", function(msg)
-      --print("message", sub)
-      n.msgs = n.msgs + 1
-    end)
-    sub:connect()
+  end)
+end
+
+if not opt.slave and not opt.master then
+  print("Role setting missing, assuming --slave")
+  opt.slave = true
+end 
+
+if opt.slave then
+  beSlave(opt)
+end
+
+if opt.master then
+  local conf_chunk, err = loadfile(opt.config)
+  if conf_chunk then
+    opt.config = conf_chunk()
+  else
+    print("Config not found at " .. opt.config ..".")
+    os.exit(1)
   end
-  if n.connected == needed then
-    return nil
-  elseif n.pending > atonce then 
-    return 1
-  elseif n.connected + n.pending < needed then 
-    return 0.1
-  end
+  beMaster(opt)
+end
+
+
+handleSignal({"SIGINT", "SIGTERM"}, function()
+  print("WHAAAAAAAAAAAAAAAT!!!!")
+  os.exit(1)
 end)
 
-
-timeoutRepeat(function()
-  print(("connected: %d, pending: %d, atonce: %d, failed: %d, msgs %d"):format(n.connected, n.pending, atonce, n.failed, n.msgs))
-  return 1
-end)
-
-
-
-assert(cq:loop())
+while true do
+  local ok, err, eh, huh = cq:step()
+  if not ok then
+    pp(ret, err, eh, huh)
+  end
+end
 for err in cq:errors() do
   print(err)
 end
