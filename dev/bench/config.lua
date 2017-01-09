@@ -8,7 +8,7 @@ for i=1,num_chans do
   table.insert(chans, {
     pub=uri:format("http", "pub", channel),
     sub=uri:format("ws", "sub/broadcast", channel),
-    n=50000
+    n=25000
   })
 end
 

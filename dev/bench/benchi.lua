@@ -119,8 +119,7 @@ function beSlave(arg)
       local tryConnect
       tryConnect = function()
         p("tryConnect some stuff")
-        if pending_num < atonce then
-          
+        if pending_num < atonce  *  5 then
           local try_num = remaining_num - pending_num
           if(try_num > atonce) then try_num = atonce end
           
