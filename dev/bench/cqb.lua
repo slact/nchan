@@ -79,21 +79,33 @@ function timeoutRepeat(fn)
   end)
 end
 
-function handleSignal(signame, fn)
-  if type(signame) == "table" then
-    for k, v in pairs(signame) do
-      handleSignal(v, fn)
-    end
-  else
-    signal.discard(signal[signame])
+handleSignal=(function()
+  local handlers; handlers=setmetatable({}, {__index = function(t,signame)
+    local tt={}
+    t[signame]=tt
+    --signal.discard(signal[signame])
     signal.block(signal[signame])
     cq:wrap(function()
-      local sig = signal.listen(signal[signame])
-      sig:wait()
-      fn()
-    end)
+	  local sig = signal.listen(signal[signame])
+	  while true do
+		sig:wait()
+		for i,v in ipairs(handlers[signame]) do
+		  v()
+		end
+		end
+	  end)
+    return tt
+  end})
+  return function(signame, fn)
+    if type(signame) == "table" then
+      for k, v in pairs(signame) do
+        handleSignal(v, fn)
+      end
+    else
+      table.insert(handlers[signame], fn)
+    end
   end
-end
+end)()
 
 local now = (function()
   local gettimeofday = require("posix.sys.time").gettimeofday
@@ -399,7 +411,7 @@ end
 
 
 handleSignal({"SIGINT", "SIGTERM"}, function()
-  print("WHAAAAAAAAAAAAAAAT!!!!")
+  print("outta here")
   os.exit(1)
 end)
 
