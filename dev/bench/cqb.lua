@@ -1,6 +1,7 @@
 #!/usr/bin/luajit
 local cqueues = require "cqueues"
 local signal = require "cqueues.signal"
+local thread = require "cqueues.thread"
 local lrc = require "lredis.cqueues"
 local websocket = require "http.websocket"
 local request = require "http.request"
@@ -8,10 +9,10 @@ local argparse = require "argparse"
 local Json = require "cjson"
 local HDRHistogram = require "hdrhistogram"
 local pp = require('pprint')
-
+local ut = require("bench.util")
 
 local parser = argparse("script", "thing thinger.")
-parser:option("--redis", "Redis orchestration server url.", "redis://127.0.0.1:6379")
+parser:option("--redis", "Redis orchestration server url.", "127.0.0.1:6379")
 parser:option("--config", "Pub/sub config lua file.", "config.lua")
 parser:option("--subs", "max subscribers (for slave).", 25000)
 parser:option("--threads", "number of threads (for slave).", 4)
@@ -20,283 +21,17 @@ parser:mutex(
   parser:flag("--slave", "Be slave")
 )
 
-
-function wrapEmitter(obj)
-  local evts = setmetatable({}, {
-    __index = function(tbl, k)
-      local ls = {}
-      tbl[k] = ls
-      return ls
-    end
-  })
-  function obj:on(event, fn)
-    table.insert(evts[event], fn)
-    return self
-  end
-  function obj:off(event, fn)
-    for i, v in pairs(evts[event]) do
-      if v == fn then
-        table.remove(evts[event], fn)
-        return self
-      end
-    end
-    
-    return self
-  end
-  function obj:emit(event, ...)
-    for i, v in ipairs(evts[event]) do
-      v(...)
-    end
-    return self
-  end
-  return obj
-end
-
 local opt = parser:parse(args)
 opt.slave_threads = tonumber(opt.slave_threads)
 opt.subscribers = tonumber(opt.subscribers)
 
 local cq=cqueues.new()
 
-function timeout(timeout_sec, cb)
-  cq:wrap(function()
-    cqueues.sleep(timeout_sec)
-    cb()
-  end)
-end
-
-function timeoutRepeat(fn)
-  cq:wrap(function()
-    local n
-    while true do
-      n = fn()
-      if n and n > 0 then
-        cqueues.sleep(n)
-      else
-        break
-      end
-    end
-  end)
-end
-
-handleSignal=(function()
-  local handlers; handlers=setmetatable({}, {__index = function(t,signame)
-    local tt={}
-    t[signame]=tt
-    --signal.discard(signal[signame])
-    signal.block(signal[signame])
-    cq:wrap(function()
-	  local sig = signal.listen(signal[signame])
-	  while true do
-		sig:wait()
-		for i,v in ipairs(handlers[signame]) do
-		  v()
-		end
-		end
-	  end)
-    return tt
-  end})
-  return function(signame, fn)
-    if type(signame) == "table" then
-      for k, v in pairs(signame) do
-        handleSignal(v, fn)
-      end
-    else
-      table.insert(handlers[signame], fn)
-    end
-  end
-end)()
-
-local now = (function()
-  local gettimeofday = require("posix.sys.time").gettimeofday
-  local monotime = cqueues.monotime
-  local tv=gettimeofday()
-  local off = monotime()
-  local t0=tv.tv_sec + tv.tv_usec/1000000
-  
-  return function()
-    return t0 + (monotime() - off)
-  end
-end)()
-
-
-function newHistogram()
-  return HDRHistogram.new(1,360000,3, {multiplier=0.001, unit="ms"})
-end
-
-local Subscriber
-do
-  
-  local transport = setmetatable( {
-    websocket = function(client, opt)
-      local ws = websocket.new_from_uri("ws://localhost:8082/sub/broadcast/foo")
-      local coro
-      
-      return {
-        start = function(self)
-          coro = cq:wrap(function()
-            client.connecting = true
-            client:emit("start")
-            local ret, err = ws:connect(10)
-            client.connecting = nil
-            if not ret then
-              ws:close()
-              client:emit("error", err)
-              return
-            end
-            client.connected = true
-            client:emit("connect")
-            
-            local data, err
-            while true do 
-              data, err = ws:receive()
-              --now fetch messages, yeah?
-              if not data then
-                client.connected = nil
-                ws:close()
-                client:emit("error", err)
-                return
-              else
-                client:emit("message", data)
-              end
-            end
-          end)
-        end,
-        
-        stop = function(self)
-          client.connected = nil
-          ws:close()
-          --do something with the coroutine maybe?
-        end
-      }
-    end
-  }, {__index = function(t, name)
-    return function(...)
-      error("Transport " .. name .. " not implemented")
-    end
-  end})
-  
-  local mt = {
-    __index = {
-      connect = function(self)
-        self.transport:start()
-      end,
-      disconnect = function(self)
-        self.transport:stop()
-      end
-    }
-  }
-  
-  Subscriber = function(opt)
-    local self = setmetatable(wrapEmitter({}), mt)
-    if type(opt) == "string" then
-      opt = {url = opt}
-    end
-    self.url = opt.url
-    self.transport_name = opt.transport
-    if not self.transport_name then
-      local protocol = self.url:match("^(%w+):")
-      if protocol == "ws" or protocol == "wss" then
-        self.transport_name = "websocket"
-      end
-    end
-    if not self.transport_name then
-      error("unspecified transport name")
-    end
-    self.transport = transport[self.transport_name](self, {url=opt.url})
-    return self
-  end
-end
-
-function tryConnectSubscribers(url, needed)
-  local atonce = 1
-  local connected, pending, failed, msgs = 0,0,0,0
-
-  timeoutRepeat(function()
-    local this_round = needed - connected - pending
-    if pending > atonce then
-      atonce = math.ceil(atonce / 2)
-    elseif atonce < 8000 then
-      atonce = math.floor(atonce * 2)
-    end
-    if this_round > atonce then
-      this_round = atonce
-    end
-    for i=1, this_round do
-      local sub = Subscriber(url)
-      
-      sub:on("start", function()
-        --print("START", sub)
-        pending = pending+1
-      end)
-      sub.on("error", function(err)
-        --print("ERROR", sub, err)
-        if sub.connecting then
-          ending = pending-1
-        end
-        failed = failed+1
-      end)
-      sub:on("connect", function()
-        --print("connect", sub)
-        pending = pending-1
-        connected = connected + 1
-      end)
-      sub:on("message", function(msg)
-        --print("message", sub)
-        msgs = msgs + 1
-      end)
-      sub:connect()
-    end
-    if connected == needed then
-      print("all connected")
-      return nil
-    elseif pending > atonce then 
-      return 1
-    elseif connected + pending < needed then 
-      return 0.1
-    end
-  end)
-  
-  timeoutRepeat(function()
-    print(("needed: %d, connected: %d, pending: %d, failed: %d"):format(needed, connected, pending, failed))
-    return connected < needed and 1
-  end)
-end
-
-function beSlave(arg)
-  local hdr = newHistogram()
-  local id = math.random(100000000)
-  local subskey = "benchi:subs:"..id
-  cq:wrap(function()
-    local redis = lrc.connect(arg.redis)
-    local redisListener = lrc.connect(arg.redis)
-    redisListener:subscribe("benchi:sub:"..id)
-    
-    redis:hmset(subskey, {id=id, max_subscribers=arg.subs})
-    redis:call("sadd", "benchi:subs", tostring(id))
-    redis:call("publish", "benchi", Json.encode({action="sub-waiting", id=id}))
-    
-    while true do
-      local item = redisListener:get_next()
-      if item == nil then break end
-      if item[1] == "message" then
-        local data = Json.decode(item[3])
-        if data.action == "start" then
-          tryConnectSubscribers(data.url, data.n)
-        elseif data.action == "quit" then
-          error("want to quit yeah");
-        else
-          pp("WEIRD ACTION", data)
-        end
-      end
-    end
-  end)
-end
-
+ut.accessorize(cq)
 
 function beMaster(arg)
   cq:wrap(function()
-    local hdrh = newHistogram()
+    --local hdrh = newHistogram()
     
     local pubs = {}
     local slaves = {}
@@ -395,7 +130,23 @@ if not opt.slave and not opt.master then
 end 
 
 if opt.slave then
-  beSlave(opt)
+  local opt_json = Json.encode(opt)
+  for i=1,tonumber(opt.threads) do
+    cq:newThread(function(con, threadnum, opt_json)
+      local cqueues = require "cqueues"
+      local Json = require "cjson"
+      local ut = require("bench.util")
+      local cq = cqueues.new()
+      ut.accessorize(cq)
+      local opt = Json.decode(opt_json)
+      local slave = require "bench.slave"
+      cq:wrap(function()
+        slave(cq, opt)
+        print("started slave thread " .. threadnum)
+      end)
+      assert(cq:loop())
+    end, opt_json)
+  end
 end
 
 if opt.master then
@@ -410,7 +161,7 @@ if opt.master then
 end
 
 
-handleSignal({"SIGINT", "SIGTERM"}, function()
+cq:handleSignal({"SIGINT", "SIGTERM"}, function()
   print("outta here")
   os.exit(1)
 end)

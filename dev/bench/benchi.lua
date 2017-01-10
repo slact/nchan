@@ -85,7 +85,7 @@ end
 
 function beSlave(arg)
 
-  local Subscriber = setfenv(loadfile "lib/sub.lua", _G)()
+  local Subscriber = setfenv(loadfile "lib/luvit/sub.lua", _G)()
   
   local hdr = newHistogram()
   local timer = require 'timer'
@@ -119,7 +119,8 @@ function beSlave(arg)
       local tryConnect
       tryConnect = function()
         p("tryConnect some stuff")
-        if pending_num < atonce  *  5 then
+        if pending_num < atonce then
+          
           local try_num = remaining_num - pending_num
           if(try_num > atonce) then try_num = atonce end
           
@@ -198,7 +199,7 @@ end
 
 
 function beMaster(arg)
-  local Publisher = setfenv(loadfile "lib/pub.lua", _G)()
+  local Publisher = setfenv(loadfile "lib/luvit/pub.lua", _G)()
   
   local redis = Redis(arg.redis)
   local redisListener = Redis(arg.redis)
