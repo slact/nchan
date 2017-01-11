@@ -21,6 +21,9 @@ for opt in $*; do
       export CC="CMAKE_LD=llvm-link $_clang -Xclang -cc1 $clang_sanitize_memory "
       export CLINKER=$clang
       ;;
+    gcc-sanitize-undefined)
+      export SANITIZE_UNDEFINED=1
+      ;;
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
     gcc5)

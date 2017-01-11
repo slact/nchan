@@ -14,7 +14,9 @@ if [[ -z $NO_DEBUG ]]; then
 fi
 
 CFLAGS="$CFLAGS -Wno-error -Wall -Wextra -Wno-unused-parameter -Wpointer-arith -Wshadow -Wnested-externs -Wsign-compare"
-
+if [[ $SANITIZE_UNDEFINED == 1 ]]; then
+    CFLAGS="$CFLAGS -fsanitize=undefined -fsanitize=shift -fsanitize=integer-divide-by-zero -fsanitize=unreachable -fsanitize=vla-bound -fsanitize=null -fsanitize=return -fsanitize=bounds -fsanitize=alignment -fsanitize=object-size -fsanitize=float-divide-by-zero -fsanitize=float-cast-overflow -fsanitize=nonnull-attribute -fsanitize=returns-nonnull-attribute -fsanitize=enum -lubsan"
+fi
 _include_http2=0
 
 _semver_lt() {
@@ -217,6 +219,11 @@ build() {
     CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}/scgi_temp" )
   fi
 
+  if [[ $SANITIZE_UNDEFINED == 1 ]]; then
+    CONFIGURE+=("--with-ld-opt=-lubsan")
+  fi
+
+  
   if [[ $CC == *clang* ]]; then
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
