@@ -3,6 +3,22 @@ local cqueues = require "cqueues"
 local Json = require "cjson"
 local HDRHistogram = require "hdrhistogram"
 local ut = require("bench.util")
+local pp = require "pprint"
+
+function deepcopy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == 'table' then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[deepcopy(orig_key)] = deepcopy(orig_value)
+        end
+        setmetatable(copy, deepcopy(getmetatable(orig)))
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
 
 return function(cq, arg)
   cq:wrap(function()
@@ -16,29 +32,36 @@ return function(cq, arg)
     local redis = lrc.connect(arg.redis)
     local redisListener = lrc.connect(arg.redis)
     
+    local started_publishing
     local maybeStartPublishing = function()
+      local slave_config = deepcopy(arg.config)
+      if started_publishing then return end
       local init = {}
-      for i, cf in pairs(arg.config) do
-        local n = cf.n
+      --pp("publish pls", slave_config)
+      for i, cf in pairs(slave_config) do
         for slave_id, slave in pairs(slaves) do
-          local subs = n > slave.max_subscribers and slave.max_subscribers or n
-          n = n - subs
+          local subs = cf.n > slave.max_subscribers and slave.max_subscribers or cf.n
+          cf.n = cf.n - subs
           
-          table.insert(init, function()
-            redis:call("publish", "benchi:sub:"..slave_id, Json.encode({
-              action="start",
-              url=cf.sub,
-              n=subs
-            }))
-          end)
+          --print("signal slave", slave_id, slave.max_subscribers, subs, cf.n)
+          if subs > 0 then
+            table.insert(init, function()
+              redis:call("publish", "benchi:sub:"..slave_id, Json.encode({
+                action="start",
+                url=cf.sub,
+                n=subs
+              }))
+            end)
+          end
           
-          if n == 0 then
+          if cf.n == 0 then
+            --print("cf.n == 0")
             break
           end
         end
         
-        if n > 0 then
-          print("Not enough slaves/subscribers yet to subscribe to channel, still need at least " .. n .. " subscribers.")
+        if cf.n > 0 then
+          print("Not enough slaves/subscribers yet to subscribe to channel, still need at least " .. cf.n .. " subscribers.")
           return
         end
       end
@@ -46,6 +69,7 @@ return function(cq, arg)
       for i, v in ipairs(init) do
         v()
       end
+      started_publishing = true
       print( "Start the thing!" )
     end
   
@@ -63,6 +87,7 @@ return function(cq, arg)
         end
         slaves[slave_id] = data
         num_subs = num_subs + data.max_subscribers
+        --pp("SLAVES", slave_id, slaves)
         maybeStartPublishing()
       else
         redis:call("del", "benchi:subs:"..slave_id)
@@ -83,7 +108,7 @@ return function(cq, arg)
         if item == nil then break end
         if item[1] == "message" then
           local data = Json.decode(item[3])
-          if data.action == "sub-waiting" then
+          if data.action == "slave-waiting" then
             getSlaveData(data.id)
           elseif data.action == "stats" then
             local hdr_incoming = HDRHistogram.unserialize(data.hdr)

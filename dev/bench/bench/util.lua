@@ -3,7 +3,6 @@ local signal = require "cqueues.signal"
 local thread = require "cqueues.thread"
 local gettimeofday = require("posix.sys.time").gettimeofday
 
-
 return {
   wrapEmitter = function(obj)
     local evts = setmetatable({}, {
@@ -14,17 +13,18 @@ return {
       end
     })
     function obj:on(event, fn)
+      assert(self == obj, "table:on() emitter invoked incorrectly")
       table.insert(evts[event], fn)
       return self
     end
     function obj:off(event, fn)
+      assert(self == obj, "table:off() emitter invoked incorrectly")
       for i, v in pairs(evts[event]) do
         if v == fn then
           table.remove(evts[event], fn)
           return self
         end
       end
-      
       return self
     end
     function obj:emit(event, ...)

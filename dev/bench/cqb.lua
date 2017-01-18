@@ -5,6 +5,7 @@ local thread = require "cqueues.thread"
 local argparse = require "argparse"
 local Json = require "cjson"
 local pp = require('pprint')
+local mm = require "mm"
 local ut = require("bench.util")
 
 local parser = argparse("script", "thing thinger.")
@@ -12,10 +13,9 @@ parser:option("--redis", "Redis orchestration server url.", "127.0.0.1:6379")
 parser:option("--config", "Pub/sub config lua file.", "config.lua")
 parser:option("--subs", "max subscribers (for slave).", 25000)
 parser:option("--threads", "number of threads (for slave).", 4)
-parser:mutex(
-  parser:flag("--master", "Be master"),
-  parser:flag("--slave", "Be slave")
-)
+parser:flag("--master", "Be master")
+parser:flag("--slave", "Be slave")
+
 
 local opt = parser:parse(args)
 opt.slave_threads = tonumber(opt.slave_threads)
@@ -39,22 +39,21 @@ if opt.slave then
       local cqueues = require "cqueues"
       local Json = require "cjson"
       local ut = require("bench.util")
+      --local pp = require "pprint"
       local cq = cqueues.new()
       ut.accessorize(cq)
       local opt = Json.decode(opt_json)
       local Slave = require "bench.slave"
-      local slave
-      cq:wrap(function()
-        slave = Slave(cq, opt)
-        print("started slave thread " .. threadnum)
-      end)
+      local slave = Slave(cq, opt)
+      print("started slave thread " .. threadnum)
       cq:wrap(function()
         for ln in con:lines() do
           if ln == "exit" then
-            cq:timeout(threadnum, function()
-              print("quitty from thread "  .. threadnum) --quit stuff
+            slave:on("stop", function()
+              print("quit from slave thread "  .. threadnum) --quit stuff
               con:write("exited\n")
             end)
+            slave:stop()
           end
         end
       end)
@@ -69,6 +68,7 @@ if opt.master then
   local conf_chunk, err = loadfile(opt.config)
   if conf_chunk then
     opt.config = conf_chunk()
+    pp(opt.config)
   else
     print("Config not found at " .. opt.config ..".")
     os.exit(1)
@@ -77,10 +77,17 @@ if opt.master then
 end
 
 
+local force_quit
 cq:handleSignal({"SIGINT", "SIGTERM"}, function()
-  print("outta here")
   local exiting = 0
   local exited = 0
+
+  if force_quit then
+    print("\nNo more waiting around. Quit!")
+    os.exit(1)
+  end
+  
+  print("\nShutting down slaves... ^C again to force-quit.")
   
   for thread, con in pairs(slave_threads) do
     con:write("exit\n")
@@ -102,14 +109,11 @@ cq:handleSignal({"SIGINT", "SIGTERM"}, function()
     print("no slave threads. quit now")
     os.exit(1)
   end
+
+  force_quit = 1
 end)
 
-while true do
-  local ok, err, eh, huh = cq:step()
-  if not ok then
-    pp(ret, err, eh, huh)
-  end
-end
+assert(cq:loop())
 for err in cq:errors() do
   print(err)
 end

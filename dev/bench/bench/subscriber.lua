@@ -3,17 +3,17 @@ local websocket = require "http.websocket"
 
 local transport = setmetatable( {
   websocket = function(client, opt)
-    local ws = websocket.new_from_uri("ws://localhost:8082/sub/broadcast/foo")
+    local ws = websocket.new_from_uri(opt.url)
     return {
       start = function(self, cq)
+        client:emit("start")
         cq:wrap(function()
           client.connecting = true
-          client:emit("start")
           local ret, err = ws:connect(10)
-          client.connecting = nil
           if not ret then
             ws:close()
             client:emit("error", err)
+            client.connecting = nil
             return
           end
           client.connected = true
@@ -27,6 +27,7 @@ local transport = setmetatable( {
               client.connected = nil
               ws:close()
               client:emit("error", err)
+              client:emit("disconnect")
               return
             else
               client:emit("message", data)
@@ -50,8 +51,8 @@ end})
 
 local mt = {
   __index = {
-    connect = function(self)
-      self.transport:start()
+    connect = function(self, cq)
+      self.transport:start(cq)
     end,
     disconnect = function(self)
       self.transport:stop()
