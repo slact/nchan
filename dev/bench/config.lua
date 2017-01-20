@@ -1,6 +1,6 @@
 local uri="%s://localhost:8082/%s/%s"
 local num_chans = 1
-local subs_per_channel=4342
+local subs_per_channel=30000
 
 local chans = {}
 

@@ -9,11 +9,11 @@ local Subscriber = require "bench.subscriber"
 local pp = require "pprint"
 
 return function(cq, arg)
-  --local hdr = newHistogram()
+  local histogram = ut.newHistogram()
   local id = uuid()
-  local subskey = "benchi:subs:"..id
+  local slavekey = "benchi:slave:"..id
   
-  pp(arg)
+  --pp(arg)
   
   local self = ut.wrapEmitter({
     id = id,
@@ -30,7 +30,7 @@ return function(cq, arg)
   
   self:on("stop", function() 
     if self.redisListener then
-      self.redisListener:unsubscribe("benchi:sub:"..id)
+      self.redisListener:unsubscribe("benchi:slave:"..id)
     end
   end)
   
@@ -82,12 +82,21 @@ return function(cq, arg)
       return this_round
     end
     
+    cq:wrap(function()
+      while not should_stop do
+        cqueues.sleep(10)
+        local ser = histogram:serialize()
+        histogram:reset()
+        self.redis:call("publish", "benchi", Json.encode({action="slave-histogram", id=id, histogram=ser}))
+      end
+    end)
+    
     cq:timeoutRepeat(function()
       if should_stop then
         print("stop this crazy train")
         return nil
       end
-      print(("...slave %s %d%% ready (%d out of %d subs. Failed: %d)"):format(self.id, math.floor((n.connected / n.needed)*100), n.connected, n.needed, n.failed))
+      print(("  ...slave %s needs: %d, connected: %d, pending: %d, (atonce: %d), failed: %d"):format(self.id, n.needed, n.connected, n.pending, atonce, n.failed))
       return n.connected < n.needed and 1
     end)
     
@@ -129,13 +138,14 @@ return function(cq, arg)
           n.connected = n.connected + 1
         end)
         sub:on("message", function(msg)
-          --print("message", sub)
+          histogram:record(ut.now() - tonumber(msg))
           n.msgs = n.msgs + 1
         end)
         sub:connect(cq)
       end
       if n.connected == n.needed then
         print(("Slave %s connected %d subscribers"):format(self.id, n.connected))
+        self.redis:call("publish", "benchi", Json.encode({action="slave-ready", id=id}))
         return nil
       elseif should_stop then
         print("stop trying to connect")
@@ -148,10 +158,10 @@ return function(cq, arg)
   cq:wrap(function()
     self.redis = lrc.connect(arg.redis)
     self.redisListener = lrc.connect(arg.redis)
-    self.redisListener:subscribe("benchi:sub:"..id)
+    self.redisListener:subscribe("benchi:slave:"..id)
     
-    self.redis:hmset(subskey, {id=tostring(id), max_subscribers=tostring(arg.subs)})
-    self.redis:call("sadd", "benchi:subs", tostring(id))
+    self.redis:hmset(slavekey, {id=tostring(id), max_subscribers=tostring(arg.subs)})
+    self.redis:call("sadd", "benchi:slaves", tostring(id))
     self.redis:call("publish", "benchi", Json.encode({action="slave-waiting", id=id}))
     
     while true do

@@ -2,6 +2,7 @@ local cqueues = require "cqueues"
 local signal = require "cqueues.signal"
 local thread = require "cqueues.thread"
 local gettimeofday = require("posix.sys.time").gettimeofday
+local HDRHistogram = require "hdrhistogram"
 
 return {
   wrapEmitter = function(obj)
@@ -46,6 +47,10 @@ return {
       return t0 + (monotime() - off)
     end
   end)(),
+
+  newHistogram = function()
+    return HDRHistogram.new(0.001,10, 3, {multiplier=0.001, unit="s"})
+  end,
   
   accessorize = function(cq)
     local index = getmetatable(cq).__index

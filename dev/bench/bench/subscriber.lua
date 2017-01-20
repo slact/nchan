@@ -19,14 +19,14 @@ local transport = setmetatable( {
           client.connected = true
           client:emit("connect")
           
-          local data, err
+          local ok, data, err
           while true do 
-            data, err = ws:receive()
+            ok, data, err = pcall(ws.receive, ws)
             --now fetch messages, yeah?
-            if not data then
+            if not data or not ok then
               client.connected = nil
               ws:close()
-              client:emit("error", err)
+              client:emit("error", ok and err or data)
               client:emit("disconnect")
               return
             else

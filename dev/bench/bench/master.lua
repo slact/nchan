@@ -4,8 +4,10 @@ local Json = require "cjson"
 local HDRHistogram = require "hdrhistogram"
 local ut = require("bench.util")
 local pp = require "pprint"
+local mm = require "mm"
+local Pub = require "bench.publisher"
 
-function deepcopy(orig)
+local function deepcopy(orig)
     local orig_type = type(orig)
     local copy
     if orig_type == 'table' then
@@ -22,40 +24,76 @@ end
 
 return function(cq, arg)
   cq:wrap(function()
-    --local hdrh = newHistogram()
+    local hdrh = ut.newHistogram()
     
     local pubs = {}
     local slaves = {}
     local num_slaves = 0
     local num_subs = 0
+    local slave_config = deepcopy(arg.config)
     
     local redis = lrc.connect(arg.redis)
     local redisListener = lrc.connect(arg.redis)
     
-    local started_publishing
+    local active_slaves = {}
+    
+    local wait_for_ready_slaves
+
+    local publish = function()
+      local now = ut.now
+      for _, cf in pairs(slave_config) do
+        local pub = Pub {url = cf.pub}
+        table.insert(pubs, pub)
+      end
+      
+      --publishing loop
+      while true do
+        local resp, err, errno 
+        for _, pub in ipairs(pubs) do
+          resp, err, errno = pub:post(now)
+          if not resp then
+            print("publishing error", err, errno)
+            --print(resp.status)
+            --print(resp.body)
+          end
+        end
+        cqueues.sleep(0.5)
+      end
+    end
+    
+    local markSlaveReady = function(slave_id)
+      if active_slaves[slave_id] ~= false then
+        error("received unexpected slave-ready message for slave id " .. tostring(slave_id))
+      end
+      
+      active_slaves[slave_id]=true
+      for _, v in pairs(active_slaves) do
+        if not v then return end
+      end
+      print("all slaves ready")
+      return cq:wrap(publish)
+    end
+    
     local maybeStartPublishing = function()
-      local slave_config = deepcopy(arg.config)
-      if started_publishing then return end
+      if wait_for_ready_slaves then return end
       local init = {}
-      --pp("publish pls", slave_config)
-      for i, cf in pairs(slave_config) do
+      for _, cf in pairs(slave_config) do
         for slave_id, slave in pairs(slaves) do
           local subs = cf.n > slave.max_subscribers and slave.max_subscribers or cf.n
           cf.n = cf.n - subs
           
-          --print("signal slave", slave_id, slave.max_subscribers, subs, cf.n)
+          print("slave", slave_id, slave.max_subscribers, subs, cf.n)
           if subs > 0 then
-            table.insert(init, function()
-              redis:call("publish", "benchi:sub:"..slave_id, Json.encode({
+            init[slave_id] = function()
+              redis:call("publish", "benchi:slave:"..slave_id, Json.encode({
                 action="start",
                 url=cf.sub,
                 n=subs
               }))
-            end)
+            end
           end
           
           if cf.n == 0 then
-            --print("cf.n == 0")
             break
           end
         end
@@ -66,19 +104,20 @@ return function(cq, arg)
         end
       end
       
-      for i, v in ipairs(init) do
+      for slave_id, v in pairs(init) do
         v()
+        active_slaves[slave_id]=false
       end
-      started_publishing = true
-      print( "Start the thing!" )
+      wait_for_ready_slaves = true
+      print( "Wait for slaves to be ready..." )
     end
   
     local getSlaveData = function(slave_id)
-      local data = redis:hgetall("benchi:subs:".. slave_id)
+      local data = redis:hgetall("benchi:slave:".. slave_id)
       data.max_subscribers = tonumber(data.max_subscribers)
       
-      local numsub = redis:call("pubsub", "numsub", "benchi:sub:".. slave_id)
-      assert(numsub[1]=="benchi:sub:".. slave_id)
+      local numsub = redis:call("pubsub", "numsub", "benchi:slave:".. slave_id)
+      assert(numsub[1]=="benchi:slave:".. slave_id)
       if numsub[2] == "1" or numsub[2] > 0 then
         if not slaves[slave_id] then
           num_slaves = num_slaves + 1
@@ -90,19 +129,20 @@ return function(cq, arg)
         --pp("SLAVES", slave_id, slaves)
         maybeStartPublishing()
       else
-        redis:call("del", "benchi:subs:"..slave_id)
-        redis:call("srem", "benchi:subs", slave_id)
+        redis:call("del", "benchi:slave:"..slave_id)
+        redis:call("srem", "benchi:slave", slave_id)
       end
 
     end
     
-    local sub_ids = redis:call("smembers", "benchi:subs")
-    for i,v in ipairs(sub_ids) do
+    redisListener:subscribe("benchi")
+    
+    local sub_ids = redis:call("smembers", "benchi:slaves")
+    for _,v in ipairs(sub_ids) do
       getSlaveData(v)
     end
     
-    cq:wrap(function() 
-      redisListener:subscribe("benchi")
+    cq:wrap(function()
       while true do
         local item = redisListener:get_next()
         if item == nil then break end
@@ -110,9 +150,11 @@ return function(cq, arg)
           local data = Json.decode(item[3])
           if data.action == "slave-waiting" then
             getSlaveData(data.id)
-          elseif data.action == "stats" then
-            local hdr_incoming = HDRHistogram.unserialize(data.hdr)
-            hdrh:add(hdr_incoming)
+          elseif data.action == "slave-ready" then
+            markSlaveReady(data.id)
+          elseif data.action == "slave-histogram" then
+            local hdr_incoming = HDRHistogram.unserialize(data.histogram)
+            hdrh:merge(hdr_incoming)
             print(hdrh:latency_stats())
           end
         end
