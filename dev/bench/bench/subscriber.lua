@@ -1,7 +1,38 @@
 local ut = require("bench.util")
 local websocket = require "http.websocket"
 
+local dummies = setmemtatable({}, {__index = function(k, t)
+  local empty = {}
+  t[k] = empty
+  return empty
+end})
+
 local transport = setmetatable( {
+  dummy = function(client, opt)
+    return {
+      start = function(self, cq)
+        client:emit("start")
+        client.connected = true
+        local co = cq:wrap(function()
+          client:emit("connect")
+          local data
+          repeat
+            data = coroutine.yield()
+          until not data
+          client:emit("disconnect")
+        end)
+        dummies[opt.url][self]=co
+        self.coroutine = co
+        return self
+      end,
+      
+      stop = function(self)
+        dummies[opt.url][self]=nil
+        return self
+      end
+    }
+  end
+  
   websocket = function(client, opt)
     local ws = websocket.new_from_uri(opt.url)
     return {
@@ -34,6 +65,7 @@ local transport = setmetatable( {
             end
           end
         end)
+        return self
       end,
       
       stop = function(self)
@@ -60,7 +92,13 @@ local mt = {
   }
 }
   
-return function(opt)
+return setmetatable({
+  dummyReceive = function(url, msg)
+    for _, v in pairs(dummies[url]) do
+      coroutine.resume(v, msg)
+    end
+  end
+}, {__call=function(t, opt)
   local self = setmetatable(ut.wrapEmitter({}), mt)
   if type(opt) == "string" then
     opt = {url = opt}
@@ -78,4 +116,4 @@ return function(opt)
   end
   self.transport = transport[self.transport_name](self, {url=opt.url})
   return self
-end
+end})
