@@ -1,11 +1,14 @@
 local ut = require("bench.util")
 local websocket = require "http.websocket"
+local cqueues = require "cqueues"
+local Promise = require("cqueues.promise")
 
-local dummies = setmemtatable({}, {__index = function(k, t)
-  local empty = {}
-  t[k] = empty
-  return empty
-end})
+--local dummies = setmetatable({}, {__index = function(t, k)
+--  local empty = {}
+--  t[k] = empty
+--  return empty
+--end})
+local dummies = {}
 
 local transport = setmetatable( {
   dummy = function(client, opt)
@@ -13,25 +16,37 @@ local transport = setmetatable( {
       start = function(self, cq)
         client:emit("start")
         client.connected = true
+        if not dummies[opt.url] then
+          dummies[opt.url] = Promise.new()
+        end
         local co = cq:wrap(function()
           client:emit("connect")
           local data
           repeat
-            data = coroutine.yield()
+            data = dummies[opt.url]:get()
+            if not data then
+              client.connected = nil
+              client:emit("error", nil)
+            else
+              client:emit("message", data)
+            end
           until not data
           client:emit("disconnect")
         end)
-        dummies[opt.url][self]=co
         self.coroutine = co
         return self
       end,
       
       stop = function(self)
-        dummies[opt.url][self]=nil
+        if dummies[opt.url] then
+          local promise = dummies[opt.url]
+          dummies[opt.url] = nil
+          promise:set(true, false)
+        end
         return self
       end
     }
-  end
+  end,
   
   websocket = function(client, opt)
     local ws = websocket.new_from_uri(opt.url)
@@ -94,8 +109,10 @@ local mt = {
   
 return setmetatable({
   dummyReceive = function(url, msg)
-    for _, v in pairs(dummies[url]) do
-      coroutine.resume(v, msg)
+    if dummies[url] then
+      local promise = dummies[url]
+      dummies[url] =  Promise.new()
+      promise:set(true, msg)
     end
   end
 }, {__call=function(t, opt)

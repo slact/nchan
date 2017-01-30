@@ -5,7 +5,7 @@ local monotime = require "cqueues".monotime
 local mm = require "mm"
 
 local function non_final_status(status)
-	return status:sub(1, 1) == "1" and status ~= "101"
+    return status:sub(1, 1) == "1" and status ~= "101"
 end
 
 local mt = { __index = {

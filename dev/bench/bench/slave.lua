@@ -13,7 +13,9 @@ return function(cq, arg)
   local id = uuid()
   local slavekey = "benchi:slave:"..id
   
-  --pp(arg)
+  local dummy_subbed = {}
+  
+  pp(arg)
   
   local self = ut.wrapEmitter({
     id = id,
@@ -55,7 +57,7 @@ return function(cq, arg)
     end
   end
   
-  local function tryConnectSubscribers(cq, url, needed)
+  local function tryConnectSubscribers(cq, url, transport, needed)
     local atonce = 1
     local delay = 1
     local n = self.count
@@ -104,7 +106,7 @@ return function(cq, arg)
       local this_round = throttle()
       --print(("!!!!id: %s, needed: %d, thisround: %d, connected: %d, pending: %d, (atonce: %d, delay:%f), failed: %d"):format(self.id, n.needed, this_round, n.connected, n.pending, atonce, delay, n.failed))
       for i=1, this_round do
-        local sub = Subscriber(url)
+        local sub = Subscriber({url=url, transport=transport})
 
         sub:on("start", function()
           n.pending = n.pending+1
@@ -142,6 +144,12 @@ return function(cq, arg)
           n.msgs = n.msgs + 1
         end)
         sub:connect(cq)
+        if sub.transport_name == "dummy" and not dummy_subbed[url] then
+          --ugh
+          self.redisListener:subscribe("benchi:dummy:"..url)
+          dummy_subbed[url] = true
+        end
+        
       end
       if n.connected == n.needed then
         print(("Slave %s connected %d subscribers"):format(self.id, n.connected))
@@ -168,13 +176,20 @@ return function(cq, arg)
       local item = self.redisListener:get_next()
       if item == nil then break end
       if item[1] == "message" then
-        local data = Json.decode(item[3])
-        if data.action == "start" then
-          cq:wrap(tryConnectSubscribers, cq, data.url, data.n)
-        elseif data.action == "quit" then
-          error("want to quit yeah");
+        if item[2] == slavekey then
+          local data = Json.decode(item[3])
+          if data.action == "start" then
+            cq:wrap(tryConnectSubscribers, cq, data.url, data.transport, data.n)
+          elseif data.action == "quit" then
+            error("want to quit yeah");
+          else
+            pp("WEIRD ACTION", data)
+          end
+        elseif item[2]:match("^benchi:dummy:") then
+          local url = item[2]:match("^benchi:dummy:(.*)")
+          Subscriber.dummyReceive(url, item[3])
         else
-          pp("WEIRD ACTION", data)
+          pp("WEIRD pubsub channel", item[2])
         end
       end
     end

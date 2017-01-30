@@ -42,7 +42,18 @@ return function(cq, arg)
     local publish = function()
       local now = ut.now
       for _, cf in pairs(slave_config) do
-        local pub = Pub {url = cf.pub}
+        local pub 
+        if cf.transport ==  "dummy" then
+          pub = {post = function(self, msg)
+            if type(msg)=="function" then 
+              msg = msg()
+            end
+            redis:call("publish", "benchi:dummy:"..cf.sub, tostring(msg))
+            return {status=200}
+          end}
+        else
+          pub = Pub {url = cf.pub}
+        end
         table.insert(pubs, pub)
       end
       
@@ -88,6 +99,7 @@ return function(cq, arg)
               redis:call("publish", "benchi:slave:"..slave_id, Json.encode({
                 action="start",
                 url=cf.sub,
+                transport=cf.transport,
                 n=subs
               }))
             end
@@ -155,6 +167,7 @@ return function(cq, arg)
           elseif data.action == "slave-histogram" then
             local hdr_incoming = HDRHistogram.unserialize(data.histogram)
             hdrh:merge(hdr_incoming)
+            print(("count: %d, avg: %f, min: %f, max: %f"):format(hdrh:count(), hdrh:mean(), hdrh:min(), hdrh:max()))
             print(hdrh:latency_stats())
           end
         end
