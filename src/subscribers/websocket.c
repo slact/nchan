@@ -275,6 +275,7 @@ static void sudden_upstream_request_abort_handler(full_subscriber_t *fsub) {
 }
 */
 
+static void init_buf(ngx_buf_t *buf, int8_t last);
 static void init_msg_buf(ngx_buf_t *buf);
 
 #if WEBSOCKET_OPTIMIZED_UNMASK
@@ -574,6 +575,26 @@ static void upstream_subrequest_ev_handler(ngx_event_t *ev) {
   send_next_publish_subrequest(fsub);
   clean_after_upstream_response(fsub, 0);
   //assert(fsub->sub.request->write_event_handler == ws_request_empty_handler);
+}
+
+static ngx_int_t websocket_heartbeat(full_subscriber_t *fsub, ngx_buf_t *buf) {
+  ngx_str_t      str_in;
+  if(!fsub->sub.cf->websocket_heartbeat.enabled) {
+    return NGX_DECLINED;
+  }
+  
+  str_in.data = buf->pos;
+  str_in.len = buf->last - buf->pos;
+  if(nchan_ngx_str_match(fsub->sub.cf->websocket_heartbeat.in, &str_in)) {
+    nchan_buf_and_chain_t *bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+    init_buf(&bc->buf, 1);
+    set_buf_to_str(&bc->buf, fsub->sub.cf->websocket_heartbeat.out);
+    websocket_send_frame(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, fsub->sub.cf->websocket_heartbeat.out->len, &bc->chain);
+    return NGX_OK;
+  }
+  else {
+    return NGX_DECLINED;
+  }
 }
 
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
@@ -1191,8 +1212,9 @@ static void websocket_reading(ngx_http_request_t *r) {
             //msg_in_str.len = frame->payload_len;
             
             //ERR("we got data %V", &msg_in_str);
-            
-            websocket_publish(fsub, &msgbuf);
+            if(websocket_heartbeat(fsub, &msgbuf) != NGX_OK) {
+              websocket_publish(fsub, &msgbuf);
+            }
             break;
           
           case WEBSOCKET_OPCODE_PING:

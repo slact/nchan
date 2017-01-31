@@ -116,6 +116,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_events_channel_id = NULL;
   lcf->channel_event_string = NULL;
   
+  lcf->websocket_heartbeat.enabled=NGX_CONF_UNSET;
   
   lcf->longpoll_multimsg=NGX_CONF_UNSET;
   lcf->longpoll_multimsg_use_raw_stream_separator=NGX_CONF_UNSET;
@@ -265,6 +266,11 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);
   ngx_conf_merge_value(conf->longpoll_multimsg, prev->longpoll_multimsg, 0);
   ngx_conf_merge_value(conf->longpoll_multimsg_use_raw_stream_separator, prev->longpoll_multimsg_use_raw_stream_separator, 0);
+  
+  ngx_conf_merge_value(conf->websocket_heartbeat.enabled, prev->websocket_heartbeat.enabled, 0);
+  MERGE_CONF(conf, prev, websocket_heartbeat.in);
+  MERGE_CONF(conf, prev, websocket_heartbeat.out);
+  
   MERGE_CONF(conf, prev, channel_events_channel_id);
   MERGE_CONF(conf, prev, channel_event_string);
   
@@ -594,6 +600,28 @@ static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_comman
     }
     lcf->subscriber_first_message = n * sign;
   }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_websocket_heartbeat_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t   *lcf = (nchan_loc_conf_t *)conf;
+  ngx_str_t          *heartbeat_in = &((ngx_str_t *) cf->args->elts)[1];
+  ngx_str_t          *heartbeat_out = &((ngx_str_t *) cf->args->elts)[2];
+  ngx_str_t          *in, *out;
+  lcf->websocket_heartbeat.enabled = 1;
+  
+  in = ngx_pcalloc(cf->pool, sizeof(ngx_str_t) + heartbeat_in->len);
+  in->data = (u_char *)&in[1];
+  in->len = heartbeat_in->len;
+  ngx_memcpy(in->data, heartbeat_in->data, heartbeat_in->len);
+  lcf->websocket_heartbeat.in = in;
+  
+  out = ngx_pcalloc(cf->pool, sizeof(ngx_str_t) + heartbeat_out->len);
+  out->data = (u_char *)&out[1];
+  out->len = heartbeat_out->len;
+  ngx_memcpy(out->data, heartbeat_out->data, heartbeat_out->len);
+  lcf->websocket_heartbeat.out = out;
+  
   return NGX_CONF_OK;
 }
 

@@ -293,6 +293,12 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   time_t                          websocket_ping_interval;
   
+  struct {
+    ngx_int_t   enabled;
+    ngx_str_t  *in;
+    ngx_str_t  *out;
+  }                               websocket_heartbeat;
+  
   ngx_int_t                       subscriber_first_message;
   
   ngx_http_complex_value_t       *channel_events_channel_id;

@@ -610,12 +610,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
   [more details](#pubsub-endpoint)  
 
-- **nchan_subscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
-
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
   default: `websocket eventsource longpoll chunked multipart-mixed`  
@@ -671,11 +665,11 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber_timeout  
   > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.    
 
-- **nchan_unsubscribe_request** `<url>`  
-  arguments: 1  
+- **nchan_websocket_client_heartbeat** `<heartbeat_in> <heartbeat_out>`  
+  arguments: 2  
+  default: `none (disabled)`  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
+  > Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this oversight, this setting can be used to respond to set up a PING/PONG - like connection heartbeat. When the client sends the server messave <heartbeat_in> (PING), the server automatically responds with <heartbeat_out> (PONG).    
 
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  
@@ -688,6 +682,18 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](https://nchan.slact.net/details#request-authorization)  
+
+- **nchan_subscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
+
+- **nchan_unsubscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
