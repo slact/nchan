@@ -1298,18 +1298,22 @@ uint64_t ws_htonll(uint64_t value) {
   }
 }
 
-
-static void init_header_buf(ngx_buf_t *buf) {
+static void init_buf(ngx_buf_t *buf, int8_t last){
   ngx_memzero(buf, sizeof(*buf));
   buf->memory = 1;
+  if(last) {
+    buf->last_buf = 1;
+    buf->last_in_chain = 1;
+    buf->flush = 1;
+  }
+}
+
+static void init_header_buf(ngx_buf_t *buf) {
+  init_buf(buf, 0);
 }
 
 static void init_msg_buf(ngx_buf_t *buf) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->last_buf = 1;
-  buf->last_in_chain = 1;
-  buf->flush = 1;
-  buf->memory = 1;
+  init_buf(buf, 1);
 }
 
 static ngx_int_t websocket_frame_header(full_subscriber_t *fsub, ngx_buf_t *buf, const u_char opcode, off_t len) {
@@ -1466,11 +1470,10 @@ static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t co
 
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
   nchan_buf_and_chain_t *bc; 
-  ngx_chain_t   *hdr_chain;
-  ngx_buf_t     *hdr_buf;
-  ngx_buf_t     *msg_buf;
-  ngx_str_t      alt_err;
-  uint16_t       code_net;
+  ngx_chain_t    *hdr_chain;
+  ngx_buf_t      *code_buf, *msg_buf;
+  ngx_str_t       alt_err;
+  static uint16_t code_net;
   
   if(err) {
     alt_err.data=err->data;
@@ -1489,25 +1492,28 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   if(code < 1000 || code == 1005 || code == 1006 || code >= 5000) {
     ERR("invalid websocket close status code %i", code);
     code=CLOSE_NORMAL;
-  }
-  bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
-  msg_buf = &bc->buf;
-  init_msg_buf(msg_buf);
-  set_buf_to_str(msg_buf, err);
+  }  
+  bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, err->len > 0 ? 2 : 1);
   
-  if(err->len > 123) {
-    ERR("websocket close frame reason string is too long (length %i)", err->len);
-    err->len = 123;
+  code_buf = &bc->buf;
+  
+  init_buf(code_buf, err->len == 0);
+  code_net=htons(code);
+  code_buf->start = code_buf->pos = (u_char *)&code_net;
+  code_buf->last = code_buf->end = ngx_copy(code_buf->pos, &code_net, 2);
+  
+  if(err->len > 0) {
+    if(err->len > 123) {
+      ERR("websocket close frame reason string is too long (length %i)", err->len);
+      err->len = 123;
+    }
+    msg_buf = bc->chain.next->buf;
+    init_msg_buf(msg_buf);
+    set_buf_to_str(msg_buf, err);
   }
+
   
   hdr_chain = websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, err->len + 2, &bc->chain);
-  hdr_buf = hdr_chain->buf;
-  //there's definitely enough space at the end for 2 more bytes
-  code_net=htons(code);
-  hdr_buf->last = ngx_copy(hdr_buf->last, &code_net, 2);
-  hdr_buf->end = hdr_buf->last;
-  
-
   return hdr_chain;
 }
 
