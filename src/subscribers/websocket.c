@@ -1222,7 +1222,7 @@ static void websocket_reading(ngx_http_request_t *r) {
               close_reason.len = 0;
             }
             DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
-            websocket_send_close_frame(fsub, 0, NULL);
+            websocket_send_close_frame(fsub, close_code, &close_reason);
             maybe_close_pool(temp_pool);
             return websocket_reading_finalize(r, temp_pool);
             break; //good practice?
@@ -1486,7 +1486,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
     return websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, 0, NULL);
   }
   
-  if(code < 1000 || code > 1011) {
+  if(code < 1000 || code == 1005 || code == 1006 || code >= 5000) {
     ERR("invalid websocket close status code %i", code);
     code=CLOSE_NORMAL;
   }
@@ -1494,6 +1494,12 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
   msg_buf = &bc->buf;
   init_msg_buf(msg_buf);
   set_buf_to_str(msg_buf, err);
+  
+  if(err->len > 123) {
+    ERR("websocket close frame reason string is too long (length %i)", err->len);
+    err->len = 123;
+  }
+  
   hdr_chain = websocket_frame_header_chain(fsub, WEBSOCKET_CLOSE_LAST_FRAME_BYTE, err->len + 2, &bc->chain);
   hdr_buf = hdr_chain->buf;
   //there's definitely enough space at the end for 2 more bytes
