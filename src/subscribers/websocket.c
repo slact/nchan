@@ -1453,12 +1453,20 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     // \n\n
     ngx_init_set_membuf(cur->buf, two_newlines.data, two_newlines.data + two_newlines.len);
     sz += two_newlines.len;
-    cur = cur->next;
     
-    //now the message
-    *cur->buf = msg->buf;
-    chained_msgbuf = cur->buf;
-    assert(cur->next == NULL);
+    
+    if(ngx_buf_size((&msg->buf)) > 0) {
+      cur = cur->next;
+      //now the message
+      *cur->buf = msg->buf;
+      chained_msgbuf = cur->buf;
+      assert(cur->next == NULL);
+    }
+    else {
+      cur->next = NULL;
+      cur->buf->last_in_chain = 1;
+      cur->buf->last_buf = 1;
+    }
   }
   else {
     bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
