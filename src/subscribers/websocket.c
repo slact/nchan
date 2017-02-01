@@ -1408,7 +1408,7 @@ static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opco
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg) {
   nchan_buf_and_chain_t *bc;
   ngx_file_t            *file_copy;
-  ngx_buf_t             *chained_msgbuf;
+  ngx_buf_t             *chained_msgbuf = NULL;
   size_t                 sz = ngx_buf_size((&msg->buf));
   ngx_str_t              binary_mimetype = ngx_string("application/octet-stream");
   u_char                 frame_opcode = WEBSOCKET_TEXT_LAST_FRAME_BYTE;
@@ -1474,7 +1474,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     bc->buf = msg->buf;
   }
   
-  if(msg->buf.file) {
+  if(chained_msgbuf && msg->buf.file) {
     file_copy = nchan_bufchain_pool_reserve_file(fsub->ctx->bcp);
     nchan_msg_buf_open_fd_if_needed(chained_msgbuf, file_copy, NULL);
   }
