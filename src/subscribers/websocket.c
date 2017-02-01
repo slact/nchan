@@ -174,8 +174,8 @@ struct full_subscriber_s {
   unsigned                ws_meta_subprotocol:1;
   unsigned                holding:1; //make sure the request doesn't close right away
   unsigned                shook_hands:1;
-  unsigned                connected:1;
-  unsigned                closing:1;
+  unsigned                sent_close_frame:1;
+  unsigned                received_close_frame:1;
   unsigned                already_sent_unsub_request:1;
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
@@ -675,7 +675,6 @@ static void *framebuf_alloc(void *pd) {
 static void closing_ev_handler(ngx_event_t *ev) {
   full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
   DBG("closing_ev timer handler for %p, delayed", fsub);
-  //fsub->connected = 0;
   //fsub->sub.status = DEAD;
   websocket_finalize_request(fsub);
 }
@@ -698,9 +697,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   fsub->finalize_request = 0;
   fsub->holding = 0;
   fsub->shook_hands = 0;
-  fsub->connected = 0;
   fsub->awaiting_pong = 0;
-  fsub->closing = 0;
+  fsub->sent_close_frame = 0;
+  fsub->received_close_frame = 0;
   fsub->already_sent_unsub_request = 0;
   ngx_memzero(&fsub->ping_ev, sizeof(fsub->ping_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->timeout_ev);
@@ -898,7 +897,6 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
     ensure_request_hold(fsub);
     websocket_perform_handshake(fsub);
     fsub->shook_hands = 1;
-    fsub->connected = 1;
     return NGX_OK;
   }
   return NGX_DECLINED;
@@ -988,7 +986,7 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   
   self->enqueued = 0;
   
-  if(fsub->connected) {
+  if(!fsub->sent_close_frame) {
     ngx_str_t          close_msg = ngx_string("410 Gone");
     websocket_send_close_frame(fsub, CLOSE_NORMAL, &close_msg);
   }
@@ -1065,7 +1063,6 @@ static void websocket_reading_finalize(ngx_http_request_t *r, ngx_pool_t *temp_p
   
   maybe_close_pool(temp_pool);
   
-  //fsub->connected = 0;
   //fsub->sub.status = DEAD;
   if(fsub) {
     websocket_delete_timers(fsub);
@@ -1103,7 +1100,6 @@ static void websocket_reading(ngx_http_request_t *r) {
     if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
       //ERR("c->error %i c->timedout %i c->close %i c->destroyed %i rev->closed %i rev->eof %i", c->error, c->timedout, c->close, c->destroyed, rev->closed, rev->eof);
       fsub->sub.request->headers_out.status = NGX_HTTP_CLIENT_CLOSED_REQUEST;
-      fsub->connected = 0;
       return websocket_reading_finalize(r, temp_pool);
     }
     
@@ -1232,6 +1228,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             break;
             
           case WEBSOCKET_OPCODE_CLOSE:
+            fsub->received_close_frame = 1;
             if(frame->payload_len >= 2) {
               ngx_memcpy(&close_code, frame->payload, 2);
               close_code = ntohs(close_code);
@@ -1244,7 +1241,9 @@ static void websocket_reading(ngx_http_request_t *r) {
               close_reason.len = 0;
             }
             DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
-            websocket_send_close_frame(fsub, close_code, &close_reason);
+            if(!fsub->sent_close_frame) {
+              websocket_send_close_frame(fsub, close_code, &close_reason);
+            }
             maybe_close_pool(temp_pool);
             return websocket_reading_finalize(r, temp_pool);
             break; //good practice?
@@ -1485,15 +1484,14 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
 }
 
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err) {
-  ws_output_filter(fsub, websocket_close_frame_chain(fsub, code, err));
-  fsub->connected = 0;
-  if(fsub->closing == 1) {
+  if(fsub->sent_close_frame == 1) {
     DBG("%p already sent close frame");
     websocket_finalize_request(fsub);
   }
   else {
-    fsub->closing = 1;
-    ngx_add_timer(&fsub->closing_ev, WEBSOCKET_CLOSING_TIMEOUT);
+    ws_output_filter(fsub, websocket_close_frame_chain(fsub, code, err));
+    fsub->sent_close_frame = 1;
+    ngx_add_timer(&fsub->closing_ev, fsub->received_close_frame ? 0 : WEBSOCKET_CLOSING_TIMEOUT);
   }
   return NGX_OK;
 }
