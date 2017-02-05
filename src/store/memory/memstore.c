@@ -548,7 +548,11 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
       d->conf_data = NULL;
     }
     
-    ngx_memzero(&d->stats, sizeof(d->stats));
+    // don't reinitialize stub stats, because this may happen before the
+    // old workers shut down. Rather than add a generational conditional
+    // to __memstore_update_stub_status, we just don't reset the stats.
+    //ngx_memzero(&d->stats, sizeof(d->stats));
+    
     shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
     shmtx_unlock(shm);
   }
