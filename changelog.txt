@@ -1,3 +1,9 @@
+ fix: incorrect stats for nchan_stub_status after reload.
+      (Stats are no longer reset after reload)
+ fix: websocket subscriber may receive two CLOSE frames
+ fix: websocket with ws+meta.nchan subprotocol did not receive empty messages
+ feature: websocket client heartbeats with nchan_websocket_client_heartbeat
+ fix: websocket now echoes code and reason when connection close initiated from client
 1.1.0 (Jan. 4 2017)
  feature: websocket subscribers now receive "application/octet-stream" messages
       in binary frame rather than text
