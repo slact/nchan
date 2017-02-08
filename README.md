@@ -24,7 +24,7 @@ In a web browser, you can use Websocket or EventSource directly, or the [NchanSu
 
 The latest Nchan release is 1.1.1 (February 8, 2017) ([changelog](https://nchan.slact.net/changelog)).
 
-The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016. The present release is in the **testing** phase. The core features and old functionality are thoroughly tested and stable. Some of the new functionality, especially Redis Cluster may be a bit buggy.
+The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
 #### Upgrade from Nginx HTTP Push Module
 
