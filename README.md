@@ -92,7 +92,7 @@ You can now publish messages to channels by `POST`ing data to `/sub?id=channel_i
 
 But Nchan is very flexible and highly configurable. So, of course, it can get a lot more complicated...
 
-## Conceptual Overview
+### Conceptual Overview
 
 The basic unit of most pub/sub solutions is the messaging *channel*. Nchan is no different. Publishers send messages to channels with a certain *channel id*, and subscribers subscribed to those channels receive them. Some number of messages may be buffered for a time in a channel's message buffer before they are deleted. Pretty simple, right? 
 
@@ -122,7 +122,7 @@ http {
 The above maps requests to the URI `/sub` onto the channel `foobar`'s *subscriber endpoint* , and similarly `/pub` onto channel `foobar`'s *publisher endpoint*.
 
 
-#### Publisher Endpoints
+## Publisher Endpoints
 
 Publisher endpoints are Nginx config *locations* with the [*`nchan_publisher`*](#nchan_publisher) directive.
 
@@ -130,7 +130,7 @@ Messages can be published to a channel by sending HTTP **POST** requests with th
 
 <!-- tag:publisher -->
 
-##### Publishing Messages
+### Publishing Messages
 
 Requests and websocket messages are responded to with information about the channel at time of message publication. Here's an example from publishing with `curl`:
 
@@ -157,7 +157,7 @@ The response code for an HTTP request is *`202` Accepted* if no subscribers are 
 
 Metadata can be added to a message when using an HTTP POST request for publishing. A `Content-Type` header will be associated as the message's content type (and output to Long-Poll, Interval-Poll, and multipart/mixed subscribers). A `X-EventSource-Event` header can also be used to associate an EventSource `event:` line value with a message.
 
-##### Other Publisher Endpoint Actions
+### Other Publisher Endpoint Actions
 
 **HTTP `GET`** requests return channel information without publishing a message. The response code is `200` if the channel exists, and `404` otherwise:  
 ```console
@@ -174,13 +174,13 @@ Metadata can be added to a message when using an HTTP POST request for publishin
 
 For an in-depth explanation of how settings are applied to channels from publisher locations, see the [details page](https://nchan.slact.net/details#publisher-endpoint-configs).
 
-#### Subscriber Endpoints
+## Subscriber Endpoints
 
 Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*](#nchan_subscriber) directive.
 
 Nchan supports several different kinds of subscribers for receiving messages: [*Websocket*](#websocket), [*EventSource*](#eventsource) (Server Sent Events),  [*Long-Poll*](#long-polling), [*Interval-Poll*](#interval-polling). [*HTTP chunked transfer*](#http-chunked-transfer), and [*HTTP multipart/mixed*](#http-multipart-mixed).
 
-- ##### Long-Polling
+- ### Long-Polling
   The tried-and-true server-push method supported by every browser out there.  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
   The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
@@ -188,11 +188,11 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
   <!-- tag:subscriber-longpoll -->
   
-- ##### Interval-Polling
+- ### Interval-Polling
   Works just like long-polling, except if the requested message is not yet available, immediately responds with a `304 Not Modified`.
   There is no way to differentiate between long-poll and interval-poll subscriber requests, so long-polling must be disabled for a subscriber location if you wish to use interval-polling.
 
-- ##### Websocket
+- ### Websocket
   Bidirectional communication for web browsers. Part of the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html). Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)).  
   Initiated by sending a websocket handshake to the desired subscriber endpoint location.  
   If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection. Server-initiated keep-alive pings can be configured with the [`nchan_websocket_ping_interval`](#nchan_websocket_ping_interval) config directive. Websocket extensions are not yet supported.  
@@ -209,7 +209,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   Messages are delivered in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is delivered in a `binary` frame.
   <!-- tag:subscriber-websocket -->
   
-- ##### EventSource
+- ### EventSource
   Also known as [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events) or SSE, it predates Websockets in the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html), and is a [very simple protocol](http://www.w3.org/TR/eventsource/#event-stream-interpretation).  
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint with the "`Accept: text/event-stream`" header.    
   Each message `data: ` segment will be prefaced by the message `id: `.  
@@ -220,7 +220,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   A message's associated `event` type, if present, will be sent to this subscriber with the `event:` line.  
   <!-- tag:subscriber-eventsource -->
   
-- ##### HTTP [multipart/mixed](http://www.w3.org/Protocols/rfc1341/7_2_Multipart.html#z0)
+- ### HTTP [multipart/mixed](http://www.w3.org/Protocols/rfc1341/7_2_Multipart.html#z0)
   The `multipart/mixed` MIMEtype was conceived for emails, but hey, why not use it for HTTP? It's easy to parse and includes metadata with each message.  
   Initiated by including an `Accept: multipart/mixed` header.  
   The response headers and the unused "preamble" portion of the response body are sent right away, with the boundary string generated randomly for each subscriber.  Each subsequent message will be sent as one part of the multipart message, and will include the message time and tag (`Last-Modified` and `Etag`) as well as the optional `Content-Type` headers.  
@@ -228,11 +228,11 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
   <!-- tag:subscriber-multipart -->
   
-- ##### HTTP Raw Stream
+- ### HTTP Raw Stream
   A simple subscription method similar to the [streaming subscriber](https://github.com/wandenberg/nginx-push-stream-module/blob/master/docs/directives/subscribers.textile#push_stream_subscriber) of the [Nginx HTTP Push Stream Module](https://github.com/wandenberg/nginx-push-stream-module). Messages are appended to the response body, separated by a newline or configurable by `nchan_subscriber_http_raw_stream_separator`.
   <!-- tag:subscriber-rawstream -->
 
-- ##### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
+- ### HTTP [Chunked Transfer](http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.6.1)
   This subscription method uses the `chunked` `Transfer-Encoding` to receive messages.   
   Initiated by explicitly including `chunked` in the [`TE` header](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.39):  
   `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)  
@@ -242,7 +242,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
 
 <!-- tag:subscriber -->
 
-#### PubSub Endpoint  
+## PubSub Endpoint  
 
 PubSub endpoints are Nginx config *locations* with the [*`nchan_pubsub`*](#nchan_pubsub) directive.
 
@@ -270,7 +270,7 @@ Here, subscribers will listen for messages on channel `foo`, and publishers will
 
 <!-- tag:pubsub -->
 
-### The Channel ID
+## The Channel ID
 
 So far the examples have used static channel ids, which is not very useful in practice. It can be set to any nginx *variable*, such as a querystring argument, a header value, or a part of the location url:
 
@@ -299,7 +299,7 @@ So far the examples have used static channel ids, which is not very useful in pr
 
 <!-- tag:channel-id -->
 
-#### Channel Multiplexing
+### Channel Multiplexing
 
 With channel multiplexing, subscribers can subscribe to up to 255 channels per connection. Messages published to all the specified channels will be delivered in-order to the subscriber. There are two ways to enable multiplexing:
 
@@ -799,6 +799,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `get set delete`  
   context: location  
   > Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group.    
+
+- **nchan_group_location_list_channels** `[ on | off ]`  
+  arguments: 1  
+  default: `off`  
+  context: location  
+  > List channels in the group.    
 
 - **nchan_group_max_channels** `<number>`  
   arguments: 1  
