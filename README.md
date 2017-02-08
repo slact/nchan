@@ -19,8 +19,6 @@ In a web browser, you can use Websocket or EventSource directly, or the [NchanSu
  - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
  - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
  - Highly Available with no single point of failure (using [Redis Cluster](https://nchan.slact.net/details#redis-cluster)).
- 
-<!-- toc -->
 
 ## Status and History
 
