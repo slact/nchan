@@ -1,12 +1,12 @@
-<img class="logo" alt="NCHAN" src="https://nchan.slact.net/github-logo.png" />
+<img class="logo" alt="NCHAN" src="https://nchan.io/github-logo.png" />
 
-https://nchan.slact.net
+https://nchan.io
 
 Nchan is a scalable, flexible pub/sub server for the modern web, built as a module for the [Nginx](http://nginx.org) web server. It can be configured as a standalone server, or as a shim between your application and hundreds, thousands, or millions of live subscribers. It can buffer messages in memory, on-disk, or via [Redis](http://redis.io). All connections are handled asynchronously and distributed among any number of worker processes. It can also scale to many Nginx servers with [Redis](http://redis.io).
 
 Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requests or Websocket, and [subscribed](#subscriber-endpoint) also through [Websocket](#websocket), [long-polling](#long-polling), [EventSource](#eventsource) (SSE), old-fashioned [interval polling](#interval-polling), [and](#http-chunked-transfer) [more](#http-multipart-mixed).
 
-In a web browser, you can use Websocket or EventSource directly, or the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options. It's also available on [NPM](https://www.npmjs.com/package/nchan).
+In a web browser, you can use Websocket or EventSource directly, or the [NchanSubscriber.js](https://github.com/slact/nchan.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options. It's also available on [NPM](https://www.npmjs.com/package/nchan).
 
 ## Features
  - RESTful, HTTP-native [API](#publishing-messages).
@@ -22,18 +22,18 @@ In a web browser, you can use Websocket or EventSource directly, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.1.1 (February 8, 2017) ([changelog](https://nchan.slact.net/changelog)).
+The latest Nchan release is 1.1.1 (February 8, 2017) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
 #### Upgrade from Nginx HTTP Push Module
 
-Although Nchan is backwards-compatible with all Push Module configuration directives, some of the more unusual and rarely used settings have been disabled and will be ignored (with a warning). See the [upgrade page](https://nchan.slact.net/upgrade) for a detailed list of changes and improvements, as well as a full list of incompatibilities.
+Although Nchan is backwards-compatible with all Push Module configuration directives, some of the more unusual and rarely used settings have been disabled and will be ignored (with a warning). See the [upgrade page](https://nchan.io/upgrade) for a detailed list of changes and improvements, as well as a full list of incompatibilities.
 
 
 ## Does it scale?
 
-<img class="benchmark_graph" alt="benchmarking internal subscriber response times" src="https://nchan.slact.net/img/benchmark_internal_total.png" />
+<img class="benchmark_graph" alt="benchmarking internal subscriber response times" src="https://nchan.io/img/benchmark_internal_total.png" />
 
 Yes it does. Like Nginx, Nchan can easily handle as much traffic as you can throw at it. I've tried to benchmark it, but my benchmarking tools are much slower than Nchan. The data I've gathered is on how long Nchan itself takes to respond to every subscriber after publishing a message -- this excludes TCP handshake times and internal HTTP request parsing. Basically, it measures how Nchan scales assuming all other components are already tuned for scalability. The graphed data are averages of 5 runs with 50-byte messages.
 
@@ -46,10 +46,10 @@ With a well-tuned OS and network stack on commodity server hardware, expect to h
  - [Arch Linux](https://archlinux.org): [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.  
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
  - [Debian](https://www.debian.org/): A dynamic module build is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
- Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.slact.net/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.slact.net/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
- - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.slact.net/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.slact.net/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will Nchan to their repository?...
- - [Fedora](https://fedoraproject.org): Dynamic module builds for Nginx > 1.10.0 are available: [nginx-mod-nchan.x86_64.rpm](https://nchan.slact.net/download/nginx-mod-nchan.x86-64.rpm), [nginx-mod-nchan.src.rpm](https://nchan.slact.net/download/nginx-mod-nchan.src.rpm). 
- - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.slact.net/download/nginx-nchan-latest.tar.gz).
+ Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.io/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.io/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
+ - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.io/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.io/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will Nchan to their repository?...
+ - [Fedora](https://fedoraproject.org): Dynamic module builds for Nginx > 1.10.0 are available: [nginx-mod-nchan.x86_64.rpm](https://nchan.io/download/nginx-mod-nchan.x86-64.rpm), [nginx-mod-nchan.src.rpm](https://nchan.io/download/nginx-mod-nchan.src.rpm). 
+ - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.io/download/nginx-nchan-latest.tar.gz).
 
 
 #### Build From Source
@@ -1334,4 +1334,4 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer.    
 
 ## Contribute
-Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 15dLBzRS4HLRwCCVjx4emYkxXcyAPmGxM3 . Other donation methods can be found at https://nchan.slact.net
+Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 15dLBzRS4HLRwCCVjx4emYkxXcyAPmGxM3 . Other donation methods can be found at https://nchan.io
