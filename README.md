@@ -9,16 +9,16 @@ Messages are [published](#publisher-endpoints) to channels with HTTP `POST` requ
 In a web browser, you can use Websocket or EventSource directly, or the [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) wrapper library. It supports Long-Polling, EventSource, and resumable Websockets, and has a few other added convenience options. It's also available on [NPM](https://www.npmjs.com/package/nchan).
 
 ## Features
- - RESTful, HTTP-native API.
- - Supports [Websocket](https://nchan.slact.net/#websocket), [EventSource (Server-Sent Events)](https://nchan.slact.net/#eventsource), [Long-Polling](https://nchan.slact.net/#long-polling) and other HTTP-based subscribers.
- - No-repeat, no-loss message delivery guarantees with per-channel configurable message buffers.
+ - RESTful, HTTP-native [API](#publishing-messages).
+ - Supports [Websocket](#websocket), [EventSource (Server-Sent Events)](#eventsource), [Long-Polling](#long-polling) and other HTTP-based subscribers.
+ - Per-channel configurable message buffers with no-repeat, no-loss message delivery guarantees.
  - Subscribe to [hundreds of channels](#channel-multiplexing) over a single subscriber connection.
- - HTTP request [callbacks and hooks](https://nchan.slact.net/details#application-callbacks) for easy integration.
- - Introspection with [channel events](https://nchan.slact.net/details#channel-events) and [url for monitoring performance statistics](https://nchan.slact.net/details#nchan_stub_status).
- - Channel group usage accounting and limits.
- - Fast ephemeral local message storage and optional, slower, persistent storage with [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server).
- - Horizontally scalable (using [Redis](https://nchan.slact.net/details#connecting-to-a-redis-server)).
- - Highly Available with no single point of failure (using [Redis Cluster](https://nchan.slact.net/details#redis-cluster)).
+ - HTTP request [callbacks and hooks](#hooks-and-callbacks) for easy integration.
+ - Introspection with [channel events](#channel-events) and [url for monitoring performance statistics](#nchan_stub_status).
+ - Channel [group](#channel-groups) usage [accounting and limits](#limits-and-accounting).
+ - Fast, nonblocking [shared-memory local message storage](#memory-storage) and optional, slower, persistent storage with [Redis](#redis).
+ - Horizontally scalable (using [Redis](#redis)).
+ - Auto-failover and [high availability](#high-availability) with no single point of failure using [Redis Cluster](#redis-cluster).
 
 ## Status and History
 
@@ -37,9 +37,8 @@ Although Nchan is backwards-compatible with all Push Module configuration direct
 
 Yes it does. Like Nginx, Nchan can easily handle as much traffic as you can throw at it. I've tried to benchmark it, but my benchmarking tools are much slower than Nchan. The data I've gathered is on how long Nchan itself takes to respond to every subscriber after publishing a message -- this excludes TCP handshake times and internal HTTP request parsing. Basically, it measures how Nchan scales assuming all other components are already tuned for scalability. The graphed data are averages of 5 runs with 50-byte messages.
 
-With a well-tuned OS and network stack on commodity server hardware, expect to handle upwards of 300K concurrent subscribers per second at minimal CPU load. Nchan can also be scaled out to multiple Nginx instances using the [Redis storage engine](#nchan_use_redis), and that too can be scaled up beyond a single-point-of-failure by using [Redis Cluster](https://nchan.slact.net/details#using-redis).
+With a well-tuned OS and network stack on commodity server hardware, expect to handle upwards of 300K concurrent subscribers per second at minimal CPU load. Nchan can also be scaled out to multiple Nginx instances using the [Redis storage engine](#nchan_use_redis), and that too can be scaled up beyond a single-point-of-failure by using [Redis Cluster](#redis-cluster).
 
-Currently, Nchan's main bottleneck is not CPU load but memory bandwidth. This can be improved significantly in future versions with fewer allocations and better use of contiguous memory pools. Please consider supporting Nchan to speed up the work of memory cache optimization.
 
 ## Install
 
@@ -61,7 +60,7 @@ Grab the latest copy of Nginx from [nginx.org](http://nginx.org). Grab the lates
 
 If you're using Nginx  > 1.9.11, you can build Nchan as a [dynamic module](https://www.nginx.com/blog/dynamic-modules-nginx-1-9-11/) with `--add-dynamic-module=path/to/nchan`
 
-Run `make`, `make install`, and enjoy. (Caution, contents may be hot.)
+Run `make`, then `make install`.
 
 ## Getting Started
 
@@ -346,7 +345,7 @@ It is also possible to publish to multiple channels with a single request as wel
 
 When a channel is deleted, all of its messages are deleted, and all of its subscribers' connection are closed -- including ones subscribing through a multiplexed location. For example, suppose a subscriber is subscribed to channels "foo" and "bar" via a single multiplexed connection. If "foo" is deleted, the connection is closed, and the subscriber therefore loses the "bar" subscription as well.
 
-See the [details page](https://nchan.slact.net/details#securing-channels) for more information about using good IDs and keeping channels secure.
+See the [Channel Security](#securing-channels) section about using good IDs and keeping private channels secure.
 
 <!-- tag:channel-multiplexing -->
 
@@ -1048,7 +1047,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Send POST request to internal location (which may proxy to an upstream server) with published message in the request body. Useful for bridging websocket publishers with HTTP applications, or for transforming message via upstream application before publishing to a channel.    
   > The upstream response code determines how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.    
-  [more details](https://nchan.slact.net/details#message-publishing-callbacks)  
+  [more details](#message-forwarding)  
 
 - **nchan_pubsub** `[ http | websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 6  
@@ -1128,19 +1127,19 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
-  [more details](https://nchan.slact.net/details#request-authorization)  
+  [more details](#request-authorization)  
 
 - **nchan_subscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
+  [more details](#subsriber-presence)  
 
 - **nchan_unsubscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](https://nchan.slact.net/details#subsribe-and-unsubscribe-callbacks)  
+  [more details](#subsriber-presence)  
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
@@ -1179,7 +1178,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: http, server, location  
   > Use an upstream config block for Redis servers.    
-  [more details](https://nchan.slact.net/details#using-redis)  
+  [more details](#redis-cluster)  
 
 - **nchan_redis_ping_interval**  
   arguments: 1  
@@ -1191,7 +1190,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: upstream  
   > Used in upstream { } blocks to set redis servers.    
-  [more details](https://nchan.slact.net/details#using-redis)  
+  [more details](#redis-cluster)  
 
 - **nchan_redis_storage_mode** `[ distributed | backup ]`  
   arguments: 1  
@@ -1206,7 +1205,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `127.0.0.1:6379`  
   context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
-  [more details](https://nchan.slact.net/details#using-redis)  
+  [more details](#connecting-to-a-redis-server)  
 
 - **nchan_store_messages** `[ on | off ]`  
   arguments: 1  
@@ -1220,7 +1219,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
-  [more details](https://nchan.slact.net/details#using-redis)  
+  [more details](#connecting-to-a-redis-server)  
 
 - **nchan_access_control_allow_origin** `<string>`  
   arguments: 1  
@@ -1300,13 +1299,13 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'.    
-  [more details](https://nchan.slact.net/details#channel-events)  
+  [more details](#channel-events)  
 
 - **nchan_stub_status**  
   arguments: 0  
   context: location  
   > Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.    
-  [more details](https://nchan.slact.net/details#nchan_stub_status)  
+  [more details](#nchan_stub_status)  
 
 - **nchan_max_channel_id_length** `<number>`  
   arguments: 1  
