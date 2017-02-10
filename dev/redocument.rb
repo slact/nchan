@@ -55,7 +55,7 @@ class CfCmd #let's make a DSL!
     attr_accessor :declaration_order
     
     def initialize(name, func)
-      self.name=name
+      self.name=name.to_sym
       self.set=func
       @tags = []
     end
@@ -189,7 +189,12 @@ class CfCmd #let's make a DSL!
   
   def initialize(&block)
     @cmds=[]
+    @cmds_by_name = {}
     instance_eval &block
+  end
+  
+  def find(command_name)
+    @cmds_by_name[command_name.to_sym]
   end
   
   def method_missing(name, *args)
@@ -221,6 +226,7 @@ class CfCmd #let's make a DSL!
     cmd.tags = opt[:tags] || []
     cmd.uri = opt[:uri]
     cmd.declaration_order = @cmds.count
+    @cmds_by_name[cmd.name] = cmd
     @cmds << cmd if !cmd.disabled && !cmd.undocumented
   end
  
@@ -283,6 +289,16 @@ config_documentation= text_cmds.join "\n\n"
 
 text = File.read(readme_file)
 
+def relevant_commands(cmds)
+  cmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
+    
+  if cmds.count > 0
+    "<p class=\"relevant-directives\">\n related configuration: #{cmds.join ", "}</p>"
+  else 
+    ""
+  end
+end
+
 if opt[:nchapp]
   #remove first line
   text.sub!(/^<.*?>$\n\n?/m, "")
@@ -298,14 +314,13 @@ if opt[:nchapp]
   text.gsub! /<!--\s?tag:\s?(\S+)\s?-->/ do |whole|
     tag = Regexp.last_match[1]
     mycmds = cmds.select{|cmd| cmd.tags.member? tag}
-    
-    mycmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
-    
-    if mycmds.count > 0
-      "<p class=\"relevant-directives\">\n related configuration: #{mycmds.join ", "}</p>"
-    else 
-      ""
-    end
+    relevant_commands mycmds
+  end
+  
+  text.gsub! /<!--\s?commands?:\s?(.+)\s?-->/ do |whole|
+    cmds = Regexp.last_match[1]
+    cmds = cmds.split(" ").map {|c| cf.find(c)}.compact
+    relevant_commands cmds
   end
 end
 
