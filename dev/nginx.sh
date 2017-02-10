@@ -72,6 +72,9 @@ for opt in $*; do
       VALGRIND_OPT=( "--tool=massif" "--heap=yes" "--stacks=yes" "--massif-out-file=massif-nginx-%p.out")
       valgrind=1
       ;;
+    sanitize-undefined)
+      FSANITIZE_UNDEFINED=1
+      ;;
     callgrind|profile)
       VALGRIND_OPT=( "--tool=callgrind" "--collect-jumps=yes"  "--collect-systime=yes" "--branch-sim=yes" "--cache-sim=yes" "--simulate-hwpref=yes" "--simulate-wb=yes" "--callgrind-out-file=callgrind-nginx-%p.out")
       valgrind=1;;
