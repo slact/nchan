@@ -169,7 +169,7 @@ Metadata can be added to a message when using an HTTP POST request for publishin
 
 **HTTP `DELETE`** requests delete a channel and end all subscriber connections. Like the `GET` requests, this returns a `200` status response with channel info if the channel existed, and a `404` otherwise.
 
-### How Configuration is Applied
+### How Channel Settings Work
 
 *A channel's configuration is set to the that of its last-used publishing location.*
 So, if you want a channel to behave consistently, and want to publish to it from multiple locations, *make sure those locations have the same configuration*.
@@ -478,7 +478,7 @@ If a publisher or subscriber request exceeds a group limit, Nchan will respond t
   
 ### Request Authorization
 
-This method, configured with [`nchan_authorize_request`](/#nchan_authorize_request), behaves just like the Nginx [http_auth_request module](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html#auth_request_set).
+This feature, configured with [`nchan_authorize_request`](#nchan_authorize_request), behaves just like the Nginx [http_auth_request module](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html#auth_request_set).
 
 Consider the configuration:
 ```nginx
@@ -511,10 +511,10 @@ Note that Websocket and EventSource clients will only try to authorize during th
 
 <!-- commands: nchan_authorize_request -->
 
-### Subsriber Presence
+### Subscriber Presence
 
-Subscribers can report to an application when they have swubscribed and unsubscribed to a channel using the [`nchan_subscribe_request`](/#nchan_subscribe_request)
-and [`nchan_unsubscribe_request`](/#nchan_unsubscribe_request) settings. 
+Subscribers can notify an application when they have subscribed and unsubscribed to a channel using the [`nchan_subscribe_request`](#nchan_subscribe_request)
+and [`nchan_unsubscribe_request`](#nchan_unsubscribe_request) settings. 
 These should point to Nginx locations configured to forward requests to an upstream proxy (your application):
 
 ```nginx
@@ -712,7 +712,7 @@ Deleting `/pubsub/foo` (with HTTP `DELETE /pubsub/foo`):
 channel_delete foo
 ```
 
-The event string itself is configirable with [nchan_channel_event_string](/#nchan_channel_event_string). By default, it is set to `$nchan_channel_event $nchan_channel_id`. 
+The event string itself is configirable with [nchan_channel_event_string](#nchan_channel_event_string). By default, it is set to `$nchan_channel_event $nchan_channel_id`. 
 This string can use any Nginx and [Nchan variables](/$variables).
 
 
@@ -845,7 +845,7 @@ http {
 
 Here, the subscriber endpoint is available on a public-facing port 80, and the publisher endpoint is only available on localhost, so can be accessed only by applications residing on that machine.
 
-### Keeping the Channel Private
+### Keeping a Channel Private
 
 A Channel ID that is meant to be private should be treated with the same care as a session ID token. Considering the above use case of one-channel-per-user, how can we ensure that only the authenticated user, and no one else, is able to access his channel? 
 
@@ -884,7 +884,7 @@ An ID that can be guessed is an ID that can be hijacked. If you are not authenti
 
 #### X-Accel-Redirect
 
-This method uses the [X-Accel feature](https://www.nginx.com/resources/wiki/start/topics/examples/x-accel) of Nginx upstream proxies to perform an internal request to a subscriber endpoint.
+This feature uses the [X-Accel feature](https://www.nginx.com/resources/wiki/start/topics/examples/x-accel) of Nginx upstream proxies to perform an internal request to a subscriber endpoint.
 It allows a subscriber client to be authenticated by your application, and then redirected by nginx internally to a location chosen by your appplication (such as a publisher or subscriber endpoint). This makes it possible to have securely authenticated clients that are unaware of the channel id they are subscribed to.
 
 Consider the following configuration:
