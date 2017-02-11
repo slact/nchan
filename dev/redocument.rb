@@ -126,7 +126,7 @@ class CfCmd #let's make a DSL!
       end
       
       if uri
-        url = opt[:nchapp] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
+        url = opt[:nchapp] ? uri : (uri[0]=='/' ? "https://nchan.io#{uri}" : uri)
         lines << "  [more details](#{url})"
       end
       
@@ -303,7 +303,7 @@ if opt[:nchapp]
   #remove first line
   text.sub!(/^<.*?>$\n\n?/m, "")
   #remove second line
-  text.sub!(/^https:\/\/nchan.slact.net$\n\n?/m, "")
+  text.sub!(/^https:\/\/nchan.io$\n\n?/m, "")
   
   # add an #about link
   text.prepend "<a id=\"about\"></a>\n"
@@ -380,7 +380,7 @@ if opt[:newversion]
 end
 
 if opt[:nchapp]
-  text.gsub!(/https:\/\/nchan\.slact\.net\//, "/")
+  text.gsub!(/https:\/\/nchan\.io\//, "/")
 end
 
 case opt[:out]
