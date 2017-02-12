@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 require "date"
 require "optparse"
+require "pry"
 
 opt = {
   out: :readme,
@@ -293,7 +294,7 @@ def relevant_commands(cmds)
   cmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
     
   if cmds.count > 0
-    "<p class=\"relevant-directives\">\n related configuration: #{cmds.join ", "}</p>"
+    "<div class=\"relevant-directives\">\n related configuration: #{cmds.join ", "}</div>"
   else 
     ""
   end
