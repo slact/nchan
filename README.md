@@ -14,7 +14,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
  - Per-channel configurable message buffers with no-repeat, no-loss message delivery guarantees.
  - Subscribe to [hundreds of channels](#channel-multiplexing) over a single subscriber connection.
  - HTTP request [callbacks and hooks](#hooks-and-callbacks) for easy integration.
- - Introspection with [channel events](#channel-events) and [url for monitoring performance statistics](#nchan_stub_status).
+ - Introspection with [channel events](#channel-events) and [url for monitoring performance statistics](#nchan_stub_status-stats).
  - Channel [group](#channel-groups) usage [accounting and limits](#limits-and-accounting).
  - Fast, nonblocking [shared-memory local message storage](#memory-storage) and optional, slower, persistent storage with [Redis](#redis).
  - Horizontally scalable (using [Redis](#redis)).
@@ -716,7 +716,7 @@ The event string itself is configirable with [nchan_channel_event_string](#nchan
 This string can use any Nginx and [Nchan variables](/$variables).
 
 
-### nchan_stub_status
+### nchan_stub_status Stats
 
 Like Nginx's [stub_status](https://nginx.org/en/docs/http/ngx_http_stub_status_module.html),
 `nchan_stub_status` is used to get performance metrics.
