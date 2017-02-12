@@ -189,7 +189,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   Initiated by sending an HTTP `GET` request to a channel subscriber endpoint.  
   The long-polling subscriber walks through a channel's message queue via the built-in cache mechanism of HTTP clients, namely with the "`Last-Modified`" and "`Etag`" headers. Explicitly, to receive the next message for given a long-poll subscriber response, send a request with the "`If-Modified-Since`" header set to the previous response's "`Last-Modified`" header, and "`If-None-Match`" likewise set to the previous response's "`Etag`" header.  
   Sending a request without a "`If-Modified-Since`" or "`If-None-Match`" headers returns the oldest message in a channel's message queue, or waits until the next published message, depending on the value of the `nchan_subscriber_first_message` config directive.  
-  A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.
+  A message's associated content type, if present, will be sent to this subscriber with the `Content-Type` header.  
   <!-- tag:subscriber-longpoll -->
   
 - ### Interval-Polling
@@ -210,7 +210,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   </pre>   
   The `content-type:` line may be omitted.  
     
-  Messages are delivered in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is delivered in a `binary` frame.
+  Messages are delivered in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is delivered in a `binary` frame.  
   <!-- tag:subscriber-websocket -->
   
 - ### EventSource
