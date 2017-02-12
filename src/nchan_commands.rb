@@ -199,7 +199,7 @@ CfCmd.new do
       tags:['subscriber-websocket'],
       value: "<heartbeat_in> <heartbeat_out>",
       default: "none (disabled)",
-      info: "Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this oversight, this setting can be used to respond to set up a PING/PONG - like connection heartbeat. When the client sends the server messave <heartbeat_in> (PING), the server automatically responds with <heartbeat_out> (PONG)."
+      info: "Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this oversight, this setting can be used to respond to set up a PING/PONG - like connection heartbeat. When the client sends the server message *heartbeat_in* (PING), the server automatically responds with *heartbeat_out* (PONG)."
   
   nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
