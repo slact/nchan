@@ -745,59 +745,18 @@ total interprocess receive delay: 0
 ```
 
 Here's what each line means, and how to interpret it:
-
-<table class="nchan-stub-status">
-  <tr>
-    <th>total published messages</th>
-    <td>Number of messages published to all channels through this Nchan server.</td>
-  </tr>
-  <tr>
-    <th>stored messages</th>
-    <td>Number of messages currently buffered in memory</td>
-  </tr>
-  <tr>
-    <th>shared memory used</th>
-    <td>
-      Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_max_reserved_memory`W.
-    </td>
-  </tr>
-  <tr>
-    <th>channels</th>
-    <td>Number of channels present on this Nchan server.</td>
-  </tr>
-  <tr>
-    <th>subscribers</th>
-    <td>Number of subscribers to all channels on this Nchan server.</td>
-  </tr>
-  <tr>
-    <th>redis pending commands</th>
-    <td>Number of commands sent to Redis that are awaiting a reply. May spike during high load, especially if the Redis server is overloaded. Should tend towards 0.</td>
-  </tr>
-  <tr>
-    <th>redis connected servers</th>
-    <td>Number of redis servers to which Nchan is currently connected.</td>
-  </tr>
-  <tr>
-    <th>total interprocess alerts received</th>
-    <td>Number of interprocess communication packets transmitted between Nginx workers processes for Nchan. Can grow at 100-10000 per second at high load.</td>
-  </tr>
-  <tr>
-    <th>interprocess alerts in transit</th>
-    <td>Number of interprocess communication packets in transit between Nginx workers. May be nonzero during high load, but should always tend toward 0 over time.</td>
-  </tr>
-  <tr>
-    <th>interprocess queued alerts</th>
-    <td>Number of interprocess communication packets waiting to be sent. May be nonzero during high load, but should always tend toward 0 over time.</td>
-  </tr>
-  <tr>
-    <th>total interprocess send delay</th>
-    <td>Total amount of time interprocess communication packets spend being queued if delayed. May increase during high load.</td>
-  </tr>
-  <tr>
-    <th>total interprocess receive delay</th>
-    <td>Total amount of time interprocess communication packets spend in transit if delayed. May increase during high load.</td>
-  </tr>
-</table>
+  - `total published messages`: Number of messages published to all channels through this Nchan server.
+  - `stored messages`: Number of messages currently buffered in memory
+  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_max_reserved_memory`W.
+  - `channels`: Number of channels present on this Nchan server.
+  - `subscribers`: Number of subscribers to all channels on this Nchan server.
+  - `redis pending commands`: Number of commands sent to Redis that are awaiting a reply. May spike during high load, especially if the Redis server is overloaded. Should tend towards 0.
+  - `redis connected servers`: Number of redis servers to which Nchan is currently connected.
+  - `total interprocess alerts received`: Number of interprocess communication packets transmitted between Nginx workers processes for Nchan. Can grow at 100-10000 per second at high load.
+  - `interprocess alerts in transit`: Number of interprocess communication packets in transit between Nginx workers. May be nonzero during high load, but should always tend toward 0 over time.
+  - `interprocess queued alerts`: Number of interprocess communication packets waiting to be sent. May be nonzero during high load, but should always tend toward 0 over time.
+  - `total interprocess send delay`: Total amount of time interprocess communication packets spend being queued if delayed. May increase during high load.
+  - `total interprocess receive delay`: Total amount of time interprocess communication packets spend in transit if delayed. May increase during high load.
 
 Additionally, when there is at least one `nchan_stub_status` location, the following Nginx variables are available:
   - `$nchan_stub_status_total_published_messages`  
