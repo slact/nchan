@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 require "date"
 require "optparse"
+require "pry"
 
 opt = {
   out: :readme,
@@ -55,7 +56,7 @@ class CfCmd #let's make a DSL!
     attr_accessor :declaration_order
     
     def initialize(name, func)
-      self.name=name
+      self.name=name.to_sym
       self.set=func
       @tags = []
     end
@@ -126,7 +127,7 @@ class CfCmd #let's make a DSL!
       end
       
       if uri
-        url = opt[:nchapp] ? uri : (uri[0]=='/' ? "https://nchan.slact.net#{uri}" : uri)
+        url = opt[:nchapp] ? uri : (uri[0]=='/' ? "https://nchan.io#{uri}" : uri)
         lines << "  [more details](#{url})"
       end
       
@@ -189,7 +190,12 @@ class CfCmd #let's make a DSL!
   
   def initialize(&block)
     @cmds=[]
+    @cmds_by_name = {}
     instance_eval &block
+  end
+  
+  def find(command_name)
+    @cmds_by_name[command_name.to_sym]
   end
   
   def method_missing(name, *args)
@@ -221,6 +227,7 @@ class CfCmd #let's make a DSL!
     cmd.tags = opt[:tags] || []
     cmd.uri = opt[:uri]
     cmd.declaration_order = @cmds.count
+    @cmds_by_name[cmd.name] = cmd
     @cmds << cmd if !cmd.disabled && !cmd.undocumented
   end
  
@@ -283,11 +290,21 @@ config_documentation= text_cmds.join "\n\n"
 
 text = File.read(readme_file)
 
+def relevant_commands(cmds)
+  cmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
+    
+  if cmds.count > 0
+    "<div class=\"relevant-directives\">\n related configuration: #{cmds.join ", "}</div>"
+  else 
+    ""
+  end
+end
+
 if opt[:nchapp]
   #remove first line
   text.sub!(/^<.*?>$\n\n?/m, "")
   #remove second line
-  text.sub!(/^https:\/\/nchan.slact.net$\n\n?/m, "")
+  text.sub!(/^https:\/\/nchan.io$\n\n?/m, "")
   
   # add an #about link
   text.prepend "<a id=\"about\"></a>\n"
@@ -298,14 +315,13 @@ if opt[:nchapp]
   text.gsub! /<!--\s?tag:\s?(\S+)\s?-->/ do |whole|
     tag = Regexp.last_match[1]
     mycmds = cmds.select{|cmd| cmd.tags.member? tag}
-    
-    mycmds.map! { |cmd| "<a class=\"directive\" href=\"##{cmd.name}\">#{cmd.name}</a>" }
-    
-    if mycmds.count > 0
-      "<p class=\"relevant-directives\">\n related configuration: #{mycmds.join ", "}</p>"
-    else 
-      ""
-    end
+    relevant_commands mycmds
+  end
+  
+  text.gsub! /<!--\s?commands?:\s?(.+)\s?-->/ do |whole|
+    cmds = Regexp.last_match[1]
+    cmds = cmds.split(" ").map {|c| cf.find(c)}.compact
+    relevant_commands cmds
   end
 end
 
@@ -365,7 +381,7 @@ if opt[:newversion]
 end
 
 if opt[:nchapp]
-  text.gsub!(/https:\/\/nchan\.slact\.net\//, "/")
+  text.gsub!(/https:\/\/nchan\.io\//, "/")
 end
 
 case opt[:out]

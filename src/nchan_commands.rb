@@ -30,7 +30,7 @@ CfCmd.new do
       group: "pubsub",
       tags: [ 'publisher', 'hook' ],
       value: "<url>",
-      uri: "/details#message-publishing-callbacks",
+      uri: "#message-forwarding",
       info: <<-EOS.gsub(/^ {8}/, '')
         Send POST request to internal location (which may proxy to an upstream server) with published message in the request body. Useful for bridging websocket publishers with HTTP applications, or for transforming message via upstream application before publishing to a channel.  
         The upstream response code determines how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.
@@ -199,7 +199,7 @@ CfCmd.new do
       tags:['subscriber-websocket'],
       value: "<heartbeat_in> <heartbeat_out>",
       default: "none (disabled)",
-      info: "Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this oversight, this setting can be used to respond to set up a PING/PONG - like connection heartbeat. When the client sends the server messave <heartbeat_in> (PING), the server automatically responds with <heartbeat_out> (PONG)."
+      info: "Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this oversight, this setting can be used to respond to set up a PING/PONG - like connection heartbeat. When the client sends the server message *heartbeat_in* (PING), the server automatically responds with *heartbeat_out* (PONG)."
   
   nchan_publisher [:srv, :loc, :if],
       :nchan_publisher_directive,
@@ -235,7 +235,7 @@ CfCmd.new do
       tags: ['publisher', 'subscriber', 'hook'],
       value: "<url>",
       info: "Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.",
-      uri: "/details#request-authorization"
+      uri: "#request-authorization"
   
   nchan_subscribe_request [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
@@ -245,7 +245,7 @@ CfCmd.new do
       tags: ['subscriber', 'hook'],
       value: "<url>",
       info: "Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.",
-      uri: "/details#subsribe-and-unsubscribe-callbacks"
+      uri: "#subsriber-presence"
   
   nchan_unsubscribe_request [:srv, :loc, :if], 
       :ngx_http_set_unsubscribe_request_url,
@@ -255,7 +255,7 @@ CfCmd.new do
       tags: ['subscriber', 'hook'],
       value: "<url>",
       info: "Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.",
-      uri: "/details#subsribe-and-unsubscribe-callbacks"
+      uri: "#subsriber-presence"
   
   nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,
@@ -288,7 +288,7 @@ CfCmd.new do
       tags: ['redis'],
       default: "127.0.0.1:6379",
       info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.",
-      uri: "/details#using-redis"
+      uri: "#connecting-to-a-redis-server"
   
   nchan_redis_pass [:main, :srv, :loc],
       :ngx_conf_set_redis_upstream_pass,
@@ -297,7 +297,7 @@ CfCmd.new do
       group: "storage",
       tags: ['publisher', 'subscriber', 'redis'],
       info: "Use an upstream config block for Redis servers.",
-      uri: "/details#using-redis"
+      uri: "#redis-cluster"
   
   nchan_redis_pass_inheritable [:main, :srv, :loc],
       :ngx_conf_set_flag_slot,
@@ -318,7 +318,7 @@ CfCmd.new do
       group: "storage",
       tags: ['redis'],
       info: "Used in upstream { } blocks to set redis servers.",
-      uri: "/details#using-redis"
+      uri: "#redis-cluster"
   
   nchan_redis_storage_mode [:main, :srv, :upstream], 
       :ngx_conf_set_redis_storage_mode_slot,
@@ -343,7 +343,7 @@ CfCmd.new do
       value: [ :on, :off ],
       default: :off,
       info: "Use redis for message storage at this location.", 
-      uri: "/details#using-redis"
+      uri: "#connecting-to-a-redis-server"
   
   nchan_redis_ping_interval [:main, :srv, :loc],
       :ngx_conf_set_sec_slot,
@@ -514,8 +514,8 @@ CfCmd.new do
       args: 1,
       
       group: "meta",
-      tags: ['publisher', 'subscriber', 'channel-events'],
-      uri: "/details#channel-events",
+      tags: ['publisher', 'subscriber', 'channel-events', 'introspection'],
+      uri: "#channel-events",
       info: "Channel id where `nchan_channel_id`'s events should be sent. Events like subscriber enqueue/dequeue, publishing messages, etc. Useful for application debugging. The channel event message is configurable via nchan_channel_event_string. The channel group for events is hardcoded to 'meta'."
   
   nchan_stub_status [:loc],
@@ -524,15 +524,16 @@ CfCmd.new do
       args: 0,
       
       group: "meta",
+      tags: ['introspection'],
       info: "Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.",
-      uri: "/details#nchan_stub_status"
+      uri: "#nchan_stub_status"
   
   nchan_channel_event_string [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :channel_event_string],
       
       group: "meta",
-      tags: ['publisher', 'subscriber', 'channel-events'],
+      tags: ['publisher', 'subscriber', 'channel-events', 'introspection'],
       value: "<string>",
       default: "\"$nchan_channel_event $nchan_channel_id\"",
       info: "Contents of channel event message"
