@@ -120,8 +120,8 @@ _build_nginx() {
   echo $_source
   echo $_no_pool_patch_source
   
-  wget $_source
-  wget $_no_pool_patch_source
+  wget --no-clobber $_source
+  wget --no-clobber $_no_pool_patch_source
 
   if [[ -z $NO_EXTRACT_SOURCE ]]; then
     pushd src
