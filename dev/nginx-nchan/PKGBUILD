@@ -109,11 +109,7 @@ license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom-dev' 'nginx-custom-slact') 
 provides=('nginx' 'nginx-custom')
 
-if [[ -n $USE_OPENRESTY ]]; then
-  _conf_path="${_sysconf_path}/${_pkgname}/nginx"
-else
-  _conf_path="${_sysconf_path}/${_pkgname}"
-fi
+_conf_path="${_sysconf_path}/${_pkgname}"
 _nginxconf_path="${_conf_path}/conf/nginx.conf"
 
 backup=("${_nginxconf_path}"
@@ -201,8 +197,18 @@ build() {
 
   CFLAGS="${CFLAGS/-Werror/}" #no warning-as-error
   
-  CONFIGURE=(
-    --prefix=/${_conf_path}
+  CONFIGURE=()
+  
+  if [[ -z $DEFAULT_PREFIX ]]; then
+    if [[ -n $CUSTOM_PREFIX ]]; then
+      _prefix_path=$CUSTOM_PREFIX
+    else
+      _prefix_path="/${_conf_path}"
+    fi
+    CONFIGURE+=( --prefix=$_prefix_path )
+  fi
+  
+  CONFIGURE+=(
     --sbin-path=/usr/bin/nginx
     --pid-path=${_pid_path}/nginx.pid
     --lock-path=${_pid_path}/nginx.lock

@@ -85,6 +85,10 @@ for opt in $*; do
     stub_status)
       export WITH_STUB_STATUS_MODULE=1
       ;;
+    default_prefix)
+      export DEFAULT_PREFIX=1;;
+    custom_prefix=*)
+      export CUSTOM_PREFIX="${opt:14}";;
     openresty)
       export USE_OPENRESTY=1;;
     lua_stream_module)
