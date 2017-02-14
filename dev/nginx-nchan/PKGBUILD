@@ -218,6 +218,10 @@ build() {
   if [[ -n $WITH_STREAM_MODULE ]]; then
     CONFIGURE+=( --with-stream )
   fi
+
+  if [[ -n $WITH_STUB_STATUS_MODULE ]]; then
+    CONFIGURE+=( --with-http_stub_status_module )
+  fi
   
   if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
     CONFIGURE+=( --add-module=../stream-lua-nginx-module-${_lua_stream_module_ver} )

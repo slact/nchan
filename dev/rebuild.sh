@@ -82,6 +82,9 @@ for opt in $*; do
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
       mkdir $CLANG_ANALYZER 2>/dev/null
       ;;
+    stub_status)
+      export WITH_STUB_STATUS_MODULE=1
+      ;;
     openresty)
       export USE_OPENRESTY=1;;
     lua_stream_module)
