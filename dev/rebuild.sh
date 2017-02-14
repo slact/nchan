@@ -82,6 +82,12 @@ for opt in $*; do
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
       mkdir $CLANG_ANALYZER 2>/dev/null
       ;;
+    openresty)
+      export USE_OPENRESTY=1;;
+    lua_stream_module)
+      export WITH_LUA_STREAM_MODULE=1
+      export WITH_STREAM_MODULE=1
+      ;;
   esac
 done
 
@@ -111,15 +117,15 @@ _build_nginx() {
   pkgdir="${startdir}/pkg/${pkgname}"
   mkdir -p "$srcdir" "$pkgdir"
 
-  echo $_nginx_source
+  echo $_source
   echo $_no_pool_patch_source
   
-  wget --no-clobber $_nginx_source
-  wget --no-clobber $_no_pool_patch_source
+  wget $_source
+  wget $_no_pool_patch_source
 
   if [[ -z $NO_EXTRACT_SOURCE ]]; then
     pushd src
-    _nginx_src_file="${_nginx_source##*/}"
+    _nginx_src_file="${_source##*/}"
     echo $_nginx_src_file
     tar xf "../${_nginx_src_file}"
     cp "../${_no_pool_patch_source##*/}" ./
@@ -133,8 +139,8 @@ _build_nginx() {
     popd
   fi
 
-  rm "${srcdir}/nginx"  
-  ln -sf "${srcdir}/nginx-${_nginx_ver}" "${srcdir}/nginx"
+  rm "${srcdir}/nginx"
+  ln -sf "${srcdir}/${_extracted_dir}" "${_srcdir}/nginx"
   
   build
 

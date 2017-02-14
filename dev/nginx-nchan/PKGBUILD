@@ -7,6 +7,11 @@ _nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
 _ngx_echo_module_ver=0.60
 
+_openresty_ver=1.9.15.1
+if [[ -n $OPENRESTY_CUSTOM_VERSION ]]; then
+  _openresty_ver=$OPENRESTY_CUSTOM_VERSION
+fi
+
 OPTIONS=(!strip debug docs libtool staticlibs emptydirs zipman purge !upx)
 if [[ -z $NO_DEBUG ]]; then
   #debug build. clear cflags
@@ -77,7 +82,6 @@ _user="http"
 _group="http"
 _doc_root="/usr/share/${_pkgname}/http"
 _sysconf_path="etc"
-_conf_path="${_sysconf_path}/${_pkgname}"
 _tmp_path="/tmp"
 _pid_path="/run"
 _lock_path="/var/lock"
@@ -104,7 +108,15 @@ url="http://nginx.org"
 license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom-dev' 'nginx-custom-slact') 
 provides=('nginx' 'nginx-custom')
-backup=("${_conf_path}/conf/nginx.conf"
+
+if [[ -n $USE_OPENRESTY ]]; then
+  _conf_path="${_sysconf_path}/${_pkgname}/nginx"
+else
+  _conf_path="${_sysconf_path}/${_pkgname}"
+fi
+_nginxconf_path="${_conf_path}/conf/nginx.conf"
+
+backup=("${_nginxconf_path}"
   "${_conf_path}/conf/koi-win"
   "${_conf_path}/conf/koi-utf"
   "${_conf_path}/conf/win-utf"
@@ -119,13 +131,26 @@ _group=http
 
 _nginx_source="http://nginx.org/download/nginx-${_nginx_ver}.tar.gz"
 
+_openresty_source="https://openresty.org/download/openresty-${_openresty_ver}.tar.gz"
+
 _nginx_git_source="git+https://github.com/nginx/nginx.git${_nginx_git_source_fragment}"
 
 _no_pool_patch_source="https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
 _ngx_debug_pool_url="https://github.com/chobits/ngx_debug_pool.git"
 _ngx_echo_module="https://github.com/openresty/echo-nginx-module/archive/v${_ngx_echo_module_ver}.tar.gz"
 
-source=("$_nginx_git_source"
+_lua_stream_module_ver=0.0.1
+_lua_stream_module_src="https://github.com/openresty/stream-lua-nginx-module/archive/v${_lua_stream_module_ver}.tar.gz"
+
+if [[ -n $USE_OPENRESTY ]]; then
+  _source=$_openresty_source
+  _extracted_dir="openresty-${_openresty_ver}"  
+else
+  _source=$_nginx_git_source
+  _extracted_dir="nginx"
+fi
+
+source=("$_source"
   "nginx.conf"
   "nginx.logrotate"
   "nginx.service"
@@ -143,12 +168,17 @@ md5sums=('SKIP'
          'SKIP'
 	 'SKIP')
 
+if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
+  source+=( "$_lua_stream_module_src" )
+  md5sums+=( 'SKIP')
+fi
+
 build() {
-  local _src_dir="${srcdir}/nginx-$_nginx_ver"
+  local _src_dir="${srcdir}/${_extracted_dir}"
   #ln -sfT "$_src_dir" "$srcdir/nginx"
   ln -sfT "$_nchan_dir" "$srcdir/nchan"
   local _build_dir="${_src_dir}/objs"
-  cd "$srcdir/nginx"
+  cd "$srcdir/${_extracted_dir}"
   
   if [[ -z $CONTINUE ]] && [[ -z $NO_EXTRACT_SOURCE ]]; then
     if [[ $NO_POOL == 1 ]]; then
@@ -185,6 +215,14 @@ build() {
     --with-http_ssl_module
   )
 
+  if [[ -n $WITH_STREAM_MODULE ]]; then
+    CONFIGURE+=( --with-stream )
+  fi
+  
+  if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
+    CONFIGURE+=( --add-module=../stream-lua-nginx-module-${_lua_stream_module_ver} )
+  fi
+  
   if [[ $DYNAMIC == 1 ]]; then
     CONFIGURE+=( --add-dynamic-module=../nchan )
   else
@@ -261,16 +299,16 @@ build() {
 
 package() {
   echo "make install >/dev/null"
-  cd "${srcdir}/nginx"
+  cd "${srcdir}/${_extracted_dir}"
   make DESTDIR="$pkgdir/" install >/dev/null
-  
-  sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/$_conf_path/conf/nginx.conf
-  
-  install -d "${pkgdir}/${_tmp_path}" 
-  install -d "${pkgdir}/${_doc_root}" 
-  
-  mv "${pkgdir}/${_conf_path}/html/"* "${pkgdir}/${_doc_root}"
-  rm -rf "${pkgdir}/${_conf_path}/html"
+  if [[ -z $USE_OPENRESTY ]]; then
+    sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/${_nginxconf_path}
+    install -d "${pkgdir}/${_tmp_path}" 
+    install -d "${pkgdir}/${_doc_root}" 
+    
+    mv "${pkgdir}/${_conf_path}/html/"* "${pkgdir}/${_doc_root}"
+    rm -rf "${pkgdir}/${_conf_path}/html"
+  fi
   
   #install -D -m644 "${srcdir}/nginx.logrotate" "${pkgdir}/etc/logrotate.d/${_pkgname}" #no default logrotate.
   install -D -m644 "${srcdir}/nginx.conf" "${pkgdir}/etc/conf.d/nginx"
