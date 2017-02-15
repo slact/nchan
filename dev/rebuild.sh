@@ -106,14 +106,14 @@ export NO_WITH_DEBUG=$NO_WITH_DEBUG;
 
 _build_nginx() {
 
-  #if type "makepkg" > /dev/null; then
-  #  if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
-  #    makepkg -f -e
-  #  else
-  #    makepkg -f
-  #  fi
-  #  return 0
-  #fi
+  if type "makepkg" > /dev/null; then
+    if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
+      makepkg -f -e
+    else
+      makepkg -f
+    fi
+    return 0
+  fi
 
   export NO_MAKEPKG=1
   export NO_NGINX_USER=1
