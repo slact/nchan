@@ -87,8 +87,8 @@ for opt in $*; do
       ;;
     default_prefix)
       export DEFAULT_PREFIX=1;;
-    custom_prefix=*)
-      export CUSTOM_PREFIX="${opt:14}";;
+    prefix=*)
+      export CUSTOM_PREFIX="${opt:7}";;
     openresty)
       export USE_OPENRESTY=1;;
     openresty=*)

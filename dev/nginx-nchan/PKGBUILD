@@ -326,7 +326,7 @@ build() {
 package() {
   echo "make install"
   cd "${srcdir}/${_extracted_dir}"
-  make DESTDIR="$pkgdir/" install
+  make DESTDIR="$pkgdir/" install >/dev/null
   sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/${_nginxconf_path}
   install -d "${pkgdir}/${_tmp_path}" 
   install -d "${pkgdir}/${_doc_root}" 
