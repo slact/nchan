@@ -81,7 +81,6 @@ PKGEXT=".pkg.tar"
 _user="http"
 _group="http"
 _doc_root="/usr/share/${_pkgname}/http"
-_sysconf_path="etc"
 _tmp_path="/tmp"
 _pid_path="/run"
 _lock_path="/var/lock"
@@ -109,7 +108,29 @@ license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom-dev' 'nginx-custom-slact') 
 provides=('nginx' 'nginx-custom')
 
-_conf_path="${_sysconf_path}/${_pkgname}"
+if [[ -n $USE_OPENRESTY ]]; then
+  _name="openresty"
+else
+  _name="nginx"
+fi
+
+
+if [[ -z $DEFAULT_PREFIX ]]; then
+  if [[ -n $CUSTOM_PREFIX ]]; then
+    _prefix_path=$CUSTOM_PREFIX
+  else
+    _prefix_path="/etc/$_name"
+  fi
+else
+  _prefix_path="/usr/local/$_name"
+fi
+
+if [[ -n $USE_OPENRESTY ]]; then
+  _conf_path="${_prefix_path:1}/nginx"
+else
+  _conf_path="${_prefix_path:1}"
+fi
+
 _nginxconf_path="${_conf_path}/conf/nginx.conf"
 
 backup=("${_nginxconf_path}"
@@ -200,11 +221,6 @@ build() {
   CONFIGURE=()
   
   if [[ -z $DEFAULT_PREFIX ]]; then
-    if [[ -n $CUSTOM_PREFIX ]]; then
-      _prefix_path=$CUSTOM_PREFIX
-    else
-      _prefix_path="/${_conf_path}"
-    fi
     CONFIGURE+=( --prefix=$_prefix_path )
   fi
   
@@ -308,17 +324,16 @@ build() {
 }
 
 package() {
-  echo "make install >/dev/null"
+  echo "make install"
   cd "${srcdir}/${_extracted_dir}"
-  make DESTDIR="$pkgdir/" install >/dev/null
-  if [[ -z $USE_OPENRESTY ]]; then
-    sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/${_nginxconf_path}
-    install -d "${pkgdir}/${_tmp_path}" 
-    install -d "${pkgdir}/${_doc_root}" 
+  make DESTDIR="$pkgdir/" install
+  sed -i -e "s/\<user\s\+\w\+;/user $_user;/g" $pkgdir/${_nginxconf_path}
+  install -d "${pkgdir}/${_tmp_path}" 
+  install -d "${pkgdir}/${_doc_root}" 
     
-    mv "${pkgdir}/${_conf_path}/html/"* "${pkgdir}/${_doc_root}"
-    rm -rf "${pkgdir}/${_conf_path}/html"
-  fi
+  mv "${pkgdir}/${_conf_path}/html/"* "${pkgdir}/${_doc_root}"
+  rm -rf "${pkgdir}/${_conf_path}/html"
+  
   
   #install -D -m644 "${srcdir}/nginx.logrotate" "${pkgdir}/etc/logrotate.d/${_pkgname}" #no default logrotate.
   install -D -m644 "${srcdir}/nginx.conf" "${pkgdir}/etc/conf.d/nginx"

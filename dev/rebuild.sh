@@ -91,6 +91,10 @@ for opt in $*; do
       export CUSTOM_PREFIX="${opt:14}";;
     openresty)
       export USE_OPENRESTY=1;;
+    openresty=*)
+      export OPENRESTY_CUSTOM_VERSION="${opt:10}"
+      export USE_OPENRESTY=1
+      ;;
     lua_stream_module)
       export WITH_LUA_STREAM_MODULE=1
       export WITH_STREAM_MODULE=1
@@ -102,14 +106,14 @@ export NO_WITH_DEBUG=$NO_WITH_DEBUG;
 
 _build_nginx() {
 
-  if type "makepkg" > /dev/null; then
-    if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
-      makepkg -f -e
-    else
-      makepkg -f
-    fi
-    return 0
-  fi
+  #if type "makepkg" > /dev/null; then
+  #  if [[ $CONTINUE == 1 ]] || [[ $NO_EXTRACT_SOURCE == 1 ]]; then
+  #    makepkg -f -e
+  #  else
+  #    makepkg -f
+  #  fi
+  #  return 0
+  #fi
 
   export NO_NGINX_USER=1
   export NO_GCC_COLOR=1
