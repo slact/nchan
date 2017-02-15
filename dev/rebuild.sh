@@ -115,6 +115,7 @@ _build_nginx() {
   #  return 0
   #fi
 
+  export NO_MAKEPKG=1
   export NO_NGINX_USER=1
   export NO_GCC_COLOR=1
   export startdir="$(pwd)"
@@ -158,7 +159,7 @@ _build_nginx() {
   fi
 
   rm "${srcdir}/nginx"
-  ln -sf "${srcdir}/${_extracted_dir}" "${_srcdir}/nginx"
+  ln -sf "${srcdir}/${_extracted_dir}" "${srcdir}/nginx"
   
   build
 

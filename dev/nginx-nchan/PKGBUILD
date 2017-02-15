@@ -163,8 +163,13 @@ if [[ -n $USE_OPENRESTY ]]; then
   _source=$_openresty_source
   _extracted_dir="openresty-${_openresty_ver}"  
 else
-  _source=$_nginx_git_source
-  _extracted_dir="nginx"
+  if [[ -n $NO_MAKEPKG ]]; then
+    _source=$_nginx_source
+      _extracted_dir="nginx-${_nginx_ver}"
+  else
+    _source=$_nginx_git_source
+    _extracted_dir="nginx"
+  fi
 fi
 
 source=("$_source"
