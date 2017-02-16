@@ -1230,12 +1230,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: location  
   > Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group.    
 
-- **nchan_group_location_list_channels** `[ on | off ]`  
-  arguments: 1  
-  default: `off`  
-  context: location  
-  > List channels in the group.    
-
 - **nchan_group_max_channels** `<number>`  
   arguments: 1  
   default: `0 (unlimited)`  
