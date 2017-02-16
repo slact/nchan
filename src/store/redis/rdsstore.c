@@ -1,6 +1,7 @@
 #include <nchan_module.h>
 
 #include <assert.h>
+#include <netinet/ip.h>
 #include "store-private.h"
 #include "store.h"
 #include "cluster.h"
@@ -87,7 +88,7 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb
 #define redis_sync_command(rdata, fmt, args...)                      \
   do {                                                               \
     if((rdata)->sync_ctx == NULL) {                                  \
-      redis_nginx_open_sync_context(&(rdata)->connect_params.host, (rdata)->connect_params.port, (rdata)->connect_params.db, &(rdata)->connect_params.password, &(rdata)->sync_ctx); \
+      redis_nginx_open_sync_context(((rdata)->connect_params.peername.len > 0 ? &(rdata)->connect_params.peername : &(rdata)->connect_params.hostname), (rdata)->connect_params.port, (rdata)->connect_params.db, &(rdata)->connect_params.password, &(rdata)->sync_ctx); \
     }                                                                \
     if((rdata)->sync_ctx) {                                          \
       redisCommand((rdata)->sync_ctx, fmt, ##args);                  \
@@ -214,12 +215,12 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
     if((ret = ngx_strlchr(cur, last, '/')) == NULL) {
       ret = last;
     }
-    rcp->host.data = cur;
-    rcp->host.len = ret - cur;
+    rcp->hostname.data = cur;
+    rcp->hostname.len = ret - cur;
   }
   else {
-    rcp->host.data = cur;
-    rcp->host.len = ret - cur;
+    rcp->hostname.data = cur;
+    rcp->hostname.len = ret - cur;
     cur = ret + 1;
     
     //port
@@ -775,10 +776,49 @@ void redis_nginx_auth_callback(redisAsyncContext *ac, void *rep, void *privdata)
   }
 }
 
+static ngx_int_t rdata_set_peername(rdstore_data_t *rdata, redisAsyncContext *ctx) {
+  socklen_t len;
+  struct sockaddr_storage addr;
+  
+  //len is 0, but there's a large enough buffer waiting to be used
+  assert(rdata->connect_params.peername.len == 0);
+  assert(rdata->connect_params.peername.data != NULL);
+  
+  char *ipstr = (char *)rdata->connect_params.peername.data;
+
+  len = sizeof addr;
+  if(getpeername(ctx->c.fd, (struct sockaddr*)&addr, &len) != 0) {
+    if(errno == ENOTCONN) {
+      DBG("peer not connected, can't get peername");
+    }
+    return NGX_ERROR;
+  }
+  
+  // deal with both IPv4 and IPv6:
+  if (addr.ss_family == AF_INET) {
+    struct sockaddr_in *s = (struct sockaddr_in *)&addr;
+    inet_ntop(AF_INET, &s->sin_addr, ipstr, INET6_ADDRSTRLEN);
+  } else { // AF_INET6
+    struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
+    inet_ntop(AF_INET6, &s->sin6_addr, ipstr, INET6_ADDRSTRLEN);
+  }
+  
+  rdata->connect_params.peername.len = strlen(ipstr);
+  
+  DBG("got peername %V", &rdata->connect_params.peername);
+  return NGX_OK;
+}
+
 static int redis_initialize_ctx(redisAsyncContext **ctx, rdstore_data_t *rdata) {
+  int have_peername = rdata->connect_params.peername.len > 0;
+  
   if(*ctx == NULL) {
-    redis_nginx_open_context(&rdata->connect_params.host, rdata->connect_params.port, rdata->connect_params.db, &rdata->connect_params.password, rdata, ctx);
+    DBG("connect to %V port %i", have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port);
+    redis_nginx_open_context(have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port, rdata->connect_params.db, &rdata->connect_params.password, rdata, ctx);
     if(*ctx != NULL) {
+      if(!have_peername) {
+        rdata_set_peername(rdata, *ctx);
+      }
       if(rdata->connect_params.password.len > 0) {
         redisAsyncCommand(*ctx, redis_nginx_auth_callback, NULL, "AUTH %b", STR(&rdata->connect_params.password));
       }
@@ -804,6 +844,7 @@ static int redis_initialize_ctx(redisAsyncContext **ctx, rdstore_data_t *rdata) 
 
 ngx_int_t redis_ensure_connected(rdstore_data_t *rdata) {
   int connecting = 0;
+  
   if(redis_initialize_ctx(&rdata->ctx, rdata)) {
     connecting = 1;
   }
@@ -2222,12 +2263,12 @@ static ngx_int_t redis_data_rbtree_compare(void *v1, void *v2) {
   else if (id1->db < id2->db)
     return -1;
   
-  if(id1->host.len > id2->host.len)
+  if(id1->hostname.len > id2->hostname.len)
     return 1;
-  else if(id1->host.len < id2->host.len)
+  else if(id1->hostname.len < id2->hostname.len)
     return -1;
   
-  return ngx_strncmp(id1->host.data, id2->host.data, id1->host.len);
+  return ngx_strncmp(id1->hostname.data, id2->hostname.data, id1->hostname.len);
 }
 
 ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name) {
@@ -2296,16 +2337,26 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   size_t                 reaper_name_len;
   char                  *reaper_name;
   
+  struct rdata_blob_s{
+    rdstore_data_t   rdata;
+    u_char           peername[INET6_ADDRSTRLEN + 2];
+  } *blob;
+  
   reaper_name_len = strlen("redis chanhead ()  ") + url->len;
   
-  if((node = rbtree_create_node(&redis_data_tree, sizeof(*rdata) + reaper_name_len)) == NULL) {
+  if((node = rbtree_create_node(&redis_data_tree, sizeof(*blob) + reaper_name_len)) == NULL) {
     ERR("can't create rbtree node for redis connection");
     return NULL;
   }
   
-  rdata = (rdstore_data_t *)rbtree_data_from_node(node);
+  blob = (struct rdata_blob_s *)rbtree_data_from_node(node);
+  rdata = &blob->rdata;
   ngx_memzero(rdata, sizeof(*rdata));
   rdata->connect_params = *rcp;
+  
+  rdata->connect_params.peername.len = 0;
+  rdata->connect_params.peername.data = blob->peername;
+  
   rdata->status = DISCONNECTED;
   rdata->generation = 0;
   rdata->shutting_down = 0;
@@ -2319,7 +2370,7 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->channels_head = NULL;
   rdata->almost_deleted_channels_head = NULL;
   
-  reaper_name = (char *)&rdata[1];
+  reaper_name = (char *)&blob[1];
   ngx_sprintf((u_char *)reaper_name, "redis chanhead (%V)%Z", url);
   rdstore_initialize_chanhead_reaper(&rdata->chanhead_reaper, reaper_name);
   
@@ -2340,6 +2391,8 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
 
 rdstore_data_t *find_rdata_by_url(ngx_str_t *url) {
   redis_connect_params_t rcp;
+  rcp.peername.len = 0;
+  rcp.peername.data = NULL;
   parse_redis_url(url, &rcp);
   return find_rdata_by_connect_params(&rcp);
 }
@@ -2370,6 +2423,8 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
   }
   
   parse_redis_url(url, &rcp);
+  rcp.peername.len = 0;
+  rcp.peername.data = NULL;
   
   if((rdata = find_rdata_by_connect_params(&rcp)) == NULL) {
     rdata = redis_create_rdata(url, &rcp, rcf, lcf);

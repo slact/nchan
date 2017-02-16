@@ -58,7 +58,8 @@ struct rdstore_channel_head_s {
 };
 
 typedef struct {
-  ngx_str_t     host;
+  ngx_str_t     hostname;
+  ngx_str_t     peername; // resolved hostname (ip address)
   ngx_int_t     port;
   ngx_str_t     password;
   ngx_int_t     db;
