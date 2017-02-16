@@ -297,7 +297,7 @@ Here, subscribers will listen for messages on channel `foo`, and publishers will
 
 ## The Channel ID
 
-So far the examples have used static channel ids, which is not very useful in practice. It can be set to any nginx *variable*, such as a querystring argument, a header value, or a part of the location url:
+So far the examples have used static channel ids, which is not very useful. In practice, the channel id can be set to any nginx *variable*, such as a querystring argument, a header value, or a part of the location url:
 
 ```nginx
   location = /sub_by_ip {
