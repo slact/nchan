@@ -125,6 +125,17 @@ Publisher endpoints are Nginx config *locations* with the [*`nchan_publisher`*](
 
 Messages can be published to a channel by sending HTTP **POST** requests with the message contents to the *publisher endpoint* locations. You can also publish messages through a **Websocket** connection to the same location.
 
+```nginx
+  location /pub {
+    #example publisher location
+    nchan_publisher;
+    nchan_channel_id foo;
+    nchan_channel_group test;
+    nchan_message_buffer_length 50;
+    nchan_message_timeout 5m;
+  }
+```
+
 <!-- tag:publisher -->
 
 ### Publishing Messages
@@ -181,6 +192,16 @@ You can also can use differently-configured publisher locations to dynamically u
 Subscriber endpoints are Nginx config *locations* with the [*`nchan_subscriber`*](#nchan_subscriber) directive.
 
 Nchan supports several different kinds of subscribers for receiving messages: [*Websocket*](#websocket), [*EventSource*](#eventsource) (Server Sent Events),  [*Long-Poll*](#long-polling), [*Interval-Poll*](#interval-polling). [*HTTP chunked transfer*](#http-chunked-transfer), and [*HTTP multipart/mixed*](#http-multipart-mixed).
+
+```nginx
+  location /sub {
+    #example subscriber location
+    nchan_subscriber;
+    nchan_channel_id foo;
+    nchan_channel_group test;
+    nchan_subscriber_first_message oldest;
+  }
+```
 
 <!-- tag:subscriber -->
 
@@ -254,17 +275,19 @@ requests as subscribers, and all HTTP `POST` as publishers. One simple use case 
 ```nginx
   location = /pubsub {
     nchan_pubsub;
-    nchan_channel_id foobar;
+    nchan_channel_id foo;
+    nchan_channel_group test;
   }
 ```
 
-A more applicable setup may set different publisher and subscriber channel ids:
+A more interesting setup may set different publisher and subscriber channel ids:
 
 ```nginx
   location = /pubsub {
     nchan_pubsub;
     nchan_publisher_channel_id foo;
     nchan_subscriber_channel_id bar;
+    nchan_channel_group test;
   }
 ```
 
@@ -298,6 +321,8 @@ So far the examples have used static channel ids, which is not very useful in pr
     nchan_channel_id $1; #first capture of the location match
   }
 ```
+
+I recommend using the last option, a channel id derived from the request URL via a regular expression. It makes things nice and RESTful.
 
 <!-- tag:channel-id -->
 
