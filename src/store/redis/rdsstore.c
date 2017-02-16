@@ -1301,7 +1301,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       }
     }
     
-    ERR("REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    //ERR("REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
   }
   else if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
     && CHECK_REPLY_STRVAL(reply->element[0], "unsubscribe")
