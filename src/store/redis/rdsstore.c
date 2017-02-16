@@ -381,6 +381,10 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     if(!rdata->shutting_down && !rdata->reconnect_timer.timer_set) {
       ngx_add_timer(&rdata->reconnect_timer, REDIS_RECONNECT_TIME);
     }
+    
+    //clear the resolved peername -- it should get re-resolved on reconnect
+    rdata->connect_params.peername.len = 0;
+    
     if(rdata->ping_timer.timer_set) {
       ngx_del_timer(&rdata->ping_timer);
     }
