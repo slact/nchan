@@ -781,30 +781,25 @@ void redis_nginx_auth_callback(redisAsyncContext *ac, void *rep, void *privdata)
 }
 
 static ngx_int_t rdata_set_peername(rdstore_data_t *rdata, redisAsyncContext *ctx) {
-  socklen_t len;
-  struct sockaddr_storage addr;
-  
-  //len is 0, but there's a large enough buffer waiting to be used
-  assert(rdata->connect_params.peername.len == 0);
-  assert(rdata->connect_params.peername.data != NULL);
-  
-  char *ipstr = (char *)rdata->connect_params.peername.data;
-
-  len = sizeof addr;
-  if(getpeername(ctx->c.fd, (struct sockaddr*)&addr, &len) != 0) {
-    if(errno == ENOTCONN) {
-      DBG("peer not connected, can't get peername");
-    }
-    return NGX_ERROR;
-  }
-  
+  char                  *ipstr = (char *)rdata->connect_params.peername.data;
+  struct sockaddr_in    *s4;
+  struct sockaddr_in6   *s6;
   // deal with both IPv4 and IPv6:
-  if (addr.ss_family == AF_INET) {
-    struct sockaddr_in *s = (struct sockaddr_in *)&addr;
-    inet_ntop(AF_INET, &s->sin_addr, ipstr, INET6_ADDRSTRLEN);
-  } else { // AF_INET6
-    struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
-    inet_ntop(AF_INET6, &s->sin6_addr, ipstr, INET6_ADDRSTRLEN);
+  switch(ctx->c.sockaddr.sa_family) {
+    case AF_INET:
+      s4 = (struct sockaddr_in *)&ctx->c.sockaddr;
+      inet_ntop(AF_INET, &s4->sin_addr, ipstr, INET6_ADDRSTRLEN);
+      break;
+    case AF_INET6:
+      s6 = (struct sockaddr_in6 *)&ctx->c.sockaddr;
+      inet_ntop(AF_INET6, &s6->sin6_addr, ipstr, INET6_ADDRSTRLEN);
+      break;
+    case AF_UNSPEC:
+      DBG("sockaddr info not available");
+      return NGX_ERROR;
+    default:
+      DBG("unexpected sockaddr af family");
+      return NGX_ERROR;
   }
   
   rdata->connect_params.peername.len = strlen(ipstr);
