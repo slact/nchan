@@ -1099,7 +1099,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 2  
   default: `none (disabled)`  
   context: server, location, if  
-  > Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this oversight, this setting can be used to respond to set up a PING/PONG - like connection heartbeat. When the client sends the server messave <heartbeat_in> (PING), the server automatically responds with <heartbeat_out> (PONG).    
+  > Most browser Websocket clients do not allow manually sending PINGs to the server. To overcome this limitation, this setting can be used to set up a PING/PONG message/response connection heartbeat. When the client sends the server message *heartbeat_in* (PING), the server automatically responds with *heartbeat_out* (PONG).    
 
 - **nchan_websocket_ping_interval** `<number> (seconds)`  
   arguments: 1  
