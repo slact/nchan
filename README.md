@@ -1117,13 +1117,13 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](#subsriber-presence)  
+  [more details](#subscriber-presence)  
 
 - **nchan_unsubscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](#subsriber-presence)  
+  [more details](#subscriber-presence)  
 
 - **nchan_max_reserved_memory** `<size>`  
   arguments: 1  
