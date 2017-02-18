@@ -50,9 +50,10 @@ nchan_content_type_t nchan_output_info_type(ngx_str_t *accept) {
   return NCHAN_CONTENT_TYPE_PLAIN;
 }
 
+#define NCHAN_CHANNEL_INFO_MAX_LEN 512
 ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages, ngx_uint_t subscribers, time_t last_seen, nchan_msg_id_t *last_msgid, ngx_str_t **generated_content_type) {
   static ngx_buf_t                channel_info_buf;
-  static u_char                   channel_info_buf_str[512]; //big enough
+  static u_char                   channel_info_buf_str[NCHAN_CHANNEL_INFO_MAX_LEN]; //big enough
   
   ngx_buf_t                      *b = &channel_info_buf;
   ngx_uint_t                      len;
@@ -92,20 +93,21 @@ ngx_buf_t *nchan_channel_info_buf(ngx_str_t *accept_header, ngx_uint_t messages,
   
   len = format->len - 8 - 1 + 3*NGX_INT_T_LEN; //minus 8 sprintf
   
-  if(len > 512) {
-    nchan_log_error("Channel info string too long: max: 512, is: %i", len);
+  if(len > NCHAN_CHANNEL_INFO_MAX_LEN) {
+    nchan_log_error("Channel info string too long: max: %i, is: %i", NCHAN_CHANNEL_INFO_MAX_LEN, len);
   }
   
-  b->last = ngx_snprintf(b->start, 512, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
+  b->last = ngx_snprintf(b->start, NCHAN_CHANNEL_INFO_MAX_LEN, (char *)format->data, messages, last_seen==0 ? -1 : (ngx_int_t) time_elapsed, subscribers, msgid_to_str(last_msgid));
   b->end = b->last;
   
   return b;
 }
 
 
+#define NCHAN_GROUP_INFO_MAX_LEN 1024
 static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_group_t *group, ngx_str_t **generated_content_type) {
   static ngx_buf_t                info_buf;
-  static u_char                   info_buf_str[768]; //big enough
+  static u_char                   info_buf_str[NCHAN_GROUP_INFO_MAX_LEN]; //big enough
   
   ngx_buf_t                      *b = &info_buf;
   ngx_uint_t                      len;
@@ -196,11 +198,11 @@ static ngx_buf_t *nchan_group_info_buf(ngx_str_t *accept_header, const nchan_gro
   
   len = format->len + 5*NGX_INT_T_LEN; //minus 8 sprintf
   
-  if(len > 512) {
-    nchan_log_error("Group info string too long: max: 512, is: %i", len);
+  if(len > NCHAN_GROUP_INFO_MAX_LEN) {
+    nchan_log_error("Group info string too long: max: %i, is: %i", NCHAN_GROUP_INFO_MAX_LEN, len);
   }
   
-  b->last = ngx_snprintf(b->start, 512, (char *)format->data, 
+  b->last = ngx_snprintf(b->start, NCHAN_GROUP_INFO_MAX_LEN, (char *)format->data, 
                          group->channels, 
                          group->subscribers, 
                          group->messages, 

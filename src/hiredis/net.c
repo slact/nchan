@@ -303,7 +303,8 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
         free(c->tcp.source_addr);
         c->tcp.source_addr = strdup(source_addr);
     }
-
+    c->sockaddr.sa_family = AF_UNSPEC;
+    
     snprintf(_port, 6, "%d", port);
     memset(&hints,0,sizeof(hints));
     hints.ai_family = AF_INET;
@@ -382,7 +383,9 @@ addrretry:
             goto error;
         if (redisSetTcpNoDelay(c) != REDIS_OK)
             goto error;
-
+        
+        c->sockaddr = *p->ai_addr;
+        
         c->flags |= REDIS_CONNECTED;
         rv = REDIS_OK;
         goto end;

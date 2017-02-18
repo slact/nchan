@@ -39,6 +39,8 @@
 #include <stdint.h> /* uintXX_t, etc */
 #include "sds.h" /* for sds */
 
+#include <sys/socket.h> /* for struct sockaddr */
+
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 13
 #define HIREDIS_PATCH 3
@@ -141,6 +143,7 @@ typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
     int fd;
+    struct sockaddr sockaddr;
     int flags;
     char *obuf; /* Write buffer */
     redisReader *reader; /* Protocol reader */
