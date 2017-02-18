@@ -12,6 +12,7 @@ clang_sanitize_addres="-fsanitize=address,undefined -fno-omit-frame-pointer"
 optimize_level=0;
 
 export CONFIGURE_WITH_DEBUG=0
+_extra_config_opt=()
 
 for opt in $*; do
   case $opt in
@@ -99,10 +100,13 @@ for opt in $*; do
       export WITH_LUA_STREAM_MODULE=1
       export WITH_STREAM_MODULE=1
       ;;
+    --*)
+      _extra_config_opt+=( "$opt" )
   esac
 done
 
 export NO_WITH_DEBUG=$NO_WITH_DEBUG;
+export EXTRA_CONFIG_OPT=`echo $_extra_config_opt`
 
 _build_nginx() {
 

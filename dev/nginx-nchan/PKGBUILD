@@ -225,6 +225,11 @@ build() {
   
   CONFIGURE=()
   
+  if [[ -n $EXTRA_CONFIG_OPT ]]; then
+    readarray -t lines <<<"$EXTRA_CONFIG_OPT"
+    CONFIGURE+=$lines
+  fi
+  
   if [[ -z $DEFAULT_PREFIX ]]; then
     CONFIGURE+=( --prefix=$_prefix_path )
   fi
