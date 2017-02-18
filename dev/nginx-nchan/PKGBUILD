@@ -226,7 +226,11 @@ build() {
   CONFIGURE=()
   
   if [[ -n $EXTRA_CONFIG_OPT ]]; then
-    readarray -t lines <<<"$EXTRA_CONFIG_OPT"
+    if type "readarray"; then
+      readarray -t lines <<<"$EXTRA_CONFIG_OPT"
+    else
+      lines="${(@f)EXTRA_CONFIG_OPT}"
+    fi    
     CONFIGURE+=$lines
   fi
   
