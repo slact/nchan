@@ -122,13 +122,13 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
-static ngx_int_t internal_reserve(subscriber_t *self) {
+static ngx_int_t internal_reserve(subscriber_t *self, const char *reason) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)self;
   DBG("%p ) (%V) reserve", self, fsub->sub.name);
   self->reserved++;
   return NGX_OK;
 }
-static ngx_int_t internal_release(subscriber_t *sub, uint8_t nodestroy) {
+static ngx_int_t internal_release(subscriber_t *sub, const char *reason, uint8_t nodestroy) {
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)sub;
   DBG("%p (%V) release", sub, fsub->sub.name);
   sub->reserved--;

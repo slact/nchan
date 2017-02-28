@@ -193,8 +193,8 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
 
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf);
 
-static ngx_int_t websocket_reserve(subscriber_t *self);
-static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
+static ngx_int_t websocket_reserve(subscriber_t *self, const char *reason);
+static ngx_int_t websocket_release(subscriber_t *self, const char *reason, uint8_t nodestroy);
 
 static void websocket_delete_timers(full_subscriber_t *fsub);
 static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg_t *msg);
@@ -203,7 +203,7 @@ ngx_int_t websocket_finalize_upstream_handler(subscriber_t *sub, ngx_http_reques
   ngx_http_request_t *r = sub->request;
   DBG("websocket_finalize_upstream_handler");
   r->main->blocked = 0;
-  websocket_release(sub, 0);
+  websocket_release(sub, "websocket unsubscribe subrequest", 0);
   
   nchan_http_finalize_request(r, NGX_HTTP_OK);
   return NGX_OK;
@@ -218,7 +218,7 @@ static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
     if(!fsub->already_sent_unsub_request) {
       r->main->blocked = 1;
       fsub->already_sent_unsub_request = 1;
-      websocket_reserve(&fsub->sub);
+      websocket_reserve(&fsub->sub, "websocket unsubscribe subrequest");
       if(sub->enqueued) {
         sub->fn->dequeue(sub);
       }
@@ -377,7 +377,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     msgid = &ch->last_published_msg_id;
   }
   
-  if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
+  if(websocket_release(&fsub->sub, "websocket publish", 0) == NGX_ABORT) {
     //zombie publisher
     //nothing more to do, we're finished here
     return NGX_OK;
@@ -424,7 +424,7 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   msg.id.tagcount=1;
   msg.id.tagactive=0;
   
-  websocket_reserve(&fsub->sub);
+  websocket_reserve(&fsub->sub, "websocket publish");
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub); 
   nchan_update_stub_status(total_published_messages, 1);
   
@@ -902,14 +902,14 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
   return NGX_DECLINED;
 }
 
-static ngx_int_t websocket_reserve(subscriber_t *self) {
+static ngx_int_t websocket_reserve(subscriber_t *self, const char *reason) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
   self->reserved++;
   //DBG("%p reserve for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
   return NGX_OK;
 }
-static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
+static ngx_int_t websocket_release(subscriber_t *self, const char *reason, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;

@@ -1396,7 +1396,7 @@ static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
                       );
   }
   else {
-    d->sub->fn->release(d->sub, 0);
+    d->sub->fn->release(d->sub, "run subscriber-register script", 0);
     ngx_free(d);
   }
 }
@@ -1413,7 +1413,7 @@ static ngx_int_t redis_subscriber_register(rdstore_channel_head_t *chanhead, sub
   sdata->generation = chanhead->generation;
   sdata->sub = sub;
   
-  sub->fn->reserve(sub);
+  sub->fn->reserve(sub, "run subscriber-register script");
   
   //input: keys: [], values: [channel_id, subscriber_id, active_ttl]
   //  'subscriber_id' can be '-' for new id, or an existing id
@@ -1437,7 +1437,7 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   nchan_update_stub_status(redis_pending_commands, -1);
   
   sdata->chanhead->reserved--;
-  sdata->sub->fn->release(sdata->sub, 0);
+  sdata->sub->fn->release(sdata->sub, "run subscriber-register script", 0);
   
   if(!clusterKeySlotOk(c, reply)) {
     cluster_add_retry_command_with_chanhead(sdata->chanhead, redis_subscriber_register_send, sdata);
@@ -2594,7 +2594,7 @@ static ngx_int_t subscribe_existing_channel_callback(ngx_int_t status, void *ch,
   
   if(channel == NULL) {
     data->sub->fn->respond_status(data->sub, NGX_HTTP_FORBIDDEN, NULL);
-    data->sub->fn->release(data->sub, 0);
+    //data->sub->fn->release(data->sub, "TODOOOOOOOOOO", 0);
   }
   else {
     nchan_store_subscribe_continued(d);

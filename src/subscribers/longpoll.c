@@ -119,14 +119,14 @@ static void ensure_request_hold(full_subscriber_t *fsub) {
   }
 }
 
-static ngx_int_t longpoll_reserve(subscriber_t *self) {
+static ngx_int_t longpoll_reserve(subscriber_t *self, const char *reason) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
   self->reserved++;
   DBG("%p reserve for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   return NGX_OK;
 }
-static ngx_int_t longpoll_release(subscriber_t *self, uint8_t nodestroy) {
+static ngx_int_t longpoll_release(subscriber_t *self, const char *reason, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;

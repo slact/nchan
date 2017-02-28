@@ -114,7 +114,7 @@ static void reset_timer(sub_data_t *data) {
 static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
   sub_data_t *d = (sub_data_t *)pd;
   DBG("%p (%V) keepalive reply - renew: %i.", d->sub, d->chid, renew);
-  if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
+  if(d->sub->fn->release(d->sub, "memstore keepalive", 0) == NGX_OK) {
     if(renew) {
       reset_timer(d);
     }
@@ -137,7 +137,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   memstore_fakeprocess_push(d->owner);
 #endif
   DBG("%p (%V), timeout event. Ping originator to see if still needed.", d->sub, d->chid);
-  d->sub->fn->reserve(d->sub);
+  d->sub->fn->reserve(d->sub, "memstore keepalive");
   memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
 #if FAKESHARD
   memstore_fakeprocess_pop();
