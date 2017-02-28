@@ -2594,9 +2594,10 @@ static ngx_int_t subscribe_existing_channel_callback(ngx_int_t status, void *ch,
   
   if(channel == NULL) {
     data->sub->fn->respond_status(data->sub, NGX_HTTP_FORBIDDEN, NULL);
-    //data->sub->fn->release(data->sub, "TODOOOOOOOOOO", 0);
+    data->sub->fn->release(data->sub, "redis pre-subscribe channel check", 0);
   }
   else {
+    data->sub->fn->release(data->sub, "redis pre-subscribe channel check", 1);
     nchan_store_subscribe_continued(d);
   }
   assert(data->allocd);
@@ -2628,6 +2629,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
     d->channel_id->data = (u_char *)&(d->channel_id)[1];
     ngx_memcpy(d->channel_id->data, channel_id->data, channel_id->len);
     d->sub = sub;
+    d->sub->fn->reserve(d->sub, "redis pre-subscribe channel check");
     nchan_store_find_channel(channel_id, sub->cf, subscribe_existing_channel_callback, d);
   }
 
