@@ -1,4 +1,6 @@
 #!/bin/ruby
+require 'rubygems'
+require 'bundler/setup'
 require "pry"
 require 'celluloid/current'
 require 'celluloid/logger'
