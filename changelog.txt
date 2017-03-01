@@ -1,3 +1,9 @@
+1.1.2 (Mar. 1 2017)
+ change: "interprocess alert X delayed by Y sec" log messages downgraded 
+      from ERROR to NOTICE
+ fix: "group info string too short" error
+ fix: Incorrect handling of connections to Redis cluster nodes with round-robin
+      DNS hostnames (Thanks to ring.com for sponsoring this fix!)
 1.1.1 (Feb. 8 2017)
  fix: incorrect stats for nchan_stub_status after reload.
       (Stats are no longer reset after reload)
