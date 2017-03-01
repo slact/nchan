@@ -47,7 +47,7 @@ _semver_gteq() {
   fi
 }
 
-if [[ $NO_POOL == 1 ]]; then
+if [[ $NO_POOL == 1 ]] && [[ -z $USE_OPENRESTY ]]; then
   _nginx_ver=$_nginx_ver_nopool
 elif [[ $NGINX_LEGACYVERSION == 1 ]]; then
   _nginx_ver=$_nginx_ver_legacy
@@ -177,7 +177,6 @@ source=("$_source"
   "nginx.logrotate"
   "nginx.service"
   "git+${_ngx_debug_pool_url}"
-  "$_no_pool_patch_source"
   "$_ngx_echo_module"
   "bl.txt")
 
@@ -187,13 +186,19 @@ md5sums=('SKIP'
          '62d494d23aef31d0b867161f9fffa6eb'
          'SKIP'
          'SKIP'
-         'SKIP'
 	 'SKIP')
 
 if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
   source+=( "$_lua_stream_module_src" )
   md5sums+=( 'SKIP')
 fi
+
+if [[ $NO_POOL == 1 ]] && [[ -z $USE_OPENRESTY ]]; then
+  source+=( "$_no_pool_patch_source" )
+  md5sums+=( 'SKIP')
+fi
+
+
 
 build() {
   local _src_dir="${srcdir}/${_extracted_dir}"
@@ -205,7 +210,13 @@ build() {
   if [[ -z $CONTINUE ]] && [[ -z $NO_EXTRACT_SOURCE ]]; then
     if [[ $NO_POOL == 1 ]]; then
       echo "using the no-pool patch"
-      patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
+      if [[ -n $USE_OPENRESTY ]]; then
+        pushd bundle
+        patch -p0 < "./nginx-no_pool.patch"
+        popd
+      else
+        patch -p1 < "${srcdir}/nginx-${_nginx_ver_nopool}-no_pool.patch"
+      fi
     fi
     if [[ $NGX_SLAB_PATCH == 1 ]]; then
       echo "using the ngx_slab patch to fix large alloc/frees"
@@ -322,17 +333,13 @@ build() {
     make $REMAKE
   else
     ln -svf $srcdir/bl.txt
-
-    if [[ ! -z $EXPLICIT_CFLAGS ]]; then
-      CONFIGURE+=( "--with-cc-opt=${CFLAGS}" )
-    fi
     
     if [[ ! -f ./configure ]]; then
       ln -s auto/configure ./
     fi
-    
-    echo "./configure ${CONFIGURE[@]}"
-    ./configure ${CONFIGURE[@]}
+
+    echo "./configure ${CONFIGURE[@]}" "--with-cc-opt=${CFLAGS}"
+    ./configure ${CONFIGURE[@]} "--with-cc-opt=${CFLAGS}"
     make
   fi
 }
