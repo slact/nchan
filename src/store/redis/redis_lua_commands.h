@@ -39,7 +39,7 @@ typedef struct {
   redis_lua_script_t get_message_from_key;
 
   //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
-  //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+  //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   redis_lua_script_t publish;
 
   //input:  keys: [], values: [namespace, channel_id, status_code]
@@ -420,9 +420,9 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "017cca69716e7c7c5bc06e354a93cd218a81b4e2",
+  {"publish", "993b5e3dd4083e93c9f31f7987ada2206f948af3",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
-   "--output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
+   "--output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
    "\n"
    "local ns, id=ARGV[1], ARGV[2]\n"
    "local time\n"
@@ -698,7 +698,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "local num_messages = redis.call('llen', key.messages)\n"
    "\n"
    "--dbg(\"channel \", id, \" ttl: \",channel.ttl, \", subscribers: \", channel.subscribers, \"(fake: \", channel.fake_subscribers or \"nil\", \"), messages: \", num_messages)\n"
-   "return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}\n"},
+   "return { msg.time, msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}\n"},
 
   {"publish_status", "2f2ce1443b22c8c9cf069d5588bad4bab58d70aa",
    "--input:  keys: [], values: [namespace, channel_id, status_code]\n"

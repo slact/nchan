@@ -2696,7 +2696,7 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
   
   
   //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
-  //output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+  //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   nchan_redis_script(publish, rdata, &redisPublishCallback, d, d->channel_id, 
                      "%i %b %b %b %i %i %i", 
                      msg->id.time, 
@@ -2772,13 +2772,13 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   
   ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
   
-  if(reply && CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)) {
-    ch.last_published_msg_id.time=d->msg_time;
-    ch.last_published_msg_id.tag.fixed[0]=reply->element[0]->integer;
+  if(reply && CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)) {
+    ch.last_published_msg_id.time=reply->element[0]->integer;
+    ch.last_published_msg_id.tag.fixed[0]=reply->element[1]->integer;
     ch.last_published_msg_id.tagcount = 1;
     ch.last_published_msg_id.tagactive = 0;
     
-    cur=reply->element[1];
+    cur=reply->element[2];
     switch(redis_array_to_channel(cur, &ch)) {
       case NGX_OK:
         d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);

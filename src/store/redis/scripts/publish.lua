@@ -1,5 +1,5 @@
 --input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
---output: message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+--output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
 
 local ns, id=ARGV[1], ARGV[2]
 local time
@@ -275,4 +275,4 @@ end
 local num_messages = redis.call('llen', key.messages)
 
 --dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, "(fake: ", channel.fake_subscribers or "nil", "), messages: ", num_messages)
-return { msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}
+return { msg.time, msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}
