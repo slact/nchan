@@ -1308,7 +1308,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     && CHECK_REPLY_STR(reply->element[1])
     && CHECK_REPLY_INT(reply->element[2])) {
 
-    ERR("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
+    //DBG("REDIS: PUB/SUB unsubscribed from %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
     if(chanhead->pubsub_status == UNSUBBING) {
       chanhead->pubsub_status = UNSUBBED;
       free_chanhead(chanhead);
