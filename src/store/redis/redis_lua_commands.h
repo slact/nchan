@@ -39,7 +39,7 @@ typedef struct {
   redis_lua_script_t get_message_from_key;
 
   //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
-  //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+  //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?
   redis_lua_script_t publish;
 
   //input:  keys: [], values: [namespace, channel_id, status_code]
@@ -420,9 +420,9 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
 
-  {"publish", "993b5e3dd4083e93c9f31f7987ada2206f948af3",
+  {"publish", "c7abd99d4fb2717fb1f3b16013baa778fe0a0828",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
-   "--output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}\n"
+   "--output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?\n"
    "\n"
    "local ns, id=ARGV[1], ARGV[2]\n"
    "local time\n"

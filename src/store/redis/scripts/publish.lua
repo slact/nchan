@@ -1,5 +1,5 @@
 --input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
---output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+--output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?
 
 local ns, id=ARGV[1], ARGV[2]
 local time
