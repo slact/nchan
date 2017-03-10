@@ -27,11 +27,15 @@
   L(get_channel_info_reply) \
   L(channel_auth_check) \
   L(channel_auth_check_reply) \
-  L(subscriber_keepalive) \
-  L(subscriber_keepalive_reply) \
+  L(ipc_subscriber_keepalive) \
+  L(ipc_subscriber_keepalive_reply) \
   L(get_group) \
   L(group) \
   L(group_delete) \
+  L(subscriber_register) \
+  L(subscriber_unregister) \
+  L(subscriber_send_status) \
+  L(subscriber_get_info) \
   L(flood_test)
 
 
@@ -783,10 +787,10 @@ ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str
     return NGX_ERROR;
   }
   DBG("send SUBSCRIBER KEEPALIVE to %i %V", dst, chid);
-  ipc_cmd(subscriber_keepalive, dst, &data);
+  ipc_cmd(ipc_subscriber_keepalive, dst, &data);
   return NGX_OK;
 }
-static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t *d) {
+static void receive_ipc_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t *d) {
   memstore_channel_head_t    *head;
   DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, d->shm_chid);
   head = nchan_memstore_find_chanhead(d->shm_chid);
@@ -812,10 +816,10 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
       d->renew = 1;
     }
   }
-  ipc_cmd(subscriber_keepalive_reply, sender, d);
+  ipc_cmd(ipc_subscriber_keepalive_reply, sender, d);
 }
 
-static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_data_t *d) {
+static void receive_ipc_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_data_t *d) {
   d->callback(d->renew, NULL, d->privdata);
   str_shm_free(d->shm_chid);
 }
@@ -869,6 +873,33 @@ static void receive_group_delete(ngx_int_t sender, nchan_group_t **shared_group)
   DBG("receive GROUP DELETE %V", &(*shared_group)->name);
   
   memstore_group_receive_delete(nchan_memstore_get_groups(), *shared_group);
+}
+
+
+/////////// SUBSCRIBER OPERATIONS //////////
+
+typedef struct {
+  ngx_str_t                   *sub_id;
+  union {
+    subscriber_info_t   *info;
+    ngx_int_t            status_code;
+  }                            data;
+  callback_pt                  callback;
+  void                        *privdata;
+} sub_stuff_data_t;
+
+
+static void receive_subscriber_register(ngx_int_t sender, sub_stuff_data_t *shared_group) {
+  //nothing
+}
+static void receive_subscriber_unregister(ngx_int_t sender, sub_stuff_data_t *shared_group) {
+  //nothing
+}
+static void receive_subscriber_send_status(ngx_int_t sender, sub_stuff_data_t *shared_group) {
+  //nothing
+}
+static void receive_subscriber_get_info(ngx_int_t sender, sub_stuff_data_t *shared_group) {
+  //nothing
 }
 
 /////////// FLOOD TEST ///////////
