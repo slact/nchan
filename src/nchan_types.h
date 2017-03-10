@@ -337,6 +337,15 @@ typedef struct {
 
 typedef enum {ALIVE, DEAD, UNKNOWN, PININGFORTHEFJORDS} nchan_subscriber_status_t;
 
+typedef struct {
+  ngx_str_t         *id;
+  ngx_str_t         *group;
+  ngx_str_t         *name;
+  nchan_msg_id_t     last_msgid;
+  time_t             created;
+  int                messages_received;
+} subscriber_info_t;
+
 struct subscriber_s {
   ngx_str_t                 *name;
   subscriber_type_t          type;
