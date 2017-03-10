@@ -2875,31 +2875,26 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t 
 }
 
 nchan_store_t nchan_store_redis = {
-    //init
-    &nchan_store_init_module,
-    &nchan_store_init_worker,
-    &nchan_store_init_postconfig,
-    &nchan_store_create_main_conf,
-    
-    //shutdown
-    &nchan_store_exit_worker,
-    &nchan_store_exit_master,
-    
-    //async-friendly functions with callbacks
-    &nchan_store_async_get_message, //+callback
-    &nchan_store_subscribe, //+callback
-    &nchan_store_publish_message, //+callback
-    
-    &nchan_store_delete_channel, //+callback
-    &nchan_store_find_channel, //+callback
-    
-    NULL, //get_group
-    NULL,
-    NULL,
-    
-    //message stuff
-    NULL,
-    NULL,
-    
+  //init
+  &nchan_store_init_module,
+  &nchan_store_init_worker,
+  &nchan_store_init_postconfig,
+  &nchan_store_create_main_conf,
+  
+  //shutdown
+  &nchan_store_exit_worker,
+  &nchan_store_exit_master,
+  
+  //async-friendly functions with callbacks
+  &nchan_store_async_get_message, //+callback
+  &nchan_store_subscribe, //+callback
+  &nchan_store_publish_message, //+callback
+  
+  &nchan_store_delete_channel, //+callback
+  &nchan_store_find_channel, //+callback
+  
+  NULL, //get_group
+  NULL,
+  NULL
 };
 

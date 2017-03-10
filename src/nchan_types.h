@@ -192,18 +192,14 @@ typedef struct{
   ngx_int_t (*subscribe)   (ngx_str_t *, subscriber_t *);
   ngx_int_t (*publish)     (ngx_str_t *, nchan_msg_t *, nchan_loc_conf_t *, callback_pt, void *);
   
+    //channel actions
   ngx_int_t (*delete_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void *);
-  
-  //channel actions
   ngx_int_t (*find_channel)(ngx_str_t *, nchan_loc_conf_t *, callback_pt, void*);
   
+  //group actions
   ngx_int_t (*get_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
   ngx_int_t (*set_group_limits)(ngx_str_t *name, nchan_loc_conf_t *, nchan_group_limits_t *limits, callback_pt, void *);
   ngx_int_t (*delete_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
-  
-  //message actions and properties
-  ngx_str_t * (*message_etag)(nchan_msg_t *msg, ngx_pool_t *pool);
-  ngx_str_t * (*message_content_type)(nchan_msg_t *msg, ngx_pool_t *pool);
 
 } nchan_store_t;
 
