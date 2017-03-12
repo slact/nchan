@@ -17,3 +17,7 @@ ngx_int_t memstore_ipc_broadcast_group(nchan_group_t *shared_group);
 ngx_int_t memstore_ipc_send_get_group(ngx_int_t dst, ngx_str_t *group_id);
 ngx_int_t memstore_ipc_broadcast_group_delete(nchan_group_t *shared_group);
 ngx_int_t memstore_ipc_send_flood_test(ngx_int_t dst);
+
+ngx_int_t memstore_ipc_register_subscriber_id(subscriber_t *sub, callback_pt cb, void *pd);
+ngx_int_t memstore_ipc_unregister_subscriber_id(subscriber_t *sub);
+ngx_int_t memstore_ipc_subscriber_send_conflict_alert(ngx_str_t *sub_id, ngx_int_t dst, callback_pt cb, void *pd);

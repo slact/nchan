@@ -98,7 +98,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
-    nchan_free_msg_id(&fsub->sub.last_msgid);
+    nchan_subscriber_destroy(&fsub->sub);
     assert(sub->status == DEAD);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
@@ -551,6 +551,7 @@ static const subscriber_fn_t longpoll_fn = {
 static ngx_str_t  sub_name = ngx_string("longpoll");
 
 static const subscriber_t new_longpoll_sub = {
+  NULL, //subscriber id
   &sub_name,
   LONGPOLL,
   &longpoll_fn,

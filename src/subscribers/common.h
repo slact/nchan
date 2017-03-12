@@ -18,6 +18,8 @@ ngx_http_request_t *subscriber_subrequest(subscriber_t *sub, ngx_str_t *url, ngx
 
 void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev);
 void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid);
+void nchan_subscriber_destroy(subscriber_t *sub);
+
 void nchan_subscriber_init_timeout_timer(subscriber_t *sub, ngx_event_t *ev);
 void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ngx_str_t *name, subscriber_fn_t *fn, ngx_int_t dequeue_after_response);
 ngx_int_t nchan_subscriber_init_msgid_reusepool(nchan_request_ctx_t *ctx, ngx_pool_t *request_pool);

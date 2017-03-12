@@ -32,9 +32,11 @@
   L(get_group) \
   L(group) \
   L(group_delete) \
-  L(subscriber_register) \
-  L(subscriber_unregister) \
-  L(subscriber_send_status) \
+  L(subscriber_register_id) \
+  L(subscriber_register_id_reply) \
+  L(subscriber_unregister_id) \
+  L(subscriber_send_conflict_alert) \
+  L(subscriber_send_conflict_alert_reply) \
   L(subscriber_get_info) \
   L(flood_test)
 
@@ -886,19 +888,110 @@ typedef struct {
   }                            data;
   callback_pt                  callback;
   void                        *privdata;
+  int8_t                       id_collision_policy;
 } sub_stuff_data_t;
 
 
-static void receive_subscriber_register(ngx_int_t sender, sub_stuff_data_t *shared_group) {
-  //nothing
+ngx_int_t memstore_ipc_register_subscriber_id(subscriber_t *sub, callback_pt cb, void *pd) {
+  sub_stuff_data_t        data;
+  ngx_int_t               dst;
+  DEBUG_MEMZERO(&data);
+  
+  ERR("register subscriber id %p %V (in tracker)", sub, sub->id);
+  
+  assert(sub->id);
+  
+  dst = memstore_str_owner(sub->id);
+  
+  data.sub_id = str_shm_copy(sub->id);
+  if(data.sub_id == NULL) {
+    return NGX_ERROR;
+  }
+  
+  data.callback = cb;
+  data.privdata = pd;
+  data.id_collision_policy = sub->cf->subscriber_id_collision_policy;
+  
+  return ipc_cmd(subscriber_register_id, dst, &data);
 }
-static void receive_subscriber_unregister(ngx_int_t sender, sub_stuff_data_t *shared_group) {
-  //nothing
+
+static void receive_subscriber_register_id(ngx_int_t sender, sub_stuff_data_t *d) {
+  ERR("register subscriber id %V RECEIVED (for tracker)", d->sub_id);
+  d->data.status_code = nchan_memstore_register_tracker_subscriber_id(d->sub_id, sender, d->id_collision_policy == NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW);
+  
+  ipc_cmd(subscriber_register_id_reply, sender, d);
 }
-static void receive_subscriber_send_status(ngx_int_t sender, sub_stuff_data_t *shared_group) {
-  //nothing
+
+static void receive_subscriber_register_id_reply(ngx_int_t sender, sub_stuff_data_t *d) {
+  ERR("register subscriber id %V RECEIVED REPLY (in tracker)", d->sub_id);
+  str_shm_free(d->sub_id);
+  if(d->callback) {
+    d->callback(d->data.status_code, NULL, d->privdata);
+  }
 }
-static void receive_subscriber_get_info(ngx_int_t sender, sub_stuff_data_t *shared_group) {
+
+
+ngx_int_t memstore_ipc_unregister_subscriber_id(subscriber_t *sub) {
+  sub_stuff_data_t        data;
+  ngx_int_t               dst;
+  DEBUG_MEMZERO(&data);
+  
+  assert(sub->id);
+  
+  dst = memstore_str_owner(sub->id);
+  
+  data.sub_id = str_shm_copy(sub->id);
+  if(data.sub_id == NULL) {
+    return NGX_ERROR;
+  }
+  
+  data.callback = NULL;
+  data.privdata = NULL;
+  data.id_collision_policy = 0;
+  
+  return ipc_cmd(subscriber_unregister_id, dst, &data);
+}
+
+static void receive_subscriber_unregister_id(ngx_int_t sender, sub_stuff_data_t *d) {
+  nchan_memstore_unregister_tracker_subscriber_id(d->sub_id, sender);
+  str_shm_free(d->sub_id);
+}
+
+ngx_int_t memstore_ipc_subscriber_send_conflict_alert(ngx_str_t *sub_id, ngx_int_t dst, callback_pt cb, void *pd) {
+  sub_stuff_data_t        data;
+  DEBUG_MEMZERO(&data);
+  
+  assert(sub_id);
+  
+  data.sub_id = str_shm_copy(sub_id);
+  if(data.sub_id == NULL) {
+    return NGX_ERROR;
+  }
+  
+  data.callback = cb;
+  data.privdata = pd;
+  
+  data.data.status_code = NGX_HTTP_CONFLICT;
+  
+  return ipc_cmd(subscriber_send_conflict_alert, dst, &data);
+}
+
+static void receive_subscriber_send_conflict_alert(ngx_int_t sender, sub_stuff_data_t *d) {
+  d->data.status_code = nchan_memstore_conflict_alert_local_subscriber(d->sub_id);
+  
+  str_shm_free(d->sub_id);
+  d->sub_id = NULL;
+  
+  if(d->callback) {
+    ipc_cmd(subscriber_send_conflict_alert_reply, sender, d);
+  }
+}
+
+static void receive_subscriber_send_conflict_alert_reply(ngx_int_t sender, sub_stuff_data_t *d) {
+  d->callback(d->data.status_code, NULL, d->privdata);
+}
+
+static void receive_subscriber_get_info(ngx_int_t sender, sub_stuff_data_t *d) {
   //nothing
 }
 

@@ -116,7 +116,7 @@ ngx_int_t internal_subscriber_destroy(subscriber_t *sub) {
     subscriber_debug_remove(sub);
 #endif
     fsub->destroy(NGX_OK, NULL, fsub->privdata);
-    nchan_free_msg_id(&sub->last_msgid);
+    nchan_subscriber_destroy(sub);
     ngx_free(fsub);
   }
   return NGX_OK;
@@ -252,6 +252,7 @@ static const subscriber_fn_t internal_sub_fn = {
 };
 
 static const subscriber_t new_internal_sub = {
+  NULL, //subscriber id
   &subscriber_name,
   INTERNAL,
   &internal_sub_fn,

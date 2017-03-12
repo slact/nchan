@@ -783,7 +783,7 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   if(!fsub->awaiting_destruction) {
     fsub->ctx->sub = NULL;
   }
-   
+  
   if(sub->reserved > 0) {
     DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->awaiting_destruction = 1;
@@ -796,7 +796,7 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
 #endif
     clean_after_upstream_response(fsub, 0);
     websocket_delete_timers(fsub);
-    nchan_free_msg_id(&sub->last_msgid);
+    nchan_subscriber_destroy(&fsub->sub);
     //debug 
     DBG("Begone, websocket %p", fsub);
     ngx_memset(fsub, 0x13, sizeof(*fsub));
@@ -1566,6 +1566,7 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
 }
 
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
+  static const ngx_str_t    STATUS_409=ngx_string("409 Conflict");
   static const ngx_str_t    STATUS_410=ngx_string("410 Channel Deleted");
   static const ngx_str_t    STATUS_403=ngx_string("403 Forbidden");
   static const ngx_str_t    STATUS_500=ngx_string("500 Internal Server Error");
@@ -1587,6 +1588,11 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   }
   
   switch(status_code) {
+    case 409:
+      close_code = CLOSE_POLICY_VIOLATION;
+      fsub->sub.request->headers_out.status = NGX_HTTP_CONFLICT;
+      close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_409);
+      break;
     case 410:
       close_code = CLOSE_GOING_AWAY;
       fsub->sub.request->headers_out.status = NGX_HTTP_GONE;
@@ -1656,6 +1662,7 @@ static const subscriber_fn_t websocket_fn = {
 static ngx_str_t     sub_name = ngx_string("websocket");
 
 static const subscriber_t new_websocket_sub = {
+  NULL, //subscriber id
   &sub_name,
   WEBSOCKET,
   &websocket_fn,

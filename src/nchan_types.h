@@ -201,6 +201,9 @@ typedef struct{
   ngx_int_t (*set_group_limits)(ngx_str_t *name, nchan_loc_conf_t *, nchan_group_limits_t *limits, callback_pt, void *);
   ngx_int_t (*delete_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
 
+  //subscriber-by-id stuff
+  ngx_int_t (*find_subscriber)(ngx_str_t *subscriber_id, nchan_loc_conf_t *, callback_pt, void *);
+  ngx_int_t (*alert_subscriber)(ngx_str_t *subscriber_id,  nchan_loc_conf_t *, ngx_int_t alert_code, callback_pt, void *);
 } nchan_store_t;
 
 #define NCHAN_MULTI_SEP_CHR '\0'
@@ -353,6 +356,7 @@ typedef struct {
 } subscriber_info_t;
 
 struct subscriber_s {
+  ngx_str_t                 *id;
   ngx_str_t                 *name;
   subscriber_type_t          type;
   const subscriber_fn_t     *fn;

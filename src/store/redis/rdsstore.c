@@ -2873,6 +2873,21 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t 
   return NGX_OK;
 }
 
+static ngx_int_t nchan_store_find_subscriber(ngx_str_t *subscriber_id, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  return NGX_OK;
+}
+
+static ngx_int_t nchan_store_alert_subscriber(ngx_str_t *subscriber_id, nchan_loc_conf_t *cf, ngx_int_t alert_code, callback_pt cb, void *pd) {
+  return NGX_OK;
+}
+
+ngx_int_t nchan_store_redis_register_subscriber(subscriber_t *sub, callback_pt cb, void *pd) {
+  return NGX_OK;
+}
+ngx_int_t nchan_store_redis_unregister_subscriber(subscriber_t *sub, callback_pt cb, void *pd) {
+  return NGX_OK;
+}
+
 nchan_store_t nchan_store_redis = {
   //init
   &nchan_store_init_module,
@@ -2892,8 +2907,11 @@ nchan_store_t nchan_store_redis = {
   &nchan_store_delete_channel, //+callback
   &nchan_store_find_channel, //+callback
   
-  NULL, //get_group
   NULL,
-  NULL
+  NULL,
+  NULL,
+  
+  &nchan_store_find_subscriber, //+callback
+  &nchan_store_alert_subscriber, //+callback
 };
 

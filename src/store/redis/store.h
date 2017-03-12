@@ -12,5 +12,8 @@ void redis_store_prepare_to_exit_worker(); // hark! a hack!!
 ngx_int_t nchan_store_redis_add_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf, nchan_loc_conf_t *loc_conf);
 ngx_int_t nchan_store_redis_remove_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf);
 
+ngx_int_t nchan_store_redis_register_subscriber(subscriber_t *sub, callback_pt cb, void *pd);
+ngx_int_t nchan_store_redis_unregister_subscriber(subscriber_t *sub, callback_pt cb, void *pd);
+
 ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb, void *privdata);
 #endif // NCHAN_REDIS_STORE_H

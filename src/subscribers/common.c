@@ -382,6 +382,32 @@ void nchan_subscriber_init_timeout_timer(subscriber_t *sub, ngx_event_t *ev) {
   nchan_init_timer(ev, nchan_subscriber_timeout_ev_handler, sub);
 }
 
+static void set_subscriber_id(subscriber_t *sub, nchan_request_ctx_t *ctx) {
+  ngx_str_t             *group_name;
+  ngx_str_t              subscriber_id=ngx_string("");
+  size_t                 sz;
+  ngx_http_request_t    *r = sub->request;
+  
+  group_name = nchan_get_group_name(r, sub->cf, ctx);
+  ngx_http_complex_value(r, sub->cf->subscriber_id, &subscriber_id);
+  
+  //if(subscriber_id.len > sub->cf->max_subscriber_id_length) {
+    //error out yo
+  //}
+  
+  sz = group_name->len + 1 + subscriber_id.len;
+  
+  sub->id = ngx_alloc(sizeof(ngx_str_t) + sz, ngx_cycle->log);
+  if(!sub->id) {
+    //error out yo
+    return;
+  }
+  
+  sub->id->len = sz;
+  sub->id->data = (u_char *)&sub->id[1];
+  ngx_snprintf(sub->id->data, sz, "%V/%V", group_name, &subscriber_id);
+}
+
 void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http_request_t *r, nchan_msg_id_t *msgid) {
   nchan_request_ctx_t  *ctx = NULL;
   *sub = *tmpl;
@@ -409,10 +435,23 @@ void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http
     ctx->subscriber_type = sub->name;
   }
   
+  if(sub->cf && sub->cf->subscriber_id) {
+    set_subscriber_id(sub, ctx);
+  }
+  
 #if FAKESHARD
   sub->owner = memstore_slot();
 #endif
+  ngx_str_t noid=ngx_string("<no id>");
   
+  ERR("made subscriber %p type %V id %V", sub, sub->name, sub->id ? sub->id : &noid);
+}
+
+void nchan_subscriber_destroy(subscriber_t *sub) {
+  nchan_free_msg_id(&sub->last_msgid);
+  if(sub->id) {
+    ngx_free(sub->id);
+  }
 }
 
 void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ngx_str_t *name, subscriber_fn_t *fn, ngx_int_t dequeue_after_response) {

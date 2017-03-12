@@ -44,11 +44,15 @@ typedef struct {
   //memstore_channel_head_t       unbuffered_dummy_chanhead;
   store_channel_head_shm_t        dummy_shared_chaninfo;
   memstore_channel_head_t        *hash;
+  
   nchan_reaper_t                  msg_reaper;
   nchan_reaper_t                  nobuffer_msg_reaper;
   nchan_reaper_t                  chanhead_reaper;
   
   nchan_reaper_t                  chanhead_churner;
+  
+  subscriber_id_lookup_t         *subscriber_id_tracker_hash;
+  subscriber_id_lookup_t         *subscriber_id_local_hash;
   
   ngx_int_t                       workers;
   
@@ -365,6 +369,17 @@ nchan_loc_conf_shared_data_t *memstore_get_conf_shared_data(nchan_loc_conf_t *cf
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, mpt->hash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, mpt->hash, (chanhead->id).data, (chanhead->id).len, chanhead)
 #define CHANNEL_HASH_DEL(chanhead)      HASH_DEL( mpt->hash, chanhead)
+
+
+#define SUBSCRIBER_ID_TRACKER_HASH_FIND(id, p)    HASH_FIND( hh, mpt->subscriber_id_tracker_hash, (id)->data, (id)->len, p)
+#define SUBSCRIBER_ID_TRACKER_HASH_ADD(subscriber_id_lookup)  HASH_ADD_KEYPTR( hh, mpt->subscriber_id_tracker_hash, (subscriber_id_lookup->id).data, (subscriber_id_lookup->id).len, subscriber_id_lookup)
+#define SUBSCRIBER_ID_TRACKER_HASH_DEL(subscriber_id_lookup)  HASH_DEL( mpt->subscriber_id_tracker_hash, subscriber_id_lookup)
+
+#define SUBSCRIBER_ID_LOCAL_HASH_FIND(id, p)    HASH_FIND( hh, mpt->subscriber_id_local_hash, (id)->data, (id)->len, p)
+#define SUBSCRIBER_ID_LOCAL_HASH_ADD(subscriber_id_lookup)  HASH_ADD_KEYPTR( hh, mpt->subscriber_id_local_hash, (subscriber_id_lookup->id).data, (subscriber_id_lookup->id).len, subscriber_id_lookup)
+#define SUBSCRIBER_ID_LOCAL_HASH_DEL(subscriber_id_lookup)  HASH_DEL( mpt->subscriber_id_local_hash, subscriber_id_lookup)
+
+static subscriber_id_lookup_t *nchan_memstore_create_subscriber_id_lookup_data(ngx_str_t *subscriber_id);
 
 #define NCHAN_NOBUFFER_MSG_EXPIRE_SEC 10
 
@@ -803,6 +818,23 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
 static void memstore_spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
   
+  if(sub->id) {
+    ERR("subscriber id %V dequeue handler", sub->id);
+    subscriber_id_lookup_t   *sublookup;
+    SUBSCRIBER_ID_LOCAL_HASH_FIND(sub->id, sublookup);
+    if(sublookup) {
+      if(sublookup->subscriber.ref == sub) {
+        SUBSCRIBER_ID_LOCAL_HASH_DEL(sublookup);
+        memstore_ipc_unregister_subscriber_id(sub);
+      }
+      else {
+        ERR("subscriber id %V local lookup data refers to a different subscriber", sub->id);
+      }
+    }
+    else {
+      ERR("subscriber id %V not found while in dequeue handler", sub->id);
+    }
+  }
   
   if (sub->type == INTERNAL) {
     //internal subscribers are *special* and don't really count
@@ -2022,6 +2054,7 @@ typedef struct {
   nchan_msg_id_t               msg_id;
   callback_pt                  cb;
   void                        *cb_privdata;
+  unsigned                     subscriber_id_checked:1;
   unsigned                     channel_exists:1;
   unsigned                     group_channel_limit_pass:1;
   unsigned                     reserved:1;
@@ -2074,6 +2107,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->reserved = 0;
   d->channel_exists = 0;
   d->group_channel_limit_pass = 0;
+  d->subscriber_id_checked = 0;
   d->msg_id = sub->last_msgid;
   
   if(sub->cf->subscribe_only_existing_channel || sub->cf->max_channel_subscribers > 0) {
@@ -2222,6 +2256,95 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t
   return NGX_OK;
 }
 
+static ngx_int_t register_subscriber_id_check_callback(ngx_int_t status, void *_, subscribe_data_t *d) {
+  subscriber_id_lookup_t   *sublookup;
+  
+  d->sub->fn->release(d->sub, 1);
+  if(status != NGX_OK) {
+    ERR("subscriber id %V check callback: UNAUTHORIZED", d->sub->id);
+    return nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+  }
+  else {
+    d->subscriber_id_checked=1;
+    ERR("subscriber id %V check callback: AUTHORIZED", d->sub->id);
+    
+    SUBSCRIBER_ID_LOCAL_HASH_FIND(d->sub->id, sublookup);
+    assert(sublookup == NULL);
+    
+    sublookup = nchan_memstore_create_subscriber_id_lookup_data(d->sub->id);
+    if(sublookup == NULL) {
+      ERR("couldn't alloc space for subscriber id tracker data");
+      return NGX_ERROR;
+    }
+    sublookup->subscriber.ref = d->sub;
+    SUBSCRIBER_ID_LOCAL_HASH_ADD(sublookup);
+    ERR("subscriber %p id %V added to local lookup", d->sub, d->sub->id);
+    
+    return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+  }
+}
+
+
+ngx_int_t memstore_subscriber_conflict_alert(ngx_str_t *id) {
+  subscriber_id_lookup_t   *sublookup;
+  subscriber_t             *sub;
+  ERR("memstore_subscriber_conflict_alert for %V", id);
+  SUBSCRIBER_ID_LOCAL_HASH_FIND(id, sublookup);
+  if(sublookup) {
+    sub = sublookup->subscriber.ref;
+    // conflict means this subscriber exists somewhere else. deleve the sublookup from
+    // the local subscriber id hash to make sure its deletion is not propagated
+    // to the tracker
+    SUBSCRIBER_ID_LOCAL_HASH_DEL(sublookup);
+    ngx_free(sublookup);
+    
+    sub->fn->respond_status(sub, NGX_HTTP_CONFLICT, NULL);
+    return NGX_OK;
+  }
+  else {
+    ERR("local subscriber %V not found for conflict alert", id);
+    return NGX_DECLINED;
+  }
+  
+}
+
+static ngx_int_t memstore_register_subscriber_id(subscriber_t *sub, subscribe_data_t *d) {
+  subscriber_t            *old_sub;
+  nchan_loc_conf_t        *cf = sub->cf;
+  subscriber_id_lookup_t  *sublookup, *existing_sublookup = NULL;
+  
+  SUBSCRIBER_ID_LOCAL_HASH_FIND(sub->id, existing_sublookup);
+  if(existing_sublookup) {
+    //subsciber already exists on this worker
+    //tracker doesn't need to be updated, because we're just replacing the subscriber on this worker
+    old_sub = existing_sublookup->subscriber.ref;
+    if(cf->subscriber_id_collision_policy == NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW) {
+      ERR("register subscriber %p id %V. subscriber already exists locally (%p). replace the old one.", sub, sub->id, old_sub);
+      //remove old
+      old_sub->fn->respond_status(old_sub, NGX_HTTP_CONFLICT, NULL);
+      //replace with new 
+      existing_sublookup->subscriber.ref = sub;
+      return NGX_OK;
+    }
+    else { // keep old
+      ERR("register subscriber %p id %V. subscriber already exists locally (%p). reject new one.", sub, sub->id, old_sub);
+      return nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+    }
+  }
+  else {
+    ERR("register subscriber %p id %V.", sub, sub->id);
+    d->sub->fn->reserve(d->sub);
+    if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+    //check stuff in redis
+      return nchan_store_redis_register_subscriber(sub, (callback_pt )register_subscriber_id_check_callback, d);
+    }
+    else {
+      //check in tracker
+      return memstore_ipc_register_subscriber_id(sub, (callback_pt )register_subscriber_id_check_callback, d);
+    }
+  }  
+}
+
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   memstore_channel_head_t       *chanhead = NULL;
   //store_message_t             *chmsg;
@@ -2329,6 +2452,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     d->reserved = 0;
   }
   if(chanhead) {
+    
+    if(d->sub->id && !d->subscriber_id_checked) {
+      return memstore_register_subscriber_id(d->sub, d);
+    }
     
     if(cf->group.enable_accounting || chanhead->groupnode) {
       //per-group max subscriber check
@@ -3393,6 +3520,117 @@ static ngx_int_t nchan_store_delete_group(ngx_str_t *name, nchan_loc_conf_t *cf,
   return memstore_group_delete(groups, name, cb, pd);
 }
 
+ngx_int_t nchan_memstore_find_subscriber(ngx_str_t *subscriber_id, callback_pt cb, void *pd) {
+  ERR("NOTIMPLEMENTED");
+  raise(SIGABRT);
+  return NGX_OK;
+}
+
+
+
+static ngx_int_t nchan_store_find_subscriber(ngx_str_t *subscriber_id, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  ERR("memstore find subscriber %V", subscriber_id);
+  if(cf->redis.enabled) {
+    return nchan_store_redis.find_subscriber(subscriber_id, cf, cb, pd);
+  }
+  else {
+    return nchan_memstore_find_subscriber(subscriber_id, cb, pd);
+  }
+}
+
+static ngx_int_t nchan_store_alert_subscriber(ngx_str_t *subscriber_id, nchan_loc_conf_t *cf, ngx_int_t alert_code, callback_pt cb, void *pd) {
+  if(cf->redis.enabled) {
+    return nchan_store_redis.alert_subscriber(subscriber_id, cf, alert_code, cb, pd);
+  }
+  else {
+    return nchan_memstore_find_subscriber(subscriber_id, cb, pd);
+  }
+}
+
+ngx_int_t nchan_memstore_conflict_alert_local_subscriber(ngx_str_t *subscriber_id) {
+  subscriber_id_lookup_t  *sublookup = NULL;
+  subscriber_t            *sub;
+  
+  SUBSCRIBER_ID_LOCAL_HASH_FIND(subscriber_id, sublookup);
+  if(sublookup) {
+    sub = sublookup->subscriber.ref;
+    // prevent subscriber dequeue event from removing subscriber from tracker 
+    // (it should refer to a different subsriber now that generated the 
+    // CONFLICT alert in the first place)
+    SUBSCRIBER_ID_LOCAL_HASH_DEL(sublookup); 
+    sub->fn->respond_status(sub, NGX_HTTP_CONFLICT, NULL);
+    return NGX_OK;
+  }
+  else {
+    return NGX_DECLINED;
+  }
+}
+
+static subscriber_id_lookup_t *nchan_memstore_create_subscriber_id_lookup_data(ngx_str_t *subscriber_id) {
+  subscriber_id_lookup_t *sublookup;
+  sublookup = ngx_alloc(sizeof(*sublookup) + subscriber_id->len, ngx_cycle->log);
+  if(sublookup == NULL) {
+    return NULL;
+  }
+  
+  sublookup->id.len=subscriber_id->len;
+  sublookup->id.data=(u_char *)&sublookup[1];
+  ngx_memcpy(sublookup->id.data, subscriber_id->data, subscriber_id->len);
+  return sublookup;
+}
+
+
+ngx_int_t nchan_memstore_register_tracker_subscriber_id(ngx_str_t *subscriber_id, ngx_int_t subscriber_parking_slot, int replace_on_collision) {
+  ngx_int_t                owner = memstore_str_owner(subscriber_id);
+  subscriber_id_lookup_t  *sublookup;
+  subscriber_id_lookup_t  *existing_sublookup = NULL;
+  assert(owner == ngx_process_slot);
+  
+  SUBSCRIBER_ID_TRACKER_HASH_FIND(subscriber_id, existing_sublookup);
+  if(existing_sublookup) {
+    if(replace_on_collision) {
+      memstore_ipc_subscriber_send_conflict_alert(subscriber_id, existing_sublookup->subscriber.worker_slot, NULL, NULL);
+      existing_sublookup->subscriber.worker_slot = subscriber_parking_slot;
+      return NGX_OK;
+    }
+    else {
+      return NGX_DECLINED;
+    }
+  }
+  else {
+    sublookup = nchan_memstore_create_subscriber_id_lookup_data(subscriber_id);
+    if(sublookup == NULL) {
+      ERR("couldn't alloc space for subscriber id tracker data");
+      return NGX_ERROR;
+    }
+    sublookup->subscriber.worker_slot = subscriber_parking_slot;
+    
+    SUBSCRIBER_ID_TRACKER_HASH_ADD(sublookup);
+    return NGX_OK;
+  }
+}
+
+ngx_int_t nchan_memstore_unregister_tracker_subscriber_id(ngx_str_t *subscriber_id, ngx_int_t current_subscriber_slot) {
+  ngx_int_t                owner = memstore_str_owner(subscriber_id);
+  subscriber_id_lookup_t  *sublookup;
+  assert(owner == ngx_process_slot);
+  
+  SUBSCRIBER_ID_TRACKER_HASH_FIND(subscriber_id, sublookup);
+  if(sublookup) {
+    if(sublookup->subscriber.worker_slot == current_subscriber_slot) {
+      SUBSCRIBER_ID_TRACKER_HASH_DEL(sublookup);
+      ERR("unregistered subscriber %V from tracker", subscriber_id);
+    }
+    else {
+      ERR("expected subscriber %V tracker slot to be %i, was %i. don't unregister.", subscriber_id, current_subscriber_slot, sublookup->subscriber.worker_slot);
+    }
+  }
+  else {
+    ERR("subscriber %V not in tracker", subscriber_id);
+  }
+  return NGX_OK;
+}
+
 nchan_store_t  nchan_store_memory = {
    //init
   &nchan_store_init_module,
@@ -3415,6 +3653,9 @@ nchan_store_t  nchan_store_memory = {
   &nchan_store_get_group, //+callback
   &nchan_store_set_group_limits, //+callback
   &nchan_store_delete_group, //+callback
-    
+  
+  &nchan_store_find_subscriber, //+callback
+  &nchan_store_alert_subscriber, //+callback
+  
 };
 

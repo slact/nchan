@@ -478,18 +478,25 @@ ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t da
 }
 
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, size_t data_size) {
+  ngx_int_t   my_slot = memstore_slot();
   DBG("IPC send alert code %i to slot %i", code, slot);
   
   if(data_size > IPC_DATA_SIZE) {
     ERR("IPC_DATA_SIZE too small. wanted %i, have %i", data_size, IPC_DATA_SIZE);
     assert(0);
   }
+  
+  if(slot == my_slot) { //send to self
+    ipc->handler(slot, code, data);
+    return NGX_OK;
+  }
+  
   nchan_update_stub_status(ipc_total_alerts_sent, 1);
 #if (FAKESHARD)
   
   ipc_alert_t         alert = {0};
   
-  alert.src_slot = memstore_slot();
+  alert.src_slot = my_slot;
   alert.time_sent = ngx_time();
   alert.worker_generation = memstore_worker_generation;
   alert.code = code;
