@@ -117,7 +117,7 @@ CfCmd.new do
       tags: ["subscriber", "subscriber-id"],
       
       default: "(none)",
-      info: "Associate subscriber with a unique ID. ID collisions are handled in accordance with `nchan_subscriber_id_collision_policy`."
+      info: "Associate subscriber with a unique ID. ID collisions are handled in accordance with `nchan_subscriber_id_collision_policy`. Zero-length IDs are ignored."
   
   nchan_subscriber_id_collision_policy [:srv, :loc, :if],
       :nchan_set_subscriber_id_collision_policy,
@@ -376,7 +376,7 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
-    nchan_redis_namespace [:main, :srv, :upstream], 
+  nchan_redis_namespace [:main, :srv, :upstream], 
       :ngx_conf_set_redis_namespace_slot,
       [:loc_conf, :"redis.namespace"],
       args: 1,

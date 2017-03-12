@@ -388,8 +388,14 @@ static void set_subscriber_id(subscriber_t *sub, nchan_request_ctx_t *ctx) {
   size_t                 sz;
   ngx_http_request_t    *r = sub->request;
   
-  group_name = nchan_get_group_name(r, sub->cf, ctx);
   ngx_http_complex_value(r, sub->cf->subscriber_id, &subscriber_id);
+  if(subscriber_id.len == 0) {
+    //0-length id is no id at all.
+    return;
+  }
+  
+  group_name = nchan_get_group_name(r, sub->cf, ctx);
+  
   
   //if(subscriber_id.len > sub->cf->max_subscriber_id_length) {
     //error out yo
