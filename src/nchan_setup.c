@@ -93,6 +93,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->subscribe_request_url = NULL;
   lcf->channel_group = NULL;
   
+  lcf->subscriber_id = NULL;
+  lcf->subscriber_id_collision_policy = NGX_CONF_UNSET;
+  
   lcf->message_timeout=NGX_CONF_UNSET;
   lcf->max_messages=NGX_CONF_UNSET;
   
@@ -284,6 +287,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->storage_engine = prev->storage_engine ? prev->storage_engine : default_storage_engine;
   }
 
+  MERGE_CONF(conf, prev, subscriber_id);
+  ngx_conf_merge_value(conf->subscriber_id_collision_policy, prev->subscriber_id_collision_policy, NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW);
+  
   MERGE_CONF(conf, prev, authorize_request_url);
   MERGE_CONF(conf, prev, publisher_upstream_request_url);
   MERGE_CONF(conf, prev, unsubscribe_request_url);
@@ -526,6 +532,22 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   }
   
   return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+}
+
+static char *nchan_set_subscriber_id_collision_policy(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t   *lcf = (nchan_loc_conf_t *)conf;
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  if(nchan_strmatch(val, 1, "keep-new")) {
+    lcf->subscriber_id_collision_policy = NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW;
+  }
+  else if(nchan_strmatch(val, 1, "keep-old")) {
+    lcf->subscriber_id_collision_policy = NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_OLD;
+  }
+  else {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid %V value: %V, must be 'keep-new' or 'keep-old'", &cmd->name, val);
+    return NGX_CONF_ERROR;
+  }
+  return NGX_CONF_OK;
 }
 
 static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

@@ -245,6 +245,10 @@ typedef struct {
  ngx_atomic_uint_t               max_messages;
 } nchan_loc_conf_shared_data_t;
 
+
+#define NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW 1
+#define NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_OLD 2
+
 struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   ngx_int_t                       shared_data_index;
@@ -281,6 +285,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_conf_group_t              group;
   
   time_t                          subscriber_timeout;
+  ngx_http_complex_value_t        *subscriber_id;
+  ngx_int_t                       subscriber_id_collision_policy;
   
   ngx_int_t                       longpoll_multimsg;
   ngx_int_t                       longpoll_multimsg_use_raw_stream_separator;

@@ -1076,6 +1076,18 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character.    
 
+- **nchan_subscriber_id**  
+  arguments: 1  
+  default: `(none)`  
+  context: server, location, if  
+  > Associate subscriber with a unique ID. ID collisions are handled in accordance with `nchan_subscriber_id_collision_policy`.    
+
+- **nchan_subscriber_id_collision_policy** `[ keep-previous | keep-new ]`  
+  arguments: 1  
+  default: `keep-new`  
+  context: server, location, if  
+  > If subscriber ID is set, and another subscriber with this ID already exists, determines which subscriber will be kept, and which will be removed.    
+
 - **nchan_subscriber_last_message_id**  
   arguments: 1 - 5  
   default: `$http_last_event_id $arg_last_event_id`  

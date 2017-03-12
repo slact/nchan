@@ -108,6 +108,28 @@ CfCmd.new do
       info: "Defines a server or location as a channel subscriber endpoint. This location represents a subscriber's interface to a channel's message queue. The queue is traversed automatically, starting at the position defined by the `nchan_subscriber_first_message` setting.  \n The value is a list of permitted subscriber types." ,
       uri: "#subscriber-endpoints"
   
+  nchan_subscriber_id [:srv, :loc, :if],
+      :ngx_http_set_complex_value_slot,
+      [:loc_conf, :subscriber_id],
+      args: 1,
+      alt: [ :nchan_sub_id ],
+      group: "pubsub",
+      tags: ["subscriber", "subscriber-id"],
+      
+      default: "(none)",
+      info: "Associate subscriber with a unique ID. ID collisions are handled in accordance with `nchan_subscriber_id_collision_policy`."
+  
+  nchan_subscriber_id_collision_policy [:srv, :loc, :if],
+      :nchan_set_subscriber_id_collision_policy,
+      :loc_conf,
+      args: 1,
+      group: "pubsub",
+      tags: ["subscriber", "subscriber-id"],
+      value: ["keep-previous", "keep-new"],
+      
+      default: "keep-new",
+      info: "If subscriber ID is set, and another subscriber with this ID already exists, determines which subscriber will be kept, and which will be removed."
+  
   nchan_subscriber_compound_etag_message_id [:srv, :loc, :if], 
       :ngx_conf_set_flag_slot,
       [:loc_conf, :msg_in_etag_only],

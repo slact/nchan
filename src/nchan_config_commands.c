@@ -99,6 +99,26 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
+  { ngx_string("nchan_subscriber_id"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_http_set_complex_value_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, subscriber_id),
+    NULL } ,
+  { ngx_string("nchan_sub_id"), //alt for nchan_subscriber_id
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_http_set_complex_value_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, subscriber_id),
+    NULL } ,
+
+  { ngx_string("nchan_subscriber_id_collision_policy"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    nchan_set_subscriber_id_collision_policy,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_subscriber_compound_etag_message_id"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_flag_slot,
