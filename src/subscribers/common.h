@@ -12,6 +12,9 @@ ngx_int_t nchan_request_set_content_type_multipart_boundary_header(ngx_http_requ
 
 ngx_int_t nchan_subscriber_empty_notify(subscriber_t *, ngx_int_t code, void *data);
 
+ngx_int_t nchan_subscriber_verify_reserve(subscriber_t *, const char *reason);
+ngx_int_t nchan_subscriber_verify_release(subscriber_t *, const char *reason);
+
 typedef ngx_int_t (*subrequest_callback_pt)(subscriber_t *sub, ngx_http_request_t *r, ngx_int_t rc, void *);
 ngx_http_request_t *subscriber_cv_subrequest(subscriber_t *sub, ngx_http_complex_value_t *url_ccv, ngx_buf_t *body, subrequest_callback_pt cb, void *cb_data);
 ngx_http_request_t *subscriber_subrequest(subscriber_t *sub, ngx_str_t *url, ngx_buf_t *body, subrequest_callback_pt cb, void *cb_data);
