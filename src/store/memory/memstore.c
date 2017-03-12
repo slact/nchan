@@ -800,18 +800,20 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
   assert(head->total_sub_count >= head->internal_sub_count);
 }
 
-static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscriber_type_t type, ngx_int_t count, void *privdata) {
+static void memstore_spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
-  if (type == INTERNAL) {
+  
+  
+  if (sub->type == INTERNAL) {
     //internal subscribers are *special* and don't really count
-    head->internal_sub_count -= count;
+    head->internal_sub_count --;
     if(head->shared) {
-      ngx_atomic_fetch_add(&head->shared->internal_sub_count, -count);
+      ngx_atomic_fetch_add(&head->shared->internal_sub_count, -1);
     }
   }
   else {
     if(head->shared){
-      ngx_atomic_fetch_add(&head->shared->sub_count, -count);
+      ngx_atomic_fetch_add(&head->shared->sub_count, -1);
     }
     /*
     else if(head->shared == NULL) {
@@ -819,26 +821,26 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
     }
     */
     if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !head->multi) {
-      memstore_fakesub_add(head, -count);
+      memstore_fakesub_add(head, -1);
     }
     
-    nchan_update_stub_status(subscribers, -count);
+    nchan_update_stub_status(subscribers, -1);
     
     if(head->multi) {
       ngx_int_t     i, max = head->multi_count;
-      subscriber_t *sub;
+      subscriber_t *multisub;
       for(i = 0; i < max; i++) {
-        sub = head->multi[i].sub;
-        if(sub) {
-          sub->fn->notify(sub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)-count);
+        multisub = head->multi[i].sub;
+        if(multisub) {
+          multisub->fn->notify(multisub, NCHAN_SUB_MULTI_NOTIFY_ADDSUB, (void *)-1);
         }
       }
     }
     if(head->groupnode) {
-      memstore_group_add_subscribers(head->groupnode, -(count));
+      memstore_group_add_subscribers(head->groupnode, -1);
     }
   }
-  head->total_sub_count -= count;
+  head->total_sub_count--;
   head->channel.subscribers = head->total_sub_count - head->internal_sub_count;
   assert(head->total_sub_count >= 0);
   assert(head->internal_sub_count >= 0);
@@ -854,8 +856,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
 static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
     memstore_spooler_add_handler,
-    NULL,
-    memstore_spooler_bulk_dequeue_handler,
+    memstore_spooler_dequeue_handler,
     memstore_spooler_use_handler,
     NULL,
     NULL

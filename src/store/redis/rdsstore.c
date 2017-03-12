@@ -1369,7 +1369,6 @@ static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
     spooler_add_handler,
     spooler_dequeue_handler,
-    NULL,
     spooler_use_handler,
     spooler_get_message_start_handler,
     spooler_get_message_finish_handler

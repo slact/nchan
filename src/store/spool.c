@@ -625,15 +625,7 @@ channel_spooler_t *create_spooler() {
 static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, channel_spooler_t *spl) {
   //bubble on up, yeah
   channel_spooler_handlers_t *h = spl->handlers;
-  if(h->dequeue) {
-    h->dequeue(spl, sub, spl->handlers_privdata);
-  }
-  else if (h->bulk_dequeue){
-    h->bulk_dequeue(spl, sub->type, 1, spl->handlers_privdata);
-  }
-  else {
-    ERR("Neither dequeue_handler not bulk_dequeue_handler present in spooler for spool sub dequeue");
-  }
+  h->dequeue(spl, sub, spl->handlers_privdata);
 }
 
 /*
