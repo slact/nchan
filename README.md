@@ -1080,7 +1080,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `(none)`  
   context: server, location, if  
-  > Associate subscriber with a unique ID. ID collisions are handled in accordance with `nchan_subscriber_id_collision_policy`.    
+  > Associate subscriber with a unique ID. ID collisions are handled in accordance with `nchan_subscriber_id_collision_policy`. Zero-length IDs are ignored.    
 
 - **nchan_subscriber_id_collision_policy** `[ keep-previous | keep-new ]`  
   arguments: 1  
