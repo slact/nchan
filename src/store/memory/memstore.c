@@ -2090,6 +2090,22 @@ static void subscribe_data_free(subscribe_data_t *d) {
 #define SUB_CHANNEL_UNAUTHORIZED 0
 #define SUB_CHANNEL_AUTHORIZED 1
 #define SUB_CHANNEL_NOTSURE 2
+#define SUB_ID_CONFLICT 3
+
+static ngx_int_t presubscribe_reserve_if_needed(subscribe_data_t *d) {
+  if(!d->reserved) {
+    d->reserved = 1;
+    return d->sub->fn->reserve(d->sub);
+  }
+  return NGX_OK;
+}
+static ngx_int_t presubscribe_release_if_needed(subscribe_data_t *d, int prevent_destruction) {
+  if(d->reserved) {
+    d->reserved = 0;
+    return d->sub->fn->release(d->sub, prevent_destruction);
+  }
+  return NGX_OK;
+}
 
 static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d);
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d);
@@ -2111,8 +2127,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   d->msg_id = sub->last_msgid;
   
   if(sub->cf->subscribe_only_existing_channel || sub->cf->max_channel_subscribers > 0) {
-    sub->fn->reserve(sub);
-    d->reserved = 1;
+    presubscribe_reserve_if_needed(d);
     if(memstore_slot() != owner) {
       memstore_ipc_send_channel_existence_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
     }
@@ -2128,8 +2143,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
 }
 
 static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
-  if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
-    d->reserved = 0;
+  if(presubscribe_release_if_needed(d, 0) == NGX_OK) {
     return nchan_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
@@ -2192,9 +2206,7 @@ static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *s
     }
   }
   
-  if(d->reserved) {
-    d->sub->fn->release(d->sub, 0);
-  }
+  presubscribe_release_if_needed(d, 0);
   memstore_chanhead_release(d->chanhead, "group accounting check");
   
   subscribe_data_free(d);
@@ -2212,12 +2224,12 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
     else {
       //nope. no channel, no subscribing.
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
-      if(d->reserved)  d->sub->fn->release(d->sub, 0);
+      presubscribe_release_if_needed(d, 0);
       subscribe_data_free(d);
     }
   }
   else {
-    if(d->reserved)  d->sub->fn->release(d->sub, 0);
+    presubscribe_release_if_needed(d, 0);
     subscribe_data_free(d);
   }
   return NGX_OK;
@@ -2244,13 +2256,13 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t
       //well that's unusual...
       ERR("coldn't find group for group_subscribe_channel_limit_check");
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
-      if(d->reserved)  d->sub->fn->release(d->sub, 0);
+      presubscribe_release_if_needed(d, 0);
       subscribe_data_free(d);
     }
     return NGX_OK;
   }
   else {
-    if(d->reserved)  d->sub->fn->release(d->sub, 0);
+    presubscribe_release_if_needed(d, 0);
     subscribe_data_free(d);
   }
   return NGX_OK;
@@ -2259,7 +2271,12 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t
 static ngx_int_t register_subscriber_id_check_callback(ngx_int_t status, void *_, subscribe_data_t *d) {
   subscriber_id_lookup_t   *sublookup;
   
-  d->sub->fn->release(d->sub, 1);
+  if(d->sub->status == DEAD) {
+    presubscribe_release_if_needed(d, 0);
+    subscribe_data_free(d);
+    return NGX_OK;
+  }
+  
   if(status != NGX_OK) {
     ERR("subscriber id %V check callback: UNAUTHORIZED", d->sub->id);
     return nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
@@ -2314,6 +2331,7 @@ static ngx_int_t memstore_register_subscriber_id(subscriber_t *sub, subscribe_da
   subscriber_id_lookup_t  *sublookup, *existing_sublookup = NULL;
   
   SUBSCRIBER_ID_LOCAL_HASH_FIND(sub->id, existing_sublookup);
+  presubscribe_reserve_if_needed(d);
   if(existing_sublookup) {
     //subsciber already exists on this worker
     //tracker doesn't need to be updated, because we're just replacing the subscriber on this worker
@@ -2333,7 +2351,6 @@ static ngx_int_t memstore_register_subscriber_id(subscriber_t *sub, subscribe_da
   }
   else {
     ERR("register subscriber %p id %V.", sub, sub->id);
-    d->sub->fn->reserve(d->sub);
     if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
     //check stuff in redis
       return nchan_store_redis_register_subscriber(sub, (callback_pt )register_subscriber_id_check_callback, d);
@@ -2355,10 +2372,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   nchan_request_ctx_t           *ctx;
   
   if(d->sub->status == DEAD) {
-    if(d->reserved) {
-      d->sub->fn->release(d->sub, 0);
-      d->reserved = 0;
-    }
+    presubscribe_release_if_needed(d, 0);
     subscribe_data_free(d);
     return NGX_OK;
   }
@@ -2381,10 +2395,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         else {
           //can't find the channel. gotta check if it really does exist
           DBG("can't find the channel. gotta check if it really does exist");
-          if(!d->reserved) {
-            d->sub->fn->reserve(d->sub);
-            d->reserved = 1;
-          }
+          presubscribe_reserve_if_needed(d);
           return memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_channel_limit_check, d);
         }
       }
@@ -2422,10 +2433,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     
     d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
     
-    if(d->reserved) {
-      d->sub->fn->release(d->sub, 0);
-      d->reserved = 0;
-    }
+    presubscribe_release_if_needed(d, 0);
     
     //sub should be destroyed by now.
     
@@ -2447,10 +2455,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
   d->chanhead = chanhead;
   
-  if(d->reserved) {
-    d->sub->fn->release(d->sub, 1);
-    d->reserved = 0;
-  }
+  presubscribe_release_if_needed(d, 1);
   if(chanhead) {
     
     if(d->sub->id && !d->subscriber_id_checked) {
@@ -2461,8 +2466,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       //per-group max subscriber check
       DBG("per-group max subscriber check");
       assert(d->allocd);
-      d->sub->fn->reserve(d->sub);
-      d->reserved = 1;
+      presubscribe_reserve_if_needed(d);
       memstore_chanhead_reserve(chanhead, "group accounting check");
       if(chanhead->groupnode) {
         DBG("memstore_group_find_from_groupnode(groups, chanhead->groupnode, (callback_pt )group_subscribe_accounting_check, d) sub: %p", d->sub);
