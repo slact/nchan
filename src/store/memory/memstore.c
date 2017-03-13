@@ -2088,10 +2088,10 @@ static void subscribe_data_free(subscribe_data_t *d) {
   }
 }
 
-#define SUB_CHANNEL_UNAUTHORIZED 0
-#define SUB_CHANNEL_AUTHORIZED 1
-#define SUB_CHANNEL_NOTSURE 2
-#define SUB_ID_CONFLICT 3
+#define SUBSCRIBER_UNAUTHORIZED 0
+#define SUBSCRIBER_AUTHORIZED 1
+#define SUBSCRIBER_NOTSURE_IF_AUTHORIZED 2
+#define SUBSCRIBER_CONFLICT 3
 
 static ngx_int_t presubscribe_reserve_if_needed(subscribe_data_t *d) {
   if(!d->reserved) {
@@ -2133,11 +2133,11 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
       memstore_ipc_send_channel_existence_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
     }
     else {
-      nchan_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
+      nchan_store_subscribe_continued(SUBSCRIBER_NOTSURE_IF_AUTHORIZED, NULL, d);
     }
   }
   else {
-    nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+    nchan_store_subscribe_continued(SUBSCRIBER_AUTHORIZED, NULL, d);
   }
   
   return NGX_OK;
@@ -2164,18 +2164,18 @@ static ngx_int_t redis_subscribe_channel_existence_callback(ngx_int_t status, vo
   
   if(status == NGX_OK) {
     if(channel == NULL) {
-      channel_status = cf->subscribe_only_existing_channel ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+      channel_status = cf->subscribe_only_existing_channel ? SUBSCRIBER_UNAUTHORIZED : SUBSCRIBER_AUTHORIZED;
     }
     /*
     else if (cf->max_channel_subscribers > 0) {
       // don't check this anymore -- a total subscribers count check is less
       // useful as a per-instance check, which is handled in nchan_store_subscribe_continued
       // shared total subscriber count check can be re-enabled with another config setting
-      channel_status = channel->subscribers >= cf->max_channel_subscribers ? SUB_CHANNEL_UNAUTHORIZED : SUB_CHANNEL_AUTHORIZED;
+      channel_status = channel->subscribers >= cf->max_channel_subscribers ? SUBSCRIBER_UNAUTHORIZED : SUBSCRIBER_AUTHORIZED;
     }
     */
     else {
-      channel_status = SUB_CHANNEL_AUTHORIZED;
+      channel_status = SUBSCRIBER_AUTHORIZED;
 
     }
     nchan_store_subscribe_continued(channel_status, NULL, data);
@@ -2220,7 +2220,7 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
   if(d->sub->status != DEAD) {
     if(chaninfo) {
       //ok, channel already exists.
-      nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+      nchan_store_subscribe_continued(SUBSCRIBER_AUTHORIZED, NULL, d);
     }
     else {
       //nope. no channel, no subscribing.
@@ -2242,14 +2242,14 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t
     if(shm_group) {
       if(!shm_group->limit.channels || (shm_group->channels < shm_group->limit.channels)) {
         d->group_channel_limit_pass = 1;
-        nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+        nchan_store_subscribe_continued(SUBSCRIBER_AUTHORIZED, NULL, d);
       }
       else if (shm_group->limit.channels && shm_group->channels == shm_group->limit.channels){
         //no new channels!
         nchan_store_find_channel(d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
       }
       else {
-        nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+        nchan_store_subscribe_continued(SUBSCRIBER_UNAUTHORIZED, NULL, d);
       }
       
     }
@@ -2280,7 +2280,7 @@ static ngx_int_t register_subscriber_id_check_callback(ngx_int_t status, void *_
   
   if(status != NGX_OK) {
     ERR("subscriber id %V check callback: UNAUTHORIZED", d->sub->id);
-    return nchan_store_subscribe_continued(SUB_ID_CONFLICT, NULL, d);
+    return nchan_store_subscribe_continued(SUBSCRIBER_CONFLICT, NULL, d);
   }
   else {
     d->subscriber_id_checked=1;
@@ -2298,7 +2298,7 @@ static ngx_int_t register_subscriber_id_check_callback(ngx_int_t status, void *_
     SUBSCRIBER_ID_LOCAL_HASH_ADD(sublookup);
     ERR("subscriber %p id %V added to local lookup", d->sub, d->sub->id);
     
-    return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+    return nchan_store_subscribe_continued(SUBSCRIBER_AUTHORIZED, NULL, d);
   }
 }
 
@@ -2345,11 +2345,11 @@ static ngx_int_t memstore_register_subscriber_id(subscribe_data_t *d) {
       //remove old
       old_sub->fn->respond_status(old_sub, NGX_HTTP_CONFLICT, NULL);
       d->subscriber_id_checked = 1;
-      return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+      return nchan_store_subscribe_continued(SUBSCRIBER_AUTHORIZED, NULL, d);
     }
     else { // keep old
       ERR("register subscriber %p id %V. subscriber already exists locally (%p). reject new one.", sub, sub->id, old_sub);
-      return nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+      return nchan_store_subscribe_continued(SUBSCRIBER_CONFLICT, NULL, d);
     }
   }
   else {
@@ -2384,7 +2384,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
   
   switch(channel_status) {
-    case SUB_CHANNEL_AUTHORIZED:
+    case SUBSCRIBER_AUTHORIZED:
       if(cf->group.enable_accounting) {
         //now we dance the careful dance of making sure the group channel limit is not exceeded
         //it isn't a pretty dance.
@@ -2408,16 +2408,16 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       }
       break;
     
-    case SUB_CHANNEL_UNAUTHORIZED:
+    case SUBSCRIBER_UNAUTHORIZED:
       respond_status = NGX_HTTP_FORBIDDEN;
       chanhead = NULL;
       break;
-    case SUB_ID_CONFLICT:
+    case SUBSCRIBER_CONFLICT:
       respond_status = NGX_HTTP_CONFLICT;
       chanhead = NULL;
       break;
     
-    case SUB_CHANNEL_NOTSURE:
+    case SUBSCRIBER_NOTSURE_IF_AUTHORIZED:
       if(check_redis) {
         if(cf->subscribe_only_existing_channel) {
           //we used to also check if cf->max_channel_subscribers == 0 here, but that's
@@ -2436,8 +2436,8 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   
 
-  if ((channel_status == SUB_CHANNEL_UNAUTHORIZED) || 
-      (channel_status == SUB_ID_CONFLICT) || 
+  if ((channel_status == SUBSCRIBER_UNAUTHORIZED) || 
+      (channel_status == SUBSCRIBER_CONFLICT) || 
       (!chanhead && cf->subscribe_only_existing_channel) ||
       (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= (ngx_uint_t )cf->max_channel_subscribers)) {
     
