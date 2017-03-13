@@ -825,6 +825,7 @@ static void memstore_spooler_dequeue_handler(channel_spooler_t *spl, subscriber_
     if(sublookup) {
       if(sublookup->subscriber.ref == sub) {
         SUBSCRIBER_ID_LOCAL_HASH_DEL(sublookup);
+        ngx_free(sublookup);
         memstore_ipc_unregister_subscriber_id(sub);
       }
       else {
@@ -3632,6 +3633,7 @@ ngx_int_t nchan_memstore_unregister_tracker_subscriber_id(ngx_str_t *subscriber_
   if(sublookup) {
     if(sublookup->subscriber.worker_slot == current_subscriber_slot) {
       SUBSCRIBER_ID_TRACKER_HASH_DEL(sublookup);
+      ngx_free(sublookup);
       ERR("unregistered subscriber %V from tracker", subscriber_id);
     }
     else {
