@@ -2279,7 +2279,7 @@ static ngx_int_t register_subscriber_id_check_callback(ngx_int_t status, void *_
   
   if(status != NGX_OK) {
     ERR("subscriber id %V check callback: UNAUTHORIZED", d->sub->id);
-    return nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+    return nchan_store_subscribe_continued(SUB_ID_CONFLICT, NULL, d);
   }
   else {
     d->subscriber_id_checked=1;
@@ -2325,7 +2325,8 @@ ngx_int_t memstore_subscriber_conflict_alert(ngx_str_t *id) {
   
 }
 
-static ngx_int_t memstore_register_subscriber_id(subscriber_t *sub, subscribe_data_t *d) {
+static ngx_int_t memstore_register_subscriber_id(subscribe_data_t *d) {
+  subscriber_t            *sub = d->sub;
   subscriber_t            *old_sub;
   nchan_loc_conf_t        *cf = sub->cf;
   subscriber_id_lookup_t  *sublookup, *existing_sublookup = NULL;
@@ -2338,11 +2339,12 @@ static ngx_int_t memstore_register_subscriber_id(subscriber_t *sub, subscribe_da
     old_sub = existing_sublookup->subscriber.ref;
     if(cf->subscriber_id_collision_policy == NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW) {
       ERR("register subscriber %p id %V. subscriber already exists locally (%p). replace the old one.", sub, sub->id, old_sub);
-      //remove old
-      old_sub->fn->respond_status(old_sub, NGX_HTTP_CONFLICT, NULL);
       //replace with new 
       existing_sublookup->subscriber.ref = sub;
-      return NGX_OK;
+      //remove old
+      old_sub->fn->respond_status(old_sub, NGX_HTTP_CONFLICT, NULL);
+      d->subscriber_id_checked = 1;
+      return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
     }
     else { // keep old
       ERR("register subscriber %p id %V. subscriber already exists locally (%p). reject new one.", sub, sub->id, old_sub);
@@ -2369,6 +2371,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   ngx_int_t                      check_redis = d->sub->cf->redis.enabled; // for BACKUP and DISTRIBUTED mode
   nchan_loc_conf_t              *cf = d->sub->cf;
   ngx_int_t                      rc = NGX_OK;
+  ngx_int_t                      respond_status;
   nchan_request_ctx_t           *ctx;
   
   if(d->sub->status == DEAD) {
@@ -2405,6 +2408,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       break;
     
     case SUB_CHANNEL_UNAUTHORIZED:
+      respond_status = NGX_HTTP_FORBIDDEN;
+      chanhead = NULL;
+      break;
+    case SUB_ID_CONFLICT:
+      respond_status = NGX_HTTP_CONFLICT;
       chanhead = NULL;
       break;
     
@@ -2428,10 +2436,11 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   
 
   if ((channel_status == SUB_CHANNEL_UNAUTHORIZED) || 
+      (channel_status == SUB_ID_CONFLICT) || 
       (!chanhead && cf->subscribe_only_existing_channel) ||
       (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= (ngx_uint_t )cf->max_channel_subscribers)) {
     
-    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    d->sub->fn->respond_status(d->sub, respond_status, NULL);
     
     presubscribe_release_if_needed(d, 0);
     
@@ -2459,7 +2468,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   if(chanhead) {
     
     if(d->sub->id && !d->subscriber_id_checked) {
-      return memstore_register_subscriber_id(d->sub, d);
+      return memstore_register_subscriber_id(d);
     }
     
     if(cf->group.enable_accounting || chanhead->groupnode) {
