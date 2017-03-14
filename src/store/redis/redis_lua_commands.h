@@ -55,9 +55,14 @@ typedef struct {
   redis_lua_script_t subscriber_register;
 
   //input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]
+  redis_lua_script_t subscriber_register_id;
+
+  //input: keys: [], values: [namespace, channel_id, empty_ttl]
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
   //output, num_current_subscribers
   redis_lua_script_t subscriber_unregister;
+
+  redis_lua_script_t subscriber_unregister_id;
 
 } redis_lua_scripts_t;
 
@@ -988,6 +993,45 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_count, next_keepalive}\n"},
 
+  {"subscriber_register_id", "f606426fd83fb91645b475ee61ca2f06178eb94b",
+   "--input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]\n"
+   "\n"
+   "--output: subscriber_id_registered_ok (1 or 0)\n"
+   "\n"
+   "local ns, hash_key, id, worker_id, evict_old_on_collision = ARGV[1], ARGV[2], ARGV[3], ARGV[4]==\"1\"\n"
+   "\n"
+   "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
+   "\n"
+   "redis.call('echo', ' ######## SUBSCRIBER ID REGISTER SCRIPT ####### ')\n"
+   "local subhash_key = ns .. hash_key\n"
+   "\n"
+   "local oldsub_worker_id = redis.call('hget', subhash_key, id)\n"
+   "if oldsub_worker_id then\n"
+   "  local numsub = redis.call('PUBSUB','NUMSUB', oldsub_worker_id)[2]\n"
+   "  if tonumber(numsub) > 0 then\n"
+   "    --looks like an active worker id\n"
+   "    if oldsub_worker_id == worker_id then\n"
+   "      redis.call('echo', \"weird... same worker_id \" .. worker_id .. \"for subscriber id \" .. id .. \". this should not happen, but it's not too fatal, really...\")\n"
+   "      return 1\n"
+   "    elseif evict_old_on_collision then\n"
+   "      --kick out the old one\n"
+   "      local unpacked = {\n"
+   "        \"evict_subscriber\",\n"
+   "        id,\n"
+   "        oldsub_worker_id\n"
+   "      }\n"
+   "      redis.call('PUBLISH', channel_pubsub, cmsgpack.pack(unpacked))\n"
+   "      -- don't return\n"
+   "    else --deny new\n"
+   "      return 0\n"
+   "    end\n"
+   "  end\n"
+   "  --otherwise, it looks like the previous id is from a nonexistent worker (at least a not-currently-active worker...)\n"
+   "end\n"
+   "\n"
+   "redis.call('hset', subhash_key, id, worker_id)\n"
+   "return 1\n"},
+
   {"subscriber_unregister", "ec9fd61692503fe67efc21aaf9becdf9098b6576",
    "--input: keys: [], values: [namespace, channel_id, empty_ttl]\n"
    "-- 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec\n"
@@ -1037,8 +1081,11 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "end\n"
    "\n"
    "return {sub_count}\n"},
+
+  {"subscriber_unregister_id", "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+   ""}
 };
 
-const int redis_lua_scripts_count=11;
+const int redis_lua_scripts_count=13;
 #define REDIS_LUA_SCRIPTS_EACH(script) \
 for((script)=(redis_lua_script_t *)&redis_lua_scripts; (script) < (redis_lua_script_t *)(&redis_lua_scripts + 1); (script)++) 

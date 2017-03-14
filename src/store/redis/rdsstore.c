@@ -30,6 +30,7 @@
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
 u_char            redis_worker_subscriber_id[1024];
+static ngx_str_t  redis_subscriber_id_lookup_key=ngx_string("{subscriber_id_lookup}");
 
 static rbtree_seed_t              redis_data_tree;
 static rdstore_channel_head_t    *chanhead_hash = NULL;
@@ -2874,9 +2875,67 @@ static ngx_int_t nchan_store_alert_subscriber(ngx_str_t *subscriber_id, nchan_lo
   return NGX_OK;
 }
 
+
+
+
+
+typedef struct {
+  ngx_msec_t           t;
+  char                *name;
+  ngx_str_t           *id; //subscriber id
+  callback_pt          callback;
+  void                *privdata;
+  unsigned             evict_old_on_collision:1;
+} redis_subscriber_register_id_callback_data_t;
+
+static void subscriber_register_id_send_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply      *reply = r;
+  rdstore_data_t  *rdata = c->data;
+  redis_subscriber_register_id_callback_data_t *d = privdata;
+  rdata->pending_commands--;
+  nchan_update_stub_status(redis_pending_commands, -1);
+  
+  if(!clusterKeySlotOk(c, r) || !redisReplyOk(c,r)) {
+    d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
+  }
+  else if(reply &&  CHECK_REPLY_INT(reply)) {
+    int keep_new = reply->element[2]->integer;
+    d->callback(keep_new ? NGX_OK : NGX_HTTP_CONFLICT, NULL, d->privdata);
+  }
+  else {
+    //extra weird...
+    ERR("unexpected reply to subscriber_register_id script");
+    d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
+  }
+  ngx_free(d);
+}
+
+static void subscriber_register_id_send(rdstore_data_t *rdata, void *pd) {
+  redis_subscriber_register_id_callback_data_t *d = pd;
+  
+  if(rdata) {
+    rdata = redis_cluster_rdata_from_key(rdata, &redis_subscriber_id_lookup_key);
+    //-input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]
+    nchan_redis_script(subscriber_register_id, rdata, &subscriber_register_id_send_callback, d, d->id, "%b %i", redis_worker_subscriber_id, d->evict_old_on_collision);
+  }
+  else {
+    ngx_free(d);
+  }
+}
+
 ngx_int_t nchan_store_redis_register_subscriber(subscriber_t *sub, callback_pt cb, void *pd) {
+  nchan_loc_conf_t                              *cf = sub->cf;
+  rdstore_data_t                                *rdata = cf->redis.privdata;
+  redis_subscriber_register_id_callback_data_t  *d = NULL;
+
+  CREATE_CALLBACK_DATA(d, rdata, "register_subscriber_id", sub->id, cb, pd);
+  d->evict_old_on_collision = cf->subscriber_id_collision_policy == NCHAN_SUBSCRIBER_ID_COLLISION_KEEP_NEW;
+  
+  subscriber_register_id_send(rdata, d);
+  
   return NGX_OK;
 }
+
 ngx_int_t nchan_store_redis_unregister_subscriber(subscriber_t *sub, callback_pt cb, void *pd) {
   return NGX_OK;
 }
