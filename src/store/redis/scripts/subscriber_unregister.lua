@@ -1,9 +1,8 @@
---input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]
--- 'subscriber_id' is an existing id
+--input: keys: [], values: [namespace, channel_id, empty_ttl]
 -- 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
---output: subscriber_id, num_current_subscribers
+--output, num_current_subscribers
 
-local ns, id, sub_id, empty_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20
+local ns, id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[4]) or 20
 
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
 
@@ -46,4 +45,4 @@ else
   --dbg("channel ", id, " already gone")
 end
 
-return {sub_id, sub_count}
+return {sub_count}

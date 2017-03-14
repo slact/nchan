@@ -1390,7 +1390,7 @@ static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
   if(rdata) {
     d->chanhead->reserved++;
     nchan_redis_script(subscriber_register, rdata, &redis_subscriber_register_cb, d, &d->chanhead->id,
-                       "- %i",
+                       "%i",
                        REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL
                       );
   }
@@ -1448,17 +1448,12 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
     return;
   }
   
-  if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3) || !CHECK_REPLY_INT(reply->element[1]) || !CHECK_REPLY_INT(reply->element[2])) {
+  if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2) || !CHECK_REPLY_INT(reply->element[0]) || !CHECK_REPLY_INT(reply->element[1])) {
     //no good
     redisEchoCallback(c,reply,privdata);
     return;
   }
-  if(sdata->generation == sdata->chanhead->generation) {
-    //is the subscriber     
-    //TODO: set subscriber id
-    //sdata->sub->id = reply->element[1]->integer;
-  }
-  keepalive_ttl = reply->element[2]->integer;
+  keepalive_ttl = reply->element[1]->integer;
   if(keepalive_ttl > 0) {
     if(!sdata->chanhead->keepalive_timer.timer_set) {
       ngx_add_timer(&sdata->chanhead->keepalive_timer, keepalive_ttl * 1000);
@@ -1475,14 +1470,12 @@ typedef struct {
 
 static void redis_subscriber_unregister_cb(redisAsyncContext *c, void *r, void *privdata);
 static void redis_subscriber_unregister_send(rdstore_data_t *rdata, void *pd) {
-  //input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]
-  // 'subscriber_id' is an existing id
+  //input: keys: [], values: [namespace, channel_id,  empty_ttl]
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
-  //output: subscriber_id, num_current_subscribers
+  //output: [ num_current_subscribers ]
   if(rdata) {
     nchan_redis_script( subscriber_unregister,rdata, &redis_subscriber_unregister_cb, NULL, 
-      ((subscriber_unregister_data_t *)pd)->channel_id, "%i %i", 
-                       0/*TODO: sub->id*/,
+      ((subscriber_unregister_data_t *)pd)->channel_id, "%i", 
                        ((subscriber_unregister_data_t *)pd)->channel_timeout
                       );
   }
@@ -1542,8 +1535,7 @@ static ngx_int_t redis_subscriber_unregister(rdstore_channel_head_t *chanhead, s
     redis_subscriber_unregister_send(rdata, &d);
   }
   else {
-    nchan_redis_sync_script(subscriber_unregister, rdata, &chanhead->id, "%i %i", 
-                            0/*TODO: sub->id*/,
+    nchan_redis_sync_script(subscriber_unregister, rdata, &chanhead->id, "%i", 
                             cf->channel_timeout
                            );
   }
