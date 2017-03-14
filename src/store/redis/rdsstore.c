@@ -29,7 +29,7 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
-u_char            redis_subscriber_id[255];
+u_char            redis_worker_subscriber_id[1024];
 
 static rbtree_seed_t              redis_data_tree;
 static rdstore_channel_head_t    *chanhead_hash = NULL;
@@ -482,8 +482,8 @@ static void redis_ping_timer_handler(ngx_event_t *ev) {
   
   ev->timedout = 0;
   if(rdata->status == CONNECTED && rdata->ctx && rdata->sub_ctx) {
-    if((cmd_rdata = redis_cluster_rdata_from_cstr(rdata, redis_subscriber_id)) != NULL) { //works right for clusters only if redis_subscriber_id has a curlybraced {...} string in it
-      redis_command(cmd_rdata, redis_ping_callback, NULL, "PUBLISH %b%s ping", STR(&cmd_rdata->namespace), redis_subscriber_id);
+    if((cmd_rdata = redis_cluster_rdata_from_cstr(rdata, redis_worker_subscriber_id)) != NULL) { //works right for clusters only if redis_worker_subscriber_id has a curlybraced {...} string in it
+      redis_command(cmd_rdata, redis_ping_callback, NULL, "PUBLISH %b%s ping", STR(&cmd_rdata->namespace), redis_worker_subscriber_id);
     }
     else {
       //TODO: what to do?...
@@ -504,8 +504,9 @@ static ngx_int_t redis_data_tree_connector(rbtree_seed_t *seed, rdstore_data_t *
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_int_t rc = NGX_OK;
-  ngx_memzero(&redis_subscriber_id, sizeof(redis_subscriber_id));
-  ngx_snprintf(redis_subscriber_id, 512, "nchan_worker:{%i:time:%i}", ngx_pid, ngx_time());
+  
+  ngx_memzero(&redis_worker_subscriber_id, sizeof(redis_worker_subscriber_id));
+  ngx_snprintf(redis_worker_subscriber_id, 1024, "nchan_worker:{pid:%i:time:%i}", ngx_pid, ngx_time());
   
   redis_nginx_init();
   
@@ -734,8 +735,8 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
     redisInitScripts(rdata);
     if(rdata->sub_ctx) {
       //ERR("rdata->sub_ctx OK, subscribing for %V", rdata->connect_url);
-      if(redis_cluster_rdata_from_cstr(rdata, redis_subscriber_id) == rdata) { //works only if redis_subsriber_id has a curlybraced {...} string in it
-        redisAsyncCommand(rdata->sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %b%s", STR(&rdata->namespace), redis_subscriber_id);
+      if(redis_cluster_rdata_from_cstr(rdata, redis_worker_subscriber_id) == rdata) { //works only if redis_subsriber_id has a curlybraced {...} string in it
+        redisAsyncCommand(rdata->sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %b%s", STR(&rdata->namespace), redis_worker_subscriber_id);
       }
     }
     else {
@@ -1084,7 +1085,7 @@ static int str_match_redis_subscriber_channel(ngx_str_t *pubsub_channel, ngx_str
   psch.data += ns->len;
   psch.len -= ns->len;
   
-  return ngx_strmatch(&psch, (char *)redis_subscriber_id);
+  return ngx_strmatch(&psch, (char *)redis_worker_subscriber_id);
 }
 
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata) {
