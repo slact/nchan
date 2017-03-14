@@ -1325,7 +1325,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
 static ngx_int_t redis_subscriber_register(rdstore_channel_head_t *chanhead, subscriber_t *sub);
 static ngx_int_t redis_subscriber_unregister(rdstore_channel_head_t *chanhead, subscriber_t *sub, uint8_t shutting_down);
-static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+static void spooler_add_subscriber_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   rdstore_channel_head_t *head = (rdstore_channel_head_t *)privdata;
   head->sub_count++;
   if(sub->type == INTERNAL) {
@@ -1334,7 +1334,7 @@ static void spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void 
   redis_subscriber_register(head, sub);
 }
 
-static void spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+static void spooler_remove_subscriber_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   //need individual subscriber
   //TODO
   rdstore_channel_head_t *head = (rdstore_channel_head_t *)privdata;
@@ -1369,8 +1369,8 @@ void spooler_get_message_finish_handler(channel_spooler_t *spl, void *pd) {
 
 static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
-    spooler_add_handler,
-    spooler_dequeue_handler,
+    spooler_add_subscriber_handler,
+    spooler_remove_subscriber_handler,
     spooler_use_handler,
     spooler_get_message_start_handler,
     spooler_get_message_finish_handler

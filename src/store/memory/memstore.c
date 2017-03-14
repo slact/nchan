@@ -778,7 +778,7 @@ static void memstore_spooler_use_handler(channel_spooler_t *spl, void *d) {
   }
 }
 
-static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+static void memstore_spooler_add_subscriber_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
   head->total_sub_count++;
   if(sub->type == INTERNAL) {
@@ -815,7 +815,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
   assert(head->total_sub_count >= head->internal_sub_count);
 }
 
-static void memstore_spooler_dequeue_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
+static void memstore_spooler_remove_subscriber_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
   
   if(sub->id) {
@@ -888,8 +888,8 @@ static void memstore_spooler_dequeue_handler(channel_spooler_t *spl, subscriber_
 
 static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
   static channel_spooler_handlers_t handlers = {
-    memstore_spooler_add_handler,
-    memstore_spooler_dequeue_handler,
+    memstore_spooler_add_subscriber_handler,
+    memstore_spooler_remove_subscriber_handler,
     memstore_spooler_use_handler,
     NULL,
     NULL

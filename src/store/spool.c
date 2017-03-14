@@ -625,7 +625,7 @@ channel_spooler_t *create_spooler() {
 static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, channel_spooler_t *spl) {
   //bubble on up, yeah
   channel_spooler_handlers_t *h = spl->handlers;
-  h->dequeue(spl, sub, spl->handlers_privdata);
+  h->remove_subscriber(spl, sub, spl->handlers_privdata);
 }
 
 /*
@@ -664,7 +664,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
     ERR("couldn't add subscriber to spool %p", spool);
     return NGX_ERROR;
   }
-  self->handlers->add(self, sub, self->handlers_privdata);
+  self->handlers->add_subscriber(self, sub, self->handlers_privdata);
   
   switch(spool->msg_status) {
     case MSG_FOUND:

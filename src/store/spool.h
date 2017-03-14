@@ -98,9 +98,9 @@ struct channel_spooler_s {
 };
 
 struct channel_spooler_handlers_s {
-  void                        (*add)(channel_spooler_t *, subscriber_t *, void *);
-  void                        (*dequeue)(channel_spooler_t *, subscriber_t *, void *);
-  //void                        (*bulk_dequeue)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs // disabled for now because subscriber-id stuff needs to access each sub on dequeue
+  void                        (*add_subscriber)(channel_spooler_t *, subscriber_t *, void *);
+  void                        (*remove_subscriber)(channel_spooler_t *, subscriber_t *, void *);
+  //void                        (*bulk_remove_subscribers)(channel_spooler_t *, subscriber_type_t, ngx_int_t, void *); //called after dequeueing 1 or many subs // disabled for now because subscriber-id stuff needs to access each sub on dequeue
   void                        (*use)(channel_spooler_t *, void *);
   void                        (*get_message_start)(channel_spooler_t *, void *);
   void                        (*get_message_finish)(channel_spooler_t *, void *);
