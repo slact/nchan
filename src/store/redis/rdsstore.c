@@ -1878,8 +1878,8 @@ typedef struct {
     else {                                                                   \
       d->id = thing_id;                                                      \
     }                                                                        \
-    d->callback = callback_fn;                                                  \
-    d->privdata = callback_privdata;                                                  \
+    d->callback = callback_fn;                                               \
+    d->privdata = callback_privdata;                                         \
   } while(0)
 
 static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privdata) {
