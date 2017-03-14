@@ -824,16 +824,17 @@ static void memstore_spooler_remove_subscriber_handler(channel_spooler_t *spl, s
     SUBSCRIBER_ID_LOCAL_HASH_FIND(sub->id, sublookup);
     if(sublookup) {
       if(sublookup->subscriber.ref == sub) {
+        ERR("subscriber %p id %V local lookup data DELETE", sub, sub->id);
         SUBSCRIBER_ID_LOCAL_HASH_DEL(sublookup);
         ngx_free(sublookup);
         memstore_ipc_unregister_subscriber_id(sub);
       }
       else {
-        ERR("subscriber id %V local lookup data refers to a different subscriber", sub->id);
+        ERR("subscriber %p id %V local lookup data refers to a different subscriber %p. do nothing.", sub, sub->id, sublookup->subscriber.ref);
       }
     }
     else {
-      ERR("subscriber id %V not found while in dequeue handler", sub->id);
+      ERR("subscriber %p id %V not found while in dequeue handler", sub, sub->id);
     }
   }
   
@@ -2376,6 +2377,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   nchan_request_ctx_t           *ctx;
   
   if(d->sub->status == DEAD) {
+    ERR("Sub's dead, Jim. (%p)", d->sub);
     presubscribe_release_if_needed(d, 0);
     subscribe_data_free(d);
     return NGX_OK;
