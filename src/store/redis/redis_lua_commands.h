@@ -49,16 +49,14 @@ typedef struct {
   //redis-store consistency check
   redis_lua_script_t rsck;
 
-  //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl]
-  //  'subscriber_id' can be '-' for new id, or an existing id
+  //input: keys: [], values: [namespace, channel_id, active_ttl]
   //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
-  //output: subscriber_id, num_current_subscribers, next_keepalive_time
+  //output: num_current_subscribers, next_keepalive_time
   redis_lua_script_t subscriber_register;
 
-  //input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]
-  // 'subscriber_id' is an existing id
+  //input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]
   // 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec
-  //output: subscriber_id, num_current_subscribers
+  //output, num_current_subscribers
   redis_lua_script_t subscriber_unregister;
 
 } redis_lua_scripts_t;
@@ -946,13 +944,12 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return concat(#channel_ids, \"channels,\", known_msgs_count, \"messages, all ok\")\n"
    "end\n"},
 
-  {"subscriber_register", "c5ca76cdec3f09ac71483a4b809f48e553c7c4e2",
-   "--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl]\n"
-   "--  'subscriber_id' can be '-' for new id, or an existing id\n"
+  {"subscriber_register", "ac2c5ab8d63b80a6b78dc3484367a09585683788",
+   "--input: keys: [], values: [namespace, channel_id, active_ttl]\n"
    "--  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec\n"
-   "--output: subscriber_id, num_current_subscribers, next_keepalive_time\n"
+   "--output: num_current_subscribers, next_keepalive_time\n"
    "\n"
-   "local ns, id, sub_id, active_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20\n"
+   "local ns, id, active_ttl = ARGV[1], ARGV[2], tonumber(ARGV[3]) or 20\n"
    "\n"
    "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
    "\n"
@@ -978,14 +975,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return math.floor(ttl/2 + ttl/2.1 * math.random())\n"
    "end\n"
    "\n"
-   "local sub_count\n"
-   "\n"
-   "if sub_id == \"-\" then\n"
-   "  sub_id = tonumber(redis.call('HINCRBY', keys.channel, \"last_subscriber_id\", 1))\n"
-   "  sub_count=tonumber(redis.call('hincrby', keys.channel, 'subscribers', 1))\n"
-   "else\n"
-   "  sub_count=tonumber(redis.call('hget', keys.channel, 'subscribers'))\n"
-   "end\n"
+   "local sub_count = tonumber(redis.call('hincrby', keys.channel, 'subscribers', 1))\n"
    "\n"
    "local next_keepalive \n"
    "local actual_ttl = tonumber(redis.call('ttl', keys.channel))\n"
@@ -996,15 +986,14 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  next_keepalive = random_safe_next_ttl(actual_ttl)\n"
    "end\n"
    "\n"
-   "return {sub_id, sub_count, next_keepalive}\n"},
+   "return {sub_count, next_keepalive}\n"},
 
-  {"subscriber_unregister", "a98e07b21485951a7d34cf80736e53db1b6e87a6",
-   "--input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]\n"
-   "-- 'subscriber_id' is an existing id\n"
+  {"subscriber_unregister", "ec9fd61692503fe67efc21aaf9becdf9098b6576",
+   "--input: keys: [], values: [namespace, channel_id, empty_ttl]\n"
    "-- 'empty_ttl' is channel ttl when without subscribers. 0 to delete immediately, -1 to persist, >0 ttl in sec\n"
-   "--output: subscriber_id, num_current_subscribers\n"
+   "--output, num_current_subscribers\n"
    "\n"
-   "local ns, id, sub_id, empty_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20\n"
+   "local ns, id, empty_ttl = ARGV[1], ARGV[2], tonumber(ARGV[4]) or 20\n"
    "\n"
    "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
    "\n"
@@ -1047,7 +1036,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  --dbg(\"channel \", id, \" already gone\")\n"
    "end\n"
    "\n"
-   "return {sub_id, sub_count}\n"}
+   "return {sub_count}\n"},
 };
 
 const int redis_lua_scripts_count=11;
