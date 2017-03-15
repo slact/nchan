@@ -78,6 +78,13 @@ typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_NOTREADY, CLUSTE
 
 
 typedef enum {CLUSTER_RETRY_BY_CHANHEAD, CLUSTER_RETRY_BY_CHANNEL_ID, CLUSTER_RETRY_BY_KEY, CLUSTER_RETRY_BY_CSTR} redis_cluster_retry_hashslot_t;
+
+typedef struct {
+  char                               *name;
+  void                              (*run)(rdstore_data_t*, void *);
+  void                               *data;
+} redis_delayed_command_t;
+
 typedef struct redis_cluster_retry_s redis_cluster_retry_t;
 struct redis_cluster_retry_s {
   redis_cluster_retry_hashslot_t     type;
@@ -86,9 +93,11 @@ struct redis_cluster_retry_s {
     ngx_str_t                        str;
     u_char                          *cstr;
   };
-  void                              (*retry)(rdstore_data_t*, void *);
-  void                               *data;
-}; //retry_redis_script_t
+  redis_delayed_command_t           retry;
+  
+  //void                              (*retry)(rdstore_data_t*, void *);
+  //void                               *data;
+};
 
 typedef struct {
   redis_cluster_status_t           status;

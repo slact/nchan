@@ -977,7 +977,7 @@ ngx_int_t memstore_ipc_subscriber_send_conflict_alert(ngx_str_t *sub_id, ngx_int
 }
 
 static void receive_subscriber_send_conflict_alert(ngx_int_t sender, sub_stuff_data_t *d) {
-  d->data.status_code = nchan_memstore_conflict_alert_local_subscriber(d->sub_id);
+  d->data.status_code = memstore_conflict_alert_local_subscriber(d->sub_id);
   
   str_shm_free(d->sub_id);
   d->sub_id = NULL;

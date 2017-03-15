@@ -1098,7 +1098,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   ngx_str_t              *chid = NULL;
   ngx_str_t               pubsub_channel; 
   ngx_str_t               msg_redis_hash_key = ngx_null_string;
-  ngx_uint_t              subscriber_id;
   
   ngx_buf_t               mpbuf;
   cmp_ctx_t               cmp;
@@ -1226,27 +1225,24 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 ERR("unexpected \"delete channel\" msgpack message from redis");
               }
             }
-            else if(ngx_strmatch(&alerttype, "unsub one") && array_sz > 3) {
-              if(cmp_to_str(&cmp, &extracted_channel_id)) {
-                cmp_to_str(&cmp, &extracted_channel_id);
-                cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
-                //TODO
-              }
-              ERR("unsub one not yet implemented");
-              assert(0);
-            }
             else if(ngx_strmatch(&alerttype, "unsub all") && array_sz > 1) {
               if(cmp_to_str(&cmp, &extracted_channel_id)) {
                 nchan_store_publish_generic(&extracted_channel_id, rdata, NULL, NGX_HTTP_CONFLICT, &NCHAN_HTTP_STATUS_409);
               }
             }
-            else if(ngx_strmatch(&alerttype, "unsub all except")) {
-              if(cmp_to_str(&cmp, &extracted_channel_id)) {
-                cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
-                //TODO
+            else if(ngx_strmatch(&alerttype, "evict subscriber by id") && array_sz >= 4) {
+              ngx_str_t subscriber_id, received_worker_id;
+              if(cmp_to_str(&cmp, &subscriber_id) && cmp_to_str(&cmp, &received_worker_id)) {
+                if(!ngx_strmatch(&received_worker_id, (char *)redis_worker_subscriber_id)) {
+                  ERR("\"evict subscriber by id\" looks to have been intended for another worker %V (this is %s)", &received_worker_id, redis_worker_subscriber_id);
+                }
+                else {
+                  memstore_conflict_alert_local_subscriber(&subscriber_id);
+                }
               }
-              ERR("unsub all except not yet  implemented");
-              assert(0);
+              else {
+                ERR("unexpected \"evict subscriber by id\" msgpack message from redis");
+              }
             }
             else {
               ERR("unexpected msgpack alert from redis");
@@ -2888,6 +2884,8 @@ typedef struct {
   unsigned             evict_old_on_collision:1;
 } redis_subscriber_register_id_callback_data_t;
 
+static void subscriber_register_id_send(rdstore_data_t *rdata, void *pd);
+
 static void subscriber_register_id_send_callback(redisAsyncContext *c, void *r, void *privdata) {
   redisReply      *reply = r;
   rdstore_data_t  *rdata = c->data;
@@ -2895,11 +2893,15 @@ static void subscriber_register_id_send_callback(redisAsyncContext *c, void *r, 
   rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
-  if(!clusterKeySlotOk(c, r) || !redisReplyOk(c,r)) {
+  if(!clusterKeySlotOk(c, r)) {
+    cluster_add_retry_command_with_key(rdata->node.cluster, &redis_subscriber_id_lookup_key, subscriber_register_id_send, d);
+    return;
+  }
+  else if(!redisReplyOk(c,r)) {
     d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
   else if(reply &&  CHECK_REPLY_INT(reply)) {
-    int keep_new = reply->element[2]->integer;
+    int keep_new = reply->integer;
     d->callback(keep_new ? NGX_OK : NGX_HTTP_CONFLICT, NULL, d->privdata);
   }
   else {
@@ -2912,11 +2914,10 @@ static void subscriber_register_id_send_callback(redisAsyncContext *c, void *r, 
 
 static void subscriber_register_id_send(rdstore_data_t *rdata, void *pd) {
   redis_subscriber_register_id_callback_data_t *d = pd;
-  
   if(rdata) {
     rdata = redis_cluster_rdata_from_key(rdata, &redis_subscriber_id_lookup_key);
     //-input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]
-    nchan_redis_script(subscriber_register_id, rdata, &subscriber_register_id_send_callback, d, d->id, "%b %i", redis_worker_subscriber_id, d->evict_old_on_collision);
+    nchan_redis_script(subscriber_register_id, rdata, &subscriber_register_id_send_callback, d, &redis_subscriber_id_lookup_key, "%b %s %i", STR(d->id), redis_worker_subscriber_id, d->evict_old_on_collision);
   }
   else {
     ngx_free(d);
@@ -2936,7 +2937,59 @@ ngx_int_t nchan_store_redis_register_subscriber(subscriber_t *sub, callback_pt c
   return NGX_OK;
 }
 
-ngx_int_t nchan_store_redis_unregister_subscriber(subscriber_t *sub, callback_pt cb, void *pd) {
+
+
+
+static void subscriber_unregister_id_send(rdstore_data_t *rdata, void *pd);
+
+static void subscriber_unregister_id_send_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redisReply                   *reply = r;
+  rdstore_data_t               *rdata = c->data;
+  redis_script_callback_data_t *d = privdata;
+  
+  rdata->pending_commands--;
+  nchan_update_stub_status(redis_pending_commands, -1);
+  
+  if(!clusterKeySlotOk(c, r)) {
+    cluster_add_retry_command_with_key(rdata->node.cluster, &redis_subscriber_id_lookup_key, subscriber_unregister_id_send, d);
+    return;
+  }
+  else if(!redisReplyOk(c,r)) {
+    ERR("reply error for subscriber_unregister_id");
+  }
+  else if(reply && CHECK_REPLY_INT(reply)) {
+    DBG("all is well with subscriber_unregister_id");
+  }
+  else {
+    //extra weird...
+    ERR("unexpected reply to subscriber_unregister_id script");
+  }
+  ngx_free(d);
+}
+
+static void subscriber_unregister_id_send(rdstore_data_t *rdata, void *pd) {
+  redis_script_callback_data_t  *d = pd;
+  if(rdata) {
+    rdata = redis_cluster_rdata_from_key(rdata, &redis_subscriber_id_lookup_key);
+    //-input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key]
+    nchan_redis_script(subscriber_unregister_id, rdata, &subscriber_unregister_id_send_callback, d, &redis_subscriber_id_lookup_key, "%b %s", STR(d->id), redis_worker_subscriber_id);
+  }
+  else {
+    ngx_free(d);
+  }
+  
+  //TODO : resend if connection unavailable
+}
+
+ngx_int_t nchan_store_redis_unregister_subscriber(subscriber_t *sub) {
+  nchan_loc_conf_t                              *cf = sub->cf;
+  rdstore_data_t                                *rdata = cf->redis.privdata;
+  redis_script_callback_data_t                  *d = NULL;
+
+  CREATE_CALLBACK_DATA(d, rdata, "unregister_subscriber_id", sub->id, NULL, NULL);
+  
+  subscriber_unregister_id_send(rdata, d);
+  
   return NGX_OK;
 }
 

@@ -473,8 +473,8 @@ static redis_cluster_retry_t *cluster_create_retry_command(redis_cluster_t *clus
   redis_cluster_retry_t *retry;
   if((retry = nchan_list_append(&cluster->retry_commands)) == NULL)
     return NULL;
-  retry->retry = handler;
-  retry->data = pd;
+  retry->retry.run = handler;
+  retry->retry.data = pd;
   return retry;
 }
 
@@ -552,7 +552,7 @@ static void retry_commands_traverse_callback(void *data, void *pd) {
       break;
     
   }
-  retry->retry(rdata, retry->data);
+  retry->retry.run(rdata, retry->retry.data);
 }
 
 static ngx_int_t cluster_run_retry_commands(redis_cluster_t *cluster) {
@@ -566,7 +566,7 @@ static void retry_commands_traverse_abort_callback(void *data, void *pd) {
   if(retry->type == CLUSTER_RETRY_BY_CHANHEAD) {
     retry->chanhead->reserved--;
   }
-  retry->retry(NULL, retry->data);
+  retry->retry.run(NULL, retry->retry.data);
 }
 
 static ngx_int_t cluster_abort_retry_commands(redis_cluster_t *cluster) {

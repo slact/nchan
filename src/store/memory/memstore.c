@@ -817,7 +817,7 @@ static void memstore_spooler_add_subscriber_handler(channel_spooler_t *spl, subs
 
 static void memstore_spooler_remove_subscriber_handler(channel_spooler_t *spl, subscriber_t *sub, void *privdata) {
   memstore_channel_head_t   *head = (memstore_channel_head_t *)privdata;
-  
+  nchan_loc_conf_t          *cf = sub->cf;
   if(sub->id) {
     ERR("subscriber id %V dequeue handler", sub->id);
     subscriber_id_lookup_t   *sublookup;
@@ -827,7 +827,13 @@ static void memstore_spooler_remove_subscriber_handler(channel_spooler_t *spl, s
         ERR("subscriber %p id %V local lookup data DELETE", sub, sub->id);
         SUBSCRIBER_ID_LOCAL_HASH_DEL(sublookup);
         ngx_free(sublookup);
-        memstore_ipc_unregister_subscriber_id(sub);
+        
+        if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+          nchan_store_redis_unregister_subscriber(sub);
+        }
+        else {
+          memstore_ipc_unregister_subscriber_id(sub);
+        }        
       }
       else {
         ERR("subscriber %p id %V local lookup data refers to a different subscriber %p. do nothing.", sub, sub->id, sublookup->subscriber.ref);
@@ -2331,7 +2337,7 @@ static ngx_int_t memstore_register_subscriber_id(subscribe_data_t *d) {
   subscriber_t            *sub = d->sub;
   subscriber_t            *old_sub;
   nchan_loc_conf_t        *cf = sub->cf;
-  subscriber_id_lookup_t  *sublookup, *existing_sublookup = NULL;
+  subscriber_id_lookup_t  *existing_sublookup = NULL;
   
   SUBSCRIBER_ID_LOCAL_HASH_FIND(sub->id, existing_sublookup);
   presubscribe_reserve_if_needed(d);
@@ -3563,7 +3569,7 @@ static ngx_int_t nchan_store_alert_subscriber(ngx_str_t *subscriber_id, nchan_lo
   }
 }
 
-ngx_int_t nchan_memstore_conflict_alert_local_subscriber(ngx_str_t *subscriber_id) {
+ngx_int_t memstore_conflict_alert_local_subscriber(ngx_str_t *subscriber_id) {
   subscriber_id_lookup_t  *sublookup = NULL;
   subscriber_t            *sub;
   

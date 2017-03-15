@@ -54,7 +54,7 @@ typedef struct {
   //output: num_current_subscribers, next_keepalive_time
   redis_lua_script_t subscriber_register;
 
-  //input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]
+  //input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_id, prefer_new_on_collision]
   redis_lua_script_t subscriber_register_id;
 
   //input: keys: [], values: [namespace, channel_id, empty_ttl]
@@ -62,6 +62,8 @@ typedef struct {
   //output, num_current_subscribers
   redis_lua_script_t subscriber_unregister;
 
+  //input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_id]
+  //output: was_subscriber_unregistered? (1/0)
   redis_lua_script_t subscriber_unregister_id;
 
 } redis_lua_scripts_t;
@@ -993,22 +995,34 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_count, next_keepalive}\n"},
 
-  {"subscriber_register_id", "f606426fd83fb91645b475ee61ca2f06178eb94b",
-   "--input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key, prefer_new_on_collision]\n"
+  {"subscriber_register_id", "1897999a2550144c43a724b89b835d8c59ffc082",
+   "--input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_id, prefer_new_on_collision]\n"
    "\n"
    "--output: subscriber_id_registered_ok (1 or 0)\n"
    "\n"
-   "local ns, hash_key, id, worker_id, evict_old_on_collision = ARGV[1], ARGV[2], ARGV[3], ARGV[4]==\"1\"\n"
+   "local ns, hash_key, id, worker_id, evict_old_on_collision = ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5]==\"1\"\n"
    "\n"
-   "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
+   "--dbg = function(...) redis.call('echo', table.concat({...})); end\n"
    "\n"
    "redis.call('echo', ' ######## SUBSCRIBER ID REGISTER SCRIPT ####### ')\n"
    "local subhash_key = ns .. hash_key\n"
    "\n"
+   "local deterministic_mode = true\n"
+   "if redis.replicate_commands then\n"
+   "  redis.replicate_commands()\n"
+   "  deterministic_mode = false\n"
+   "end\n"
+   "\n"
    "local oldsub_worker_id = redis.call('hget', subhash_key, id)\n"
    "if oldsub_worker_id then\n"
-   "  local numsub = redis.call('PUBSUB','NUMSUB', oldsub_worker_id)[2]\n"
-   "  if tonumber(numsub) > 0 then\n"
+   "  local oldworker_pubsub = ns..oldsub_worker_id\n"
+   "  \n"
+   "  local numsub \n"
+   "  if not deterministic_mode then\n"
+   "    numsub = redis.call('PUBSUB','NUMSUB', oldworker_pubsub)[2]\n"
+   "  end\n"
+   "  \n"
+   "  if deterministic_mode or tonumber(numsub) > 0 then\n"
    "    --looks like an active worker id\n"
    "    if oldsub_worker_id == worker_id then\n"
    "      redis.call('echo', \"weird... same worker_id \" .. worker_id .. \"for subscriber id \" .. id .. \". this should not happen, but it's not too fatal, really...\")\n"
@@ -1016,11 +1030,12 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "    elseif evict_old_on_collision then\n"
    "      --kick out the old one\n"
    "      local unpacked = {\n"
-   "        \"evict_subscriber\",\n"
+   "        \"alert\",\n"
+   "        \"evict subscriber by id\",\n"
    "        id,\n"
    "        oldsub_worker_id\n"
    "      }\n"
-   "      redis.call('PUBLISH', channel_pubsub, cmsgpack.pack(unpacked))\n"
+   "      redis.call('PUBLISH', oldworker_pubsub, cmsgpack.pack(unpacked))\n"
    "      -- don't return\n"
    "    else --deny new\n"
    "      return 0\n"
@@ -1082,8 +1097,27 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_count}\n"},
 
-  {"subscriber_unregister_id", "da39a3ee5e6b4b0d3255bfef95601890afd80709",
-   ""}
+  {"subscriber_unregister_id", "80101ce92faee7497767e6604a8cb3d8506a1877",
+   "--input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_id]\n"
+   "--output: was_subscriber_unregistered? (1/0)\n"
+   "\n"
+   "local ns, hash_key, id, worker_id = ARGV[1], ARGV[2], ARGV[3], ARGV[4]\n"
+   "local dbg = function(...) redis.call('echo', table.concat({...}, \" \")); end\n"
+   "\n"
+   "dbg(' ######## SUBSCRIBER ID UNREGISTER SCRIPT ####### ')\n"
+   "local subhash_key = ns .. hash_key\n"
+   "\n"
+   "local oldsub_worker_id = redis.call('HGET', subhash_key, id)\n"
+   "if oldsub_worker_id == worker_id then\n"
+   "  -- this is our subscriber. delete it.\n"
+   "  redis.call('HDEL', subhash_key, id)\n"
+   "  dbg(\"yeah!\")\n"
+   "  return 1\n"
+   "else\n"
+   "  dbg(\"mismatch:\", oldsub_worker_id, worker_id)\n"
+   "  return 0\n"
+   "  --another worker's subscriber, or id not registered. don't touch it\n"
+   "end\n"}
 };
 
 const int redis_lua_scripts_count=13;

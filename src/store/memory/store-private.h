@@ -175,7 +175,6 @@ ngx_int_t chanhead_gc_withdraw(memstore_channel_head_t *chanhead, const char *);
 ngx_int_t nchan_memstore_find_subscriber(ngx_str_t *subscriber_id, callback_pt cb, void *pd);
 ngx_int_t nchan_memstore_register_tracker_subscriber_id(ngx_str_t *subscriber_id, ngx_int_t subscriber_parking_slot, int replace_on_collision);
 ngx_int_t nchan_memstore_unregister_tracker_subscriber_id(ngx_str_t *subscriber_id, ngx_int_t subscriber_expected_slot);
-ngx_int_t nchan_memstore_conflict_alert_local_subscriber(ngx_str_t *subscriber_id);
 
 void memstore_chanhead_release(memstore_channel_head_t *ch, char *label);
 void memstore_chanhead_reserve(memstore_channel_head_t *ch, const char *label);
