@@ -1,5 +1,5 @@
 #!/bin/zsh
-_nginx_ver_latest=1.11.5
+_nginx_ver_latest=1.11.10
 _nginx_ver_stable=1.10.2
 _nginx_ver_nopool=1.11.2
 _nginx_ver_legacy=1.8.1
