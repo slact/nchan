@@ -440,10 +440,10 @@ void memstore_group_dissociate_own_channel(memstore_channel_head_t *ch) {
 static ngx_int_t group_add_channel_internal(nchan_group_t *shm_group, int multi, int self_owned, int n) {
   if(shm_group) {
     if(multi) {
-      ngx_atomic_fetch_add(&shm_group->multiplexed_channels, n);
+      ngx_atomic_fetch_add((ngx_atomic_uint_t *)&shm_group->multiplexed_channels, n);
     }
     else if (self_owned) {
-      ngx_atomic_fetch_add(&shm_group->channels, n);
+      ngx_atomic_fetch_add((ngx_atomic_uint_t *)&shm_group->channels, n);
     }
   }
   return NGX_OK;
@@ -493,10 +493,10 @@ ngx_int_t memstore_group_remove_channel(memstore_channel_head_t *ch) {
 static ngx_int_t group_add_message_internal(nchan_group_t *shm_group, size_t mem_sz, size_t file_sz, int n) {
   
   if(shm_group) {
-    ngx_atomic_fetch_add(&shm_group->messages, n);
-    ngx_atomic_fetch_add(&shm_group->messages_shmem_bytes, n * mem_sz);
+    ngx_atomic_fetch_add((ngx_atomic_uint_t *)&shm_group->messages, n);
+    ngx_atomic_fetch_add((ngx_atomic_uint_t *)&shm_group->messages_shmem_bytes, n * mem_sz);
     if(file_sz > 0) {
-      ngx_atomic_fetch_add(&shm_group->messages_file_bytes, n * file_sz);
+      ngx_atomic_fetch_add((ngx_atomic_uint_t *)&shm_group->messages_file_bytes, n * file_sz);
     }
   }
   return NGX_OK;
@@ -548,7 +548,7 @@ ngx_int_t memstore_group_remove_message(group_tree_node_t *gtn, nchan_msg_t *msg
 
 static ngx_int_t group_add_subscribers_internal(nchan_group_t *shm_group, int n) {
   if(shm_group) {
-    ngx_atomic_fetch_add(&shm_group->subscribers, n);
+    ngx_atomic_fetch_add((ngx_atomic_uint_t *)&shm_group->subscribers, n);
   }
   return NGX_OK;
 }
