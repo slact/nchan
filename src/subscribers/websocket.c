@@ -308,7 +308,11 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
   w_mask = __vector_load_intrinsic((__vector_type *)extended_mask);
   fastlen = payload_len - ((payload_len - i) % __vector_size_bytes);
   
-  assert(fastlen % __vector_size_bytes == 0);
+  if(fastlen % __vector_size_bytes != 0) {
+    ERR("__vector_size_bytes: %i, payload_len: %i, preamble_len: %i, i: %i, fastlen: %i", __vector_size_bytes, payload_len, preamble_len,  i, fastlen);
+    
+    assert(0);
+  }
   
   for (/*void*/; i < fastlen; i += __vector_size_bytes) {           // note that i must be multiple of [__vector_size_bytes]
     w = __vector_load_intrinsic((__vector_type *)&payload[i]);       // load [__vector_size_bytes] bytes
