@@ -15,7 +15,11 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:WEBSOCKET:" fmt, ##arg)
 #include <assert.h>
 
-#if __AVX2__
+#if 0 //debug WS optimized xor
+  #define WEBSOCKET_OPTIMIZED_UNMASK 1
+  #define WEBSOCKET_FAKEOPTIMIZED_UNMASK 1
+  #define __vector_size_bytes 32
+#elif __AVX2__
   #include <immintrin.h>                     // AVX2 intrinsics
   #define WEBSOCKET_OPTIMIZED_UNMASK 1
   
@@ -287,10 +291,9 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
   u_char    *mask_key = frame->mask_key;
   uint64_t   preamble_len = payload_len <= __vector_size_bytes ? payload_len : (uintptr_t )payload % __vector_size_bytes;
   uint64_t   fastlen;
-  __vector_type    w, w_mask;
   u_char     extended_mask[__vector_size_bytes];  
   
-  //preamble
+  //preamble -- for alignment or msglen < __vector_size_bytes
   for (i = 0; i < preamble_len && i < payload_len; i++) {
     payload[i] ^= mask_key[i % 4];
   }
@@ -299,26 +302,34 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
     return;
   }
   
-  assert((uintptr_t )(&payload[i]) % __vector_size_bytes == 0);
-  
-  for(j=0; j<__vector_size_bytes; j+=4) {
-    ngx_memcpy(&extended_mask[j], mask_key, 4);
+  if((uintptr_t )(&payload[i]) % __vector_size_bytes != 0) { //didn't get alignment right for some reason
+    fastlen = 0;
+  }
+  else {
+    fastlen = ((payload_len - i) / __vector_size_bytes) * __vector_size_bytes;
   }
   
-  w_mask = __vector_load_intrinsic((__vector_type *)extended_mask);
-  fastlen = payload_len - ((payload_len - i) % __vector_size_bytes);
+  assert(fastlen % __vector_size_bytes == 0);
   
-  if(fastlen % __vector_size_bytes != 0) {
-    ERR("__vector_size_bytes: %i, payload_len: %i, preamble_len: %i, i: %i, fastlen: %i", __vector_size_bytes, payload_len, preamble_len,  i, fastlen);
-    
-    assert(0);
+#if WEBSOCKET_FAKEOPTIMIZED_UNMASK
+  for (/*void*/; i < fastlen + preamble_len; i++) {           // note that i must be multiple of [__vector_size_bytes]
+    payload[i] ^= mask_key[i % 4];
   }
+#else
+  __vector_type    w, w_mask;
   
-  for (/*void*/; i < fastlen; i += __vector_size_bytes) {           // note that i must be multiple of [__vector_size_bytes]
-    w = __vector_load_intrinsic((__vector_type *)&payload[i]);       // load [__vector_size_bytes] bytes
-    w = __vector_xor_intrinsic(w, w_mask);           // XOR with mask
-    __vector_store_intrinsic((__vector_type *)&payload[i], w);   // store [__vector_size_bytes] masked bytes
+  if (fastlen > 0) {
+    for(j=0; j<__vector_size_bytes; j+=4) {
+      ngx_memcpy(&extended_mask[j], mask_key, 4);
+    }
+    w_mask = __vector_load_intrinsic((__vector_type *)extended_mask);
+    for (/*void*/; i < fastlen + preamble_len; i += __vector_size_bytes) {           // note that i must be multiple of [__vector_size_bytes]
+      w = __vector_load_intrinsic((__vector_type *)&payload[i]);       // load [__vector_size_bytes] bytes
+      w = __vector_xor_intrinsic(w, w_mask);           // XOR with mask
+      __vector_store_intrinsic((__vector_type *)&payload[i], w);   // store [__vector_size_bytes] masked bytes
+    }
   }
+#endif
   
   //leftovers
   for (/*void*/; i < payload_len; i++) {
