@@ -308,9 +308,7 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
   else {
     fastlen = ((payload_len - i) / __vector_size_bytes) * __vector_size_bytes;
   }
-  
-  assert(fastlen % __vector_size_bytes == 0);
-  
+    
 #if WEBSOCKET_FAKEOPTIMIZED_UNMASK
   for (/*void*/; i < fastlen + preamble_len; i++) {           // note that i must be multiple of [__vector_size_bytes]
     payload[i] ^= mask_key[i % 4];
