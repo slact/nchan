@@ -2969,10 +2969,21 @@ static void subscriber_unregister_id_send_callback(redisAsyncContext *c, void *r
 
 static void subscriber_unregister_id_send(rdstore_data_t *rdata, void *pd) {
   redis_script_callback_data_t  *d = pd;
+  int                            shutting_down;
+  
   if(rdata) {
     rdata = redis_cluster_rdata_from_key(rdata, &redis_subscriber_id_lookup_key);
+    
+    shutting_down = rdata->shutting_down || ngx_exiting || ngx_quit;
+    
     //-input: keys: [], values: [namespace, sub_id_hash_lookup_key, subscriber_id, worker_key]
-    nchan_redis_script(subscriber_unregister_id, rdata, &subscriber_unregister_id_send_callback, d, &redis_subscriber_id_lookup_key, "%b %s", STR(d->id), redis_worker_subscriber_id);
+    if(!shutting_down) {
+      nchan_redis_script(subscriber_unregister_id, rdata, &subscriber_unregister_id_send_callback, d, &redis_subscriber_id_lookup_key, "%b %s", STR(d->id), redis_worker_subscriber_id);
+    }
+    else {
+      nchan_redis_sync_script(subscriber_unregister_id, rdata, &redis_subscriber_id_lookup_key, "%b %s", STR(d->id), redis_worker_subscriber_id);
+      ngx_free(d);
+    }
   }
   else {
     ngx_free(d);
