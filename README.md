@@ -858,9 +858,9 @@ http {
 Now that you have a secure connection between the subscriber client and the server, you don't need to worry about the channel ID or messages being passively intercepted. This is a minimum requirement for secure message delivery, but it is not sufficient. 
 
 You must also take care to do at least one of the following:
-  - [Generate good, high-entropy Channel IDs](#generate-good-channel-ids).
-  - [Authorize all subscribers with the `nchan_authorize_request` config directive](#authenticate-with-nchan_authorize_request).
-  - [Authorize subscribers and hide channel IDs with the "`X-Accel-Redirect`" mechanism](#authenticate-and-hide-the-channel-id-with-x-accel-redirect).
+  - [Generate good, high-entropy Channel IDs](#good-ids).
+  - [Authorize all subscribers with the `nchan_authorize_request` config directive](#request-authorization).
+  - [Authorize subscribers and hide channel IDs with the "`X-Accel-Redirect`" mechanism](##x-accel-redirect).
   
 #### Good IDs
 
