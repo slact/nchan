@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.1.2 (March 1, 2017) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.1.3 (March 25, 2017) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -867,7 +867,7 @@ You must also take care to do at least one of the following:
 An ID that can be guessed is an ID that can be hijacked. If you are not authenticating subscribers (as described below), a channel ID should be impossible to guess. Use at least 128 bits of entropy to generate a random token, associate it with the authenticated user, and share it only with the user's client. Do not reuse tokens, just as you would not reuse session IDs.
 
 #### X-Accel-Redirect
-
+z
 This feature uses the [X-Accel feature](https://www.nginx.com/resources/wiki/start/topics/examples/x-accel) of Nginx upstream proxies to perform an internal request to a subscriber endpoint.
 It allows a subscriber client to be authenticated by your application, and then redirected by nginx internally to a location chosen by your appplication (such as a publisher or subscriber endpoint). This makes it possible to have securely authenticated clients that are unaware of the channel id they are subscribed to.
 
