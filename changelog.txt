@@ -1,3 +1,5 @@
+ fix (security): incorrect handling of WS optimization could trigger SIGABRT
+ fix: Redis cluster reconnect readiness verification
 1.1.2 (Mar. 1 2017)
  change: "interprocess alert X delayed by Y sec" log messages downgraded 
       from ERROR to NOTICE
