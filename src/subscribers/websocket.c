@@ -310,7 +310,7 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
   }
     
 #if WEBSOCKET_FAKEOPTIMIZED_UNMASK
-  for (/*void*/; i < fastlen + preamble_len; i++) {           // note that i must be multiple of [__vector_size_bytes]
+  for (/*void*/; i < fastlen + preamble_len; i++) {
     payload[i] ^= mask_key[i % 4];
   }
 #else
@@ -321,7 +321,7 @@ static void websocket_unmask_frame(ws_frame_t *frame) {
       ngx_memcpy(&extended_mask[j], mask_key, 4);
     }
     w_mask = __vector_load_intrinsic((__vector_type *)extended_mask);
-    for (/*void*/; i < fastlen + preamble_len; i += __vector_size_bytes) {           // note that i must be multiple of [__vector_size_bytes]
+    for (/*void*/; i < fastlen + preamble_len; i += __vector_size_bytes) {
       w = __vector_load_intrinsic((__vector_type *)&payload[i]);       // load [__vector_size_bytes] bytes
       w = __vector_xor_intrinsic(w, w_mask);           // XOR with mask
       __vector_store_intrinsic((__vector_type *)&payload[i], w);   // store [__vector_size_bytes] masked bytes
