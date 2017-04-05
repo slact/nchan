@@ -97,6 +97,7 @@ typedef struct {
   ngx_str_t                   *shm_chid;
   store_channel_head_shm_t    *shared_channel_data;
   nchan_loc_conf_t            *cf;
+  ngx_str_t                   *shm_chid_again;
   union subdata_u              d;
   
 } subscribe_data_t;
@@ -107,6 +108,8 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_c
   subscribe_data_t   data; 
   DEBUG_MEMZERO(&data);
   
+  assert(memstore_str_owner(chid) == dst);
+  
   if((data.shm_chid = str_shm_copy(chid)) == NULL) {
     ERR("Out of shared memory, can't send IPC subscrive alert");
     return NGX_DECLINED;
@@ -115,11 +118,17 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_c
   data.d.origin_chanhead = origin_chanhead;
   data.cf = cf;
   
+  assert(memstore_str_owner(data.shm_chid) == dst);
+  data.shm_chid_again = str_shm_copy(chid);
+  
+  
   return ipc_cmd(subscribe, dst, &data);
 }
 static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   memstore_channel_head_t    *head;
   subscriber_t               *ipc_sub = NULL;
+  
+  assert(memstore_str_owner(d->shm_chid) == memstore_slot());
   
   DBG("received subscribe request for channel %V", d->shm_chid);
   head = nchan_memstore_get_chanhead(d->shm_chid, d->cf);
