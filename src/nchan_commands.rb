@@ -1,3 +1,4 @@
+
 CfCmd.new do
   
   nchan_channel_id [:srv, :loc, :if],
@@ -155,6 +156,18 @@ CfCmd.new do
       value: "<string>",
       default: "\\n",
       info: "Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character."
+
+  nchan_subscriber_keep_alive_string [:srv, :loc, :if],
+      :ngx_conf_set_str_slot,
+      [:loc_conf, :subscriber_keep_alive_string],
+      args: 1,
+
+      group: "pubsub",
+      tags: ['subscriber'],
+      value: "<string>",
+      default: ".",
+      info: "Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character."
+
   
   nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,
@@ -179,6 +192,17 @@ CfCmd.new do
   #    - broadcast: any number of concurrent subscriber requests may be held.
   #    - last: only the most recent subscriber request is kept, all others get a 409 Conflict response.
   #    - first: only the oldest subscriber request is kept, all others get a 409 Conflict response."
+
+  nchan_subscriber_keep_alive_interval [:srv, :loc, :if],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :subscriber_keep_alive_interval],
+
+      group: "pubsub",
+      tags: ['subscriber'],
+      value: "<number> (seconds)",
+      default: "0 (none)",
+      info: "Interval for sending keep alive strings. Disabled by default."
+
   
   nchan_websocket_ping_interval [:srv, :loc, :if],
       :ngx_conf_set_sec_slot,
