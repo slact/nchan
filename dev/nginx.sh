@@ -8,7 +8,7 @@ VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "-
 VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${DEVDIR}/vg.supp" )
 
 #expensive definedness checks (newish option)
-#VALGRIND_OPT+=( "--expensive-definedness-checks=yes" )
+VALGRIND_OPT+=( "--expensive-definedness-checks=yes" )
 
 #long stack traces
 VG_MEMCHECK_OPT+=("--num-callers=20")
@@ -31,7 +31,7 @@ TMPDIR=""
 MEM="32M"
 
 DEBUGGER_NAME="kdbg"
-DEBUGGER_CMD="dbus-launch kdbg -p %s $SRCDIR/nginx"
+DEBUGGER_CMD="dbus-run-session kdbg -p %s $SRCDIR/nginx"
 
 #DEBUGGER_NAME="nemiver"
 #DEBUGGER_CMD="nemiver --attach=%s $SRCDIR/nginx"
@@ -285,7 +285,6 @@ if [[ $debugger == 1 ]]; then
   attach_debugger "$DEBUGGER_NAME" "$DEBUGGER_CMD"
   wait $debugger_pids
   kill $master_pid
-  rm -f $SRCDIR/nginx $SRCDIR/nginx-source 2>/dev/null
 elif [[ $debug_master == 1 ]]; then
   pushd $SRCDIR
   kdbg -a "$NGINX_OPT" "./nginx"

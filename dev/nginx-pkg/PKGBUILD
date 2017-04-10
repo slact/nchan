@@ -1,13 +1,19 @@
 #!/bin/zsh
-_nginx_ver_latest=1.11.10
-_nginx_ver_stable=1.10.2
+_nginx_ver_latest=1.11.12
+_nginx_ver_stable=1.10.3
 _nginx_ver_nopool=1.11.2
 _nginx_ver_legacy=1.8.1
 _nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
 _ngx_echo_module_ver=0.60
+_lua_nginx_module_ver="master"
+_lua_upstream_nginx_module_ver="0.06"
+_openresty_ver=1.11.2.2
 
-_openresty_ver=1.9.15.1
+_target_module_name=nchan
+
+pkgname=nginx-${_target_module_name}-dev-git
+
 if [[ -n $OPENRESTY_CUSTOM_VERSION ]]; then
   _openresty_ver=$OPENRESTY_CUSTOM_VERSION
 fi
@@ -86,26 +92,25 @@ _pid_path="/run"
 _lock_path="/var/lock"
 _access_log="/dev/stdout"
 _error_log="errors.log"
-_nchan_dir="${startdir}/nchan"
+_target_module_dir="${startdir}/${_target_module_name}"
 
 _pkgver() {
-  pushd "$startdir/nchan" >/dev/null
+  pushd "$_target_module_dir" >/dev/null
   printf "%s.%s.%s.%s" "$_nginx_ver" "$(git rev-parse --abbrev-ref HEAD | sed -r 's/-/_/g')" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
   popd >/dev/null
 }
 
-pkgname=nginx-nchan-dev
 pkgver=0
 pkgrel=1
-pkgdesc="Nginx + Nchan dev version"
-arch=('i686' 'x86_64' 'armv7h')
+pkgdesc="Nginx + ngx_lua_ipc"
+arch=('any')
 install=install
 
 
 depends=('pcre' 'zlib' 'openssl')
 url="http://nginx.org"
 license=('custom')
-conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom-dev' 'nginx-custom-slact') 
+conflicts=('nginx' 'nginx-mainline' 'nginx-devel') 
 provides=('nginx' 'nginx-custom')
 
 if [[ -n $USE_OPENRESTY ]]; then
@@ -153,6 +158,14 @@ _openresty_source="https://openresty.org/download/openresty-${_openresty_ver}.ta
 _nginx_git_source="git+https://github.com/nginx/nginx.git${_nginx_git_source_fragment}"
 
 _no_pool_patch_source="https://raw.github.com/shrimp/no-pool-nginx/master/nginx-${_nginx_ver_nopool}-no_pool.patch"
+
+if [[ $_lua_nginx_module_ver == "master" ]]; then
+  _lua_nginx_module_url="git+https://github.com/openresty/lua-nginx-module.git"
+else
+  _lua_nginx_module_url="https://github.com/openresty/lua-nginx-module/archive/v${_lua_nginx_module_ver}.tar.gz"
+fi
+
+_lua_upstream_nginx_module_url="https://github.com/openresty/lua-upstream-nginx-module/archive/v${_lua_upstream_nginx_module_ver}.tar.gz"
 _ngx_debug_pool_url="https://github.com/chobits/ngx_debug_pool.git"
 _ngx_echo_module="https://github.com/openresty/echo-nginx-module/archive/v${_ngx_echo_module_ver}.tar.gz"
 
@@ -177,20 +190,30 @@ source=("$_source"
   "nginx.logrotate"
   "nginx.service"
   "git+${_ngx_debug_pool_url}"
-  "$_ngx_echo_module"
-  "bl.txt")
+  "bl.txt"
+)
 
 md5sums=('SKIP'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          'ab1eb640c978536c1dad16674d6b3c3c'
          '62d494d23aef31d0b867161f9fffa6eb'
          'SKIP'
-         'SKIP'
 	 'SKIP')
 
 if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
   source+=( "$_lua_stream_module_src" )
   md5sums+=( 'SKIP')
+fi
+
+if [[ $WITH_NGX_ECHO_MODULE == 1 ]]; then
+  source+=(  "$_ngx_echo_module" )
+  md5sums+=( 'SKIP' )
+fi
+
+if [[ -n $WITH_LUA_MODULE ]]; then
+  source+=( "$_lua_nginx_module_url" "$_lua_upstream_nginx_module_url" )
+  md5sums+=( 'SKIP' 'SKIP' )
+  
 fi
 
 if [[ $NO_POOL == 1 ]] && [[ -z $USE_OPENRESTY ]]; then
@@ -202,8 +225,8 @@ fi
 
 build() {
   local _src_dir="${srcdir}/${_extracted_dir}"
-  #ln -sfT "$_src_dir" "$srcdir/nginx"
-  ln -sfT "$_nchan_dir" "$srcdir/nchan"
+  #ln -sfT "$srcdir" "$srcdir/nginx"
+  ln -sfT "$startdir/../../" "$srcdir/${_target_module_name}"
   local _build_dir="${_src_dir}/objs"
   cd "$srcdir/${_extracted_dir}"
   
@@ -215,7 +238,7 @@ build() {
         patch -p0 < "./nginx-no_pool.patch"
         popd
       else
-        patch -p1 < "${srcdir}/nginx-${_nginx_ver_nopool}-no_pool.patch"
+        patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
       fi
     fi
     if [[ $NGX_SLAB_PATCH == 1 ]]; then
@@ -259,9 +282,12 @@ build() {
     --http-uwsgi-temp-path=${_tmp_path}/uwsgi_temp
     --http-log-path=${_access_log}
     --error-log-path=${_error_log}
-    --with-http_ssl_module
   )
 
+  if [[ -n $WITH_HTTP_SSL ]]; then
+    CONFIGURE+=( --with-http_ssl_module )
+  fi
+    
   if [[ -n $WITH_STREAM_MODULE ]]; then
     CONFIGURE+=( --with-stream )
   fi
@@ -273,11 +299,20 @@ build() {
   if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
     CONFIGURE+=( --add-module=../stream-lua-nginx-module-${_lua_stream_module_ver} )
   fi
-  
-  if [[ $DYNAMIC == 1 ]]; then
-    CONFIGURE+=( --add-dynamic-module=../nchan )
+
+  if [[ -n $WITH_LUA_MODULE ]]; then
+  if [[ $_lua_nginx_module_ver == "master" ]]; then
+    CONFIGURE+=( "--add-module=${srcdir}/lua-nginx-module")
   else
-    CONFIGURE+=( --add-module=../nchan )
+    CONFIGURE+=( "--add-module=${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}")
+  fi
+    CONFIGURE+=("--add-module=${srcdir}/lua-upstream-nginx-module-${_lua_upstream_nginx_module_ver}")
+  fi
+
+  if [[ $DYNAMIC == 1 ]]; then
+    CONFIGURE+=( --add-dynamic-module=../${_target_module_name} )
+  else
+    CONFIGURE+=( --add-module=../${_target_module_name} )
   fi
 
   if [[ $CONFIGURE_WITH_DEBUG == 1 ]]; then
@@ -300,7 +335,7 @@ build() {
     CONFIGURE+=( "--add-module=../ngx_debug_pool" )
   fi
 
-  if [[ $NGX_ECHO_MODULE == 1 ]]; then
+  if [[ $WITH_NGX_ECHO_MODULE == 1 ]]; then
     CONFIGURE+=( "--add-module=../echo-nginx-module-${_ngx_echo_module_ver}")
   fi
   
@@ -337,9 +372,18 @@ build() {
     if [[ ! -f ./configure ]]; then
       ln -s auto/configure ./
     fi
-
-    echo "./configure ${CONFIGURE[@]}" "--with-cc-opt=${CFLAGS}"
-    ./configure ${CONFIGURE[@]} "--with-cc-opt=${CFLAGS}"
+    
+    
+    if [[ -n $EXPLICIT_CFLAGS ]]; then
+      echo "./configure ${CONFIGURE[@]} --with-cc-opt=${CFLAGS}"
+      ./configure ${CONFIGURE[@]} "--with-cc-opt=${CFLAGS}"
+    else
+      ./configure ${CONFIGURE[@]}
+    fi
+    
+    
+    #ln -sf ${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}/src ../ngx_lua_ipc/src/lua-nginx-module-source > /dev/null
+    
     make
   fi
 }

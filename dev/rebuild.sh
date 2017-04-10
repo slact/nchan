@@ -1,7 +1,7 @@
 #!/bin/zsh
-#assumes PKGBUILDy nginx located at ./nginx-nchan
 MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
+pkg_path=$MY_PATH/nginx-pkg
 
 _clang="ccache clang -Qunused-arguments -fcolor-diagnostics"
 
@@ -11,6 +11,7 @@ clang_sanitize_addres="-fsanitize=address,undefined -fno-omit-frame-pointer"
 
 optimize_level=0;
 
+export WITH_HTTP_SSL=1
 export CONFIGURE_WITH_DEBUG=0
 _extra_config_opt=()
 
@@ -49,7 +50,7 @@ for opt in $*; do
     nodebug)
       export NO_DEBUG=1;;
     echo_module)
-      export NGX_ECHO_MODULE=1;;
+      export WITH_NGX_ECHO_MODULE=1;;
     O0)
       optimize_level=0;;
     O1)
@@ -83,6 +84,9 @@ for opt in $*; do
       export CLANG_ANALYZER=$MY_PATH/clang-analyzer
       mkdir $CLANG_ANALYZER 2>/dev/null
       ;;
+    nossl|no_ssl)
+      export WITH_HTTP_SSL=""
+      ;;
     stub_status)
       export WITH_STUB_STATUS_MODULE=1
       ;;
@@ -91,14 +95,26 @@ for opt in $*; do
     prefix=*)
       export CUSTOM_PREFIX="${opt:7}";;
     openresty)
-      export USE_OPENRESTY=1;;
+      export EXPLICIT_CFLAGS=1
+      export WITH_LUA_MODULE=0
+      export USE_OPENRESTY=1
+      ;;
     openresty=*)
       export OPENRESTY_CUSTOM_VERSION="${opt:10}"
+      export EXPLICIT_CFLAGS=1
+      export WITH_LUA_MODULE=0
       export USE_OPENRESTY=1
       ;;
     lua_stream_module)
       export WITH_LUA_STREAM_MODULE=1
       export WITH_STREAM_MODULE=1
+      ;;
+    lua_module)
+      export WITH_LUA_MODULE=1
+      ;;
+    luajit)
+      export LUAJIT_INC=/usr/include/luajit-2.1
+      export LUAJIT_LIB=/usr/lib/
       ;;
     --*)
       _extra_config_opt+=( "$opt" )
@@ -138,6 +154,9 @@ _build_nginx() {
   
   wget --no-clobber $_source
   wget --no-clobber $_no_pool_patch_source
+  wget --no-clobber $_lua_nginx_module_url
+  wget --no-clobber $_lua_upstream_nginx_module_url
+  
   if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
     wget --no-clobber $_lua_stream_module_src
   fi
@@ -155,6 +174,9 @@ _build_nginx() {
       git pull
       popd
     fi
+    
+    tar xf "../v${_lua_nginx_module_ver}.tar.gz"
+    tar xf "../v${_lua_upstream_nginx_module_ver}.tar.gz"
     
     if [[ -n $WITH_LUA_STREAM_MODULE ]]; then
       tar xf "../v${_lua_stream_module_ver}.tar.gz"
@@ -202,9 +224,11 @@ if [[ -z $NO_MAKE ]]; then
     echo "failed generating redis lua scripts";
     exit 1
   fi  
-  pushd ./nginx-nchan >/dev/null
+  pushd $pkg_path >/dev/null
   
   _build_nginx
+  ln -sf "${MY_PATH}/nginx" "${_src_dir}/nginx" >/dev/null
+  ln -sf "${pkg_path}/src/nginx/src/" "${_src_dir}/nginx-source" >/dev/null
   
   popd >/dev/null
 fi
