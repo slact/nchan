@@ -551,8 +551,9 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     // old workers shut down. Rather than add a generational conditional
     // to __memstore_update_stub_status, we just don't reset the stats.
     //ngx_memzero(&d->stats, sizeof(d->stats));
-    
-    shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
+#if nginx_version <= 1011006
+  shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
+#endif
     shmtx_unlock(shm);
   }
   else {
@@ -573,15 +574,15 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shdata->reloading = 0;
     
     
-    
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
     ngx_memzero(&d->stats, sizeof(d->stats));
     
+#if nginx_version <= 1011006
     shdata->shmem_pages_used=0;
-    shm_set_allocd_pages_tracker(shm, &shdata->shmem_pages_used);
-    
+    shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
+#endif
     DBG("Shm created with data at %p", d);
 #if NCHAN_MSG_LEAK_DEBUG
     shdata->msgdebug_head = NULL;
@@ -609,7 +610,11 @@ nchan_stub_status_t *nchan_get_stub_status_stats(void) {
 }
 
 size_t nchan_get_used_shmem(void) {
+#if nginx_version <= 1011006
   return shdata->shmem_pages_used * ngx_pagesize;
+#else
+  return shm_used_pages(shm) * ngx_pagesize;
+#endif
 }
 
 static int send_redis_fakesub_delta(memstore_channel_head_t *head) {
@@ -732,6 +737,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   DBG("shm: %p, shdata: %p", shm, shdata);
   shmtx_unlock(shm);
+  
   return NGX_OK;
 }
 

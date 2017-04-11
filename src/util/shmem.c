@@ -1,7 +1,11 @@
 #include <nchan_module.h>
 #include "shmem.h"
 #include "assert.h"
+
+#if nginx_version <= 1011006
+//old ugly slab-hack to track alloc'd pages
 #include <util/ngx_nchan_hacked_slab.h>
+#endif
 
 #define DEBUG_SHM_ALLOC 0
 
@@ -45,23 +49,42 @@ shmem_t *shm_create(ngx_str_t *name, ngx_conf_t *cf, size_t shm_size, ngx_int_t 
   return shm;
 }
 
+#if nginx_version <= 1011006
 void shm_set_allocd_pages_tracker(shmem_t *shm, ngx_atomic_uint_t *ptr) {
   nchan_slab_set_reserved_pages_tracker(SHPOOL(shm), ptr);
 }
+#else
+size_t shm_used_pages(shmem_t *shm) {
+  ngx_slab_pool_t    *shpool = SHPOOL(shm);
+  ngx_slab_page_t    *slots = (ngx_slab_page_t *) ((u_char *) (shpool) + sizeof(ngx_slab_pool_t));
+  size_t              size = shpool->end - (u_char *) slots;
+  
+  ngx_uint_t          max = (ngx_uint_t) (size / (ngx_pagesize + sizeof(ngx_slab_page_t)));
+  return max - shpool->pfree;
+}
+#endif
 
 ngx_int_t shm_init(shmem_t *shm) {
   ngx_slab_pool_t    *shpool = SHPOOL(shm);
   #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "nchan_shpool start %p size %i", shpool->start, (u_char *)shpool->end - (u_char *)shpool->start);
   #endif
+#if nginx_version <= 1011006
   nchan_slab_init(shpool);
+#else
+  ngx_slab_init(shpool);
+#endif  
   
   return NGX_OK;
 }
 
 ngx_int_t shm_reinit(shmem_t *shm) {
   ngx_slab_pool_t    *shpool = SHPOOL(shm);
+#if nginx_version <= 1011006
   nchan_slab_init(shpool);
+#else
+  ngx_slab_init(shpool);
+#endif  
   
   return NGX_OK;
 }
@@ -84,7 +107,11 @@ void *shm_alloc(shmem_t *shm, size_t size, const char *label) {
 #if FAKESHARD  
   p = ngx_alloc(size, ngx_cycle->log);
 #else
+  #if nginx_version <= 1011006
   p = nchan_slab_alloc(SHPOOL(shm), size);  
+  #else
+  p = ngx_slab_alloc(SHPOOL(shm), size);
+  #endif
 #endif
   if(p == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "shpool alloc failed");
@@ -110,7 +137,11 @@ void shm_free(shmem_t *shm, void *p) {
 #if FAKESHARD
   ngx_free(p);
 #else
+  #if nginx_version <= 1011006
   nchan_slab_free(SHPOOL(shm), p);
+  #else
+  ngx_slab_free(SHPOOL(shm), p);
+  #endif
 #endif
 #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);
@@ -126,7 +157,11 @@ void *shm_locked_alloc(shmem_t *shm, size_t size, const char *label) {
 #if FAKESHARD  
   p = ngx_alloc(size, ngx_cycle->log);
 #else
-  p = nchan_slab_alloc_locked(SHPOOL(shm), size);  
+  #if nginx_version <= 1011006
+  p = nchan_slab_alloc_locked(SHPOOL(shm), size);
+  #else 
+  p = ngx_slab_alloc_locked(SHPOOL(shm), size);
+  #endif
 #endif
   if(p == NULL) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "shpool alloc failed");
@@ -152,7 +187,11 @@ void shm_locked_free(shmem_t *shm, void *p) {
 #if FAKESHARD
   ngx_free(p);
 #else
+  #if nginx_version <= 1011006
   nchan_slab_free_locked(SHPOOL(shm), p);
+  #else
+  ngx_slab_free_locked(SHPOOL(shm), p);
+  #endif
 #endif
 #if (DEBUG_SHM_ALLOC == 1)
   ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "shpool free addr %p", p);

@@ -4,6 +4,8 @@
  * Copyright (C) Nginx, Inc.
  */
 
+#if nginx_version <= 1011006
+
 #include "ngx_nchan_hacked_slab.h"
 
 #define NGX_SLAB_PAGE_MASK   3
@@ -764,3 +766,5 @@ ngx_slab_error(ngx_slab_pool_t *pool, ngx_uint_t level, char *text)
 {
     ngx_log_error(level, ngx_cycle->log, 0, "%s%s", text, pool->log_ctx);
 }
+
+#endif

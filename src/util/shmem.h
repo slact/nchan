@@ -23,6 +23,11 @@ ngx_str_t        *shm_copy_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_free_immutable_string(shmem_t *shm, ngx_str_t *str);
 void              shm_verify_immutable_string(shmem_t *shm, ngx_str_t *str);
 
+#if nginx_version <= 1011006
 void shm_set_allocd_pages_tracker(shmem_t *shm, ngx_atomic_uint_t *ptr);
+#else
+ngx_uint_t shm_used_pages(shmem_t *shm);
+#endif
+
 
 #endif //NCHAN_SHMEM_H

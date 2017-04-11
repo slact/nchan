@@ -121,8 +121,9 @@ typedef struct {
   nchan_loc_conf_shared_data_t      *conf_data;
   
   nchan_stub_status_t                stats;
-  
+#if nginx_version <= 1011006
   ngx_atomic_uint_t                  shmem_pages_used;
+#endif
 
 #if NCHAN_MSG_LEAK_DEBUG
   nchan_msg_t                       *msgdebug_head;
