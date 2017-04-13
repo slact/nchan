@@ -1,64 +1,98 @@
-#ifndef NCHAN_IPC_H
-#define NCHAN_IPC_H
-
-#define IPC_DATA_SIZE 64
-//#define IPC_DATA_SIZE 80
+#ifndef NGX_IPC_H
+#define NGX_IPC_H
+typedef struct ipc_alert_link_s ipc_alert_link_t;
 
 typedef struct {
-  char            data[IPC_DATA_SIZE];
-  time_t          time_sent;
-  int16_t         src_slot;
-  uint16_t        worker_generation;
-  uint8_t         code;
-} ipc_alert_t;
+  struct iovec      iov[3];
+  int               n;
+} ipc_iovec_t;
 
-#define IPC_WRITEBUF_SIZE 32
-
-typedef struct ipc_writebuf_overflow_s ipc_writebuf_overflow_t;
-struct ipc_writebuf_overflow_s {
-  ipc_alert_t               alert;
-  ipc_writebuf_overflow_t  *next;
+struct ipc_alert_link_s {
+  ipc_alert_link_t *next;
+  ipc_iovec_t       iovec;
 };
 
 typedef struct ipc_writebuf_s ipc_writebuf_t;
 struct ipc_writebuf_s {
-  //a ring buffer with a linked-list overflow for writing alerts, 
-  uint16_t                  n;
-  uint16_t                  first;
-  int32_t                   overflow_n;
-  ipc_writebuf_overflow_t  *overflow_first;
-  ipc_writebuf_overflow_t  *overflow_last;
-  ipc_alert_t               alerts[IPC_WRITEBUF_SIZE];
+  ipc_alert_link_t         *head;
+  ipc_alert_link_t         *tail;
+  ipc_iovec_t               last_iovec;
+  uint32_t                  n;
 }; //ipc_writebuf_t
+
+
+typedef struct {
+  ngx_pid_t  src_pid;
+  uint32_t   tot_len;
+  uint16_t   src_slot;
+  uint16_t   pkt_len;  //<=4K (or PIPE_BUF)
+  uint8_t    name_len;
+  u_char     ctrl; // '$': whole, '>': part start, '+': part piece
+} ipc_packet_header_t;
+#define IPC_ALERT_NAME_MAX_LEN (UINT8_MAX - 1)
+#define IPC_ALERT_DATA_MAX_LEN (UINT32_MAX - IPC_ALERT_NAME_MAX_LEN - 1)
+
+#define IPC_PKT_HEADER_SIZE    (sizeof(ipc_packet_header_t))
+#define IPC_PKT_MAX_BODY_SIZE  (PIPE_BUF - IPC_PKT_HEADER_SIZE)
+
+typedef struct {
+  ipc_packet_header_t  header;
+  u_char               body[IPC_PKT_MAX_BODY_SIZE];
+} ipc_packet_buf_t;
+
+typedef struct ipc_readbuf_s ipc_readbuf_t;
+struct ipc_readbuf_s {
+  ipc_readbuf_t      *prev;
+  ipc_readbuf_t      *next;
+  u_char             *body_cur;
+  ipc_packet_buf_t    pkt;
+}; //ipc_readbuf_t
 
 typedef struct ipc_s ipc_t;
 
+typedef enum {IPC_PIPE, IPC_SOCKETPAIR} ipc_socket_type_t;
 typedef struct {
-  ipc_t                 *ipc; //useful for write events
+  ipc_t                 *ipc; //need this backrerefence for write events
+  ipc_socket_type_t      socket_type;
   ngx_socket_t           pipe[2];
-  ngx_connection_t      *c;
+  ngx_connection_t      *read_conn;
+  ngx_connection_t      *write_conn;
   ipc_writebuf_t         wbuf;
+  ipc_readbuf_t         *rbuf_head;
   unsigned               active:1;
-} ipc_process_t;
+} ipc_channel_t;
 
+typedef void (*ipc_alert_handler_pt)(ngx_pid_t alert_sender_pid, ngx_int_t alert_sender_slot, ngx_str_t *alert_name, ngx_str_t *alert_data);
+
+
+#define IPC_MAX_ERROR_LEN 512
 struct ipc_s {
   const char            *name;
-  
-  ipc_process_t         process[NGX_MAX_PROCESSES];
-  
-  void                  (*handler)(ngx_int_t, ngx_uint_t, void*);
-  
-  ngx_int_t             workers;
-  ngx_int_t             worker_slots[NGX_MAX_PROCESSES];
+  void                  *shm;
+  size_t                 shm_sz;
+  ipc_channel_t          worker_channel[NGX_MAX_PROCESSES];
+  ngx_int_t              worker_process_count;
+  ipc_alert_handler_pt   worker_alert_handler;
+  u_char                 last_error[IPC_MAX_ERROR_LEN];
 }; //ipc_t
 
-ngx_int_t ipc_init(ipc_t *ipc);
-ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers, void (*slot_callback)(int slot, int worker));
-ngx_int_t ipc_set_handler(ipc_t *ipc, void (*alert_handler)(ngx_int_t, ngx_uint_t , void *data));
-ngx_int_t ipc_register_worker(ipc_t *ipc, ngx_cycle_t *cycle);
-ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle);
+//IPC needs to be initialized in two steps init_module (prefork), and init_worker (post-fork)
+ipc_t *ipc_init_module(const char *ipc_name, ngx_cycle_t *cycle);
+ngx_int_t ipc_init_worker(ipc_t *ipc, ngx_cycle_t *cycle);
 
-ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t data_size);
-ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code,  void *data, size_t data_size);
+ngx_int_t ipc_set_worker_alert_handler(ipc_t *ipc, ipc_alert_handler_pt handler);
 
-#endif //NCHAN_IPC_H
+ngx_int_t ipc_destroy(ipc_t *ipc); // for exit_worker, exit_master
+
+ngx_pid_t ipc_get_pid(ipc_t *ipc, int process_slot);
+ngx_int_t ipc_get_slot(ipc_t *ipc, ngx_pid_t pid);
+
+ngx_int_t ipc_alert_slot(ipc_t *ipc, ngx_int_t slot, ngx_str_t *name, ngx_str_t *data);
+ngx_int_t ipc_alert_pid(ipc_t *ipc, ngx_pid_t pid, ngx_str_t *name, ngx_str_t *data);
+ngx_pid_t *ipc_get_worker_pids(ipc_t *ipc, int *pid_count); //useful for debugging
+
+char *ipc_get_last_error(ipc_t *ipc);
+
+ngx_int_t ipc_alert_all_workers(ipc_t *ipc, ngx_str_t *name, ngx_str_t *data); //poor man's broadcast
+
+#endif //NGX_IPC_H

@@ -53,8 +53,32 @@ static ipc_command_codes_t ipc_cmd = {
 
 #define IPC_CMDS (sizeof(ipc_handlers_t)/sizeof(ipc_handler_pt))
 
-#define ipc_cmd(cmd, dst, data) ipc_alert(nchan_memstore_get_ipc(), dst, ipc_cmd.cmd, data, sizeof(*(data)))
-#define ipc_broadcast_cmd(cmd, data) ipc_broadcast_alert(nchan_memstore_get_ipc(), ipc_cmd.cmd, data, sizeof(*(data)))
+static ngx_int_t __send_ipc_cmd(ngx_int_t dst_slot, int cmd_code, void *data, size_t data_sz) {
+  ngx_str_t alert_name, alert_data;
+  assert(cmd_code < 255);
+  alert_name.len=1;
+  alert_name.data=(u_char *)&cmd_code;
+  
+  alert_data.len=data_sz;
+  alert_data.data=(u_char *)data;
+  
+  return ipc_alert_slot(nchan_memstore_get_ipc(), dst_slot, &alert_name, &alert_data);
+}
+
+static ngx_int_t __broadcast_ipc_cmd(int cmd_code, void *data, size_t data_sz) {
+  ngx_str_t alert_name, alert_data;
+  assert(cmd_code < 255);
+  alert_name.len=1;
+  alert_name.data=(u_char *)&cmd_code;
+  
+  alert_data.len=data_sz;
+  alert_data.data=(u_char *)data;
+  
+  return ipc_alert_all_workers(nchan_memstore_get_ipc(), &alert_name, &alert_data);
+}
+
+#define ipc_cmd(cmd, dst, data) __send_ipc_cmd(dst, ipc_cmd.cmd, data, sizeof(*(data)))
+#define ipc_broadcast_cmd(cmd, data) __broadcast_ipc_cmd(ipc_cmd.cmd, data, sizeof(*(data)))
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -900,10 +924,14 @@ static ipc_handler_pt ipc_cmd_handler[] = {
   LIST_IPC_COMMANDS(MAKE_ipc_cmd_handler)
 };
 
-void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data) {
+void memstore_ipc_alert_handler(ngx_pid_t sender_pid, ngx_int_t sender_slot, ngx_str_t *name, ngx_str_t *data_str) {
+  assert(name->len == 1);
+  ngx_uint_t code = (ngx_uint_t )name->data[0];
+  void *data = data_str->data;
+  
   if(code >= IPC_CMDS) {
-    ERR("received invalid code %ui from sender %i", code, sender);
+    ERR("received invalid code %ui from sender %i", code, sender_slot);
     return;
   }
-  ipc_cmd_handler[code](sender, data);
+  ipc_cmd_handler[code](sender_slot, data);
 }

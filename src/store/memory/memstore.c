@@ -295,7 +295,6 @@ static void init_mpt(memstore_data_t *m) {
 
 static shmem_t         *shm = NULL;
 static shm_data_t      *shdata = NULL;
-static ipc_t            ipc_data;
 static ipc_t           *ipc = NULL;
 
 static memstore_groups_t groups_data;
@@ -700,7 +699,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   }
 #endif
 
-  ipc_register_worker(ipc, cycle);
+  ipc_init_worker(ipc, cycle);
   
   DBG("init memstore worker pid:%i slot:%i max workers :%i or %i", ngx_pid, memstore_slot(), shdata->max_workers, workers);
 
@@ -1649,11 +1648,9 @@ static ngx_int_t nchan_store_init_module(ngx_cycle_t *cycle) {
 
   //initialize our little IPC
   if(ipc == NULL) {
-    ipc = &ipc_data;
-    ipc_init(ipc);
-    ipc_set_handler(ipc, memstore_ipc_alert_handler);
+    ipc = ipc_init_module("nchan-ipc", cycle);
+    ipc_set_worker_alert_handler(ipc, memstore_ipc_alert_handler);
   }
-  ipc_open(ipc, cycle, shdata->max_workers, &init_shdata_procslots);
 
   if(groups == NULL) {
     groups = &groups_data;
@@ -1747,7 +1744,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     ERR("my procslot not found! I don't know what to do!");
     assert(0);
   }
-  ipc_close(ipc, cycle);
+  ipc_destroy(ipc);
   
   if(shdata->reloading == 0) {
     for(i = memstore_procslot_offset; i < memstore_procslot_offset + shdata->old_max_workers; i++) {
@@ -1775,7 +1772,7 @@ static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   
   DBG("exit master from pid %i", ngx_pid);
   
-  ipc_close(ipc, cycle);
+  ipc_destroy(ipc);
 #if FAKESHARD
   while(memstore_fakeprocess_pop()) {  };
  #endif
