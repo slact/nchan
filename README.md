@@ -817,6 +817,7 @@ http {
   server {
     #available to the world
     listen 80;
+    
     location ~ /sub/(\w+)$ {
       nchan_subscriber;
       nchan_channel_group my_app_group;
@@ -827,7 +828,23 @@ http {
 
 ```
 
-Here, the subscriber endpoint is available on a public-facing port 80, and the publisher endpoint is only available on localhost, so can be accessed only by applications residing on that machine.
+Here, the subscriber endpoint is available on a public-facing port 80, and the publisher endpoint is only available on localhost, so can be accessed only by applications residing on that machine. Another way to limit access to the publisher endpoint is by using the allow/deny settings:
+
+```nginx
+
+  server {
+    #available to the world
+    listen 80; 
+    location ~ /pub/(\w+)$ {
+      allow 127.0.0.1;
+      deny all;
+      nchan_publisher;
+      nchan_channel_group my_app_group;
+      nchan_channel_id $1;
+    }
+```
+
+Here, only the local IP 127.0.0.1 is allowed to use the publisher location, even though it is defined in a non-localhost server block.
 
 ### Keeping a Channel Private
 
