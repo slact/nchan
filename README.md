@@ -806,7 +806,7 @@ Consider the use case of an application where authenticated users each use a pri
 http {
   server {
     #available only on localhost
-    listen  127.0.0.1  8080;
+    listen  127.0.0.1:8080;
     location ~ /pub/(\w+)$ {
       nchan_publisher;
       nchan_channel_group my_app_group;
@@ -839,7 +839,7 @@ First, if you intend on securing the channel contents, you must use TLS/SSL:
 http {
   server {
     #available only on localhost
-    listen  127.0.0.1  8080;
+    listen  127.0.0.1:8080;
     #...publisher endpoint config
   }
   server {
