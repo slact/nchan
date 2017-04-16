@@ -556,7 +556,6 @@ static void retry_commands_traverse_callback(void *data, void *pd) {
 }
 
 static ngx_int_t cluster_run_retry_commands(redis_cluster_t *cluster) {
-  assert(cluster->status == CLUSTER_READY);
   nchan_list_traverse_and_empty(&cluster->retry_commands, retry_commands_traverse_callback, cluster);
   return NGX_OK;
 }
