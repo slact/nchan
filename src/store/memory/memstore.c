@@ -205,6 +205,13 @@ static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *
       DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
       return NGX_DECLINED;
     }
+    
+    if(ch->owner == ch->slot && ch->shared && ch->shared->gc.outside_refcount > 0) {
+      ch->shared->gc.attempts++;
+      ERR("channel %p %V shared data still used by %i workers. GC help up by this %i times.", ch, &ch->id, ch->shared->gc.outside_refcount, ch->shared->gc.attempts);
+      return NGX_DECLINED;
+    }
+    
     //DBG("ok to delete channel %V", &ch->id);
     return NGX_OK;
   }
@@ -646,6 +653,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     if(ch->shared)
       shm_free(shm, ch->shared);
   }
+  
   DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
   CHANNEL_HASH_DEL(ch);
   if(ch->redis_sub) {
@@ -1062,7 +1070,8 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->shared->total_message_count = 0;
     head->shared->stored_message_count = 0;
     head->shared->last_seen = ngx_time();
-    
+    head->shared->gc.outside_refcount=0;
+    head->shared->gc.attempts=0;
     nchan_update_stub_status(channels, 1);
   }
   else {
@@ -1283,7 +1292,8 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
     assert(ch->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
   }
   
-  if(ch->slot != ch->owner) {
+  if(ch->slot != ch->owner && ch->shared) {
+    ngx_atomic_fetch_add(&ch->shared->gc.outside_refcount, -1);
     ch->shared = NULL;
   }
   if(ch->status == WAITING && !(ch->cf && ch->cf->redis.enabled) && !(ngx_exiting || ngx_quit)) {
@@ -1300,6 +1310,9 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
     ch->gc_queued_times ++;
     chanhead_churner_withdraw(ch);
     ch->in_gc_queue = 1;
+    if(ch->shared && ch->slot == ch->owner) {
+      ch->shared->gc.attempts=0;
+    }
     nchan_reaper_add(&mpt->chanhead_reaper, ch);
   }
   else {
