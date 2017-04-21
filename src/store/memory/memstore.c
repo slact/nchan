@@ -172,6 +172,12 @@ static ngx_int_t memstore_chanhead_reserved_or_in_use(memstore_channel_head_t *c
     return 1;
   }
   
+  if(ch->owner == ch->slot && ch->shared && ch->shared->gc.outside_refcount > 0) {
+    ch->shared->gc.attempts++;
+    DBG("channel %p %V shared data still used by %i workers. GC help up by this %i times.", ch, &ch->id, ch->shared->gc.outside_refcount, ch->shared->gc.attempts);
+    return 1;
+  }
+  
   return 0;
 }
 
@@ -1041,6 +1047,8 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->shared->total_message_count = 0;
     head->shared->stored_message_count = 0;
     head->shared->last_seen = ngx_time();
+    head->shared->gc.outside_refcount=0;
+    head->shared->gc.attempts=0;
     nchan_update_stub_status(channels, 1);
   }
   else {
@@ -1262,6 +1270,7 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
   }
   
   if(ch->slot != ch->owner && ch->shared) {
+    ngx_atomic_fetch_add(&ch->shared->gc.outside_refcount, -1);
     ch->shared = NULL;
   }
   if(ch->status == WAITING && !(ch->cf && ch->cf->redis.enabled) && !(ngx_exiting || ngx_quit)) {
@@ -1278,6 +1287,9 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
     ch->gc_queued_times ++;
     chanhead_churner_withdraw(ch);
     ch->in_gc_queue = 1;
+    if(ch->shared && ch->slot == ch->owner) {
+      ch->shared->gc.attempts=0;
+    }
     nchan_reaper_add(&mpt->chanhead_reaper, ch);
   }
   else {
