@@ -2,6 +2,8 @@
 MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 pkg_path=$MY_PATH/nginx-pkg
+_src_dir=${MY_PATH}/../src
+  
 
 _clang="ccache clang -Qunused-arguments -fcolor-diagnostics"
 
@@ -14,6 +16,8 @@ optimize_level=0;
 export WITH_HTTP_SSL=1
 export CONFIGURE_WITH_DEBUG=0
 _extra_config_opt=()
+
+#export WITH_LUA_MODULE=1
 
 for opt in $*; do
   case $opt in
@@ -227,8 +231,9 @@ if [[ -z $NO_MAKE ]]; then
   pushd $pkg_path >/dev/null
   
   _build_nginx
-  ln -sf "${MY_PATH}/nginx" "${_src_dir}/nginx" >/dev/null
-  ln -sf "${pkg_path}/src/nginx/src/" "${_src_dir}/nginx-source" >/dev/null
+  ln -sf "${pkg_path}"/pkg/*/usr/bin/nginx "${MY_PATH}/nginx" > /dev/null
+  ln -sf "${MY_PATH}/nginx" "${_src_dir}/nginx" > /dev/null
+  ln -sf "${_src_dir}/nginx-source/" "${pkg_path}/src/nginx/src"  > /dev/null
   
   popd >/dev/null
 fi
