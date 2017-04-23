@@ -136,6 +136,8 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
     d->owner_chanhead = head;
     memstore_chanhead_reserve(head, "interprocess subscribe");
     
+    ngx_atomic_fetch_add(&head->shared->gc.outside_refcount, 1); //it's awkward to put this refcount here, but necessary.
+    
     assert(d->shared_channel_data);
   }
   
@@ -154,40 +156,38 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   
   if(!d->shared_channel_data && !d->subscriber) {
     ERR("failed to subscribe");
-    return;
   }
-  
-  if((head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, d->cf)) == NULL) {
+  else if((head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, d->cf)) == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
-    return;
-  }
-  
-  old_shared = head->shared;
-  if(old_shared) {
-    assert(old_shared == d->shared_channel_data);
-  }
-  DBG("receive subscribe proceed to do ipc_sub stuff");
-  head->shared = d->shared_channel_data;
-  
-  if(old_shared == NULL) {
-    //ERR("%V local total_sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
-    assert(head->total_sub_count >= head->internal_sub_count);
-    ngx_atomic_fetch_add(&head->shared->sub_count, head->total_sub_count - head->internal_sub_count);
-    ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
   }
   else {
-    ERR("%V sub count already shared, don't update", &head->id);
+    old_shared = head->shared;
+    if(old_shared) {
+      assert(old_shared == d->shared_channel_data);
+    }
+    DBG("receive subscribe proceed to do ipc_sub stuff");
+    head->shared = d->shared_channel_data;
+    
+    if(old_shared == NULL) {
+      //ERR("%V local total_sub_count %i, internal_sub_count %i", &head->id,  head->sub_count, head->internal_sub_count);
+      assert(head->total_sub_count >= head->internal_sub_count);
+      ngx_atomic_fetch_add(&head->shared->sub_count, head->total_sub_count - head->internal_sub_count);
+      ngx_atomic_fetch_add(&head->shared->internal_sub_count, head->internal_sub_count);
+    }
+    else {
+      ERR("%V sub count already shared, don't update", &head->id);
+    }
+    
+    assert(head->shared != NULL);
+    if(head->foreign_owner_ipc_sub) {
+      assert(head->foreign_owner_ipc_sub == d->subscriber);
+    }
+    else {
+      head->foreign_owner_ipc_sub = d->subscriber;
+    }
+    
+    memstore_ready_chanhead_unless_stub(head);
   }
-  
-  assert(head->shared != NULL);
-  if(head->foreign_owner_ipc_sub) {
-    assert(head->foreign_owner_ipc_sub == d->subscriber);
-  }
-  else {
-    head->foreign_owner_ipc_sub = d->subscriber;
-  }
-  
-  memstore_ready_chanhead_unless_stub(head);
   
   str_shm_free(d->shm_chid);
   
