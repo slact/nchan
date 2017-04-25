@@ -1,3 +1,4 @@
+1.1.4 (Apr. 25 2017)
  fix (security): possible memory corruption using multiplexed channels 
       at high load (Thanks Giovanni Caporaletti (@TrustNoOne) for debugging.)
  fix: possible crash when reconnecting to Redis cluster (introduced in 1.1.3)
