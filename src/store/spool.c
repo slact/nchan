@@ -216,9 +216,9 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   nchan_copy_msg_id(&new_id, &spool->id, largetags);
   nchan_update_multi_msgid(&new_id, new_last_id, largetags);
   
-  //ERR("spool %p nextmsg (%V) --", spool, msgid_to_str(&spool->id));
-  //ERR(" --  update with               (%V) --", msgid_to_str(new_last_id));
-  //ERR(" -- newid                       %V", msgid_to_str(&new_id));
+  // ERR("spool %p nextmsg (%V) --", spool, msgid_to_str(&spool->id));
+  // ERR(" --  update with               (%V) --", msgid_to_str(new_last_id));
+  // ERR(" -- newid                       %V", msgid_to_str(&new_id));
   
   if(msg_ids_equal(&spool->id, &new_id)) {
     ERR("nextmsg id same as curmsg (%V)", msgid_to_str(&spool->id));
@@ -437,7 +437,7 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   }
   
   if(*spl->channel_status != READY) {
-    DBG("%p wanted to fetch msg %V, but channel %V not ready", spool, msgid_to_str(&spool->id), spl->chid);
+    DBG("%p wanted to fetch msg %V, but channel %V not ready, channel_status is %i", spool, msgid_to_str(&spool->id), spl->chid, *spl->channel_status);
     spool->msg_status = MSG_CHANNEL_NOTREADY;
     return NGX_DECLINED;
   }
@@ -909,6 +909,12 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   srdata.msg = msg;
   srdata.n = 0;
   
+  if (self->multi_countdown > 0) {
+    DBG("Channel with countdown %i (%V) %p is on hold for respoding message %V", self->multi_countdown, self->chid, self, msgid_to_str(&msg->id));
+    return NGX_OK;
+  }
+  DBG("Channel with countdown %i (%V) %p is respoding message %V", self->multi_countdown, self->chid, self, msgid_to_str(&msg->id));
+  
   //spooler_print_contents(self);
   
   //find all spools between msg->prev_id and msg->id
@@ -1135,6 +1141,7 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     //spl->want_to_stop = 0;
     spl->publish_events = 1;
     spl->fetching_strategy = fetching_strategy;
+    spl->multi_countdown = 0;
     
     init_spool(spl, &spl->current_msg_spool, &latest_msg_id);
     spl->current_msg_spool.msg_status = MSG_EXPECTED;

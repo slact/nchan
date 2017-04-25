@@ -78,6 +78,7 @@ struct channel_spooler_s {
   subscriber_pool_t           current_msg_spool;
   nchan_msg_id_t              prev_msg_id;
   ngx_uint_t                  responded_count;
+  ngx_uint_t                  multi_countdown;
   ngx_str_t                  *chid;
   chanhead_pubsub_status_t   *channel_status;
   nchan_store_t              *store;
