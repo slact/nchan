@@ -218,6 +218,7 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   ERR("abort! %s", errmsg ? errmsg : "unknown error");
+  assert(errmsg);
   dequeue_maybe(sub);
   return NGX_ERROR;
 }
