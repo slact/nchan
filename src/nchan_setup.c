@@ -132,6 +132,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
   lcf->redis.storage_mode = REDIS_MODE_CONF_UNSET;
   
+  lcf->request_handler = NULL;
   return lcf;
 }
 
@@ -207,6 +208,15 @@ static char *ngx_conf_set_redis_upstream(ngx_conf_t *cf, ngx_str_t *url, void *c
   lcf->redis.enabled = 1;
   global_redis_enabled = 1;
   nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+  
+  return NGX_CONF_OK;
+}
+
+static char *nchan_setup_handler(ngx_conf_t *cf, ngx_int_t (*handler)(ngx_http_request_t *)) {
+  ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+  //nchan_loc_conf_t               *plcf = conf;
+  clcf->handler = handler;
+  clcf->if_modified_since = NGX_HTTP_IMS_OFF;
   
   return NGX_CONF_OK;
 }
@@ -338,16 +348,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->redis.storage_mode = prev->redis.storage_mode == REDIS_MODE_CONF_UNSET ? REDIS_MODE_DISTRIBUTED : prev->redis.storage_mode;
   }
   
-  return NGX_CONF_OK;
-}
-
- //channel id variable
-//publisher and subscriber handlers now.
-static char *nchan_setup_handler(ngx_conf_t *cf, void * conf, ngx_int_t (*handler)(ngx_http_request_t *)) {
-  ngx_http_core_loc_conf_t       *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-  //nchan_loc_conf_t               *plcf = conf;
-  clcf->handler = handler;
-  clcf->if_modified_since = NGX_HTTP_IMS_OFF;
+  if(conf->request_handler != NULL) {
+    nchan_setup_handler(cf, conf->request_handler);
+  }
   
   return NGX_CONF_OK;
 }
@@ -395,7 +398,6 @@ static char *nchan_set_storage_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *
 #define DISABLED_STRINGS "none", "off", "disabled"
 #define DISABLED_STRINGS_N 3
 
-
 static char *nchan_publisher_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_int_t fail) {
   nchan_loc_conf_t     *lcf = conf;
   ngx_str_t            *val;
@@ -429,8 +431,8 @@ static char *nchan_publisher_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd,
   if(!is_valid_location(cf, lcf)) {
     return NGX_CONF_ERROR;
   }
-  
-  return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+  lcf->request_handler = &nchan_pubsub_handler;
+  return NGX_CONF_OK;
 }
 
 static char *nchan_publisher_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -497,8 +499,8 @@ static char *nchan_subscriber_directive_parse(ngx_conf_t *cf, ngx_command_t *cmd
   if(!is_valid_location(cf, lcf)) {
     return NGX_CONF_ERROR;
   }
-  
-  return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+  lcf->request_handler = &nchan_pubsub_handler;
+  return NGX_CONF_OK;
 }
 
 static char *nchan_subscriber_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -525,7 +527,7 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
     return NGX_CONF_ERROR;
   }
   
-  return nchan_setup_handler(cf, conf, &nchan_pubsub_handler);
+  return NGX_CONF_OK;
 }
 
 static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -566,8 +568,8 @@ static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   if(!is_valid_location(cf, lcf)) {
     return NGX_CONF_ERROR;
   }
-  
-  return nchan_setup_handler(cf, conf, &nchan_group_handler);
+  lcf->request_handler = &nchan_group_handler;
+  return NGX_CONF_OK;
 }
 
 static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
@@ -835,7 +837,7 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   char                *rc;
   ngx_flag_t          *fp;
   char                *p = conf;
-  nchan_loc_conf_t    *lcf = (nchan_loc_conf_t *)conf;
+  nchan_loc_conf_t    *lcf = conf;
   
   rc = ngx_conf_set_flag_slot(cf, cmd, conf);
   if(rc == NGX_CONF_ERROR) {
@@ -858,8 +860,10 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
 }
 
 static char *nchan_stub_status_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t    *lcf = conf;
   nchan_stub_status_enabled = 1;
-  return nchan_setup_handler(cf, conf, &nchan_stub_status_handler);
+  lcf->request_handler = &nchan_stub_status_handler;
+  return NGX_CONF_OK;
 }
 
 
