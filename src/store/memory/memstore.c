@@ -3232,6 +3232,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     }
     else {
       nchan_log_error("A message from the past has just been published. Unless the system time has been adjusted, this should never happen.");
+      raise(SIGABRT);
     }
   }
   
