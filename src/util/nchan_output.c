@@ -106,6 +106,7 @@ void nchan_output_shutdown(void) {
 typedef struct rsvmsg_queue_s rsvmsg_queue_t;
 struct rsvmsg_queue_s {
   nchan_msg_t                  *msg;
+  nchan_msg_t                   msg_copy;
   rsvmsg_queue_t               *prev;
   rsvmsg_queue_t               *next;
 };
@@ -152,6 +153,7 @@ static void nchan_output_reserve_message_queue(ngx_http_request_t *r, nchan_msg_
   
   rsvmsg_queue_t   *qmsg = nchan_reuse_queue_push(ctx->reserved_msg_queue);
   qmsg->msg = msg;
+  qmsg->msg_copy = *msg;
   msg_reserve(msg, "output reservation");
 }
 
