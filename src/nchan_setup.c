@@ -348,6 +348,9 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->redis.storage_mode = prev->redis.storage_mode == REDIS_MODE_CONF_UNSET ? REDIS_MODE_DISTRIBUTED : prev->redis.storage_mode;
   }
   
+  if(prev->request_handler != NULL && conf->request_handler == NULL) {
+    conf->request_handler = prev->request_handler;
+  }
   if(conf->request_handler != NULL) {
     nchan_setup_handler(cf, conf->request_handler);
   }
