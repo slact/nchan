@@ -11,7 +11,16 @@ static ngx_int_t validate_id(ngx_http_request_t *r, ngx_str_t *id, nchan_loc_con
 
 ngx_int_t nchan_channel_id_is_multi(ngx_str_t *id) {
   u_char         *cur = id->data;
-  return (cur[0] == 'm' && cur[1] == '/' && cur[2] == NCHAN_MULTI_SEP_CHR);
+  if(id->len >= 3) {
+    if(cur[0] == 'm') {
+      if(cur[1] == '/') {
+        if (cur[2] == NCHAN_MULTI_SEP_CHR) {
+          return 1;
+        }
+      }
+    }
+  }
+  return 0;
 }
 
 
