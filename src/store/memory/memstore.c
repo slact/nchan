@@ -3207,8 +3207,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
 
   assert(msg->id.tagcount == 1);
   
-  fill_message_timedata(msg, timeout);
-  
   assert(!cf->redis.enabled || cf->redis.storage_mode == REDIS_MODE_BACKUP);
   
   if(memstore_slot() != owner) {
@@ -3218,6 +3216,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     }
     return memstore_ipc_send_publish_message(owner, &chead->id, publish_msg, cf, callback, privdata);
   }
+  
+  fill_message_timedata(msg, timeout);
   
   chan_expire = ngx_time() + timeout;
   chead->channel.expires = chan_expire > msg->expires + 5 ? chan_expire : msg->expires + 5;
