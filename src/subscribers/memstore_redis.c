@@ -9,7 +9,7 @@
 #include <store/redis/store.h>
 #include <store/redis/store-private.h>
 
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 #include "internal.h"
 #include "memstore_redis.h"
 #include <assert.h>

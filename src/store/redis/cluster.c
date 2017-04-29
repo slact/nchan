@@ -3,7 +3,7 @@
 
 #include "redis_nginx_adapter.h"
 
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 #include <util/nchan_rbtree.h>
 #include <store/store_common.h>
 

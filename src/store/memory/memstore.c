@@ -68,17 +68,17 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t 
       return NGX_DECLINED;
     }
     
-    if(ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(msg_refcount_invalidate_if_zero(smsg->msg)) {
       return NGX_OK;
     }
     return NGX_DECLINED;
   }
   else {
-    if(! ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(!msg_refcount_invalidate_if_zero(smsg->msg)) {
       if(smsg->msg->refcount > 0) {
         ERR("force-reaping msg with refcount %d", smsg->msg->refcount);
       }
-      smsg->msg->refcount = MSG_REFCOUNT_INVALID;
+      msg_refcount_invalidate(smsg->msg);
     }
     return NGX_OK;
   }
@@ -277,6 +277,7 @@ static void init_mpt(memstore_data_t *m) {
 }
 
 static shmem_t         *shm = NULL;
+void                   *nchan_store_memory_shmem = NULL;
 static shm_data_t      *shdata = NULL;
 static ipc_t            ipc_data;
 static ipc_t           *ipc = NULL;
@@ -317,10 +318,6 @@ int memstore_ready(void) {
   return 0;
 }
 #endif
-
-shmem_t *nchan_memstore_get_shm(void){
-  return shm;
-}
 
 ipc_t *nchan_memstore_get_ipc(void){
   return ipc;
@@ -1378,9 +1375,10 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size(msg->buf), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
 #endif
     
-    if(msg->temp_allocd) {
-      ngx_free(msg);
-    }
+    //wait what?...
+    //if(msg->temp_allocd) {
+    //  ngx_free(msg);
+    //}
   }
   else {
     DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->total_sub_count);
@@ -1670,6 +1668,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   redis_fakesub_timer_interval = conf->redis_fakesub_timer_interval;
   
   shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_nchan_module);
+  nchan_store_memory_shmem = shm;
   return NGX_OK;
 }
 
@@ -1798,7 +1797,7 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   ngx_buf_t         *buf = &msg->buf;
   ngx_file_t        *f = buf->file;
   
-  assert(msg->refcount == MSG_REFCOUNT_INVALID);
+  assert(!msg_refcount_valid(msg));
   
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
@@ -2402,7 +2401,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   //ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
-  nchan_msg_copy_t            retmsg;
+  nchan_msg_t                 retmsg;
   
   /*
   switch(status) {
@@ -2464,40 +2463,38 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     memstore_chanhead_release(d->chanhead, "multimsg");
     if(d->msg) {
       int16_t      *muhtags;
-      
       ngx_int_t     n = d->n;
-      retmsg.copy = *d->msg;
-      retmsg.copy.shared = 0;
-      retmsg.copy.temp_allocd = 0;
-      retmsg.original = d->msg;
       
-      nchan_copy_msg_id(&retmsg.copy.prev_id, &d->wanted_msgid, multi_prevlargetag);
+      assert(d->msg->id.tagcount == 1);
+      
+      nchan_msg_derive_stack(d->msg, &retmsg, NULL);
+      
+      nchan_copy_msg_id(&retmsg.prev_id, &d->wanted_msgid, multi_prevlargetag);
       
       //TODO: some kind of missed-message check maybe?
       
       if (d->wanted_msgid.time != d->msg->id.time) {
-        nchan_copy_msg_id(&retmsg.copy.id, &d->msg->id, multi_largetag);
+        nchan_copy_msg_id(&retmsg.id, &d->msg->id, NULL);
         
         if(d->multi_count > NCHAN_FIXED_MULTITAG_MAX) {
-          retmsg.copy.id.tag.allocd = multi_largetag;
-          assert(d->msg->id.tagcount == 1);
-          retmsg.copy.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
+          retmsg.id.tag.allocd = multi_largetag;
+          retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
         }
-        retmsg.copy.id.tagcount = d->multi_count;
-        nchan_expand_msg_id_multi_tag(&retmsg.copy.id, 0, n, -1);
+        retmsg.id.tagcount = d->multi_count;
+        nchan_expand_msg_id_multi_tag(&retmsg.id, 0, n, -1);
       }
       else {
-        nchan_copy_msg_id(&retmsg.copy.id, &d->wanted_msgid, multi_largetag); 
+        nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
       }
       
-      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.copy.id.tag.allocd : retmsg.copy.id.tag.fixed;
+      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
       muhtags[n] = d->msg->id.tag.fixed[0];
       
-      retmsg.copy.id.tagactive = n;
+      retmsg.id.tagactive = n;
       
       //DBG("respond msg id transformed into %p %V", &retmsg.copy, msgid_to_str(&retmsg.copy.id));
       
-      d->cb(d->msg_status, &retmsg.copy, d->privdata);
+      d->cb(d->msg_status, &retmsg, d->privdata);
       
       msg_release(d->msg, "get multi msg");
     }
@@ -2864,8 +2861,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf->end = buf->last;
   }
   
-  msg->shared = 1;
-  msg->temp_allocd = 0;
+  msg->storage = NCHAN_MSG_SHARED;
   
 #if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
@@ -2881,70 +2877,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   assert(ngx_memcmp(((u_char *)msg) + memsize + 1, "end", 4) == 0);
 #endif
   return msg;
-}
-
-ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
-  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, 1);
-  assert(msg->refcount >= 0);
-  if(msg->refcount < 0) {
-    msg->refcount = MSG_REFCOUNT_INVALID;
-    return NGX_ERROR;
-  }
-#if NCHAN_MSG_RESERVE_DEBUG  
-  msg_rsv_dbg_t     *rsv;
-  shmtx_lock(shm);
-  rsv=shm_locked_calloc(shm, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
-  rsv->lbl = (char *)(&rsv[1]);
-  ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
-  if(msg->rsv == NULL) {
-    msg->rsv = rsv;
-    rsv->prev = NULL;
-    rsv->next = NULL;
-  }
-  else {
-    msg->rsv->prev = rsv;
-    rsv->next = msg->rsv;
-    rsv->prev = NULL;
-    msg->rsv = rsv;
-  }
-  shmtx_unlock(shm);
-#endif
-  //DBG("msg %p reserved (%i) %s", msg, msg->refcount, lbl);
-  return NGX_OK;
-}
-
-ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
-#if NCHAN_MSG_RESERVE_DEBUG
-  msg_rsv_dbg_t     *cur, *prev, *next;
-  size_t             sz = ngx_strlen(lbl);
-  ngx_int_t          rsv_found=0;
-  shmtx_lock(shm);
-  assert(msg->refcount > 0);
-  for(cur = msg->rsv; cur != NULL; cur = cur->next) {
-    if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
-      prev = cur->prev;
-      next = cur->next;
-      if(prev) {
-        prev->next = next;
-      }
-      if(next) {
-        next->prev = prev;
-      }
-      if(cur == msg->rsv) {
-        msg->rsv = next;
-      }
-      shm_locked_free(shm, cur);
-      rsv_found = 1;
-      break;
-    }
-  }
-  assert(rsv_found);
-  shmtx_unlock(shm);
-#endif
-  assert(msg->refcount > 0);
-  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
-  //DBG("msg %p released (%i) %s", msg, msg->refcount, lbl);
-  return NGX_OK;
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {

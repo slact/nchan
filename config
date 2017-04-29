@@ -75,7 +75,7 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_bufchainpool.c \
   $_nchan_util_dir/nchan_channel_id.c \
   $_nchan_util_dir/nchan_output_info.c \
-  $_nchan_util_dir/nchan_msgid.c \
+  $_nchan_util_dir/nchan_msg.c \
   $_nchan_util_dir/nchan_thingcache.c \
   $_nchan_util_dir/nchan_reaper.c \
   $_nchan_util_dir/nchan_subrequest.c \

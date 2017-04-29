@@ -31,7 +31,7 @@
 #include <util/nchan_util.h>
 #include <util/nchan_channel_id.h>
 #include <util/nchan_output_info.h>
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 #include <util/nchan_output.h>
 #include <util/nchan_debug.h>
 

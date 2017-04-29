@@ -86,6 +86,8 @@ struct msg_rsv_dbg_s {
 typedef struct nchan_loc_conf_s nchan_loc_conf_t;
 typedef struct nchan_msg_s nchan_msg_t;
 
+typedef enum {NCHAN_MSG_SHARED, NCHAN_MSG_HEAP, NCHAN_MSG_POOL, NCHAN_MSG_STACK} nchan_msg_storage_t;
+
 struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
@@ -94,12 +96,13 @@ struct nchan_msg_s {
   //  ngx_str_t                   charset;
   ngx_buf_t                       buf;
   time_t                          expires;
-  ngx_atomic_int_t                refcount;
   
+  ngx_atomic_int_t                refcount;
+  nchan_msg_t                    *parent;
   //struct nchan_msg_s             *reload_next;
   
-  unsigned                        shared:1; //for debugging
-  unsigned                        temp_allocd:1;
+  nchan_msg_storage_t             storage;
+  
 #if NCHAN_MSG_RESERVE_DEBUG
   struct msg_rsv_dbg_s           *rsv;
 #endif
@@ -112,11 +115,6 @@ struct nchan_msg_s {
   struct timeval                  start_tv;
 #endif
 }; // nchan_msg_t
-
-typedef struct {
-  nchan_msg_t       copy;
-  nchan_msg_t      *original;
-} nchan_msg_copy_t;
 
 typedef struct {
   ngx_str_t                       id;
@@ -309,6 +307,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_int_t                       max_channel_subscribers;
   time_t                          channel_timeout;
   nchan_store_t                  *storage_engine;
+  
+  ngx_int_t                     (*request_handler)(ngx_http_request_t *r);
 };// nchan_loc_conf_t;
 
 typedef struct nchan_llist_timed_s {

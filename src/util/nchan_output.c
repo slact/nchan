@@ -134,6 +134,14 @@ static void nchan_reserve_msg_cleanup(void *pd) {
 static void nchan_output_reserve_message_queue(ngx_http_request_t *r, nchan_msg_t *msg) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   ngx_http_cleanup_t   *cln;
+  
+  if(msg->storage != NCHAN_MSG_SHARED) {
+    if((msg = nchan_msg_derive_alloc(msg)) == NULL) {
+      ERR("Coudln't alloc derived msg for output_reserve_message_queue");
+      return;
+    }
+  }
+  
   if(!ctx->reserved_msg_queue) {
     if((ctx->reserved_msg_queue = ngx_palloc(r->pool, sizeof(*ctx->reserved_msg_queue))) == NULL) {
       ERR("Coudln't palloc reserved_msg_queue");
