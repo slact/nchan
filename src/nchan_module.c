@@ -781,7 +781,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
     nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
     return; 
   }
-  msg->shared = 0;
+  msg->storage = NCHAN_MSG_POOL;
   
   
   if(cf->eventsource_event.len > 0) {

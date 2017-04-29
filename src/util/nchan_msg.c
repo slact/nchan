@@ -679,3 +679,54 @@ int8_t nchan_compare_msgids(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
     }
   }
 }
+
+
+static nchan_msg_t *get_shared_msg(nchan_msg_t *msg) {
+  if(msg->storage == NCHAN_MSG_SHARED) {
+    assert(msg->parent == NULL);
+    return msg;
+  }
+  else {
+    assert(msg->parent);
+    assert(msg->parent->storage == NCHAN_MSG_SHARED);
+    return msg->parent;
+  }
+}
+
+static ngx_inline nchan_msg_t *msg_derive_init(nchan_msg_t *parent, nchan_msg_t *msg, nchan_msg_storage_t storage_type) {
+  nchan_msg_t    *shared = get_shared_msg(parent);
+  if(!msg) { return NULL; }
+  *msg = *shared;
+  msg->id.tagcount=1;
+  msg->parent = shared;
+  msg->storage = storage_type;
+#if NCHAN_MSG_RESERVE_DEBUG
+  msg->rsv = NULL;
+#endif
+  msg->refcount = 0;
+  return msg;
+}
+
+nchan_msg_t *nchan_msg_derive_alloc(nchan_msg_t *parent) {
+  nchan_msg_t *msg = msg_derive_init(parent, ngx_alloc(sizeof(nchan_msg_t), ngx_cycle->log), NCHAN_MSG_HEAP);
+  if(!msg || nchan_copy_new_msg_id(&msg->id, &parent->id) != NGX_OK) {
+    ngx_free(msg);
+    return NULL;
+  }
+  return msg;
+}
+nchan_msg_t *nchan_msg_derive_palloc(nchan_msg_t *parent, ngx_pool_t *pool) {
+  nchan_msg_t *msg = msg_derive_init(parent, ngx_palloc(pool, sizeof(nchan_msg_t)), NCHAN_MSG_POOL);
+  if(!msg || nchan_copy_new_msg_id(&msg->id, &parent->id) != NGX_OK) {
+    return NULL;
+  }
+  return msg;
+}
+nchan_msg_t *nchan_msg_derive_stack(nchan_msg_t *parent, nchan_msg_t *child, int16_t *largetags) {
+  nchan_msg_t *msg = msg_derive_init(parent, child, NCHAN_MSG_STACK);
+  if(!msg || nchan_copy_msg_id(&msg->id, &parent->id, largetags) != NGX_OK) {
+    return NULL;
+  }
+  return msg;
+}
+

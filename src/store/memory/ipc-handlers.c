@@ -301,8 +301,7 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   DEBUG_MEMZERO(&data);
   
   DBG("IPC: send publish message to %i ch %V", dst, chid);
-  assert(shm_msg->shared == 1);
-  assert(shm_msg->temp_allocd == 0);
+  assert(shm_msg->storage == NCHAN_MSG_SHARED);
   assert(chid->data != NULL);
   data.shm_chid = str_shm_copy(chid);
   if(data.shm_chid == NULL) {
