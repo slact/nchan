@@ -33,8 +33,6 @@ typedef struct {
   }                           gc;
 } store_channel_head_shm_t;
 
-#define MSG_REFCOUNT_INVALID -9000
-
 typedef struct {
   ngx_str_t            id;
   subscriber_t        *sub;

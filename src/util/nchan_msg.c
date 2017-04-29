@@ -1,7 +1,158 @@
 #include <nchan_module.h>
 #include <assert.h>
+#include <store/memory/store.h>
+#include <util/shmem.h>
 
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN MSG_ID:" fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN MSG:" fmt, ##args)
+
+#define MSG_REFCOUNT_INVALID -9000
+
+#if NCHAN_MSG_RESERVE_DEBUG  
+static void nchan_msg_reserve_debug(nchan_msg_t *msg, char *lbl) {
+  msg_rsv_dbg_t     *rsv;
+  int shared = msg->storage == NCHAN_MSG_SHARED;
+  
+  if(shared) 
+    shmtx_lock(nchan_store_memory_shmem);  
+  
+  if(shared) 
+    rsv=shm_locked_calloc(nchan_store_memory_shmem, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
+  else
+    rsv=ngx_calloc(sizeof(*rsv) + ngx_strlen(lbl) + 1, ngx_cycle->log);
+    
+  rsv->lbl = (char *)(&rsv[1]);
+  ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
+  if(msg->rsv == NULL) {
+    msg->rsv = rsv;
+    rsv->prev = NULL;
+    rsv->next = NULL;
+  }
+  else {
+    msg->rsv->prev = rsv;
+    rsv->next = msg->rsv;
+    rsv->prev = NULL;
+    msg->rsv = rsv;
+  }
+  
+  if(shared)
+    shmtx_unlock(nchan_store_memory_shmem);
+}
+
+static void nchan_msg_release_debug(nchan_msg_t *msg, char *lbl) {
+  msg_rsv_dbg_t     *cur, *prev, *next;
+  size_t             sz = ngx_strlen(lbl);
+  ngx_int_t          rsv_found=0;
+  int shared = msg->storage == NCHAN_MSG_SHARED;
+  
+  if(shared)
+    shmtx_lock(nchan_store_memory_shmem);
+  
+  assert(msg->refcount > 0);
+  for(cur = msg->rsv; cur != NULL; cur = cur->next) {
+    if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
+      prev = cur->prev;
+      next = cur->next;
+      if(prev) {
+        prev->next = next;
+      }
+      if(next) {
+        next->prev = prev;
+      }
+      if(cur == msg->rsv) {
+        msg->rsv = next;
+      }
+      
+      if(shared)
+        shm_locked_free(nchan_store_memory_shmem, cur);
+      else
+        ngx_free(cur);
+      
+      rsv_found = 1;
+      break;
+    }
+  }
+  assert(rsv_found);
+  if(shared)
+    shmtx_unlock(nchan_store_memory_shmem);
+}
+#endif
+
+int msg_refcount_valid(nchan_msg_t *msg) {
+  return msg->refcount >= 0;
+}
+
+int msg_refcount_invalidate_if_zero(nchan_msg_t *msg) {
+  return ngx_atomic_cmp_set((ngx_atomic_uint_t *)&msg->refcount, 0, MSG_REFCOUNT_INVALID);
+}
+void msg_refcount_invalidate(nchan_msg_t *msg) {
+  msg->refcount = MSG_REFCOUNT_INVALID;
+}
+
+
+ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
+  if(msg->parent) {
+    assert(msg->storage != NCHAN_MSG_SHARED);
+    msg->refcount++;
+#if NCHAN_MSG_RESERVE_DEBUG
+    nchan_msg_reserve_debug(msg, lbl);
+#endif
+    return msg_reserve(msg->parent, lbl);
+  }
+  assert(!msg->parent);
+  
+  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, 1);
+  assert(msg->refcount >= 0);
+  if(msg->refcount < 0) {
+    msg->refcount = MSG_REFCOUNT_INVALID;
+    return NGX_ERROR;
+  }
+#if NCHAN_MSG_RESERVE_DEBUG  
+  nchan_msg_reserve_debug(msg, lbl);
+#endif
+
+  //DBG("msg %p reserved (%i) %s", msg, msg->refcount, lbl);
+  return NGX_OK;
+}
+
+ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
+  if(msg->parent) {
+    assert(msg->storage != NCHAN_MSG_SHARED);
+#if NCHAN_MSG_RESERVE_DEBUG
+    nchan_msg_release_debug(msg, lbl);
+#endif
+    msg->refcount--;
+    assert(msg->refcount >= 0);
+    
+    if(msg->refcount == 0) {
+      switch(msg->storage) {
+        case NCHAN_MSG_POOL:
+          //free the id, the rest of the msg will be cleaned with the pool
+          nchan_free_msg_id(&msg->id);
+          break;
+          
+        case NCHAN_MSG_HEAP:
+          nchan_free_msg_id(&msg->id);
+          ngx_free(msg);
+          break;
+          
+        default:
+          break;
+          //do nothing for NCHAN_MSG_STACK. NCHAN_MSG_SHARED should never be seen here.
+      }
+    }
+    return msg_release(msg->parent, lbl);
+  }
+  assert(!msg->parent);
+  
+#if NCHAN_MSG_RESERVE_DEBUG
+  nchan_msg_release_debug(msg, lbl);
+#endif
+  assert(msg->refcount > 0);
+  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
+  //DBG("msg %p released (%i) %s", msg, msg->refcount, lbl);
+  return NGX_OK;
+}
+
 
 void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill) {
   int16_t v, n = id->tagcount;

@@ -8,7 +8,7 @@
 #include <store/redis/store.h>
 #include <subscribers/memstore_ipc.h>
 #include <subscribers/memstore_redis.h>
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 
 
 //macro black magic, AKA X-Macros

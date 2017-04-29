@@ -68,17 +68,17 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t 
       return NGX_DECLINED;
     }
     
-    if(ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(msg_refcount_invalidate_if_zero(smsg->msg)) {
       return NGX_OK;
     }
     return NGX_DECLINED;
   }
   else {
-    if(! ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(!msg_refcount_invalidate_if_zero(smsg->msg)) {
       if(smsg->msg->refcount > 0) {
         ERR("force-reaping msg with refcount %d", smsg->msg->refcount);
       }
-      smsg->msg->refcount = MSG_REFCOUNT_INVALID;
+      msg_refcount_invalidate(smsg->msg);
     }
     return NGX_OK;
   }
@@ -1796,7 +1796,7 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   ngx_buf_t         *buf = &msg->buf;
   ngx_file_t        *f = buf->file;
   
-  assert(msg->refcount == MSG_REFCOUNT_INVALID);
+  assert(!msg_refcount_valid(msg));
   
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
@@ -2879,70 +2879,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   assert(ngx_memcmp(((u_char *)msg) + memsize + 1, "end", 4) == 0);
 #endif
   return msg;
-}
-
-ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
-  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, 1);
-  assert(msg->refcount >= 0);
-  if(msg->refcount < 0) {
-    msg->refcount = MSG_REFCOUNT_INVALID;
-    return NGX_ERROR;
-  }
-#if NCHAN_MSG_RESERVE_DEBUG  
-  msg_rsv_dbg_t     *rsv;
-  shmtx_lock(shm);
-  rsv=shm_locked_calloc(shm, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
-  rsv->lbl = (char *)(&rsv[1]);
-  ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
-  if(msg->rsv == NULL) {
-    msg->rsv = rsv;
-    rsv->prev = NULL;
-    rsv->next = NULL;
-  }
-  else {
-    msg->rsv->prev = rsv;
-    rsv->next = msg->rsv;
-    rsv->prev = NULL;
-    msg->rsv = rsv;
-  }
-  shmtx_unlock(shm);
-#endif
-  //DBG("msg %p reserved (%i) %s", msg, msg->refcount, lbl);
-  return NGX_OK;
-}
-
-ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
-#if NCHAN_MSG_RESERVE_DEBUG
-  msg_rsv_dbg_t     *cur, *prev, *next;
-  size_t             sz = ngx_strlen(lbl);
-  ngx_int_t          rsv_found=0;
-  shmtx_lock(shm);
-  assert(msg->refcount > 0);
-  for(cur = msg->rsv; cur != NULL; cur = cur->next) {
-    if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
-      prev = cur->prev;
-      next = cur->next;
-      if(prev) {
-        prev->next = next;
-      }
-      if(next) {
-        next->prev = prev;
-      }
-      if(cur == msg->rsv) {
-        msg->rsv = next;
-      }
-      shm_locked_free(shm, cur);
-      rsv_found = 1;
-      break;
-    }
-  }
-  assert(rsv_found);
-  shmtx_unlock(shm);
-#endif
-  assert(msg->refcount > 0);
-  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
-  //DBG("msg %p released (%i) %s", msg, msg->refcount, lbl);
-  return NGX_OK;
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {
