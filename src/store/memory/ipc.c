@@ -517,7 +517,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   else { //overflow
     ipc_writebuf_overflow_t  *overflow;
     DBG("writebuf overflow, allocating memory");
-    if((overflow = ngx_alloc(sizeof(*overflow), ngx_cycle->log)) == NULL) {
+    if((overflow = ngx_calloc(sizeof(*overflow), ngx_cycle->log)) == NULL) {
       ERR("can't allocate memory for IPC write buffer overflow");
       return NGX_ERROR;
     }
