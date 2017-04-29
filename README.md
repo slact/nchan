@@ -86,7 +86,7 @@ http {
 }
 ```
 
-You can now publish messages to channels by `POST`ing data to `/sub?id=channel_id` , and subscribe by pointing Websocket, EventSource, or [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) to `sub/?id=channel_id`. It's that simple.
+You can now publish messages to channels by `POST`ing data to `/sub?id=channel_id` , and subscribe by pointing Websocket, EventSource, or [NchanSubscriber.js](https://github.com/slact/nchan.js) to `sub/?id=channel_id`. It's that simple.
 
 But Nchan is very flexible and highly configurable. So, of course, it can get a lot more complicated...
 
