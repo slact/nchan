@@ -78,14 +78,14 @@ static nchan_msg_id_t zero_msgid = NCHAN_ZERO_MSGID;
 
 static ngx_str_t *str_shm_copy(ngx_str_t *str){
   ngx_str_t *out;
-  out = shm_copy_immutable_string(nchan_memstore_get_shm(), str);
+  out = shm_copy_immutable_string(nchan_store_memory_shmem, str);
   DBG("create shm_str %p (data@ %p) %V", out, out->data, out);
   return out;
 }
 
 static void str_shm_free(ngx_str_t *str) {
   DBG("free shm_str %V @ %p", str, str->data);
-  shm_free_immutable_string(nchan_memstore_get_shm(), str);
+  shm_free_immutable_string(nchan_store_memory_shmem, str);
 }
 
 ////////// SUBSCRIBE ////////////////
@@ -552,7 +552,7 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, nchan_channel_t *chan, 
   
   d->code = code;
   if (chan) {
-    if((chan_info = shm_alloc(nchan_memstore_get_shm(), sizeof(*chan_info), "channel info for delete IPC response")) == NULL) {
+    if((chan_info = shm_alloc(nchan_store_memory_shmem, sizeof(*chan_info), "channel info for delete IPC response")) == NULL) {
       d->shm_channel_info = NULL;
       //yeah
       ERR("unable to allocate chan_info");
@@ -585,7 +585,7 @@ static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
   d->callback(d->code, d->shm_channel_info, d->privdata);
   
   if(d->shm_channel_info != NULL) {
-    shm_free(nchan_memstore_get_shm(), d->shm_channel_info);
+    shm_free(nchan_store_memory_shmem, d->shm_channel_info);
   }
   str_shm_free(d->shm_chid);
 }

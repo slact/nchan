@@ -277,6 +277,7 @@ static void init_mpt(memstore_data_t *m) {
 }
 
 static shmem_t         *shm = NULL;
+void                   *nchan_store_memory_shmem = NULL;
 static shm_data_t      *shdata = NULL;
 static ipc_t            ipc_data;
 static ipc_t           *ipc = NULL;
@@ -317,10 +318,6 @@ int memstore_ready(void) {
   return 0;
 }
 #endif
-
-shmem_t *nchan_memstore_get_shm(void){
-  return shm;
-}
 
 ipc_t *nchan_memstore_get_ipc(void){
   return ipc;
@@ -1670,6 +1667,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   redis_fakesub_timer_interval = conf->redis_fakesub_timer_interval;
   
   shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_nchan_module);
+  nchan_store_memory_shmem = shm;
   return NGX_OK;
 }
 
