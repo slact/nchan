@@ -378,11 +378,27 @@ ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int
 
 
 
-nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
-  static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
+static ngx_int_t set_default_id(nchan_loc_conf_t *cf, nchan_msg_id_t *id) {
   static nchan_msg_id_t           nth_msg_id = NCHAN_NTH_MSGID;
   static nchan_msg_id_t           oldest_msg_id = NCHAN_OLDEST_MSGID;
   static nchan_msg_id_t           newest_msg_id = NCHAN_NEWEST_MSGID;
+  switch(cf->subscriber_first_message) {
+    case 1:
+      *id = oldest_msg_id;
+      break;
+    case 0: 
+      *id = newest_msg_id;
+      break;
+    default:
+      *id = nth_msg_id;
+      id->tag.fixed[0] = cf->subscriber_first_message;
+      break;
+  }
+  return NGX_OK;
+}
+
+nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
+  static nchan_msg_id_t           id = NCHAN_ZERO_MSGID;
   
   ngx_str_t                      *if_none_match;
   nchan_loc_conf_t               *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
@@ -394,6 +410,11 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
   
   if(!cf->msg_in_etag_only && r->headers_in.if_modified_since != NULL) {
     id.time=ngx_http_parse_time(r->headers_in.if_modified_since->value.data, r->headers_in.if_modified_since->value.len);
+    
+    if(id.time <= 0) { //anything before 1-1-1970 is reserved and treated as no msgid provided
+      set_default_id(cf, &id);
+      return &id;
+    }
 
     u_char *first = NULL, *last = NULL;
     if(if_none_match != NULL) {
@@ -440,19 +461,7 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
     }
   }
   
-  //eh, we didn't find a valid alt_msgid value from variables. use the defaults
-  switch(cf->subscriber_first_message) {
-    case 1:
-      id = oldest_msg_id;
-      break;
-    case 0: 
-      id = newest_msg_id;
-      break;
-    default:
-      id = nth_msg_id;
-      id.tag.fixed[0] = cf->subscriber_first_message;
-      break;
-  }
+  set_default_id(cf, &id);
   return &id;
 }
 

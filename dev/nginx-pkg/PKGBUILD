@@ -1,6 +1,6 @@
 #!/bin/zsh
-_nginx_ver_latest=1.11.12
-_nginx_ver_stable=1.10.3
+_nginx_ver_latest=1.13.0
+_nginx_ver_stable=1.12.0
 _nginx_ver_nopool=1.11.2
 _nginx_ver_legacy=1.8.1
 _nginx_ver_old=1.6.3
@@ -229,6 +229,8 @@ build() {
   ln -sfT "$startdir/../../" "$srcdir/${_target_module_name}"
   local _build_dir="${_src_dir}/objs"
   cd "$srcdir/${_extracted_dir}"
+  
+  sed -i.bak '/SSL_R_NO_CIPHERS_PASSED/d' src/event/ngx_event_openssl.c
   
   if [[ -z $CONTINUE ]] && [[ -z $NO_EXTRACT_SOURCE ]]; then
     if [[ $NO_POOL == 1 ]]; then

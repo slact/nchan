@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.1.3 (March 25, 2017) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.1.4 (April 25, 2017) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -47,8 +47,9 @@ With a well-tuned OS and network stack on commodity server hardware, expect to h
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
  - [Debian](https://www.debian.org/): A dynamic module build is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.io/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.io/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
- - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.io/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.io/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will Nchan to their repository?...
+ - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.io/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.io/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will add Nchan to their repository?...
  - [Fedora](https://fedoraproject.org): Dynamic module builds for Nginx > 1.10.0 are available: [nginx-mod-nchan.x86_64.rpm](https://nchan.io/download/nginx-mod-nchan.x86-64.rpm), [nginx-mod-nchan.src.rpm](https://nchan.io/download/nginx-mod-nchan.src.rpm). 
+ - [Heroku](https://heroku.com): A buildpack for compiling Nchan into Nginx is available: [nchan-buildpack](https://github.com/andjosh/nchan-buildpack). A one-click, readily-deployable app is also available: [nchan-heroku](https://github.com/andjosh/nchan-heroku).
  - A statically compiled binary and associated linux nginx installation files are also [available as a tarball](https://nchan.io/download/nginx-nchan-latest.tar.gz).
 
 
@@ -85,7 +86,7 @@ http {
 }
 ```
 
-You can now publish messages to channels by `POST`ing data to `/sub?id=channel_id` , and subscribe by pointing Websocket, EventSource, or [NchanSubscriber.js](https://github.com/slact/nchan/blob/master/NchanSubscriber.js) to `sub/?id=channel_id`. It's that simple.
+You can now publish messages to channels by `POST`ing data to `/sub?id=channel_id` , and subscribe by pointing Websocket, EventSource, or [NchanSubscriber.js](https://github.com/slact/nchan.js) to `sub/?id=channel_id`. It's that simple.
 
 But Nchan is very flexible and highly configurable. So, of course, it can get a lot more complicated...
 
@@ -806,7 +807,7 @@ Consider the use case of an application where authenticated users each use a pri
 http {
   server {
     #available only on localhost
-    listen  127.0.0.1  8080;
+    listen  127.0.0.1:8080;
     location ~ /pub/(\w+)$ {
       nchan_publisher;
       nchan_channel_group my_app_group;
@@ -817,6 +818,7 @@ http {
   server {
     #available to the world
     listen 80;
+    
     location ~ /sub/(\w+)$ {
       nchan_subscriber;
       nchan_channel_group my_app_group;
@@ -827,7 +829,23 @@ http {
 
 ```
 
-Here, the subscriber endpoint is available on a public-facing port 80, and the publisher endpoint is only available on localhost, so can be accessed only by applications residing on that machine.
+Here, the subscriber endpoint is available on a public-facing port 80, and the publisher endpoint is only available on localhost, so can be accessed only by applications residing on that machine. Another way to limit access to the publisher endpoint is by using the allow/deny settings:
+
+```nginx
+
+  server {
+    #available to the world
+    listen 80; 
+    location ~ /pub/(\w+)$ {
+      allow 127.0.0.1;
+      deny all;
+      nchan_publisher;
+      nchan_channel_group my_app_group;
+      nchan_channel_id $1;
+    }
+```
+
+Here, only the local IP 127.0.0.1 is allowed to use the publisher location, even though it is defined in a non-localhost server block.
 
 ### Keeping a Channel Private
 
@@ -839,7 +857,7 @@ First, if you intend on securing the channel contents, you must use TLS/SSL:
 http {
   server {
     #available only on localhost
-    listen  127.0.0.1  8080;
+    listen  127.0.0.1:8080;
     #...publisher endpoint config
   }
   server {

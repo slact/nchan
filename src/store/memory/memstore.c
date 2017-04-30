@@ -148,99 +148,82 @@ void memstore_chanhead_release(memstore_channel_head_t *ch, char *label) {
 #endif
 }
 
+static ngx_int_t memstore_chanhead_reserved_or_in_use(memstore_channel_head_t *ch) {
+  if (ch->total_sub_count > 0) { //there are subscribers
+    DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
+    return 1;
+  }
+  
+  if(memstore_chanhead_reservations(ch) > 0) {
+#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
+    DBG("not ready to reap %V, still reserved:", &ch->id);
+    log_memstore_chanhead_reservations(ch);
+#endif
+    return 1;
+  }
+  
+  if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
+    DBG("idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
+    // any stored messages are unimportant, they're backed up in redis
+  }
+  else if(ch->channel.messages > 0) {
+    assert(ch->msg_first != NULL);
+    DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
+    return 1;
+  }
+  
+  if(ch->owner == ch->slot && ch->shared && ch->shared->gc.outside_refcount > 0) {
+    DBG("channel %p %V shared data still used by %i workers.", ch, &ch->id, ch->shared->gc.outside_refcount);
+    return 1;
+  }
+  
+  return 0;
+}
 
 static ngx_int_t nchan_memstore_chanhead_ready_to_reap(memstore_channel_head_t *ch, uint8_t force) {
   
   memstore_chanhead_messages_gc(ch);
-  if(!force) {
-    if(ch->status != INACTIVE) {
-      char *sts;
-      switch(ch->status) {
-        case NOTREADY:
-          sts = "NOTREADY";
-          break;
-        case WAITING:
-          sts = "WAITING";
-          break;
-        case STUBBED:
-          sts = "STUBBED";
-          break;
-        case READY:
-          sts = "READY";
-          break;
-        case INACTIVE:
-          sts = "INACTIVE";
-          break;
-        default:
-          sts = "????";
-      }
-      DBG("not ready to reap %V : status %s", &ch->id, sts);
-      return NGX_DECLINED;
-    }
-    
-    if(ch->gc_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
-      DBG("not ready to reap %V, %i sec left", &ch->id, ch->gc_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
-      return NGX_DECLINED;
-    }
-    
-    if (ch->total_sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
-      return NGX_DECLINED;
-    }
-    
-    if(memstore_chanhead_reservations(ch) > 0) {
-#if MEMSTORE_CHANHEAD_RESERVE_DEBUG
-      DBG("not ready to reap %V, still reserved:", &ch->id);
-      log_memstore_chanhead_reservations(ch);
-#endif
-      return NGX_DECLINED;
-    }
-    
-    if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
-      DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
-      return NGX_OK;
-    }
-    else if(ch->channel.messages > 0) {
-      assert(ch->msg_first != NULL);
-      DBG("not ready to reap %V, %i messages left", &ch->id, ch->channel.messages);
-      return NGX_DECLINED;
-    }
-    //DBG("ok to delete channel %V", &ch->id);
-    return NGX_OK;
-  }
-  else {
+  
+  if(force) {
     //force delete is always ok
     return NGX_OK;
   }
+  
+  if(ch->status != INACTIVE) {
+    DBG("not ready to reap %V : status %i", &ch->id, ch->status);
+    return NGX_DECLINED;
+  }
+  
+  if(ch->gc_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
+    DBG("not ready to reap %V, %i sec left", &ch->id, ch->gc_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
+    return NGX_DECLINED;
+  }
+    
+  if(memstore_chanhead_reserved_or_in_use(ch)) {
+    return NGX_DECLINED;
+  }
+    
+  DBG("ok to delete channel %V", &ch->id);
+  return NGX_OK;
 }
 
 static ngx_int_t nchan_memstore_chanhead_ready_to_reap_slowly(memstore_channel_head_t *ch, uint8_t force) {
   
   memstore_chanhead_messages_gc(ch);
-  if(!force) {
-    if(ch->churn_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
-      DBG("not ready to reap %p %V, %i sec left", ch, &ch->id, ch->churn_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
-      return NGX_DECLINED;
-    }
-    
-    if (ch->total_sub_count > 0) { //there are subscribers
-      DBG("not ready to reap %V, %i subs left", &ch->id, ch->total_sub_count);
-      //ERR("not ready to reap %p %V, %i [%i] {%i} subs (%i {%i} internal) left", ch, &ch->id, ch->total_sub_count, ch->channel.subscribers, ch->shared->sub_count, ch->internal_sub_count, ch->shared->internal_sub_count);
-      return NGX_DECLINED;
-    }
-    
-    if(ch->cf && ch->cf->redis.enabled && ch->churn_start_time + ch->redis_idle_cache_ttl < ngx_time()) {
-      DBG("get rid of idle redis cache channel %p %V (msgs: %i)", ch, &ch->id, ch->channel.messages);
-      return NGX_OK;
-    }
-    else if(ch->channel.messages > 0) {
-      assert(ch->msg_first != NULL);
-      DBG("not ready to reap %p %V, %i messages left", ch, &ch->id, ch->channel.messages);
-      return NGX_DECLINED;
-    }
+  if(force) {
+    return NGX_OK;
   }
   
-  //DBG("ok to delete channel %V", &ch->id);
+  if(ch->churn_start_time + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time() > 0) {
+    DBG("not ready to reap %p %V, %i sec left", ch, &ch->id, ch->churn_start_time  + NCHAN_CHANHEAD_EXPIRE_SEC - ngx_time());
+    return NGX_DECLINED;
+  }
+    
+  if(memstore_chanhead_reserved_or_in_use(ch)) {
+    return NGX_DECLINED;
+  }
+  
+  DBG("ok to slow-delete channel %V", &ch->id);
   return NGX_OK;
 }
 
@@ -645,6 +628,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     if(ch->shared)
       shm_free(shm, ch->shared);
   }
+  
   DBG("chanhead %p (%V) is empty and expired. DELETE.", ch, &ch->id);
   CHANNEL_HASH_DEL(ch);
   if(ch->redis_sub) {
@@ -1061,7 +1045,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->shared->total_message_count = 0;
     head->shared->stored_message_count = 0;
     head->shared->last_seen = ngx_time();
-    
+    head->shared->gc.outside_refcount=0;
     nchan_update_stub_status(channels, 1);
   }
   else {
@@ -1282,7 +1266,8 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
     assert(ch->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
   }
   
-  if(ch->slot != ch->owner) {
+  if(ch->slot != ch->owner && ch->shared) {
+    ngx_atomic_fetch_add(&ch->shared->gc.outside_refcount, -1);
     ch->shared = NULL;
   }
   if(ch->status == WAITING && !(ch->cf && ch->cf->redis.enabled) && !(ngx_exiting || ngx_quit)) {

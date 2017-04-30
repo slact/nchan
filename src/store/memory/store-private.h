@@ -28,6 +28,9 @@ typedef struct {
   ngx_atomic_t                total_message_count;
   ngx_atomic_t                stored_message_count;
   ngx_atomic_t                last_seen;
+  struct {
+    ngx_atomic_t                outside_refcount;
+  }                           gc;
 } store_channel_head_shm_t;
 
 #define MSG_REFCOUNT_INVALID -9000

@@ -309,6 +309,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_int_t                       max_channel_subscribers;
   time_t                          channel_timeout;
   nchan_store_t                  *storage_engine;
+  
+  ngx_int_t                     (*request_handler)(ngx_http_request_t *r);
 };// nchan_loc_conf_t;
 
 typedef struct nchan_llist_timed_s {
