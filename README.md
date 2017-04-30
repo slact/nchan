@@ -693,7 +693,7 @@ There are several ways to see what's happening inside Nchan. These are useful fo
 
 ### Channel Events
 
-Channel events are messages automatically published by Nchan when certain events occur in a channel. These are very useful for debugging the use of channels. However, they carry a significant performance overhead and should be used during development, and not inproduction.
+Channel events are messages automatically published by Nchan when certain events occur in a channel. These are very useful for debugging the use of channels. However, they carry a significant performance overhead and should be used during development, and not in production.
 
 Channel events are published to special 'meta' channels associated with normal channels. Here's how to configure them:
 
