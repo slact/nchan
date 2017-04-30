@@ -1,28 +1,6 @@
 #include <nchan_module.h>
 #include <assert.h>
 
-char *nchan_msgstatus_to_str(nchan_msg_status_t status) {
-  switch(status) {
-    case MSG_CHANNEL_NOTREADY:
-      return "MSG_CHANNEL_NOTREADY";
-    case MSG_NORESPONSE:
-      return "MSG_NORESPONSE";
-    case MSG_INVALID:
-      return "MSG_INVALID";
-    case MSG_PENDING:
-      return "MSG_PENDING";
-    case MSG_NOTFOUND:
-      return "MSG_NOTFOUND";
-    case MSG_FOUND:
-      return "MSG_FOUND";
-    case MSG_EXPECTED:
-      return "MSG_EXPECTED";
-    case MSG_EXPIRED:
-      return "MSG_EXPIRED";
-  }
-  return "???";
-}
-
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
   if(str1->len != str2->len) {
     return 0;
