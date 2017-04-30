@@ -50,6 +50,8 @@ struct ipc_readbuf_s {
 
 typedef struct ipc_s ipc_t;
 
+typedef enum {IPC_NGX_PROCESS_WORKER, IPC_NGX_PROCESS_CACHE_MANAGER, IPC_NGX_PROCESS_CACHE_LOADER, IPC_NGX_PROCESS_UNKNOWN,  IPC_NGX_PROCESS_ANY} ipc_ngx_process_type_t;
+
 typedef enum {IPC_PIPE, IPC_SOCKETPAIR} ipc_socket_type_t;
 typedef struct {
   ipc_t                 *ipc; //need this backrerefence for write events
@@ -90,6 +92,9 @@ ngx_int_t ipc_get_slot(ipc_t *ipc, ngx_pid_t pid);
 ngx_int_t ipc_alert_slot(ipc_t *ipc, ngx_int_t slot, ngx_str_t *name, ngx_str_t *data);
 ngx_int_t ipc_alert_pid(ipc_t *ipc, ngx_pid_t pid, ngx_str_t *name, ngx_str_t *data);
 ngx_pid_t *ipc_get_worker_pids(ipc_t *ipc, int *pid_count); //useful for debugging
+
+ngx_pid_t *ipc_get_process_pids(ipc_t *ipc, int *pid_count, ipc_ngx_process_type_t type);
+ngx_int_t ipc_alert_all_processes(ipc_t *ipc, ipc_ngx_process_type_t type, ngx_str_t *name, ngx_str_t *data);
 
 char *ipc_get_last_error(ipc_t *ipc);
 

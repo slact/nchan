@@ -23,21 +23,22 @@
 #define ERR_CODE(ipc, code, fmt, args...) LOG(ipc, 0, NGX_LOG_ERR, fmt, ##args); \
   ngx_snprintf((ipc)->last_error, IPC_MAX_ERROR_LEN, fmt "%Z", ##args)
 
-#define NGX_MAX_HELPER_PROCESSES 0 // don't extend IPC to helpers. just workers for now.
+#define NGX_MAX_HELPER_PROCESSES 2 // don't extend IPC to helpers. just workers for now.
 
 //shared memory stuff
 typedef struct {
-  ngx_pid_t      pid;
-  ngx_int_t      slot;
-  ngx_int_t      process_type;
+  ngx_pid_t               pid;
+  ngx_int_t               slot;
+  ngx_int_t               ngx_process_type;
+  ipc_ngx_process_type_t  process_type;
 } process_slot_tracking_t;
 
 typedef struct {
   process_slot_tracking_t  *process_slots;
   ngx_int_t                 process_count;
+  ngx_int_t                 max_process_count;
   ngx_shmtx_sh_t            lock;
   ngx_shmtx_t               mutex;
-  
 } ipc_shm_data_t;
 
 
@@ -97,6 +98,7 @@ ipc_t *ipc_init_module(const char *ipc_name, ngx_cycle_t *cycle) {
   ngx_memzero(shdata, sizeof(*shdata));
   shdata->process_slots = (process_slot_tracking_t *)&shdata[1];
   shdata->process_count = 0;
+  shdata->max_process_count = max_processes;
   
   ngx_shmtx_create(&shdata->mutex, &shdata->lock, (u_char *)ipc_name);
   
@@ -104,13 +106,42 @@ ipc_t *ipc_init_module(const char *ipc_name, ngx_cycle_t *cycle) {
   return ipc;
 }
 
+void ipc_scrape_proctitle(ngx_event_t *ev) {
+  int                       i;
+  ipc_t                    *ipc = ev->data;
+  ipc_shm_data_t           *shdata = ipc->shm;
+  ipc_ngx_process_type_t    process_type = IPC_NGX_PROCESS_UNKNOWN;
+  if(ngx_strstr(ngx_os_argv[0], "cache manager")) {
+    process_type = IPC_NGX_PROCESS_CACHE_MANAGER;
+  }
+  else if(ngx_strstr(ngx_os_argv[0], "cache loader")) {
+    process_type = IPC_NGX_PROCESS_CACHE_LOADER;
+  }
+  else if(ngx_strstr(ngx_os_argv[0], "worker")) {
+    process_type = IPC_NGX_PROCESS_WORKER;
+  }
+  
+  ngx_shmtx_lock(&shdata->mutex);
+
+  for(i=0; i<shdata->process_count; i++) {
+    if(shdata->process_slots[i].pid == ngx_pid) {
+      shdata->process_slots[i].process_type = process_type;
+      break;
+    }
+  }
+  
+  ngx_shmtx_unlock(&shdata->mutex);
+  ngx_free(ev);
+}
+
 ngx_int_t ipc_init_worker(ipc_t *ipc, ngx_cycle_t *cycle) {
   ipc_shm_data_t                 *shdata = ipc->shm;
-  ngx_int_t                       max_processes = ipc->worker_process_count + NGX_MAX_HELPER_PROCESSES;
+  ngx_int_t                       max_processes;
   int                             i, found = 0;
   process_slot_tracking_t         *procslot;
+  ngx_event_t                     *ev = ngx_calloc(sizeof(*ev), cycle->log);
   
-  if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE) {
+  if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE && ngx_process != NGX_PROCESS_HELPER) {
     //not a worker, stop initializing stuff.
     return NGX_OK;
   }
@@ -118,7 +149,9 @@ ngx_int_t ipc_init_worker(ipc_t *ipc, ngx_cycle_t *cycle) {
   
   ngx_shmtx_lock(&shdata->mutex);
 
-  for(i=0; !found && i<max_processes; i++) {
+  max_processes = shdata->max_process_count;
+  
+  for(i=0; !found && i < max_processes; i++) {
     procslot = &shdata->process_slots[i];
     if( procslot->pid == 0) {
       // empty procslot
@@ -133,13 +166,24 @@ ngx_int_t ipc_init_worker(ipc_t *ipc, ngx_cycle_t *cycle) {
   if(found) {
     procslot->pid = ngx_pid;
     procslot->slot = ngx_process_slot; 
-    procslot->process_type = ngx_process;
+    procslot->ngx_process_type = ngx_process;
     DBG("ADD  process %i slot %i type %i", ngx_pid, ngx_process_slot, ngx_process);
     shdata->process_count++;
+  }
+  else {
+    ERR(ipc, "NOT FOUND");
   }
   ngx_shmtx_unlock(&shdata->mutex);
   
   if(found) {
+#if nginx_version >= 1008000
+    ev->cancelable = 1;
+#endif
+    ev->handler = ipc_scrape_proctitle;
+    ev->data = ipc;
+    ev->log = cycle->log;
+    ngx_add_timer(ev, 0);
+    
     return ipc_register_worker(ipc, cycle);
   }
   else {
@@ -163,11 +207,11 @@ ngx_int_t ipc_destroy(ipc_t *ipc) {
 
 ngx_pid_t ipc_get_pid(ipc_t *ipc, int process_slot) {
   ipc_shm_data_t         *shdata = ipc->shm;
-  int                     max_workers = ipc->worker_process_count;
+  int                     max_processes = shdata->process_count;
   int                     i;
   process_slot_tracking_t *process_slots = shdata->process_slots;
   
-  for(i=0; i<max_workers; i++) {
+  for(i=0; i<max_processes; i++) {
     if(process_slots[i].slot == process_slot) {
       return process_slots[i].pid;
     }
@@ -176,11 +220,11 @@ ngx_pid_t ipc_get_pid(ipc_t *ipc, int process_slot) {
 }
 ngx_int_t ipc_get_slot(ipc_t *ipc, ngx_pid_t pid) {
   ipc_shm_data_t         *shdata = ipc->shm;
-  int                     max_workers = ipc->worker_process_count;
+  int                     max_processes = shdata->process_count;
   int                     i;
   process_slot_tracking_t *process_slots = shdata->process_slots;
   
-  for(i=0; i<max_workers; i++) {
+  for(i=0; i<max_processes; i++) {
     if(process_slots[i].pid == pid) {
       return process_slots[i].slot;
     }
@@ -812,33 +856,50 @@ ngx_int_t ipc_alert_pid(ipc_t *ipc, ngx_pid_t worker_pid, ngx_str_t *name, ngx_s
   return ipc_alert_slot(ipc, slot, name, data);
 }
 
-ngx_int_t ipc_alert_all_workers(ipc_t *ipc, ngx_str_t *name, ngx_str_t *data) {
+ngx_int_t ipc_alert_all_processes(ipc_t *ipc, ipc_ngx_process_type_t type, ngx_str_t *name, ngx_str_t *data) {
   ipc_shm_data_t         *shdata = ipc->shm;
-  int                     max_workers = ipc->worker_process_count;
+  int                     max_workers = shdata->process_count;
   int                     i;
   int                     rc = NGX_OK, trc;
   process_slot_tracking_t *process_slots = shdata->process_slots;
   
   for(i=0; i<max_workers; i++) {
-    trc = ipc_alert_slot(ipc, process_slots[i].slot, name, data);
-    if(trc != NGX_OK) rc = trc;
+    if(type == IPC_NGX_PROCESS_ANY || shdata->process_slots[i].process_type == type) { 
+      trc = ipc_alert_slot(ipc, process_slots[i].slot, name, data);
+      if(trc != NGX_OK) rc = trc;
+    }
   }
-  return rc;
+  return rc;  
 }
 
-ngx_pid_t *ipc_get_worker_pids(ipc_t *ipc, int *pid_count) {
+ngx_int_t ipc_alert_all_workers(ipc_t *ipc, ngx_str_t *name, ngx_str_t *data) {
+  return ipc_alert_all_processes(ipc, IPC_NGX_PROCESS_WORKER, name, data);
+}
+
+ngx_pid_t *ipc_get_process_pids(ipc_t *ipc, int *pid_count, ipc_ngx_process_type_t type) {
   static ngx_pid_t pid_array[NGX_MAX_PROCESSES + NGX_MAX_HELPER_PROCESSES];
   ipc_shm_data_t         *shdata = ipc->shm;
-  int i;
-  for(i=0; i<ipc->worker_process_count; i++) {
-    pid_array[i] = shdata->process_slots[i].pid;
+  int                     max_workers = shdata->process_count;
+  int                     i;
+  int                     found = 0;
+  
+  for(i=0; i<max_workers; i++) {
+    if (type  == IPC_NGX_PROCESS_ANY || shdata->process_slots[i].process_type == type) {
+      pid_array[i] = shdata->process_slots[i].pid;
+      found++;
+    }
   }
   if(pid_count) {
-    *pid_count = ipc->worker_process_count;
+    *pid_count = found;
   }
   
   return pid_array;
 }
+
+ngx_pid_t *ipc_get_worker_pids(ipc_t *ipc, int *pid_count) {
+  return ipc_get_process_pids(ipc, pid_count, IPC_NGX_PROCESS_WORKER);
+}
+
 
 char *ipc_get_last_error(ipc_t *ipc) {
   return (char *)ipc->last_error;
