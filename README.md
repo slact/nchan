@@ -761,7 +761,7 @@ stored messages: 1249
 shared memory used: 1824K
 channels: 80
 subscribers: 90
-redis pending commands: 0f
+redis pending commands: 0
 redis connected servers: 0
 total interprocess alerts received: 1059634
 interprocess alerts in transit: 0
@@ -773,7 +773,7 @@ total interprocess receive delay: 0
 Here's what each line means, and how to interpret it:
   - `total published messages`: Number of messages published to all channels through this Nchan server.
   - `stored messages`: Number of messages currently buffered in memory
-  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_max_reserved_memory`W.
+  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_max_reserved_memory`.
   - `channels`: Number of channels present on this Nchan server.
   - `subscribers`: Number of subscribers to all channels on this Nchan server.
   - `redis pending commands`: Number of commands sent to Redis that are awaiting a reply. May spike during high load, especially if the Redis server is overloaded. Should tend towards 0.
