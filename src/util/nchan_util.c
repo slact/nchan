@@ -421,10 +421,9 @@ ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t inter
 
 int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   //naive non-null-terminated string matcher. don't use it in tight loops!
-  char *cur;
-  size_t len = str->len;
-  
-  for(cur = (char *)str->data, len = str->len; len >= sz; cur++, len--) {
+  char   *cur = (char *)str->data;
+  size_t  len;
+  for(len = str->len; len >= sz; cur++, len--) {
     if(strncmp(cur, substr, sz) == 0) {
       return 1;
     }

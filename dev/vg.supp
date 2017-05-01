@@ -1,5 +1,5 @@
 {
-   <insert_a_suppression_name_here>
+   <epoll-init>
    Memcheck:Param
    epoll_ctl(event)
    fun:epoll_ctl
@@ -14,7 +14,7 @@
    fun:main
 }
 {
-   <insert_a_suppression_name_here>
+   <process-title>
    Memcheck:Leak
    match-leak-kinds: reachable
    fun:malloc
@@ -24,7 +24,7 @@
    fun:main
 }
 {
-   <insert_a_suppression_name_here>
+   <epoll-init>
    Memcheck:Leak
    match-leak-kinds: reachable,possible
    fun:malloc
@@ -39,7 +39,7 @@
    fun:main
 }
 {
-   <insert_a_suppression_name_here>
+   <event-loop-init>
    Memcheck:Leak
    match-leak-kinds: reachable,possible
    fun:malloc
@@ -54,7 +54,7 @@
 }
 
 {
-   <insert_a_suppression_name_here>
+   <argv>
    Memcheck:Leak
    match-leak-kinds: reachable
    ...
@@ -62,11 +62,26 @@
    fun:main
 }
 {
-   <insert_a_suppression_name_here>
+   <strerror>
    Memcheck:Leak
    match-leak-kinds: reachable
    fun:malloc
    fun:ngx_strerror_init
+   fun:main
+}
+
+{
+   <setenv>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_set_environment
+   fun:ngx_worker_process_init
+   fun:ngx_worker_process_cycle
+   fun:ngx_spawn_process
+   fun:ngx_start_worker_processes
+   fun:ngx_master_process_cycle
    fun:main
 }
 
