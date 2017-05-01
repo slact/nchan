@@ -251,6 +251,8 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
 }
 
 static void sudden_abort_handler(subscriber_t *sub) {
+  if(!sub)
+    return; //websocket subscriber already freed
   DBG("sudden abort handler for sub %p request %p", sub, sub->request);
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
@@ -784,6 +786,8 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
 fail: 
   if(fsub) {
+    if(fsub->cln) 
+      fsub->cln->data = NULL;
     ngx_free(fsub);
   }
   ERR("%s", (u_char *)err);
@@ -812,7 +816,9 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     nchan_free_msg_id(&sub->last_msgid);
     //debug 
     DBG("Begone, websocket %p", fsub);
-    ngx_memset(fsub, 0x13, sizeof(*fsub));
+    if(fsub->cln)
+      fsub->cln->data = NULL;
+    //ngx_memset(fsub, 0x13, sizeof(*fsub));
     ngx_free(fsub);
   }
   return NGX_OK;
@@ -1101,13 +1107,20 @@ static void websocket_reading(ngx_http_request_t *r) {
   //ngx_str_t                   msg_in_str;
   int                         close_code;
   ngx_str_t                   close_reason;
+
+  c = r->connection;
+  rev = c->read;
+  
+  if(!fsub) {
+    nchan_http_finalize_request(r, NGX_OK);
+    return;
+  }
   
   set_buffer(&buf, frame->header, frame->last, 8);
 
   //DBG("websocket_reading fsub: %p, frame: %p", fsub, frame);
   
-  c = r->connection;
-  rev = c->read;
+
 
   for (;;) {
     if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
