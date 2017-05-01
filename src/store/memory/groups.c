@@ -91,7 +91,7 @@ static group_tree_node_t *group_owner_create_node(memstore_groups_t *gp, ngx_str
   nchan_group_t          *group;
   group = shm_calloc(nchan_memstore_get_shm(), sizeof(*group) + name->len, "group");
   if(group == NULL) {
-    ERR("couldn't alloc shmem for group %V", name);
+    nchan_log_ooshm_error("creating group %V", name);
     return NULL;
   }
   

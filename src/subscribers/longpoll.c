@@ -502,10 +502,17 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
 
 ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_request_t     *r = fsub->sub.request;
+  nchan_loc_conf_t       *cf = fsub->sub.cf;
+  nchan_request_ctx_t    *ctx;
+  
   fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
   fsub->data.finalize_request = 0;
   fsub->sub.status = DEAD;
   fsub->sub.fn->dequeue(&fsub->sub);
+  if(cf->unsubscribe_request_url || cf->subscribe_request_url) {
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+    ctx->sent_unsubscribe_request = 1;
+  }
   return nchan_respond_status(r, status_code, status_line, 1);
 }
 

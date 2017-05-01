@@ -63,6 +63,8 @@ int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct tim
 #define nchan_log_notice(fmt, args...)  ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_warning(fmt, args...) ngx_log_error(NGX_LOG_WARN,   ngx_cycle->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: " fmt, ##args)
+#define nchan_log_ooshm_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: Out of shared memory while " fmt ". Increase nchan_max_reserved_memory.", ##args)
+
 #define nchan_log_request_warning(request, fmt, args...) ngx_log_error(NGX_LOG_WARN, (request)->connection->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_request_error(request, fmt, args...)    ngx_log_error(NGX_LOG_ERR, (request)->connection->log, 0, "nchan: " fmt, ##args)
 

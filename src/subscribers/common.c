@@ -235,9 +235,14 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t fina
   
   nchan_request_ctx_t         *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   ngx_http_request_t          *subrequest;
-  ctx->unsubscribe_request_callback_finalize_code = finalize_code;
-  ret = generic_subscriber_subrequest_old(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
-  ctx->sent_unsubscribe_request = 1;
+  if(!ctx->sent_unsubscribe_request) {
+    ctx->unsubscribe_request_callback_finalize_code = finalize_code;
+    ret = generic_subscriber_subrequest_old(sub, sub->cf->unsubscribe_request_url, subscriber_unsubscribe_request_callback, &subrequest, NULL);
+    ctx->sent_unsubscribe_request = 1;
+  }
+  else {
+    ret = NGX_OK;
+  }
   
   //ucf = ngx_http_get_module_loc_conf(subrequest, ngx_http_upstream_module);
   //ucf->ignore_client_abort = 1;
@@ -266,13 +271,13 @@ ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
 
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   ngx_int_t             ret;
-  //nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   subscriber_type_t     sub_type = sub->type;
   nchan_loc_conf_t     *cf = sub->cf;
   
   ret = sub->cf->storage_engine->subscribe(ch_id, sub);
   //don't access sub directly, it might have already been freed
-  if(ret == NGX_OK && sub_type != LONGPOLL && sub_type != INTERVALPOLL && cf->subscribe_request_url) {
+  if(ret == NGX_OK && sub_type != LONGPOLL && sub_type != INTERVALPOLL && cf->subscribe_request_url && ctx->sub == sub) {
     nchan_subscriber_subscribe_request(sub);
   }
   return ret;

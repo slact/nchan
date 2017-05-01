@@ -656,7 +656,12 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, void *pd) {
   if(r == NULL) {
     return NGX_ERROR;
   }
-  nchan_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
+  if(status>=500 && status <= 599) {
+    nchan_http_finalize_request(r, status);
+  }
+  else {
+    nchan_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
+  }
   return NGX_OK;
 }
 
@@ -736,12 +741,14 @@ static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr
       return NGX_OK;
       
     case NGX_ERROR:
+      status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+    case NGX_HTTP_INSUFFICIENT_STORAGE:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
       nchan_log_request_error(r, "error publishing message");
       ctx->prev_msg_id = empty_msgid;
       ctx->msg_id = empty_msgid;
-      nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      nchan_http_finalize_request(r, status);
       return NGX_ERROR;
       
     case NGX_HTTP_FORBIDDEN:
