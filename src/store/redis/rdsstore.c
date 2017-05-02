@@ -1967,6 +1967,7 @@ static void nchan_store_delete_channel_send(rdstore_data_t *rdata, void *pd) {
 static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *privdata) {
   rdstore_data_t  *rdata;
   
+  nchan_update_stub_status(redis_pending_commands, -1);
   if(ac) {
     rdata = ac->data;
     rdata->pending_commands--;
