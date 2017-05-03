@@ -16,7 +16,9 @@
 
 #include "redis_lua_commands.h"
 
-#define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL 300
+#define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP 600 //10min
+#define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX 2628000 //whole month
+
 #define REDIS_LUA_HASH_LENGTH 40
 
 #define REDIS_RECONNECT_TIME 5000
@@ -1426,7 +1428,7 @@ static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
     d->chanhead->reserved++;
     nchan_redis_script(subscriber_register, rdata, &redis_subscriber_register_cb, d, &d->chanhead->id,
                        "- %i",
-                       REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL
+                       REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP
                       );
   }
   else {
@@ -1590,11 +1592,14 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
 
 static void redisChannelKeepaliveCallback_send(rdstore_data_t *rdata, void *pd) {
   rdstore_channel_head_t   *head = pd;
+  time_t                    ttl;
   if(rdata) {
     head->reserved++;
-    nchan_redis_script(channel_keepalive, rdata, &redisChannelKeepaliveCallback, head, &head->id, "%i",
-                  REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL
-                 );
+    ttl = REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP * (1+head->keepalive_times_sent);
+    if(ttl > REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX) { //1 week at most
+      ttl = REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX;
+    }
+    nchan_redis_script(channel_keepalive, rdata, &redisChannelKeepaliveCallback, head, &head->id, "%i", ttl);
   }
 }
 
@@ -1606,6 +1611,7 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
   head->reserved--;
   rdata->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
+  head->keepalive_times_sent++;
   
   if(!clusterKeySlotOk(c, vr)) {
     cluster_add_retry_command_with_chanhead(head, redisChannelKeepaliveCallback_send, head);
@@ -1681,6 +1687,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
   head->reserved = 0;
+  head->keepalive_times_sent = 0;
   
   head->in_gc_reaper = NULL;
   
