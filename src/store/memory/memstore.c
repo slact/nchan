@@ -3158,8 +3158,10 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 }
 
 static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
-  //this coould be dangerous!!
   if(msg->id.time == 0) {
+    // cached time is okay to use here, because this is the channel owner.
+    // even if it's a second behind, so will the previous messages. 
+    // monotonicity is still preserved.
     msg->id.time = ngx_time();
   }
   if(msg->expires == 0) {
@@ -3247,8 +3249,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
 
   assert(msg->id.tagcount == 1);
   
-  fill_message_timedata(msg, timeout);
-  
   assert(!cf->redis.enabled || cf->redis.storage_mode == REDIS_MODE_BACKUP);
   
   if(memstore_slot() != owner) {
@@ -3259,6 +3259,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     return memstore_ipc_send_publish_message(owner, &chead->id, publish_msg, cf, callback, privdata);
   }
   
+  fill_message_timedata(msg, timeout);
+  
   chan_expire = ngx_time() + timeout;
   chead->channel.expires = chan_expire > msg->expires + 5 ? chan_expire : msg->expires + 5;
   if( chan_expire > chead->channel.expires) {
@@ -3267,6 +3269,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   sub_count = chead->shared->sub_count;
   
   chead->max_messages = nchan_loc_conf_max_messages(cf);
+  
   
   if(chead->latest_msgid.time > msg->id.time) {
     if(cf->redis.enabled) {
