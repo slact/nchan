@@ -1,4 +1,8 @@
- fix: "redis pending commands"  nchan_stub_status stat could be wrong after 
+ feature: feature: get current Nchan version through $nchan_version variable 
+      and nchan_stub_status
+ fix (security): invalid memory access for multiplexed channel subscribers 
+      with buffered output (Thanks Casey Forbes (@caseyf) for debugging.)
+ fix: "redis pending commands" nchan_stub_status stat could be wrong after 
       deleting channels
  fix: invalid memory access when using Redis under high load
  fix: possible "message from the past" errors under high publishing load
