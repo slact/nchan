@@ -1,4 +1,5 @@
- feature: feature: get current Nchan version through $nchan_version variable 
+1.1.5 (May 3 2017)
+ feature: get current Nchan version through $nchan_version variable 
       and nchan_stub_status
  fix (security): invalid memory access for multiplexed channel subscribers 
       with buffered output (Thanks Casey Forbes (@caseyf) for debugging.)
