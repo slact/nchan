@@ -1,3 +1,10 @@
+ fix: "redis pending commands"  nchan_stub_status stat could be wrong after 
+      deleting channels
+ fix: invalid memory access when using Redis under high load
+ fix: possible "message from the past" errors under high publishing load
+ fix: graceful publisher/subscriber notifications when out of shared memory
+      (via HTTP 507 Insufficient Storage status code)
+ fix: compatibility with limit_except directive
 1.1.4 (Apr. 25 2017)
  fix (security): possible memory corruption using multiplexed channels 
       at high load (Thanks Giovanni Caporaletti (@TrustNoOne) for debugging.)
