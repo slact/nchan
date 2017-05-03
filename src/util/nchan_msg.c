@@ -115,7 +115,8 @@ ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
 }
 
 ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
-  if(msg->parent) {
+  nchan_msg_t    *parent = msg->parent;
+  if(parent) {
     assert(msg->storage != NCHAN_MSG_SHARED);
 #if NCHAN_MSG_RESERVE_DEBUG
     nchan_msg_release_debug(msg, lbl);
@@ -140,9 +141,9 @@ ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
           //do nothing for NCHAN_MSG_STACK. NCHAN_MSG_SHARED should never be seen here.
       }
     }
-    return msg_release(msg->parent, lbl);
+    return msg_release(parent, lbl);
   }
-  assert(!msg->parent);
+  assert(!parent);
   
 #if NCHAN_MSG_RESERVE_DEBUG
   nchan_msg_release_debug(msg, lbl);
