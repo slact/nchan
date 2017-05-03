@@ -8,7 +8,7 @@
 
 #include "redis_nginx_adapter.h"
 
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 #include <util/nchan_rbtree.h>
 #include <store/store_common.h>
 
@@ -2768,7 +2768,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
     d->msg_time = ngx_time();
   }
   d->msg = msg;
-  d->shared_msg = msg->shared;
+  d->shared_msg = msg->storage == NCHAN_MSG_SHARED;
   d->message_timeout = nchan_loc_conf_message_timeout(cf);
   d->max_messages = nchan_loc_conf_max_messages(cf);
   

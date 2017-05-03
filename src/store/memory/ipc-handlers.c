@@ -8,7 +8,7 @@
 #include <store/redis/store.h>
 #include <subscribers/memstore_ipc.h>
 #include <subscribers/memstore_redis.h>
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 
 
 //macro black magic, AKA X-Macros
@@ -78,7 +78,7 @@ static nchan_msg_id_t zero_msgid = NCHAN_ZERO_MSGID;
 
 static ngx_str_t *str_shm_copy(ngx_str_t *str){
   ngx_str_t *out;
-  out = shm_copy_immutable_string(nchan_memstore_get_shm(), str);
+  out = shm_copy_immutable_string(nchan_store_memory_shmem, str);
   if(out) {
     DBG("create shm_str %p (data@ %p) %V", out, out->data, out);
   }
@@ -87,7 +87,7 @@ static ngx_str_t *str_shm_copy(ngx_str_t *str){
 
 static void str_shm_free(ngx_str_t *str) {
   DBG("free shm_str %V @ %p", str, str->data);
-  shm_free_immutable_string(nchan_memstore_get_shm(), str);
+  shm_free_immutable_string(nchan_store_memory_shmem, str);
 }
 
 ////////// SUBSCRIBE ////////////////
@@ -310,8 +310,7 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   DEBUG_MEMZERO(&data);
   
   DBG("IPC: send publish message to %i ch %V", dst, chid);
-  assert(shm_msg->shared == 1);
-  assert(shm_msg->temp_allocd == 0);
+  assert(shm_msg->storage == NCHAN_MSG_SHARED);
   assert(chid->data != NULL);
   data.shm_chid = str_shm_copy(chid);
   if(data.shm_chid == NULL) {
@@ -564,7 +563,7 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, nchan_channel_t *chan, 
   
   d->code = code;
   if (chan) {
-    if((chan_info = shm_alloc(nchan_memstore_get_shm(), sizeof(*chan_info), "channel info for delete IPC response")) == NULL) {
+    if((chan_info = shm_alloc(nchan_store_memory_shmem, sizeof(*chan_info), "channel info for delete IPC response")) == NULL) {
       d->shm_channel_info = NULL;
       d->code = NGX_HTTP_INSUFFICIENT_STORAGE;
       nchan_log_ooshm_error("sending IPC delete-reply alert for channel %V", d->shm_chid);
@@ -597,7 +596,7 @@ static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
   d->callback(d->code, d->shm_channel_info, d->privdata);
   
   if(d->shm_channel_info != NULL) {
-    shm_free(nchan_memstore_get_shm(), d->shm_channel_info);
+    shm_free(nchan_store_memory_shmem, d->shm_channel_info);
   }
   str_shm_free(d->shm_chid);
 }
