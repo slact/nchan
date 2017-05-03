@@ -172,7 +172,7 @@ static ngx_int_t nchan_stub_status_shared_memory_used(ngx_http_request_t *r, ngx
 }
 
 static ngx_int_t nchan_version_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t d) {
-  set_varval(v, NCHAN_VERSION, strlen(NCHAN_VERSION));
+  set_varval(v, (u_char *)NCHAN_VERSION, strlen(NCHAN_VERSION));
   return NGX_OK;
 }
 
