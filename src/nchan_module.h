@@ -13,7 +13,7 @@
 //#define ONE_FAKE_CHANNEL_OWNER 2
 #define MAX_FAKE_WORKERS 5
 #endif
-
+#include <nchan_version.h>
 #include <ngx_http.h>
 
 //building for old versions

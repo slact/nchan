@@ -768,6 +768,7 @@ interprocess alerts in transit: 0
 interprocess queued alerts: 0
 total interprocess send delay: 0
 total interprocess receive delay: 0
+nchan version: 1.1.5
 ```
 
 Here's what each line means, and how to interpret it:
@@ -783,6 +784,7 @@ Here's what each line means, and how to interpret it:
   - `interprocess queued alerts`: Number of interprocess communication packets waiting to be sent. May be nonzero during high load, but should always tend toward 0 over time.
   - `total interprocess send delay`: Total amount of time interprocess communication packets spend being queued if delayed. May increase during high load.
   - `total interprocess receive delay`: Total amount of time interprocess communication packets spend in transit if delayed. May increase during high load.
+  - `nchan_version`: current version of Nchan. Available for version 1.1.5 and above.
 
 Additionally, when there is at least one `nchan_stub_status` location, the following Nginx variables are available:
   - `$nchan_stub_status_total_published_messages`  
@@ -986,6 +988,9 @@ Nchan makes several variables usabled in the config file:
 
 - `$nchan_channel_event`
   For channel events, this is the event name. Useful when configuring `nchan_channel_event_string`.
+
+- `$nchan_version`
+  Current Nchan version. Available since 1.1.5.
   
 Additionally, `nchan_stub_status` data is also exposed as variables. These are available only when `nchan_stub_status` is enabled on at least one location:
 

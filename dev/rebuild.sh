@@ -211,6 +211,7 @@ if [[ -z $NO_MAKE ]]; then
   fi
   
   if [[ -n $RELEASE ]]; then
+    echo "#define NCHAN_VERSION \"$RELEASE\"" > ${MY_PATH}/../src/nchan_version.h
     ./redocument.rb --release $RELEASE
   else
     ./redocument.rb
