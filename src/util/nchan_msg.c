@@ -167,6 +167,16 @@ void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out
   }
 }
 
+void nchan_validate_msgid(nchan_msg_id_t *id) {
+  int16_t *tagstart;
+  int      i;
+  assert(id->tagactive <= id->tagcount);
+  tagstart = id->tagcount > NCHAN_FIXED_MULTITAG_MAX ? id->tag.allocd : id->tag.fixed;
+  for(i = 0; i < id->tagcount; i++) {
+    assert(tagstart[i] >= -1);
+  }
+}
+
 void nchan_expand_tiny_msgid(nchan_msg_tiny_id_t *tinyid, nchan_msg_id_t *id) {
   id->time = tinyid->time;
   id->tag.fixed[0]=tinyid->tag;
@@ -189,6 +199,7 @@ ngx_int_t nchan_copy_new_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src) {
     }
     ngx_memcpy(dst->tag.allocd, src->tag.allocd, sz);
   }
+  nchan_validate_msgid(dst);
   return NGX_OK; 
 }
 ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *largetags) {
@@ -218,6 +229,7 @@ ngx_int_t nchan_copy_msg_id(nchan_msg_id_t *dst, nchan_msg_id_t *src, int16_t *l
     
     ngx_memcpy(dst->tag.allocd, src->tag.allocd, sizeof(*src->tag.allocd) * src_n);
   }
+  nchan_validate_msgid(dst);
   return NGX_OK;
 }
 
@@ -232,6 +244,8 @@ ngx_int_t nchan_free_msg_id(nchan_msg_id_t *id) {
 static ngx_int_t verify_msg_id(nchan_msg_id_t *id1, nchan_msg_id_t *id2, nchan_msg_id_t *msgid, char **err) {
   int16_t  *tags1 = id1->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id1->tag.fixed : id1->tag.allocd;
   int16_t  *tags2 = id2->tagcount <= NCHAN_FIXED_MULTITAG_MAX ? id2->tag.fixed : id2->tag.allocd;
+  nchan_validate_msgid(id1);
+  nchan_validate_msgid(id2);
   if(id1->time > 0 && id2->time > 0) {
     if(id1->time != id2->time) {
       //is this a missed message, or just a multi msg?
@@ -370,7 +384,7 @@ ngx_int_t update_subscriber_last_msg_id(subscriber_t *sub, nchan_msg_t *msg) {
         nchan_log_request_warning(sub->request, "Missed message for %V subscriber: %s. %s", sub->name, err, huh);
       }
     }
-    
+      nchan_validate_msgid(&msg->id);
     nchan_update_multi_msgid(&sub->last_msgid, &msg->id, NULL);
   }
   

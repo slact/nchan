@@ -2642,6 +2642,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   ngx_add_timer(&d->timer, 20000);
   
   nchan_copy_new_msg_id(&d->wanted_msgid, msg_id);
+  nchan_validate_msgid(&d->wanted_msgid);
   
   //do it.
   for(i = 0; i < n; i++) {
@@ -2649,6 +2650,8 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       ngx_memzero(sd, sizeof(*sd));
       sd->d = d;
       sd->n = i;
+      
+      nchan_validate_msgid(&req_msgid[i]);
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       //DBG("get message from %V (n: %i) %V", getmsg_chid, i, msgid_to_str(&req_msgid[i]));

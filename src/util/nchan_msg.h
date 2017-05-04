@@ -28,6 +28,6 @@ nchan_msg_t *nchan_msg_derive_alloc(nchan_msg_t *parent);
 nchan_msg_t *nchan_msg_derive_palloc(nchan_msg_t *parent, ngx_pool_t *pool);
 nchan_msg_t *nchan_msg_derive_stack(nchan_msg_t *parent, nchan_msg_t *child, int16_t *largetags);
 
-
+void nchan_validate_msgid(nchan_msg_id_t *id);
 
 #endif //NCHAN_MSG_H
