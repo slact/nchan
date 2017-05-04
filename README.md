@@ -610,7 +610,7 @@ Nchan can stores messages in memory, on disk, or via Redis. Memory storage is mu
 
 ### Memory Storage
 
-This default storage method uses a segment of shared memory to store messages and channel data. Large messages as determined by Nginx's caching layer are stored on-disk. The size of the memory segment is configured with `nchan_max_reserved_memory`. Data stored here is not persistent, and is lost if Nginx is restarted or reloaded.
+This default storage method uses a segment of shared memory to store messages and channel data. Large messages as determined by Nginx's caching layer are stored on-disk. The size of the memory segment is configured with `nchan_shared_memory_size`. Data stored here is not persistent, and is lost if Nginx is restarted or reloaded.
 
 <!-- tag:memstore -->
 
@@ -774,7 +774,7 @@ nchan version: 1.1.5
 Here's what each line means, and how to interpret it:
   - `total published messages`: Number of messages published to all channels through this Nchan server.
   - `stored messages`: Number of messages currently buffered in memory
-  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_max_reserved_memory`.
+  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_shared_memory_size`.
   - `channels`: Number of channels present on this Nchan server.
   - `subscribers`: Number of subscribers to all channels on this Nchan server.
   - `redis pending commands`: Number of commands sent to Redis that are awaiting a reply. May spike during high load, especially if the Redis server is overloaded. Should tend towards 0.
@@ -1148,14 +1148,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
   [more details](#subscriber-presence)  
 
-- **nchan_max_reserved_memory** `<size>`  
-  arguments: 1  
-  default: `32M`  
-  context: http  
-  legacy name: push_max_reserved_memory  
-  > The size of the shared memory chunk this module will use for message queuing and buffering.    
-  [more details](#memory-storage)  
-
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
   default: `10`  
@@ -1213,6 +1205,14 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
   [more details](#connecting-to-a-redis-server)  
+
+- **nchan_shared_memory_size** `<size>`  
+  arguments: 1  
+  default: `128M`  
+  context: http  
+  legacy names: push_max_reserved_memory, nchan_max_reserved_memory  
+  > Shared memory slab pre-allocated for Nchan. Used for channel statistics, message storage, and interprocess communication.    
+  [more details](#memory-storage)  
 
 - **nchan_store_messages** `[ on | off ]`  
   arguments: 1  
