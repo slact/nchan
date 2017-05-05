@@ -31,6 +31,7 @@ typedef struct {
   struct {
     ngx_atomic_t                outside_refcount;
   }                           gc;
+  ngx_str_t                   shm_chid;
 } store_channel_head_shm_t;
 
 typedef struct {
