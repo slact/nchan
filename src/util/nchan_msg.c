@@ -499,6 +499,7 @@ static ngx_str_t *nchan_subscriber_get_etag(ngx_http_request_t * r) {
 }
 
 ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int_t expected_tag_count) {
+  //parse url-unescaped compound msgid
   u_char       *split, *last;
   ngx_int_t     time;
   uint8_t       len;
@@ -506,10 +507,6 @@ ngx_int_t nchan_parse_compound_msgid(nchan_msg_id_t *id, ngx_str_t *str, ngx_int
   last = str->data + str->len;
   if((split = ngx_strlchr(str->data, last, ':')) != NULL) {
     len = 1;
-  }
-  else if( (str->len > 3 && (split = ngx_strnstr(str->data, "%3A", str->len)) != NULL)
-        || (str->len > 3 && (split = ngx_strnstr(str->data, "%3a", str->len)) != NULL)) {
-    len = 3;
   }
   else {
     len = 0; //placate dumb GCC warning
@@ -602,7 +599,7 @@ nchan_msg_id_t *nchan_subscriber_get_msg_id(ngx_http_request_t *r) {
     for(i=0; i < n; i++) {
       rc = ngx_http_complex_value_noalloc(r, alt_msgid_cv_arr->cv[i], &str, 128);
       if(str.len > 0 && rc == NGX_OK) {
-        rc2 = nchan_parse_compound_msgid(&id, &str, ctx->channel_id_count);
+        rc2 = nchan_parse_compound_msgid(&id, nchan_urldecode_str(r, &str), ctx->channel_id_count);
         if(rc2 == NGX_OK) {
           return &id;
         }

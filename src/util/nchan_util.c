@@ -419,6 +419,25 @@ ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t inter
   return NGX_OK;
 }
 
+ngx_str_t *nchan_urldecode_str(ngx_http_request_t *r, ngx_str_t *str) {
+  ngx_str_t   *out;
+  u_char      *dst, *src;
+  if(memchr(str->data, '%', str->len) == NULL) {
+    return str;
+  }
+  
+  out = ngx_palloc(r->pool, sizeof(*out) + str->len);
+  out->data = (u_char *)&out[1];
+  
+  dst = out->data;
+  src = str->data;
+  
+  ngx_unescape_uri(&dst, &src, str->len, 0);
+  out->len = dst - out->data;
+  
+  return out;
+}
+
 int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   //naive non-null-terminated string matcher. don't use it in tight loops!
   char   *cur = (char *)str->data;
