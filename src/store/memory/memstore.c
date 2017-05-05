@@ -623,6 +623,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
   if(ch->owner == memstore_slot()) {
     nchan_update_stub_status(channels, -1);
     if(ch->shared)
+      ngx_memzero(ch->shared, sizeof(*ch->shared));
       shm_free(shm, ch->shared);
   }
   
@@ -994,6 +995,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   ngx_int_t                     i, n = 0;
   ngx_str_t                     group_name;
   group_tree_node_t            *groupnode;
+  store_channel_head_shm_t     *shared;
   
   head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   
@@ -1033,17 +1035,23 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   }
   
   if(head->slot == owner) {
-    if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
+    if((head->shared = shm_alloc(shm, sizeof(*head->shared) + channel_id->len, "channel shared data")) == NULL) {
       ngx_free(head);
       nchan_log_ooshm_error("allocating channel %V", channel_id);
       return NULL;
     }
-    head->shared->sub_count = 0;
-    head->shared->internal_sub_count = 0;
-    head->shared->total_message_count = 0;
-    head->shared->stored_message_count = 0;
-    head->shared->last_seen = ngx_time();
-    head->shared->gc.outside_refcount=0;
+    shared = head->shared;
+    shared->sub_count = 0;
+    shared->internal_sub_count = 0;
+    shared->total_message_count = 0;
+    shared->stored_message_count = 0;
+    shared->last_seen = ngx_time();
+    shared->gc.outside_refcount=0;
+    
+    shared->shm_chid.len = channel_id->len;
+    shared->shm_chid.data = (u_char *)&shared[1];
+    ngx_memcpy(shared->shm_chid.data, channel_id->data, channel_id->len);
+    
     nchan_update_stub_status(channels, 1);
   }
   else {
@@ -2695,7 +2703,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   if(memstore_slot() != owner) {
     //check if we need to ask for a message
-    if(memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d) == NGX_DECLINED) {
+    if(memstore_ipc_send_get_message(d->channel_owner, chead && chead->shared ? &chead->shared->shm_chid : d->channel_id, chead && chead->shared ? 1 : 0, &d->msg_id, d) == NGX_DECLINED) {
       subscribe_data_free(d);
       callback(MSG_EXPECTED, NULL, privdata); //this is a lie
       
@@ -3185,7 +3193,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
       callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
       return NGX_ERROR;
     }
-    return memstore_ipc_send_publish_message(owner, &chead->id, publish_msg, cf, callback, privdata);
+    return memstore_ipc_send_publish_message(owner, chead->shared ? &chead->shared->shm_chid : &chead->id, chead->shared ? 1 : 0, publish_msg, cf, callback, privdata);
   }
   
   fill_message_timedata(msg, timeout);

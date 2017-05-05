@@ -18,7 +18,7 @@ typedef struct sub_data_s sub_data_t;
 
 struct sub_data_s {
   subscriber_t                 *sub;
-  ngx_str_t                    *chid;
+  ngx_str_t                    *shm_chid;
   ngx_int_t                     originator;
   ngx_int_t                     owner;
   void                         *foreign_chanhead;
@@ -30,25 +30,25 @@ static ngx_int_t empty_callback(){
 }
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
-  DBG("%p (%V) memstore subsriber enqueued ok", d->sub, d->chid);
+  DBG("%p (%V) memstore subsriber enqueued ok", d->sub, d->shm_chid);
   return NGX_OK;
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   ngx_int_t           ret;
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
-  DBG("%p (%V) memstore subscriber dequeue: notify owner", d->sub, d->chid);
+  DBG("%p (%V) memstore subscriber dequeue: notify owner", d->sub, d->shm_chid);
   if(d->timeout_ev.timer_set) {
     ngx_del_timer(&d->timeout_ev);
   }
-  ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
+  ret = memstore_ipc_send_unsubscribed(d->originator, d->shm_chid, NULL);
   
   if(fsub->sub.reserved > 0) {
-    DBG("%p (%V) not ready to destroy (reserved for %i)", fsub, d->chid, fsub->sub.reserved);
+    DBG("%p (%V) not ready to destroy (reserved for %i)", fsub, d->shm_chid, fsub->sub.reserved);
     fsub->awaiting_destruction = 1;
   }
   else {
-    DBG("%p (%V) destroy", fsub, d->chid);
+    DBG("%p (%V) destroy", fsub, d->shm_chid);
   }
   
   return ret;
@@ -59,11 +59,11 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_msg_t            *msg = (nchan_msg_t *) ptr;
   internal_subscriber_t  *fsub = (internal_subscriber_t  *)d->sub;
   
-  //DBG("%p (%V) memstore subscriber (lastid %V) respond with message %V (lastid %V)", d->sub, d->chid, msgid_to_str(&d->sub->last_msg_id), msgid_to_str(&msg->id), msgid_to_str(&msg->prev_id));
+  //DBG("%p (%V) memstore subscriber (lastid %V) respond with message %V (lastid %V)", d->sub, d->shm_chid, msgid_to_str(&d->sub->last_msg_id), msgid_to_str(&msg->id), msgid_to_str(&msg->prev_id));
   
   //update_subscriber_last_msg_id(d->sub, msg);
   
-  rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, d->sub->cf, empty_callback, NULL);
+  rc = memstore_ipc_send_publish_message(d->originator, d->shm_chid, 1, msg, d->sub->cf, empty_callback, NULL);
   
   //no multi-ids allowed here
   assert(msg->id.tagcount == 1);
@@ -101,7 +101,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
         ERR("unknown status %i", status);
     }
   }
-  return memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
+  return memstore_ipc_send_publish_status(d->originator, d->shm_chid, status, status_line, empty_callback, NULL);
 }
 static void reset_timer(sub_data_t *data) {
   if(data->timeout_ev.timer_set) {
@@ -113,7 +113,7 @@ static void reset_timer(sub_data_t *data) {
 
 static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
   sub_data_t *d = (sub_data_t *)pd;
-  DBG("%p (%V) keepalive reply - renew: %i.", d->sub, d->chid, renew);
+  DBG("%p (%V) keepalive reply - renew: %i.", d->sub, d->shm_chid, renew);
   if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     if(renew) {
       reset_timer(d);
@@ -136,9 +136,9 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #if FAKESHARD
   memstore_fakeprocess_push(d->owner);
 #endif
-  DBG("%p (%V), timeout event. Ping originator to see if still needed.", d->sub, d->chid);
+  DBG("%p (%V), timeout event. Ping originator to see if still needed.", d->sub, d->shm_chid);
   d->sub->fn->reserve(d->sub);
-  memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
+  memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->shm_chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -146,7 +146,7 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 
 static ngx_str_t  sub_name = ngx_string("memstore-ipc");
 
-subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *chid, nchan_loc_conf_t *cf, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
+subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_t *shm_chid, nchan_loc_conf_t *cf, void* foreign_chanhead) { //, nchan_channel_head_t *local_chanhead) {
   static  nchan_msg_id_t      newest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                 *d;
   subscriber_t               *sub;
@@ -157,7 +157,7 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   sub->last_msgid = newest_msgid;
   sub->destroy_after_dequeue = 1;
   d->sub = sub;
-  d->chid = chid;
+  d->shm_chid = shm_chid;
   d->originator = originator_slot;
   assert(foreign_chanhead != NULL);
   d->foreign_chanhead = foreign_chanhead;
@@ -168,6 +168,6 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   nchan_init_timer(&d->timeout_ev, timeout_ev_handler, d);
 
   reset_timer(d);
-  DBG("%p (%V) memstore-ipc subscriber created with privdata %p", d->sub, d->chid, d);
+  DBG("%p (%V) memstore-ipc subscriber created with privdata %p", d->sub, d->shm_chid, d);
   return sub;
 }

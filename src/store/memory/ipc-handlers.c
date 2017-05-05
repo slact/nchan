@@ -156,7 +156,7 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
     d->subscriber = NULL;
   }
   else {
-    ipc_sub = memstore_ipc_subscriber_create(sender, &head->id, d->cf, d->origin_chanhead);
+    ipc_sub = memstore_ipc_subscriber_create(sender, &head->shared->shm_chid, d->cf, d->origin_chanhead);
     d->subscriber = ipc_sub;
     d->shared_channel_data = head->shared;
     d->owner_chanhead = head;
@@ -240,13 +240,9 @@ typedef struct {
   void         *privdata;
 } unsubscribed_data_t;
 
-ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* privdata) {
-  DBG("send unsubscribed to %i %V", dst, chid);
-  unsubscribed_data_t        data = {str_shm_copy(chid), privdata};
-  if(data.shm_chid == NULL) {
-    nchan_log_ooshm_error("sending IPC unsubscribe alert for channel %V", chid);
-    return NGX_DECLINED;
-  }
+ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *shm_chid, void* privdata) {
+  DBG("send unsubscribed to %i %V", dst, shm_chid);
+  unsubscribed_data_t        data = {shm_chid, privdata};
   return ipc_cmd(unsubscribed, dst, &data);
 }
 static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
@@ -274,7 +270,6 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
   else {
     ERR("makes no sense...");
   }
-  str_shm_free(d->shm_chid);
 }
 
 ////////// PUBLISH STATUS ////////////////
@@ -286,13 +281,9 @@ typedef struct {
   void                      *callback_privdata;
 } publish_status_data_t;
 
-ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status_code, const ngx_str_t *status_line, callback_pt callback, void *privdata) {
-  DBG("IPC: send publish status to %i ch %V", dst, chid);
-  publish_status_data_t  data = {str_shm_copy(chid), status_code, status_line, callback, privdata};
-  if(data.shm_chid == NULL) {
-    nchan_log_ooshm_error("sending IPC status alert for channel %V", chid);
-    return NGX_DECLINED;
-  }
+ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *shm_chid, ngx_int_t status_code, const ngx_str_t *status_line, callback_pt callback, void *privdata) {
+  DBG("IPC: send publish status to %i ch %V", dst, shm_chid);
+  publish_status_data_t  data = {shm_chid, status_code, status_line, callback, privdata};
   return ipc_cmd(publish_status, dst, &data);
 }
 
@@ -307,21 +298,18 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
     else {
       ERR("Can't find chanhead for id %V while publishing status %i. This is not a big deal if you just reloaded Nchan.", d->shm_chid, d->status_code);
     }
-    str_shm_free(d->shm_chid);
     return;
   }
   
   DBG("IPC: received publish status for channel %V status %i %s", d->shm_chid, d->status_code, d->status_line == NULL ? &nullstring : d->status_line);
   
   nchan_memstore_publish_generic(chead, NULL, d->status_code, d->status_line);
-  
-  str_shm_free(d->shm_chid);
-  d->shm_chid=NULL;
 }
 
 ////////// PUBLISH  ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
+  int                        must_free_shm_chid;
   nchan_msg_t               *shm_msg;
   nchan_loc_conf_t          *cf;
   callback_pt                callback;
@@ -329,17 +317,24 @@ typedef struct {
   
 } publish_data_t;
 
-ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
+ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, int chid_in_shm, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   publish_data_t    data; 
   DEBUG_MEMZERO(&data);
   
   DBG("IPC: send publish message to %i ch %V", dst, chid);
   assert(shm_msg->storage == NCHAN_MSG_SHARED);
   assert(chid->data != NULL);
-  data.shm_chid = str_shm_copy(chid);
-  if(data.shm_chid == NULL) {
-    nchan_log_ooshm_error("sending IPC publish-message alert for channel %V", chid);
-    return NGX_DECLINED;
+  if(chid_in_shm) {
+    data.shm_chid = chid;
+    data.must_free_shm_chid = 0;
+  }
+  else {
+    data.shm_chid = str_shm_copy(chid);
+    data.must_free_shm_chid = 1;
+    if(data.shm_chid == NULL) {
+      nchan_log_ooshm_error("sending IPC publish-message alert for channel %V", chid);
+      return NGX_DECLINED;
+    }
   }
   data.shm_msg = shm_msg;
   data.cf = cf;
@@ -400,7 +395,9 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
   }
   
   msg_release(d->shm_msg, "publish_message");
-  str_shm_free(d->shm_chid);
+  if(d->must_free_shm_chid) {
+    str_shm_free(d->shm_chid);
+  }
   d->shm_chid=NULL;
 }
 
@@ -468,16 +465,24 @@ union getmsg_u {
 
 typedef struct {
   ngx_str_t              *shm_chid;
+  int                     must_free_shm_chid;
   void                   *privdata;
   union getmsg_u          d;
 } getmessage_data_t;
 
-ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
+ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, int chid_in_shm, nchan_msg_id_t *msgid, void *privdata) {
   getmessage_data_t      data;
   
-  if((data.shm_chid = str_shm_copy(chid)) == NULL) {
-    nchan_log_ooshm_error("sending IPC get-message alert for channel %V", chid);
-    return NGX_DECLINED;
+  if(chid_in_shm) {
+    data.shm_chid = chid;
+    data.must_free_shm_chid = 0;
+  }
+  else {
+    if((data.shm_chid = str_shm_copy(chid)) == NULL) {
+      nchan_log_ooshm_error("sending IPC get-message alert for channel %V", chid);
+      return NGX_DECLINED;
+    }
+    data.must_free_shm_chid = 1;
   }
   data.privdata = privdata;
   data.d.req.msgid = *msgid;
@@ -548,7 +553,9 @@ static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   if(d->d.resp.shm_msg) {
     msg_release(d->d.resp.shm_msg, "get_message_reply");
   }
-  str_shm_free(d->shm_chid);
+  if(d->must_free_shm_chid) {
+    str_shm_free(d->shm_chid);
+  }
 }
 
 
@@ -817,20 +824,17 @@ typedef struct {
   void                        *privdata;
 } sub_keepalive_data_t;
 
-ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, memstore_channel_head_t *ch, callback_pt callback, void *privdata) {
+ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *shm_chid, subscriber_t *sub, memstore_channel_head_t *ch, callback_pt callback, void *privdata) {
   sub_keepalive_data_t        data;
   DEBUG_MEMZERO(&data);
-  if((data.shm_chid = str_shm_copy(chid)) == NULL) {
-    nchan_log_ooshm_error("sending IPC keepalive alert for channel %V", chid);
-    return NGX_DECLINED;
-  }
+  data.shm_chid = shm_chid;
   data.ipc_sub = sub;
   data.originator = ch;
   data.renew = 0;
   data.callback = callback;
   data.privdata = privdata;
   
-  DBG("send SUBSCRIBER KEEPALIVE to %i %V", dst, chid);
+  DBG("send SUBSCRIBER KEEPALIVE to %i %V", dst, shm_chid);
   ipc_cmd(subscriber_keepalive, dst, &data);
   return NGX_OK;
 }
@@ -865,7 +869,6 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
 
 static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_data_t *d) {
   d->callback(d->renew, NULL, d->privdata);
-  str_shm_free(d->shm_chid);
 }
 
 

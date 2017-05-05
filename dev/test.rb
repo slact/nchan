@@ -761,6 +761,45 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
+  #def test_urlencoded_channel_id
+  #  chan_id="#{short_id}_thing"
+  #  pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+  #  sub = Subscriber.new(url("/sub/split/#{URI.encode(chan_id, "_")}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+  #  
+  #  sub.run
+  #  pub.post ["hey what", "okay", "FIN"]
+  #  sub.wait
+  #  
+  #  verify pub, sub
+  #  
+  #end
+  
+  def test_urlencoded_msgid
+    chan_id=short_id
+    pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+    
+    pub.post 'heyo'
+    pub.messages.clear
+    resp = pub.post 'FIN'
+    
+    info = JSON.parse resp.body
+    last_msgid_time = info["last_message_id"].match(/\d+/).to_s
+    
+
+    last_msgid = "#{last_msgid_time}%3A-%2C-%2C%5B0%5D%2C-"
+    
+    sub = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub.run
+    sub.wait
+    
+    sub2 = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{URI.decode last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub2.run
+    sub2.wait
+    
+    verify pub, sub
+    verify pub, sub2
+  end
+  
   def test_invalid_etag
     chan_id=short_id
     pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
