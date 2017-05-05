@@ -27,6 +27,8 @@ ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last);
 char *nchan_conf_set_size_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 ssize_t nchan_parse_size(ngx_str_t *line);
 
+ngx_str_t *nchan_urldecode_str(ngx_http_request_t *r, ngx_str_t *str);
+
 int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz);
 #define nchan_ngx_str_substr(str, substr) \
   nchan_ngx_str_char_substr(str, substr, sizeof(substr)-1)
