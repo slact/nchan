@@ -234,7 +234,8 @@ if [[ -z $NO_MAKE ]]; then
   _build_nginx
   ln -sf "${pkg_path}"/pkg/*/usr/bin/nginx "${MY_PATH}/nginx" > /dev/null
   ln -sf "${MY_PATH}/nginx" "${_src_dir}/nginx" > /dev/null
-  ln -sf "${_src_dir}/nginx-source/" "${pkg_path}/src/nginx/src"  > /dev/null
+  rm "${_src_dir}/nginx-source" >/dev/null
+  ln -sf "${pkg_path}/src/nginx/src" "${_src_dir}/nginx-source" > /dev/null
   
   popd >/dev/null
 fi
