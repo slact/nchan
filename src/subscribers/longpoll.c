@@ -231,30 +231,14 @@ static ngx_int_t longpoll_multipart_add(full_subscriber_t *fsub, nchan_msg_t *ms
     return NGX_ERROR;
   }
   
-  if(msg->shared) {
-    msg_reserve(msg, "longpoll multipart");
-  }
-  else if(msg->id.tagcount > 1) {
-    //msg from a multiplexed channel
-    assert(!msg->shared && !msg->temp_allocd);
-    nchan_msg_copy_t *cmsg;
-    if((cmsg = ngx_palloc(fsub->sub.request->pool, sizeof(*cmsg))) == NULL) {
-      *err = "can't allocate msgcopy for message from multiplexed channel";
+  if(msg->storage != NCHAN_MSG_SHARED) {
+    if((msg = nchan_msg_derive_palloc(msg, fsub->sub.request->pool)) == NULL) {
+      *err = "can't allocate derived msg in request pool";
       return NGX_ERROR;
-      
     }
-    //  multiplexed channel message should have been created as a nchan_msg_copy_t
-    *cmsg = *(nchan_msg_copy_t *)msg;
-    
-    cmsg->copy.temp_allocd = 1;
-    
-    assert(cmsg->original->shared);
-    msg_reserve(cmsg->original, "longpoll multipart for multiplexed channel");
-    msg = &cmsg->copy;
   }
-  else {
-    assert(0); //this is not yet an expected scenario;
-  }
+  msg_reserve(msg, "longpoll multipart");
+  assert(msg->refcount > 0);
   
   mmsg->msg = msg;
   mmsg->next = NULL;
@@ -308,22 +292,8 @@ static ngx_int_t longpoll_respond_message(subscriber_t *self, nchan_msg_t *msg) 
 
 static void multipart_request_cleanup_handler(nchan_longpoll_multimsg_t *first) {
   nchan_longpoll_multimsg_t    *cur;
-  nchan_msg_copy_t             *cmsg;
   for(cur = first; cur != NULL; cur = cur->next) {
-    if(cur->msg->shared) {
-      msg_release(cur->msg, "longpoll multipart");
-    }
-    else if(cur->msg->id.tagcount > 1) {
-      assert(!cur->msg->shared && cur->msg->temp_allocd);
-      // multiplexed channel message should have been created as a nchan_msg_copy_t
-      cmsg = (nchan_msg_copy_t *)cur->msg;
-      
-      assert(cmsg->original->shared);
-      msg_release(cmsg->original, "longpoll multipart for multiplexed channel");
-    }
-    else {
-      assert(0);
-    }
+    msg_release(cur->msg, "longpoll multipart");
   }
 }
 
@@ -502,10 +472,17 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
 
 ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t status_code, const ngx_str_t *status_line) {
   ngx_http_request_t     *r = fsub->sub.request;
+  nchan_loc_conf_t       *cf = fsub->sub.cf;
+  nchan_request_ctx_t    *ctx;
+  
   fsub->data.cln->handler = (ngx_http_cleanup_pt )empty_handler;
   fsub->data.finalize_request = 0;
   fsub->sub.status = DEAD;
   fsub->sub.fn->dequeue(&fsub->sub);
+  if(cf->unsubscribe_request_url || cf->subscribe_request_url) {
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+    ctx->sent_unsubscribe_request = 1;
+  }
   return nchan_respond_status(r, status_code, status_line, 1);
 }
 

@@ -42,7 +42,7 @@ ngx_int_t memstore_groups_init(memstore_groups_t *gp) {
 
 ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) {
   group_tree_node_t *gtn = (group_tree_node_t *)node_data;
-  shmem_t *          shm = nchan_memstore_get_shm();
+  shmem_t *          shm = nchan_store_memory_shmem;
   ngx_int_t          myslot = memstore_slot();
   DBG("shutdown_walker %V group %p", &gtn->name, gtn->group);
   if(memstore_str_owner(&gtn->name) == myslot) {
@@ -89,9 +89,9 @@ static group_tree_node_t *group_owner_create_node(memstore_groups_t *gp, ngx_str
   //ASSUMES group name is owned by current worker, AND node does not yet exist
   group_tree_node_t      *gtn;
   nchan_group_t          *group;
-  group = shm_calloc(nchan_memstore_get_shm(), sizeof(*group) + name->len, "group");
+  group = shm_calloc(nchan_store_memory_shmem, sizeof(*group) + name->len, "group");
   if(group == NULL) {
-    ERR("couldn't alloc shmem for group %V", name);
+    nchan_log_ooshm_error("creating group %V", name);
     return NULL;
   }
   
@@ -102,7 +102,7 @@ static group_tree_node_t *group_owner_create_node(memstore_groups_t *gp, ngx_str
   DBG("created group %p %V", group, &group->name);
   
   if((gtn = group_create_node(gp, name, group)) == NULL) {
-    shm_free(nchan_memstore_get_shm(), group);
+    shm_free(nchan_store_memory_shmem, group);
     return NULL;
   }
   

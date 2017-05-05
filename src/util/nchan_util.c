@@ -1,28 +1,6 @@
 #include <nchan_module.h>
 #include <assert.h>
 
-char *nchan_msgstatus_to_str(nchan_msg_status_t status) {
-  switch(status) {
-    case MSG_CHANNEL_NOTREADY:
-      return "MSG_CHANNEL_NOTREADY";
-    case MSG_NORESPONSE:
-      return "MSG_NORESPONSE";
-    case MSG_INVALID:
-      return "MSG_INVALID";
-    case MSG_PENDING:
-      return "MSG_PENDING";
-    case MSG_NOTFOUND:
-      return "MSG_NOTFOUND";
-    case MSG_FOUND:
-      return "MSG_FOUND";
-    case MSG_EXPECTED:
-      return "MSG_EXPECTED";
-    case MSG_EXPIRED:
-      return "MSG_EXPIRED";
-  }
-  return "???";
-}
-
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
   if(str1->len != str2->len) {
     return 0;
@@ -443,10 +421,9 @@ ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t inter
 
 int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   //naive non-null-terminated string matcher. don't use it in tight loops!
-  char *cur;
-  size_t len = str->len;
-  
-  for(cur = (char *)str->data, len = str->len; len >= sz; cur++, len--) {
+  char   *cur = (char *)str->data;
+  size_t  len;
+  for(len = str->len; len >= sz; cur++, len--) {
     if(strncmp(cur, substr, sz) == 0) {
       return 1;
     }

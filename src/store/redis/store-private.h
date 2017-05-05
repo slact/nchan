@@ -34,6 +34,7 @@ struct rdstore_channel_head_s {
   ngx_int_t                    fetching_message_count;
   ngx_uint_t                   internal_sub_count;
   ngx_event_t                  keepalive_timer;
+  ngx_uint_t                   keepalive_times_sent;
   nchan_msg_id_t               last_msgid;
   
   void                        *redis_subscriber_privdata;

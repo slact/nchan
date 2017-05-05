@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.1.4 (April 25, 2017) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.1.5 (May 3, 2017) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -610,7 +610,7 @@ Nchan can stores messages in memory, on disk, or via Redis. Memory storage is mu
 
 ### Memory Storage
 
-This default storage method uses a segment of shared memory to store messages and channel data. Large messages as determined by Nginx's caching layer are stored on-disk. The size of the memory segment is configured with `nchan_max_reserved_memory`. Data stored here is not persistent, and is lost if Nginx is restarted or reloaded.
+This default storage method uses a segment of shared memory to store messages and channel data. Large messages as determined by Nginx's caching layer are stored on-disk. The size of the memory segment is configured with `nchan_shared_memory_size`. Data stored here is not persistent, and is lost if Nginx is restarted or reloaded.
 
 <!-- tag:memstore -->
 
@@ -693,7 +693,7 @@ There are several ways to see what's happening inside Nchan. These are useful fo
 
 ### Channel Events
 
-Channel events are messages automatically published by Nchan when certain events occur in a channel. These are very useful for debugging the use of channels. However, they carry a significant performance overhead and should be used during development, and not inproduction.
+Channel events are messages automatically published by Nchan when certain events occur in a channel. These are very useful for debugging the use of channels. However, they carry a significant performance overhead and should be used during development, and not in production.
 
 Channel events are published to special 'meta' channels associated with normal channels. Here's how to configure them:
 
@@ -761,19 +761,20 @@ stored messages: 1249
 shared memory used: 1824K
 channels: 80
 subscribers: 90
-redis pending commands: 0f
+redis pending commands: 0
 redis connected servers: 0
 total interprocess alerts received: 1059634
 interprocess alerts in transit: 0
 interprocess queued alerts: 0
 total interprocess send delay: 0
 total interprocess receive delay: 0
+nchan version: 1.1.5
 ```
 
 Here's what each line means, and how to interpret it:
   - `total published messages`: Number of messages published to all channels through this Nchan server.
   - `stored messages`: Number of messages currently buffered in memory
-  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_max_reserved_memory`W.
+  - `shared memory used`: Total shared memory used for buffering messages, storing channel information, and other purposes. This value should be comfortably below `nchan_shared_memory_size`.
   - `channels`: Number of channels present on this Nchan server.
   - `subscribers`: Number of subscribers to all channels on this Nchan server.
   - `redis pending commands`: Number of commands sent to Redis that are awaiting a reply. May spike during high load, especially if the Redis server is overloaded. Should tend towards 0.
@@ -783,6 +784,7 @@ Here's what each line means, and how to interpret it:
   - `interprocess queued alerts`: Number of interprocess communication packets waiting to be sent. May be nonzero during high load, but should always tend toward 0 over time.
   - `total interprocess send delay`: Total amount of time interprocess communication packets spend being queued if delayed. May increase during high load.
   - `total interprocess receive delay`: Total amount of time interprocess communication packets spend in transit if delayed. May increase during high load.
+  - `nchan_version`: current version of Nchan. Available for version 1.1.5 and above.
 
 Additionally, when there is at least one `nchan_stub_status` location, the following Nginx variables are available:
   - `$nchan_stub_status_total_published_messages`  
@@ -986,6 +988,9 @@ Nchan makes several variables usabled in the config file:
 
 - `$nchan_channel_event`
   For channel events, this is the event name. Useful when configuring `nchan_channel_event_string`.
+
+- `$nchan_version`
+  Current Nchan version. Available since 1.1.5.
   
 Additionally, `nchan_stub_status` data is also exposed as variables. These are available only when `nchan_stub_status` is enabled on at least one location:
 
@@ -1143,14 +1148,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
   [more details](#subscriber-presence)  
 
-- **nchan_max_reserved_memory** `<size>`  
-  arguments: 1  
-  default: `32M`  
-  context: http  
-  legacy name: push_max_reserved_memory  
-  > The size of the shared memory chunk this module will use for message queuing and buffering.    
-  [more details](#memory-storage)  
-
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
   default: `10`  
@@ -1208,6 +1205,14 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
   [more details](#connecting-to-a-redis-server)  
+
+- **nchan_shared_memory_size** `<size>`  
+  arguments: 1  
+  default: `128M`  
+  context: http  
+  legacy names: push_max_reserved_memory, nchan_max_reserved_memory  
+  > Shared memory slab pre-allocated for Nchan. Used for channel statistics, message storage, and interprocess communication.    
+  [more details](#memory-storage)  
 
 - **nchan_store_messages** `[ on | off ]`  
   arguments: 1  

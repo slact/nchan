@@ -230,7 +230,11 @@ build() {
   local _build_dir="${_src_dir}/objs"
   cd "$srcdir/${_extracted_dir}"
   
-  sed -i.bak '/SSL_R_NO_CIPHERS_PASSED/d' src/event/ngx_event_openssl.c
+  if [[ -z $USE_OPENRESTY ]]; then
+    sed -i.bak '/n == SSL_R_NO_CIPHERS_PASSED/d' src/event/ngx_event_openssl.c
+  else
+    sed -i.bak '/n == SSL_R_NO_CIPHERS_PASSED/d' build/nginx-*/src/event/ngx_event_openssl.c
+  fi
   
   if [[ -z $CONTINUE ]] && [[ -z $NO_EXTRACT_SOURCE ]]; then
     if [[ $NO_POOL == 1 ]]; then
@@ -303,11 +307,11 @@ build() {
   fi
 
   if [[ -n $WITH_LUA_MODULE ]]; then
-  if [[ $_lua_nginx_module_ver == "master" ]]; then
-    CONFIGURE+=( "--add-module=${srcdir}/lua-nginx-module")
-  else
-    CONFIGURE+=( "--add-module=${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}")
-  fi
+    if [[ $_lua_nginx_module_ver == "master" ]]; then
+      CONFIGURE+=( "--add-module=${srcdir}/lua-nginx-module")
+    else
+      CONFIGURE+=( "--add-module=${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}")
+    fi
     CONFIGURE+=("--add-module=${srcdir}/lua-upstream-nginx-module-${_lua_upstream_nginx_module_ver}")
   fi
 

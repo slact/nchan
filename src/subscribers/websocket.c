@@ -251,6 +251,8 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
 }
 
 static void sudden_abort_handler(subscriber_t *sub) {
+  if(!sub)
+    return; //websocket subscriber already freed
   DBG("sudden abort handler for sub %p request %p", sub, sub->request);
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
@@ -411,6 +413,9 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       bc->buf.last_buf=1;
       
       ws_output_filter(fsub, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&bc->buf)), &bc->chain));
+      break;
+    case NGX_HTTP_INSUFFICIENT_STORAGE:
+      websocket_respond_status(&fsub->sub, NGX_HTTP_INSUFFICIENT_STORAGE, NULL);
       break;
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
@@ -784,6 +789,8 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
 fail: 
   if(fsub) {
+    if(fsub->cln) 
+      fsub->cln->data = NULL;
     ngx_free(fsub);
   }
   ERR("%s", (u_char *)err);
@@ -812,7 +819,9 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     nchan_free_msg_id(&sub->last_msgid);
     //debug 
     DBG("Begone, websocket %p", fsub);
-    ngx_memset(fsub, 0x13, sizeof(*fsub));
+    if(fsub->cln)
+      fsub->cln->data = NULL;
+    //ngx_memset(fsub, 0x13, sizeof(*fsub));
     ngx_free(fsub);
   }
   return NGX_OK;
@@ -1101,13 +1110,20 @@ static void websocket_reading(ngx_http_request_t *r) {
   //ngx_str_t                   msg_in_str;
   int                         close_code;
   ngx_str_t                   close_reason;
+
+  c = r->connection;
+  rev = c->read;
+  
+  if(!fsub) {
+    nchan_http_finalize_request(r, NGX_OK);
+    return;
+  }
   
   set_buffer(&buf, frame->header, frame->last, 8);
 
   //DBG("websocket_reading fsub: %p, frame: %p", fsub, frame);
   
-  c = r->connection;
-  rev = c->read;
+
 
   for (;;) {
     if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
@@ -1582,6 +1598,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   static const ngx_str_t    STATUS_410=ngx_string("410 Channel Deleted");
   static const ngx_str_t    STATUS_403=ngx_string("403 Forbidden");
   static const ngx_str_t    STATUS_500=ngx_string("500 Internal Server Error");
+  static const ngx_str_t    STATUS_507=ngx_string("507 Insufficient Storage");
   static const ngx_str_t    empty=ngx_string("");
   u_char                    msgbuf[50];
   ngx_str_t                 custom_close_msg;
@@ -1615,13 +1632,18 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
       fsub->sub.request->headers_out.status = NGX_HTTP_INTERNAL_SERVER_ERROR;
       close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_500);
       break;
+    case 507: 
+      close_code = CLOSE_INTERNAL_SERVER_ERROR;
+      fsub->sub.request->headers_out.status = NGX_HTTP_INSUFFICIENT_STORAGE;
+      close_msg = (ngx_str_t *)(status_line ? status_line : &STATUS_507);
+      break;
     default:
       if((status_code >= 400 && status_code < 600) || status_code == NGX_HTTP_NOT_MODIFIED) {
         custom_close_msg.data=msgbuf;
         fsub->sub.request->headers_out.status = status_code;
         custom_close_msg.len = ngx_sprintf(msgbuf,"%i %v", status_code, (status_line ? status_line : &empty)) - msgbuf;
         close_msg = &custom_close_msg;
-        close_code = CLOSE_NORMAL;
+        close_code = status_code >=500 && status_code <= 599 ? CLOSE_INTERNAL_SERVER_ERROR : CLOSE_NORMAL;
       }
       else {
         ERR("unhandled code %i, %v", status_code, (status_line ? status_line : &empty));

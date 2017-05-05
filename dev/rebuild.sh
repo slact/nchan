@@ -100,13 +100,13 @@ for opt in $*; do
       export CUSTOM_PREFIX="${opt:7}";;
     openresty)
       export EXPLICIT_CFLAGS=1
-      export WITH_LUA_MODULE=0
+      export WITH_LUA_MODULE=""
       export USE_OPENRESTY=1
       ;;
     openresty=*)
       export OPENRESTY_CUSTOM_VERSION="${opt:10}"
       export EXPLICIT_CFLAGS=1
-      export WITH_LUA_MODULE=0
+      export WITH_LUA_MODULE=""
       export USE_OPENRESTY=1
       ;;
     lua_stream_module)
@@ -211,6 +211,7 @@ if [[ -z $NO_MAKE ]]; then
   fi
   
   if [[ -n $RELEASE ]]; then
+    echo "#define NCHAN_VERSION \"$RELEASE\"" > ${MY_PATH}/../src/nchan_version.h
     ./redocument.rb --release $RELEASE
   else
     ./redocument.rb

@@ -68,17 +68,17 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_generic(store_message_t 
       return NGX_DECLINED;
     }
     
-    if(ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(msg_refcount_invalidate_if_zero(smsg->msg)) {
       return NGX_OK;
     }
     return NGX_DECLINED;
   }
   else {
-    if(! ngx_atomic_cmp_set((ngx_atomic_uint_t *)&smsg->msg->refcount, 0, MSG_REFCOUNT_INVALID)) {
+    if(!msg_refcount_invalidate_if_zero(smsg->msg)) {
       if(smsg->msg->refcount > 0) {
         ERR("force-reaping msg with refcount %d", smsg->msg->refcount);
       }
-      smsg->msg->refcount = MSG_REFCOUNT_INVALID;
+      msg_refcount_invalidate(smsg->msg);
     }
     return NGX_OK;
   }
@@ -277,6 +277,7 @@ static void init_mpt(memstore_data_t *m) {
 }
 
 static shmem_t         *shm = NULL;
+void                   *nchan_store_memory_shmem = NULL;
 static shm_data_t      *shdata = NULL;
 static ipc_t           *ipc = NULL;
 
@@ -316,10 +317,6 @@ int memstore_ready(void) {
   return 0;
 }
 #endif
-
-shmem_t *nchan_memstore_get_shm(void){
-  return shm;
-}
 
 ipc_t *nchan_memstore_get_ipc(void){
   return ipc;
@@ -1037,7 +1034,8 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   
   if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
-      ERR("can't allocate shared memory for (new) chanhead");
+      ngx_free(head);
+      nchan_log_ooshm_error("allocating channel %V", channel_id);
       return NULL;
     }
     head->shared->sub_count = 0;
@@ -1198,8 +1196,7 @@ static ngx_int_t memstore_find_chanhead_with_backup_callback(ngx_int_t rc, void 
   memstore_channel_head_t     *ch = NULL;
   if(chinfo) {
     ch = nchan_memstore_get_chanhead(d->chid, d->cf);
-    assert(ch->owner == ch->slot);
-    d->cb(NGX_OK, ch, d->pd);
+    d->cb(ch ? NGX_OK : NGX_ERROR, ch, d->pd);
   }
   else {
     d->cb(NGX_OK, NULL, d->pd);
@@ -1377,9 +1374,10 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size(msg->buf), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
 #endif
     
-    if(msg->temp_allocd) {
-      ngx_free(msg);
-    }
+    //wait what?...
+    //if(msg->temp_allocd) {
+    //  ngx_free(msg);
+    //}
   }
   else {
     DBG("tried publishing status %i to chanhead %p (subs: %i)", status_code, head, head->total_sub_count);
@@ -1434,11 +1432,10 @@ static ngx_int_t delete_multi_callback_handler(ngx_int_t code, nchan_channel_t* 
   return NGX_OK;
 }
 
-static ngx_int_t nchan_memstore_force_delete_chanhead(memstore_channel_head_t *ch, callback_pt callback, void *privdata);
-
 static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   ngx_int_t                owner;
-
+  ngx_int_t                rc;
+  
   assert(!nchan_channel_id_is_multi(channel_id));
   owner = memstore_channel_owner(channel_id);
   
@@ -1455,7 +1452,14 @@ static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nch
     return nchan_memstore_force_delete_channel(channel_id, callback, privdata);
   }
   else {
-    return memstore_ipc_send_delete(owner, channel_id, callback, privdata);
+    rc = memstore_ipc_send_delete(owner, channel_id, callback, privdata);
+    if(rc == NGX_DECLINED) {
+      callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
+      return NGX_ERROR;
+    }
+    else {
+      return NGX_OK;
+    }
   }
 }
 
@@ -1563,7 +1567,9 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
     
   }
   else {
-    memstore_ipc_send_get_channel_info(owner, channel_id, cf, callback, privdata);
+    if(memstore_ipc_send_get_channel_info(owner, channel_id, cf, callback, privdata) == NGX_DECLINED) {
+      callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
+    }
   }
   return NGX_OK;
 }
@@ -1667,6 +1673,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   redis_fakesub_timer_interval = conf->redis_fakesub_timer_interval;
   
   shm = shm_create(&name, cf, conf->shm_size, initialize_shm, &ngx_nchan_module);
+  nchan_store_memory_shmem = shm;
   return NGX_OK;
 }
 
@@ -1795,7 +1802,7 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   ngx_buf_t         *buf = &msg->buf;
   ngx_file_t        *f = buf->file;
   
-  assert(msg->refcount == MSG_REFCOUNT_INVALID);
+  assert(!msg_refcount_valid(msg));
   
   if(f != NULL) {
     if(f->fd != NGX_INVALID_FILE) {
@@ -2066,16 +2073,20 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
     sub->fn->reserve(sub);
     d->reserved = 1;
     if(memstore_slot() != owner) {
-      memstore_ipc_send_channel_existence_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
+      ngx_int_t rc;
+      rc = memstore_ipc_send_channel_existence_check(owner, channel_id, sub->cf, (callback_pt )nchan_store_subscribe_channel_existence_check_callback, d);
+      if(rc == NGX_DECLINED) { // out of memory
+        nchan_store_subscribe_channel_existence_check_callback(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+        return NGX_ERROR;
+      }
     }
     else {
-      nchan_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
+      return nchan_store_subscribe_continued(SUB_CHANNEL_NOTSURE, NULL, d);
     }
   }
   else {
-    nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+    return nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
   }
-  
   return NGX_OK;
 }
 
@@ -2175,20 +2186,21 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
   return NGX_OK;
 }
 
-static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t *shm_group, subscribe_data_t *d) {
+static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t _, nchan_group_t *shm_group, subscribe_data_t *d) {
+  ngx_int_t    rc = NGX_OK;
   DBG("group subscribe limit check");
   if(d->sub->status != DEAD) {
     if(shm_group) {
       if(!shm_group->limit.channels || (shm_group->channels < shm_group->limit.channels)) {
         d->group_channel_limit_pass = 1;
-        nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
+        rc = nchan_store_subscribe_continued(SUB_CHANNEL_AUTHORIZED, NULL, d);
       }
       else if (shm_group->limit.channels && shm_group->channels == shm_group->limit.channels){
         //no new channels!
-        nchan_store_find_channel(d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
+        rc = nchan_store_find_channel(d->channel_id, d->sub->cf, (callback_pt )group_subscribe_channel_limit_reached, d);
       }
       else {
-        nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
+        rc = nchan_store_subscribe_continued(SUB_CHANNEL_UNAUTHORIZED, NULL, d);
       }
       
     }
@@ -2198,18 +2210,19 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t rc, nchan_group_t
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
       if(d->reserved)  d->sub->fn->release(d->sub, 0);
       subscribe_data_free(d);
+      rc = NGX_ERROR;
     }
-    return NGX_OK;
   }
   else {
     if(d->reserved)  d->sub->fn->release(d->sub, 0);
     subscribe_data_free(d);
   }
-  return NGX_OK;
+  return rc;
 }
 
 static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void* _, subscribe_data_t *d) {
   memstore_channel_head_t       *chanhead = NULL;
+  int                            retry_null_chanhead = 1;
   //store_message_t             *chmsg;
   //nchan_msg_status_t           findmsg_status;
   ngx_int_t                      check_redis = d->sub->cf->redis.enabled; // for BACKUP and DISTRIBUTED mode
@@ -2223,7 +2236,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       d->reserved = 0;
     }
     subscribe_data_free(d);
-    return NGX_OK;
+    return rc;
   }
   
   ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
@@ -2236,6 +2249,8 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         if(d->group_channel_limit_pass || d->channel_exists) {
           //already checked, or no need to check
           chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
+          retry_null_chanhead = 0;
+          if(!chanhead) rc = NGX_ERROR;
         }
         else if((chanhead = nchan_memstore_find_chanhead(d->channel_id)) != NULL) {
           //well, the channel exists already, so using it won't exceed the limit
@@ -2253,6 +2268,8 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       }
       else {
         chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
+        if(!chanhead) rc = NGX_ERROR;
+        retry_null_chanhead = 0;
       }
       break;
     
@@ -2270,7 +2287,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
           }
         }
         nchan_store_redis.find_channel(d->channel_id, cf, redis_subscribe_channel_existence_callback, d);
-        return NGX_OK;
+        return rc;
       }
       else {
         chanhead = nchan_memstore_find_chanhead(d->channel_id);
@@ -2295,16 +2312,13 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     d->sub = NULL; //debug
     //d->cb(NGX_HTTP_NOT_FOUND, NULL, d->cb_privdata);
     subscribe_data_free(d);
-    return NGX_OK;
+    return rc;
   }
-  else if(!chanhead) {
+  else if(!chanhead && retry_null_chanhead) {
     chanhead = nchan_memstore_get_chanhead(d->channel_id, cf);
   }
   
   if(!chanhead) { //nchan_memstore_get_chanhead could fail when out of shared memory
-      //this response does something funny (i.e. crashy) to the finalize_request function
-      //no response for now, but TODO: get this right
-      //d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
       rc = NGX_ERROR;
   }
   
@@ -2338,6 +2352,10 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     else {
       chanhead->spooler.fn->add(&chanhead->spooler, d->sub);
     }
+  }
+  else {
+    //out-of-memory condition
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_INSUFFICIENT_STORAGE, NULL);
   }
 
   subscribe_data_free(d);
@@ -2395,11 +2413,22 @@ static void retry_get_multi_message_after_MSG_NORESPONSE(void *pd) {
   nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
 }
 
+static ngx_int_t nchan_store_async_get_multi_message_callback_cleanup(get_multi_message_data_t *d) {
+  if(d->getting == 0) {
+    nchan_free_msg_id(&d->wanted_msgid);
+    if(d->timer.timer_set) {
+      ngx_del_timer(&d->timer);
+    }
+    ngx_free(d);
+  }
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   //ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
-  nchan_msg_copy_t            retmsg;
+  nchan_msg_t                 retmsg;
   
   /*
   switch(status) {
@@ -2413,7 +2442,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
   if(d->expired) {
     ERR("multimsg callback #%i for %p received after expiring at %ui status %i msg %p", d->n, d, d->expired, status, msg);
     d->getting--;
-    goto cleanup;
+    return nchan_store_async_get_multi_message_callback_cleanup(d);
   }
   
   if(status == MSG_NORESPONSE) {
@@ -2461,40 +2490,38 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     memstore_chanhead_release(d->chanhead, "multimsg");
     if(d->msg) {
       int16_t      *muhtags;
-      
       ngx_int_t     n = d->n;
-      retmsg.copy = *d->msg;
-      retmsg.copy.shared = 0;
-      retmsg.copy.temp_allocd = 0;
-      retmsg.original = d->msg;
       
-      nchan_copy_msg_id(&retmsg.copy.prev_id, &d->wanted_msgid, multi_prevlargetag);
+      assert(d->msg->id.tagcount == 1);
+      
+      nchan_msg_derive_stack(d->msg, &retmsg, NULL);
+      
+      nchan_copy_msg_id(&retmsg.prev_id, &d->wanted_msgid, multi_prevlargetag);
       
       //TODO: some kind of missed-message check maybe?
       
       if (d->wanted_msgid.time != d->msg->id.time) {
-        nchan_copy_msg_id(&retmsg.copy.id, &d->msg->id, multi_largetag);
+        nchan_copy_msg_id(&retmsg.id, &d->msg->id, NULL);
         
         if(d->multi_count > NCHAN_FIXED_MULTITAG_MAX) {
-          retmsg.copy.id.tag.allocd = multi_largetag;
-          assert(d->msg->id.tagcount == 1);
-          retmsg.copy.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
+          retmsg.id.tag.allocd = multi_largetag;
+          retmsg.id.tag.allocd[0] = d->msg->id.tag.fixed[0];
         }
-        retmsg.copy.id.tagcount = d->multi_count;
-        nchan_expand_msg_id_multi_tag(&retmsg.copy.id, 0, n, -1);
+        retmsg.id.tagcount = d->multi_count;
+        nchan_expand_msg_id_multi_tag(&retmsg.id, 0, n, -1);
       }
       else {
-        nchan_copy_msg_id(&retmsg.copy.id, &d->wanted_msgid, multi_largetag); 
+        nchan_copy_msg_id(&retmsg.id, &d->wanted_msgid, multi_largetag); 
       }
       
-      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.copy.id.tag.allocd : retmsg.copy.id.tag.fixed;
+      muhtags = (d->multi_count > NCHAN_FIXED_MULTITAG_MAX) ? retmsg.id.tag.allocd : retmsg.id.tag.fixed;
       muhtags[n] = d->msg->id.tag.fixed[0];
       
-      retmsg.copy.id.tagactive = n;
+      retmsg.id.tagactive = n;
       
       //DBG("respond msg id transformed into %p %V", &retmsg.copy, msgid_to_str(&retmsg.copy.id));
       
-      d->cb(d->msg_status, &retmsg.copy, d->privdata);
+      d->cb(d->msg_status, &retmsg, d->privdata);
       
       msg_release(d->msg, "get multi msg");
     }
@@ -2503,15 +2530,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     }
   }
 
-cleanup:
-  if(d->getting == 0) {
-    nchan_free_msg_id(&d->wanted_msgid);
-    if(d->timer.timer_set) {
-      ngx_del_timer(&d->timer);
-    }
-    ngx_free(d);
-  }
-  return NGX_OK;
+  return nchan_store_async_get_multi_message_callback_cleanup(d);
 }
 
 static void get_multimsg_timeout(ngx_event_t *ev) {
@@ -2541,8 +2560,12 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   
   ngx_memzero(req_msgid, sizeof(req_msgid));
   
-  chead = nchan_memstore_get_chanhead(chid, &default_multiconf);
-  assert(chead);
+  if((chead = nchan_memstore_get_chanhead(chid, &default_multiconf)) == NULL) {
+    //probably out of memory
+    callback(MSG_EXPECTED, NULL, privdata); // this is a lie.
+    return NGX_ERROR;
+  }
+  
   n = chead->multi_count;
   
   multi = chead->multi;
@@ -2672,7 +2695,16 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   if(memstore_slot() != owner) {
     //check if we need to ask for a message
-    memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d);
+    if(memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d) == NGX_DECLINED) {
+      subscribe_data_free(d);
+      callback(MSG_EXPECTED, NULL, privdata); //this is a lie
+      
+      //this is very crashy for some reason. //TODO: figure out why and deliver status to subscribers
+      //if(chead) {
+      //  nchan_memstore_publish_generic(chead, NULL, NGX_HTTP_INSUFFICIENT_STORAGE, NULL);
+      //}
+      return NGX_ERROR;
+    }
   }
   else {
     chmsg = chanhead_find_next_message(d->chanhead, &d->msg_id, &findmsg_status);
@@ -2797,7 +2829,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   mbuf = &m->buf;
     
   if((msg = shm_alloc(shm, memsize, "message")) == NULL) {
-    ERR("can't allocate 'shared' memory for msg for channel id");
+    nchan_log_ooshm_error("allocating message of size %i", memsize);
     return NULL;
   }
   buf = &msg->buf;
@@ -2861,8 +2893,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     buf->end = buf->last;
   }
   
-  msg->shared = 1;
-  msg->temp_allocd = 0;
+  msg->storage = NCHAN_MSG_SHARED;
   
 #if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
@@ -2878,70 +2909,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   assert(ngx_memcmp(((u_char *)msg) + memsize + 1, "end", 4) == 0);
 #endif
   return msg;
-}
-
-ngx_int_t msg_reserve(nchan_msg_t *msg, char *lbl) {
-  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, 1);
-  assert(msg->refcount >= 0);
-  if(msg->refcount < 0) {
-    msg->refcount = MSG_REFCOUNT_INVALID;
-    return NGX_ERROR;
-  }
-#if NCHAN_MSG_RESERVE_DEBUG  
-  msg_rsv_dbg_t     *rsv;
-  shmtx_lock(shm);
-  rsv=shm_locked_calloc(shm, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
-  rsv->lbl = (char *)(&rsv[1]);
-  ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));
-  if(msg->rsv == NULL) {
-    msg->rsv = rsv;
-    rsv->prev = NULL;
-    rsv->next = NULL;
-  }
-  else {
-    msg->rsv->prev = rsv;
-    rsv->next = msg->rsv;
-    rsv->prev = NULL;
-    msg->rsv = rsv;
-  }
-  shmtx_unlock(shm);
-#endif
-  //DBG("msg %p reserved (%i) %s", msg, msg->refcount, lbl);
-  return NGX_OK;
-}
-
-ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
-#if NCHAN_MSG_RESERVE_DEBUG
-  msg_rsv_dbg_t     *cur, *prev, *next;
-  size_t             sz = ngx_strlen(lbl);
-  ngx_int_t          rsv_found=0;
-  shmtx_lock(shm);
-  assert(msg->refcount > 0);
-  for(cur = msg->rsv; cur != NULL; cur = cur->next) {
-    if(ngx_memcmp(lbl, cur->lbl, sz) == 0) {
-      prev = cur->prev;
-      next = cur->next;
-      if(prev) {
-        prev->next = next;
-      }
-      if(next) {
-        next->prev = prev;
-      }
-      if(cur == msg->rsv) {
-        msg->rsv = next;
-      }
-      shm_locked_free(shm, cur);
-      rsv_found = 1;
-      break;
-    }
-  }
-  assert(rsv_found);
-  shmtx_unlock(shm);
-#endif
-  assert(msg->refcount > 0);
-  ngx_atomic_fetch_add((ngx_atomic_uint_t *)&msg->refcount, -1);
-  //DBG("msg %p released (%i) %s", msg, msg->refcount, lbl);
-  return NGX_OK;
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm) {
@@ -3077,7 +3044,10 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
   }
   
   if(ok) {
-    nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
+    ngx_int_t pub_rc = nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
+    if(pub_rc == NGX_DECLINED) { //out of memory probably
+      d->cb(NGX_HTTP_INSUFFICIENT_STORAGE, err, d->pd);
+    }
   }
   else {
     nchan_log_warning("%s (group %V)", err, &d->groupname);
@@ -3117,8 +3087,10 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 }
 
 static void fill_message_timedata(nchan_msg_t *msg, time_t timeout) {
-  //this coould be dangerous!!
   if(msg->id.time == 0) {
+    // cached time is okay to use here, because this is the channel owner.
+    // even if it's a second behind, so will the previous messages. 
+    // monotonicity is still preserved.
     msg->id.time = ngx_time();
   }
   if(msg->expires == 0) {
@@ -3148,7 +3120,7 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
   }
   
   if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
-    ERR("can't get chanhead for id %V", channel_id);
+    //ERR("can't get chanhead for id %V", channel_id);
     //we probably just ran out of shared memory
     callback(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, privdata);
     return NGX_ERROR;
@@ -3158,10 +3130,11 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
 }
 
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  
+  ngx_int_t   rc;
   if(nchan_channel_id_is_multi(channel_id)) {
     ngx_int_t             i, n = 0;
     ngx_str_t             ids[NCHAN_MULTITAG_MAX];
+    ngx_int_t             trc=NGX_OK;
     publish_multi_data_t *pd;
     if((pd = ngx_alloc(sizeof(*pd), ngx_cycle->log)) == NULL) {
       ERR("can't allocate publish multi chanhead data");
@@ -3177,9 +3150,12 @@ ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t
     ngx_memzero(&pd->ch, sizeof(pd->ch));
     
     for(i=0; i<n; i++) {
-      nchan_store_publish_message_to_single_channel_id(&ids[i], msg, msg_in_shm, cf, publish_multi_callback, pd);
+      rc = nchan_store_publish_message_to_single_channel_id(&ids[i], msg, msg_in_shm, cf, publish_multi_callback, pd);
+      if(rc != NGX_OK) {
+        trc = rc;
+      }
     }
-    return NGX_OK;
+    return trc;
   }
   else {
     return nchan_store_publish_message_to_single_channel_id(channel_id, msg, msg_in_shm, cf, callback, privdata);
@@ -3202,8 +3178,6 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
 
   assert(msg->id.tagcount == 1);
   
-  fill_message_timedata(msg, timeout);
-  
   assert(!cf->redis.enabled || cf->redis.storage_mode == REDIS_MODE_BACKUP);
   
   if(memstore_slot() != owner) {
@@ -3214,6 +3188,8 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
     return memstore_ipc_send_publish_message(owner, &chead->id, publish_msg, cf, callback, privdata);
   }
   
+  fill_message_timedata(msg, timeout);
+  
   chan_expire = ngx_time() + timeout;
   chead->channel.expires = chan_expire > msg->expires + 5 ? chan_expire : msg->expires + 5;
   if( chan_expire > chead->channel.expires) {
@@ -3222,6 +3198,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   sub_count = chead->shared->sub_count;
   
   chead->max_messages = nchan_loc_conf_max_messages(cf);
+  
   
   if(chead->latest_msgid.time > msg->id.time) {
     if(cf->redis.enabled) {

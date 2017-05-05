@@ -1176,7 +1176,7 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool) {
 
 static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   rbtree_seed_t         *seed = &spool->spooler->spoolseed;
-  spooled_subscriber_t  *ssub;
+  spooled_subscriber_t  *ssub, *ssub_next;
   subscriber_t          *sub;
   ngx_rbtree_node_t     *node = rbtree_node_from_data(spool);
   
@@ -1184,8 +1184,9 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   
   DBG("destroy spool node %p", node);
   
-  for(ssub = spool->first; ssub!=NULL; ssub=ssub->next) {
+  for(ssub = spool->first; ssub!=NULL; ssub = ssub_next) {
     sub = ssub->sub;
+    ssub_next = ssub->next;
     //DBG("dequeue sub %p in spool %p", sub, spool);
     sub->fn->dequeue(sub);
   }

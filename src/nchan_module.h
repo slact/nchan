@@ -13,7 +13,7 @@
 //#define ONE_FAKE_CHANNEL_OWNER 2
 #define MAX_FAKE_WORKERS 5
 #endif
-
+#include <nchan_version.h>
 #include <ngx_http.h>
 
 //building for old versions
@@ -31,7 +31,7 @@
 #include <util/nchan_util.h>
 #include <util/nchan_channel_id.h>
 #include <util/nchan_output_info.h>
-#include <util/nchan_msgid.h>
+#include <util/nchan_msg.h>
 #include <util/nchan_output.h>
 #include <util/nchan_debug.h>
 
@@ -63,6 +63,8 @@ int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct tim
 #define nchan_log_notice(fmt, args...)  ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_warning(fmt, args...) ngx_log_error(NGX_LOG_WARN,   ngx_cycle->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: " fmt, ##args)
+#define nchan_log_ooshm_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: Out of shared memory while " fmt ". Increase nchan_max_reserved_memory.", ##args)
+
 #define nchan_log_request_warning(request, fmt, args...) ngx_log_error(NGX_LOG_WARN, (request)->connection->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_request_error(request, fmt, args...)    ngx_log_error(NGX_LOG_ERR, (request)->connection->log, 0, "nchan: " fmt, ##args)
 

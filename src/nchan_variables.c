@@ -171,6 +171,11 @@ static ngx_int_t nchan_stub_status_shared_memory_used(ngx_http_request_t *r, ngx
   return NGX_OK;
 }
 
+static ngx_int_t nchan_version_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t d) {
+  set_varval(v, (u_char *)NCHAN_VERSION, strlen(NCHAN_VERSION));
+  return NGX_OK;
+}
+
 
 
 #define STUB_STATUS_VARIABLE(counter) \
@@ -205,6 +210,7 @@ nchan_variable_t nchan_vars[] = {
   STUB_STATUS_NAMED_VARIABLE("ipc_queued_alerts", ipc_queue_size),
   STUB_STATUS_NAMED_VARIABLE("total_ipc_send_delay", ipc_total_send_delay),
   STUB_STATUS_NAMED_VARIABLE("total_ipc_receive_delay", ipc_total_receive_delay),
+  { ngx_string("nchan_version"), nchan_version_variable, 0},
   
 //  { ngx_string("nchan_message_alert_type"), nchan_message_alert_type_variable, 0},
   

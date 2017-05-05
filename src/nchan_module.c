@@ -55,8 +55,6 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   static ngx_str_t evt_chan_publish= ngx_string("channel_publish");
   static ngx_str_t evt_chan_delete = ngx_string("channel_delete");
 
-  struct timeval             tv;
-  
   nchan_loc_conf_t          *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_http_complex_value_t  *cv = cf->channel_events_channel_id;
   if(cv==NULL) {
@@ -123,8 +121,9 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   msg.buf.start = msg.buf.pos;
   msg.buf.end = msg.buf.last;
   
-  ngx_gettimeofday(&tv);
-  msg.id.time = tv.tv_sec;
+  msg.id.time = 0;
+  msg.id.tag.fixed[0] = 0;
+  msg.id.tagactive = 0;
   msg.id.tagcount = 1;
   
   if(evcf == NULL) {
@@ -244,7 +243,8 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
                       "interprocess alerts in transit: %ui\n"
                       "interprocess queued alerts: %ui\n"
                       "total interprocess send delay: %ui\n"
-                      "total interprocess receive delay: %ui\n";
+                      "total interprocess receive delay: %ui\n"
+                      "nchan version: %s\n";
   
   if ((b = ngx_pcalloc(r->pool, sizeof(*b) + 800)) == NULL) {
     nchan_log_request_error(r, "Failed to allocate response buffer for nchan_stub_status.");
@@ -258,7 +258,7 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   b->start = (u_char *)&b[1];
   b->pos = b->start;
   
-  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, shmem_used, stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, stats->ipc_total_alerts_received, stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay);
+  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, shmem_used, stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, stats->ipc_total_alerts_received, stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay, NCHAN_VERSION);
   b->last = b->end;
 
   b->memory = 1;
@@ -656,7 +656,12 @@ static ngx_int_t channel_info_callback(ngx_int_t status, void *rptr, void *pd) {
   if(r == NULL) {
     return NGX_ERROR;
   }
-  nchan_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
+  if(status>=500 && status <= 599) {
+    nchan_http_finalize_request(r, status);
+  }
+  else {
+    nchan_http_finalize_request(r, nchan_response_channel_ptr_info( (nchan_channel_t *)rptr, r, 0));
+  }
   return NGX_OK;
 }
 
@@ -736,12 +741,14 @@ static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr
       return NGX_OK;
       
     case NGX_ERROR:
+      status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+    case NGX_HTTP_INSUFFICIENT_STORAGE:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
       //WTF?
       nchan_log_request_error(r, "error publishing message");
       ctx->prev_msg_id = empty_msgid;
       ctx->msg_id = empty_msgid;
-      nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      nchan_http_finalize_request(r, status);
       return NGX_ERROR;
       
     case NGX_HTTP_FORBIDDEN:
@@ -767,7 +774,6 @@ static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr
 
 static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *content_type, size_t content_length, ngx_chain_t *request_body_chain, ngx_str_t *channel_id, nchan_loc_conf_t *cf) {
   ngx_buf_t                      *buf;
-  struct timeval                  tv;
   nchan_msg_t                    *msg;
   ngx_str_t                      *eventsource_event;
   
@@ -781,7 +787,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
     nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
     return; 
   }
-  msg->shared = 0;
+  msg->storage = NCHAN_MSG_POOL;
   
   
   if(cf->eventsource_event.len > 0) {
@@ -808,8 +814,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
     return;
   }
   
-  ngx_gettimeofday(&tv);
-  msg->id.time = tv.tv_sec;
+  msg->id.time = 0;
   msg->id.tag.fixed[0] = 0;
   msg->id.tagactive = 0;
   msg->id.tagcount = 1;
