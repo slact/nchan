@@ -112,7 +112,6 @@ struct nchan_reloading_channel_s {
 
 typedef struct {
   nchan_reloading_channel_t         *rlch;
-  ngx_atomic_int_t                   procslot[NGX_MAX_PROCESSES];
   ngx_atomic_int_t                   max_workers;
   ngx_atomic_int_t                   old_max_workers;
   ngx_atomic_int_t                   total_active_workers;

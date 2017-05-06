@@ -234,7 +234,9 @@ ngx_int_t memstore_group_receive(memstore_groups_t *gp, nchan_group_t *shm_group
   ngx_rbtree_node_t      *node;
   group_tree_node_t      *gtn = NULL;
   
-  assert(memstore_str_owner(&shm_group->name) != memstore_slot());
+  if(memstore_str_owner(&shm_group->name) == memstore_slot()) {
+    return NGX_OK; //ignore self-broadcast
+  }
   
   DBG("memstore group receive %V", &shm_group->name);
   
