@@ -1130,6 +1130,8 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   
   msg.expires = 0;
   msg.refcount = 0;
+  msg.parent = NULL;
+  msg.storage = NCHAN_MSG_STACK;
 
   if(reply == NULL) return;
   

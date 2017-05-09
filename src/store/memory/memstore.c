@@ -2897,6 +2897,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   }
   
   msg->storage = NCHAN_MSG_SHARED;
+  msg->parent = NULL;
   
 #if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
