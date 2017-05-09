@@ -1,3 +1,6 @@
+1.1.6 (May 9 2017)
+ fix: messages published through Redis may crash worker (introduced in 1.1.5)
+ fix (security): urlencoded message id in url parsed incorrectly can result in worker crash
 1.1.5 (May 3 2017)
  feature: get current Nchan version through $nchan_version variable 
       and nchan_stub_status
