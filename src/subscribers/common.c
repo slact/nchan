@@ -14,10 +14,11 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:COMMON:" fmt, ##arg)
 
 typedef struct {
-  subscriber_t    *sub;
-  ngx_str_t       *ch_id;
-  ngx_int_t        rc;
-  ngx_int_t        http_response_code;
+  subscriber_t       *sub;
+  ngx_str_t          *ch_id;
+  ngx_int_t           rc;
+  ngx_int_t           http_response_code;
+  ngx_http_cleanup_t *timer_cleanup;
 } nchan_subrequest_data_t;
 
 
@@ -151,6 +152,8 @@ static ngx_int_t generic_subscriber_subrequest_old(subscriber_t *sub, ngx_http_c
 static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
   nchan_subrequest_data_t *d = ev->data;
   
+  d->timer_cleanup->data = NULL;
+  
   d->sub->fn->release(d->sub, 1);
   
   if(d->rc == NGX_OK) {
@@ -169,6 +172,12 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
 
 }
 
+static void subscriber_authorize_timer_callback_cleanup(ngx_event_t *timer) {
+  if(timer) {
+    ngx_del_timer(timer);
+  }
+}
+
 static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_subrequest_data_t       *d = data;
   ngx_event_t                   *timer;
@@ -179,14 +188,25 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
     //subscriber's sudden_abort_handler is called
   }
   else {
+    ngx_http_cleanup_t           *cln = ngx_http_cleanup_add(r, 0);
+    if(!cln) {
+      return NGX_ERROR;
+    }
+    
+    assert(d->sub->status != DEAD);
     d->rc = rc;
     d->http_response_code = r->headers_out.status;
+    d->timer_cleanup = cln;
+    
     if((timer = ngx_pcalloc(r->pool, sizeof(*timer))) == NULL) {
       return NGX_ERROR;
     }
     timer->handler = subscriber_authorize_timer_callback_handler;
     timer->log = d->sub->request->connection->log;
     timer->data = data;
+    
+    cln->data = timer;
+    cln->handler = (ngx_http_cleanup_pt )subscriber_authorize_timer_callback_cleanup;
     
     ngx_add_timer(timer, 0); //not sure if this needs to be done like this, but i'm just playing it safe here.
   }
