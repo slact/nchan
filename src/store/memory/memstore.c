@@ -2889,6 +2889,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   }
   
   msg->storage = NCHAN_MSG_SHARED;
+  msg->parent = NULL;
   
 #if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
@@ -3106,7 +3107,6 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
     fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
     
     if(cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
-      nchan_update_stub_status(messages, 1);
       return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
     }
     else { //BACKUP mode

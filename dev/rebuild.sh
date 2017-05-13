@@ -63,6 +63,8 @@ for opt in $*; do
       optimize_level=2;;
     O3)
       optimize_level=3;;
+    Og)
+      optimize_level=g;;
     mudflap)
       export MUDFLAP=1
       export CC=gcc
