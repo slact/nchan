@@ -218,7 +218,7 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 
 static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
   ERR("abort! %s", errmsg ? errmsg : "unknown error");
-  dequeue_maybe(sub);
+  sub->fn->dequeue(sub);
   return NGX_ERROR;
 }
 
@@ -422,10 +422,8 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);
   nchan_include_access_control_if_needed(r, ctx);
   ngx_http_send_header(r);
-  nchan_output_filter(r, first_chain);
-  
-  
-  return NGX_OK;
+  rc = nchan_output_filter(r, first_chain);
+  return rc;
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {

@@ -533,7 +533,7 @@ ngx_int_t nchan_respond_msg(ngx_http_request_t *r, nchan_msg_t *msg, nchan_msg_i
   
   if(rchain) {
     rc= nchan_output_filter(r, rchain);
-    if(err) *err="failed to write data to connection socket, probably because the connection got closed";
+    if(rc != NGX_OK && err) *err="failed to write data to connection socket, probably because the connection got closed";
   }
   
   if(finalize) {
