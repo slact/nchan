@@ -421,9 +421,14 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   r->headers_out.content_length_n = size;
   nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);
   nchan_include_access_control_if_needed(r, ctx);
-  ngx_http_send_header(r);
-  rc = nchan_output_filter(r, first_chain);
-  return rc;
+  if(ngx_http_send_header(r) != NGX_OK) {
+    return abort_response(&fsub->sub, "failed to send headers to longpoll-multipart subscriber");
+  }
+  if(nchan_output_filter(r, first_chain) != NGX_OK) {
+    return abort_response(&fsub->sub, "failed to send body to longpoll-multipart subscriber");
+  }
+  
+  return NGX_OK;
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
@@ -442,8 +447,12 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   else if(status_code == NGX_HTTP_NO_CONTENT || (status_code == NGX_HTTP_NOT_MODIFIED && !status_line)) {
     if(cf->longpoll_multimsg) {
       if(fsub->data.multimsg_first != NULL) {
-        longpoll_multipart_respond(fsub);
-        dequeue_maybe(self);
+        if(longpoll_multipart_respond(fsub) == NGX_OK) {
+          dequeue_maybe(self);
+        }
+        else {
+          DBG("%p should have been dequeued through abort_response");
+        }
       }
       return NGX_OK;
     }
