@@ -1372,7 +1372,7 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     
     assert(diff.tv_sec < 10);
     
-    ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size(msg->buf), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
+    ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size((&msg->buf)), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
 #endif
     
     //wait what?...
