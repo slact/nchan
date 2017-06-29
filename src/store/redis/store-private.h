@@ -153,6 +153,14 @@ struct rdstore_data_s {
   nchan_reaper_t                   chanhead_reaper;
   
   redis_connection_status_t        status;
+  struct {
+    unsigned                         connection_established:1;
+    unsigned                         authenticated:1;
+    unsigned                         not_loading_data:1;
+    unsigned                         loaded_scripts:1;
+    unsigned                         cluster_checked:1;
+  }                                detailed_status;
+  
   int                              scripts_loaded_count;
   int                              generation;
   ngx_event_t                      reconnect_timer;
@@ -193,6 +201,10 @@ void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_d
 nchan_reaper_t *rdstore_get_chanhead_reaper(rdstore_channel_head_t *ch);
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch);
 
+void __rdt_process_detailed_status(rdstore_data_t *rdata);
+#define rdata_set_status_flag(rdata, flag, val) \
+  rdata->detailed_status.flag=val; \
+  __rdt_process_detailed_status(rdata)
 
 rdstore_data_t *find_rdata_by_connect_params(redis_connect_params_t *rcp);
 rdstore_data_t *find_rdata_by_url(ngx_str_t *url);

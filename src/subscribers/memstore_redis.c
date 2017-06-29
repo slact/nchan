@@ -114,6 +114,9 @@ static ngx_int_t sub_destroy_handler(ngx_int_t status, void *d, sub_data_t *pd) 
 
 static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
   sub_data_t *sd = *((sub_data_t **) pd);
+  if(status != NGX_OK) {
+    return NGX_ERROR;
+  }
   if(sd) {
     DBG("%reconnect callback");
     assert(sd->chanhead->redis_sub == sd->sub);

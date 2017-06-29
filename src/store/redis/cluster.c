@@ -864,7 +864,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     if(cluster->node_connections_pending == 0 && cluster->nodes.master.n < cluster->size) {
       redis_cluster_discover_and_connect_to_missing_nodes(reply, cf, cluster);
     }
-    
+    rdata_set_status_flag(rdata, cluster_checked, 1);
   }
   else {
     DBG("my_rdata was blank... eh?...");

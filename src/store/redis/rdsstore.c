@@ -385,6 +385,8 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
       ngx_add_timer(&rdata->reconnect_timer, REDIS_RECONNECT_TIME);
     }
     
+    ngx_memzero(&rdata->detailed_status, sizeof(rdata->detailed_status));
+    
     //clear the resolved peername -- it should get re-resolved on reconnect
     rdata->connect_params.peername.len = 0;
     
@@ -427,6 +429,13 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
   else if(status == CONNECTED && prev_status != CONNECTED) {
     callback_chain_t    *cur, *next;
     
+    if(rdata->generation == 0) {
+      nchan_log_notice("Established connection to redis at %V.", rdata->connect_url);
+    }
+    else {
+      nchan_log_warning("Re-established connection to redis at %V.", rdata->connect_url);
+    }
+    
     nchan_update_stub_status(redis_connected_servers, 1);
     
     if(!rdata->ping_timer.timer_set && rdata->ping_interval > 0) {
@@ -450,6 +459,16 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     }
     rdata->generation++;
   }
+}
+
+void __rdt_process_detailed_status(rdstore_data_t *rdata) {
+ if(rdata->detailed_status.connection_established
+  && rdata->detailed_status.authenticated
+  && rdata->detailed_status.not_loading_data
+  && rdata->detailed_status.loaded_scripts
+  && rdata->detailed_status.cluster_checked) {
+   rdt_set_status(rdata, CONNECTED, NULL);
+ }
 }
 
 static void redis_reconnect_timer_handler(ngx_event_t *ev) {
@@ -631,15 +650,7 @@ static void redis_load_script_callback(redisAsyncContext *ac, void *r, void *pri
         if(rdata->status == LOADING_SCRIPTS) {
           rdata->scripts_loaded_count++;
           if(rdata->scripts_loaded_count == redis_lua_scripts_count) {
-            
-            if(rdata->generation == 0) {
-              nchan_log_notice( "Established connection to redis at %V.",    rdata->connect_url);
-            }
-            else {
-              nchan_log_warning("Re-established connection to redis at %V.", rdata->connect_url);
-            }
-            
-            rdt_set_status(rdata, CONNECTED, NULL);
+            rdata_set_status_flag(rdata, loaded_scripts, 1);
           }
         }
       }
@@ -737,7 +748,16 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
     ngx_add_timer(evt, 1000);
   }
   else {
-    DBG("everything loaded and good to go");
+    rdata_set_status_flag(rdata, not_loading_data, 1);
+    if (ac == rdata->ctx && ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 16)) {
+      //it's part of a cluster
+      DBG("is part of a cluster. learn more.");
+      redis_get_cluster_info(rdata);
+    }
+    else {
+      rdata_set_status_flag(rdata, cluster_checked, 1);
+    }
+    
     redisInitScripts(rdata);
     if(rdata->sub_ctx) {
       //ERR("rdata->sub_ctx OK, subscribing for %V", rdata->connect_url);
@@ -748,12 +768,6 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
     else {
       ERR("rdata->sub_ctx NULL, can't subscribe for %V", rdata->connect_url);
     }
-  }
-  
-  //is it part of a cluster?
-  if(ac == rdata->ctx && ngx_strstrn((u_char *)reply->str, "cluster_enabled:1", 16)) {
-    DBG("is part of a cluster. learn more.");
-    redis_get_cluster_info(rdata);
   }
 }
 
@@ -784,6 +798,9 @@ void redis_nginx_auth_callback(redisAsyncContext *ac, void *rep, void *privdata)
       ERR("AUTH command failed, probably because the password is incorrect");
       rdt_set_status(rdata, DISCONNECTED, ac);
     }
+  }
+  else {
+    rdata_set_status_flag(rdata, authenticated, 1); 
   }
 }
 
@@ -822,12 +839,18 @@ static int redis_initialize_ctx(redisAsyncContext **ctx, rdstore_data_t *rdata) 
     DBG("connect to %V port %i", have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port);
     redis_nginx_open_context(have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port, rdata->connect_params.db, &rdata->connect_params.password, rdata, ctx);
     if(*ctx != NULL) {
+      rdata_set_status_flag(rdata, connection_established, 1);
       if(!have_peername) {
         rdata_set_peername(rdata, *ctx);
       }
+      
       if(rdata->connect_params.password.len > 0) {
         redisAsyncCommand(*ctx, redis_nginx_auth_callback, NULL, "AUTH %b", STR(&rdata->connect_params.password));
       }
+      else {
+        rdata_set_status_flag(rdata, authenticated, 1);
+      }
+      
       if(rdata->connect_params.db > 0) {
         redisAsyncCommand(*ctx, redis_nginx_select_callback, NULL, "SELECT %d", rdata->connect_params.db);
       }
@@ -2761,12 +2784,20 @@ static ngx_int_t redis_publish_message_send_when_connected(ngx_int_t status, voi
   rdstore_data_t                 *rdata = rd, *prev_rdata = rd;
   redis_publish_callback_data_t  *d = pd;
   
+  if(status != NGX_OK) {
+    d->callback(NGX_HTTP_SERVICE_UNAVAILABLE, NULL, d->privdata);
+    ngx_free(d);
+    return NGX_OK;
+  }
+  
   assert(rdata->status == CONNECTED);
   if((rdata = redis_cluster_rdata_from_channel_id(rdata, d->channel_id)) == NULL) {
     ERR("redis_publish_message_send_when_connected cluster rdata is null");
     if(d->shared_msg) {
       msg_release(d->msg, "redis publish");
     }
+    d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
+    ngx_free(d);
     return NGX_ERROR;
   }
   
