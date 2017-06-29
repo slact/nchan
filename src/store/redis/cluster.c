@@ -451,9 +451,13 @@ int clusterKeySlotOk(redisAsyncContext *c, void *r) {
      || nchan_cstr_startswith(reply->str, command_ask_error)) {
       rdstore_data_t  *rdata = c->data;
       
-      rbtree_empty(&rdata->node.cluster->hashslots, NULL, NULL);
-      cluster_set_status(rdata->node.cluster, CLUSTER_NOTREADY);
-      
+      if(rdata->node.cluster == NULL) {
+        ERR("got a cluster error on a non-cluster redis connection: %s", reply->str);
+      }
+      else {
+        rbtree_empty(&rdata->node.cluster->hashslots, NULL, NULL);
+        cluster_set_status(rdata->node.cluster, CLUSTER_NOTREADY);
+      }
       return 0;
     }
     else

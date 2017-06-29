@@ -48,7 +48,7 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb
   callback_chain_t  *d;
   
   if(rdata->status == CONNECTED) {
-    cb(NGX_OK, NULL, privdata);
+    cb(NGX_OK, rdata, privdata);
   }
   
   d = ngx_alloc(sizeof(*d), ngx_cycle->log);
@@ -444,7 +444,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     
     while(cur != NULL) {
       next = cur->next;
-      cur->cb(NGX_OK, NULL, cur->pd);
+      cur->cb(NGX_OK, rdata, cur->pd);
       ngx_free(cur);
       cur = next;
     }
@@ -2548,6 +2548,7 @@ static ngx_int_t redis_data_tree_exiter_stage1(rbtree_seed_t *seed, rdstore_data
   callback_chain_t     *ccur, *cnext;  
   for(ccur = rdata->on_connected; ccur != NULL; ccur = cnext) {
     cnext = ccur->next;
+    ccur->cb(NGX_ABORT, rdata, ccur->pd);
     ngx_free(ccur);
   }
   rdata->on_connected = NULL;
@@ -2756,6 +2757,33 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
   }
 }
 
+static ngx_int_t redis_publish_message_send_when_connected(ngx_int_t status, void *rd, void *pd) {
+  rdstore_data_t                 *rdata = rd, *prev_rdata = rd;
+  redis_publish_callback_data_t  *d = pd;
+  
+  assert(rdata->status == CONNECTED);
+  if((rdata = redis_cluster_rdata_from_channel_id(rdata, d->channel_id)) == NULL) {
+    ERR("redis_publish_message_send_when_connected cluster rdata is null");
+    if(d->shared_msg) {
+      msg_release(d->msg, "redis publish");
+    }
+    return NGX_ERROR;
+  }
+  
+  if(rdata != prev_rdata) {
+    //it's a cluster, and we need a different node
+    if(rdata->status != CONNECTED) {
+      //and it's not ready yet...
+      nchan_loc_conf_t           fake_cf;
+      fake_cf.redis.privdata = rdata;
+      return redis_store_callback_on_connected(&fake_cf, redis_publish_message_send_when_connected, d);
+    }
+  }
+  
+  redis_publish_message_send(rdata, d);
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_publish_callback_data_t  *d=NULL;
   rdstore_data_t                 *rdata = cf->redis.privdata;
@@ -2764,7 +2792,6 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
 
   CREATE_CALLBACK_DATA(d, rdata, "publish_message", channel_id, callback, privdata);
   
-  d->channel_id=channel_id;
   d->msg_time=msg->id.time;
   if(d->msg_time == 0) {
     d->msg_time = ngx_time();
@@ -2775,14 +2802,22 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->max_messages = nchan_loc_conf_max_messages(cf);
   
   assert(msg->id.tagcount == 1);
-  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
-    return NGX_ERROR;
-  }
   
-  if(d->shared_msg) {
-    msg_reserve(d->msg, "redis publish");
+  if(rdata->status != CONNECTED) {
+    if(d->shared_msg) {
+      msg_reserve(d->msg, "redis publish");
+    }
+    redis_store_callback_on_connected(cf, redis_publish_message_send_when_connected, d);
   }
-  redis_publish_message_send(rdata, d);
+  else {
+    if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
+      return NGX_ERROR;
+    }
+    if(d->shared_msg) {
+      msg_reserve(d->msg, "redis publish");
+    }
+    redis_publish_message_send(rdata, d);
+  }
   
   return NGX_OK;
 }
