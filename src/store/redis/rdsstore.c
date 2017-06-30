@@ -31,6 +31,8 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
+#define REDIS_CONNECTION_FOR_PUBLISH_WAIT 5000
+
 u_char            redis_subscriber_id[255];
 size_t            redis_subscriber_id_len;
 
@@ -43,7 +45,23 @@ redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
   return rdata->status;
 }
 
-ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb, void *privdata) {
+void redis_store_expire_on_connected_callback(ngx_event_t *ev) {
+  callback_chain_t  *d = ev->data;
+  
+  if(d->prev)
+    d->prev->next = d->next;
+  if(d->next)
+    d->next->prev = d->prev;
+  if(d->rdata->on_connected.head == d)
+    d->rdata->on_connected.head = d->next;
+  if(d->rdata->on_connected.tail == d)
+    d->rdata->on_connected.tail = d->prev;
+  
+  d->cb(NGX_DECLINED, d->rdata, d->pd);
+  ngx_free(d);
+}
+
+ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, ngx_msec_t max_wait, callback_pt cb, void *privdata) {
   rdstore_data_t    *rdata = cf->redis.privdata;
   callback_chain_t  *d;
   
@@ -55,9 +73,22 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, callback_pt cb
   
   d->cb = cb;
   d->pd = privdata;
-  d->next = rdata->on_connected;
   
-  rdata->on_connected = d;
+  d->rdata = rdata;
+  d->next = NULL;
+  ngx_memzero(&d->timeout_ev, sizeof(d->timeout_ev));
+  
+  if(max_wait > 0) {
+    nchan_init_timer(&d->timeout_ev, redis_store_expire_on_connected_callback, d);
+    ngx_add_timer(&d->timeout_ev, max_wait);
+  }
+  
+  d->prev = rdata->on_connected.tail;
+  if(rdata->on_connected.tail)
+    rdata->on_connected.tail->next = d;
+  rdata->on_connected.tail = d;
+  if(rdata->on_connected.head == NULL)
+    rdata->on_connected.head = d;
   return NGX_OK;
 }
 
@@ -448,12 +479,16 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     }
     
     //on_connected callbacks
-    cur = rdata->on_connected;
-    rdata->on_connected = NULL;
+    cur = rdata->on_connected.head;
+    rdata->on_connected.head = NULL;
+    rdata->on_connected.tail = NULL;
     
     while(cur != NULL) {
       next = cur->next;
       cur->cb(NGX_OK, rdata, cur->pd);
+      if(cur->timeout_ev.timer_set) {
+        ngx_del_timer(&cur->timeout_ev);
+      }
       ngx_free(cur);
       cur = next;
     }
@@ -2569,12 +2604,16 @@ static ngx_int_t redis_data_tree_exiter_stage1(rbtree_seed_t *seed, rdstore_data
   rdata->shutting_down = 1;
   
   callback_chain_t     *ccur, *cnext;  
-  for(ccur = rdata->on_connected; ccur != NULL; ccur = cnext) {
+  for(ccur = rdata->on_connected.head; ccur != NULL; ccur = cnext) {
     cnext = ccur->next;
     ccur->cb(NGX_ABORT, rdata, ccur->pd);
+    if(ccur->timeout_ev.timer_set) {
+      ngx_del_timer(&ccur->timeout_ev);
+    }
     ngx_free(ccur);
   }
-  rdata->on_connected = NULL;
+  rdata->on_connected.head = NULL;
+  rdata->on_connected.tail = NULL;
 
   return NGX_OK;
 }
@@ -2807,7 +2846,7 @@ static ngx_int_t redis_publish_message_send_when_connected(ngx_int_t status, voi
       //and it's not ready yet...
       nchan_loc_conf_t           fake_cf;
       fake_cf.redis.privdata = rdata;
-      return redis_store_callback_on_connected(&fake_cf, redis_publish_message_send_when_connected, d);
+      return redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_PUBLISH_WAIT, redis_publish_message_send_when_connected, d);
     }
   }
   
@@ -2838,7 +2877,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
     if(d->shared_msg) {
       msg_reserve(d->msg, "redis publish");
     }
-    redis_store_callback_on_connected(cf, redis_publish_message_send_when_connected, d);
+    redis_store_callback_on_connected(cf, REDIS_CONNECTION_FOR_PUBLISH_WAIT, redis_publish_message_send_when_connected, d);
   }
   else {
     if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {

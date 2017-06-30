@@ -70,6 +70,9 @@ typedef struct callback_chain_s callback_chain_t;
 struct callback_chain_s {
   callback_pt                  cb;
   void                        *pd;
+  ngx_event_t                  timeout_ev;
+  rdstore_data_t              *rdata;
+  callback_chain_t            *prev;
   callback_chain_t            *next;
 };
 
@@ -166,7 +169,10 @@ struct rdstore_data_s {
   ngx_event_t                      reconnect_timer;
   ngx_event_t                      ping_timer;
   time_t                           ping_interval;
-  callback_chain_t                *on_connected;
+  struct {
+    callback_chain_t                *head;
+    callback_chain_t                *tail;
+  }                                on_connected;
   nchan_loc_conf_t                *lcf;
   
   //cluster stuff
