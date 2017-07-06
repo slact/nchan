@@ -114,6 +114,9 @@ static ngx_int_t sub_destroy_handler(ngx_int_t status, void *d, sub_data_t *pd) 
 
 static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
   sub_data_t *sd = *((sub_data_t **) pd);
+  if(status != NGX_OK) {
+    return NGX_ERROR;
+  }
   if(sd) {
     DBG("%reconnect callback");
     assert(sd->chanhead->redis_sub == sd->sub);
@@ -148,7 +151,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;
         d->onconnect_callback_pd = dd;
-        redis_store_callback_on_connected(d->sub->cf, reconnect_callback, dd);
+        redis_store_callback_on_connected(d->sub->cf, 0, reconnect_callback, dd);
       }
       break;
       

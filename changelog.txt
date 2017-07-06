@@ -1,3 +1,9 @@
+1.1.7 (Jul. 3 2017)
+ fix: possible read-after-free after redis disconnect
+ fix: publishing to redis cluster before it is connected results in worker crash
+ fix: possible use-after-free for suddenly disconnected longpoll-multipart subscriber
+ fix: possible use-after-free when using nchan_authorize_request for slow subscribers and slow upstream
+ fix: nchan_stub_status "stored messages" value could be incorrect when using Redis
 1.1.6 (May 9 2017)
  fix: messages published through Redis may crash worker (introduced in 1.1.5)
  fix (security): urlencoded message id in url parsed incorrectly can result in worker crash

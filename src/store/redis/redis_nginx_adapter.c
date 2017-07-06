@@ -141,6 +141,7 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 
 void redis_nginx_read_event(ngx_event_t *ev) {
   redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
+  int                fd = ac->c.fd; //because redisAsyncHandleRead might free the redisAsyncContext
   int                bytes_left;
   redisAsyncHandleRead(ac);
   
@@ -149,7 +150,7 @@ void redis_nginx_read_event(ngx_event_t *ev) {
   // whole amount in one gulp. Otherwise, we could just check if 16Kb have 
   //been read and try again. But no, apparently that's not an option.
   
-  ioctl(ac->c.fd, FIONREAD, &bytes_left);
+  ioctl(fd, FIONREAD, &bytes_left);
   if (bytes_left > 0 && !ac->err) {
     //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "again!");
     redis_nginx_read_event(ev);

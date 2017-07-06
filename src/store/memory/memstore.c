@@ -1376,7 +1376,7 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     
     assert(diff.tv_sec < 10);
     
-    ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size(msg->buf), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
+    ERR("::BENCH:: channel %V msg %p <%V> len %i responded to %i in %l.%06l sec", &head->id, msg, msgid_str, ngx_buf_size((&msg->buf)), head->spooler.last_responded_subscriber_count, (long int)(diff.tv_sec), (long int)(diff.tv_usec));
 #endif
     
     //wait what?...
@@ -2992,7 +2992,7 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
   int     n;
   int     ok = 0;
   ssize_t msg_sz;
-  char   *err;
+  char   *err = "unknown error";
   
   
   if(!shm_group) {
@@ -3042,7 +3042,7 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
   if(ok) {
     ngx_int_t pub_rc = nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
     if(pub_rc == NGX_DECLINED) { //out of memory probably
-      d->cb(NGX_HTTP_INSUFFICIENT_STORAGE, err, d->pd);
+      d->cb(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, d->pd);
     }
   }
   else {

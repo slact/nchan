@@ -451,9 +451,13 @@ int clusterKeySlotOk(redisAsyncContext *c, void *r) {
      || nchan_cstr_startswith(reply->str, command_ask_error)) {
       rdstore_data_t  *rdata = c->data;
       
-      rbtree_empty(&rdata->node.cluster->hashslots, NULL, NULL);
-      cluster_set_status(rdata->node.cluster, CLUSTER_NOTREADY);
-      
+      if(rdata->node.cluster == NULL) {
+        ERR("got a cluster error on a non-cluster redis connection: %s", reply->str);
+      }
+      else {
+        rbtree_empty(&rdata->node.cluster->hashslots, NULL, NULL);
+        cluster_set_status(rdata->node.cluster, CLUSTER_NOTREADY);
+      }
       return 0;
     }
     else
@@ -860,7 +864,7 @@ static void redis_get_cluster_nodes_callback(redisAsyncContext *ac, void *rep, v
     if(cluster->node_connections_pending == 0 && cluster->nodes.master.n < cluster->size) {
       redis_cluster_discover_and_connect_to_missing_nodes(reply, cf, cluster);
     }
-    
+    rdata_set_status_flag(rdata, cluster_checked, 1);
   }
   else {
     DBG("my_rdata was blank... eh?...");

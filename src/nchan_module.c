@@ -744,8 +744,9 @@ static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr
       status = NGX_HTTP_INTERNAL_SERVER_ERROR;
     case NGX_HTTP_INSUFFICIENT_STORAGE:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
+    case NGX_HTTP_SERVICE_UNAVAILABLE:
       //WTF?
-      nchan_log_request_error(r, "error publishing message");
+      nchan_log_request_error(r, "error publishing message (HTTP status code %i)", status);
       ctx->prev_msg_id = empty_msgid;
       ctx->msg_id = empty_msgid;
       nchan_http_finalize_request(r, status);
@@ -766,7 +767,7 @@ static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr
       //for debugging, mostly. I don't expect this branch to behit during regular operation
       ctx->prev_msg_id = empty_msgid;;
       ctx->msg_id = empty_msgid;
-      nchan_log_request_error(r, "TOTALLY UNEXPECTED error publishing message, status code %i", status);
+      nchan_log_request_error(r, "TOTALLY UNEXPECTED error publishing message (HTTP status code %i)", status);
       nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
       return NGX_ERROR;
   }
