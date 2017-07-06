@@ -3000,7 +3000,7 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
   int     n;
   int     ok = 0;
   ssize_t msg_sz;
-  char   *err;
+  char   *err = "unknown error";
   
   
   if(!shm_group) {
@@ -3050,7 +3050,7 @@ static ngx_int_t group_publish_accounting_check(ngx_int_t rc, nchan_group_t *shm
   if(ok) {
     ngx_int_t pub_rc = nchan_store_publish_message_generic(d->chid, d->msg, 0, d->cf, d->cb, d->pd);
     if(pub_rc == NGX_DECLINED) { //out of memory probably
-      d->cb(NGX_HTTP_INSUFFICIENT_STORAGE, err, d->pd);
+      d->cb(NGX_HTTP_INSUFFICIENT_STORAGE, NULL, d->pd);
     }
   }
   else {
