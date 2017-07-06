@@ -359,7 +359,7 @@ build() {
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     if [[ -z $CLANG_ANALYZER ]]; then
-      CFLAGS="-ferror-limit=5 $CFLAGS"
+      CFLAGS="-ferror-limit=5 $CFLAGS -Wconditional-uninitialized"
     fi
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]] && [[ -z $NO_GCC_COLOR ]]; then
     CFLAGS="-fdiagnostics-color=always  -Wmaybe-uninitialized $CFLAGS"
