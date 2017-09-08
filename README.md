@@ -936,7 +936,7 @@ but unlike the case with `nchan_authorize_request`, Nchan-specific variables are
 
 Now, your application must be set up to handle the request to `/subscriber_x_accel_redirect`. You should make sure the client is properly authenticated (maybe using a session cookie), and generate an associated channel id. If authentication fails, respond with a normal `403 Forbidden` response.
 
-If your application succesfully authenticates the subscriber request, you now need to instruct Nginx to issue an internal redirect to `/sub/internal/my_channel_id`.
+If your application successfully authenticates the subscriber request, you now need to instruct Nginx to issue an internal redirect to `/sub/internal/my_channel_id`.
 This is accomplished by responding with an empty `200 OK` response that includes two headers:
 - `X-Accel-Redirect: /sub/internal/my_channel_id`
 - `X-Accel-Buffering: no`

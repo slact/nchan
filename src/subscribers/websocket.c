@@ -403,7 +403,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     case NCHAN_MESSAGE_RECEIVED:
       if(fsub->sub.cf->sub.websocket) {
         //don't reply with status info, this websocket is used for subscribing too,
-        //so it should only be recieving messages
+        //so it should only be receiving messages
         return NGX_OK;
       }
       accept_header = nchan_get_accept_header_value(r);

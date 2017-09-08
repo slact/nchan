@@ -416,7 +416,7 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
     cur++;
   }
   
-  // We fullfill the rest of the tag needed with value '-1'
+  // We fulfill the rest of the tag needed with value '-1'
   while (i < expected_tag_count) {
     if (i == 0) mid->tagactive = -1; // No tag is in active
     tags[i] = -1;
