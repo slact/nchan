@@ -442,6 +442,8 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   msg.id.tagcount=1;
   msg.id.tagactive=0;
   
+  msg.storage = NCHAN_MSG_STACK;
+  
   websocket_reserve(&fsub->sub);
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub); 
   nchan_update_stub_status(total_published_messages, 1);
