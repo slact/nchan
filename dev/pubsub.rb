@@ -538,13 +538,13 @@ class Subscriber
     end
     
     def send_ping(data=nil)
-      bundle.send_ping data
+      @ws.first.first.send_ping data
     end
     def send_close(code=1000, reason=nil)
-      bundle.send_close code, reason
+      @ws.first.first.send_close code, reason
     end
-    def send(data=nil)
-      bundle.send_data data
+    def send_data(data=nil)
+      @ws.first.first.send_data data
     end
     
     def close(bundle)
@@ -1475,7 +1475,7 @@ end
 
 class Publisher
   #include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose, :ws
   def initialize(url, opt={})
     @url= url
     unless opt[:nostore]
@@ -1488,9 +1488,9 @@ class Publisher
     @on_response = opt[:on_response]
     
     if opt[:ws] || opt[:websocket]
-      @ws = Subscriber.new url, 1, timeout: 100000
+      @ws = Subscriber.new url, 1, timeout: 100000, client: :websocket
       @ws_sent_msg = []
-      sub.on_message do |msg|
+      @ws.on_message do |msg|
         sent_msg = @ws_sent_msg.shift
         @messages << sent_msg if @messages && sent_msg
         
@@ -1498,9 +1498,11 @@ class Publisher
         self.response_code=200 #fake it
         self.response_body=msg
         
-        on_response.call(self.response_code, self.response_body) if on_response
+        @on_response.call(self.response_code, self.response_body) if @on_response
 
       end
+      @ws.run
+      @ws.wait :ready
     end
   end
   
@@ -1526,15 +1528,18 @@ class Publisher
   end
   
   def submit_ws(body, &block)
-    @ws.send(body)
     if body && @messages
       msg=Message.new body
       @ws_sent_msg << msg
     else
       @ws_sent_msg << body
     end
+    @ws.client.send_data(body)
   end
   private :submit_ws
+  def terminate
+    @ws.terminate if @ws
+  end
   
   def submit(body, method=:POST, content_type= :'text/plain', eventsource_event=nil, &block)
     self.response=nil

@@ -59,13 +59,15 @@ def pubsub(concurrent_clients=1, opt={})
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
   sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose
-  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}"), timeout: timeout
+  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
 def verify(pub, sub, check_errors=true)
   assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"} (sub url #{sub.url})" if check_errors
-  ret, err = sub.messages.matches?(pub.messages)
-  assert ret, err ? "#{err} (sub url #{sub.url})" : "Messages don't match (sub url #{sub.url})"
+  if pub then
+    ret, err = sub.messages.matches?(pub.messages)
+    assert ret, err ? "#{err} (sub url #{sub.url})" : "Messages don't match (sub url #{sub.url})"
+  end
   i=0
   sub.messages.each do |msg|
     assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i} (sub url #{sub.url})"
@@ -110,6 +112,47 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
     sub.terminate
     assert got_304s > 0, "Expected at least one 304 response"
+  end
+  
+  def test_websocket_pubsub_echo
+    sub=Subscriber.new(url("/pubsub/#{short_id}"), 1, client: :websocket, quit_message: 'FIN')
+    
+    sub.run
+    sub.wait :ready
+    
+    msgs = ['hello', 'FIN']
+    
+    sub.client.send_data msgs[0]
+    sub.client.send_data msgs[1]
+    
+    sub.wait
+    
+    verify nil, sub
+    
+    sub.messages.msgs.each_with_index do |msg, i|
+      assert_equal msg.times_seen, 1
+      assert_equal msg.message, msgs[i]
+    end
+    
+    sub.terminate
+  end
+  
+  def test_websocket_publish
+    pub, sub = pubsub 5, websocket_publisher: true
+    #pub.on_response do |code, resp_body|
+    #  puts "====----====="
+    #  puts resp_body
+    #end
+    pub.post "!!"
+    sub.run #celluloid async FTW
+    #sleep 2
+    pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"]
+    pub.post "BEEP"
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    sub.terminate
+    #pub.terminate #kill websocket publisher
   end
   
   def test_channel_info
@@ -633,6 +676,8 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
     sub.terminate
   end
+  
+  
   
   def test_publish_multi
     chans= [short_id, short_id, short_id]
