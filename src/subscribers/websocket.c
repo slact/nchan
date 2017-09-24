@@ -1701,6 +1701,7 @@ static const subscriber_t new_websocket_sub = {
   NULL,
   NULL,
   0, //reserved
+  1, //enable sub/unsub callbacks
   0, //deque after response
   1, //destroy after dequeue
   0, //enqueued

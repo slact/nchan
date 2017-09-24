@@ -319,7 +319,7 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
   //msgid bufs -- unique per response
   nchan_subscriber_init_msgid_reusepool(ctx, r->pool);
   
-  nchan_subscriber_common_setup(sub, EVENTSOURCE, &sub_name, eventsource_fn, 0);
+  nchan_subscriber_common_setup(sub, EVENTSOURCE, &sub_name, eventsource_fn, 1, 0);
   return sub;
 }
 

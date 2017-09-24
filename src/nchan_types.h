@@ -346,6 +346,7 @@ struct subscriber_s {
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
   ngx_uint_t                 reserved;
+  unsigned                   enable_sub_unsub_callbacks;
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
   unsigned                   enqueued:1;

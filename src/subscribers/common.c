@@ -160,7 +160,21 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
     ngx_int_t code = d->http_response_code;
     if(code >= 200 && code <299) {
       //authorized. proceed as planned
+      
+      //get subscribe callback data from sub in advance, in case it is destroyed during nchan_subscriber_subscribe()
+      ngx_connection_t  *c;
+      int                enabled_subscribe_callback = d->sub->enable_sub_unsub_callbacks;
+      if(enabled_subscribe_callback) {
+        c = d->sub->request->connection;
+      }
+      
       nchan_subscriber_subscribe(d->sub, d->ch_id);
+      if(enabled_subscribe_callback) {
+        //there might be a subscribe subrequest we need to run
+        //because we're in a timer event outside the request processing loop,
+        //the subrequest handling must be initiated manually
+        ngx_http_run_posted_requests(c);
+      }
     }
     else { //anything else means forbidden
       d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL); //auto-closes subscriber
@@ -247,8 +261,7 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t fina
   ngx_int_t                    ret;
   //ngx_http_upstream_conf_t    *ucf;
   
-  if(sub->type == LONGPOLL || sub->type == INTERVALPOLL) {
-    //don't do this for longpoll subscribers. It's still buggy and not efficient anyway
+  if(!sub->enable_sub_unsub_callbacks) {
     return NGX_OK;
   }
   
@@ -291,12 +304,12 @@ ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   ngx_int_t             ret;
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
-  subscriber_type_t     sub_type = sub->type;
   nchan_loc_conf_t     *cf = sub->cf;
+  int                   enable_sub_unsub_callbacks = sub->enable_sub_unsub_callbacks;
   
   ret = sub->cf->storage_engine->subscribe(ch_id, sub);
   //don't access sub directly, it might have already been freed
-  if(ret == NGX_OK && sub_type != LONGPOLL && sub_type != INTERVALPOLL && cf->subscribe_request_url && ctx->sub == sub) {
+  if(ret == NGX_OK && enable_sub_unsub_callbacks && cf->subscribe_request_url && ctx->sub == sub) {
     nchan_subscriber_subscribe_request(sub);
   }
   return ret;
@@ -439,12 +452,12 @@ void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http
   
 }
 
-void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ngx_str_t *name, subscriber_fn_t *fn, ngx_int_t dequeue_after_response) {
+void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ngx_str_t *name, subscriber_fn_t *fn, ngx_int_t enable_sub_unsub_callbacks, ngx_int_t dequeue_after_response) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   sub->type = type;
   sub->name = name;
   sub->fn = fn;
-  
+  sub->enable_sub_unsub_callbacks = enable_sub_unsub_callbacks;
   sub->dequeue_after_response = dequeue_after_response;
   if(ctx) {
     ctx->subscriber_type = sub->name;
