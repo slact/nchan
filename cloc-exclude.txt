@@ -1,11 +1,13 @@
 src/uthash.h
 src/hiredis
-src/store/redis/cmp.*
+src/util/ngx_nchan_hacked_slab.c
+src/store/redis/cmp.c
+src/store/redis/cmp.h
+src/store/redis/redis_lua_commands.h
 src/nginx-source
-dev/package
+src/nchan_config_commands.c
 dev/bench
-dev/nginx-nchan/*
+dev/nginx-pkg
 dev/clang-analyzer
 dev/package
 dev/src
-

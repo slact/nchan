@@ -36,7 +36,6 @@ DEBUGGER_CMD="dbus-run-session kdbg -p %s $SRCDIR/nginx"
 #DEBUGGER_NAME="nemiver"
 #DEBUGGER_CMD="nemiver --attach=%s $SRCDIR/nginx"
 
-
 REDIS_CONF="$DEVDIR/redis.conf"
 REDIS_PORT=8537
 
@@ -109,6 +108,18 @@ for opt in $*; do
       WORKERS=1
       NGINX_DAEMON="on"
       debugger=1
+      ;;
+    debug=*)
+      debug_what="${opt:6}"
+      if [[ $debug_what == "master" ]]; then
+        WORKERS=1
+        debug_master=1
+        NGINX_DAEMON="off"
+      else
+        NGINX_DAEMON="on"
+        debugger=1
+        child_text_match=$debug_what
+      fi
       ;;
     altport)
       ALTPORT=1
@@ -251,7 +262,11 @@ TRAPINT() {
 attach_debugger() {
   master_pid=`cat /tmp/nchan-test-nginx.pid`
   while [[ -z $child_pids ]]; do
-    child_pids=`pgrep -P $master_pid`
+    if [[ -z $child_text_match ]]; then
+      child_pids=`pgrep -P $master_pid`
+    else
+      child_pids=`pgrep -P $master_pid -f $child_text_match`
+    fi
     sleep 0.1
   done
   while read -r line; do
@@ -282,8 +297,17 @@ attach_ddd_vgdb() {
   echo "$1 at $debugger_pids"
 }
 
+if [[ ! -f ./nginx ]]; then
+  echo "./nginx not found"
+  exit 1
+fi
+
 if [[ $debugger == 1 ]]; then
   ./nginx $NGINX_OPT
+  if ! [ $? -eq 0 ]; then; 
+    echo "failed to start nginx"; 
+    exit 1
+  fi
   sleep 0.2
   attach_debugger "$DEBUGGER_NAME" "$DEBUGGER_CMD"
   wait $debugger_pids

@@ -144,7 +144,7 @@ subscriber_t *http_raw_stream_subscriber_create(ngx_http_request_t *r, nchan_msg
   ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
   nchan_bufchain_pool_init(ctx->bcp, r->pool);
   
-  nchan_subscriber_common_setup(sub, HTTP_RAW_STREAM, &sub_name, rawstream_fn, 0);
+  nchan_subscriber_common_setup(sub, HTTP_RAW_STREAM, &sub_name, rawstream_fn, 1, 0);
   return sub;
 }
 

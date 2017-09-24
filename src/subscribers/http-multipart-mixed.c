@@ -272,7 +272,7 @@ subscriber_t *http_multipart_subscriber_create(ngx_http_request_t *r, nchan_msg_
   ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
   nchan_bufchain_pool_init(ctx->bcp, r->pool);
   
-  nchan_subscriber_common_setup(sub, HTTP_MULTIPART, &sub_name, multipart_fn, 0);
+  nchan_subscriber_common_setup(sub, HTTP_MULTIPART, &sub_name, multipart_fn, 1, 0);
   return sub;
 }
 
