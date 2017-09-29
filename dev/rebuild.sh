@@ -192,6 +192,7 @@ _build_nginx() {
 
   rm "${srcdir}/nginx"
   ln -sf "${srcdir}/${_extracted_dir}" "${srcdir}/nginx"
+  ln -sf "${startdir}/nchan" "${srcdir}/nchan"
   
   build
 
