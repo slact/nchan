@@ -1,7 +1,8 @@
 #!/bin/zsh
 DEVDIR=`pwd`
-SRCDIR=$(readlink -m $DEVDIR/../src)
-#echo $DEVDIR $SRCDIR
+
+#SRCDIR=$(readlink -m $DEVDIR/../src) #not available on platforms like freebsd
+SRCDIR=`perl -e "use Cwd realpath; print realpath(\"$DEVDIR/../src\");"`
 
 VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--read-var-info=yes" )
 
@@ -147,9 +148,13 @@ NGINX_OPT=( -p `pwd`/
 )
 cp -fv $NGINX_CONFIG $NGINX_TEMP_CONFIG
 
+_sed_i_conf() {
+  sed $1 $NGINX_TEMP_CONFIG > $NGINX_TEMP_CONFIG.tmp && mv $NGINX_TEMP_CONFIG.tmp $NGINX_TEMP_CONFIG
+}
+
 conf_replace(){
     echo "$1 $2"
-    sed "s|^\(\s*\)\($1\)\(\s\+\).*|\1\2\3$2;|g" $NGINX_TEMP_CONFIG -i
+    _sed_i_conf "s|^\(\s*\)\($1\)\(\s\+\).*|\1\2\3$2;|g"
 }
 
 _semver_lt() {
@@ -188,7 +193,7 @@ export ASAN_OPTIONS=symbolize=1
 
 echo "nginx $NGINX_OPT"
 if [[ ! -z $ALTPORT ]]; then
-  sed "s|^\(\s\+\)listen\(\s\+\)\(.*\)|\1listen\21\3|g" $NGINX_TEMP_CONFIG -i
+  _sed_i_conf "s|^\(\s\+\)listen\(\s\+\)\(.*\)|\1listen\21\3|g"
 fi
 
 conf_replace "access_log" $ACCESS_LOG
@@ -198,22 +203,22 @@ conf_replace "daemon" $NGINX_DAEMON
 conf_replace "working_directory" "\"$(pwd)\""
 conf_replace "push_max_reserved_memory" "$MEM"
 if [[ ! -z $CACHE ]]; then
-  sed "s|^\s*#cachetag.*|${_cacheconf}|g" $NGINX_TEMP_CONFIG -i
+  _sed_i_conf "s|^\s*#cachetag.*|${_cacheconf}|g"
   tmpdir=`pwd`"/.tmp"
   mkdir $tmpdir 2>/dev/null
-  sed "s|_CACHEDIR_|\"$tmpdir\"|g" $NGINX_TEMP_CONFIG -i
+  _sed_i_conf "s|_CACHEDIR_|\"$tmpdir\"|g"
 fi
 
 if (_semver_gteq $NGINX_VER 1.9.5); then
   #do nothing, http2 is on by default
 elif (_semver_gteq $NGINX_VER 1.3.15); then
-  sed "s|^\(\s*listen\s\+8085\s\+\).*|\1 spdy;|g" $NGINX_TEMP_CONFIG -i
+  _sed_i_conf "s|^\(\s*listen\s\+8085\s\+\).*|\1 spdy;|g"
 else
-  sed "s|^\(\s*listen\s\+8085\s\+\).*|\1;|g" $NGINX_TEMP_CONFIG -i
+  _sed_i_conf "s|^\(\s*listen\s\+8085\s\+\).*|\1;|g"
 fi
 
 if [[ -f "$_dynamic_module" ]]; then
-  sed "s|^\s*#load_module.*|load_module \"${_dynamic_module}\";|g" $NGINX_TEMP_CONFIG -i
+  _sed_i_conf "s|^\s*#load_module.*|load_module \"${_dynamic_module}\";|g"
 fi
 
 #shutdown old redis
