@@ -154,7 +154,7 @@ _sed_i_conf() {
 
 conf_replace(){
     echo "$1 $2"
-    _sed_i_conf "s|^\([ \t]*\)\($1\)\(\s\+\).*|\1\2\3$2;|g"
+    _sed_i_conf "s|^\( *\)\($1\)\( *\).*|\1\2\3$2;|g"
 }
 
 _semver_lt() {
@@ -193,7 +193,7 @@ export ASAN_OPTIONS=symbolize=1
 
 echo "nginx $NGINX_OPT"
 if [[ ! -z $ALTPORT ]]; then
-  _sed_i_conf "s|^\(\s\+\)listen\(\s\+\)\(.*\)|\1listen\21\3|g"
+  _sed_i_conf "s|^\( *\)listen\( *\)\(.*\)|\1listen\21\3|g"
 fi
 
 conf_replace "access_log" $ACCESS_LOG
@@ -203,7 +203,7 @@ conf_replace "daemon" $NGINX_DAEMON
 conf_replace "working_directory" "\"$(pwd)\""
 conf_replace "push_max_reserved_memory" "$MEM"
 if [[ ! -z $CACHE ]]; then
-  _sed_i_conf "s|^\s*#cachetag.*|${_cacheconf}|g"
+  _sed_i_conf "s|^ *#cachetag.*|${_cacheconf}|g"
   tmpdir=`pwd`"/.tmp"
   mkdir $tmpdir 2>/dev/null
   _sed_i_conf "s|_CACHEDIR_|\"$tmpdir\"|g"
@@ -212,13 +212,13 @@ fi
 if (_semver_gteq $NGINX_VER 1.9.5); then
   #do nothing, http2 is on by default
 elif (_semver_gteq $NGINX_VER 1.3.15); then
-  _sed_i_conf "s|^\(\s*listen\s\+8085\s\+\).*|\1 spdy;|g"
+  _sed_i_conf "s|^\( *listen *8085 *\).*|\1 spdy;|g"
 else
-  _sed_i_conf "s|^\(\s*listen\s\+8085\s\+\).*|\1;|g"
+  _sed_i_conf "s|^\( *listen *8085 *\).*|\1;|g"
 fi
 
 if [[ -f "$_dynamic_module" ]]; then
-  _sed_i_conf "s|^\s*#load_module.*|load_module \"${_dynamic_module}\";|g"
+  _sed_i_conf "s|^ *#load_module.*|load_module \"${_dynamic_module}\";|g"
 fi
 
 #shutdown old redis
