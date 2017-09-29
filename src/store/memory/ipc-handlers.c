@@ -459,7 +459,7 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
   data.d.req.msgid = *msgid;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
-  assert(data.shm_chid->len>1);
+  assert(data.shm_chid->len >= 1);
   return ipc_cmd(get_message, dst, &data);
 }
 
@@ -482,7 +482,7 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
   store_message_t             *msg = NULL;
   
   
-  assert(d->shm_chid->len>1);
+  assert(d->shm_chid->len >= 1);
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message request for channel %V privdata %p", d->shm_chid, d->privdata);
   
@@ -517,7 +517,7 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
 
 static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
   
-  assert(d->shm_chid->len>1);
+  assert(d->shm_chid->len >= 1);
   assert(d->shm_chid->data!=NULL);
   DBG("IPC: received get_message reply for channel %V msg %p privdata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
   nchan_memstore_handle_get_message_reply(d->d.resp.shm_msg, d->d.resp.getmsg_code, d->privdata);
