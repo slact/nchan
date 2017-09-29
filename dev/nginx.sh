@@ -154,7 +154,7 @@ _sed_i_conf() {
 
 conf_replace(){
     echo "$1 $2"
-    _sed_i_conf "s|^\(\s*\)\($1\)\(\s\+\).*|\1\2\3$2;|g"
+    _sed_i_conf "s|^\([ \t]*\)\($1\)\(\s\+\).*|\1\2\3$2;|g"
 }
 
 _semver_lt() {
