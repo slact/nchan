@@ -162,7 +162,7 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
       //authorized. proceed as planned
       
       //get subscribe callback data from sub in advance, in case it is destroyed during nchan_subscriber_subscribe()
-      ngx_connection_t  *c;
+      ngx_connection_t  *c = NULL;
       int                enabled_subscribe_callback = d->sub->enable_sub_unsub_callbacks;
       if(enabled_subscribe_callback) {
         c = d->sub->request->connection;
