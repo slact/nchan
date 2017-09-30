@@ -12,7 +12,7 @@
 %global with_mailcap_mimetypes 1
 %endif
 
-%define nchan_ver 1.1.1
+%define nchan_ver 1.1.7
 
 %if "%{nchan_ver}" == "master"
   %define         nchan_tag %{nchan_ver}
@@ -20,7 +20,7 @@
   %define         nchan_tag v%{nchan_ver}
 %endif
   
-%define            nginx_ver 1.10.3
+%define            nginx_ver 1.12.1
 
 Name:              nginx-mod-nchan
 Epoch:             1
@@ -110,7 +110,7 @@ export DESTDIR=%{buildroot}
 %if 0%{?with_aio}
     --with-file-aio \
 %endif
-   --with-ipv6 \
+    --with-ipv6 \
     --with-http_ssl_module \
     --with-http_v2_module \
     --with-http_realip_module \
@@ -130,15 +130,16 @@ export DESTDIR=%{buildroot}
     --with-http_slice_module \
     --with-http_stub_status_module \
     --with-http_perl_module=dynamic \
+    --with-http_auth_request_module \
     --with-mail=dynamic \
     --with-mail_ssl_module \
     --with-pcre \
     --with-pcre-jit \
     --with-stream=dynamic \
     --with-stream_ssl_module \
-    %if 0%{?with_gperftools}
+%if 0%{?with_gperftools}
     --with-google_perftools_module \
-    %endif
+%endif
     --add-dynamic-module=./nchan-%{nchan_ver} \
     --with-debug \
     --with-cc-opt="%{optflags} $(pcre-config --cflags)" \
