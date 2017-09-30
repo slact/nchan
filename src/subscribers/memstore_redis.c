@@ -156,6 +156,10 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
       break;
       
     case NGX_HTTP_NO_CONTENT:
+      if(d->last_msg_status != MSG_EXPECTED) {
+        //the message buffer has just been walked start to finish
+        nchan_memstore_publish_notice(d->chanhead, NCHAN_NOTICE_BUFFER_LOADED, NULL);
+      }
       d->last_msg_status = MSG_EXPECTED;
       respond_msgexpected_callbacks(d, MSG_EXPECTED);
       //TODO: stuff about REDIS_MODE_BACKUP

@@ -360,7 +360,13 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
         spool->msg = NULL;
       }
       break;
-      
+    
+    case MSG_CHANNEL_NOTREADY:
+      //just wait it out
+      spool->msg = NULL;
+      spool->msg_status = findmsg_status;
+      break;
+    
     case MSG_NORESPONSE:
       if(prev_status == MSG_PENDING) {
         spool->msg_status = MSG_INVALID;
@@ -932,7 +938,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   }
   
   spool = get_spool(self, &latest_msg_id);
-  if(spool->sub_count > 0) {
+  if(spool->sub_count > 0 && *self->channel_buffer_complete) {
 #if NCHAN_BENCHMARK
     responded_subs += spool->sub_count;
 #endif
@@ -1115,7 +1121,7 @@ static channel_spooler_fn_t  spooler_fn = {
   spooler_prepare_to_stop
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, uint8_t *channel_buffer_complete, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata) {
   if(!spl->running) {
     ngx_memzero(spl, sizeof(*spl));
     rbtree_init(&spl->spoolseed, "spooler msg_id tree", spool_rbtree_node_id, spool_rbtree_bucketer, spool_rbtree_compare);
@@ -1130,6 +1136,7 @@ channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhe
     spl->store = store;
     
     spl->channel_status = channel_status;
+    spl->channel_buffer_complete = channel_buffer_complete;
     
     spl->running = 1;
     //spl->want_to_stop = 0;

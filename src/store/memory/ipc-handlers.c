@@ -20,6 +20,7 @@
   L(publish_message) \
   L(publish_message_reply) \
   L(publish_status) \
+  L(publish_notice) \
   L(get_message) \
   L(get_message_reply) \
   L(delete) \
@@ -256,15 +257,15 @@ static void receive_unsubscribed(ngx_int_t sender, unsubscribed_data_t *d) {
 ////////// PUBLISH STATUS ////////////////
 typedef struct {
   ngx_str_t                 *shm_chid;
-  ngx_int_t                  status_code;
-  const ngx_str_t           *status_line;
+  ngx_int_t                  code;
+  const ngx_str_t           *data;
   callback_pt                callback;
   void                      *callback_privdata;
-} publish_status_data_t;
+} publish_code_data_t;
 
 ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status_code, const ngx_str_t *status_line, callback_pt callback, void *privdata) {
   DBG("IPC: send publish status to %i ch %V", dst, chid);
-  publish_status_data_t  data = {str_shm_copy(chid), status_code, status_line, callback, privdata};
+  publish_code_data_t  data = {str_shm_copy(chid), status_code, status_line, callback, privdata};
   if(data.shm_chid == NULL) {
     nchan_log_ooshm_error("sending IPC status alert for channel %V", chid);
     return NGX_DECLINED;
@@ -272,8 +273,7 @@ ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_i
   return ipc_cmd(publish_status, dst, &data);
 }
 
-static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
-  static ngx_str_t               nullstring = ngx_null_string;
+static void receive_publish_status(ngx_int_t sender, publish_code_data_t *d) {
   memstore_channel_head_t       *chead;
   
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
@@ -281,18 +281,50 @@ static void receive_publish_status(ngx_int_t sender, publish_status_data_t *d) {
       ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
     }
     else {
-      ERR("Can't find chanhead for id %V while publishing status %i. This is not a big deal if you just reloaded Nchan.", d->shm_chid, d->status_code);
+      ERR("Can't find chanhead for id %V while publishing status %i. This is not a big deal if you just reloaded Nchan.", d->shm_chid, d->code);
     }
     str_shm_free(d->shm_chid);
     return;
   }
   
-  DBG("IPC: received publish status for channel %V status %i %s", d->shm_chid, d->status_code, d->status_line == NULL ? &nullstring : d->status_line);
+  DBG("IPC: received publish status for channel %V status %i", d->shm_chid, d->code);
   
-  nchan_memstore_publish_generic(chead, NULL, d->status_code, d->status_line);
+  nchan_memstore_publish_generic(chead, NULL, d->code, d->data);
   
   str_shm_free(d->shm_chid);
   d->shm_chid=NULL;
+}
+
+////////// PUBLISH_NOTICE ////////////////
+ngx_int_t memstore_ipc_send_publish_notice(ngx_int_t dst, ngx_str_t *chid, ngx_int_t notice_code, void *notice_data) {
+  DBG("IPC: send publish status to %i ch %V", dst, chid);
+  publish_code_data_t  data = {str_shm_copy(chid), notice_code, notice_data, NULL, NULL};
+  if(data.shm_chid == NULL) {
+    nchan_log_ooshm_error("sending IPC status alert for channel %V", chid);
+    return NGX_DECLINED;
+  }
+  return ipc_cmd(publish_notice, dst, &data);
+}
+
+static void receive_publish_notice(ngx_int_t sender, publish_code_data_t *d) {
+  memstore_channel_head_t       *chead;
+  
+  if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
+    if(ngx_exiting || ngx_quit) {
+      ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);
+    }
+    else {
+      ERR("Can't find chanhead for id %V while publishing status %i. This is not a big deal if you just reloaded Nchan.", d->shm_chid, d->code);
+    }
+    str_shm_free(d->shm_chid);
+    return;
+  }
+  
+  DBG("IPC: received publish notice for channel %V notice %i", d->shm_chid, d->code);
+  
+  nchan_memstore_publish_notice(chead, d->code, d->data);
+  
+  str_shm_free(d->shm_chid);
 }
 
 ////////// PUBLISH  ////////////////

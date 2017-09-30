@@ -4,6 +4,8 @@
 #include "ipc.h"
 //#define MEMSTORE_CHANHEAD_RESERVE_DEBUG 1
 
+#define NCHAN_NOTICE_BUFFER_LOADED 0x356F
+
 #if MEMSTORE_CHANHEAD_RESERVE_DEBUG
 #include <util/nchan_list.h>
 #endif
@@ -72,6 +74,8 @@ struct memstore_channel_head_s {
   unsigned                        stub:1;
   unsigned                        shutting_down:1;
   unsigned                        meta:1;
+  
+  uint8_t                         msg_buffer_complete; //must be a byte because we need to reference it in the spooler
   
   nchan_loc_conf_t               *cf;
   
@@ -143,6 +147,7 @@ ngx_int_t nchan_memstore_handle_get_message_reply(nchan_msg_t *msg, nchan_msg_st
 ngx_int_t nchan_store_publish_message_generic(ngx_str_t *channel_id, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line);
 ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *chead, nchan_msg_t *msg, ngx_int_t msg_in_shm, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
+ngx_int_t nchan_memstore_publish_notice(memstore_channel_head_t *head, ngx_int_t notice_code, const void *notice_data);
 ngx_int_t nchan_memstore_force_delete_channel(ngx_str_t *channel_id, callback_pt callback, void *privdata);
 ngx_int_t memstore_ensure_chanhead_is_ready(memstore_channel_head_t *head, uint8_t ipc_subscribe_if_needed);
 ngx_int_t memstore_ready_chanhead_unless_stub(memstore_channel_head_t *head);

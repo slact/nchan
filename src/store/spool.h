@@ -80,6 +80,7 @@ struct channel_spooler_s {
   ngx_uint_t                  responded_count;
   ngx_str_t                  *chid;
   chanhead_pubsub_status_t   *channel_status;
+  uint8_t                    *channel_buffer_complete;
   nchan_store_t              *store;
   nchan_loc_conf_t           *cf;
   channel_spooler_fn_t       *fn;
@@ -106,7 +107,7 @@ struct channel_spooler_handlers_s {
   void                        (*get_message_finish)(channel_spooler_t *, void *);
 };
 
-channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
+channel_spooler_t *start_spooler(channel_spooler_t *spl, ngx_str_t *chid, chanhead_pubsub_status_t *channel_status, uint8_t *channel_buffer_complete, nchan_store_t *store, nchan_loc_conf_t *cf, spooler_fetching_strategy_t fetching_strategy, channel_spooler_handlers_t *handlers, void *handlers_privdata);
 ngx_int_t stop_spooler(channel_spooler_t *spl, uint8_t dequeue_subscribers);
 
 ngx_int_t spooler_catch_up(channel_spooler_t *spl);

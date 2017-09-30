@@ -838,6 +838,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
 
 
 static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
+  int                               use_redis = head->cf && head->cf->redis.enabled;
   static channel_spooler_handlers_t handlers = {
     memstore_spooler_add_handler,
     NULL,
@@ -848,8 +849,9 @@ static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
   };
   
   
+  
   //(head->use_redis && head->owner == memstore_slot()) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH
-  start_spooler(&head->spooler, &head->id, &head->status, &nchan_store_memory, head->cf, (head->cf && head->cf->redis.enabled) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
+  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, use_redis ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
@@ -1028,9 +1030,12 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
     head->delta_fakesubs = 0;
     head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
+    
+    head->msg_buffer_complete = 0;
   }
   else {
     head->redis_idle_cache_ttl = 0;
+    head->msg_buffer_complete = 1;
   }
   
   if(head->slot == owner) {
@@ -1049,6 +1054,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   }
   else {
     head->shared = NULL;
+    head->msg_buffer_complete = 1; //always assume buffer is complete, and let the owner figure out the details
   }
   
   //no lock needed, no one else knows about this chanhead yet.
@@ -1336,16 +1342,30 @@ static ngx_str_t *chanhead_msg_to_str(store_message_t *msg) {
 }
 */
 
+ngx_int_t nchan_memstore_publish_notice(memstore_channel_head_t *head, ngx_int_t notice_code, const void *notice_data) {
+  
+  DBG("tried publishing notice %i to chanhead %p (subs: %i)", notice_code, head, head->total_sub_count);
+  
+  switch(notice_code) {
+    case NCHAN_NOTICE_BUFFER_LOADED:
+      if(head->msg_buffer_complete == 0) {
+        head->msg_buffer_complete = 1;
+        ensure_chanhead_ready_or_trash_chanhead(head, 0);
+        head->spooler.fn->handle_channel_status_change(&head->spooler); // re-fetches all the MSG_STATUS_NOT_READY spools
+      }
+      break;
+    
+    default:
+      //do nothing
+      break;
+  }
+  
+  return head->spooler.fn->broadcast_notice(&head->spooler, notice_code, (void *)notice_data);
+}
+
 ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_msg_t *msg, ngx_int_t status_code, const ngx_str_t *status_line) {
   
   ngx_int_t          shared_sub_count = 0;
-  
-  if(head->shared) {
-    if(!(head->cf && head->cf->redis.enabled) && !head->multi) {
-      assert(head->status == READY || head->status == STUBBED);
-    }
-    shared_sub_count = head->shared->sub_count;
-  }
 
   if(head==NULL) {
     /*
@@ -1357,6 +1377,13 @@ ngx_int_t nchan_memstore_publish_generic(memstore_channel_head_t *head, nchan_ms
     }
     */
     return NCHAN_MESSAGE_QUEUED;
+  }
+  
+  if(head->shared) {
+    if(!(head->cf && head->cf->redis.enabled) && !head->multi) {
+      assert(head->status == READY || head->status == STUBBED);
+    }
+    shared_sub_count = head->shared->sub_count;
   }
 
   if(msg) {
@@ -1965,6 +1992,14 @@ store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_m
     store_message_t  *prev = NULL;
     
     assert(mid_tag != 0);
+    
+    if(mid_tag <= 0 && !ch->msg_buffer_complete) {
+      // want nth from most recent message,
+      // but buffer isn't complete yet
+      *status = MSG_CHANNEL_NOTREADY;
+      return NULL;
+    }
+    
     for(cur = (direction>0 ? ch->msg_first : ch->msg_last); cur != NULL && n > 1; cur = (direction>0 ? cur->next : cur->prev)) {
       prev = cur;
       n--;
@@ -2687,6 +2722,15 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   if(chead) {
     ask_redis = chead->cf && chead->cf->redis.enabled;// && chead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
   }
+  
+  if(ask_redis && !chead->msg_buffer_complete && msg_id->time == NCHAN_NTH_MSGID_TIME && msg_id->tag.fixed[0] <= 0) {
+    // want nth from most recent message,
+    // but buffer isn't complete yet.
+    //don't even try
+    callback(MSG_CHANNEL_NOTREADY, NULL, privdata);
+    return NGX_OK;
+  }
+  
   d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
   d->channel_id = channel_id;
