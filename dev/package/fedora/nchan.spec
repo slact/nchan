@@ -12,15 +12,20 @@
 %global with_mailcap_mimetypes 1
 %endif
 
-%define nchan_ver 1.1.7
+
+%if 0%{!?nchan_ver:1}
+  %define nchan_ver master
+%endif
 
 %if "%{nchan_ver}" == "master"
   %define         nchan_tag %{nchan_ver}
 %else
   %define         nchan_tag v%{nchan_ver}
 %endif
-  
-%define            nginx_ver 1.12.1
+
+%if 0%{!?nginx_ver:1}
+  %define            nginx_ver 1.12.1
+%endif
 
 Name:              nginx-mod-nchan
 Epoch:             1
