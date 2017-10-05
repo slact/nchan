@@ -128,6 +128,43 @@ class PubSubTest <  Minitest::Test
     assert sub.match_errors(/code 400/), "expected 400 for subscriber"
     sub.terminate
     
+    #255-count msgid
+    pub, sub = pubsub
+    pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
+    sub.on_failure { false }
+    sub.on_message do |msg, bundle|
+      bundle.etag=(0..255).to_a.join ","
+    end
+    sub.run
+    sub.wait
+    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
+    sub.terminate
+    
+    #many tagactives
+    pub, sub = pubsub
+    pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
+    sub.on_failure { false }
+    sub.on_message do |msg, bundle|
+      bundle.etag="[[[0,13,[9],[11]"
+    end
+    sub.run
+    sub.wait
+    puts sub.errors
+    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
+    sub.terminate
+    
+    #messed up tagactive
+    pub, sub = pubsub
+    pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
+    sub.on_failure { false }
+    sub.on_message do |msg, bundle|
+      bundle.etag="0,13,[9]]"
+    end
+    sub.run
+    sub.wait
+    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
+    sub.terminate
+    
     #multiplexed channel stuff
     chan_id=short_id
     pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'

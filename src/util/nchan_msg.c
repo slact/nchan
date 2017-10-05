@@ -405,6 +405,8 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
   int8_t            sign = 1;
   int16_t           val = 0;
   static int16_t    tags[NCHAN_MULTITAG_MAX];
+  int brace_open_total = 0;
+  int brace_close_total = 0;
   
   while(first != NULL && last != NULL && cur <= last && i < NCHAN_MULTITAG_MAX) {
     if(cur == last) {
@@ -421,7 +423,15 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
       val = 10 * val + (c - '0');
     }
     else if (c == '[') {
+      if(++brace_open_total > 1) {
+        return NGX_ERROR;
+      }
       mid->tagactive = i;
+    }
+    else if (c == ']') {
+      if(++brace_close_total > 1 || brace_open_total - brace_close_total != 0) {
+        return NGX_ERROR;
+      }
     }
     else if (c == ',') {
       tags[i]=(val == 0 && sign == -1) ? -1 : val * sign; //shorthand "-" for "-1"
