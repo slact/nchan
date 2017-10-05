@@ -370,7 +370,7 @@ size_t msgtag_to_strptr(nchan_msg_id_t *id, char *ch) {
   uint8_t   i;
   char     *cur;
   
-  assert(max < 255);
+  assert(max <= 255);
   static char* inactive="%i,";
   static char*  active="[%i],";
   if(max == 1) {
