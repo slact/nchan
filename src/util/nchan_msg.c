@@ -155,6 +155,22 @@ ngx_int_t msg_release(nchan_msg_t *msg, char *lbl) {
 }
 
 
+int nchan_msgid_tagcount_match(nchan_msg_id_t *id, int count) {
+  switch(id->time) {
+    case NCHAN_OLDEST_MSGID_TIME:
+    case NCHAN_NEWEST_MSGID_TIME:
+    case NCHAN_NTH_MSGID_TIME:
+      if(id->tagcount == 1 && id->tagactive == 0)
+        return 1;
+      break;
+    default:
+      if(id->tagcount == count && id->tagactive >= 0 && id->tagactive < count)
+        return 1;
+      break;
+  }
+  return 0;
+}
+
 void nchan_expand_msg_id_multi_tag(nchan_msg_id_t *id, uint8_t in_n, uint8_t out_n, int16_t fill) {
   int16_t v, n = id->tagcount;
   int16_t *tags = n <= NCHAN_FIXED_MULTITAG_MAX ? id->tag.fixed : id->tag.allocd;

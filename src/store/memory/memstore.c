@@ -2368,7 +2368,13 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   if(chanhead) {
     
-    if(cf->group.enable_accounting || chanhead->groupnode) {
+    //check message id appropriateness
+    if(!nchan_msgid_tagcount_match(&d->sub->last_msgid, chanhead->multi ? chanhead->multi_count : 1)) {
+      d->sub->fn->reserve(d->sub);
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_BAD_REQUEST, NULL);
+      d->sub->fn->release(d->sub, 0);
+    }
+    else if(cf->group.enable_accounting || chanhead->groupnode) {
       //per-group max subscriber check
       DBG("per-group max subscriber check");
       assert(d->allocd);

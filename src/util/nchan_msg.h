@@ -20,6 +20,8 @@ ngx_int_t nchan_extract_from_multi_msgid(nchan_msg_id_t *src, uint16_t n, nchan_
 int8_t nchan_compare_msgid_tags(nchan_msg_id_t *id1, nchan_msg_id_t *id2);
 int8_t nchan_compare_msgids(nchan_msg_id_t *id1, nchan_msg_id_t *id2);
 
+int nchan_msgid_tagcount_match(nchan_msg_id_t *id, int count);
+
 void nchan_expand_tiny_msgid(nchan_msg_tiny_id_t *tinyid, nchan_msg_id_t *id);
 void nchan_shrink_normal_msgid(nchan_msg_id_t *id, nchan_msg_tiny_id_t *tinyid);
 

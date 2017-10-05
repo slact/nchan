@@ -114,6 +114,52 @@ class PubSubTest <  Minitest::Test
     assert got_304s > 0, "Expected at least one 304 response"
   end
   
+  def test_weird_msgids
+    
+    #multi-msgid in nonmulti channel
+    pub, sub = pubsub
+    pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
+    sub.on_failure { false }
+    sub.on_message do |msg, bundle|
+      bundle.etag="#{bundle.etag},99,110"
+    end
+    sub.run
+    sub.wait
+    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
+    sub.terminate
+    
+    #multiplexed channel stuff
+    chan_id=short_id
+    pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
+    pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
+    
+    #first request with non-empty msgtags
+    sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20, etag: "10,20,30")
+    sub.on_failure { false }
+    sub.run
+    sub.wait
+    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
+    sub.terminate
+    
+    #wrong msgid count
+    sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub.on_failure { false }
+    sub.on_message do |msg, bundle|
+      bundle.etag="#{bundle.etag},99,110"
+    end
+    sub.run
+    sub.wait
+    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
+    sub.terminate
+    
+    #now check that a normal sub works okay
+    sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 10, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub.run
+    sub.wait
+    verify pub, sub
+    
+  end
+  
   def test_websocket_pubsub_echo
     sub=Subscriber.new(url("/pubsub/#{short_id}"), 1, client: :websocket, quit_message: 'FIN')
     
