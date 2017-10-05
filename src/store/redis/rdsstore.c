@@ -1222,7 +1222,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       int64_t     msgbuf_size = 0;
       //maybe a message?
       set_buf(&mpbuf, (u_char *)el->str, el->len);
-      cmp_init(&cmp, &mpbuf, ngx_buf_reader, ngx_buf_writer);
+      cmp_init(&cmp, &mpbuf, ngx_buf_reader, NULL, ngx_buf_writer);
       if(cmp_read_array(&cmp, &array_sz)) {
         
         if(array_sz != 0) {

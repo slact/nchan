@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2015 Charles Gunyon
+Copyright (c) 2017 Charles Gunyon
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,7 @@ THE SOFTWARE.
 struct cmp_ctx_s;
 
 typedef bool   (*cmp_reader)(struct cmp_ctx_s *ctx, void *data, size_t limit);
+typedef bool   (*cmp_skipper)(struct cmp_ctx_s *ctx, size_t count);
 typedef size_t (*cmp_writer)(struct cmp_ctx_s *ctx, const void *data,
                                                     size_t count);
 
@@ -94,10 +95,11 @@ union cmp_object_data_u {
 };
 
 typedef struct cmp_ctx_s {
-  uint8_t     error;
-  void       *buf;
-  cmp_reader  read;
-  cmp_writer  write;
+  uint8_t      error;
+  void        *buf;
+  cmp_reader   read;
+  cmp_skipper  skip;
+  cmp_writer   write;
 } cmp_ctx_t;
 
 typedef struct cmp_object_s {
@@ -115,8 +117,20 @@ extern "C" {
  * ============================================================================
  */
 
-/* Initializes a CMP context */
-void cmp_init(cmp_ctx_t *ctx, void *buf, cmp_reader read, cmp_writer write);
+/*
+ * Initializes a CMP context
+ *
+ * If you don't intend to read, `read` may be NULL, but calling `*read*`
+ * functions will crash; there is no check.
+ *
+ * `skip` may be NULL, in which case skipping functions will use `read`.
+ *
+ * If you don't intend to write, `write` may be NULL, but calling `*write*`
+ * functions will crash; there is no check.
+ */
+void cmp_init(cmp_ctx_t *ctx, void *buf, cmp_reader read,
+                                         cmp_skipper skip,
+                                         cmp_writer write);
 
 /* Returns CMP's version */
 uint32_t cmp_version(void);
@@ -298,6 +312,44 @@ bool cmp_read_ext(cmp_ctx_t *ctx, int8_t *type, uint32_t *size, void *data);
 
 /* Reads an object from the backend */
 bool cmp_read_object(cmp_ctx_t *ctx, cmp_object_t *obj);
+
+/*
+ * Skips the next object from the backend.  If that object is an array or map,
+ * this function will:
+ *   - If `obj` is not `NULL`, fill in `obj` with that object
+ *   - Set `ctx->error` to `SKIP_DEPTH_LIMIT_EXCEEDED_ERROR`
+ *   - Return `false`
+ * Otherwise:
+ *   - (Don't touch `obj`)
+ *   - Return `true`
+ */
+bool cmp_skip_object(cmp_ctx_t *ctx, cmp_object_t *obj);
+
+/*
+ * This is similar to `cmp_skip_object`, except it tolerates up to `limit`
+ * levels of nesting.  For example, in order to skip an array that contains a
+ * map, call `cmp_skip_object_limit(ctx, &obj, 2)`.  Or in other words,
+ * `cmp_skip_object(ctx, &obj)` acts similarly to `cmp_skip_object_limit(ctx,
+ * &obj, 0)`
+ *
+ * Specifically, `limit` refers to depth, not breadth.  So in order to skip an
+ * array that contains two arrays that each contain 3 strings, you would call
+ * `cmp_skip_object_limit(ctx, &obj, 2).  In order to skip an array that
+ * contains 4 arrays that each contain 1 string, you would still call
+ * `cmp_skip_object_limit(ctx, &obj, 2).
+ */
+bool cmp_skip_object_limit(cmp_ctx_t *ctx, cmp_object_t *obj, uint32_t limit);
+
+/*
+ * This is similar to `cmp_skip_object`, except it will continually skip
+ * nested data structures.
+ *
+ * WARNING: This can cause your application to spend an unbounded amount of
+ *          time reading nested data structures.  Unless you completely trust
+ *          the data source, you should strongly consider `cmp_skip_object` or
+ *          `cmp_skip_object_limit`.
+ */
+bool cmp_skip_object_no_limit(cmp_ctx_t *ctx);
 
 /*
  * ============================================================================
