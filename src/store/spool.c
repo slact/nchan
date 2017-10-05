@@ -260,6 +260,7 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
       switch(newspool->msg_status) {
         case MSG_CHANNEL_NOTREADY:
           newspool->msg_status = MSG_INVALID;
+          /*fallthrough*/
         case MSG_INVALID:
           spool_fetch_msg(newspool);
           break;
@@ -388,6 +389,7 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
         spool->msg_status = prev_status;
         break;
       }
+      /*fallthrough*/
     case MSG_EXPIRED:
       //is this right?
       //TODO: maybe message-expired notification

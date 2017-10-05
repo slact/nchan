@@ -742,6 +742,7 @@ static ngx_int_t publish_callback(ngx_int_t status, void *data, safe_request_ptr
       
     case NGX_ERROR:
       status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+      /*fallthrough*/
     case NGX_HTTP_INSUFFICIENT_STORAGE:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
     case NGX_HTTP_SERVICE_UNAVAILABLE:
