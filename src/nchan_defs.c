@@ -26,6 +26,7 @@ const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_KEY = ngx_string("Sec-WebSocket-Key")
 const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT = ngx_string("Sec-WebSocket-Accept");
 const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_VERSION = ngx_string("Sec-WebSocket-Version");
 const ngx_str_t NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL = ngx_string("Sec-WebSocket-Protocol");
+const ngx_str_t NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS = ngx_string("Sec-WebSocket-Extensions");
 
 //and some wobsockety values
 const ngx_str_t NCHAN_UPGRADE = ngx_string("Upgrade");
