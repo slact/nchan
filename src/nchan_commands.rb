@@ -35,8 +35,18 @@ CfCmd.new do
         Send POST request to internal location (which may proxy to an upstream server) with published message in the request body. Useful for bridging websocket publishers with HTTP applications, or for transforming message via upstream application before publishing to a channel.  
         The upstream response code determines how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.
       EOS
-      
   
+  nchan_compress_message_for_websocket [:srv, :loc],
+      :nchan_set_message_compression_slot,
+      :loc_conf,
+      args: 1,
+      
+      group: "pubsub",
+      tags: ["publisher", "websocket"],
+      value: ['on', 'off'],
+      default: "off",
+      info: "Store a compressed (deflated) copy of the message along with the original to be sent to websocket clients supporting the permessage-deflate protocol extension"
+      
   nchan_channel_id_split_delimiter [:srv, :loc, :if],
       :ngx_conf_set_str_slot,
       [:loc_conf, :channel_id_split_delimiter],

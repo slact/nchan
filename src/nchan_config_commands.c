@@ -33,6 +33,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, publisher_upstream_request_url),
     NULL } ,
 
+  { ngx_string("nchan_compress_message_for_websocket"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    nchan_set_message_compression_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_channel_id_split_delimiter"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,

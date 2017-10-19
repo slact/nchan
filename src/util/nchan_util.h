@@ -27,6 +27,11 @@ ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last);
 char *nchan_conf_set_size_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 ssize_t nchan_parse_size(ngx_str_t *line);
 
+void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end);
+void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str);
+#define ngx_init_set_membuf_char(buf, str) \
+  ngx_init_set_membuf(buf, (u_char *)str, ((u_char *)str) + sizeof(str)-1)
+
 ngx_str_t *nchan_urldecode_str(ngx_http_request_t *r, ngx_str_t *str);
 
 int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz);

@@ -88,6 +88,17 @@ typedef struct nchan_msg_s nchan_msg_t;
 
 typedef enum {NCHAN_MSG_SHARED, NCHAN_MSG_HEAP, NCHAN_MSG_POOL, NCHAN_MSG_STACK} nchan_msg_storage_t;
 
+typedef enum {
+  NCHAN_MSG_COMPRESSION_INVALID = -1,
+  NCHAN_MSG_NO_COMPRESSION = 0, 
+  NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE
+} nchan_msg_compression_type_t;
+  
+typedef struct {
+  ngx_buf_t                       buf;
+  nchan_msg_compression_type_t    compression;
+} nchan_compressed_msg_t;
+
 struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
@@ -99,6 +110,7 @@ struct nchan_msg_s {
   
   ngx_atomic_int_t                refcount;
   nchan_msg_t                    *parent;
+  nchan_compressed_msg_t         *compressed;
   //struct nchan_msg_s             *reload_next;
   
   nchan_msg_storage_t             storage;
@@ -277,7 +289,6 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_conf_publisher_types_t    pub;
   nchan_conf_subscriber_types_t   sub; 
   nchan_conf_group_t              group;
-  
   time_t                          subscriber_timeout;
   
   ngx_int_t                       longpoll_multimsg;
@@ -292,6 +303,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
     ngx_str_t  *in;
     ngx_str_t  *out;
   }                               websocket_heartbeat;
+  
+  nchan_msg_compression_type_t    message_compression;
   
   ngx_int_t                       subscriber_first_message;
   

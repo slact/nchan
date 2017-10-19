@@ -23,7 +23,4 @@ void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ng
 ngx_int_t nchan_subscriber_init_msgid_reusepool(nchan_request_ctx_t *ctx, ngx_pool_t *request_pool);
 ngx_str_t nchan_subscriber_set_recyclable_msgid_str(nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid);
 void nchan_subscriber_unsubscribe_callback_http_test_reading(ngx_http_request_t *r);
-void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end);
-void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str);
-#define ngx_init_set_membuf_char(buf, str) \
-  ngx_init_set_membuf(buf, (u_char *)str, ((u_char *)str) + sizeof(str)-1)
+

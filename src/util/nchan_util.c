@@ -572,6 +572,23 @@ char *nchan_conf_set_size_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   return NGX_CONF_OK;
 }
 
+void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
+  ngx_memzero(buf, sizeof(*buf));
+  buf->start = start;
+  buf->pos = start;
+  buf->end = end;
+  buf->last = end;
+  buf->memory = 1;
+}
+
+void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
+  ngx_memzero(buf, sizeof(*buf));
+  buf->start = str->data;
+  buf->pos = str->data;
+  buf->end = str->data + str->len;
+  buf->last = buf->end;
+  buf->memory = 1;
+}
 
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited
