@@ -18,6 +18,11 @@
 
 #include <nchan_setup.c>
 
+#if (NGX_ZLIB)
+#include <zlib.h>
+#endif
+
+
 #if FAKESHARD
 #include <store/memory/ipc.h>
 #include <store/memory/shmem.h>
@@ -829,6 +834,46 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
+  
+  if(cf->message_compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE) {
+#if (NGX_ZLIB)
+    // THIS IS A SILLY TEST IMPLEMENTATION. BUGS EVERYWHERE DEFINITELY
+    static u_char outbuf[100];
+    int n;
+    z_stream strm;
+    ngx_memzero(&strm, sizeof(strm));
+    
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    
+    n = deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -10, 8, Z_DEFAULT_STRATEGY);
+    if (n != Z_OK) {
+      nchan_log_request_error(r, "couldn't initialize deflate stream.");
+      nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
+    
+    strm.avail_in = ngx_buf_size((&msg->buf));
+    strm.next_in = msg->buf.start;
+    
+    ssize_t out_buf_sz = 100;
+    strm.avail_out = out_buf_sz;
+    strm.next_out = outbuf;
+    
+    n = deflate(&strm, Z_SYNC_FLUSH);
+    if (n == Z_STREAM_ERROR) {
+      nchan_log_request_error(r, "couldn't deflate message.");
+      nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+      return;
+    }
+    
+    msg->compressed = ngx_palloc(r->pool, sizeof(*msg->compressed));
+    msg->compressed->compression = NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
+    
+    ngx_init_set_membuf(&msg->compressed->buf, outbuf, outbuf + strm.total_out);
+#endif
+  }
   
   
   if((pd = nchan_set_safe_request_ptr(r)) == NULL) {

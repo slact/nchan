@@ -7,6 +7,10 @@
 #include <ngx_sha1.h>
 #include <nginx.h>
 
+#if (NGX_ZLIB)
+#include <zlib.h>
+#endif
+
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -96,8 +100,13 @@
 
 static const u_char WEBSOCKET_PAYLOAD_LEN_16_BYTE = 126;
 static const u_char WEBSOCKET_PAYLOAD_LEN_64_BYTE = 127;
-static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT  | (WEBSOCKET_LAST_FRAME << 4);
-static const u_char WEBSOCKET_BINARY_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_BINARY  | (WEBSOCKET_LAST_FRAME << 4);
+
+static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_TEXT_DEFLATED_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_TEXT | (WEBSOCKET_LAST_FRAME << 4) | (1 << 2);
+
+static const u_char WEBSOCKET_BINARY_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_BINARY | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_BINARY_DEFLATED_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_BINARY  | (WEBSOCKET_LAST_FRAME << 4) | (1 << 2);
+
 static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
@@ -919,7 +928,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
         }
       }
       else {
-        pmd.client_max_window_bits = NGX_ERROR;
+        pmd.client_max_window_bits = -1;
       }
       
       if((ltmp = ngx_strnstr(lcur, "server_max_window_bits", lend - lcur)) != NULL) {
@@ -930,7 +939,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
         pmd.server_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
       }
       else {
-        pmd.server_max_window_bits = NGX_ERROR;
+        pmd.server_max_window_bits = -1;
       }
     }
     
@@ -1530,70 +1539,140 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   ngx_buf_t             *chained_msgbuf = NULL;
   size_t                 sz = ngx_buf_size((&msg->buf));
   ngx_str_t              binary_mimetype = ngx_string("application/octet-stream");
-  u_char                 frame_opcode = WEBSOCKET_TEXT_LAST_FRAME_BYTE;
+  u_char                 frame_opcode;
+  int                    compressed;
+  ngx_buf_t             *msgbuf;
+  compressed = msg->compressed && msg->compressed->compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
   
   if(msg->content_type && nchan_ngx_str_match(msg->content_type, &binary_mimetype)) {
-    frame_opcode = WEBSOCKET_BINARY_LAST_FRAME_BYTE;
+    frame_opcode = compressed ? WEBSOCKET_BINARY_DEFLATED_LAST_FRAME_BYTE : WEBSOCKET_BINARY_LAST_FRAME_BYTE;
+  }
+  else {
+    frame_opcode = compressed ? WEBSOCKET_TEXT_DEFLATED_LAST_FRAME_BYTE : WEBSOCKET_TEXT_LAST_FRAME_BYTE;
   }
   
+  msgbuf = compressed ? &msg->compressed->buf : &msg->buf;
+  
   if(fsub->ws_meta_subprotocol) {
-    static ngx_str_t          id_line = ngx_string("id: ");
-    static ngx_str_t          content_type_line = ngx_string("\ncontent-type: ");
-    static ngx_str_t          two_newlines = ngx_string("\n\n");
-    ngx_chain_t              *cur;
-    ngx_str_t                 msgid;
-    bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 4 + (msg->content_type ? 2 : 0));
-    cur = &bc->chain;
-    
-    // id: 
-    ngx_init_set_membuf(cur->buf, id_line.data, id_line.data + id_line.len);
-    sz += id_line.len;
-    cur = cur->next;
-    
-    //msgid value
-    msgid = nchan_subscriber_set_recyclable_msgid_str(fsub->ctx, &fsub->sub.last_msgid);
-    ngx_init_set_membuf(cur->buf, msgid.data, msgid.data + msgid.len);
-    sz += msgid.len;
-    cur = cur->next;
-    
-    if(msg->content_type) {
-      // content-type: 
-      ngx_init_set_membuf(cur->buf, content_type_line.data, content_type_line.data + content_type_line.len);
-      sz += content_type_line.len;
+    if(!compressed) {
+      static ngx_str_t          id_line = ngx_string("id: ");
+      static ngx_str_t          content_type_line = ngx_string("\ncontent-type: ");
+      static ngx_str_t          two_newlines = ngx_string("\n\n");
+      ngx_chain_t              *cur;
+      ngx_str_t                 msgid;
+      bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 4 + (msg->content_type ? 2 : 0));
+      cur = &bc->chain;
+      
+      // id: 
+      ngx_init_set_membuf(cur->buf, id_line.data, id_line.data + id_line.len);
+      sz += id_line.len;
       cur = cur->next;
       
-      //content-type value
-      ngx_init_set_membuf(cur->buf, msg->content_type->data, msg->content_type->data + msg->content_type->len);
-      sz += msg->content_type->len;
+      //msgid value
+      msgid = nchan_subscriber_set_recyclable_msgid_str(fsub->ctx, &fsub->sub.last_msgid);
+      ngx_init_set_membuf(cur->buf, msgid.data, msgid.data + msgid.len);
+      sz += msgid.len;
       cur = cur->next;
-    }
+      
+      if(msg->content_type) {
+        // content-type: 
+        ngx_init_set_membuf(cur->buf, content_type_line.data, content_type_line.data + content_type_line.len);
+        sz += content_type_line.len;
+        cur = cur->next;
+        
+        //content-type value
+        ngx_init_set_membuf(cur->buf, msg->content_type->data, msg->content_type->data + msg->content_type->len);
+        sz += msg->content_type->len;
+        cur = cur->next;
+      }
+      
+      // \n\n
+      ngx_init_set_membuf(cur->buf, two_newlines.data, two_newlines.data + two_newlines.len);
+      sz += two_newlines.len;
     
-    // \n\n
-    ngx_init_set_membuf(cur->buf, two_newlines.data, two_newlines.data + two_newlines.len);
-    sz += two_newlines.len;
     
-    
-    if(ngx_buf_size((&msg->buf)) > 0) {
-      cur = cur->next;
-      //now the message
-      *cur->buf = msg->buf;
-      chained_msgbuf = cur->buf;
-      assert(cur->next == NULL);
+      if(ngx_buf_size(msgbuf) > 0) {
+        cur = cur->next;
+        //now the message
+        *cur->buf = *msgbuf;
+        chained_msgbuf = cur->buf;
+        assert(cur->next == NULL);
+      }
+      else {
+        cur->next = NULL;
+        cur->buf->last_in_chain = 1;
+        cur->buf->last_buf = 1;
+      }
     }
     else {
-      cur->next = NULL;
-      cur->buf->last_in_chain = 1;
-      cur->buf->last_buf = 1;
+#if (NGX_ZLIB)
+      // THIS IS A TEST IMPLEMENTATION. BUGS EVERYWHERE DEFINITELY
+      u_char        ws_meta_header[512];
+      static u_char ws_meta_header_deflated[512];
+      size_t        len;
+      ngx_chain_t  *cur;
+      u_char       *end;
+      int           n;
+      
+      //TODO
+      
+      z_stream strm;
+      ngx_memzero(&strm, sizeof(strm));
+      
+      strm.zalloc = Z_NULL;
+      strm.zfree = Z_NULL;
+      strm.opaque = Z_NULL;
+      
+      n = deflateInit2(&strm, 0, Z_DEFLATED, -8, 1, Z_DEFAULT_STRATEGY);
+      if (n != Z_OK) {
+        ERR("Couldn't deflate it");
+        return NULL;
+      }
+      
+      ngx_str_t     msgid = nchan_subscriber_set_recyclable_msgid_str(fsub->ctx, &fsub->sub.last_msgid);
+      if(msg->content_type) {
+        end = ngx_snprintf(ws_meta_header, 512, "id: %V\ncontent-type: %V\n\n", &msgid, &msg->content_type);
+      }
+      else {
+        end = ngx_snprintf(ws_meta_header, 512, "id: %V\n\n", &msgid);
+      }
+      len = end - ws_meta_header;
+      
+      strm.avail_in = len;
+      strm.next_in = ws_meta_header;
+      
+      strm.avail_out = 512;
+      strm.next_out = ws_meta_header_deflated;
+      
+      n = deflate(&strm, Z_SYNC_FLUSH);
+      if (n == Z_STREAM_ERROR) {
+        ERR("Couldn't deflate it at all");
+        return NULL;
+      }
+      
+      bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 3);
+      cur = &bc->chain;
+      
+      ngx_init_set_membuf(cur->buf, ws_meta_header_deflated, strm.total_out);
+      sz += strm.total_out;
+      cur = cur->next;
+      
+      //now the message
+      *cur->buf = *msgbuf;
+      chained_msgbuf = cur->buf;
+      
+      //TODO: something about the last byte of each deflate block...
+#endif
     }
   }
   else {
     bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
     //message first
     chained_msgbuf = &bc->buf;
-    bc->buf = msg->buf;
+    bc->buf = *msgbuf;
   }
   
-  if(chained_msgbuf && msg->buf.file) {
+  if(chained_msgbuf && msgbuf->file) {
     file_copy = nchan_bufchain_pool_reserve_file(fsub->ctx->bcp);
     nchan_msg_buf_open_fd_if_needed(chained_msgbuf, file_copy, NULL);
   }

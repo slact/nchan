@@ -1853,6 +1853,9 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   nchan_free_msg_id(&msg->id);
   nchan_free_msg_id(&msg->prev_id);
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
+  if(msg->compressed) {
+    shm_free(shm, msg->compressed);
+  }
   shm_free(shm, msg);
   nchan_update_stub_status(messages, -1);
   return NGX_OK;
@@ -2886,6 +2889,21 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     return NULL;
   }
   buf = &msg->buf;
+  
+  if(m->compressed) {
+    size_t msg_compressed_sz = ngx_buf_size((&m->compressed->buf));
+    msg->compressed = shm_alloc(shm, msg_compressed_sz, "compressed message");
+    if(!msg->compressed) {
+      nchan_log_ooshm_error("allocating compressed message of size %i", msg_compressed_sz);
+      return NULL;
+    }
+    *msg->compressed = *m->compressed;
+    msg->compressed->buf.start = (u_char *)&(msg->compressed)[1];
+    msg->compressed->buf.pos = msg->compressed->buf.start;
+    msg->compressed->buf.end = msg->compressed->buf.start + msg_compressed_sz;
+    msg->compressed->buf.last = msg->compressed->buf.end;
+    ngx_memcpy(msg->compressed->buf.start, m->compressed->buf.start, msg_compressed_sz);
+  }
   
 #if NCHAN_CREATE_SHM_MSG_DEBUG
   cur = (u_char *)msg;
