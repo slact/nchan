@@ -2890,21 +2890,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   }
   buf = &msg->buf;
   
-  if(m->compressed) {
-    size_t msg_compressed_sz = ngx_buf_size((&m->compressed->buf));
-    msg->compressed = shm_alloc(shm, msg_compressed_sz, "compressed message");
-    if(!msg->compressed) {
-      nchan_log_ooshm_error("allocating compressed message of size %i", msg_compressed_sz);
-      return NULL;
-    }
-    *msg->compressed = *m->compressed;
-    msg->compressed->buf.start = (u_char *)&(msg->compressed)[1];
-    msg->compressed->buf.pos = msg->compressed->buf.start;
-    msg->compressed->buf.end = msg->compressed->buf.start + msg_compressed_sz;
-    msg->compressed->buf.last = msg->compressed->buf.end;
-    ngx_memcpy(msg->compressed->buf.start, m->compressed->buf.start, msg_compressed_sz);
-  }
-  
 #if NCHAN_CREATE_SHM_MSG_DEBUG
   cur = (u_char *)msg;
   cur[memsize+1]='e';
@@ -2966,6 +2951,21 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   
   msg->storage = NCHAN_MSG_SHARED;
   msg->parent = NULL;
+  
+  if(m->compressed) {
+    size_t msg_compressed_sz = ngx_buf_size((&m->compressed->buf));
+    msg->compressed = shm_alloc(shm, msg_compressed_sz, "compressed message");
+    if(!msg->compressed) {
+      nchan_log_ooshm_error("allocating compressed message of size %i", msg_compressed_sz);
+      return NULL;
+    }
+    *msg->compressed = *m->compressed;
+    msg->compressed->buf.start = (u_char *)&(msg->compressed)[1];
+    msg->compressed->buf.pos = msg->compressed->buf.start;
+    msg->compressed->buf.end = msg->compressed->buf.start + msg_compressed_sz;
+    msg->compressed->buf.last = msg->compressed->buf.end;
+    ngx_memcpy(msg->compressed->buf.start, m->compressed->buf.start, msg_compressed_sz);
+  }
   
 #if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
