@@ -88,6 +88,12 @@ typedef struct nchan_msg_s nchan_msg_t;
 
 typedef enum {NCHAN_MSG_SHARED, NCHAN_MSG_HEAP, NCHAN_MSG_POOL, NCHAN_MSG_STACK} nchan_msg_storage_t;
 
+typedef enum {
+  NCHAN_MSG_COMPRESSION_INVALID = -1,
+  NCHAN_MSG_NO_COMPRESSION = 0, 
+  NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE
+} nchan_msg_compression_type_t;
+  
 struct nchan_msg_s {
   nchan_msg_id_t                  id;
   nchan_msg_id_t                  prev_id;
@@ -292,6 +298,8 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
     ngx_str_t  *in;
     ngx_str_t  *out;
   }                               websocket_heartbeat;
+  
+  nchan_msg_compression_type_t    message_compression;
   
   ngx_int_t                       subscriber_first_message;
   

@@ -10,6 +10,11 @@ static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 ngx_flag_t       global_redis_enabled = 0;
 
+#define MERGE_UNSET_CONF(conf, prev, unset, default)         \
+if (conf == unset) {                                         \
+  conf = (prev == unset) ? default : prev;                   \
+}
+
 #define MERGE_CONF(cf, prev_cf, name) if((cf)->name == NULL) { (cf)->name = (prev_cf)->name; }
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
@@ -117,6 +122,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->channel_event_string = NULL;
   
   lcf->websocket_heartbeat.enabled=NGX_CONF_UNSET;
+  
+  lcf->message_compression = NCHAN_MSG_COMPRESSION_INVALID;
   
   lcf->longpoll_multimsg=NGX_CONF_UNSET;
   lcf->longpoll_multimsg_use_raw_stream_separator=NGX_CONF_UNSET;
@@ -246,6 +253,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   if(!is_valid_location(cf, conf)) {
     return NGX_CONF_ERROR;
   }
+  
+  MERGE_UNSET_CONF(conf->message_compression, prev->message_compression, NCHAN_MSG_COMPRESSION_INVALID, NCHAN_MSG_NO_COMPRESSION);
   
   ngx_conf_merge_sec_value(conf->message_timeout, prev->message_timeout, NCHAN_DEFAULT_MESSAGE_TIMEOUT);
   ngx_conf_merge_value(conf->max_messages, prev->max_messages, NCHAN_DEFAULT_MAX_MESSAGES);
@@ -812,6 +821,21 @@ static char *nchan_set_raw_subscriber_separator(ngx_conf_t *cf, ngx_command_t *c
   }
   else {
     *cf_val = *val;
+  }
+  return NGX_CONF_OK;
+}
+
+static char *nchan_set_message_compression_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_loc_conf_t   *lcf = conf;
+  if(nchan_strmatch(val, 1, "on")) {
+    lcf->message_compression = 1;
+  }
+  else if(nchan_strmatch(val, 1, "off")) {
+    lcf->message_compression = 0;
+  }
+  else {
+    return "invalid value: must be 'on' or 'off'";
   }
   return NGX_CONF_OK;
 }

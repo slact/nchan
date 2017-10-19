@@ -1023,6 +1023,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Split the channel id into several ids for multiplexing using the delimiter string provided.    
   [more details](#channel-multiplexing)  
 
+- **nchan_compress_message_for_websocket** `[ on | off ]`  
+  arguments: 1  
+  default: `off`  
+  context: server, location  
+  > Store a compressed (deflated) copy of the message along with the original to be sent to websocket clients supporting the permessage-deflate protocol extension    
+
 - **nchan_eventsource_event**  
   arguments: 1  
   default: `(none)`  
