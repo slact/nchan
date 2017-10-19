@@ -499,24 +499,6 @@ ngx_str_t nchan_subscriber_set_recyclable_msgid_str(nchan_request_ctx_t *ctx, nc
   return ret;
 }
 
-void ngx_init_set_membuf(ngx_buf_t *buf, u_char *start, u_char *end) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->start = start;
-  buf->pos = start;
-  buf->end = end;
-  buf->last = end;
-  buf->memory = 1;
-}
-
-void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
-  ngx_memzero(buf, sizeof(*buf));
-  buf->start = str->data;
-  buf->pos = str->data;
-  buf->end = str->data + str->len;
-  buf->last = buf->end;
-  buf->memory = 1;
-}
-
 #if nginx_version >= 1003015
 
 static void ngx_http_close_request_dup(ngx_http_request_t *r, ngx_int_t rc) {
