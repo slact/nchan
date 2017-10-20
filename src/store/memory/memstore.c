@@ -2965,6 +2965,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     msg->compressed->buf.end = msg->compressed->buf.start + msg_compressed_sz;
     msg->compressed->buf.last = msg->compressed->buf.end;
     ngx_memcpy(msg->compressed->buf.start, m->compressed->buf.start, msg_compressed_sz);
+    msg->compressed->buf.last_buf = 1;
   }
   
 #if NCHAN_MSG_RESERVE_DEBUG

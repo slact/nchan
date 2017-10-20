@@ -857,7 +857,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
     strm.avail_in = ngx_buf_size((&msg->buf));
     strm.next_in = msg->buf.start;
     
-    ssize_t out_buf_sz = 100;
+    ssize_t out_buf_sz = 100, out_len;
     strm.avail_out = out_buf_sz;
     strm.next_out = outbuf;
     
@@ -871,7 +871,14 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
     msg->compressed = ngx_palloc(r->pool, sizeof(*msg->compressed));
     msg->compressed->compression = NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
     
-    ngx_init_set_membuf(&msg->compressed->buf, outbuf, outbuf + strm.total_out);
+    out_len = strm.total_out;
+    //trim 0x00 0x00 0xff 0xff from the end, as per RFC7692
+    if(out_len >=4 && memcmp(&outbuf[out_len - 4], "\0\0\xFF\xFF", 4) == 0) {
+      out_len -= 4;
+    }
+    
+    ngx_init_set_membuf(&msg->compressed->buf, outbuf, outbuf + out_len);
+    msg->compressed->buf.last_buf = 1;
 #endif
   }
   

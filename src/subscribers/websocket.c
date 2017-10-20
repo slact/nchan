@@ -45,6 +45,7 @@
 #endif
 
 #define WEBSOCKET_LAST_FRAME                0x8
+#define WEBSOCKET_LAST_FRAME_RSV1           0xC
 
 #define WEBSOCKET_OPCODE_TEXT               0x1
 #define WEBSOCKET_OPCODE_BINARY             0x2
@@ -101,11 +102,11 @@
 static const u_char WEBSOCKET_PAYLOAD_LEN_16_BYTE = 126;
 static const u_char WEBSOCKET_PAYLOAD_LEN_64_BYTE = 127;
 
-static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT | (WEBSOCKET_LAST_FRAME << 4);
-static const u_char WEBSOCKET_TEXT_DEFLATED_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_TEXT | (WEBSOCKET_LAST_FRAME << 4) | (1 << 2);
+static const u_char WEBSOCKET_TEXT_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_TEXT  | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_TEXT_DEFLATED_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_TEXT | (WEBSOCKET_LAST_FRAME_RSV1 << 4);
 
-static const u_char WEBSOCKET_BINARY_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_BINARY | (WEBSOCKET_LAST_FRAME << 4);
-static const u_char WEBSOCKET_BINARY_DEFLATED_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_BINARY  | (WEBSOCKET_LAST_FRAME << 4) | (1 << 2);
+static const u_char WEBSOCKET_BINARY_LAST_FRAME_BYTE =  WEBSOCKET_OPCODE_BINARY  | (WEBSOCKET_LAST_FRAME << 4);
+static const u_char WEBSOCKET_BINARY_DEFLATED_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_BINARY  | (WEBSOCKET_LAST_FRAME_RSV1 << 4);
 
 static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
@@ -1537,13 +1538,15 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   nchan_buf_and_chain_t *bc;
   ngx_file_t            *file_copy;
   ngx_buf_t             *chained_msgbuf = NULL;
-  size_t                 sz;
+  size_t                 sz = ngx_buf_size((&msg->buf));
   ngx_str_t              binary_mimetype = ngx_string("application/octet-stream");
   u_char                 frame_opcode;
   int                    compressed;
   ngx_buf_t             *msgbuf;
   compressed = msg->compressed && msg->compressed->compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
-  
+
+  ERR("compressed: %i", compressed);
+
   msgbuf = compressed ? &msg->compressed->buf : &msg->buf;
   sz = ngx_buf_size(msgbuf);
   
@@ -1624,9 +1627,10 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
       strm.zfree = Z_NULL;
       strm.opaque = Z_NULL;
       
-      n = deflateInit2(&strm, 0, Z_DEFLATED, -8, 1, Z_DEFAULT_STRATEGY);
+      n = deflateInit2(&strm, Z_NO_COMPRESSION, Z_DEFLATED, -9, 1, Z_DEFAULT_STRATEGY);
       if (n != Z_OK) {
         ERR("Couldn't deflate it");
+        raise(SIGABRT);
         return NULL;
       }
       
@@ -1651,7 +1655,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
         return NULL;
       }
       
-      bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 3);
+      bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 2);
       cur = &bc->chain;
       
       ngx_init_set_membuf(cur->buf, ws_meta_header_deflated, ws_meta_header_deflated + strm.total_out);
@@ -1661,8 +1665,6 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
       //now the message
       *cur->buf = *msgbuf;
       chained_msgbuf = cur->buf;
-      
-      //TODO: something about the last byte of each deflate block...
 #endif
     }
   }
@@ -1678,6 +1680,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     nchan_msg_buf_open_fd_if_needed(chained_msgbuf, file_copy, NULL);
   }
   
+  ERR("opcode: %i, orig sz: %i compressed sz: %i", frame_opcode, ngx_buf_size((&msg->buf)), compressed ? ngx_buf_size(msgbuf) : 0);
   //now the header
   return websocket_frame_header_chain(fsub, frame_opcode, sz, &bc->chain);
 }
