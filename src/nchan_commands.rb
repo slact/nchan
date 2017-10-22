@@ -289,7 +289,47 @@ CfCmd.new do
       default: "128M",
       info: "Shared memory slab pre-allocated for Nchan. Used for channel statistics, message storage, and interprocess communication.",
       uri: "#memory-storage"
-    
+  
+  nchan_permessage_deflate_compression_level [:main],
+      :nchan_conf_set_deflate_compression_level,
+      :main_conf,
+      
+      group: "pubsub",
+      tags: ["websocket"],
+      value: ["0-9"],
+      default: "6",
+      info: "Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best"
+  
+  nchan_permessage_deflate_compression_strategy [:main],
+      :nchan_conf_set_deflate_compression_strategy,
+      :main_conf,
+      
+      group: "pubsub",
+      tags: ["websocket"],
+      value: ["default", "filtered", "huffman-only", "rle", "fixed"],
+      default: "default",
+      info: "Compression strategy for the `deflate` algorithm used in websocket's permessage-deflate extension. Use 'default' for normal data, For details see [zlib's section on copression strategies](http://zlib.net/manual.html#Advanced)"
+  
+  nchan_permessage_deflate_compression_window [:main],
+      :nchan_conf_set_deflate_compression_window,
+      :main_conf,
+      
+      group: "pubsub",
+      tags: ["websocket"],
+      value: ["9-15"],
+      default: "10",
+      info: "Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor."
+  
+  nchan_permessage_deflate_compression_memlevel [:main],
+      :nchan_conf_set_deflate_compression_memlevel,
+      :main_conf,
+      
+      group: "pubsub",
+      tags: ["websocket"],
+      value: ["1-9"],
+      default: "8",
+      info: "Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed"
+  
   nchan_redis_url [:main, :srv, :loc],
       :ngx_conf_set_redis_url,
       [:loc_conf, :"redis.url"],

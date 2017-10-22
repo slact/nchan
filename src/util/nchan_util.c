@@ -1,6 +1,10 @@
 #include <nchan_module.h>
 #include <assert.h>
 
+#if (NGX_ZLIB)
+#include <zlib.h>
+#endif
+
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
   if(str1->len != str2->len) {
     return 0;
@@ -589,6 +593,28 @@ void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
   buf->last = buf->end;
   buf->memory = 1;
 }
+
+
+#if (NGX_ZLIB)
+static z_stream        *deflate_zstream = NULL;
+ngx_int_t nchan_common_deflate_init(ngx_conf_t *cf) {
+  nchan_main_conf_t     *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
+  zstream = ngx_calloc(sizeof(*zstream), ngx_cycle->log);
+  
+  rc = deflateInit2(&zstream, (int) level, Z_DEFLATED, wbits + 16, memlevel,
+                      Z_DEFAULT_STRATEGY);
+  
+  int rc = deflateInit2(deflate_zstream, (int) mcf->zlib_params.level, Z_DEFLATED, mcf->zlib_params.windowBits, mcf->zlib_params.memLevel, mcf->zlib_params.strategy);
+  
+  
+  
+}
+
+ngx_int_t nchan_common_deflate_shutdown(ngx_conf_t *cf) {
+  
+}
+  
+#endif
 
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited

@@ -63,6 +63,7 @@ typedef struct {
 
 } redis_lua_scripts_t;
 
+
 static redis_lua_scripts_t redis_lua_scripts = {
   {"add_fakesub", "2b24b12742c1398a52b6bf74cdb9c267e40c61c4",
    "--input:  keys: [], values: [namespace, channel_id, number]\n"

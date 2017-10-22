@@ -21,6 +21,15 @@ typedef struct {
   size_t                          shm_size;
   ngx_msec_t                      redis_fakesub_timer_interval;
   size_t                          redis_publish_message_msgkey_size;
+#if (NGX_ZLIB)
+  struct {
+                                    int level;
+                                    int method;
+                                    int windowBits;
+                                    int memLevel;
+                                    int strategy;
+  }                               zlib_params;
+#endif
 } nchan_main_conf_t;
 
 

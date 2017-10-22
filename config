@@ -30,7 +30,6 @@ else
   _NCHAN_HIREDIS_SRCS=""
 fi
 
-
 _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/common.c \
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
