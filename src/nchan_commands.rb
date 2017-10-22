@@ -291,7 +291,7 @@ CfCmd.new do
       uri: "#memory-storage"
   
   nchan_permessage_deflate_compression_level [:main],
-      :nchan_conf_set_deflate_compression_level,
+      :nchan_conf_deflate_compression_level_directive,
       :main_conf,
       
       group: "pubsub",
@@ -301,7 +301,7 @@ CfCmd.new do
       info: "Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best"
   
   nchan_permessage_deflate_compression_strategy [:main],
-      :nchan_conf_set_deflate_compression_strategy,
+      :nchan_conf_deflate_compression_strategy_directive,
       :main_conf,
       
       group: "pubsub",
@@ -311,7 +311,7 @@ CfCmd.new do
       info: "Compression strategy for the `deflate` algorithm used in websocket's permessage-deflate extension. Use 'default' for normal data, For details see [zlib's section on copression strategies](http://zlib.net/manual.html#Advanced)"
   
   nchan_permessage_deflate_compression_window [:main],
-      :nchan_conf_set_deflate_compression_window,
+      :nchan_conf_deflate_compression_window_directive,
       :main_conf,
       
       group: "pubsub",
@@ -321,7 +321,7 @@ CfCmd.new do
       info: "Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor."
   
   nchan_permessage_deflate_compression_memlevel [:main],
-      :nchan_conf_set_deflate_compression_memlevel,
+      :nchan_conf_deflate_compression_memlevel_directive,
       :main_conf,
       
       group: "pubsub",

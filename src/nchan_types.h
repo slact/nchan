@@ -24,7 +24,6 @@ typedef struct {
 #if (NGX_ZLIB)
   struct {
                                     int level;
-                                    int method;
                                     int windowBits;
                                     int memLevel;
                                     int strategy;

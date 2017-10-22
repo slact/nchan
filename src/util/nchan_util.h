@@ -46,3 +46,9 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz);
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
         (type *)( (char *)__mptr - offsetof(type,member) );})
 #endif
+
+#if (NGX_ZLIB)
+ngx_int_t nchan_common_deflate_shutdown(void);
+ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf);
+ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_pool_t *pool);
+#endif

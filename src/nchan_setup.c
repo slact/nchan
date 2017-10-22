@@ -4,11 +4,15 @@
 #include <nchan_variables.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
+#if (NGX_ZLIB)
+#include <zlib.h>
+#endif
 
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 ngx_flag_t       global_redis_enabled = 0;
+ngx_flag_t       global_zstream_needed = 0;
 
 #define MERGE_UNSET_CONF(conf, prev, unset, default)         \
 if (conf == unset) {                                         \
@@ -18,7 +22,7 @@ if (conf == unset) {                                         \
 #define MERGE_CONF(cf, prev_cf, name) if((cf)->name == NULL) { (cf)->name = (prev_cf)->name; }
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
-  ngx_core_conf_t                *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+  ngx_core_conf_t         *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
   
   //initialize storage engines
@@ -56,6 +60,14 @@ static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
   if(global_redis_enabled && nchan_store_redis.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
+  
+#if (NGX_ZLIB)
+  if(global_zstream_needed) {
+    nchan_main_conf_t  *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
+    nchan_common_deflate_init(mcf);
+  }
+#endif
+  
   return NGX_OK;
 }
 
@@ -67,6 +79,13 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   }
   nchan_store_memory.create_main_conf(cf, mcf);
   nchan_store_redis.create_main_conf(cf, mcf);
+  
+#if (NGX_ZLIB)
+  mcf->zlib_params.level = Z_DEFAULT_COMPRESSION;
+  mcf->zlib_params.windowBits = -10;
+  mcf->zlib_params.memLevel = 8;
+  mcf->zlib_params.strategy = Z_DEFAULT_STRATEGY;
+#endif
   
   return mcf;
 }
@@ -639,6 +658,87 @@ static char *nchan_websocket_heartbeat_directive(ngx_conf_t *cf, ngx_command_t *
   return NGX_CONF_OK;
 }
 
+static char *nchan_conf_deflate_compression_level_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+#if (NGX_ZLIB)
+  nchan_main_conf_t  *mcf = (nchan_main_conf_t *)conf;
+  ngx_int_t           np;
+  ngx_str_t           *value = cf->args->elts;
+  np = ngx_atoi(value[1].data, value[1].len);
+  if (np == NGX_ERROR) {
+    return "invalid number";
+  }
+  if(np < 0 || np > 9) {
+    return "must be between 0 and 9";
+  }
+  
+  mcf->zlib_params.level = np;
+#endif
+  return NGX_CONF_OK;
+}
+
+static char *nchan_conf_deflate_compression_strategy_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+#if (NGX_ZLIB)
+  nchan_main_conf_t   *mcf = (nchan_main_conf_t *)conf;
+  ngx_str_t           *val = cf->args->elts;
+  if(nchan_strmatch(val, 1, "default")) {
+    mcf->zlib_params.strategy = Z_DEFAULT_STRATEGY;
+  }
+  else if(nchan_strmatch(val, 1, "filtered")) {
+    mcf->zlib_params.strategy = Z_FILTERED;
+  }
+  else if(nchan_strmatch(val, 1, "huffman-only")) {
+    mcf->zlib_params.strategy = Z_HUFFMAN_ONLY;
+  }
+  else if(nchan_strmatch(val, 1, "rle")) {
+    mcf->zlib_params.strategy = Z_RLE;
+  }
+  else if(nchan_strmatch(val, 1, "fixed")) {
+    mcf->zlib_params.strategy = Z_FIXED;
+  }
+  else {
+    return "invalid compression strategy";
+  }
+#endif
+  return NGX_CONF_OK;
+}
+
+static char *nchan_conf_deflate_compression_window_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+#if (NGX_ZLIB)
+  nchan_main_conf_t  *mcf = (nchan_main_conf_t *)conf;
+  ngx_int_t           np;
+  ngx_str_t           *value = cf->args->elts;
+  np = ngx_atoi(value[1].data, value[1].len);
+  if (np == NGX_ERROR) {
+    return "invalid number";
+  }
+  if(np < 9 || np > 15) {
+    return "must be between 9 and 15";
+  }
+  
+  mcf->zlib_params.windowBits = -np;
+#endif
+  return NGX_CONF_OK;
+}
+
+static char *nchan_conf_deflate_compression_memlevel_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+#if (NGX_ZLIB)
+  nchan_main_conf_t  *mcf = (nchan_main_conf_t *)conf;
+  ngx_int_t           np;
+  ngx_str_t           *value = cf->args->elts;
+  np = ngx_atoi(value[1].data, value[1].len);
+  if (np == NGX_ERROR) {
+    return "invalid number";
+  }
+  if(np < 9 || np > 15) {
+    return "must be between 1 and 9";
+  }
+  
+  mcf->zlib_params.windowBits = -np;
+#endif
+  return NGX_CONF_OK;
+}
+
+
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
   if(global_redis_enabled) {
     redis_store_prepare_to_exit_worker();
@@ -648,6 +748,11 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
     nchan_store_redis.exit_worker(cycle);
   }
   nchan_output_shutdown();
+#if (NGX_ZLIB)
+  if(global_zstream_needed) {
+    nchan_common_deflate_shutdown();
+  }
+#endif
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_assert_isempty();
 #endif
@@ -658,6 +763,11 @@ static void nchan_exit_master(ngx_cycle_t *cycle) {
   if(global_redis_enabled) {
     nchan_store_redis.exit_master(cycle);
   }
+#if (NGX_ZLIB)
+  if(global_zstream_needed) {
+    nchan_common_deflate_shutdown();
+  }
+#endif
 }
 
 static char *nchan_set_complex_value_array(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_complex_value_arr_t *chid) {
@@ -828,8 +938,10 @@ static char *nchan_set_raw_subscriber_separator(ngx_conf_t *cf, ngx_command_t *c
 static char *nchan_set_message_compression_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
   nchan_loc_conf_t   *lcf = conf;
+#if (NGX_ZLIB)
   if(nchan_strmatch(val, 1, "on")) {
     lcf->message_compression = 1;
+    global_zstream_needed = 1;
   }
   else if(nchan_strmatch(val, 1, "off")) {
     lcf->message_compression = 0;
@@ -838,6 +950,9 @@ static char *nchan_set_message_compression_slot(ngx_conf_t *cf, ngx_command_t *c
     return "invalid value: must be 'on' or 'off'";
   }
   return NGX_CONF_OK;
+#else
+  return "cannot use compression, Nginx was built without zlib";
+#endif
 }
 
 static char *nchan_set_longpoll_multipart(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

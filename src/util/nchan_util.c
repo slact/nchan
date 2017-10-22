@@ -597,22 +597,134 @@ void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
 
 #if (NGX_ZLIB)
 static z_stream        *deflate_zstream = NULL;
-ngx_int_t nchan_common_deflate_init(ngx_conf_t *cf) {
-  nchan_main_conf_t     *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
-  zstream = ngx_calloc(sizeof(*zstream), ngx_cycle->log);
+ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf) {
+  if((deflate_zstream = ngx_calloc(sizeof(*deflate_zstream), ngx_cycle->log)) == NULL) {
+    nchan_log_error("couldn't allocate deflate stream.");
+    return NGX_ERROR;
+  }
   
-  rc = deflateInit2(&zstream, (int) level, Z_DEFLATED, wbits + 16, memlevel,
-                      Z_DEFAULT_STRATEGY);
+  deflate_zstream->zalloc = Z_NULL;
+  deflate_zstream->zfree = Z_NULL;
+  deflate_zstream->opaque = Z_NULL;
   
   int rc = deflateInit2(deflate_zstream, (int) mcf->zlib_params.level, Z_DEFLATED, mcf->zlib_params.windowBits, mcf->zlib_params.memLevel, mcf->zlib_params.strategy);
+  if(rc != Z_OK) {
+    nchan_log_error("couldn't initialize deflate stream.");
+    deflate_zstream = NULL;
+    return NGX_ERROR;
+  }
   
-  
-  
+  return NGX_OK;
 }
 
-ngx_int_t nchan_common_deflate_shutdown(ngx_conf_t *cf) {
-  
+ngx_int_t nchan_common_deflate_shutdown(void) {
+  nchan_log_error("SHUTTING DOWN.");
+  if(deflate_zstream) {
+    deflateEnd(deflate_zstream);
+    ngx_free(deflate_zstream);
+    deflate_zstream = NULL;
+  }
+  return NGX_OK;
 }
+
+#define DEFLATE_CHUNK 4096
+
+ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool) {
+  ssize_t     outbuf_max_sz, out_sz;
+  ngx_buf_t  *out = NULL;
+  u_char     *outstr = NULL;
+  int         rc;
+  ngx_str_t   mm_instr;
+  int         mmapped = 0;
+  
+  if(ngx_buf_in_memory(in)) {
+    //input
+    deflate_zstream->avail_in = ngx_buf_size(in);
+    deflate_zstream->next_in = in->pos;
+    
+    //output
+    out = ngx_palloc(pool, sizeof(*out));
+    outbuf_max_sz = deflate_zstream->avail_in + 64; //64 bytes padding should do it eh? maybe not...
+    outstr = ngx_palloc(pool, outbuf_max_sz);
+    if(!out || !outstr) {
+      return NULL;
+    }
+    deflate_zstream->avail_out = outbuf_max_sz;
+    deflate_zstream->next_out = outstr;
+    
+    //DEFLATE!
+    rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
+    if (rc == Z_STREAM_ERROR) {
+      deflateReset(deflate_zstream);
+      return NULL;
+    }
+    
+    out_sz = deflate_zstream->total_out;
+    //trim 0x00 0x00 0xff 0xff from the end, as per RFC7692
+    if(out_sz >=4 && memcmp(&outstr[out_sz - 4], "\0\0\xFF\xFF", 4) == 0) {
+      out_sz -= 4;
+    }
+    
+    ngx_init_set_membuf(out, outstr, outstr + out_sz);
+    out->last_buf = 1;
+  }
+  else {
+    ngx_temp_file_t            tf;
+    ngx_http_core_loc_conf_t  *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+    unsigned                   have = 0;
+    off_t                      written = 0;
+    
+    //create temp file
+    tf.file.fd = NGX_INVALID_FILE;
+    tf.path = clcf->client_body_temp_path;
+    tf.pool = r->pool;
+    tf.persistent = 1;
+    tf.clean = NULL;
+    tf.access = 0;
+    if(ngx_create_temp_file(&tf.file, tf.path, tf.pool, tf.persistent, tf.clean, tf.access) != NGX_OK) {
+      //failed to create new temp file
+      return NULL;
+    }
+    
+    //input
+    ngx_fd_t fd = in->file->fd == NGX_INVALID_FILE ? nchan_fdcache_get(&in->file->name) : in->file->fd;
+    mm_instr.len = in->file_last - in->file_pos;
+    mm_instr.data = mmap(NULL, mm_instr.len, PROT_READ, MAP_SHARED, fd, in->file_pos);
+    if (mm_instr.data != MAP_FAILED) {
+      mmapped = 1;
+    }
+    else {
+      //failed to mmap file
+      return NULL;
+    }
+    deflate_zstream->avail_in = mm_instr.len;
+    deflate_zstream->next_in = mm_instr.data;
+    
+    //output
+    char  outbuf[DEFLATE_CHUNK];
+    
+    do {
+      deflate_zstream->avail_out = DEFLATE_CHUNK;
+      deflate_zstream->next_out = outbuf;
+      
+      ret = deflate(deflate_zstream, Z_SYNC_FLUSH);
+      assert(ret != Z_STREAM_ERROR);
+      
+      have = DEFLATE_CHUNK - deflate_zstream->avail_out;
+      if(have > 0) {
+        ngx_write_file(&tf.file, outbuf, have, written);
+      }
+      written += have;
+
+  } while(ret != Z_STREAM_END);
+  
+  deflateReset(deflate_zstream);
+  if(mmapped) {
+    munmap(mm_instr.data, mm_instr.len);
+  }
+  return out;
+}
+
   
 #endif
 

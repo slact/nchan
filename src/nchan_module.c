@@ -834,54 +834,24 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
-  
+#if (NGX_ZLIB)  
   if(cf->message_compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE) {
-#if (NGX_ZLIB)
-    // THIS IS A SILLY TEST IMPLEMENTATION. BUGS EVERYWHERE DEFINITELY
-    static u_char outbuf[100];
-    int n;
-    z_stream strm;
-    ngx_memzero(&strm, sizeof(strm));
-    
-    strm.zalloc = Z_NULL;
-    strm.zfree = Z_NULL;
-    strm.opaque = Z_NULL;
-    
-    n = deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -10, 8, Z_DEFAULT_STRATEGY);
-    if (n != Z_OK) {
-      nchan_log_request_error(r, "couldn't initialize deflate stream.");
-      nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return;
-    }
-    
-    strm.avail_in = ngx_buf_size((&msg->buf));
-    strm.next_in = msg->buf.start;
-    
-    ssize_t out_buf_sz = 100, out_len;
-    strm.avail_out = out_buf_sz;
-    strm.next_out = outbuf;
-    
-    n = deflate(&strm, Z_SYNC_FLUSH);
-    if (n == Z_STREAM_ERROR) {
-      nchan_log_request_error(r, "couldn't deflate message.");
-      nchan_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
-      return;
-    }
-    
     msg->compressed = ngx_palloc(r->pool, sizeof(*msg->compressed));
-    msg->compressed->compression = NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
-    
-    out_len = strm.total_out;
-    //trim 0x00 0x00 0xff 0xff from the end, as per RFC7692
-    if(out_len >=4 && memcmp(&outbuf[out_len - 4], "\0\0\xFF\xFF", 4) == 0) {
-      out_len -= 4;
+    if(!msg->compressed) {
+      nchan_log_request_error(r, "no memory to compress message");
     }
-    
-    ngx_init_set_membuf(&msg->compressed->buf, outbuf, outbuf + out_len);
-    msg->compressed->buf.last_buf = 1;
-#endif
+    else {
+      ngx_buf_t  *compressed_buf = nchan_common_deflate(&msg->buf, r->pool);
+      if(!compressed_buf) {
+        nchan_log_request_error(r, "failed to compress message");
+      }
+      else {
+        msg->compressed->compression = cf->message_compression;
+        msg->compressed->buf = *compressed_buf;
+      }
+    }
   }
-  
+#endif  
   
   if((pd = nchan_set_safe_request_ptr(r)) == NULL) {
     return;
