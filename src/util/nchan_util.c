@@ -710,7 +710,7 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
       deflate_zstream->avail_out = DEFLATE_CHUNK;
       deflate_zstream->next_out = outbuf;
       
-      rc = deflate(deflate_zstream, Z_FINISH);
+      rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
       assert(rc != Z_STREAM_ERROR);
       
       have = DEFLATE_CHUNK - deflate_zstream->avail_out;
@@ -718,7 +718,7 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
         ngx_write_file(&tf->file, outbuf, have, written);
       }
       written += have;
-    } while(rc != Z_STREAM_END);
+    } while(rc != Z_BUF_ERROR);
     
     munmap(mm_instr.data, mm_instr.len);
     
@@ -726,7 +726,7 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
     
     ngx_memzero(out, sizeof(*out));
     out->file_pos = 0;
-    out->file_last = written;
+    out->file_last = written > 4 ? written - 4 : written; //there will be a 00 00 FF FF chunk at the end. remove it.
     out->in_file = 1;
     out->last_buf = 1;
     out->file = &tf->file;
