@@ -7,6 +7,7 @@
 
 //debugging config
 //#define FAKESHARD 1
+//#define FAKE_SHMEM 1
 #if FAKESHARD
 //#define PUB_FAKE_WORKER 0
 //#define SUB_FAKE_WORKER 1
