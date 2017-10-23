@@ -841,7 +841,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
       nchan_log_request_error(r, "no memory to compress message");
     }
     else {
-      ngx_buf_t  *compressed_buf = nchan_common_deflate(&msg->buf, r->pool);
+      ngx_buf_t  *compressed_buf = nchan_common_deflate(&msg->buf, r, r->pool);
       if(!compressed_buf) {
         nchan_log_request_error(r, "failed to compress message");
       }

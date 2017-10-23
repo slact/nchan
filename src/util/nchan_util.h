@@ -50,5 +50,5 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz);
 #if (NGX_ZLIB)
 ngx_int_t nchan_common_deflate_shutdown(void);
 ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf);
-ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_pool_t *pool);
+ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool);
 #endif

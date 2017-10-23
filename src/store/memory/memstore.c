@@ -1844,6 +1844,14 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
     }
     ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
   }
+  
+  if(msg->compressed && msg->compressed->buf.file) {
+    f = msg->compressed->buf.file;
+    if(f->fd != NGX_INVALID_FILE) {
+      ngx_close_file(f->fd);
+    }
+    ngx_delete_file(f->name.data); // assumes string is zero-terminated, which required trickery during allocation
+  }
   //DBG("free smsg %p",s msg);
 #if NCHAN_MSG_LEAK_DEBUG  
   msg_debug_remove(msg);
@@ -1853,9 +1861,6 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   nchan_free_msg_id(&msg->id);
   nchan_free_msg_id(&msg->prev_id);
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
-  if(msg->compressed) {
-    shm_free(shm, msg->compressed);
-  }
   shm_free(shm, msg);
   nchan_update_stub_status(messages, -1);
   return NGX_OK;
@@ -2849,25 +2854,72 @@ static u_char* copy_preallocated_str_to_cur(ngx_str_t *dst, ngx_str_t *src, u_ch
   return cur + sz;
 }
 
-size_t memstore_msg_memsize(nchan_msg_t *m) {
-  size_t                  total_sz, buf_body_size = 0, content_type_size = 0, buf_filestuff_size = 0, eventsource_event_size = 0;
-  ngx_buf_t              *mbuf = &m->buf;
-  if(m->eventsource_event) eventsource_event_size += m->eventsource_event->len + sizeof(ngx_str_t);
-  if(m->content_type) content_type_size += m->content_type->len + sizeof(ngx_str_t);
-  if(ngx_buf_in_memory_only(mbuf)) {
-    buf_body_size = ngx_buf_size(mbuf);
+static size_t memstore_buf_memsize(ngx_buf_t *buf) {
+  size_t buf_size = 0;
+  if(ngx_buf_in_memory_only(buf)) {
+    buf_size += ngx_buf_size(buf);
   }
-  if(mbuf->in_file && mbuf->file != NULL) {
-    buf_filestuff_size = sizeof(ngx_file_t) + mbuf->file->name.len + 1; //+1 to ensure NUL-terminated filename string
+  if(buf->in_file && buf->file != NULL) {
+    buf_size = sizeof(ngx_file_t) + buf->file->name.len + 1; //+1 to ensure NUL-terminated filename string
+  }
+  return buf_size;
+}
+
+size_t memstore_msg_memsize(nchan_msg_t *m) {
+  size_t                  total_sz, buf_contents_size = 0, content_type_size = 0, eventsource_event_size = 0, compressed_sz = 0;
+  ngx_buf_t              *mbuf = &m->buf;
+  if(m->eventsource_event)
+    eventsource_event_size += m->eventsource_event->len + sizeof(ngx_str_t);
+  if(m->content_type)
+    content_type_size += m->content_type->len + sizeof(ngx_str_t);
+  
+  buf_contents_size = memstore_buf_memsize(mbuf);
+  
+  if(m->compressed) {
+    compressed_sz += sizeof(nchan_compressed_msg_t) + memstore_buf_memsize(&m->compressed->buf);
   }
   
-  total_sz = sizeof(nchan_msg_t) + (buf_filestuff_size + content_type_size + eventsource_event_size +  buf_body_size);
+  total_sz = sizeof(nchan_msg_t) + (buf_contents_size + content_type_size + eventsource_event_size + compressed_sz);
 #if NCHAN_MSG_LEAK_DEBUG
   size_t    debug_sz = m->lbl.len;
   total_sz += debug_sz;
 #endif
   
   return total_sz;
+}
+
+static u_char *copy_buf_contents(ngx_buf_t *in, ngx_buf_t *out, u_char *rest) {
+  size_t buf_mem_body_size = 0;
+  
+  if(in->file!=NULL) {
+    out->file = (ngx_file_t *)rest;
+    *out->file = *in->file;
+    out->file->fd = NGX_INVALID_FILE;
+    out->file->log = ngx_cycle->log;
+    
+    rest = (u_char *)&out->file[1];
+    rest = copy_preallocated_str_to_cur(&out->file->name, &in->file->name, rest);
+    //ensure last char is NUL
+    *(rest++) = '\0';
+    ERR("in file %V", &out->file->name);
+  }
+  
+  if(ngx_buf_in_memory_only(in)) {
+    buf_mem_body_size = ngx_buf_size(in);
+  }
+  
+  if(buf_mem_body_size > 0) {
+    ngx_str_t   dst_str, src_str = {buf_mem_body_size, in->pos};
+    
+    rest = copy_preallocated_str_to_cur(&dst_str, &src_str, rest);
+    
+    out->pos = dst_str.data;
+    out->last = out->pos + dst_str.len;
+    out->start = out->pos;
+    out->end = out->last;
+  }
+  
+  return rest;
 }
 
 //#define NCHAN_CREATE_SHM_MSG_DEBUG 1
@@ -2921,50 +2973,17 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     msg->eventsource_event = NULL;
   }
   
-  if(mbuf->file!=NULL) {
-    buf->file = (ngx_file_t *)cur;
-    *buf->file = *mbuf->file;
-    buf->file->fd =NGX_INVALID_FILE;
-    buf->file->log = ngx_cycle->log;
-    
-    cur = (u_char *)&buf->file[1];
-    cur = copy_preallocated_str_to_cur(&buf->file->name, &mbuf->file->name, cur);
-    //ensure last char is NUL
-    *(cur++) = '\0';
-  }
-  
-  if(ngx_buf_in_memory_only(mbuf)) {
-    buf_mem_body_size = ngx_buf_size(mbuf);
-  }
-  
-  if(buf_mem_body_size > 0) {
-    ngx_str_t   dst_str, src_str = {buf_mem_body_size, mbuf->pos};
-    
-    //cur = copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
-    copy_preallocated_str_to_cur(&dst_str, &src_str, cur);
-    
-    buf->pos = dst_str.data;
-    buf->last = buf->pos + dst_str.len;
-    buf->start = buf->pos;
-    buf->end = buf->last;
-  }
+  cur = copy_buf_contents(mbuf, &msg->buf, cur);
+  msg->compressed->buf.last_buf = 1;
   
   msg->storage = NCHAN_MSG_SHARED;
   msg->parent = NULL;
   
   if(m->compressed) {
-    size_t msg_compressed_sz = ngx_buf_size((&m->compressed->buf));
-    msg->compressed = shm_alloc(shm, msg_compressed_sz, "compressed message");
-    if(!msg->compressed) {
-      nchan_log_ooshm_error("allocating compressed message of size %i", msg_compressed_sz);
-      return NULL;
-    }
-    *msg->compressed = *m->compressed;
-    msg->compressed->buf.start = (u_char *)&(msg->compressed)[1];
-    msg->compressed->buf.pos = msg->compressed->buf.start;
-    msg->compressed->buf.end = msg->compressed->buf.start + msg_compressed_sz;
-    msg->compressed->buf.last = msg->compressed->buf.end;
-    ngx_memcpy(msg->compressed->buf.start, m->compressed->buf.start, msg_compressed_sz);
+    msg->compressed = (nchan_compressed_msg_t *)cur;
+    cur = (u_char *)&msg->compressed[1];
+    *msg->compressed = *m->compressed;    
+    cur = copy_buf_contents(&m->compressed->buf, &msg->compressed->buf, cur);
     msg->compressed->buf.last_buf = 1;
   }
   
