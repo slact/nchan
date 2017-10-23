@@ -2926,9 +2926,8 @@ static u_char *copy_buf_contents(ngx_buf_t *in, ngx_buf_t *out, u_char *rest) {
 
 static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   nchan_msg_t             *msg;
-  ngx_buf_t               *mbuf = NULL, *buf=NULL;
+  ngx_buf_t               *mbuf = NULL;
   u_char                  *cur;
-  size_t                   buf_mem_body_size = 0;
   size_t                   memsize = memstore_msg_memsize(m);
 
 #if NCHAN_CREATE_SHM_MSG_DEBUG
@@ -2940,7 +2939,6 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     nchan_log_ooshm_error("allocating message of size %i", memsize);
     return NULL;
   }
-  buf = &msg->buf;
   
 #if NCHAN_CREATE_SHM_MSG_DEBUG
   cur = (u_char *)msg;
@@ -2974,7 +2972,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
   }
   
   cur = copy_buf_contents(mbuf, &msg->buf, cur);
-  msg->compressed->buf.last_buf = 1;
+  msg->buf.last_buf = 1;
   
   msg->storage = NCHAN_MSG_SHARED;
   msg->parent = NULL;
