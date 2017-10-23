@@ -626,73 +626,47 @@ ngx_int_t nchan_common_deflate_shutdown(void) {
   return NGX_OK;
 }
 
-#define DEFLATE_CHUNK 4096
+#define DEFLATE_CHUNK 16384
+
+static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) {
+  ngx_temp_file_t           *tf;
+  ngx_http_core_loc_conf_t  *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+  tf = ngx_pcalloc(pool, sizeof(*tf));
+  if(!tf) {
+    nchan_log_request_error(r, "failed to allocate space for temp_file struct.");
+    return NULL;
+  }
+  tf->file.fd = NGX_INVALID_FILE;
+  tf->path = clcf->client_body_temp_path;
+  tf->pool = pool;
+  tf->persistent = 1;
+  tf->clean = 0; //this will close the file on pool cleanup
+  tf->access = 0;
+  if(ngx_create_temp_file(&tf->file, tf->path, tf->pool, tf->persistent, tf->clean, tf->access) != NGX_OK) {
+    nchan_log_request_error(r, "failed to create temp file for deflated message");
+    return NULL;
+  }
+  return tf;
+}
 
 ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool) {
-  ssize_t     outbuf_max_sz, out_sz;
-  ngx_buf_t  *out = NULL;
-  u_char     *outstr = NULL;
-  int         rc;
-  ngx_str_t   mm_instr;
+  ngx_str_t           mm_instr;
+  int                 mmapped = 0;
+  ngx_temp_file_t    *tf = NULL;
   
-  out = ngx_palloc(pool, sizeof(*out));
+  int                 rc;
+  ngx_buf_t          *out = NULL;
+  u_char              outbuf[DEFLATE_CHUNK];
+  unsigned            have = 0;
+  off_t               written = 0;
+  
+  //input
   
   if(ngx_buf_in_memory(in)) {
-    //input
     deflate_zstream->avail_in = ngx_buf_size(in);
     deflate_zstream->next_in = in->pos;
-    
-    //output
-    outbuf_max_sz = deflate_zstream->avail_in + 64; //64 bytes padding should do it eh? maybe not...
-    outstr = ngx_palloc(pool, outbuf_max_sz);
-    if(!out || !outstr) {
-      nchan_log_request_error(r, "failed to allocate memory to deflate message");
-      return NULL;
-    }
-    deflate_zstream->avail_out = outbuf_max_sz;
-    deflate_zstream->next_out = outstr;
-    
-    //DEFLATE!
-    rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
-    if (rc == Z_STREAM_ERROR) {
-      deflateReset(deflate_zstream);
-      nchan_log_request_error(r, "Z_STREAM_ERROR while deflating message");
-      return NULL;
-    }
-    
-    out_sz = deflate_zstream->total_out;
-    //trim 0x00 0x00 0xff 0xff from the end, as per RFC7692
-    if(out_sz >=4 && memcmp(&outstr[out_sz - 4], "\0\0\xFF\xFF", 4) == 0) {
-      out_sz -= 4;
-    }
-    
-    ngx_init_set_membuf(out, outstr, outstr + out_sz);
-    out->last_buf = 1;
   }
   else {
-    ngx_temp_file_t           *tf;
-    ngx_http_core_loc_conf_t  *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-    unsigned                   have = 0;
-    off_t                      written = 0;
-    
-    //create temp file
-    tf = ngx_pcalloc(pool, sizeof(*tf));
-    if(!tf) {
-      nchan_log_request_error(r, "failed to allocate space for temp_file struct.");
-      return NULL;
-    }
-    tf->file.fd = NGX_INVALID_FILE;
-    tf->path = clcf->client_body_temp_path;
-    tf->pool = pool;
-    tf->persistent = 1;
-    tf->clean = 0; //this will close the file on pool cleanup
-    tf->access = 0;
-    if(ngx_create_temp_file(&tf->file, tf->path, tf->pool, tf->persistent, tf->clean, tf->access) != NGX_OK) {
-      nchan_log_request_error(r, "failed to create temp file for deflated message");
-      return NULL;
-    }
-    
-    //input
     ngx_fd_t fd = in->file->fd == NGX_INVALID_FILE ? nchan_fdcache_get(&in->file->name) : in->file->fd;
     mm_instr.len = in->file_last - in->file_pos;
     mm_instr.data = mmap(NULL, mm_instr.len, PROT_READ, MAP_SHARED, fd, in->file_pos);
@@ -702,38 +676,87 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
     }
     deflate_zstream->avail_in = mm_instr.len;
     deflate_zstream->next_in = mm_instr.data;
+    mmapped = 1;
+  }
+
+  //output
+  
+  do {
+    deflate_zstream->avail_out = DEFLATE_CHUNK;
+    deflate_zstream->next_out = outbuf;
     
-    //output
-    u_char outbuf[DEFLATE_CHUNK];
+    rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
+    assert(rc != Z_STREAM_ERROR);
     
-    do {
-      deflate_zstream->avail_out = DEFLATE_CHUNK;
-      deflate_zstream->next_out = outbuf;
-      
-      rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
-      assert(rc != Z_STREAM_ERROR);
-      
-      have = DEFLATE_CHUNK - deflate_zstream->avail_out;
-      if(have > 0) {
-        ngx_write_file(&tf->file, outbuf, have, written);
-      }
-      written += have;
-    } while(rc != Z_BUF_ERROR);
+    have = DEFLATE_CHUNK - deflate_zstream->avail_out;
     
+    if(deflate_zstream->avail_out == 0 && tf == NULL) {
+      //if we filled up the buffer, let's start dumping to a file.
+      tf = make_temp_file(r, pool);
+    }
+    if(tf) {
+      ngx_write_file(&tf->file, outbuf, have, written);
+    }
+    
+    written += have;
+  } while(rc != Z_BUF_ERROR);
+  
+  if(mmapped) {
     munmap(mm_instr.data, mm_instr.len);
-    
+  }
+  
+  if((out = ngx_palloc(pool, sizeof(*out))) == NULL) {
+    nchan_log_request_error(r, "failed to allocate output buf for deflated message");
+    deflateReset(deflate_zstream);
+    return NULL;
+  }
+  
+  if(written > 4) { //there will be a 00 00 FF FF chunk at the end. remove it as the permessage-deflate spec demands
+    written -= 4;
+  }
+  
+  if(tf) { //using a tempfile
     //thanks to tf->clean = 0, file will be closed on pool cleanup
-    
     ngx_memzero(out, sizeof(*out));
     out->file_pos = 0;
-    out->file_last = written > 4 ? written - 4 : written; //there will be a 00 00 FF FF chunk at the end. remove it.
+    out->file_last = written;
     out->in_file = 1;
-    out->last_buf = 1;
     out->file = &tf->file;
   }
+  else {
+    u_char  *outpooled = ngx_palloc(pool, written);
+    if(!outpooled) {
+      nchan_log_request_error(r, "failed to allocate output data for deflated message");
+      deflateReset(deflate_zstream);
+      return NULL;
+    }
+    ngx_memcpy(outpooled, outbuf, written);
+    ngx_init_set_membuf(out, outpooled, outpooled + written);
+  }
+  out->last_buf = 1;
   
   deflateReset(deflate_zstream);
   return out;
+}
+
+
+ngx_int_t nchan_common_simple_deflate(ngx_str_t *in, ngx_str_t *out) {
+  int rc;
+  deflate_zstream->avail_in = in->len;
+  deflate_zstream->next_in = in->data;
+
+  //output
+  deflate_zstream->avail_out = out->len;
+  deflate_zstream->next_out = out->data;
+
+  rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
+  if(rc != Z_STREAM_ERROR) {
+    out->len = deflate_zstream->total_out;
+  }
+  
+  deflateReset(deflate_zstream);
+  
+  return rc != Z_STREAM_ERROR ? NGX_OK : NGX_ERROR;
 }
 
   

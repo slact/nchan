@@ -2901,7 +2901,6 @@ static u_char *copy_buf_contents(ngx_buf_t *in, ngx_buf_t *out, u_char *rest) {
     rest = copy_preallocated_str_to_cur(&out->file->name, &in->file->name, rest);
     //ensure last char is NUL
     *(rest++) = '\0';
-    ERR("in file %V", &out->file->name);
   }
   
   if(ngx_buf_in_memory_only(in)) {

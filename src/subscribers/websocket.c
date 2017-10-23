@@ -859,6 +859,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_str_t           ws_accept_key, sha1_str;
   u_char              buf_sha1[21];
   u_char              buf[255];
+  u_char              permessage_deflate_buf[128];
   ngx_str_t          *tmp, *ws_key, *subprotocols;
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
@@ -975,24 +976,23 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     
     //generate permessage-deflate headers
     if(fsub->deflate.enabled) {
-      static u_char ws_extensions_buf[512];
-      static u_char *ws_ext_end;
-      static ngx_str_t ws_extensions;
-      ws_extensions.data = ws_extensions_buf;
-      ws_ext_end = ngx_snprintf(ws_extensions_buf, 512, "permessage-deflate; %s%s", 
+      u_char *ws_ext_end;
+      ngx_str_t ws_extensions;
+      ws_extensions.data = permessage_deflate_buf;
+      ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "permessage-deflate; %s%s", 
                                 fsub->deflate.server_no_context_takeover ? "server_no_context_takeover; " : "",
                                 fsub->deflate.client_no_context_takeover ? "client_no_context_takeover; " : "");
       if (pmd.server_max_window_bits > 0) {
-        ws_ext_end = ngx_snprintf(ws_ext_end, (ws_extensions_buf + 512 - ws_ext_end),
+        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
                                   "server_max_window_bits=%i; ", 
                                   fsub->deflate.server_max_window_bits);
       }
       if (fsub->deflate.client_max_window_bits > 0) {
-        ws_ext_end = ngx_snprintf(ws_ext_end, (ws_extensions_buf + 512 - ws_ext_end),
+        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
                                   "client_max_window_bits=%i; ", 
                                   fsub->deflate.client_max_window_bits);
       }
-      ws_extensions.len = ws_ext_end - ws_extensions_buf - 2; //-2 for the trailing "; "
+      ws_extensions.len = ws_ext_end - permessage_deflate_buf - 2; //-2 for the trailing "; "
       nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS, &ws_extensions);
     }
     
@@ -1545,8 +1545,6 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   ngx_buf_t             *msgbuf;
   compressed = fsub->deflate.enabled && msg->compressed && msg->compressed->compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
 
-  ERR("compressed: %i", compressed);
-
   msgbuf = compressed ? &msg->compressed->buf : &msg->buf;
   sz = ngx_buf_size(msgbuf);
   
@@ -1610,29 +1608,15 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     }
     else {
 #if (NGX_ZLIB)
-      // THIS IS A TEST IMPLEMENTATION. BUGS EVERYWHERE DEFINITELY
       u_char        ws_meta_header[512];
       static u_char ws_meta_header_deflated[512];
-      size_t        len;
       ngx_chain_t  *cur;
       u_char       *end;
-      int           n;
+      ngx_str_t     ws_meta_header_str_in;
+      ngx_str_t     ws_meta_header_str_out;
       
-      //TODO
-      
-      z_stream strm;
-      ngx_memzero(&strm, sizeof(strm));
-      
-      strm.zalloc = Z_NULL;
-      strm.zfree = Z_NULL;
-      strm.opaque = Z_NULL;
-      
-      n = deflateInit2(&strm, Z_NO_COMPRESSION, Z_DEFLATED, -9, 1, Z_DEFAULT_STRATEGY);
-      if (n != Z_OK) {
-        ERR("Couldn't deflate it");
-        raise(SIGABRT);
-        return NULL;
-      }
+      ws_meta_header_str_out.data = ws_meta_header_deflated;
+      ws_meta_header_str_out.len = 512;
       
       ngx_str_t     msgid = nchan_subscriber_set_recyclable_msgid_str(fsub->ctx, &fsub->sub.last_msgid);
       if(msg->content_type) {
@@ -1641,25 +1625,17 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
       else {
         end = ngx_snprintf(ws_meta_header, 512, "id: %V\n\n", &msgid);
       }
-      len = end - ws_meta_header;
       
-      strm.avail_in = len;
-      strm.next_in = ws_meta_header;
-      
-      strm.avail_out = 512;
-      strm.next_out = ws_meta_header_deflated;
-      
-      n = deflate(&strm, Z_SYNC_FLUSH);
-      if (n == Z_STREAM_ERROR) {
-        ERR("Couldn't deflate it at all");
-        return NULL;
-      }
+      ws_meta_header_str_in.data = ws_meta_header;
+      ws_meta_header_str_in.len = end - ws_meta_header;
       
       bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 2);
       cur = &bc->chain;
       
-      ngx_init_set_membuf(cur->buf, ws_meta_header_deflated, ws_meta_header_deflated + strm.total_out);
-      sz += strm.total_out;
+      nchan_common_simple_deflate(&ws_meta_header_str_in, &ws_meta_header_str_out);
+      
+      ngx_init_set_membuf(cur->buf, ws_meta_header_str_out.data, ws_meta_header_str_out.data + ws_meta_header_str_out.len);
+      sz += ws_meta_header_str_out.len;
       cur = cur->next;
       
       //now the message
@@ -1680,7 +1656,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
     nchan_msg_buf_open_fd_if_needed(chained_msgbuf, file_copy, NULL);
   }
   
-  ERR("opcode: %i, orig sz: %i compressed sz: %i", frame_opcode, ngx_buf_size((&msg->buf)), compressed ? ngx_buf_size(msgbuf) : 0);
+  //DBG("opcode: %i, orig sz: %i compressed sz: %i", frame_opcode, ngx_buf_size((&msg->buf)), compressed ? ngx_buf_size(msgbuf) : 0);
   //now the header
   return websocket_frame_header_chain(fsub, frame_opcode, sz, &bc->chain);
 }
