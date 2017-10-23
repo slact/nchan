@@ -1543,7 +1543,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   u_char                 frame_opcode;
   int                    compressed;
   ngx_buf_t             *msgbuf;
-  compressed = msg->compressed && msg->compressed->compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
+  compressed = fsub->deflate.enabled && msg->compressed && msg->compressed->compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
 
   ERR("compressed: %i", compressed);
 
