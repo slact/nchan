@@ -597,7 +597,11 @@ void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
 
 #if (NGX_ZLIB)
 static z_stream        *deflate_zstream = NULL;
+static z_stream        *deflate_dummy_zstream = NULL;
+
 ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf) {
+  int rc;
+  
   if((deflate_zstream = ngx_calloc(sizeof(*deflate_zstream), ngx_cycle->log)) == NULL) {
     nchan_log_error("couldn't allocate deflate stream.");
     return NGX_ERROR;
@@ -607,10 +611,26 @@ ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf) {
   deflate_zstream->zfree = Z_NULL;
   deflate_zstream->opaque = Z_NULL;
   
-  int rc = deflateInit2(deflate_zstream, (int) mcf->zlib_params.level, Z_DEFLATED, mcf->zlib_params.windowBits, mcf->zlib_params.memLevel, mcf->zlib_params.strategy);
+  rc = deflateInit2(deflate_zstream, (int) mcf->zlib_params.level, Z_DEFLATED, mcf->zlib_params.windowBits, mcf->zlib_params.memLevel, mcf->zlib_params.strategy);
   if(rc != Z_OK) {
     nchan_log_error("couldn't initialize deflate stream.");
     deflate_zstream = NULL;
+    return NGX_ERROR;
+  }
+  
+  if((deflate_dummy_zstream = ngx_calloc(sizeof(*deflate_dummy_zstream), ngx_cycle->log)) == NULL) {
+    nchan_log_error("couldn't allocate dummy deflate stream.");
+    return NGX_ERROR;
+  }
+  
+  deflate_dummy_zstream->zalloc = Z_NULL;
+  deflate_dummy_zstream->zfree = Z_NULL;
+  deflate_dummy_zstream->opaque = Z_NULL;
+  
+  rc = deflateInit2(deflate_dummy_zstream, 0, Z_DEFLATED, -9, 1, Z_DEFAULT_STRATEGY);
+  if(rc != Z_OK) {
+    nchan_log_error("couldn't initialize deflate stream.");
+    deflate_dummy_zstream = NULL;
     return NGX_ERROR;
   }
   
@@ -622,6 +642,12 @@ ngx_int_t nchan_common_deflate_shutdown(void) {
     deflateEnd(deflate_zstream);
     ngx_free(deflate_zstream);
     deflate_zstream = NULL;
+  }
+  
+  if(deflate_dummy_zstream) {
+    deflateEnd(deflate_dummy_zstream);
+    ngx_free(deflate_dummy_zstream);
+    deflate_dummy_zstream = NULL;
   }
   return NGX_OK;
 }
@@ -740,25 +766,32 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
 }
 
 
-ngx_int_t nchan_common_simple_deflate(ngx_str_t *in, ngx_str_t *out) {
+static ngx_int_t nchan_common_simple_deflate_internal(z_stream *strm, ngx_str_t *in, ngx_str_t *out) {
   int rc;
-  deflate_zstream->avail_in = in->len;
-  deflate_zstream->next_in = in->data;
+  strm->avail_in = in->len;
+  strm->next_in = in->data;
 
   //output
-  deflate_zstream->avail_out = out->len;
-  deflate_zstream->next_out = out->data;
+  strm->avail_out = out->len;
+  strm->next_out = out->data;
 
-  rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
+  rc = deflate(strm, Z_SYNC_FLUSH);
   if(rc != Z_STREAM_ERROR) {
-    out->len = deflate_zstream->total_out;
+    out->len = strm->total_out;
   }
   
-  deflateReset(deflate_zstream);
+  deflateReset(strm);
   
   return rc != Z_STREAM_ERROR ? NGX_OK : NGX_ERROR;
 }
 
+ngx_int_t nchan_common_simple_deflate(ngx_str_t *in, ngx_str_t *out) {
+  return nchan_common_simple_deflate_internal(deflate_zstream, in, out);
+}
+
+ngx_int_t nchan_common_simple_deflate_raw_block(ngx_str_t *in, ngx_str_t *out) {
+  return nchan_common_simple_deflate_internal(deflate_dummy_zstream, in, out);
+}
   
 #endif
 

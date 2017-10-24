@@ -1543,7 +1543,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   nchan_buf_and_chain_t *bc;
   ngx_file_t            *file_copy;
   ngx_buf_t             *chained_msgbuf = NULL;
-  size_t                 sz = ngx_buf_size((&msg->buf));
+  size_t                 sz;
   ngx_str_t              binary_mimetype = ngx_string("application/octet-stream");
   u_char                 frame_opcode;
   int                    compressed;
@@ -1637,7 +1637,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
       bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 2);
       cur = &bc->chain;
       
-      nchan_common_simple_deflate(&ws_meta_header_str_in, &ws_meta_header_str_out);
+      nchan_common_simple_deflate_raw_block(&ws_meta_header_str_in, &ws_meta_header_str_out);
       
       ngx_init_set_membuf(cur->buf, ws_meta_header_str_out.data, ws_meta_header_str_out.data + ws_meta_header_str_out.len);
       sz += ws_meta_header_str_out.len;
