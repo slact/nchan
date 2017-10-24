@@ -354,8 +354,22 @@ class Subscriber
       [:websocket, :ws]
     end
     
+    #patch that monkey
+    module WebSocketDriverExtensions
+      def last_message
+        @last_message
+      end
+      def emit_message
+        @last_message = @message
+        super
+      end
+    end
+    class WebSocket::Driver::Hybi
+      prepend WebSocketDriverExtensions
+    end
+    
     class WebSocketBundle
-      attr_accessor :ws, :sock, :url, :last_message_time, :last_frame, :last_message_frame_type
+      attr_accessor :ws, :sock, :url, :last_message_time, :last_message_frame_type
       
       def initialize(sock, url, opt={})
         @buf=""
@@ -530,8 +544,14 @@ class Subscriber
         bundle.send_handshake
         
         async.listen bundle
-
       end
+    end
+    
+    def on_ping
+      @on_ping = Proc.new if block_given?
+    end
+    def on_pong
+      @on_pong = Proc.new if block_given?
     end
     
     def listen(bundle)
