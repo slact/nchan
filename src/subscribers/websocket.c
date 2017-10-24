@@ -864,7 +864,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
   
-  permessage_deflate_t pmd;
+  permessage_deflate_t pmd = {0,0,0,0,0};
   
   ngx_sha1_t          sha1;
   
