@@ -36,7 +36,7 @@ CfCmd.new do
         The upstream response code determines how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.
       EOS
   
-  nchan_compress_message_for_websocket [:srv, :loc],
+  nchan_deflate_message_for_websocket [:srv, :loc],
       :nchan_set_message_compression_slot,
       :loc_conf,
       args: 1,
