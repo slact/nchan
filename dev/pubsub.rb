@@ -6,7 +6,10 @@ require 'celluloid/current'
 require 'date'
 Typhoeus::Config.memoize = false
 require 'celluloid/io'
-require 'websocket'
+
+require 'websocket/driver'
+require 'permessage_deflate'
+
 require 'uri'
 require "http/parser"
 
@@ -349,52 +352,41 @@ class Subscriber
       [:websocket, :ws]
     end
     
-    #a little sugar for handshake errors
-    class WebSocket::Handshake::Client
-      attr_accessor :data
-      def response_code(what=:code)
-        resp=@data.match(/^HTTP\/1.1 (?<code>\d+) (?<line>[^\\\r\\\n]+)/)
-        resp[what]
-      end
-      def response_line
-        response_code :line
-      end
-    end
-    
     class WebSocketBundle
-      attr_accessor :ws, :sock, :last_message_time, :last_frame
-      def initialize(handshake, sock)
+      attr_accessor :ws, :sock, :url, :last_message_time, :last_frame
+      
+      def initialize(sock, url, opt={})
         @buf=""
-        @handshake = handshake
-        self.ws = WebSocket::Frame::Incoming::Client.new(version: @handshake.version)
-        self.sock = sock
+        @url = url
+        driver_opt = {max_length: 2**28-1} #256M
+        if opt[:subprotocol]
+          driver_opt[:protocols]=opt[:subprotocol]
+        end
+        @ws = WebSocket::Driver.client self, driver_opt
+        if opt[:permessage_deflate]
+          @ws.add_extension PermessageDeflate
+        end
+        
+        @sock = sock
+        
+      end
+      
+      def send_handshake
+        ret = @ws.start
+      end
+      
+      def send_data data
+        @ws.text data
+      end
+      
+      def write(data)
+        @sock.write data
       end
       
       def read
         @buf.clear
-        ws << sock.readpartial(4096, @buf)
-      end
-      
-      def send_frame(opt)
-        out = WebSocket::Frame::Outgoing::Client.new(opt.merge(version: @handshake.version))
-        sock.write out.to_s
-      end
-      
-      def send_data(data)
-        send_frame type: :text, data: data
-      end
-      
-      def send_ping(data=nil)
-        send_frame type: :ping, data: data
-      end
-      
-      def send_pong(data=nil)
-        send_frame type: :pong, data: data
-      end
-        
-      def send_close(code=1000, reason=nil)
-        #puts "sending close"
-        send_frame type: :close, code: code, data: reason
+        sock.readpartial(4096, @buf)
+        @ws.parse @buf
       end
       
       def next
@@ -405,7 +397,7 @@ class Subscriber
     end
     
     def provides_msgid?
-      false
+      @subprotocol == "ws+meta.nchan"
     end
     
     attr_accessor :last_modified, :etag, :timeout
@@ -414,14 +406,18 @@ class Subscriber
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
       @connect_timeout = opt[:connect_timeout]
       @subscriber=subscr
+      @subprotocol = opt[:subprotocol]
       @url=subscr.url
       @url = @url.gsub(/^h(ttp|2)(s)?:/, "ws\\2:")
+      
+      if opt[:permessage_deflate]
+        @permessage_deflate = true
+      end
       
       @concurrency=(opt[:concurrency] || opt[:clients] || 1).to_i
       @retry_delay=opt[:retry_delay]
       @ws = {}
       @connected=0
-      @notready=@concurrency
       @nomsg = opt[:nomsg]
       @http2 = opt[:http2]
       if @timeout
@@ -452,6 +448,7 @@ class Subscriber
         return
       end
       raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme == "unix" || uri.scheme.match(/^wss?$/)
+      @notready=@concurrency
       @concurrency.times do
         begin
           sock = ParserBundle.new(uri).open_socket.sock
@@ -467,39 +464,81 @@ class Subscriber
           hs_url=@url
         end        
         
-        @handshake = WebSocket::Handshake::Client.new(url: hs_url)
-        sock << @handshake.to_s
+        bundle = WebSocketBundle.new sock, hs_url, permessage_deflate: @permessage_deflate, subprotocol: @subprotocol
         
-        #handshake response
-        loop do
-          @handshake << sock.readline
-          break if @handshake.finished?
-        end
-        
-        if @handshake.valid?
-          bundle = WebSocketBundle.new(@handshake, sock)
-          @ws[bundle]=true
-          async.listen bundle
+        bundle.ws.on :open do |ev|
           @notready-=1
           @cooked_ready.signal true if @notready == 0
-        else
-          @subscriber.on_failure error(@handshake.response_code, @handshake.response_line)
-          close nil
         end
+        
+        bundle.ws.on :ping do |ev|
+          puts "got pinged!"
+        end
+        
+        bundle.ws.on :pong do |ev|
+          puts "got ponged!"
+        end
+        
+        bundle.ws.on :error do |ev|
+          http_error_match = ev.message.match /Unexpected response code: (\d+)/
+          @subscriber.on_failure error(http_error_match ? http_error_match[1] : 0, ev.message)
+          close bundle
+        end
+        
+        bundle.ws.on :close do |ev|
+          @subscriber.on_failure error(ev.code, ev.reason, true)
+          close bundle
+        end
+        
+        bundle.ws.on :message do |ev|
+          @timer.reset if @timer
+          
+          data = ev.data
+          if Array === data #binary String
+            data = data.map(&:chr).join
+            data.force_encoding "ASCII-8BIT"
+          end
+          
+          if bundle.ws.protocol == "ws+meta.nchan"
+            @meta_regex ||= /^id: (?<id>\d+:[^n]+)\n(content-type: (?<content_type>[^\n]+)\n)?\n(?<data>.*)/m
+            match = @meta_regex.match data
+            if not match
+              @subscriber.on_failure error(0, "Invalid ws+meta.nchan message received")
+              close bundle
+            else
+              if @nomsg 
+                msg = match[:data]
+              else
+                msg= Message.new match[:data]
+                msg.content_type = match[:content_type]
+                msg.id = match[:id]
+              end
+            end
+          else
+            msg= @nomsg ? data : Message.new(data)
+          end
+          
+          bundle.last_message_time=Time.now.to_f
+          if @subscriber.on_message(msg, bundle) == false
+            close bundle
+          end
+          
+        end
+        
+        @ws[bundle]=true
+        
+        #handhsake
+        bundle.send_handshake
+        
+        async.listen bundle
+
       end
     end
     
     def listen(bundle)
-      loop do
+      while @ws[bundle]
         begin
           bundle.read
-          while msg = bundle.next do
-            @timer.reset if @timer
-            if on_message(msg.data, msg.type, bundle) == false
-              close bundle
-              return 
-            end
-          end
         rescue IOError => e
           @subscriber.on_failure error(0, "Connection closed: #{e}"), bundle
           close bundle
@@ -508,37 +547,15 @@ class Subscriber
           bundle.sock.close
           close bundle
           return
+        rescue Errno::ECONNRESET
+          close bundle
+          return
         end
       end
     end
     
-    def on_error
-      if !@connected[ws]
-        @subscriber.on_failure error(ws.handshake.response_code, ws.handshake.response_line)
-      end
-    end
-    
-    def on_message(data, type, bundle)
-      #puts "Received message: #{data} type: #{type}"
-      if type==:close
-        bundle.send_close
-        #server should close the connection, just reply
-        data.match(/(\d+)\s(.*)/)
-        @subscriber.on_failure error(($~[1] || 0).to_i, $~[2] || "", true)
-      elsif type==:ping
-        bundle.send_pong(data: data)
-      elsif type==:text || type ==:binary
-        data.force_encoding("ASCII-8BIT") if type == :binary
-        msg= @nomsg ? data : Message.new(data)
-        bundle.last_message_time=Time.now.to_f
-        @subscriber.on_message(msg, bundle)
-      else
-        raise "unexpected websocket frame #{type} data #{data}"
-      end
-    end
-    
     def send_ping(data=nil)
-      @ws.first.first.send_ping data
+      @ws.first.first.ping data
     end
     def send_close(code=1000, reason=nil)
       @ws.first.first.send_close code, reason
@@ -555,7 +572,6 @@ class Subscriber
       @connected -= 1
       if @connected <= 0
         binding.pry unless @ws.count == 0
-        #binding.pry
         @cooked.signal true
       end
     end

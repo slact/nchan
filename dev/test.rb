@@ -94,7 +94,9 @@ class PubSubTest <  Minitest::Test
     sub.run
 
     sleep 0.4
-    assert ws_sub.match_errors(/code 403/), "expected 403 for all non-intervalpoll subscribers, got #{sub.errors.pretty_inspect}"
+    
+    #binding.pry
+    assert ws_sub.match_errors(/403/), "expected 403 for all non-intervalpoll subscribers, got #{ws_sub.errors.pretty_inspect}"
     ws_sub.terminate
     
     pub.post ["hello this", "is a thing"]

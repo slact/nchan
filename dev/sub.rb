@@ -25,6 +25,9 @@ print_content_type = false
 show_id=false
 origin = nil
 
+permessage_deflate = false
+ws_meta_subprotocol = false
+
 url = nil
 sub = nil
 
@@ -44,6 +47,10 @@ opt_parser=OptionParser.new do |opts|
     url = v
   end
   opts.on("--http2", "use HTTP/2"){opt[:http2] = true}
+  
+  opts.on("--websocket-permessage-deflate", "Try to use the websocket permessage-deflate extension."){opt[:permessage_deflate]=true}
+  opts.on("--websocket-meta-subprotocol", "Use the ws+meta.nchan websocket subprotocol"){opt[:subprotocol]="ws+meta.nchan"}
+  
   opts.on("-v", "--verbose", "somewhat rather extraneously wordful output") do
     opt[:verbose] = true
     Typhoeus::Config.verbose=true
