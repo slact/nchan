@@ -876,18 +876,25 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_VERSION)) == NULL) {
     r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
+    ngx_http_send_header(r);
+    return;
   }
   else {
     ws_version=ngx_atoi(tmp->data, tmp->len);
     if(ws_version != 13) {
+      //only websocket version 13 (RFC 6455) is supported
       r->headers_out.status = NGX_HTTP_BAD_REQUEST;
       fsub->sub.dequeue_after_response=1;
+      ngx_http_send_header(r);
+      return;
     }
   }
   
   if((ws_key = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
     r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
+    ngx_http_send_header(r);
+    return;
   }
   
   if((subprotocols = nchan_get_header_value(r, NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL)) != NULL) {
@@ -951,53 +958,51 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
       fsub->deflate.client_max_window_bits = 10;
     }
   }
+
+  //generate accept key
+  ngx_sha1_init(&sha1);
+  ngx_sha1_update(&sha1, ws_key->data, ws_key->len);
+  ngx_sha1_update(&sha1, magic.data, magic.len);
+  ngx_sha1_final(buf_sha1, &sha1);
+  sha1_str.len=20;
+  sha1_str.data=buf_sha1;
   
-  if(r->headers_out.status != NGX_HTTP_BAD_REQUEST) {
-    //generate accept key
-    ngx_sha1_init(&sha1);
-    ngx_sha1_update(&sha1, ws_key->data, ws_key->len);
-    ngx_sha1_update(&sha1, magic.data, magic.len);
-    ngx_sha1_final(buf_sha1, &sha1);
-    sha1_str.len=20;
-    sha1_str.data=buf_sha1;
-    
-    ws_accept_key.len=ngx_base64_encoded_length(sha1_str.len);
-    assert(ws_accept_key.len < 255);
-    ngx_encode_base64(&ws_accept_key, &sha1_str);
-    
-    nchan_include_access_control_if_needed(r, fsub->ctx);
-    nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
-    nchan_add_response_header(r, &NCHAN_HEADER_UPGRADE, &NCHAN_WEBSOCKET);
+  ws_accept_key.len=ngx_base64_encoded_length(sha1_str.len);
+  assert(ws_accept_key.len < 255);
+  ngx_encode_base64(&ws_accept_key, &sha1_str);
+  
+  nchan_include_access_control_if_needed(r, fsub->ctx);
+  nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_ACCEPT, &ws_accept_key);
+  nchan_add_response_header(r, &NCHAN_HEADER_UPGRADE, &NCHAN_WEBSOCKET);
 #if nginx_version < 1003013
-    nchan_add_response_header(r, &NCHAN_HEADER_CONNECTION, &NCHAN_UPGRADE);
+  nchan_add_response_header(r, &NCHAN_HEADER_CONNECTION, &NCHAN_UPGRADE);
 #endif
-    r->headers_out.status_line = NCHAN_HTTP_STATUS_101;
-    r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
-    
-    //generate permessage-deflate headers
-    if(fsub->deflate.enabled) {
-      u_char *ws_ext_end;
-      ngx_str_t ws_extensions;
-      ws_extensions.data = permessage_deflate_buf;
-      ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "permessage-deflate; %s%s", 
-                                fsub->deflate.server_no_context_takeover ? "server_no_context_takeover; " : "",
-                                fsub->deflate.client_no_context_takeover ? "client_no_context_takeover; " : "");
-      if (pmd.server_max_window_bits > 0) {
-        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
-                                  "server_max_window_bits=%i; ", 
-                                  fsub->deflate.server_max_window_bits);
-      }
-      if (fsub->deflate.client_max_window_bits > 0) {
-        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
-                                  "client_max_window_bits=%i; ", 
-                                  fsub->deflate.client_max_window_bits);
-      }
-      ws_extensions.len = ws_ext_end - permessage_deflate_buf - 2; //-2 for the trailing "; "
-      nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS, &ws_extensions);
+  r->headers_out.status_line = NCHAN_HTTP_STATUS_101;
+  r->headers_out.status = NGX_HTTP_SWITCHING_PROTOCOLS;
+  
+  //generate permessage-deflate headers
+  if(fsub->deflate.enabled) {
+    u_char *ws_ext_end;
+    ngx_str_t ws_extensions;
+    ws_extensions.data = permessage_deflate_buf;
+    ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "permessage-deflate; %s%s", 
+                              fsub->deflate.server_no_context_takeover ? "server_no_context_takeover; " : "",
+                              fsub->deflate.client_no_context_takeover ? "client_no_context_takeover; " : "");
+    if (pmd.server_max_window_bits > 0) {
+      ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
+                                "server_max_window_bits=%i; ", 
+                                fsub->deflate.server_max_window_bits);
     }
-    
-    r->keepalive=0; //apparently, websocket must not use keepalive.
+    if (fsub->deflate.client_max_window_bits > 0) {
+      ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
+                                "client_max_window_bits=%i; ", 
+                                fsub->deflate.client_max_window_bits);
+    }
+    ws_extensions.len = ws_ext_end - permessage_deflate_buf - 2; //-2 for the trailing "; "
+    nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS, &ws_extensions);
   }
+  
+  r->keepalive=0; //apparently, websocket must not use keepalive.
   
   ngx_http_send_header(r);
 }
