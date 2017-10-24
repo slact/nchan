@@ -145,10 +145,10 @@ class PubSubTest <  Minitest::Test
     #many tagactives
     pub, sub = pubsub
     pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
+    
     sub.on_failure { false }
-    sub.on_message do |msg, bundle|
-      bundle.etag="[[[0,13,[9],[11]"
-    end
+    
+    sub.on_message { |msg, bundle| bundle.etag="[[[0,13,[9],[11]]]]" }
     sub.run
     sub.wait
     puts sub.errors
