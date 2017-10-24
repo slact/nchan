@@ -1362,9 +1362,9 @@ class PubSubTest <  Minitest::Test
     
     sub.on_message do |msg, bundle|
       if msgs[n][1]=="application/octet-stream" then #should be binary
-        assert(bundle.last_frame.type==:binary, "websoket frame should be binary")
+        assert(bundle.last_message_frame_type==:binary, "websoket frame should be binary")
       else
-        assert(bundle.last_frame.type==:text, "websoket frame should be text")
+        assert(bundle.last_message_frame_type==:text, "websoket frame should be text")
       end
       n+= 1
     end

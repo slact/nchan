@@ -353,7 +353,7 @@ class Subscriber
     end
     
     class WebSocketBundle
-      attr_accessor :ws, :sock, :url, :last_message_time, :last_frame
+      attr_accessor :ws, :sock, :url, :last_message_time, :last_frame, :last_message_frame_type
       
       def initialize(sock, url, opt={})
         @buf=""
@@ -497,6 +497,9 @@ class Subscriber
           if Array === data #binary String
             data = data.map(&:chr).join
             data.force_encoding "ASCII-8BIT"
+            bundle.last_message_frame_type=:binary
+          else
+            bundle.last_message_frame_type=:text
           end
           
           if bundle.ws.protocol == "ws+meta.nchan"
