@@ -390,12 +390,6 @@ class Subscriber
         sock.readpartial(4096, @buf)
         @ws.parse @buf
       end
-      
-      def next
-        _frame = ws.next
-        @last_frame = _frame if _frame
-        _frame
-      end
     end
     
     def provides_msgid?
@@ -474,11 +468,11 @@ class Subscriber
         end
         
         bundle.ws.on :ping do |ev|
-          puts "got pinged!"
+          @on_ping.call if @on_ping
         end
         
         bundle.ws.on :pong do |ev|
-          puts "got ponged!"
+          @on_pong.call if @on_pong
         end
         
         bundle.ws.on :error do |ev|
