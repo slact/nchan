@@ -18,8 +18,11 @@ gem 'pry-theme'
 
 gem 'celluloid'
 gem 'celluloid-io'
-gem 'websocket'
-gem 'websocket-native'
+
+gem 'websocket-driver'
+gem 'websocket-extensions'
+gem "permessage_deflate"
+
 gem 'http_parser.rb'
 
 if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.2')
