@@ -652,7 +652,7 @@ ngx_int_t nchan_common_deflate_shutdown(void) {
   return NGX_OK;
 }
 
-#define DEFLATE_CHUNK 16384
+#define ZLIB_CHUNK 16384
 
 static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) {
   ngx_temp_file_t           *tf;
@@ -682,7 +682,7 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
   
   int                 rc;
   ngx_buf_t          *out = NULL;
-  u_char              outbuf[DEFLATE_CHUNK];
+  u_char              outbuf[ZLIB_CHUNK];
   unsigned            have = 0;
   off_t               written = 0;
   
@@ -708,13 +708,13 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
   //output
   
   do {
-    deflate_zstream->avail_out = DEFLATE_CHUNK;
+    deflate_zstream->avail_out = ZLIB_CHUNK;
     deflate_zstream->next_out = outbuf;
     
     rc = deflate(deflate_zstream, Z_SYNC_FLUSH);
     assert(rc != Z_STREAM_ERROR);
     
-    have = DEFLATE_CHUNK - deflate_zstream->avail_out;
+    have = ZLIB_CHUNK - deflate_zstream->avail_out;
     
     if(deflate_zstream->avail_out == 0 && tf == NULL) {
       //if we filled up the buffer, let's start dumping to a file.
@@ -739,6 +739,96 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
   
   if(written > 4) { //there will be a 00 00 FF FF chunk at the end. remove it as the permessage-deflate spec demands
     written -= 4;
+  }
+  
+  if(tf) { //using a tempfile
+    //thanks to tf->clean = 0, file will be closed on pool cleanup
+    ngx_memzero(out, sizeof(*out));
+    out->file_pos = 0;
+    out->file_last = written;
+    out->in_file = 1;
+    out->file = &tf->file;
+  }
+  else {
+    u_char  *outpooled = ngx_palloc(pool, written);
+    if(!outpooled) {
+      nchan_log_request_error(r, "failed to allocate output data for deflated message");
+      deflateReset(deflate_zstream);
+      return NULL;
+    }
+    ngx_memcpy(outpooled, outbuf, written);
+    ngx_init_set_membuf(out, outpooled, outpooled + written);
+  }
+  out->last_buf = 1;
+  
+  deflateReset(deflate_zstream);
+  return out;
+}
+
+ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool) {
+  ngx_str_t           mm_instr;
+  int                 mmapped = 0;
+  ngx_temp_file_t    *tf = NULL;
+  
+  int                 rc;
+  ngx_buf_t          *out = NULL;
+  u_char              outbuf[ZLIB_CHUNK];
+  unsigned            have = 0;
+  off_t               written = 0;
+  int                 trailer_appended = 0;
+  
+  //input
+  if(ngx_buf_in_memory(in)) {
+    stream->avail_in = ngx_buf_size(in);
+    stream->next_in = in->pos;
+  }
+  else {
+    ngx_fd_t fd = in->file->fd == NGX_INVALID_FILE ? nchan_fdcache_get(&in->file->name) : in->file->fd;
+    mm_instr.len = in->file_last - in->file_pos;
+    mm_instr.data = mmap(NULL, mm_instr.len, PROT_READ, MAP_SHARED, fd, in->file_pos);
+    if (mm_instr.data == MAP_FAILED) {
+      nchan_log_request_error(r, "failed to mmap input file for deflated message");
+      return NULL;
+    }
+    stream->avail_in = mm_instr.len;
+    stream->next_in = mm_instr.data;
+    mmapped = 1;
+  }
+
+  //output
+  
+  do {
+    stream->avail_out = ZLIB_CHUNK;
+    stream->next_out = outbuf;
+    
+    if(stream->avail_in == 0 && !trailer_appended) {
+      stream->avail_in = 4;
+      stream->next_in = (u_char *)"\x00\x00\xFF\xFF";
+      trailer_appended = 1;
+    }
+    rc = inflate(stream, trailer_appended ? Z_SYNC_FLUSH : Z_NO_FLUSH);
+    assert(rc != Z_STREAM_ERROR);
+    
+    have = ZLIB_CHUNK - stream->avail_out;
+    
+    if(stream->avail_out == 0 && tf == NULL) {
+      //if we filled up the buffer, let's start dumping to a file.
+      tf = make_temp_file(r, pool);
+    }
+    if(tf) {
+      ngx_write_file(&tf->file, outbuf, have, written);
+    }
+    written += have;
+  } while(rc != Z_BUF_ERROR);
+  
+  if(mmapped) {
+    munmap(mm_instr.data, mm_instr.len);
+  }
+  
+  if((out = ngx_palloc(pool, sizeof(*out))) == NULL) {
+    nchan_log_request_error(r, "failed to allocate output buf for deflated message");
+    deflateReset(deflate_zstream);
+    return NULL;
   }
   
   if(tf) { //using a tempfile
@@ -794,6 +884,40 @@ ngx_int_t nchan_common_simple_deflate_raw_block(ngx_str_t *in, ngx_str_t *out) {
 }
   
 #endif
+
+
+ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
+#if (NGX_ZLIB)
+  return cf->message_compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
+#else
+  return 0;
+#endif
+}
+
+ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf, ngx_http_request_t *r, ngx_pool_t  *pool) {
+#if (NGX_ZLIB)
+  if(nchan_need_to_deflate_message(cf)) {
+    assert(msg->compressed == NULL);
+    msg->compressed = ngx_palloc(pool, sizeof(*msg->compressed));
+    if(!msg->compressed) {
+      nchan_log_request_error(r, "no memory to compress message");
+    }
+    else {
+      ngx_buf_t  *compressed_buf = nchan_common_deflate(&msg->buf, r, pool);
+      if(!compressed_buf) {
+        nchan_log_request_error(r, "failed to compress message");
+      }
+      else {
+        msg->compressed->compression = cf->message_compression;
+        msg->compressed->buf = *compressed_buf;
+      }
+    }
+  }
+  return NGX_OK;
+#else
+  return NGX_DECLINED;
+#endif
+}
 
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited

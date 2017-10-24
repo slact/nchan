@@ -47,10 +47,14 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz);
         (type *)( (char *)__mptr - offsetof(type,member) );})
 #endif
 
+ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf);
+ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf, ngx_http_request_t *r, ngx_pool_t  *pool);
 #if (NGX_ZLIB)
+#include <zlib.h>
 ngx_int_t nchan_common_deflate_shutdown(void);
 ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf);
 ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool);
 ngx_int_t nchan_common_simple_deflate_raw_block(ngx_str_t *in, ngx_str_t *out);
 ngx_int_t nchan_common_simple_deflate(ngx_str_t *in, ngx_str_t *out);
+ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool);
 #endif

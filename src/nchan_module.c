@@ -834,25 +834,7 @@ static void nchan_publisher_post_request(ngx_http_request_t *r, ngx_str_t *conte
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   msg->start_tv = ctx->start_tv;
 #endif
-#if (NGX_ZLIB)  
-  if(cf->message_compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE) {
-    msg->compressed = ngx_palloc(r->pool, sizeof(*msg->compressed));
-    if(!msg->compressed) {
-      nchan_log_request_error(r, "no memory to compress message");
-    }
-    else {
-      ngx_buf_t  *compressed_buf = nchan_common_deflate(&msg->buf, r, r->pool);
-      if(!compressed_buf) {
-        nchan_log_request_error(r, "failed to compress message");
-      }
-      else {
-        msg->compressed->compression = cf->message_compression;
-        msg->compressed->buf = *compressed_buf;
-      }
-    }
-  }
-#endif  
-  
+  nchan_deflate_message_if_needed(msg, cf, r, r->pool);
   if((pd = nchan_set_safe_request_ptr(r)) == NULL) {
     return;
   }

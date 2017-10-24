@@ -171,6 +171,11 @@ typedef struct {
 } nchan_pub_upstream_stuff_t;
 
 typedef struct {
+#if (NGX_ZLIB)
+  z_stream               *zstream_in;
+  ngx_pool_t             *deflatemsg_pool;
+  int16_t                 deflatemsg_pool_use_count;
+#endif
   int8_t                  server_max_window_bits;
   int8_t                  client_max_window_bits;
   unsigned                server_no_context_takeover:1;
@@ -211,7 +216,7 @@ static void empty_handler() { }
 static ngx_int_t websocket_send_frame(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *chain);
 static void set_buf_to_str(ngx_buf_t *buf, const ngx_str_t *str);
 static ngx_chain_t *websocket_frame_header_chain(full_subscriber_t *fsub, const u_char opcode, off_t len, ngx_chain_t *chain);
-static ngx_flag_t is_utf8(u_char *, size_t);
+static ngx_flag_t is_utf8(ngx_buf_t *);
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
@@ -413,6 +418,16 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     msgid = &ch->last_published_msg_id;
   }
   
+  //clean up deflation pool
+  if(nchan_need_to_deflate_message(fsub->sub.cf)) {
+    fsub->deflate.deflatemsg_pool_use_count--;
+    
+    if(fsub->deflate.deflatemsg_pool_use_count == 0 && fsub->deflate.deflatemsg_pool) {
+      ngx_destroy_pool(fsub->deflate.deflatemsg_pool);
+      fsub->deflate.deflatemsg_pool = NULL;
+    }
+  }
+  
   if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
     //zombie publisher
     //nothing more to do, we're finished here
@@ -464,6 +479,19 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   msg.id.tagactive=0;
   
   msg.storage = NCHAN_MSG_STACK;
+  
+  if(nchan_need_to_deflate_message(fsub->sub.cf)) {
+    if(fsub->deflate.deflatemsg_pool == NULL) {
+      fsub->deflate.deflatemsg_pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, fsub->sub.request->connection->log);
+    }
+    if(fsub->deflate.deflatemsg_pool) {
+      fsub->deflate.deflatemsg_pool_use_count++;
+      nchan_deflate_message_if_needed(&msg, fsub->sub.cf, fsub->sub.request, fsub->deflate.deflatemsg_pool);
+    }
+    else {
+      ERR("unable to deflate message: couldn't allocate deflation pool");
+    }
+  }
   
   websocket_reserve(&fsub->sub);
   fsub->sub.cf->storage_engine->publish(fsub->publish_channel_id, &msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, fsub); 
@@ -639,12 +667,6 @@ static ngx_int_t websocket_heartbeat(full_subscriber_t *fsub, ngx_buf_t *buf) {
 }
 
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
-  static ngx_str_t         nopublishing = ngx_string("Publishing not allowed.");
-  
-  if(!fsub->sub.cf->pub.websocket) {
-    return websocket_send_close_frame(fsub, CLOSE_POLICY_VIOLATION, &nopublishing);
-  }
-  
 #if (NGX_DEBUG_POOL)
   ERR("ws request pool size: %V", ngx_http_debug_pool_str(fsub->sub.request->pool));
 #endif
@@ -849,6 +871,15 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     if(fsub->cln)
       fsub->cln->data = NULL;
     //ngx_memset(fsub, 0x13, sizeof(*fsub));
+    if(fsub->deflate.zstream_in) {
+      inflateEnd(fsub->deflate.zstream_in);
+      ngx_free(fsub->deflate.zstream_in);
+      fsub->deflate.zstream_in = NULL;
+    }
+    if(fsub->deflate.deflatemsg_pool) {
+      ngx_destroy_pool(fsub->deflate.deflatemsg_pool);
+      fsub->deflate.deflatemsg_pool = NULL;
+    }
     ngx_free(fsub);
   }
   return NGX_OK;
@@ -864,7 +895,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
   
-  permessage_deflate_t pmd = {0,0,0,0,0};
+  permessage_deflate_t pmd = {NULL,NULL,0,0,0,0,0,0};
   
   ngx_sha1_t          sha1;
   
@@ -1009,6 +1040,41 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
 
 static void websocket_reading(ngx_http_request_t *r);
 
+static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *msgbuf, ngx_pool_t *pool) {
+#if (NGX_ZLIB)
+  z_stream      *strm;
+  int            rc;
+  ngx_buf_t     *outbuf;
+  
+  if(fsub->deflate.zstream_in == NULL) {
+    if((fsub->deflate.zstream_in = ngx_calloc(sizeof(*strm), ngx_cycle->log)) == NULL) {
+      nchan_log_error("couldn't allocate deflate stream.");
+      return NULL;
+    }
+    strm = fsub->deflate.zstream_in;
+    
+    strm->zalloc = Z_NULL;
+    strm->zfree = Z_NULL;
+    strm->opaque = Z_NULL;
+    
+    rc = inflateInit2(strm, -fsub->deflate.server_max_window_bits);
+    
+    if(rc != Z_OK) {
+      nchan_log_error("couldn't initialize inflate stream.");
+      ngx_free(strm);
+      fsub->deflate.zstream_in = NULL;
+      return NULL;
+    }
+  }
+  
+  strm = fsub->deflate.zstream_in;
+  
+  outbuf = nchan_inflate(strm, msgbuf, fsub->sub.request, pool);
+  return outbuf;
+#else
+  return NULL;
+#endif
+}
 
 static void ensure_request_hold(full_subscriber_t *fsub) {
   if(fsub->holding == 0) {
@@ -1326,10 +1392,6 @@ static void websocket_reading(ngx_http_request_t *r) {
         frame->last = NULL;
         switch(frame->opcode) {
           case WEBSOCKET_OPCODE_TEXT:
-            if (!is_utf8(frame->payload, frame->payload_len)) {
-              return websocket_reading_finalize(r, temp_pool);
-            }
-            //intentional fall-through
           case WEBSOCKET_OPCODE_BINARY:
             init_msg_buf(&msgbuf);
             
@@ -1342,6 +1404,26 @@ static void websocket_reading(ngx_http_request_t *r) {
             //msg_in_str.len = frame->payload_len;
             
             //ERR("we got data %V", &msg_in_str);
+            
+            if(!fsub->sub.cf->pub.websocket) {
+                static ngx_str_t         nopublishing = ngx_string("Publishing not allowed.");
+              websocket_send_close_frame(fsub, CLOSE_POLICY_VIOLATION, &nopublishing);
+              return websocket_reading_finalize(r, temp_pool);
+            }
+            
+            if(fsub->deflate.enabled && frame->rsv1) {
+              ngx_buf_t *inflated_buf;
+              if((inflated_buf = websocket_inflate_message(fsub, &msgbuf, temp_pool)) != NULL) {
+                msgbuf = *inflated_buf;
+              }
+            }
+            
+            if (frame->opcode == WEBSOCKET_OPCODE_TEXT && !is_utf8(&msgbuf)) {
+              static ngx_str_t         not_utf8 = ngx_string("Invalid text frame (not UTF8).");
+              websocket_send_close_frame(fsub, CLOSE_INVALID_PAYLOAD, &not_utf8);
+              return websocket_reading_finalize(r, temp_pool);
+            }
+            
             if(websocket_heartbeat(fsub, &msgbuf) != NGX_OK) {
               websocket_publish(fsub, &msgbuf);
             }
@@ -1420,9 +1502,28 @@ exit:
 }
 
 
-static ngx_flag_t is_utf8(u_char *p, size_t n) {
+static ngx_flag_t is_utf8(ngx_buf_t *buf) {
+  
+  u_char *p;
+  size_t n;
+  
   u_char  c, *last;
   size_t  len;
+  int     mmapped = 0;
+  
+  if(ngx_buf_in_memory(buf)) {
+    n = ngx_buf_size(buf);
+    p = buf->pos;
+  }
+  else {
+    ngx_fd_t fd = buf->file->fd == NGX_INVALID_FILE ? nchan_fdcache_get(&buf->file->name) : buf->file->fd;
+    n = buf->file_last - buf->file_pos;
+    p = mmap(NULL, n, PROT_READ, MAP_SHARED, fd, buf->file_pos);
+    if (p == MAP_FAILED) {
+      return 0;
+    }
+    mmapped = 1;
+  }
   
   last = p + n;
   
@@ -1436,8 +1537,14 @@ static ngx_flag_t is_utf8(u_char *p, size_t n) {
     
     if (ngx_utf8_decode(&p, last - p) > 0x10ffff) {
       /* invalid UTF-8 */
+      if(mmapped) {
+        munmap(p, n);
+      }
       return 0;
     }
+  }
+  if(mmapped) {
+    munmap(p, n);
   }
   return 1;
 }
