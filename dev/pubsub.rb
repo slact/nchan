@@ -54,7 +54,9 @@ class Message
     if last_modified
       timestamp = DateTime.httpdate(last_modified).to_time.utc.to_i
     end
-    "#{timestamp}:#{etag}"
+    if last_modified || etag
+      "#{timestamp}:#{etag}"
+    end
   end
   def id=(val)
     @id=val

@@ -58,7 +58,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
@@ -144,6 +144,7 @@ class PubSubTest <  Minitest::Test
     
     #many tagactives
     pub, sub = pubsub
+    
     pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
     
     sub.on_failure { false }
@@ -609,15 +610,31 @@ class PubSubTest <  Minitest::Test
   end
   
   
-  def test_broadcast(clients=400)
-    pub, sub = pubsub clients
-    pub.post "!!"
+  def test_broadcast(clients=400, pubsub_opt={}, opt={})
+    pub, sub = pubsub clients, pubsub_opt
+    pub.post "!!", opt[:content_type]
     sub.run #celluloid async FTW
     #sleep 2
-    pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"]
-    pub.post "FIN"
+    pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"], opt[:content_type]
+    pub.post "FIN", opt[:content_type]
     sub.wait
     sleep 0.5
+    
+    sub.messages.each do |msg|
+      if opt[:must_have_message_ids]
+        assert msg.id, "message id must be present, but isn't"
+      elsif opt[:must_have_message_ids] == false
+        assert_nil msg.id, "message_id must be absent, but isn't"
+      end
+      
+      if opt[:must_have_content_type]
+        assert msg.content_type, "message content-type must be present, but isn't"
+        assert_equal opt[:content_type], msg.content_type, "message content type doesn't match"
+      elsif opt[:must_have_content_type]==false
+        assert_nil msg.content_type, "message content-type must be absent, but isn't"
+      end
+    end
+      
     verify pub, sub
     sub.terminate
   end
@@ -1378,6 +1395,12 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
     sub.terminate
   end
+  
+  def test_websocket_subprotocol
+    test_broadcast 1, {client: :websocket}, {must_have_message_ids: false, content_type: "x/foo", must_have_content_type: false}
+    test_broadcast 10, {client: :websocket, subprotocol: "ws+meta.nchan"}, {must_have_message_ids: true, content_type: "x/foo", must_have_content_type: true}
+  end
+
 end
 
 
