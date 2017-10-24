@@ -1620,7 +1620,7 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
       
       ngx_str_t     msgid = nchan_subscriber_set_recyclable_msgid_str(fsub->ctx, &fsub->sub.last_msgid);
       if(msg->content_type) {
-        end = ngx_snprintf(ws_meta_header, 512, "id: %V\ncontent-type: %V\n\n", &msgid, &msg->content_type);
+        end = ngx_snprintf(ws_meta_header, 512, "id: %V\ncontent-type: %V\n\n", &msgid, msg->content_type);
       }
       else {
         end = ngx_snprintf(ws_meta_header, 512, "id: %V\n\n", &msgid);
