@@ -617,6 +617,7 @@ class PubSubTest <  Minitest::Test
     #sleep 2
     pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"], opt[:content_type]
     pub.post "FIN", opt[:content_type]
+    
     sub.wait
     sleep 0.5
     
@@ -634,7 +635,11 @@ class PubSubTest <  Minitest::Test
         assert_nil msg.content_type, "message content-type must be absent, but isn't"
       end
     end
-      
+    
+    if opt[:must_use_permessage_deflate]
+      binding.pry
+    end
+    
     verify pub, sub
     sub.terminate
   end
@@ -1399,6 +1404,55 @@ class PubSubTest <  Minitest::Test
   def test_websocket_subprotocol
     test_broadcast 1, {client: :websocket}, {must_have_message_ids: false, content_type: "x/foo", must_have_content_type: false}
     test_broadcast 10, {client: :websocket, subprotocol: "ws+meta.nchan"}, {must_have_message_ids: true, content_type: "x/foo", must_have_content_type: true}
+  end
+  
+  def test_websocket_permessage_deflate_subscribe
+    chan = short_id
+    
+    sub = Subscriber.new(url("/sub/broadcast/#{chan}"), 1, quit_message: 'FIN', client: :websocket, permessage_deflate: true)
+    sub.on_message do |msg, bundle|
+      if msg.message[0] == "C"
+        assert bundle.ws.last_message.rsv1, "expected RSV1 to be 1, was 0"
+      elsif msg.message[0] == "R"
+        assert bundle.ws.last_message.rsv1 == false, "expected RSV1 to be 0, was 1"
+      end
+    end
+    
+    sub_subprotocol = Subscriber.new(url("/sub/broadcast/#{chan}"), 20, quit_message: 'FIN', client: :websocket, permessage_deflate: true, subprotocol: "ws+meta.nchan")
+    sub_subprotocol.on_message do |msg, bundle|
+      if msg.message[0] == "C"
+        assert bundle.ws.last_message.rsv1, "expected RSV1 to be 1, was 0"
+      elsif msg.message[0] == "R"
+        assert bundle.ws.last_message.rsv1 == false, "expected RSV1 to be 0, was 1"
+      end
+    end
+    
+    pub = Publisher.new url("/pub/#{chan}")
+    
+    rurl = url("/pub/#{chan}")
+    curl = url("/pub/deflate/#{chan}")
+    
+    sub.run
+    sub_subprotocol.run
+    sub.wait :ready
+    sub_subprotocol.wait :ready
+    pub.url = rurl
+    pub.post ["R:HEY YTHERE", "R:this is simple", "R:banana"]
+    
+    pub.url = curl
+    pub.post ["C:hello again", "C:wut?", "C:#{'q'*1024}"]
+    pub.post "C:#{Random.new.bytes 10000}", "application/octet-stream"
+    pub.post "C:#{Random.new.bytes 20000}", "application/octet-stream"
+    pub.post "C:#{Random.new.bytes 60000}", "application/octet-stream"
+    
+    pub.url = rurl
+    pub.post "R:#{Random.new.bytes 60000}", "application/octet-stream"
+    pub.post "FIN"
+    
+    sub.wait
+    sub_subprotocol.wait
+    verify pub, sub
+    verify pub, sub_subprotocol
   end
 
 end
