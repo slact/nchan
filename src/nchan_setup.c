@@ -77,6 +77,10 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   if(mcf == NULL) {
     return NGX_CONF_ERROR;
   }
+  
+  static ngx_path_init_t nchan_temp_path = { ngx_string(NGX_HTTP_CLIENT_TEMP_PATH), { 0, 0, 0 } };
+  ngx_conf_merge_path_value(cf, &mcf->message_temp_path, NULL, &nchan_temp_path);
+  
   nchan_store_memory.create_main_conf(cf, mcf);
   nchan_store_redis.create_main_conf(cf, mcf);
   

@@ -36,6 +36,7 @@ CfCmd.new do
         The upstream response code determines how publishing will proceed. A `200 OK` will publish the message from the upstream response's body. A `304 Not Modified` will publish the message as it was received from the publisher. A `204 No Content` will result in the message not being published.
       EOS
   
+      
   nchan_deflate_message_for_websocket [:srv, :loc],
       :nchan_set_message_compression_slot,
       :loc_conf,
@@ -266,6 +267,17 @@ CfCmd.new do
       value: "<url>",
       info: "Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.",
       uri: "#subscriber-presence"
+  
+  nchan_message_temp_path [:main],
+      :ngx_conf_set_path_slot,
+      [:main_conf, :message_temp_path],
+      
+      group: "storage",
+      tags: ["memstore"],
+      value: "<path>",
+      default: "<client_body_temp_path>",
+      info: "Large messages are stored in temporary files in the `client_body_temp_path` or the `nchan_message_temp_path` if the former is unavailable. Default is the built-in default `client_body_temp_path`"
+      
   
   nchan_store_messages [:main, :srv, :loc, :if],
       :nchan_store_messages_directive,

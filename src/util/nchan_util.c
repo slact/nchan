@@ -599,8 +599,12 @@ void ngx_init_set_membuf_str(ngx_buf_t *buf, ngx_str_t *str) {
 static z_stream        *deflate_zstream = NULL;
 static z_stream        *deflate_dummy_zstream = NULL;
 
+static ngx_path_t      *message_temp_path = NULL;
+
 ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf) {
   int rc;
+  
+  message_temp_path = mcf->message_temp_path;
   
   if((deflate_zstream = ngx_calloc(sizeof(*deflate_zstream), ngx_cycle->log)) == NULL) {
     nchan_log_error("couldn't allocate deflate stream.");
@@ -656,14 +660,21 @@ ngx_int_t nchan_common_deflate_shutdown(void) {
 
 static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) {
   ngx_temp_file_t           *tf;
-  ngx_http_core_loc_conf_t  *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+  ngx_path_t                *temp_path;
+  if(r) {
+    ngx_http_core_loc_conf_t  *clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+    temp_path = clcf->client_body_temp_path;
+  }
+  else {
+    temp_path = message_temp_path;
+  }
   tf = ngx_pcalloc(pool, sizeof(*tf));
   if(!tf) {
     nchan_log_request_error(r, "failed to allocate space for temp_file struct.");
     return NULL;
   }
   tf->file.fd = NGX_INVALID_FILE;
-  tf->path = clcf->client_body_temp_path;
+  tf->path = temp_path;
   tf->pool = pool;
   tf->persistent = 1;
   tf->clean = 0; //this will close the file on pool cleanup
@@ -897,15 +908,24 @@ ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
 ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf, ngx_http_request_t *r, ngx_pool_t  *pool) {
 #if (NGX_ZLIB)
   if(nchan_need_to_deflate_message(cf)) {
-    assert(msg->compressed == NULL);
     msg->compressed = ngx_palloc(pool, sizeof(*msg->compressed));
     if(!msg->compressed) {
-      nchan_log_request_error(r, "no memory to compress message");
+      if(r) {
+        nchan_log_request_error(r, "no memory to compress message");
+      }
+      else {
+        nchan_log_error("no memory to compress message");
+      }
     }
     else {
       ngx_buf_t  *compressed_buf = nchan_common_deflate(&msg->buf, r, pool);
       if(!compressed_buf) {
-        nchan_log_request_error(r, "failed to compress message");
+        if(r) {
+          nchan_log_request_error(r, "failed to compress message");
+        }
+        else {
+          nchan_log_error("failed to compress message");
+        }
       }
       else {
         msg->compressed->compression = cf->message_compression;

@@ -1075,12 +1075,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
   [more details](#pubsub-endpoint)  
 
-- **nchan_subscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](#subscriber-presence)  
-
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
   default: `websocket eventsource longpoll chunked multipart-mixed`  
@@ -1160,12 +1154,24 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](#request-authorization)  
 
+- **nchan_subscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](#subscriber-presence)  
+
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
   default: `10`  
   context: http, server, location  
   legacy names: push_max_message_buffer_length, push_message_buffer_length  
   > Publisher configuration setting the maximum number of messages to store per channel. A channel's message buffer will retain a maximum of this many most recent messages. An Nginx variable can also be used to set the buffer length dynamically.    
+
+- **nchan_message_temp_path** `<path>`  
+  arguments: 1  
+  default: `<client_body_temp_path>`  
+  context: http  
+  > Large messages are stored in temporary files in the `client_body_temp_path` or the `nchan_message_temp_path` if the former is unavailable. Default is the built-in default `client_body_temp_path`    
 
 - **nchan_message_timeout** `[ <time> | <variable> ]`  
   arguments: 1  

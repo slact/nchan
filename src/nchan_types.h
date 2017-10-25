@@ -29,6 +29,7 @@ typedef struct {
                                     int strategy;
   }                               zlib_params;
 #endif
+  ngx_path_t                     *message_temp_path;
 } nchan_main_conf_t;
 
 
