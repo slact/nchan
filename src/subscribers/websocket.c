@@ -112,7 +112,7 @@ static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
 
-static const ngx_str_t   binary_mimetype = ngx_string("application/octet-stream");
+static ngx_str_t   binary_mimetype = ngx_string("application/octet-stream");
 
 #define NCHAN_WS_TMP_POOL_SIZE (4*1024)
 
