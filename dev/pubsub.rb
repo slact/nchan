@@ -577,17 +577,26 @@ class Subscriber
       end
     end
     
+    def ws_client
+      if @ws.first
+        @ws.first.first
+      else
+        raise "Websocket client connection gone"
+      end
+    end
+    private :ws_client
+    
     def send_ping(data=nil)
-      @ws.first.first.ping data
+      ws_client.ping data
     end
     def send_close(code=1000, reason=nil)
-      @ws.first.first.send_close code, reason
+      ws_client.send_close code, reason
     end
     def send_data(data)
-      @ws.first.first.send_data data
+      ws_client.send_data data
     end
     def send_binary(data)
-      @ws.first.first.send_binary data
+      ws_client.send_binary data
     end
     
     def close(bundle)
