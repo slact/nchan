@@ -1538,12 +1538,18 @@ class Publisher
     @verbose = opt[:verbose]
     @on_response = opt[:on_response]
     
+    @ws_wait_until_response = true
+    
     if opt[:ws] || opt[:websocket]
       @ws = Subscriber.new url, 1, timeout: 100000, client: :websocket, permessage_deflate: opt[:permessage_deflate]
       @ws_sent_msg = []
       @ws.on_message do |msg|
-        sent_msg = @ws_sent_msg.shift
-        @messages << sent_msg if @messages && sent_msg
+        puts "got msg"
+        sent = @ws_sent_msg.shift
+        if @messages && sent
+          @messages << sent[:msg]
+        end
+        sent[:condition].signal true if sent[:condition]
         
         self.response=Typhoeus::Response.new
         self.response_code=200 #fake it
@@ -1579,17 +1585,18 @@ class Publisher
   end
   
   def submit_ws(body, content_type, &block)
-    if body && @messages
-      msg=Message.new body
-      @ws_sent_msg << msg
-    else
-      @ws_sent_msg << body
-    end
+    sent = {condition: Celluloid::Condition.new}
+    sent[:msg] = body && @messages ? Message.new(body) : body
+    @ws_sent_msg << sent
     if content_type == "application/octet-stream"
       @ws.client.send_binary(body)
     else
       @ws.client.send_data(body)
     end
+    if @ws_wait_until_response
+      sent[:condition].wait
+    end
+    sent[:msg]
   end
   private :submit_ws
   def terminate
