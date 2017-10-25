@@ -1460,25 +1460,35 @@ class PubSubTest <  Minitest::Test
   
   def test_websocket_permessage_deflate_publish
     
-    deflated = false
-    chan = short_id
-    sub = Subscriber.new(url("/sub/broadcast/#{chan}"), 1, quit_message: 'FIN', client: :websocket, permessage_deflate: true)
-
-    pub = Publisher.new url("/pub/#{deflated ? "deflate/" : ""}#{chan}"), ws: true, permessage_deflate: true
-    pub_client = pub.ws.client.ws.first.first
-    assert pub_client.ws.headers["sec-websocket-extensions"].match(/permessage-deflate/)
-    
-    pub.post "here is a message"
-    pub.post "here is another"
-    sub.run
-    pub.post "q"*10000
-    pub.post "C:#{Random.new.bytes 10000}", "application/octet-stream"
-    pub.post "FIN"
-    
-    sub.wait
-    
-    verify pub, sub
-    sub.terminate
+    [false, true].each do |deflated|
+      chan = short_id
+      sub = Subscriber.new(url("/sub/broadcast/#{chan}"), 1, quit_message: 'FIN', client: :websocket, permessage_deflate: true)
+      sub.on_message do |msg, bundle|
+        if deflated
+          assert bundle.ws.last_message.rsv1, "expected RSV1 to be 1, was 0"
+        else
+          assert bundle.ws.last_message.rsv1 == false, "expected RSV1 to be 0, was 1"
+        end
+      end
+      
+      pub = Publisher.new url("/pub/#{deflated ? "deflate/" : ""}#{chan}"), ws: true, permessage_deflate: true
+      pub_client = pub.ws.client.ws.first.first
+      assert pub_client.ws.headers["sec-websocket-extensions"].match(/permessage-deflate/)
+      
+      pub.post "here is a message"
+      pub.post "here is another"
+      sub.run
+      pub.post "q"*10000
+      pub.post "q"*40000
+      pub.post "C:#{Random.new.bytes 10000}", "application/octet-stream"
+      pub.post "C:#{Random.new.bytes 40000}", "application/octet-stream"
+      pub.post "FIN"
+      
+      sub.wait
+      
+      verify pub, sub
+      sub.terminate
+    end
     
   end
 
