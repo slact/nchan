@@ -112,6 +112,8 @@ static const u_char WEBSOCKET_CLOSE_LAST_FRAME_BYTE = WEBSOCKET_OPCODE_CLOSE | (
 static const u_char WEBSOCKET_PONG_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PONG  | (WEBSOCKET_LAST_FRAME << 4);
 static const u_char WEBSOCKET_PING_LAST_FRAME_BYTE  = WEBSOCKET_OPCODE_PING  | (WEBSOCKET_LAST_FRAME << 4);
 
+static const ngx_str_t   binary_mimetype = ngx_string("application/octet-stream");
+
 #define NCHAN_WS_TMP_POOL_SIZE (4*1024)
 
 
@@ -157,6 +159,7 @@ struct nchan_pub_upstream_request_data_s {
   full_subscriber_t                  *fsub;
   nchan_pub_upstream_request_data_t  *next;
   unsigned                            sent:1;
+  unsigned                            binary:1;
 };
 
 typedef struct {
@@ -221,7 +224,7 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
 
-static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf);
+static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int binary);
 
 static ngx_int_t websocket_reserve(subscriber_t *self);
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy);
@@ -461,7 +464,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   return NGX_OK;
 }
 
-static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) {
+static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf, int binary) {
   nchan_msg_t              msg;
   struct timeval           tv;
   ngx_http_request_t      *r = fsub->sub.request;
@@ -477,6 +480,10 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf) 
   msg.id.tag.fixed[0]=0;
   msg.id.tagcount=1;
   msg.id.tagactive=0;
+  
+  if(binary) {
+    msg.content_type = &binary_mimetype;
+  }
   
   msg.storage = NCHAN_MSG_STACK;
   
@@ -503,6 +510,7 @@ static ngx_int_t websocket_publisher_upstream_handler(subscriber_t *sub, ngx_htt
   ngx_http_request_t                  *r = sr->parent;
   nchan_pub_upstream_request_data_t   *d = (nchan_pub_upstream_request_data_t *)data;
   full_subscriber_t                   *fsub = (full_subscriber_t *)sub;
+  int                                  binary = d->binary;
   nchan_pub_upstream_stuff_t          *sup = fsub->publish_upstream;
 #if nginx_version <= 1009004
   r->main->subrequests++; //avoid tripping up subrequest loop detection
@@ -554,7 +562,7 @@ static ngx_int_t websocket_publisher_upstream_handler(subscriber_t *sub, ngx_htt
             buf=&emptybuf;
           }
           
-          websocket_publish_continue(fsub, buf);
+          websocket_publish_continue(fsub, buf, binary);
         }
         else {
           request_chain = NULL;
@@ -564,7 +572,7 @@ static ngx_int_t websocket_publisher_upstream_handler(subscriber_t *sub, ngx_htt
         break;
       
       case NGX_HTTP_NOT_MODIFIED:
-        websocket_publish_continue(fsub, &d->body_buf);
+        websocket_publish_continue(fsub, &d->body_buf, binary);
         
         break;
         
@@ -666,13 +674,13 @@ static ngx_int_t websocket_heartbeat(full_subscriber_t *fsub, ngx_buf_t *buf) {
   }
 }
 
-static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
+static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int binary) {
 #if (NGX_DEBUG_POOL)
   ERR("ws request pool size: %V", ngx_http_debug_pool_str(fsub->sub.request->pool));
 #endif
   
   if(fsub->publish_upstream == NULL) { // don't need to send request upstream
-    websocket_publish_continue(fsub, buf);
+    websocket_publish_continue(fsub, buf, binary);
   }
   else {
     nchan_pub_upstream_request_data_t *psrd;
@@ -702,6 +710,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf) {
     psrd->next = NULL;
     psrd->sent = 0;
     psrd->fsub = fsub;
+    psrd->binary = binary;
     
     //copy body out of the websocket framebuffer to the upstream temp pool buffer
     sz = ngx_buf_size(buf);
@@ -1425,7 +1434,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             }
             
             if(websocket_heartbeat(fsub, &msgbuf) != NGX_OK) {
-              websocket_publish(fsub, &msgbuf);
+              websocket_publish(fsub, &msgbuf, frame->opcode == WEBSOCKET_OPCODE_BINARY);
             }
             break;
           
@@ -1651,7 +1660,6 @@ static ngx_chain_t *websocket_msg_frame_chain(full_subscriber_t *fsub, nchan_msg
   ngx_file_t            *file_copy;
   ngx_buf_t             *chained_msgbuf = NULL;
   size_t                 sz;
-  ngx_str_t              binary_mimetype = ngx_string("application/octet-stream");
   u_char                 frame_opcode;
   int                    compressed;
   ngx_buf_t             *msgbuf;
