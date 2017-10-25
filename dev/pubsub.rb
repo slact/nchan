@@ -395,6 +395,10 @@ class Subscriber
         @ws.text data
       end
       
+      def send_binary data
+        @ws.binary data
+      end
+      
       def write(data)
         @sock.write data
       end
@@ -410,7 +414,7 @@ class Subscriber
       @subprotocol == "ws+meta.nchan"
     end
     
-    attr_accessor :last_modified, :etag, :timeout
+    attr_accessor :last_modified, :etag, :timeout, :ws
     def initialize(subscr, opt={})
       super
       @last_modified, @etag, @timeout = opt[:last_modified], opt[:etag], opt[:timeout].to_i || 10
@@ -579,8 +583,11 @@ class Subscriber
     def send_close(code=1000, reason=nil)
       @ws.first.first.send_close code, reason
     end
-    def send_data(data=nil)
+    def send_data(data)
       @ws.first.first.send_data data
+    end
+    def send_binary(data)
+      @ws.first.first.send_binary data
     end
     
     def close(bundle)
@@ -1523,7 +1530,7 @@ class Publisher
     @on_response = opt[:on_response]
     
     if opt[:ws] || opt[:websocket]
-      @ws = Subscriber.new url, 1, timeout: 100000, client: :websocket
+      @ws = Subscriber.new url, 1, timeout: 100000, client: :websocket, permessage_deflate: opt[:permessage_deflate]
       @ws_sent_msg = []
       @ws.on_message do |msg|
         sent_msg = @ws_sent_msg.shift
@@ -1562,14 +1569,18 @@ class Publisher
     @on_complete = block
   end
   
-  def submit_ws(body, &block)
+  def submit_ws(body, content_type, &block)
     if body && @messages
       msg=Message.new body
       @ws_sent_msg << msg
     else
       @ws_sent_msg << body
     end
-    @ws.client.send_data(body)
+    if content_type == "application/octet-stream"
+      @ws.client.send_binary(body)
+    else
+      @ws.client.send_data(body)
+    end
   end
   private :submit_ws
   def terminate
@@ -1587,7 +1598,7 @@ class Publisher
       return i
     end
     
-    return submit_ws body, &block if @ws
+    return submit_ws body, content_type, &block if @ws
     
     headers = {:'Content-Type' => content_type, :'Accept' => accept}
     headers[:'X-Eventsource-Event'] = eventsource_event if eventsource_event
