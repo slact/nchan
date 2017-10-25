@@ -65,7 +65,7 @@ class Message
     @id||=serverside_id
   end
   def unique_id
-    if id.include? ","
+    if id && id.include?(",")
       time, etag = id.split ":"
       etag = etag.split(",").map{|x| x[0] == "[" ? x : "?"}.join "," #]
       [time, etag].join ":"
