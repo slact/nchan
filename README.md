@@ -157,7 +157,7 @@ The response can be in plaintext (as above), JSON, or XML, based on the request'
 ```console
 > curl --request POST --data "test message" -H "Accept: text/json" http://127.0.0.2:80/pub
 
- {"messages": 6, "requested": 55, "subscribers": 0, "last_message_id": "1450755317:0" }
+ {"messages": 5, "requested": 18, "subscribers": 0, "last_message_id": "1450755280:0" }
 ```
 
 Websocket publishers also receive the same responses when publishing, with the encoding determined by the *`Accept`* header present during the handshake.
