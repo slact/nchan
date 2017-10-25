@@ -929,7 +929,7 @@ ngx_int_t redis_ensure_connected(rdstore_data_t *rdata) {
 
 }
 
-static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset);
+static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset);
 
 #define SLOW_REDIS_REPLY 100 //ms
 
@@ -979,6 +979,7 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *pr
   redis_get_message_from_key_data_t *d = (redis_get_message_from_key_data_t *)privdata;
   redisReply           *reply = r;
   nchan_msg_t           msg;
+  nchan_compressed_msg_t cmsg;
   ngx_str_t             content_type;
   ngx_str_t             eventsource_event;
   ngx_str_t            *chid = &d->channel_id;
@@ -1001,7 +1002,7 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *pr
       ERR("get_msg_from_msgkey channel id is NULL");
       return;
     }
-    if(msg_from_redis_get_message_reply(&msg, &content_type, &eventsource_event, reply, 0) != NGX_OK) {
+    if(msg_from_redis_get_message_reply(&msg, &cmsg, &content_type, &eventsource_event, reply, 0) != NGX_OK) {
       ERR("invalid message or message absent after get_msg_from_key");
       return;
     }
@@ -1032,11 +1033,12 @@ static bool cmp_to_str(cmp_ctx_t *cmp, ngx_str_t *str) {
   }
 }
 
-static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_str_t *content_type, ngx_str_t *eventsource_event) {
+static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event) {
   ngx_buf_t  *mpb = (ngx_buf_t *)cmp->buf;
   uint32_t    sz;
   uint64_t    msgtag;
   int32_t     ttl;
+  int32_t     compression;
   //ttl 
   if(!cmp_read_int(cmp, &ttl)) {
     return cmp_err(cmp);
@@ -1094,6 +1096,20 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, ngx_str_t *content_type
   if(!cmp_read_str_size(cmp, &sz)) {
     return cmp_err(cmp);
   }
+  
+  //compression
+  if(!cmp_read_int(cmp, &compression)) {
+    return cmp_err(cmp);
+  }
+  if(compression > 0) {
+    msg->compressed = cmsg;
+    ngx_memzero(&cmsg->buf, sizeof(cmsg->buf));
+    cmsg->compression = compression;
+  }
+  else {
+    msg->compressed = NULL;
+  }
+  
   fwd_buf_to_str(mpb, sz, eventsource_event);
   msg->eventsource_event = sz > 0 ? eventsource_event : NULL;
   
@@ -1172,6 +1188,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   redisReply             *reply = r;
   redisReply             *el = NULL;
   nchan_msg_t             msg;
+  nchan_compressed_msg_t  cmsg;
   ngx_str_t               content_type;
   ngx_str_t               eventsource_event;
   ngx_str_t               chid_str;
@@ -1260,8 +1277,8 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           }
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 9 + msgbuf_size_changed + chid_present);
-            if(chanhead && cmp_to_msg(&cmp, &msg, &content_type, &eventsource_event)) {
+            assert(array_sz == 10 + msgbuf_size_changed + chid_present);
+            if(chanhead && cmp_to_msg(&cmp, &msg, &cmsg, &content_type, &eventsource_event)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(chid, chanhead ? chanhead->rdt : rdata, &msg, 0, NULL);
             }
@@ -2111,18 +2128,14 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   return NGX_OK;
 }
 
-typedef struct {
-  nchan_msg_t   msg;
-  ngx_buf_t     buf;
-} getmessage_blob_t;
-
-static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset) {
+static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset) {
   
   redisReply         **els = r->element;
   size_t               content_type_len = 0, es_event_len = 0;
   ngx_int_t            time_int, ttl;
+  ngx_int_t            compression;
   
-  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 7)
+  if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 8)
    && CHECK_REPLY_INT(els[offset])            //msg TTL
    && CHECK_REPLY_INT_OR_STR(els[offset+1])   //id - time
    && CHECK_REPLY_INT_OR_STR(els[offset+2])   //id - tag
@@ -2130,7 +2143,8 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_str_t *c
    && CHECK_REPLY_INT_OR_STR(els[offset+4])   //prev_id - tag
    && CHECK_REPLY_STR(els[offset+5])   //message
    && CHECK_REPLY_STR(els[offset+6])   //content-type
-   && CHECK_REPLY_STR(els[offset+7])){ //eventsource event
+   && CHECK_REPLY_STR(els[offset+7])  //eventsource event
+   && CHECK_REPLY_INT_OR_STR(els[offset+8])) {//compression
      
     content_type_len=els[offset+6]->len;
     es_event_len = els[offset+7]->len;
@@ -2143,15 +2157,26 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, ngx_str_t *c
     msg->buf.last_buf = 1;
     msg->buf.last_in_chain = 1;
     
+    if(redisReply_to_int(els[offset+8], &compression) != NGX_OK) {
+       ERR("invalid compression type integer value in msg response from redis");
+      return NGX_ERROR;
+    }
+    
     if(redisReply_to_int(els[offset], &ttl) != NGX_OK) {
-      ERR("invalid ttl integer value is msg response from redis");
+      ERR("invalid ttl integer value in msg response from redis");
       return NGX_ERROR;
     }
     assert(ttl >= 0);
     if(ttl == 0)
       ttl++; // less than a second left for this message... give it a second's lease on life
-
+    
     msg->expires = ngx_time() + ttl;
+    
+    if((nchan_msg_compression_type_t )compression != NCHAN_MSG_COMPRESSION_INVALID && (nchan_msg_compression_type_t )compression != NCHAN_MSG_NO_COMPRESSION) {
+      msg->compressed = cmsg;
+      ngx_memzero(&cmsg->buf, sizeof(cmsg->buf));
+      cmsg->compression = (nchan_msg_compression_type_t )compression;
+    }
     
     if(content_type_len > 0) {
       msg->content_type = content_type;
@@ -2228,6 +2253,7 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   redisReply                *reply= r;
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
   nchan_msg_t                msg;
+  nchan_compressed_msg_t     cmsg;
   ngx_str_t                  content_type;
   ngx_str_t                  eventsource_event;
   rdstore_data_t            *rdata = c->data;
@@ -2258,7 +2284,7 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   
   switch(reply->element[0]->integer) {
     case 200: //ok
-      if(msg_from_redis_get_message_reply(&msg, &content_type, &eventsource_event, reply, 1) == NGX_OK) {
+      if(msg_from_redis_get_message_reply(&msg, &cmsg, &content_type, &eventsource_event, reply, 1) == NGX_OK) {
         d->callback(MSG_FOUND, &msg, d->privdata);
       }
       break;
@@ -2766,6 +2792,7 @@ typedef struct {
   unsigned              shared_msg:1;
   time_t                message_timeout;
   ngx_int_t             max_messages;
+  nchan_msg_compression_type_t compression;
   ngx_int_t             msglen;
   callback_pt           callback;
   void                 *privdata;
@@ -2803,14 +2830,15 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
   d->msglen = msgstr.len;
   
   
-  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
   //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   nchan_redis_script(publish, rdata, &redisPublishCallback, d, d->channel_id, 
-                     "%i %b %b %b %i %i %i", 
+                     "%i %b %b %b %i %i %i %i", 
                      msg->id.time, 
                      STR(&msgstr), 
                      STR((msg->content_type ? msg->content_type : &empty)), 
                      STR((msg->eventsource_event ? msg->eventsource_event : &empty)), 
+                     d->compression,
                      d->message_timeout, 
                      d->max_messages, 
                      redis_publish_message_msgkey_size
@@ -2871,6 +2899,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->shared_msg = msg->storage == NCHAN_MSG_SHARED;
   d->message_timeout = nchan_loc_conf_message_timeout(cf);
   d->max_messages = nchan_loc_conf_max_messages(cf);
+  d->compression = cf->message_compression;
   
   assert(msg->id.tagcount == 1);
   

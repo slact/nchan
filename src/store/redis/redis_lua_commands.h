@@ -28,17 +28,17 @@ typedef struct {
   redis_lua_script_t find_channel;
 
   //input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
-  //output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
+  //output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression_type, channel_subscriber_count
   // no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
   // create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
   // result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
   redis_lua_script_t get_message;
 
   //input:  keys: [message_key], values: []
-  //output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
+  //output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression, channel_subscriber_count
   redis_lua_script_t get_message_from_key;
 
-  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
   //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?
   redis_lua_script_t publish;
 
@@ -254,9 +254,9 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  return nil\n"
    "end\n"},
 
-  {"get_message", "afe424e8c27d02f6af4b04bcad37dffe0fc2500d",
+  {"get_message", "fb9c46d33b3798a11d4eca6e0f7a3f92beba8685",
    "--input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
-   "--output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
+   "--output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression_type, channel_subscriber_count\n"
    "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
    "-- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.\n"
    "-- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available\n"
@@ -374,7 +374,7 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "      else\n"
    "        --dbg((\"found msg %s:%s  after %s:%s\"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))\n"
    "        local ttl = redis.call('TTL', found_msg_key)\n"
-   "        return {200, ttl, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", tonumber(msg.prev_time) or \"\", tonumber(msg.prev_tag) or \"\", msg.data or \"\", msg.content_type or \"\", msg.eventsource_event or \"\", subs_count}\n"
+   "        return {200, ttl, tonumber(msg.time) or \"\", tonumber(msg.tag) or \"\", tonumber(msg.prev_time) or \"\", tonumber(msg.prev_tag) or \"\", msg.data or \"\", msg.content_type or \"\", msg.eventsource_event or \"\", tonumber(msg.compression or 0), subs_count}\n"
    "      end\n"
    "    end\n"
    "  end\n"
@@ -400,10 +400,10 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "    --dbg(\"NEXT MESSAGE KEY PRESENT: \" .. msg.next)\n"
    "    key.next_message=key.next_message:format(msg.next)\n"
    "    if redis.call('EXISTS', key.next_message)~=0 then\n"
-   "      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype, neventsource_event=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event'))\n"
+   "      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype, neventsource_event, ncompression=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event', 'compression'))\n"
    "      local ttl = redis.call('TTL', key.next_message)\n"
    "      --dbg((\"found msg2 %i:%i  after %i:%i\"):format(ntime, ntag, time, tag))\n"
-   "      return {200, ttl, tonumber(ntime) or \"\", tonumber(ntag) or \"\", tonumber(prev_time) or \"\", tonumber(prev_tag) or \"\", ndata or \"\", ncontenttype or \"\", neventsource_event or \"\", subs_count}\n"
+   "      return {200, ttl, tonumber(ntime) or \"\", tonumber(ntag) or \"\", tonumber(prev_time) or \"\", tonumber(prev_tag) or \"\", ndata or \"\", ncontenttype or \"\", neventsource_event or \"\", ncompression or 0, subs_count}\n"
    "    else\n"
    "      --dbg(\"NEXT MESSAGE NOT FOUND\")\n"
    "      return {404, nil}\n"
@@ -411,18 +411,18 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  end\n"
    "end\n"},
 
-  {"get_message_from_key", "6d11dc52904bf6666aa86fa504f6965db3f46381",
+  {"get_message_from_key", "304efcd42590f99e0016686572530defd3de1383",
    "--input:  keys: [message_key], values: []\n"
-   "--output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count\n"
+   "--output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression, channel_subscriber_count\n"
    "local key = KEYS[1]\n"
    "\n"
    "local ttl = redis.call('TTL', key)\n"
-   "local time, tag, prev_time, prev_tag, data, content_type, es_event = unpack(redis.call('HMGET', key, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event'))\n"
+   "local time, tag, prev_time, prev_tag, data, content_type, es_event, compression = unpack(redis.call('HMGET', key, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event', 'compression'))\n"
    "\n"
-   "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\"}\n"},
+   "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\", tonumber(compression or 0)}\n"},
 
-  {"publish", "c7abd99d4fb2717fb1f3b16013baa778fe0a0828",
-   "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
+  {"publish", "2fe8d8688744d64966d923dcd9811a2ec9f53859",
+   "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
    "--output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?\n"
    "\n"
    "local ns, id=ARGV[1], ARGV[2]\n"
@@ -444,22 +444,23 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "  data= ARGV[4],\n"
    "  content_type=ARGV[5],\n"
    "  eventsource_event=ARGV[6],\n"
-   "  ttl= tonumber(ARGV[7]),\n"
+   "  compression=tonumber(ARGV[7]),\n"
+   "  ttl= tonumber(ARGV[8]),\n"
    "  time= time,\n"
    "  tag= 0\n"
    "}\n"
    "if msg.ttl == 0 then\n"
    "  msg.ttl = 126144000 --4 years\n"
    "end\n"
-   "local store_at_most_n_messages = tonumber(ARGV[8])\n"
+   "local store_at_most_n_messages = tonumber(ARGV[9])\n"
    "if store_at_most_n_messages == nil or store_at_most_n_messages == \"\" then\n"
-   "  return {err=\"Argument 7, max_msg_buf_size, can't be empty\"}\n"
+   "  return {err=\"Argument 9, max_msg_buf_size, can't be empty\"}\n"
    "end\n"
    "if store_at_most_n_messages == 0 then\n"
    "  msg.unbuffered = 1\n"
    "end\n"
    "\n"
-   "local msgpacked_pubsub_cutoff = tonumber(ARGV[9])\n"
+   "local msgpacked_pubsub_cutoff = tonumber(ARGV[10])\n"
    "\n"
    "--[[local dbg = function(...)\n"
    "  local arg = {...}\n"
@@ -669,7 +670,8 @@ static redis_lua_scripts_t redis_lua_scripts = {
    "    (msg.unbuffered and 0 or msg.prev_tag) or 0,\n"
    "    msg.data or \"\",\n"
    "    msg.content_type or \"\",\n"
-   "    msg.eventsource_event or \"\"\n"
+   "    msg.eventsource_event or \"\",\n"
+   "    msg.compression or 0\n"
    "  }\n"
    "else\n"
    "  unpacked= {\n"

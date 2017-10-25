@@ -79,7 +79,8 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
   nchan_msg_t       *msg = (nchan_msg_t *) ptr;
   nchan_loc_conf_t   cf;
-  nchan_msg_id_t    *lastid;    
+  nchan_msg_id_t    *lastid;
+  ngx_pool_t        *deflate_pool = NULL;
   DBG("%p memstore-redis subscriber respond with message", d->sub);
 
   cf.max_messages = d->chanhead->max_messages;
@@ -87,6 +88,19 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   cf.message_timeout = msg->expires - ngx_time();
   cf.complex_max_messages = NULL;
   cf.complex_message_timeout = NULL;
+  cf.message_compression = msg->compressed ? msg->compressed->compression : NCHAN_MSG_NO_COMPRESSION;
+  
+  if(cf.message_compression != NCHAN_MSG_NO_COMPRESSION) {
+    deflate_pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE / 2, ngx_cycle->log);
+    if(!deflate_pool) {
+      ERR("unable to create deflatepool");
+      return NGX_ERROR;
+    }
+    nchan_deflate_message_if_needed(msg, &cf, NULL, deflate_pool);
+  }
+  else {
+    msg->compressed = NULL;
+  }
   
   lastid = &d->chanhead->latest_msgid;
   
@@ -101,7 +115,9 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   else {
     //meh, this message has already been delivered probably hopefully
   }
-  
+  if(deflate_pool) {
+    ngx_destroy_pool(deflate_pool);
+  }
   return NGX_OK;
 }
 

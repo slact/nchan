@@ -896,9 +896,12 @@ ngx_int_t nchan_common_simple_deflate_raw_block(ngx_str_t *in, ngx_str_t *out) {
   
 #endif
 
-
 ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
 #if (NGX_ZLIB)
+  if(cf->redis.enabled && cf->redis.storage_mode != REDIS_MODE_BACKUP) {
+    //redis mode ns non-backup storage mode gets the messages deflated later on
+    return 0;
+  }  
   return cf->message_compression == NCHAN_MSG_COMPRESSION_WEBSOCKET_PERMESSAGE_DEFLATE;
 #else
   return 0;

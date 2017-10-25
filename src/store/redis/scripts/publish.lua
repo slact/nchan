@@ -1,4 +1,4 @@
---input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
 --output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?
 
 local ns, id=ARGV[1], ARGV[2]
@@ -20,22 +20,23 @@ local msg={
   data= ARGV[4],
   content_type=ARGV[5],
   eventsource_event=ARGV[6],
-  ttl= tonumber(ARGV[7]),
+  compression=tonumber(ARGV[7]),
+  ttl= tonumber(ARGV[8]),
   time= time,
   tag= 0
 }
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
 end
-local store_at_most_n_messages = tonumber(ARGV[8])
+local store_at_most_n_messages = tonumber(ARGV[9])
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
-  return {err="Argument 7, max_msg_buf_size, can't be empty"}
+  return {err="Argument 9, max_msg_buf_size, can't be empty"}
 end
 if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
-local msgpacked_pubsub_cutoff = tonumber(ARGV[9])
+local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
 
 --[[local dbg = function(...)
   local arg = {...}
@@ -245,7 +246,8 @@ if msg.unbuffered or #msg.data < msgpacked_pubsub_cutoff then
     (msg.unbuffered and 0 or msg.prev_tag) or 0,
     msg.data or "",
     msg.content_type or "",
-    msg.eventsource_event or ""
+    msg.eventsource_event or "",
+    msg.compression or 0
   }
 else
   unpacked= {
