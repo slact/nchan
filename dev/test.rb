@@ -1457,6 +1457,29 @@ class PubSubTest <  Minitest::Test
     sub.terminate
     sub_subprotocol.terminate
   end
+  
+  def test_websocket_permessage_deflate_publish
+    
+    deflated = false
+    chan = short_id
+    sub = Subscriber.new(url("/sub/broadcast/#{chan}"), 1, quit_message: 'FIN', client: :websocket, permessage_deflate: true)
+
+    pub = Publisher.new url("/pub/#{deflated ? "deflate/" : ""}#{chan}"), ws: true, permessage_deflate: true
+    pub_client = pub.ws.client.ws.first.first
+    assert pub_client.ws.headers["sec-websocket-extensions"].match(/permessage-deflate/)
+    
+    pub.post "here is a message"
+    pub.post "here is another"
+    sub.run
+    pub.post "q"*10000
+    pub.post "C:#{Random.new.bytes 10000}", "application/octet-stream"
+    pub.post "FIN"
+    
+    sub.wait
+    
+    verify pub, sub
+    sub.terminate
+    
   end
 
 end
