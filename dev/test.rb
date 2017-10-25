@@ -1440,7 +1440,7 @@ class PubSubTest <  Minitest::Test
     pub.post ["R:HEY YTHERE", "R:this is simple", "R:banana"]
     
     pub.url = curl
-    pub.post ["C:hello again", "C:wut?", "C:#{'q'*1024}"]
+    pub.post ["C:hello again", "C:wut?", "C:#{'q'*1024}", "C:#{'c'*30000}"]
     pub.post "C:#{Random.new.bytes 10000}", "application/octet-stream"
     pub.post "C:#{Random.new.bytes 20000}", "application/octet-stream"
     pub.post "C:#{Random.new.bytes 60000}", "application/octet-stream"
@@ -1453,6 +1453,10 @@ class PubSubTest <  Minitest::Test
     sub_subprotocol.wait
     verify pub, sub
     verify pub, sub_subprotocol
+    
+    sub.terminate
+    sub_subprotocol.terminate
+  end
   end
 
 end
