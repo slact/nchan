@@ -911,7 +911,7 @@ ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
 ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf, ngx_http_request_t *r, ngx_pool_t  *pool) {
 #if (NGX_ZLIB)
   if(nchan_need_to_deflate_message(cf)) {
-    msg->compressed = ngx_palloc(pool, sizeof(*msg->compressed));
+    msg->compressed = ngx_pcalloc(pool, sizeof(*msg->compressed));
     if(!msg->compressed) {
       if(r) {
         nchan_log_request_error(r, "no memory to compress message");
