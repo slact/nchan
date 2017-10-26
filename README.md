@@ -221,8 +221,9 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
 - ### Websocket
   Bidirectional communication for web browsers. Part of the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html). Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)).  
   Initiated by sending a websocket handshake to the desired subscriber endpoint location.  
-  If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection. Server-initiated keep-alive pings can be configured with the [`nchan_websocket_ping_interval`](#nchan_websocket_ping_interval) config directive. Websocket extensions are not yet supported.  
-  Messages published through a websocket connection can be forwarded to an upstream application with the [`nchan_publisher_upstream_request`](#nchan_publisher_upstream_request) config directive.   
+  If the websocket connection is closed by the server, the `close` frame will contain the HTTP response code and status line describing the reason for closing the connection. Server-initiated keep-alive pings can be configured with the [`nchan_websocket_ping_interval`](#nchan_websocket_ping_interval) config directive.
+  Messages are delivered to subscribers in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is delivered in a `binary` frame.
+  <br />
   Websocket subscribers can use the custom `ws+meta.nchan` subprotocol to receive message metadata with messages, making websocket connections resumable. Messages received with this subprotocol are of the form
   <pre>
   id: message_id
@@ -230,9 +231,20 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   \n
   message_data
   </pre>   
-  The `content-type:` line may be omitted.  
+  The `content-type:` line may be omitted.
   <br />
-  Messages are delivered in `text` websocket frames, except if a message's `content-type` is "`application/octet-stream`" -- then it is delivered in a `binary` frame.
+  ##### Websocket Publisher
+  Messages published through a websocket connection can be forwarded to an upstream application with the [`nchan_publisher_upstream_request`](#nchan_publisher_upstream_request) config directive.   
+  Messages published in a binary frame are automatically given the `content-type` "`application/octet-stream`".
+  ##### Websocket permessage-deflate
+  Nchan version 1.1.8 and above supports the [permessage-deflate protocol extension](https://tools.ietf.org/html/rfc7692). Messages are deflated once when they are published, and then can be broadcast to any number of compatible websocket subscribers. Message deflation is enabled by setting the [`nchan_deflate_message_for_websocket on;`](#nchan_deflate_message_for_websocket) directive in a publisher location.
+  <br />
+  The deflated data is stored alongside the original message in memory, or, if large enough, on disk. This means more [shared memory](#nchan_shared_memory_size) is necessary when using `nchan_deflate_message_for_websocket`.
+  <br />
+  Deflation parameters (speed, memory use, strategy, etc.), can be tweaked using the [`nchan_permessage_deflate_compression_window`](#nchan_permessage_deflate_compression_window), [`nchan_permessage_deflate_compression_level`](#nchan_permessage_deflate_compression_level),
+  [`nchan_permessage_deflate_compression_strategy`](#nchan_permessage_deflate_compression_strategy), and 
+  [`nchan_permessage_deflate_compression_window;](#nchan_permessage_deflate_compression_window) settings.
+  <br />  
   <!-- tag:subscriber-websocket -->
   
 - ### EventSource
