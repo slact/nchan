@@ -152,7 +152,7 @@ class PubSubTest <  Minitest::Test
     sub.on_message { |msg, bundle| bundle.etag="[[[0,13,[9],[11]]]]" }
     sub.run
     sub.wait
-    puts sub.errors
+    #puts sub.errors
     assert sub.match_errors(/code 400/), "expected 400 for subscriber"
     sub.terminate
     

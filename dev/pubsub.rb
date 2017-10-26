@@ -1544,7 +1544,6 @@ class Publisher
       @ws = Subscriber.new url, 1, timeout: 100000, client: :websocket, permessage_deflate: opt[:permessage_deflate]
       @ws_sent_msg = []
       @ws.on_message do |msg|
-        puts "got msg"
         sent = @ws_sent_msg.shift
         if @messages && sent
           @messages << sent[:msg]
