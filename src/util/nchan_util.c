@@ -670,7 +670,11 @@ static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) 
   }
   tf = ngx_pcalloc(pool, sizeof(*tf));
   if(!tf) {
-    nchan_log_request_error(r, "failed to allocate space for temp_file struct.");
+    if(r) {
+      nchan_log_request_error(r, "failed to allocate space for temp_file struct.");
+    } else {
+      nchan_log_error("failed to allocate space for temp_file struct.");
+    }
     return NULL;
   }
   tf->file.fd = NGX_INVALID_FILE;
@@ -680,7 +684,10 @@ static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) 
   tf->clean = 0; //this will close the file on pool cleanup
   tf->access = 0;
   if(ngx_create_temp_file(&tf->file, tf->path, tf->pool, tf->persistent, tf->clean, tf->access) != NGX_OK) {
-    nchan_log_request_error(r, "failed to create temp file for deflated message");
+    if(r) {
+      nchan_log_request_error(r, "failed to create temp file for deflated message");
+    } else {
+      nchan_log_error("failed to create temp file for deflated message");
     return NULL;
   }
   return tf;
