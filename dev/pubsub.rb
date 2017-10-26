@@ -940,7 +940,6 @@ class Subscriber
           @subscriber.finished+=1
           close bundle
         else
-          binding.pry
           Celluloid.sleep @retry_delay if @retry_delay
           bundle.send_GET
         end
