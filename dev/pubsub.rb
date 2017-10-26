@@ -848,7 +848,7 @@ class Subscriber
         end
         
         @stream.on(:altsvc) do |f|
-          puts "received ALTSVC #{f}"
+          puts "received ALTSVC #{f}" if verbose
         end
         
         @stream.on(:half_close) do
