@@ -1102,6 +1102,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     
     if((multi = ngx_calloc(sizeof(*multi) * n, ngx_cycle->log)) == NULL) {
       ERR("can't allocate multi array for multi-channel %p", head);
+      return NULL;
     }
     
     head->latest_msgid.time = 0;
@@ -1153,7 +1154,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   start_chanhead_spooler(head);
 
   //get group
-  if(cf->group.enable_accounting) {
+  if(cf && cf->group.enable_accounting) {
     group_name = nchan_get_group_from_channel_id(&head->id);
     if((groupnode = memstore_groupnode_get(groups, &group_name)) == NULL) {
       ERR("couldn't get groupnode %V for chanhead %V", &group_name, &head->id);
@@ -1185,6 +1186,7 @@ static ngx_inline memstore_channel_head_t *ensure_chanhead_ready_or_trash_chanhe
 
 memstore_channel_head_t * nchan_memstore_find_chanhead(ngx_str_t *channel_id) {
   memstore_channel_head_t     *head = NULL;
+  //ERR("channel id %V", channel_id);
   CHANNEL_HASH_FIND(channel_id, head);
   return ensure_chanhead_ready_or_trash_chanhead(head, 1);
 }
@@ -2980,7 +2982,7 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     msg->compressed = (nchan_compressed_msg_t *)cur;
     cur = (u_char *)&msg->compressed[1];
     *msg->compressed = *m->compressed;    
-    cur = copy_buf_contents(&m->compressed->buf, &msg->compressed->buf, cur);
+    copy_buf_contents(&m->compressed->buf, &msg->compressed->buf, cur);
     msg->compressed->buf.last_buf = 1;
   }
   
