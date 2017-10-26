@@ -1460,7 +1460,7 @@ class PubSubTest <  Minitest::Test
   
   def test_websocket_permessage_deflate_publish
     
-    [false, true].each do |deflated|
+    [true, false].each do |deflated|
       chan = short_id
       sub = Subscriber.new(url("/sub/broadcast/#{chan}"), 1, quit_message: 'FIN', client: :websocket, permessage_deflate: true)
       sub.on_message do |msg, bundle|
@@ -1472,8 +1472,10 @@ class PubSubTest <  Minitest::Test
       end
       
       pub = Publisher.new url("/pub/#{deflated ? "deflate/" : ""}#{chan}"), ws: true, permessage_deflate: true
-      pub_client = pub.ws.client.ws.first.first
-      assert pub_client.ws.headers["sec-websocket-extensions"].match(/permessage-deflate/)
+      pub_client = pub.ws.client
+      pub_bundle = pub_client.ws.first.first
+      
+      assert pub_bundle.ws.headers["sec-websocket-extensions"].match(/permessage-deflate/)
       
       pub.post "here is a message"
       pub.post "here is another"
@@ -1488,6 +1490,7 @@ class PubSubTest <  Minitest::Test
       
       verify pub, sub
       sub.terminate
+      pub.terminate
     end
     
   end
