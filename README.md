@@ -216,7 +216,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   
 - ### Interval-Polling
   Works just like long-polling, except if the requested message is not yet available, immediately responds with a `304 Not Modified`.
-  There is no way to differentiate between long-poll and interval-poll subscriber requests, so long-polling must be disabled for a subscriber location if you wish to use interval-polling.
+  Nchan cannot automatically distinguish between long-poll and interval-poll subscriber requests, so long-polling must be disabled for a subscriber location if you wish to use interval-polling.
 
 - ### Websocket
   Bidirectional communication for web browsers. Part of the [HTML5 spec](http://www.w3.org/TR/2014/REC-html5-20141028/single-page.html). Nchan supports the latest protocol version 13 ([RFC 6455](https://tools.ietf.org/html/rfc6455)).  
