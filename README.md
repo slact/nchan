@@ -892,7 +892,7 @@ Now that you have a secure connection between the subscriber client and the serv
 You must also take care to do at least one of the following:
   - [Generate good, high-entropy Channel IDs](#good-ids).
   - [Authorize all subscribers with the `nchan_authorize_request` config directive](#request-authorization).
-  - [Authorize subscribers and hide channel IDs with the "`X-Accel-Redirect`" mechanism](##x-accel-redirect).
+  - [Authorize subscribers and hide channel IDs with the "`X-Accel-Redirect`" mechanism](#x-accel-redirect).
   
 #### Good IDs
 
