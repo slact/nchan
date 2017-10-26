@@ -1,4 +1,5 @@
  feature: websocket permessage-deflate support
+      Sponsored by HYFN (https://hyfn.com/)
  fix (security): websocket publisher may crash worker when publishing with
       channel group accounting on to a new group
  fix: messages published to Nchan via websocket binary frames 
