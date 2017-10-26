@@ -43,7 +43,7 @@ CfCmd.new do
       args: 1,
       
       group: "pubsub",
-      tags: ["publisher", "websocket"],
+      tags: ["publisher", 'subscriber-websocket'],
       value: ['on', 'off'],
       default: "off",
       info: "Store a compressed (deflated) copy of the message along with the original to be sent to websocket clients supporting the permessage-deflate protocol extension"
@@ -307,7 +307,7 @@ CfCmd.new do
       :main_conf,
       
       group: "pubsub",
-      tags: ["websocket"],
+      tags: ['subscriber-websocket'],
       value: ["0-9"],
       default: "6",
       info: "Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best"
@@ -317,7 +317,7 @@ CfCmd.new do
       :main_conf,
       
       group: "pubsub",
-      tags: ["websocket"],
+      tags: ['subscriber-websocket'],
       value: ["default", "filtered", "huffman-only", "rle", "fixed"],
       default: "default",
       info: "Compression strategy for the `deflate` algorithm used in websocket's permessage-deflate extension. Use 'default' for normal data, For details see [zlib's section on copression strategies](http://zlib.net/manual.html#Advanced)"
@@ -327,7 +327,7 @@ CfCmd.new do
       :main_conf,
       
       group: "pubsub",
-      tags: ["websocket"],
+      tags: ['subscriber-websocket'],
       value: ["9-15"],
       default: "10",
       info: "Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor."
@@ -337,7 +337,7 @@ CfCmd.new do
       :main_conf,
       
       group: "pubsub",
-      tags: ["websocket"],
+      tags: ['subscriber-websocket'],
       value: ["1-9"],
       default: "8",
       info: "Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed"

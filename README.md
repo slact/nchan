@@ -243,7 +243,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   <br />
   Deflation parameters (speed, memory use, strategy, etc.), can be tweaked using the [`nchan_permessage_deflate_compression_window`](#nchan_permessage_deflate_compression_window), [`nchan_permessage_deflate_compression_level`](#nchan_permessage_deflate_compression_level),
   [`nchan_permessage_deflate_compression_strategy`](#nchan_permessage_deflate_compression_strategy), and 
-  [`nchan_permessage_deflate_compression_window;](#nchan_permessage_deflate_compression_window) settings.
+  [`nchan_permessage_deflate_compression_window`](#nchan_permessage_deflate_compression_window) settings.
   <br />  
   <!-- tag:subscriber-websocket -->
   
