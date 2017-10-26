@@ -621,6 +621,12 @@ static ngx_int_t websocket_publisher_upstream_handler(subscriber_t *sub, ngx_htt
   
   sup->upstream_request_data_received_head=d;
   
+  if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
+    //zombie publisher
+    //nothing more to do, we're finished here
+    return NGX_OK;
+  }
+  
   sup->running_upstream_request_count--;
   if(!sup->upstream_subrequest_ev.timer_set) {
     ngx_add_timer(&sup->upstream_subrequest_ev, 0);
@@ -640,6 +646,7 @@ static void send_next_publish_subrequest(full_subscriber_t *fsub) {
   
   //typedef ngx_int_t (*subrequest_callback_pt)(subscriber_t *sub, ngx_http_request_t *r, ngx_int_t rc, void *);
   
+  websocket_reserve(&fsub->sub);
   sr = subscriber_subrequest(&fsub->sub, &sup->request_url, &scur->body_buf, websocket_publisher_upstream_handler, scur);
   scur->sr = sr;
   scur->sent = 1;
