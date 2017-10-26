@@ -233,10 +233,10 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   </pre>   
   The `content-type:` line may be omitted.
   <br />
-  ##### Websocket Publisher
+  #### Websocket Publisher
   Messages published through a websocket connection can be forwarded to an upstream application with the [`nchan_publisher_upstream_request`](#nchan_publisher_upstream_request) config directive.   
   Messages published in a binary frame are automatically given the `content-type` "`application/octet-stream`".
-  ##### Websocket permessage-deflate
+  #### Permessage-deflate
   Nchan version 1.1.8 and above supports the [permessage-deflate protocol extension](https://tools.ietf.org/html/rfc7692). Messages are deflated once when they are published, and then can be broadcast to any number of compatible websocket subscribers. Message deflation is enabled by setting the [`nchan_deflate_message_for_websocket on;`](#nchan_deflate_message_for_websocket) directive in a publisher location.
   <br />
   The deflated data is stored alongside the original message in memory, or, if large enough, on disk. This means more [shared memory](#nchan_shared_memory_size) is necessary when using `nchan_deflate_message_for_websocket`.
