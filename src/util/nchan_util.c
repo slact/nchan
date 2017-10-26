@@ -688,6 +688,7 @@ static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) 
       nchan_log_request_error(r, "failed to create temp file for deflated message");
     } else {
       nchan_log_error("failed to create temp file for deflated message");
+    }
     return NULL;
   }
   return tf;
