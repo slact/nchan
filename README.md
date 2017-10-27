@@ -43,7 +43,7 @@ With a well-tuned OS and network stack on commodity server hardware, expect to h
 ## Install
 
 #### Download Packages
- - [Arch Linux](https://archlinux.org): [nginx-mainline-addon-nchan](https://aur.archlinux.org/packages/nginx-mainline-addon-nchan/) (dynamic module build), [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.
+ - [Arch Linux](https://archlinux.org): [nginx-mod-nchan](https://aur.archlinux.org/packages/nginx-mod-nchan/) (dynamic module build), [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
  - [Debian](https://www.debian.org/): A dynamic module build is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.io/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.io/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
@@ -892,7 +892,7 @@ Now that you have a secure connection between the subscriber client and the serv
 You must also take care to do at least one of the following:
   - [Generate good, high-entropy Channel IDs](#good-ids).
   - [Authorize all subscribers with the `nchan_authorize_request` config directive](#request-authorization).
-  - [Authorize subscribers and hide channel IDs with the "`X-Accel-Redirect`" mechanism](##x-accel-redirect).
+  - [Authorize subscribers and hide channel IDs with the "`X-Accel-Redirect`" mechanism](#x-accel-redirect).
   
 #### Good IDs
 
