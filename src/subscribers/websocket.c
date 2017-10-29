@@ -921,6 +921,11 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   ngx_int_t           ws_version;
   ngx_http_request_t *r = fsub->sub.request;
   
+  ngx_str_t          *which_deflate_extension = NULL;
+  static ngx_str_t permessage_deflate = ngx_string("permessage-deflate");
+  static ngx_str_t perframe_deflate = ngx_string("deflate-frame");
+  static ngx_str_t webkit_perframe_deflate = ngx_string("x-webkit-deflate-frame");
+  
   permessage_deflate_t pmd = {NULL,0,0,0,0,0};
   
   ngx_sha1_t          sha1;
@@ -969,11 +974,20 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   }
   
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS)) != NULL) {
-    ngx_str_t permessage_deflate = ngx_string("permessage-deflate");
     
     u_char      *cur = tmp->data, *end = tmp->data + tmp->len;
     u_char      *lcur, *lend, *ltmp;
     if(nchan_strscanstr(&cur, &permessage_deflate, end)) {
+      which_deflate_extension = &permessage_deflate;
+    }
+    else if(nchan_strscanstr(&cur, &webkit_perframe_deflate, end)) {
+      which_deflate_extension = &webkit_perframe_deflate;
+    }
+    else if(nchan_strscanstr(&cur, &perframe_deflate, end)) {
+      which_deflate_extension = &perframe_deflate;
+    }
+
+    if(which_deflate_extension) {
       lcur = cur;
       lend = memchr(lcur, ',', end - lcur); 
       if(lend == NULL) lend = end;
@@ -1003,6 +1017,18 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
         if(*ltmp == '"') ltmp++;
         while(nend <= lend && *nend >='0' && *nend <='9') nend++;
         pmd.server_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
+      }
+      else {
+        pmd.server_max_window_bits = -1;
+      }
+      
+      if((ltmp = ngx_strnstr(lcur, "max_window_bits", lend - lcur)) != NULL) {
+        u_char    *nend = ltmp;
+        if(*ltmp == '=') ltmp++;
+        if(*ltmp == '"') ltmp++;
+        while(nend <= lend && *nend >='0' && *nend <='9') nend++;
+        pmd.server_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
+        pmd.client_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
       }
       else {
         pmd.server_max_window_bits = -1;
@@ -1042,18 +1068,30 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
     u_char *ws_ext_end;
     ngx_str_t ws_extensions;
     ws_extensions.data = permessage_deflate_buf;
-    ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "permessage-deflate; %s%s", 
-                              fsub->deflate.server_no_context_takeover ? "server_no_context_takeover; " : "",
-                              fsub->deflate.client_no_context_takeover ? "client_no_context_takeover; " : "");
-    if (pmd.server_max_window_bits > 0) {
-      ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
-                                "server_max_window_bits=%i; ", 
-                                fsub->deflate.server_max_window_bits);
+    
+    if(which_deflate_extension == &webkit_perframe_deflate || which_deflate_extension == &perframe_deflate) {
+      ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "%V; ", which_deflate_extension);
+      if (pmd.server_max_window_bits > 0) {
+        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
+                                  "max_window_bits=%i; ",
+                                  fsub->deflate.server_max_window_bits);
+      }
     }
-    if (fsub->deflate.client_max_window_bits > 0) {
-      ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
-                                "client_max_window_bits=%i; ", 
-                                fsub->deflate.client_max_window_bits);
+    else {
+      ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "%V; %s%s", 
+                                which_deflate_extension,
+                                fsub->deflate.server_no_context_takeover ? "server_no_context_takeover; " : "",
+                                fsub->deflate.client_no_context_takeover ? "client_no_context_takeover; " : "");
+      if (pmd.server_max_window_bits > 0) {
+        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
+                                  "server_max_window_bits=%i; ", 
+                                  fsub->deflate.server_max_window_bits);
+      }
+      if (fsub->deflate.client_max_window_bits > 0) {
+        ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
+                                  "client_max_window_bits=%i; ", 
+                                  fsub->deflate.client_max_window_bits);
+      }
     }
     ws_extensions.len = ws_ext_end - permessage_deflate_buf - 2; //-2 for the trailing "; "
     nchan_add_response_header(r, &NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS, &ws_extensions);
