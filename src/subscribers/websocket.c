@@ -911,7 +911,32 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
-static void websocket_perform_handshake(full_subscriber_t *fsub) {
+static ngx_int_t extract_deflate_window_bits(full_subscriber_t *fsub, u_char *lcur, u_char *lend, const char* setting_name, int8_t *dst, int min, int max) {
+  int        bits= -1;
+  u_char    *ltmp;
+  if((ltmp = ngx_strnstr(lcur, (char *)setting_name, lend - lcur)) != NULL) {
+    ltmp += strlen(setting_name); //strlen
+    if(*ltmp == '=') ltmp++;
+    if(*ltmp == '"') ltmp++;
+    u_char    *nend = ltmp;
+    while(nend <= lend && *nend >='0' && *nend <='9') nend++;
+    bits = ngx_atoi(ltmp, nend - ltmp);
+    if(bits == NGX_ERROR) {
+      bits = 0;
+    }
+    else if(bits < 9 || bits > 15) {
+      fsub->sub.dequeue_after_response = 1;
+      fsub->sub.request->header_only = 0;
+      nchan_respond_sprintf(fsub->sub.request, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, 1,
+                            "%s permessage-deflate setting is out of range", setting_name);
+      return NGX_ERROR;
+    }
+  }
+  *dst = bits;
+  return bits == -1 ? NGX_DECLINED : NGX_OK;
+}
+  
+static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
   static ngx_str_t    magic = ngx_string("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
   ngx_str_t           ws_accept_key, sha1_str;
   u_char              buf_sha1[21];
@@ -936,27 +961,24 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   r->header_only = 1;  
   
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_VERSION)) == NULL) {
-    r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
-    ngx_http_send_header(r);
-    return;
+    nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No Sec-Websocket-Version header present", 1);
+    return NGX_ERROR;
   }
   else {
     ws_version=ngx_atoi(tmp->data, tmp->len);
     if(ws_version != 13) {
       //only websocket version 13 (RFC 6455) is supported
-      r->headers_out.status = NGX_HTTP_BAD_REQUEST;
       fsub->sub.dequeue_after_response=1;
-      ngx_http_send_header(r);
-      return;
+      nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Unsupported websocket protocol version (only version 13 is supported)", 1);
+      return NGX_ERROR;
     }
   }
   
   if((ws_key = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
-    r->headers_out.status = NGX_HTTP_BAD_REQUEST;
     fsub->sub.dequeue_after_response=1;
-    ngx_http_send_header(r);
-    return;
+    nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No Sec-Websocket-Key header present", 1);
+    return NGX_ERROR;
   }
   
   if((subprotocols = nchan_get_header_value(r, NCHAN_HEADERS_SEC_WEBSOCKET_PROTOCOL)) != NULL) {
@@ -976,7 +998,9 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_EXTENSIONS)) != NULL) {
     
     u_char      *cur = tmp->data, *end = tmp->data + tmp->len;
-    u_char      *lcur, *lend, *ltmp;
+    u_char      *lcur, *lend;
+    ngx_int_t    rc;
+    
     if(nchan_strscanstr(&cur, &permessage_deflate, end)) {
       which_deflate_extension = &permessage_deflate;
     }
@@ -997,48 +1021,29 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
       pmd.client_no_context_takeover = ngx_strnstr(lcur, "client_no_context_takeover", lend - lcur) != NULL ? 1 : 0;
       pmd.server_no_context_takeover = ngx_strnstr(lcur, "server_no_context_takeover", lend - lcur) != NULL ? 1 : 0;
       
-      if((ltmp = ngx_strnstr(lcur, "client_max_window_bits", lend - lcur)) != NULL) {
-        u_char    *nend = ltmp;
-        if(*ltmp == '=') ltmp++;
-        if(*ltmp == '"') ltmp++;
-        while(nend <= lend && *nend >='0' && *nend <='9') nend++;
-        pmd.client_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
-        if(pmd.client_max_window_bits == NGX_ERROR) {
-          pmd.client_max_window_bits = 0;
+      if(which_deflate_extension == &permessage_deflate) {
+        if(extract_deflate_window_bits(fsub, lcur, lend, "client_max_window_bits", &pmd.client_max_window_bits, 9, 15) == NGX_ERROR) {
+          return NGX_ERROR;
+        }
+        if(extract_deflate_window_bits(fsub, lcur, lend, "server_max_window_bits", &pmd.server_max_window_bits, 9, 15) == NGX_ERROR) {
+          return NGX_ERROR;
         }
       }
-      else {
-        pmd.client_max_window_bits = -1;
-      }
-      
-      if((ltmp = ngx_strnstr(lcur, "server_max_window_bits", lend - lcur)) != NULL) {
-        u_char    *nend = ltmp;
-        if(*ltmp == '=') ltmp++;
-        if(*ltmp == '"') ltmp++;
-        while(nend <= lend && *nend >='0' && *nend <='9') nend++;
-        pmd.server_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
-      }
-      else {
-        pmd.server_max_window_bits = -1;
-      }
-      
-      if((ltmp = ngx_strnstr(lcur, "max_window_bits", lend - lcur)) != NULL) {
-        u_char    *nend = ltmp;
-        if(*ltmp == '=') ltmp++;
-        if(*ltmp == '"') ltmp++;
-        while(nend <= lend && *nend >='0' && *nend <='9') nend++;
-        pmd.server_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
-        pmd.client_max_window_bits = ngx_atoi(ltmp, nend - ltmp);
-      }
-      else {
-        pmd.server_max_window_bits = -1;
+      else if(which_deflate_extension == &webkit_perframe_deflate || which_deflate_extension == &perframe_deflate) {
+        rc = extract_deflate_window_bits(fsub, lcur, lend, "max_window_bits", &pmd.server_max_window_bits, 9, 15);
+        if(rc == NGX_OK) {
+          pmd.client_max_window_bits = pmd.server_max_window_bits;
+        }
+        else if(rc == NGX_ERROR) {
+          return NGX_ERROR;
+        }
       }
     }
     
     if(pmd.enabled) {
       fsub->deflate = pmd;
       fsub->deflate.server_max_window_bits = 10;
-      fsub->deflate.client_max_window_bits = 10;
+      fsub->deflate.client_max_window_bits = pmd.client_max_window_bits;
     }
   }
 
@@ -1100,6 +1105,7 @@ static void websocket_perform_handshake(full_subscriber_t *fsub) {
   r->keepalive=0; //apparently, websocket must not use keepalive.
   
   ngx_http_send_header(r);
+  return NGX_OK;
 }
 
 static void websocket_reading(ngx_http_request_t *r);
@@ -1153,8 +1159,8 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
   if(fsub->shook_hands == 0) {
     ensure_request_hold(fsub);
     if(websocket_perform_handshake(fsub) == NGX_OK) {
-      return NGX_OK;
       fsub->shook_hands = 1;
+      return NGX_OK;
     }
     else {
       return NGX_ERROR;
