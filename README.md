@@ -244,7 +244,9 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   Deflation parameters (speed, memory use, strategy, etc.), can be tweaked using the [`nchan_permessage_deflate_compression_window`](#nchan_permessage_deflate_compression_window), [`nchan_permessage_deflate_compression_level`](#nchan_permessage_deflate_compression_level),
   [`nchan_permessage_deflate_compression_strategy`](#nchan_permessage_deflate_compression_strategy), and 
   [`nchan_permessage_deflate_compression_window`](#nchan_permessage_deflate_compression_window) settings.
-  <br />  
+  <br />
+  Nchan also supports the (deprecated) [perframe-deflate extension](https://tools.ietf.org/html/draft-tyoshino-hybi-websocket-perframe-deflate-06) still in use by Safari as `x-webkit-perframe-deflate`.
+  <br />
   <!-- tag:subscriber-websocket -->
   
 - ### EventSource
