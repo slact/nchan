@@ -1,3 +1,4 @@
+1.1.9 (Oct. 30 2017)
  fix: more proper websocket extension negotiation with more 
       informative failure messages
  fix: websocket handshake failure response included superfluous CLOSE frame
