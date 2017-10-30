@@ -1,3 +1,7 @@
+ fix: more proper websocket extension negotiation with more 
+      informative failure messages
+ fix: websocket handshake failure response included superfluous CLOSE frame
+ feature: websocket deflate-frame and x-webkit-deflate-frame support
 1.1.8 (Oct. 26 2017)
  feature: websocket permessage-deflate support
       Sponsored by HYFN (https://hyfn.com/)
