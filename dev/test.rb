@@ -10,6 +10,7 @@ require 'securerandom'
 require_relative 'pubsub.rb'
 require_relative 'authserver.rb'
 require "optparse"
+require 'digest/sha1'
 
 $server_url="http://127.0.0.1:8082"
 $default_client=:longpoll
@@ -1493,6 +1494,53 @@ class PubSubTest <  Minitest::Test
       pub.terminate
     end
     
+  end
+  
+  def check_websocket_handshake(url, headers, expected_response_code=101, expected_response_body_match=nil)
+    req=Typhoeus::Request.new(url, headers: headers, forbid_reuse: true)
+    req.run
+    binding.pry if expected_response_code != req.response.response_code
+    assert_equal expected_response_code, req.response.response_code
+    assert req.response.body.match(expected_response_body_match) if expected_response_body_match
+    req.response
+  end
+  
+  def test_websocket_handshakes
+    url = url("/sub/broadcast/#{short_id}")
+    ws_guid="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    
+    headers = {"Connection":"Upgrade", "Upgrade":"Websocket"}
+    
+    check_websocket_handshake(url, headers, 400, /No Sec-Websocket-Version/)
+    
+    headers["Sec-Websocket-Version"]="banana"
+    check_websocket_handshake(url, headers, 400, /Unsupported websocket protocol version/)
+    
+    headers["Sec-Websocket-Version"]="14"
+    check_websocket_handshake(url, headers, 400, /Unsupported websocket protocol version/)
+    
+    headers["Sec-Websocket-Version"]="13"
+    check_websocket_handshake(url, headers, 400, /No Sec-Websocket-Key/)
+    
+    headers["Sec-Websocket-Key"]="q"*120
+    resp = check_websocket_handshake(url, headers)
+    assert_equal Digest::SHA1.base64digest("#{headers["Sec-Websocket-Key"]}#{ws_guid}"), resp.headers["Sec-Websocket-Accept"]
+    
+    headers["Sec-Websocket-Key"]=" space check       "
+    resp = check_websocket_handshake(url, headers)
+    assert_equal Digest::SHA1.base64digest("#{headers["Sec-Websocket-Key"].strip}#{ws_guid}"), resp.headers["Sec-Websocket-Accept"]
+    
+    headers["Sec-Websocket-Extensions"]="permessage-deflate; client_max_window_bits=6"
+    check_websocket_handshake(url, headers, 400, /client_max_window_bits.*out of range/)
+    
+    headers["Sec-Websocket-Extensions"]="permessage-deflate; server_max_window_bits=2000"
+    check_websocket_handshake(url, headers, 400, /server_max_window_bits.*out of range/)
+    
+    headers["Sec-Websocket-Extensions"]="x-webkit-deflate-frame; max_window_bits=6"
+    check_websocket_handshake(url, headers, 400, /max_window_bits.*out of range/)
+    
+    headers["Sec-Websocket-Extensions"]="x-webkit-deflate-frame; max_window_bits=10"
+    check_websocket_handshake(url, headers)    
   end
 
 end
