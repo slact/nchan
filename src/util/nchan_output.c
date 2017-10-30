@@ -346,6 +346,26 @@ ngx_int_t nchan_respond_cstring(ngx_http_request_t *r, ngx_int_t status_code, co
   return nchan_respond_string(r, status_code, content_type, &str, finalize);
 }
 
+ngx_int_t nchan_respond_sprintf(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, const ngx_int_t finalize, char *fmt, ...) {
+  u_char *p;
+  ngx_str_t str;
+  va_list   args;
+    
+  str.len = 1024;
+  str.data = ngx_palloc(r->pool, 1024);
+  if(str.data == NULL) {
+    return nchan_respond_status(r, status_code, NULL, finalize);
+    return NGX_ERROR;
+  }
+
+  va_start(args, fmt);
+  p = ngx_vslprintf(str.data, str.data + str.len, fmt, args);
+  va_end(args);
+  
+  str.len = p - str.data;
+  return nchan_respond_string(r, status_code, content_type, &str, finalize);
+}
+
 ngx_int_t nchan_respond_membuf(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *content_type, ngx_buf_t *body, ngx_int_t finalize) {
   ngx_str_t str;
   str.len = ngx_buf_size(body);
