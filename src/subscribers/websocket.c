@@ -1152,9 +1152,13 @@ static void ensure_request_hold(full_subscriber_t *fsub) {
 static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
   if(fsub->shook_hands == 0) {
     ensure_request_hold(fsub);
-    websocket_perform_handshake(fsub);
-    fsub->shook_hands = 1;
-    return NGX_OK;
+    if(websocket_perform_handshake(fsub) == NGX_OK) {
+      return NGX_OK;
+      fsub->shook_hands = 1;
+    }
+    else {
+      return NGX_ERROR;
+    }
   }
   return NGX_DECLINED;
 }
@@ -1243,7 +1247,7 @@ static ngx_int_t websocket_dequeue(subscriber_t *self) {
   
   self->enqueued = 0;
   
-  if(!fsub->sent_close_frame) {
+  if(!fsub->sent_close_frame && fsub->shook_hands) {
     websocket_send_close_frame_cstr(fsub, CLOSE_NORMAL, "410 Gone");
   }
   
