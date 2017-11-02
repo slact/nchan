@@ -130,6 +130,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->subscriber_first_message=NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET;
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
+  lcf->subscriber_keep_alive_interval=NGX_CONF_UNSET;
   lcf->subscribe_only_existing_channel=NGX_CONF_UNSET;
   lcf->redis_idle_channel_cache_timeout=NGX_CONF_UNSET;
   lcf->max_channel_id_length=NGX_CONF_UNSET;
@@ -288,7 +289,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   if (conf->subscriber_first_message == NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET) {
     conf->subscriber_first_message = (prev->subscriber_first_message == NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET) ? NCHAN_SUBSCRIBER_DEFAULT_FIRST_MESSAGE : prev->subscriber_first_message;
   }
-  
+
+  ngx_conf_merge_sec_value(conf->subscriber_keep_alive_interval, prev->subscriber_keep_alive_interval, NCHAN_DEFAULT_SUBSCRIBER_DEFAULT_KEEP_ALIVE_INTERVAL);
   ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_WEBSOCKET_PING_INTERVAL);
   
   ngx_conf_merge_sec_value(conf->subscriber_timeout, prev->subscriber_timeout, NCHAN_DEFAULT_SUBSCRIBER_TIMEOUT);
@@ -300,7 +302,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->channel_timeout, prev->channel_timeout, NCHAN_DEFAULT_CHANNEL_TIMEOUT);
   
   ngx_conf_merge_str_value(conf->subscriber_http_raw_stream_separator, prev->subscriber_http_raw_stream_separator, "\n");
-  
+  ngx_conf_merge_str_value(conf->subscriber_keep_alive_string, prev->subscriber_keep_alive_string, ".");
+
   ngx_conf_merge_str_value(conf->channel_id_split_delimiter, prev->channel_id_split_delimiter, "");
   MERGE_CONF(conf, prev, allow_origin);
   ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");

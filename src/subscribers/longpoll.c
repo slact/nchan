@@ -4,6 +4,10 @@
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:LONGPOLL:" fmt, ##arg)
+
+#define REQUEST_PCALLOC(r, what) what = ngx_pcalloc((r)->pool, sizeof(*(what)))
+#define REQUEST_PALLOC(r, what) what = ngx_palloc((r)->pool, sizeof(*(what)))
+
 #include <assert.h>
 #include "longpoll-private.h"
 
@@ -15,6 +19,8 @@ void memstore_fakeprocess_pop(void);
 ngx_int_t memstore_slot(void);
 
 static const subscriber_t new_longpoll_sub;
+
+static void keep_alive_handler(ngx_event_t *ev);
 
 static void empty_handler() { }
 
@@ -52,7 +58,8 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   fsub->data.finalize_request = 1;
   fsub->data.holding = 0;
   fsub->data.act_as_intervalpoll = 0;
-  
+
+  ngx_memzero(&fsub->data.keep_alive_ev, sizeof(fsub->data.keep_alive_ev));
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->data.timeout_ev);
   
   fsub->data.dequeue_handler = empty_handler;
@@ -98,6 +105,10 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   }
   else {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
+    if(fsub->data.keep_alive_ev.timer_set) {
+        ngx_del_timer(&fsub->data.keep_alive_ev);
+    }
+
     nchan_free_msg_id(&fsub->sub.last_msgid);
     assert(sub->status == DEAD);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
@@ -149,6 +160,12 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   
   fsub->sub.enqueued = 1;
   ensure_request_hold(fsub);
+
+  if(self->cf->subscriber_keep_alive_interval > 0) {
+    nchan_init_timer(&fsub->data.keep_alive_ev, keep_alive_handler, fsub);
+    ngx_add_timer(&fsub->data.keep_alive_ev, self->cf->subscriber_keep_alive_interval * 1000);
+  }
+
   if(self->cf->subscriber_timeout > 0) {
     //add timeout timer
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
@@ -427,6 +444,8 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   }
   
   return NGX_OK;
+
+
 }
 
 static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
@@ -505,6 +524,42 @@ static void request_cleanup_handler(subscriber_t *sub) {
 
 }
 
+
+static void keep_alive_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+
+  if(ev->timedout) {
+    ngx_buf_t   *buf = REQUEST_PCALLOC(fsub->sub.request, buf);
+    ngx_chain_t *chain = REQUEST_PALLOC(fsub->sub.request, chain);
+    nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, ngx_nchan_module);
+    size_t                  separator_len = cf->subscriber_keep_alive_string.len;
+
+    ev->timedout=0;
+    ngx_add_timer(&fsub->data.keep_alive_ev, fsub->sub.cf->subscriber_keep_alive_interval * 1000);
+
+    chain->buf=buf;
+    chain->next=NULL;
+
+    buf = chain->buf;
+    ngx_memzero(buf, sizeof(ngx_buf_t));
+    buf->start = cf->subscriber_keep_alive_string.data;
+    buf->pos = buf->start;
+    buf->end = buf->start + separator_len;
+    buf->last = buf->end;
+
+    buf->last_in_chain = 1;
+    buf->memory = 1;
+    buf->last_buf = 1;
+    buf->flush = 1;
+
+    if(!fsub->data.shook_hands) {
+      nchan_cleverly_output_headers_only_for_later_response(fsub->sub.request);
+      fsub->data.shook_hands = 1;
+    }
+
+    nchan_output_filter(fsub->sub.request, chain);
+  }
+}
 
 static ngx_int_t longpoll_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;

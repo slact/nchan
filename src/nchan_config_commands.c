@@ -134,11 +134,25 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, subscriber_http_raw_stream_separator),
     NULL } ,
 
+  { ngx_string("nchan_subscriber_keep_alive_string"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, subscriber_keep_alive_string),
+    NULL } ,
+
   { ngx_string("nchan_subscriber_first_message"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_subscriber_first_message_directive,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
+    NULL } ,
+
+  { ngx_string("nchan_subscriber_keep_alive_interval"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_sec_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, subscriber_keep_alive_interval),
     NULL } ,
 
   { ngx_string("nchan_websocket_ping_interval"),

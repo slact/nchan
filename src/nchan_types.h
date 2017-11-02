@@ -299,7 +299,10 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   nchan_conf_subscriber_types_t   sub; 
   nchan_conf_group_t              group;
   time_t                          subscriber_timeout;
-  
+
+  time_t                          subscriber_keep_alive_interval;
+  ngx_str_t                       subscriber_keep_alive_string;
+
   ngx_int_t                       longpoll_multimsg;
   ngx_int_t                       longpoll_multimsg_use_raw_stream_separator;
   
