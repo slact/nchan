@@ -235,11 +235,14 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   ngx_chain_t          out;
   nchan_stub_status_t *stats;
   
-  float                shmem_used;
+  nchan_main_conf_t   *mcf = ngx_http_get_module_main_conf(r, ngx_nchan_module);
+  
+  float                shmem_used, shmem_max;
   
   char     *buf_fmt = "total published messages: %ui\n"
                       "stored messages: %ui\n"
                       "shared memory used: %fK\n"
+                      "shared memory limit: %fK\n"
                       "channels: %ui\n"
                       "subscribers: %ui\n"
                       "redis pending commands: %ui\n"
@@ -257,13 +260,14 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   }
   
   shmem_used = (float )((float )nchan_get_used_shmem() / 1024.0);
+  shmem_max = (float )((float )mcf->shm_size / 1024.0);
   
   stats = nchan_get_stub_status_stats();
   
   b->start = (u_char *)&b[1];
   b->pos = b->start;
   
-  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, shmem_used, stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, stats->ipc_total_alerts_received, stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay, NCHAN_VERSION);
+  b->end = ngx_snprintf(b->start, 800, buf_fmt, stats->total_published_messages, stats->messages, shmem_used, shmem_max, stats->channels, stats->subscribers, stats->redis_pending_commands, stats->redis_connected_servers, stats->ipc_total_alerts_received, stats->ipc_total_alerts_sent - stats->ipc_total_alerts_received, stats->ipc_queue_size, stats->ipc_total_send_delay, stats->ipc_total_receive_delay, NCHAN_VERSION);
   b->last = b->end;
 
   b->memory = 1;
