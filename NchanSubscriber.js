@@ -150,7 +150,7 @@
               return true; //for backwards-compatibility
             }
             var id = val.substring(2, sep);
-            return (id != this.shared.id); //ignore own events (accomodations for IE. Fuckin' IE, even after all these years...)
+            return (id != this.shared.id); //ignore own events (accommodations for IE. Fuckin' IE, even after all these years...)
           }
           else {
             return false;

@@ -116,7 +116,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     n --;
   }
   if((bc = nchan_bufchain_pool_reserve(ctx->bcp, n)) == NULL) {
-    ERR("cant allocate buf-and-chains for multipart/mixed client output");
+    ERR("can't allocate buf-and-chains for multipart/mixed client output");
     return NGX_ERROR;
   }
   

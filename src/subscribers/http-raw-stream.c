@@ -47,7 +47,7 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   }
   
   if((bc = nchan_bufchain_pool_reserve(ctx->bcp, (1 + (msg_len > 0 ? 1: 0)))) == NULL) {
-    ERR("cant allocate buf-and-chains for http-raw-stream client output");
+    ERR("can't allocate buf-and-chains for http-raw-stream client output");
     return NGX_ERROR;
   }
   
