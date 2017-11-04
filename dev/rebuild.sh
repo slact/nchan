@@ -128,8 +128,10 @@ for opt in $*; do
 done
 
 export NO_WITH_DEBUG=$NO_WITH_DEBUG;
-export EXTRA_CONFIG_OPT=`echo $_extra_config_opt`
+export EXTRA_CONFIG_OPT="`echo $_extra_config_opt`"
 
+
+echo $EXTRA_CONFIG_OPT
 _build_nginx() {
 
   if type "makepkg" > /dev/null; then

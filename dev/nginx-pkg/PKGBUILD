@@ -266,12 +266,11 @@ build() {
   CONFIGURE=()
   
   if [[ -n $EXTRA_CONFIG_OPT ]]; then
-    if type "readarray"; then
-      readarray -t lines <<<"$EXTRA_CONFIG_OPT"
+    if [[ $0 == "/usr/bin/makepkg" ]]; then
+      CONFIGURE+=${EXTRA_CONFIG_OPT}
     else
-      lines="${(@f)EXTRA_CONFIG_OPT}"
+      CONFIGURE+=( ${=EXTRA_CONFIG_OPT} )
     fi    
-    CONFIGURE+=$lines
   fi
   
   if [[ -z $DEFAULT_PREFIX ]]; then
@@ -390,7 +389,12 @@ build() {
     
     #ln -sf ${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}/src ../ngx_lua_ipc/src/lua-nginx-module-source > /dev/null
     
-    make
+    if [ $? == 0 ]; then
+      make
+    else
+      echo "BAIL!!!"
+      exit 1
+    fi
   fi
 }
 
