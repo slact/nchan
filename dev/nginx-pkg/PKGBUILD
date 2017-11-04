@@ -389,10 +389,9 @@ build() {
     
     #ln -sf ${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}/src ../ngx_lua_ipc/src/lua-nginx-module-source > /dev/null
     
-    if [ $? == 0 ]; then
+    if [[ $? == 0 ]]; then
       make
     else
-      echo "BAIL!!!"
       exit 1
     fi
   fi
