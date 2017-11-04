@@ -313,9 +313,11 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
 }
 
 static void sudden_abort_handler(subscriber_t *sub) {
-  if(!sub)
+  ERR("sudden abort handler for sub %p request %p", sub, sub->request);
+  if(!sub) {
+    ERR("%p already freed apparently?...");
     return; //websocket subscriber already freed
-  DBG("sudden abort handler for sub %p request %p", sub, sub->request);
+  }
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->sub.owner);
@@ -863,8 +865,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
 fail: 
   if(fsub) {
-    if(fsub->cln)
+    if(fsub->cln) {
       fsub->cln->data = NULL;
+    }
     ngx_free(fsub);
   }
   ERR("%s", (u_char *)err);
@@ -879,12 +882,12 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   }
    
   if(sub->reserved > 0) {
-    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
+    ERR("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->awaiting_destruction = 1;
     sub->status = DEAD;
   }
   else {
-    DBG("%p destroy for req %p", sub, fsub->sub.request);
+    ERR("%p destroy for req %p", sub, fsub->sub.request);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
@@ -892,7 +895,6 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     websocket_delete_timers(fsub);
     nchan_free_msg_id(&sub->last_msgid);
     //debug 
-    DBG("Begone, websocket %p", fsub);
     if(fsub->cln) {
       fsub->cln->data = NULL;
     }
