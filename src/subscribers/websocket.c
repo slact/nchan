@@ -1171,7 +1171,7 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
       return NGX_ERROR;
     }
   }
-  return NGX_DECLINED;
+  return NGX_OK;
 }
 
 static ngx_int_t websocket_reserve(subscriber_t *self) {
@@ -1941,7 +1941,9 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
   ngx_int_t        rc;
   full_subscriber_t         *fsub = (full_subscriber_t *)self;
-  ensure_handshake(fsub);
+  if(ensure_handshake(fsub) == NGX_ERROR) {
+    return NGX_ERROR;
+  }
   
   if(fsub->timeout_ev.timer_set) {
     ngx_del_timer(&fsub->timeout_ev);
