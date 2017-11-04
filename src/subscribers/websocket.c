@@ -276,7 +276,9 @@ static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
   subscriber_t       *sub = &fsub->sub;
   ngx_http_request_t *r = sub->request;
   
-  fsub->cln->handler = (ngx_http_cleanup_pt )empty_handler;
+  if(fsub->cln) {
+    fsub->cln->handler = (ngx_http_cleanup_pt )empty_handler;
+  }
   if(sub->cf->unsubscribe_request_url && sub->enqueued) {
     if(!fsub->already_sent_unsub_request) {
       r->main->blocked = 1;
@@ -861,7 +863,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
 fail: 
   if(fsub) {
-    if(fsub->cln) 
+    if(fsub->cln)
       fsub->cln->data = NULL;
     ngx_free(fsub);
   }
@@ -891,8 +893,9 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     nchan_free_msg_id(&sub->last_msgid);
     //debug 
     DBG("Begone, websocket %p", fsub);
-    if(fsub->cln)
+    if(fsub->cln) {
       fsub->cln->data = NULL;
+    }
     //ngx_memset(fsub, 0x13, sizeof(*fsub));
     if(fsub->tmp_pool) {
       ngx_destroy_pool(fsub->tmp_pool);
@@ -1971,7 +1974,9 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   
   if(!fsub->shook_hands) {
     //still in HTTP land
-    return nchan_respond_status(fsub->sub.request, status_code, status_line, 1);
+    int rc = nchan_respond_status(fsub->sub.request, status_code, status_line, 1);
+    fsub->cln = NULL;
+    return rc;
   }
   
   switch(status_code) {
