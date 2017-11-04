@@ -882,12 +882,12 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   }
    
   if(sub->reserved > 0) {
-    ERR("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->awaiting_destruction = 1;
     sub->status = DEAD;
   }
   else {
-    ERR("%p destroy for req %p", sub, fsub->sub.request);
+    DBG("%p destroy for req %p", sub, fsub->sub.request);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(&fsub->sub);
 #endif
