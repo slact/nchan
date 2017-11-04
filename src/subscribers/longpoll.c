@@ -93,11 +93,11 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   full_subscriber_t   *fsub = (full_subscriber_t  *)sub;
   
   if(sub->reserved > 0) {
-    ERR("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
+    DBG("%p not ready to destroy (reserved for %i) for req %p", sub, sub->reserved, fsub->sub.request);
     fsub->data.awaiting_destruction = 1;
   }
   else {
-    ERR("%p destroy for req %p", sub, fsub->sub.request);
+    DBG("%p destroy for req %p", sub, fsub->sub.request);
     nchan_free_msg_id(&fsub->sub.last_msgid);
     assert(sub->status == DEAD);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
@@ -123,14 +123,14 @@ static ngx_int_t longpoll_reserve(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   ensure_request_hold(fsub);
   self->reserved++;
-  ERR("%p reserve for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
+  DBG("%p reserve for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   return NGX_OK;
 }
 static ngx_int_t longpoll_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   assert(self->reserved > 0);
   self->reserved--;
-  ERR("%p release for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
+  DBG("%p release for req %p. reservations: %i", self, fsub->sub.request, self->reserved);
   if(nodestroy == 0 && fsub->data.awaiting_destruction == 1 && self->reserved == 0) {
     longpoll_subscriber_destroy(self);
     return NGX_ABORT;
@@ -460,7 +460,7 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
     }
   }
   
-  ERR("%p respond req %p status %i", self, r, status_code);
+  DBG("%p respond req %p status %i", self, r, status_code);
   
   fsub->sub.dequeue_after_response = 1;
   
