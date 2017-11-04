@@ -5,7 +5,7 @@ gem 'json'
 gem 'nokogiri'
 
 gem 'pry'
-gem 'pry-byebug'
+gem 'pry-byebug' if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.0')
 gem 'pry-coolline'
 gem 'pry-doc'
 gem 'pry-git'
@@ -17,6 +17,9 @@ gem 'pry-syntax-hacks'
 gem 'pry-theme'
 
 gem 'celluloid'
+if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('2.2.2')
+  gem 'nio4r', '~>1.2.1'
+end
 gem 'celluloid-io'
 
 gem 'websocket-driver'
