@@ -313,9 +313,9 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
 }
 
 static void sudden_abort_handler(subscriber_t *sub) {
-  ERR("sudden abort handler for sub %p request %p", sub, sub->request);
+  DBG("sudden abort handler for sub %p request %p", sub, sub->request);
   if(!sub) {
-    ERR("%p already freed apparently?...");
+    DBG("%p already freed apparently?...");
     return; //websocket subscriber already freed
   }
 #if FAKESHARD
