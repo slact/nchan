@@ -296,8 +296,8 @@ static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
     if(sub->enqueued) {
       sub->fn->dequeue(sub);
     }
+    sub->status = DEAD;
     nchan_http_finalize_request(r, NGX_HTTP_OK);
-    
   }
   return NGX_OK;
 }
