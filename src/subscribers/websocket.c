@@ -1214,7 +1214,7 @@ static void ping_ev_handler(ngx_event_t *ev) {
 
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  int                 rc;
+  ngx_int_t           rc;
   if((rc = ensure_handshake(fsub)) != NGX_OK) {
     return rc;
   }
