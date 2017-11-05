@@ -500,6 +500,7 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
 
 static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub, uint8_t enqueue) {
   spooled_subscriber_t       *ssub;
+  ngx_int_t                   rc;
   
   ssub = ngx_calloc(sizeof(*ssub), ngx_cycle->log);
   //DBG("add sub %p to spool %p", sub, self);
@@ -523,7 +524,7 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
   ssub->dequeue_callback_data.spool = self;
   
   if(enqueue) {
-    if(sub->fn->enqueue(sub) != NGX_OK) {
+    if((rc = sub->fn->enqueue(sub)) != NGX_OK) {
       //enqueue failed. undo everything and get out!
       self->sub_count --;
       self->first = ssub->next;
@@ -535,6 +536,7 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
         self->non_internal_sub_count--;
       }
       ngx_free(ssub);
+      return rc;
     }
     else if(sub->type != INTERNAL && self->spooler->publish_events) {
       nchan_maybe_send_channel_event_message(sub->request, SUB_ENQUEUE);
