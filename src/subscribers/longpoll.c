@@ -215,7 +215,12 @@ static ngx_int_t dequeue_maybe(subscriber_t *self) {
 }
 
 static ngx_int_t abort_response(subscriber_t *sub, char *errmsg) {
-  ERR("abort! %s", errmsg ? errmsg : "unknown error");
+  if(sub->request) {
+    nchan_log_request_warning(sub->request, "%V subscriber: %s", sub->name, errmsg ? errmsg : "weird response error");
+  }
+  else {
+    nchan_log_warning("%V subscriber: %s", sub->name, errmsg ? errmsg : "weird response error");
+  }
   sub->fn->dequeue(sub);
   return NGX_ERROR;
 }
@@ -420,10 +425,10 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   nchan_set_msgid_http_response_headers(r, ctx, &fsub->data.multimsg_last->msg->id);
   nchan_include_access_control_if_needed(r, ctx);
   if(ngx_http_send_header(r) != NGX_OK) {
-    return abort_response(&fsub->sub, "failed to send headers to longpoll-multipart subscriber");
+    return abort_response(&fsub->sub, "failed to send longpoll-multipart headers");
   }
   if(nchan_output_filter(r, first_chain) != NGX_OK) {
-    return abort_response(&fsub->sub, "failed to send body to longpoll-multipart subscriber");
+    return abort_response(&fsub->sub, "failed to send longpoll-multipart body");
   }
   
   return NGX_OK;

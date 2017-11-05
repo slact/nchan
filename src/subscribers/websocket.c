@@ -276,7 +276,9 @@ static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
   subscriber_t       *sub = &fsub->sub;
   ngx_http_request_t *r = sub->request;
   
-  fsub->cln->handler = (ngx_http_cleanup_pt )empty_handler;
+  if(fsub->cln) {
+    fsub->cln->handler = (ngx_http_cleanup_pt )empty_handler;
+  }
   if(sub->cf->unsubscribe_request_url && sub->enqueued) {
     if(!fsub->already_sent_unsub_request) {
       r->main->blocked = 1;
@@ -291,11 +293,11 @@ static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
     }
   }
   else {
+    sub->status = DEAD;
     if(sub->enqueued) {
       sub->fn->dequeue(sub);
     }
     nchan_http_finalize_request(r, NGX_HTTP_OK);
-    
   }
   return NGX_OK;
 }
@@ -311,9 +313,11 @@ static void aborted_ws_close_request_rev_handler(ngx_http_request_t *r) {
 }
 
 static void sudden_abort_handler(subscriber_t *sub) {
-  if(!sub)
+  //DBG("sudden abort handler for sub %p request %p", sub, sub->request);
+  if(!sub) {
+    //DBG("%p already freed apparently?...", sub);
     return; //websocket subscriber already freed
-  DBG("sudden abort handler for sub %p request %p", sub, sub->request);
+  }
 #if FAKESHARD
   full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
   memstore_fakeprocess_push(fsub->sub.owner);
@@ -861,8 +865,9 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   
 fail: 
   if(fsub) {
-    if(fsub->cln) 
+    if(fsub->cln) {
       fsub->cln->data = NULL;
+    }
     ngx_free(fsub);
   }
   ERR("%s", (u_char *)err);
@@ -890,9 +895,9 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
     websocket_delete_timers(fsub);
     nchan_free_msg_id(&sub->last_msgid);
     //debug 
-    DBG("Begone, websocket %p", fsub);
-    if(fsub->cln)
+    if(fsub->cln) {
       fsub->cln->data = NULL;
+    }
     //ngx_memset(fsub, 0x13, sizeof(*fsub));
     if(fsub->tmp_pool) {
       ngx_destroy_pool(fsub->tmp_pool);
@@ -1166,7 +1171,7 @@ static ngx_int_t ensure_handshake(full_subscriber_t *fsub) {
       return NGX_ERROR;
     }
   }
-  return NGX_DECLINED;
+  return NGX_OK;
 }
 
 static ngx_int_t websocket_reserve(subscriber_t *self) {
@@ -1209,7 +1214,10 @@ static void ping_ev_handler(ngx_event_t *ev) {
 
 static ngx_int_t websocket_enqueue(subscriber_t *self) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
-  ensure_handshake(fsub);
+  ngx_int_t           rc;
+  if((rc = ensure_handshake(fsub)) != NGX_OK) {
+    return rc;
+  }
   self->enqueued = 1;
   
   if(self->cf->websocket_ping_interval > 0) {
@@ -1934,9 +1942,11 @@ static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_
 
 
 static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg) {
-  ngx_int_t        rc;
-  full_subscriber_t         *fsub = (full_subscriber_t *)self;
-  ensure_handshake(fsub);
+  ngx_int_t            rc;
+  full_subscriber_t   *fsub = (full_subscriber_t *)self;
+  if((rc = ensure_handshake(fsub)) != NGX_OK) {
+    return rc;
+  }
   
   if(fsub->timeout_ev.timer_set) {
     ngx_del_timer(&fsub->timeout_ev);
@@ -1971,6 +1981,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   
   if(!fsub->shook_hands) {
     //still in HTTP land
+    fsub->cln = NULL;
     return nchan_respond_status(fsub->sub.request, status_code, status_line, 1);
   }
   

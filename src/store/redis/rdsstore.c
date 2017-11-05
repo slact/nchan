@@ -2773,14 +2773,15 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   rdstore_channel_head_t       *ch;
   //ngx_int_t                   create_channel_ttl = cf->subscribe_only_existing_channel==1 ? 0 : cf->channel_timeout;
   rdstore_data_t               *rdata = d->sub->cf->redis.privdata;
+  ngx_int_t                     rc;
   
   ch = nchan_store_get_chanhead(d->channel_id, rdata);
   
   assert(ch != NULL);
   
-  ch->spooler.fn->add(&ch->spooler, d->sub);
+  rc = ch->spooler.fn->add(&ch->spooler, d->sub);
   //redisAsyncCommand(rds_ctx(), &redis_getmessage_callback, (void *)d, "EVALSHA %s 0 %b %i %i %s %i", redis_lua_scripts.get_message.hash, STR(d->channel_id), d->msg_id->time, d->msg_id->tag[0], "FILO", create_channel_ttl);
-  return NGX_OK;
+  return rc;
 }
 
 typedef struct {

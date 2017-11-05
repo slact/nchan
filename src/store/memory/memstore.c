@@ -2144,7 +2144,6 @@ static ngx_int_t nchan_store_subscribe_channel_existence_check_callback(ngx_int_
     return nchan_store_subscribe_continued(channel_status, _, d);
   }
   else {//don't go any further, the sub has been deleted
-    assert(d->sub->reserved == 0);
     subscribe_data_free(d);
     return NGX_OK;
   }

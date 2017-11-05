@@ -500,6 +500,7 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
 
 static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub, uint8_t enqueue) {
   spooled_subscriber_t       *ssub;
+  ngx_int_t                   rc;
   
   ssub = ngx_calloc(sizeof(*ssub), ngx_cycle->log);
   //DBG("add sub %p to spool %p", sub, self);
@@ -523,8 +524,21 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
   ssub->dequeue_callback_data.spool = self;
   
   if(enqueue) {
-    sub->fn->enqueue(sub);
-    if(sub->type != INTERNAL && self->spooler->publish_events) {
+    if((rc = sub->fn->enqueue(sub)) != NGX_OK) {
+      //enqueue failed. undo everything and get out!
+      self->sub_count --;
+      self->first = ssub->next;
+      if(self->first) {
+        assert(self->first->prev == ssub);
+        self->first->prev = NULL;
+      }
+      if(sub->type != INTERNAL) {
+        self->non_internal_sub_count--;
+      }
+      ngx_free(ssub);
+      return rc;
+    }
+    else if(sub->type != INTERNAL && self->spooler->publish_events) {
       nchan_maybe_send_channel_event_message(sub->request, SUB_ENQUEUE);
     }
   }
@@ -657,6 +671,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   nchan_msg_id_t          *msgid = &sub->last_msgid;
   subscriber_pool_t       *spool;
   subscriber_type_t        subtype;
+  ngx_int_t                rc;
   
   if(self->want_to_stop) {
     ERR("Not accepting new subscribers right now. want to stop.");
@@ -676,9 +691,9 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
 
   subtype = sub->type;
   
-  if(spool_add_subscriber(spool, sub, 1) != NGX_OK) {
-    ERR("couldn't add subscriber to spool %p", spool);
-    return NGX_ERROR;
+  if((rc = spool_add_subscriber(spool, sub, 1)) != NGX_OK) {
+    DBG("couldn't add subscriber to spool %p", spool);
+    return rc;
   }
   self->handlers->add(self, sub, self->handlers_privdata);
   
@@ -738,8 +753,9 @@ static ngx_int_t spool_transfer_subscribers(subscriber_pool_t *spool, subscriber
     if(update_subscriber_last_msgid) {
       sub->last_msgid=newspool->id;
     }
-    spool_add_subscriber(newspool, sub, 0);
-    count++;
+    if(spool_add_subscriber(newspool, sub, 0) == NGX_OK) {
+      count++;
+    }
   }
   
   return count;

@@ -99,6 +99,7 @@ typedef struct {
   memstore_channel_head_t     *origin_chanhead;
   memstore_channel_head_t     *owner_chanhead;
   subscriber_t                *subscriber;
+  ngx_int_t                    rc;
 } subscribe_data_t;
 
 ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_channel_head_t *origin_chanhead, nchan_loc_conf_t *cf) {
@@ -123,6 +124,7 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_c
 static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   memstore_channel_head_t    *head;
   subscriber_t               *ipc_sub = NULL;
+  ngx_int_t                   rc;
   
   DBG("received subscribe request for channel %V", d->shm_chid);
   head = nchan_memstore_get_chanhead(d->shm_chid, d->cf);
@@ -145,7 +147,11 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   }
   
   if(ipc_sub) {
-    head->spooler.fn->add(&head->spooler, ipc_sub);
+    rc = head->spooler.fn->add(&head->spooler, ipc_sub);
+    d->rc = rc;
+  }
+  else {
+    d->rc = NGX_ERROR;
   }
   
   ipc_cmd(subscribe_reply, sender, d);
