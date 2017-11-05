@@ -2981,16 +2981,17 @@ static nchan_msg_t *create_shm_msg(nchan_msg_t *m) {
     msg->compressed = (nchan_compressed_msg_t *)cur;
     cur = (u_char *)&msg->compressed[1];
     *msg->compressed = *m->compressed;    
-    copy_buf_contents(&m->compressed->buf, &msg->compressed->buf, cur);
+    cur = copy_buf_contents(&m->compressed->buf, &msg->compressed->buf, cur);
     msg->compressed->buf.last_buf = 1;
   }
   
 #if NCHAN_MSG_RESERVE_DEBUG
   msg->rsv = NULL;
 #endif
-#if NCHAN_MSG_LEAK_DEBUG  
+#if NCHAN_MSG_LEAK_DEBUG 
+  assert((u_char *)msg + memsize == cur + m->lbl.len);
   msg->lbl.len = m->lbl.len;
-  msg->lbl.data = (u_char *)stuff + (total_sz - debug_sz);
+  msg->lbl.data = cur;
   ngx_memcpy(msg->lbl.data, m->lbl.data, msg->lbl.len);
   
   msg_debug_add(msg);
