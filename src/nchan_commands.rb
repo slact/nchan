@@ -478,7 +478,7 @@ CfCmd.new do
       default: :off,
       info: "Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response."
   
-  nchan_access_control_allow_origin [:main, :srv, :loc], 
+  nchan_access_control_allow_origin [:main, :srv, :loc, :if], 
       :ngx_http_set_complex_value_slot,
       [:loc_conf, :allow_origin],
       args: 1,

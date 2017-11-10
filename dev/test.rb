@@ -58,9 +58,9 @@ def pubsub(concurrent_clients=1, opt={})
   timeout = opt[:timeout]
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
-  chan_id = opt[:channel] || SecureRandom.hex
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
-  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}"), timeout: timeout, websocket: opt[:websocket_publisher]
+  chan_id = opt[:channel] || short_id
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
+  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
 def verify(pub, sub, check_errors=true)
@@ -899,10 +899,16 @@ class PubSubTest <  Minitest::Test
   end
   
   def generic_test_access_control(opt)
-    pub, sub = pubsub 1, extra_headers: { Origin: opt[:origin] }, pub: opt[:pub_url], sub: opt[:sub_url]
+    pub, sub = pubsub 1, extra_headers: { Origin: opt[:origin] }, pub: opt[:pub_url], sub: opt[:sub_url], sub_param: opt[:param], pub_param: opt[:param]
     
     sub.on_message do |msg, bundle|
       opt[:verify_sub_response].call(bundle) if opt[:verify_sub_response]
+    end
+    
+    if opt[:on_failure]
+      sub.on_failure do |err, bundle|
+        opt[:on_failure].call(err, bundle)
+      end
     end
     
     pub.post "FIN"
@@ -1264,19 +1270,46 @@ class PubSubTest <  Minitest::Test
   
   def test_access_control
     
+    #ver= proc do |bundle| 
+    #  assert_equal "example.com", bundle.headers["Access-Control-Allow-Origin"] 
+    #end
+    #generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
+    #  verify pub, sub
+    #end
+    
+    #ver= proc do |bundle| 
+    #  assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
+    #  %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
+    #end
+    #generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
+    #  verify pub, sub
+    #end
+    
+    #test in if block
+    origin_host=""
     ver= proc do |bundle| 
-      assert_equal "example.com", bundle.headers["Access-Control-Allow-Origin"] 
+      assert_equal origin_host, bundle.headers["Access-Control-Allow-Origin"]
+      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
     end
-    generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
+    origin_host="http://foo.bar"
+    generic_test_access_control(origin: origin_host, verify_sub_response: ver, param: {foo: "foobar"}, sub_url: "/sub/access_control_in_if_block/") do |pub, sub|
+      verify pub, sub
+    end
+    origin_host="http://bana.na"
+    generic_test_access_control(origin: origin_host, verify_sub_response: ver, param: {foo: "banana"}, sub_url: "/sub/access_control_in_if_block/") do |pub, sub|
+      verify pub, sub
+    end
+    origin_host="http://localhost"
+    generic_test_access_control(origin: origin_host, verify_sub_response: ver, param: {foo: "localhost"}, sub_url: "/sub/access_control_in_if_block/") do |pub, sub|
       verify pub, sub
     end
     
-    ver= proc do |bundle| 
-      assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
-      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
-    end
-    generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
-      verify pub, sub
+    origin_host="http://localhost"
+    on_fail = proc { false }
+    generic_test_access_control(origin: origin_host, verify_sub_response: ver, on_failure: on_fail, sub_url: "/sub/access_control_in_if_block/") do |pub, sub|
+      sub.errors.each do |err|
+        assert_match /code 403/, err
+      end
     end
     
     #test forbidding stuff
