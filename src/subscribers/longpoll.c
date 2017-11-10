@@ -372,8 +372,8 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
       // (something about max. 64 iovecs per write call and counting the number of bytes already sent)
       *chain->buf = cur == first ? boundary[0] : boundary[1];
       size += ngx_buf_size((chain->buf));
-      chain = chain->next;
       
+      chain = chain->next;
       content_type = cur->msg->content_type;
       buf = chain->buf;
       if (content_type) {
@@ -384,10 +384,10 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
         *buf = double_newline_buf;
       }
       size += ngx_buf_size(buf);
-      chain = chain->next;
     }
       
     if(ngx_buf_size((&cur->msg->buf)) > 0) {
+      chain = chain->next;
       buf = chain->buf;
       *buf = cur->msg->buf;
       
@@ -397,6 +397,9 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
       }
       buf->last_buf = 0;
       size += ngx_buf_size(buf);
+    }
+    else if(first_chain == chain) {
+      first_chain = chain->next;
     }
     
     if(use_raw_stream_separator) {

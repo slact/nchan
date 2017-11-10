@@ -570,7 +570,8 @@ class PubSubTest <  Minitest::Test
     pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false
     
     pub.post "first", "text/x-foobar"
-    pub.post ["1", "2", "3", "4"]
+    pub.post ["1", "2", "3", "4", "beeeeeeeeeeeeeeeeeeeeeeeee", "", "foobar"]
+    pub.post "", "text/x-banana"
     sub.run
     sleep 0.5
     pub.post "FIN"

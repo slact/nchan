@@ -501,6 +501,7 @@ static void spool_sub_dequeue_callback(subscriber_t *sub, void *data) {
 static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub, uint8_t enqueue) {
   spooled_subscriber_t       *ssub;
   ngx_int_t                   rc;
+  ngx_int_t                   internal_sub = sub->type == INTERNAL;
   
   ssub = ngx_calloc(sizeof(*ssub), ngx_cycle->log);
   //DBG("add sub %p to spool %p", sub, self);
@@ -517,7 +518,7 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
   }
   self->first = ssub;
   self->sub_count++;
-  if(sub->type != INTERNAL) {
+  if(!internal_sub) {
     self->non_internal_sub_count++;
   }
   ssub->dequeue_callback_data.ssub = ssub;
@@ -532,7 +533,7 @@ static ngx_int_t spool_add_subscriber(subscriber_pool_t *self, subscriber_t *sub
         assert(self->first->prev == ssub);
         self->first->prev = NULL;
       }
-      if(sub->type != INTERNAL) {
+      if(!internal_sub) {
         self->non_internal_sub_count--;
       }
       ngx_free(ssub);
