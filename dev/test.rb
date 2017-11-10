@@ -1271,20 +1271,20 @@ class PubSubTest <  Minitest::Test
   
   def test_access_control
     
-    #ver= proc do |bundle| 
-    #  assert_equal "example.com", bundle.headers["Access-Control-Allow-Origin"] 
-    #end
-    #generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
-    #  verify pub, sub
-    #end
+    ver= proc do |bundle| 
+      assert_equal "example.com", bundle.headers["Access-Control-Allow-Origin"] 
+    end
+    generic_test_access_control(origin: "example.com", verify_sub_response: ver) do |pub, sub|
+      verify pub, sub
+    end
     
-    #ver= proc do |bundle| 
-    #  assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
-    #  %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
-    #end
-    #generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
-    #  verify pub, sub
-    #end
+    ver= proc do |bundle| 
+      assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
+      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
+    end
+    generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
+      verify pub, sub
+    end
     
     #test in if block
     origin_host=""
