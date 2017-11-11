@@ -177,8 +177,11 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
       }
     }
     else { //anything else means forbidden
-      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL); //auto-closes subscriber
+      d->sub->fn->respond_status(d->sub, code, NULL); //auto-closes subscriber
     }
+  }
+  else if(d->rc >= 500 && d->rc < 600) {
+    d->sub->fn->respond_status(d->sub, d->rc, NULL); //auto-closes subscriber
   }
   else {
     d->sub->fn->respond_status(d->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL); //auto-closes subscriber
@@ -210,7 +213,7 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
     d->rc = rc;
     d->http_response_code = r->headers_out.status;
     d->timer_cleanup = cln;
-    
+
     if((timer = ngx_pcalloc(r->pool, sizeof(*timer))) == NULL) {
       return NGX_ERROR;
     }
