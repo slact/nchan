@@ -10,8 +10,8 @@
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 //#define DEBUG_LEVEL NGX_LOG_WARN
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC:" fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC:" fmt, ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "IPC:" fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "IPC:" fmt, ##args)
 
 //#define DEBUG_DELAY_IPC_RECEIVE_ALERT_MSEC 100
 
@@ -193,7 +193,7 @@ static ngx_int_t ipc_write_alert_fd(ngx_socket_t fd, ipc_alert_t *alert) {
       return NGX_AGAIN;
     }
     
-    ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err, "write() failed");
+    ngx_log_error(NGX_LOG_ALERT, nchan_error_log(), err, "ipc write() failed");
     assert(0);
     return NGX_ERROR;
   }

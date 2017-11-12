@@ -29,13 +29,13 @@ static ngx_int_t redis_fakesub_timer_interval;
 
 #if FAKESHARD
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
 
 #else
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
 
 #endif
 

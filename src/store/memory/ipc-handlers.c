@@ -61,8 +61,8 @@ static ipc_command_codes_t ipc_cmd = {
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "IPC-HANDLERS(%i):" fmt, memstore_slot(), ##args)
 
 //#define DEBUG_MEMZERO(var) ngx_memzero(var, sizeof(*(var)))
 #define DEBUG_MEMZERO(var) /*nothing*/

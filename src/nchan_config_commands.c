@@ -254,6 +254,13 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
+  { ngx_string("nchan_error_log"),
+    NGX_DIRECT_CONF|NGX_CONF_TAKE1,
+    nchan_conf_error_log,
+    NGX_HTTP_MAIN_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_permessage_deflate_compression_strategy"),
     NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
     nchan_conf_deflate_compression_strategy_directive,

@@ -28,7 +28,7 @@ static void rwl_lock_mutex(ngx_rwlock_t *lock) {
           ngx_cpu_pause();
         }
         #if (DEBUG_NGX_RWLOCK)
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "rwlock %p mutex wait", lock);
+        nchan_log_warning( "rwlock %p mutex wait", lock);
         #endif
         if(*mutex == 0 && ngx_atomic_cmp_set(mutex, 0, ngx_pid)) {
           return;
@@ -77,7 +77,7 @@ void ngx_rwlock_reserve_read(ngx_rwlock_t *lock)
   for(;;) {
     NGX_RWLOCK_MUTEX_COND(lock, (lock->lock != NGX_RWLOCK_WRITE), lock->lock++)
     #if (DEBUG_NGX_RWLOCK == 1)
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "rwlock %p reserve read read (%i)", lock, lock->lock);
+    nchan_log_warning( "rwlock %p reserve read read (%i)", lock, lock->lock);
     #endif
     if(ngx_ncpu > 1) {
       for(n = 1; n < NGX_RWLOCK_SPIN; n <<= 1) {
@@ -85,7 +85,7 @@ void ngx_rwlock_reserve_read(ngx_rwlock_t *lock)
           ngx_cpu_pause();
         }
         #if (DEBUG_NGX_RWLOCK == 1)
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "rwlock %p read lock wait", lock);
+        nchan_log_warning( "rwlock %p read lock wait", lock);
         #endif
         NGX_RWLOCK_MUTEX_COND(lock, (lock->lock != NGX_RWLOCK_WRITE), lock->lock++)
       }
@@ -138,7 +138,7 @@ void ngx_rwlock_reserve_write(ngx_rwlock_t * lock) {
           ngx_cpu_pause();
         }
         #if (DEBUG_NGX_RWLOCK == 1)
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "rwlock %p write lock wait (reserved by %ui)", lock, lock->write_pid);
+        nchan_log_warning( "rwlock %p write lock wait (reserved by %ui)", lock, lock->write_pid);
         #endif
         if(ngx_rwlock_write_check(lock))
           return;
@@ -164,7 +164,7 @@ void ngx_rwlock_release_write(ngx_rwlock_t *lock) {
     if(lock->lock == NGX_RWLOCK_WRITE) {
       lock->lock=0;
       if(lock->write_pid != ngx_pid) {
-        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "rwlock %p releasing someone else's (pid %ui) write lock.", lock, lock->write_pid);
+        nchan_log_warning( "rwlock %p releasing someone else's (pid %ui) write lock.", lock, lock->write_pid);
       }
       lock->write_pid = 0;
       rwl_unlock_mutex(lock);
@@ -173,6 +173,6 @@ void ngx_rwlock_release_write(ngx_rwlock_t *lock) {
     rwl_unlock_mutex(lock);
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "rwlock %p tried to release nonexistent write lock, lock=%i.", lock, lock->lock);
+    nchan_log_warning( "rwlock %p tried to release nonexistent write lock, lock=%i.", lock, lock->lock);
   }
 }

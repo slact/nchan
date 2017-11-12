@@ -1,7 +1,7 @@
 #include <nchan_module.h>
 
-#define DBG(...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, __VA_ARGS__)
-#define ERR(...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, __VA_ARGS__)
+#define DBG(...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, __VA_ARGS__)
+#define ERR(...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, __VA_ARGS__)
 
 typedef struct recycloc_trash_s recycloc_trash_t;
 typedef struct recycloc_s recycloc_t;

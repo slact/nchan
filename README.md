@@ -1062,6 +1062,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   > Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed    
 
+- **nchan_permessage_deflate_compression_window** `[ 9-15 ]`  
+  arguments: 1  
+  default: `10`  
+  context: http  
+  > Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor.    
+
 - **nchan_publisher** `[ http | websocket ]`  
   arguments: 0 - 2  
   default: `http websocket`  
@@ -1166,7 +1172,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A `200` response code authorizes the request. All non-`2xx` code (like `403 Forbidden`) forbid it, and the response is proxied with headers and body to the client.
+  > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](#request-authorization)  
 
 - **nchan_subscribe_request** `<url>`  
@@ -1260,17 +1266,17 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   > Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best    
 
+- **nchan_error_log** `<file> [level]`  
+  arguments: 1  
+  default: `<error_log value>`  
+  context: direct  
+  > Log Nchan debug, warning, and error messages to a separate log file. The default is to use the shared Nginx `error_log`.    
+
 - **nchan_permessage_deflate_compression_strategy** `[ default | filtered | huffman-only | rle | fixed ]`  
   arguments: 1  
   default: `default`  
   context: http  
   > Compression strategy for the `deflate` algorithm used in websocket's permessage-deflate extension. Use 'default' for normal data, For details see [zlib's section on copression strategies](http://zlib.net/manual.html#Advanced)    
-
-- **nchan_permessage_deflate_compression_window** `[ 9-15 ]`  
-  arguments: 1  
-  default: `10`  
-  context: http  
-  > Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor.    
 
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  

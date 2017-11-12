@@ -7,8 +7,8 @@
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:RAWSTREAM:" fmt, ##arg)
-#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:RAWSTREAM:" fmt, ##arg)
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "SUB:RAWSTREAM:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "SUB:RAWSTREAM:" fmt, ##arg)
 #include <assert.h> 
 
 static void rawstream_ensure_headers_sent(full_subscriber_t *fsub) {

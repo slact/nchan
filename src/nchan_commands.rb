@@ -312,6 +312,17 @@ CfCmd.new do
       default: "6",
       info: "Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best"
   
+  nchan_error_log [:direct],
+      :nchan_conf_error_log,
+      [:main_conf],
+      
+      group: "debug",
+      tags: ['logging'],
+      value: "<file> [level]",
+      default: "<error_log value>",
+      info: "Log Nchan debug, warning, and error messages to a separate log file. The default is to use the shared Nginx `error_log`."
+      
+  
   nchan_permessage_deflate_compression_strategy [:main],
       :nchan_conf_deflate_compression_strategy_directive,
       :main_conf,

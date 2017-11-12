@@ -5,8 +5,8 @@
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:GROUPS: " fmt, ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "MEMSTORE:GROUPS: " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "MEMSTORE:GROUPS: " fmt, ##args)
 
 //#define NCHAN_DEBUG_GROUP_NOCACAHE 1
 #define MAX_GETGROUP_WAIT_TIME_BEFORE_RETRY 5

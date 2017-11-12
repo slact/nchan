@@ -3,7 +3,7 @@
 #include <store/memory/store.h>
 #include <util/shmem.h>
 
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "NCHAN MSG:" fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "NCHAN MSG:" fmt, ##args)
 
 #define MSG_REFCOUNT_INVALID -9000
 
@@ -18,7 +18,7 @@ static void nchan_msg_reserve_debug(nchan_msg_t *msg, char *lbl) {
   if(shared) 
     rsv=shm_locked_calloc(nchan_store_memory_shmem, sizeof(*rsv) + ngx_strlen(lbl) + 1, "msgdebug");
   else
-    rsv=ngx_calloc(sizeof(*rsv) + ngx_strlen(lbl) + 1, ngx_cycle->log);
+    rsv=ngx_calloc(sizeof(*rsv) + ngx_strlen(lbl) + 1, nchan_error_log());
     
   rsv->lbl = (char *)(&rsv[1]);
   ngx_memcpy(rsv->lbl, lbl, ngx_strlen(lbl));

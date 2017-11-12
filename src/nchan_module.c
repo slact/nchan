@@ -33,12 +33,11 @@
 
 ngx_int_t           nchan_worker_processes;
 int                 nchan_stub_status_enabled = 0;
+ngx_log_t          *nchan_core_error_log = NULL;
 
-
-//#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
-
-//#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "NCHAN:" fmt, ##args)
+ngx_log_t *nchan_error_log(void) {
+  return nchan_core_error_log ? nchan_core_error_log : ngx_cycle->log;
+}
 
 typedef struct {
   ngx_http_request_t    *r;
@@ -681,7 +680,7 @@ static void clear_request_pointer(safe_request_ptr_t *pdata) {
 }
 
 static safe_request_ptr_t *nchan_set_safe_request_ptr(ngx_http_request_t *r) {
-  safe_request_ptr_t           *data = ngx_alloc(sizeof(*data), ngx_cycle->log);
+  safe_request_ptr_t           *data = ngx_alloc(sizeof(*data), nchan_error_log());
   ngx_http_cleanup_t           *cln = ngx_http_cleanup_add(r, 0);
   
   if(!data || !cln) {

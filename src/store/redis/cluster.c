@@ -9,10 +9,10 @@
 
 #include "cluster.h"
 
-//#define DBG(fmt, args...) ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDISTORE(CLUSTER): " fmt, ##args)
+//#define DBG(fmt, args...) ngx_log_error(NGX_LOG_WARN, nchan_error_log(), 0, "REDISTORE(CLUSTER): " fmt, ##args)
 #define DBG(args...) //
 
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE(CLUSTER): " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "REDISTORE(CLUSTER): " fmt, ##args)
 
 
 #define CLUSTER_NOTREADY_RETRY_TIME 1000

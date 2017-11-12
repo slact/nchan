@@ -36,12 +36,12 @@
 #include <util/nchan_output.h>
 #include <util/nchan_debug.h>
 
-extern ngx_pool_t *nchan_pool;
-extern ngx_int_t nchan_worker_processes;
-extern ngx_module_t ngx_nchan_module;
-extern nchan_store_t *nchan_store;
-
-extern int nchan_stub_status_enabled;
+extern ngx_pool_t      *nchan_pool;
+extern ngx_int_t        nchan_worker_processes;
+extern ngx_module_t     ngx_nchan_module;
+extern nchan_store_t   *nchan_store;
+extern ngx_log_t       *nchan_core_error_log;
+extern int              nchan_stub_status_enabled;
 
 ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r);
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
@@ -61,10 +61,13 @@ size_t nchan_get_used_shmem(void);
 int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
 #endif
 
-#define nchan_log_notice(fmt, args...)  ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: " fmt, ##args)
-#define nchan_log_warning(fmt, args...) ngx_log_error(NGX_LOG_WARN,   ngx_cycle->log, 0, "nchan: " fmt, ##args)
-#define nchan_log_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: " fmt, ##args)
-#define nchan_log_ooshm_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: Out of shared memory while " fmt ". Increase nchan_max_reserved_memory.", ##args)
+
+ngx_log_t *nchan_error_log(void);
+
+#define nchan_log_notice(fmt, args...)  ngx_log_error(NGX_LOG_NOTICE, nchan_error_log(), 0, "nchan: " fmt, ##args)
+#define nchan_log_warning(fmt, args...) ngx_log_error(NGX_LOG_WARN,   nchan_error_log(), 0, "nchan: " fmt, ##args)
+#define nchan_log_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    nchan_error_log(), 0, "nchan: " fmt, ##args)
+#define nchan_log_ooshm_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "nchan: Out of shared memory while " fmt ". Increase nchan_max_reserved_memory.", ##args)
 
 #define nchan_log_request_warning(request, fmt, args...) ngx_log_error(NGX_LOG_WARN, (request)->connection->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_request_error(request, fmt, args...)    ngx_log_error(NGX_LOG_ERR, (request)->connection->log, 0, "nchan: " fmt, ##args)

@@ -4,8 +4,8 @@
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REAPER: " fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REAPER: " fmt, ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "REAPER: " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "REAPER: " fmt, ##args)
 
 static void reaper_timer_handler(ngx_event_t *ev);
 void verify_reaper_list(nchan_reaper_t *rp, void *thing);

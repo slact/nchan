@@ -28,8 +28,8 @@
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "REDISTORE: " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "REDISTORE: " fmt, ##args)
 
 #define REDIS_CONNECTION_FOR_PUBLISH_WAIT 5000
 
@@ -582,10 +582,10 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
   redisReply *reply = (redisReply *)r;
   if(reply == NULL) { //redis disconnected?...
     if(c->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed while waiting for reply - %s", c->errstr);
+      nchan_log_error("connection to redis failed while waiting for reply - %s", c->errstr);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "got a NULL redis reply for unknown reason");
+      nchan_log_error("got a NULL redis reply for unknown reason");
     }
     return 0;
   }
@@ -595,14 +595,14 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
       redis_lua_script_t  *script;
       REDIS_LUA_SCRIPTS_EACH(script) {
         if (ngx_strncmp(script->hash, hash, REDIS_LUA_HASH_LENGTH)==0) {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
+          nchan_log_error("REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
           return 0;
         }
       }
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
+      nchan_log_error("REDIS SCRIPT ERROR: (unknown): %s", reply->str);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY ERROR: %s", reply->str);
+      nchan_log_error("REDIS REPLY ERROR: %s", reply->str);
     }
     return 0;
   }
@@ -620,24 +620,24 @@ static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
     rdata = ac->data;
     if(ac->err) {
       if(rdata->status != DISCONNECTED) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed - %s", ac->errstr);
+        nchan_log_error("connection to redis failed - %s", ac->errstr);
         rdt_set_status(rdata, DISCONNECTED, ac);
       }
       return;
     }
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis was terminated");
+    nchan_log_error("connection to redis was terminated");
     return;
   }
   if(reply == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY is NULL");
+    nchan_log_error("REDIS REPLY is NULL");
     return;
   }  
   
   switch(reply->type) {
     case REDIS_REPLY_STATUS:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STATUS  %s", reply->str);
+      nchan_log_error("REDIS_REPLY_STATUS  %s", reply->str);
       break;
       
     case REDIS_REPLY_ERROR:
@@ -645,19 +645,19 @@ static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
       break;
       
     case REDIS_REPLY_INTEGER:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_INTEGER: %i", reply->integer);
+      nchan_log_error("REDIS_REPLY_INTEGER: %i", reply->integer);
       break;
       
     case REDIS_REPLY_NIL:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_NIL: nil");
+      nchan_log_error("REDIS_REPLY_NIL: nil");
       break;
       
     case REDIS_REPLY_STRING:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STRING: %s", reply->str);
+      nchan_log_error("REDIS_REPLY_STRING: %s", reply->str);
       break;
       
     case REDIS_REPLY_ARRAY:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ARRAY: %i", reply->elements);
+      nchan_log_error("REDIS_REPLY_ARRAY: %i", reply->elements);
       for(i=0; i< reply->elements; i++) {
         redisEchoCallback(ac, reply->element[i], "  ");
       }
@@ -1218,7 +1218,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     chid = get_channel_id_from_pubsub_channel(&pubsub_channel, &rdata->namespace, &chid_str);
   }
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no PUBSUB message, something else");
+    nchan_log_warning("no PUBSUB message, something else");
     redisEchoCallback(c,r,privdata);
     return;
   }
@@ -1279,7 +1279,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           if(ngx_strmatch(&msg_type, "msg")) {
             assert(array_sz == 10 + msgbuf_size_changed + chid_present);
             if(chanhead && cmp_to_msg(&cmp, &msg, &cmsg, &content_type, &eventsource_event)) {
-              //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
+              //ngx_log_warning("got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(chid, chanhead ? chanhead->rdt : rdata, &msg, 0, NULL);
             }
             else {
@@ -1394,7 +1394,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           case NOTREADY:
             chanhead->status = READY;
             chanhead->spooler.fn->handle_channel_status_change(&chanhead->spooler);
-            //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
+            //ERR("REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
             break;
           case READY:
             ERR("REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
@@ -1429,7 +1429,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   }
   
   else {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "Unexpected PUBSUB message %s", reply->element[0]);
+    nchan_log_warning("Unexpected PUBSUB message %s", reply->element[0]);
     redisEchoCallback(c,r,privdata);
   }
 }
@@ -1520,7 +1520,7 @@ static ngx_int_t redis_subscriber_register(rdstore_channel_head_t *chanhead, sub
   redis_subscriber_register_t *sdata=NULL;
   rdstore_data_t              *rdata;
   if((sdata = ngx_alloc(sizeof(*sdata), ngx_cycle->log)) == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "No memory for sdata. Part IV, subparagraph 12 of the Cryptic Error Series.");
+    nchan_log_warning("No memory for sdata. Part IV, subparagraph 12 of the Cryptic Error Series.");
     return NGX_ERROR;
   }
   sdata->chanhead = chanhead;
@@ -1747,7 +1747,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
   
   head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
   if(head==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
+    nchan_log_warning("can't allocate memory for (new) channel subscriber head");
     return NULL;
   }
   head->id.len = channel_id->len;
@@ -2307,7 +2307,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   redis_get_message_data_t           *d;
   rdstore_data_t                     *rdata = cf->redis.privdata;
   if(callback==NULL) {
-    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
+    nchan_log_warning("no callback given for async get_message. someone's using the API wrong!");
     return NGX_ERROR;
   }
   
@@ -2439,7 +2439,7 @@ static void redis_stall_timer_handler(ngx_event_t *ev) {
         redisFree(rdata->sync_ctx);
         rdata->sync_ctx = NULL;
       }
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "Detected stalled connection to Redis server %V.", rdata->connect_url);
+      nchan_log_error("Detected stalled connection to Redis server %V.", rdata->connect_url);
       rdt_set_status(rdata, DISCONNECTED, NULL);
       //ERR("redis_stall_timer_handler DSCN ctr: %d ctr_while_checking: %d, chk: %i", rdata->stall_counter, rdata->stall_counter_while_checking, rdata->stall_count_check);
       return;
@@ -2753,7 +2753,7 @@ static ngx_int_t nchan_store_subscribe(ngx_str_t *channel_id, subscriber_t *sub)
   }
   else {
     if((d=ngx_alloc(sizeof(*d) + sizeof(ngx_str_t) + channel_id->len, ngx_cycle->log))==NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "can't allocate redis get_message callback data");
+      nchan_log_error("can't allocate redis get_message callback data");
       return NGX_ERROR;
     }
     d->allocd = 1;
@@ -2825,7 +2825,7 @@ static void redis_publish_message_send(rdstore_data_t *rdata, void *pd) {
     else {
       msgstr.data = NULL;
       msgstr.len = 0;
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, ngx_errno, "Redis store: Couldn't mmap file %V", &buf->file->name);
+      nchan_log_error("Redis store: Couldn't mmap file %V", &buf->file->name);
     }
   }
   d->msglen = msgstr.len;
@@ -2939,7 +2939,7 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
     }
     else {
       //message probably isn't available anymore...
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis store received cluster MOVE/ASK error while publishing, and can't retry publishing after reconfiguring cluster.");
+      nchan_log_error("redis store received cluster MOVE/ASK error while publishing, and can't retry publishing after reconfiguring cluster.");
       d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
       ngx_free(d);
     }

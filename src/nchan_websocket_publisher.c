@@ -4,8 +4,8 @@
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "WEBSOCKET_PUBLISHER:" fmt, ##arg)
-#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "WEBSOCKET_PUBLISHER:" fmt, ##arg)
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "WEBSOCKET_PUBLISHER:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "WEBSOCKET_PUBLISHER:" fmt, ##arg)
 
 static nchan_llist_timed_t  ws_pub_head;
 
@@ -20,7 +20,7 @@ void nchan_websocket_publisher_llist_init() {
 
 static nchan_llist_timed_t   *nchan_ws_llist_enqueue(subscriber_t *sub) {
   nchan_llist_timed_t    *cur, *last;
-  if((cur = ngx_alloc(sizeof(*cur), ngx_cycle->log)) == NULL) {
+  if((cur = ngx_alloc(sizeof(*cur), nchan_error_log())) == NULL) {
     ERR("couldn't allocate llink for websocket publisher");
     return NULL;
   }

@@ -34,6 +34,11 @@ static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
+  
+  if(nchan_core_error_log == NULL) {
+    nchan_core_error_log = cycle->log;
+  }
+  
   if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE) {
     //not a worker, stop initializing stuff.
     return NGX_OK;
@@ -92,6 +97,10 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
 #endif
   
   return mcf;
+}
+
+static char *nchan_conf_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  return ngx_log_set_log(cf, &nchan_core_error_log);
 }
 
 //location config stuff

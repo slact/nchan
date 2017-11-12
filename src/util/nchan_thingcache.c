@@ -12,8 +12,8 @@
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
-#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "THINGCACHE: " fmt, ##args)
+#define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "THINGCACHE: " fmt, ##args)
+#define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "THINGCACHE: " fmt, ##args)
 
 typedef struct {
   ngx_str_t            id;
@@ -187,7 +187,7 @@ void *nchan_thingcache_get(void *tcv, ngx_str_t *id) {
     DBG("not found in %s %p", tc->name, tc);
     
     if((thing = ngx_alloc(sizeof(*thing) + id->len, ngx_cycle->log)) == NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "nchan thingcache %p: can't allocate memory for thing with id %V", tc, id);
+      nchan_log_error("thingcache %p can't allocate memory for thing with id %V", tc, id);
       return NULL;
     }
     cur = &thing->ll;

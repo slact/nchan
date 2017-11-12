@@ -1,11 +1,12 @@
 #include <nchan_module.h>
 #include "nchan_reuse_queue.h"
 #include <assert.h>
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
 
-#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REUSEQUEUE:" fmt, ##arg)
-#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REUSEQUEUE:" fmt, ##arg)
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
+
+#define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, nchan_error_log(), 0, "REUSEQUEUE:" fmt, ##arg)
+#define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, nchan_error_log(), 0, "REUSEQUEUE:" fmt, ##arg)
 
 ngx_int_t nchan_reuse_queue_init(nchan_reuse_queue_t *rq, int prev, int next, void *(*alloc)(void *), ngx_int_t (*free)(void *, void*), void *privdata) {
   rq->size = 0;

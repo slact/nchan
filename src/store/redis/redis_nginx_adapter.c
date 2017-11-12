@@ -35,7 +35,7 @@ redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int datab
   redisAsyncContext *ac = NULL;
   u_char             hostchr[1024] = {0};
   if(host->len >= 1023) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
+    nchan_log_error("redis_nginx_adapter: hostname is too long");
     return NULL;
   }
   ngx_memcpy(hostchr, host->data, host->len);
@@ -43,12 +43,12 @@ redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int datab
   if ((context == NULL) || (*context == NULL) || (*context)->err) {
     ac = redisAsyncConnect((const char *)hostchr, port);
     if (ac == NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %V:%d", host, port);
+      nchan_log_error("redis_nginx_adapter: could not allocate the redis context for %V:%d", host, port);
       return NULL;
     }
     
     if (ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
+      nchan_log_error("redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
       redisAsyncFree(ac);
       *context = NULL;
       return NULL;
@@ -60,7 +60,7 @@ redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int datab
     }
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: redis context already open");
+    nchan_log_error("redis_nginx_adapter: redis context already open");
   }
 
   return ac;
@@ -73,7 +73,7 @@ redisContext *redis_nginx_open_sync_context(ngx_str_t *host, int port, int datab
   
   u_char        hostchr[1024] = {0};
   if(host->len >= 1023) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
+    nchan_log_error("redis_nginx_adapter: hostname is too long");
     return NULL;
   }
   ngx_memcpy(hostchr, host->data, host->len);
@@ -81,12 +81,12 @@ redisContext *redis_nginx_open_sync_context(ngx_str_t *host, int port, int datab
   if ((context == NULL) || (*context == NULL) || (*context)->err) {
     c = redisConnect((const char *)hostchr, port);
     if (c == NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis sync context for %s:%d", host, port);
+      nchan_log_error("redis_nginx_adapter: could not allocate the redis sync context for %s:%d", host, port);
       return NULL;
     }
     
     if (c->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis sync context for %s:%d - %s", host, port, c->errstr);
+      nchan_log_error("redis_nginx_adapter: could not create the redis sync context for %s:%d - %s", host, port, c->errstr);
       goto fail;
     }
     
@@ -152,7 +152,7 @@ void redis_nginx_read_event(ngx_event_t *ev) {
   
   ioctl(fd, FIONREAD, &bytes_left);
   if (bytes_left > 0 && !ac->err) {
-    //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "again!");
+    //nchan_log_error("again!");
     redis_nginx_read_event(ev);
   }
 }
@@ -174,7 +174,7 @@ void redis_nginx_add_read(void *privdata) {
     connection->read->handler = redis_nginx_read_event;
     connection->read->log = connection->log;
     if (ngx_add_event(connection->read, NGX_READ_EVENT, flags) == NGX_ERROR) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not add read event to redis");
+      nchan_log_error("redis_nginx_adapter: could not add read event to redis");
     }
   }
 }
@@ -184,11 +184,11 @@ void redis_nginx_del_read(void *privdata) {
   ngx_int_t         flags = EVENT_FLAGS;
   if (connection->read->active && redis_nginx_fd_is_valid(connection->fd)) {
     if (ngx_del_event(connection->read, NGX_READ_EVENT, flags) == NGX_ERROR) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not delete read event to redis");
+      nchan_log_error("redis_nginx_adapter: could not delete read event to redis");
     }
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: didn't delete read event %p", connection->read);
+    nchan_log_error("redis_nginx_adapter: didn't delete read event %p", connection->read);
   }
 }
 
@@ -199,7 +199,7 @@ void redis_nginx_add_write(void *privdata) {
     connection->write->handler = redis_nginx_write_event;
     connection->write->log = connection->log;
     if (ngx_add_event(connection->write, NGX_WRITE_EVENT, flags) == NGX_ERROR) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not add write event to redis");
+      nchan_log_error("redis_nginx_adapter: could not add write event to redis");
     }
   }
 }
@@ -209,7 +209,7 @@ void redis_nginx_del_write(void *privdata) {
   ngx_int_t         flags = EVENT_FLAGS;
   if (connection->write->active && redis_nginx_fd_is_valid(connection->fd)) {
     if (ngx_del_event(connection->write, NGX_WRITE_EVENT, flags) == NGX_ERROR) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not delete write event to redis");
+      nchan_log_error("redis_nginx_adapter: could not delete write event to redis");
     }
   }
 }
@@ -220,7 +220,7 @@ void redis_nginx_cleanup(void *privdata) {
     redisAsyncContext *ac = (redisAsyncContext *) connection->data;
     if (ac->err) {
       //nchan_store_redis_connection_close_handler(ac);
-      //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
+      //nchan_log_error("redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
       /**
         * If the context had an error but the fd still valid is because another context got the same fd from OS.
         * So we clean the reference to this fd on redisAsyncContext and on ngx_connection, avoiding close a socket in use.
@@ -249,13 +249,13 @@ int redis_nginx_event_attach(redisAsyncContext *ac) {
   
   /* Nothing should be attached when something is already attached */
   if (ac->ev.data != NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: context already attached");
+    nchan_log_error("redis_nginx_adapter: context already attached");
     return REDIS_ERR;
   }
   
   connection = ngx_get_connection(c->fd, ngx_cycle->log);
   if (connection == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not get a connection for fd #%d", c->fd);
+    nchan_log_error("redis_nginx_adapter: could not get a connection for fd #%d", c->fd);
     return REDIS_ERR;
   }
   
