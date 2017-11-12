@@ -32,6 +32,8 @@ for opt in $*; do
       ;;
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
+    gcc6)
+      export CC=gcc-6;;
     gcc5)
       export CC=gcc-5;;
     gcc4|gcc47|gcc4.7)
