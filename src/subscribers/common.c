@@ -17,6 +17,7 @@ typedef struct {
   subscriber_t       *sub;
   ngx_str_t          *ch_id;
   ngx_int_t           rc;
+  ngx_http_request_t *subrequest;
   ngx_int_t           http_response_code;
   ngx_http_cleanup_t *timer_cleanup;
 } nchan_subrequest_data_t;
@@ -181,15 +182,34 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
         ngx_http_run_posted_requests(c);
       }
     }
-    else { //anything else means forbidden
-      d->sub->fn->respond_status(d->sub, code, NULL); //auto-closes subscriber
+    else if(d->sub->status != DEAD && d->subrequest && d->subrequest->upstream) {
+      //forbidden, but with some data to forward to the subscriber
+      ngx_http_request_t       *sr = d->subrequest;
+      ngx_http_request_t       *r = d->sub->request;
+      ngx_str_t                *content_type;
+      ngx_int_t                 content_length;
+      ngx_chain_t              *request_chain;
+      content_type = (sr->upstream->headers_in.content_type ? &sr->upstream->headers_in.content_type->value : NULL);
+      content_length = nchan_subrequest_content_length(sr);
+      request_chain = sr->upstream->out_bufs;
+      
+      if(content_type) {
+        r->headers_out.content_type = *content_type;
+      }
+      r->headers_out.content_length_n = content_length;
+      
+      d->sub->fn->respond_status(d->sub, code, NULL, request_chain); //auto-closes subscriber
+    }
+    else {
+      //forbidden. leave me alone, no data for you
+      d->sub->fn->respond_status(d->sub, code, NULL, NULL); //auto-closes subscriber
     }
   }
   else if(d->rc >= 500 && d->rc < 600) {
-    d->sub->fn->respond_status(d->sub, d->rc, NULL); //auto-closes subscriber
+    d->sub->fn->respond_status(d->sub, d->rc, NULL, NULL); //auto-closes subscriber
   }
   else {
-    d->sub->fn->respond_status(d->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL); //auto-closes subscriber
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL); //auto-closes subscriber
   }
 
 }
@@ -219,7 +239,14 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
     d->rc = rc;
     d->http_response_code = r->headers_out.status;
     d->timer_cleanup = cln;
-
+    if(r->pool == d->sub->request->pool) {
+      d->subrequest = r;
+    }
+    else {
+      //different pools -- not safe to use the subrequest later.
+      d->subrequest = NULL;
+    }
+    
     if((timer = ngx_pcalloc(r->pool, sizeof(*timer))) == NULL) {
       return NGX_ERROR;
     }
@@ -268,7 +295,6 @@ static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, 
   d->sub->fn->release(d->sub, 0);
   return NGX_OK;
 }
-
 
 ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t finalize_code) {
   ngx_int_t                    ret;
@@ -425,7 +451,7 @@ void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev) {
   memstore_fakeprocess_push(sub->owner);
 #endif
   sub->dequeue_after_response = 1;
-  sub->fn->respond_status(sub, NGX_HTTP_REQUEST_TIMEOUT, &NCHAN_HTTP_STATUS_408);
+  sub->fn->respond_status(sub, NGX_HTTP_REQUEST_TIMEOUT, &NCHAN_HTTP_STATUS_408, NULL);
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif

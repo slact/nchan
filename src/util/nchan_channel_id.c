@@ -259,11 +259,11 @@ done:
     assert(rc != NGX_OK);
     switch(rc) {
       case NGX_ERROR:
-        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 0);
+        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
         break;
       
       case NGX_DECLINED:
-        nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+        nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
         break;
       
       case NGX_ABORT:

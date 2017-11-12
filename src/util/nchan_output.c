@@ -320,19 +320,24 @@ void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request
   }
 }
 
-ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_int_t finalize) {
+ngx_int_t nchan_respond_status(ngx_http_request_t *r, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body, ngx_int_t finalize) {
   ngx_int_t    rc = NGX_OK;
   r->headers_out.status=status_code;
   if(status_line!=NULL) {
     r->headers_out.status_line.len =status_line->len;
     r->headers_out.status_line.data=status_line->data;
   }
-  r->headers_out.content_length_n = 0;
-  r->header_only = 1;
+  if(status_body == NULL) {
+    r->headers_out.content_length_n = 0;
+    r->header_only = 1;
+  }
   
   nchan_include_access_control_if_needed(r, NULL);
   
   rc= ngx_http_send_header(r);
+  if(status_body) {
+    rc = ngx_http_output_filter(r, status_body);
+  }
   if(finalize) {
     nchan_http_finalize_request(r, rc);
   }
@@ -354,7 +359,7 @@ ngx_int_t nchan_respond_sprintf(ngx_http_request_t *r, ngx_int_t status_code, co
   str.len = 1024;
   str.data = ngx_palloc(r->pool, 1024);
   if(str.data == NULL) {
-    return nchan_respond_status(r, status_code, NULL, finalize);
+    return nchan_respond_status(r, status_code, NULL, NULL, finalize);
     return NGX_ERROR;
   }
 
@@ -639,7 +644,7 @@ ngx_int_t nchan_OPTIONS_respond(ngx_http_request_t *r, const ngx_str_t *allowed_
     nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS, allowed_headers);
     nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS, allowed_methods);
   }
-  return nchan_respond_status(r, NGX_HTTP_OK, NULL, 0);
+  return nchan_respond_status(r, NGX_HTTP_OK, NULL, NULL, 0);
 }
 
 void nchan_http_finalize_request(ngx_http_request_t *r, ngx_int_t code) {

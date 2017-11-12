@@ -224,7 +224,7 @@ static ngx_flag_t is_utf8(ngx_buf_t *);
 static ngx_chain_t *websocket_close_frame_chain(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_send_close_frame(full_subscriber_t *fsub, uint16_t code, ngx_str_t *err);
 static ngx_int_t websocket_send_close_frame_cstr(full_subscriber_t *fsub, uint16_t code, const char *err);
-static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line);
+static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body);
 
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int binary);
 
@@ -481,11 +481,11 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
       ws_output_filter(fsub, websocket_frame_header_chain(fsub, WEBSOCKET_TEXT_LAST_FRAME_BYTE, ngx_buf_size((&bc->buf)), &bc->chain));
       break;
     case NGX_HTTP_INSUFFICIENT_STORAGE:
-      websocket_respond_status(&fsub->sub, NGX_HTTP_INSUFFICIENT_STORAGE, NULL);
+      websocket_respond_status(&fsub->sub, NGX_HTTP_INSUFFICIENT_STORAGE, NULL, NULL);
       break;
     case NGX_ERROR:
     case NGX_HTTP_INTERNAL_SERVER_ERROR:
-      websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+      websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL);
       break;
   }
   return NGX_OK;
@@ -500,7 +500,7 @@ static void websocket_publish_continue(full_subscriber_t *fsub, ngx_buf_t *buf, 
   if(!msg) {
     ws_release_tmp_pool(fsub);
     ERR("unable to allocate msg struct for websocket publish");
-    websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+    websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL);
     return;
   }
   
@@ -607,12 +607,12 @@ static ngx_int_t websocket_publisher_upstream_handler(subscriber_t *sub, ngx_htt
         break;
       
       default:
-        websocket_respond_status(&fsub->sub, NGX_HTTP_FORBIDDEN, NULL);
+        websocket_respond_status(&fsub->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
         break;
     }
   }
   else {
-    websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL);
+    websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL);
   }
   
   ws_release_tmp_pool(fsub); //reserved during upstream subrequest setup
@@ -1962,7 +1962,7 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   return rc;
 }
 
-static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body) {
   static const ngx_str_t    STATUS_410=ngx_string("410 Channel Deleted");
   static const ngx_str_t    STATUS_403=ngx_string("403 Forbidden");
   static const ngx_str_t    STATUS_500=ngx_string("500 Internal Server Error");
@@ -1982,7 +1982,7 @@ static ngx_int_t websocket_respond_status(subscriber_t *self, ngx_int_t status_c
   if(!fsub->shook_hands) {
     //still in HTTP land
     fsub->cln = NULL;
-    return nchan_respond_status(fsub->sub.request, status_code, status_line, 1);
+    return nchan_respond_status(fsub->sub.request, status_code, status_line, status_body, 1);
   }
   
   switch(status_code) {

@@ -2193,12 +2193,12 @@ static ngx_int_t group_subscribe_accounting_check(ngx_int_t rc, nchan_group_t *s
         d->chanhead->spooler.fn->add(&d->chanhead->spooler, d->sub);
       }
       else {
-        d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+        d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
       }
     }
     else {
       ERR("coldn't find group for group_subscribe_accounting_check");
-      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
     }
   }
   
@@ -2221,7 +2221,7 @@ static ngx_int_t group_subscribe_channel_limit_reached(ngx_int_t rc, nchan_chann
     }
     else {
       //nope. no channel, no subscribing.
-      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
       if(d->reserved)  d->sub->fn->release(d->sub, 0);
       subscribe_data_free(d);
     }
@@ -2254,7 +2254,7 @@ static ngx_int_t group_subscribe_channel_limit_check(ngx_int_t _, nchan_group_t 
     else {
       //well that's unusual...
       ERR("coldn't find group for group_subscribe_channel_limit_check");
-      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
       if(d->reserved)  d->sub->fn->release(d->sub, 0);
       subscribe_data_free(d);
       rc = NGX_ERROR;
@@ -2347,7 +2347,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
       (!chanhead && cf->subscribe_only_existing_channel) ||
       (chanhead && cf->max_channel_subscribers > 0 && chanhead->shared && chanhead->shared->sub_count >= (ngx_uint_t )cf->max_channel_subscribers)) {
     
-    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL);
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
     
     if(d->reserved) {
       d->sub->fn->release(d->sub, 0);
@@ -2380,7 +2380,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     //check message id appropriateness
     if(!nchan_msgid_tagcount_match(&d->sub->last_msgid, chanhead->multi ? chanhead->multi_count : 1)) {
       d->sub->fn->reserve(d->sub);
-      d->sub->fn->respond_status(d->sub, NGX_HTTP_BAD_REQUEST, NULL);
+      d->sub->fn->respond_status(d->sub, NGX_HTTP_BAD_REQUEST, NULL, NULL);
       d->sub->fn->release(d->sub, 0);
     }
     else if(cf->group.enable_accounting || chanhead->groupnode) {
@@ -2408,7 +2408,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   }
   else {
     //out-of-memory condition
-    d->sub->fn->respond_status(d->sub, NGX_HTTP_INSUFFICIENT_STORAGE, NULL);
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_INSUFFICIENT_STORAGE, NULL, NULL);
   }
 
   subscribe_data_free(d);

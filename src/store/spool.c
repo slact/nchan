@@ -622,7 +622,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     }
     else if(!notice) {
       self->responded_count++;
-      sub->fn->respond_status(sub, code, code_data);
+      sub->fn->respond_status(sub, code, code_data, NULL);
     }
     else {
       sub->fn->notify(sub, code, code_data);
@@ -716,7 +716,7 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
       
     case MSG_EXPECTED:
       //notify subscriber
-      sub->fn->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL);
+      sub->fn->respond_status(sub, NGX_HTTP_NO_CONTENT, NULL, NULL);
       break;
       
     case MSG_EXPIRED:

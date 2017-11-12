@@ -90,7 +90,7 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   return rc;
 }
 
-static ngx_int_t rawstream_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
+static ngx_int_t rawstream_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body){
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
   //nchan_request_ctx_t      *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
   
@@ -99,8 +99,8 @@ static ngx_int_t rawstream_respond_status(subscriber_t *sub, ngx_int_t status_co
     return NGX_OK;
   }
   
-  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
-    return subscriber_respond_unqueued_status(fsub, status_code, status_line);
+  if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code < 600) {
+    return subscriber_respond_unqueued_status(fsub, status_code, status_line, status_body);
   }
   
   subscriber_maybe_dequeue_after_status_response(fsub, status_code);
