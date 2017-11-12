@@ -247,6 +247,25 @@ static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data
       d->subrequest = NULL;
     }
     
+    //copy headers
+    ngx_uint_t                       i;
+    ngx_list_part_t                 *part = &r->headers_out.headers.part;
+    ngx_table_elt_t                 *header= part->elts;
+    for (i = 0; /* void */ ; i++) {
+      if (i >= part->nelts) {
+        if (part->next == NULL) {
+          break;
+        }
+        part = part->next;
+        header = part->elts;
+        i = 0;
+      }
+      if (!nchan_strmatch(&header[i].key, 4, "Content-Type", "Server", "Content-Length", "Connection")) {
+        //copy header to main request's response
+        nchan_add_response_header(d->sub->request, &header[i].key, &header[i].value);
+      }
+    }
+    
     if((timer = ngx_pcalloc(r->pool, sizeof(*timer))) == NULL) {
       return NGX_ERROR;
     }
