@@ -230,16 +230,15 @@ class PubSubTest <  Minitest::Test
     #  puts "====----====="
     #  puts resp_body
     #end
-    pub.post "!!"
     sub.run #celluloid async FTW
-    #sleep 2
-    pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"]
-    pub.post "BEEP"
-    pub.post "FIN"
+    ["!!!!", "nothing at all really",  "FIN"].each do |msg|
+      sleep 0.1
+      pub.post msg
+    end
     sub.wait
     verify pub, sub
     sub.terminate
-    #pub.terminate #kill websocket publisher
+    pub.terminate #kill websocket publisher
   end
   
   def test_channel_info
