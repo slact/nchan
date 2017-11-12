@@ -1197,15 +1197,15 @@ class PubSubTest <  Minitest::Test
   def test_auth
     chan = short_id
     
-    subs = [ :longpoll, :eventsource, :websocket, :multipart ]
+    subs = [:longpoll, :chunked, :eventsource, :websocket ]
     
     subs.each do |t|
       sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
       sub.on_failure { false }
       sub.run
       sub.wait
-      assert(sub.errors?)
-      assert /code 500/, sub.errors.first
+      assert sub.errors?
+      assert sub.match_errors(/502/)
       sub.terminate
     end
     
@@ -1226,8 +1226,23 @@ class PubSubTest <  Minitest::Test
         sub.on_failure { false }
         sub.run
         sub.wait
-        assert(sub.errors?)
-        assert /code 403/, sub.errors.first
+        assert sub.errors?
+        assert sub.match_errors(/403/)
+        sub.terminate
+      end
+      
+      subs.each do |t|
+        sub = Subscriber.new(url("sub/auth_fail_weird/#{chan}"), 1, client: t)
+        sub.on_failure do |err, bundle|
+          assert_match "too-ripe", bundle.headers["X-Banana"]
+          assert_match "text/x-beef", bundle.headers["Content-Type"]
+          assert_match "f38697175091d1667f5187c016cba46d092baf6a", Digest::SHA1.hexdigest(bundle.body_buf)
+          false
+        end
+        sub.run
+        sub.wait
+        assert sub.errors?
+        assert sub.match_errors(/406/)
         sub.terminate
       end
       
@@ -1247,6 +1262,7 @@ class PubSubTest <  Minitest::Test
       auth.stop
     end
   end
+  
   
   def test_x_accel_redirect
     

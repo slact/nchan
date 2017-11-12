@@ -202,13 +202,8 @@ class Subscriber
       def initialize(code, msg, bundle=nil, what=nil, failword=nil)
         self.code = code
         self.msg = msg
-        if Subscriber::Client::ParserBundle === bundle
-          self.bundle=bundle
-          self.connected = bundle.connected?
-        else
-          self.connected = bundle
-        end
-        self.connected = connected
+        self.bundle = bundle
+        self.connected = bundle.connected?
         
         @what = what || ["handshake", "connection"]
         @failword = failword || " failed"
@@ -368,9 +363,15 @@ class Subscriber
       prepend WebSocketDriverExtensions
     end
     
+    class WebSocket::Driver::Client
+      def response_body
+        @http.body
+      end
+    end
+    
     class WebSocketBundle
       attr_accessor :ws, :sock, :url, :last_message_time, :last_message_frame_type
-      
+      attr_accessor :connected
       def initialize(sock, url, opt={})
         @buf=""
         @url = url
@@ -385,6 +386,17 @@ class Subscriber
         
         @sock = sock
         
+      end
+      
+      
+      def connected?
+        @connected
+      end
+      def headers
+        @ws.headers
+      end
+      def body_buf
+        @ws.response_body
       end
       
       def send_handshake
@@ -481,6 +493,7 @@ class Subscriber
         bundle = WebSocketBundle.new sock, hs_url, permessage_deflate: @permessage_deflate, subprotocol: @subprotocol
         
         bundle.ws.on :open do |ev|
+          bundle.connected = true
           @notready-=1
           @cooked_ready.signal true if @notready == 0
         end
@@ -494,13 +507,14 @@ class Subscriber
         end
         
         bundle.ws.on :error do |ev|
-          http_error_match = ev.message.match /Unexpected response code: (\d+)/
-          @subscriber.on_failure error(http_error_match ? http_error_match[1] : 0, ev.message)
+          http_error_match = ev.message.match(/Unexpected response code: (\d+)/)
+          @subscriber.on_failure error(http_error_match ? http_error_match[1] : 0, ev.message, bundle)
           close bundle
         end
         
         bundle.ws.on :close do |ev|
-          @subscriber.on_failure error(ev.code, ev.reason, true)
+          @subscriber.on_failure error(ev.code, ev.reason, bundle)
+          bundle.connected = false
           close bundle
         end
         
@@ -1126,14 +1140,7 @@ class Subscriber
     
     def setup_bundle(b)
       b.on_headers do |code, headers|
-        if code != 200
-          @subscriber.on_failure error(code, "")
-          close b
-          b.on_response do |code, headers, body|
-            @subscriber.finished+=1
-            close b
-          end
-        else
+        if code == 200
           @notready-=1
           @cooked_ready.signal true if @notready == 0
           b.connected = true
@@ -1154,12 +1161,17 @@ class Subscriber
       end
       
       b.on_response do |code, headers, body|
-        if !b.subparser.buf_empty?
-          b.subparser.parse_line "\n"
+        if code != 200
+          @subscriber.on_failure error(code, "", b)
+          @subscriber.finished+=1
         else
-          @subscriber.on_failure error(0, "Response completed unexpectedly", b)
+          if !b.subparser.buf_empty?
+            b.subparser.parse_line "\n"
+          else
+            @subscriber.on_failure error(0, "Response completed unexpectedly", b)
+          end
+          @subscriber.finished+=1
         end
-        @subscriber.finished+=1
         close b
       end
       
@@ -1343,16 +1355,18 @@ class Subscriber
       super
       b.body_buf = nil
       b.on_headers do |code, headers|
-        if code != 200
-          @subscriber.on_failure(error(code, "", b))
-          close b
-        elsif headers["Transfer-Encoding"] != "chunked"
-          @subscriber.on_failure error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'.", b)
-          close b
+        if code == 200
+          if headers["Transfer-Encoding"] != "chunked"
+            @subscriber.on_failure error(0, "Transfer-Encoding should be 'chunked', was '#{headers["Transfer-Encoding"]}'.", b)
+            close b
+          else
+            @notready -= 1
+            @cooked_ready.signal true if @notready == 0
+            b.connected= true
+          end
         else
-          @notready -= 1
-          @cooked_ready.signal true if @notready == 0
-          b.connected= true
+          b.buffer_body!
+          b.stop_after_headers = false
         end
       end
       
@@ -1395,7 +1409,11 @@ class Subscriber
       end
       
       b.on_response do |code, headers, body|
-        @subscriber.on_failure error(410, "Server Closed Connection", b)
+        if code != 200
+          @subscriber.on_failure(error(code, "", b))
+        else
+          @subscriber.on_failure error(410, "Server Closed Connection", b)
+        end
         close b
       end
       
