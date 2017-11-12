@@ -203,7 +203,7 @@ class Subscriber
         self.code = code
         self.msg = msg
         self.bundle = bundle
-        self.connected = bundle.connected?
+        self.connected = bundle.connected? if bundle
         
         @what = what || ["handshake", "connection"]
         @failword = failword || " failed"
@@ -454,7 +454,7 @@ class Subscriber
     end
     
     def stop(msg = "Stopped", src_bundle = nil)
-      super msg, @ws.first
+      super msg, (@ws.first && @ws.first.first)
       @ws.each do |b, v|
         close b
       end
@@ -917,7 +917,7 @@ class Subscriber
     end
     
     def stop(msg="Stopped", src_bundle=nil)
-      super msg, @bundles.first
+      super msg, (@bundles.first && @bundles.first.first)
       @bundles.each do |b, v|
         close b
       end
@@ -1277,10 +1277,7 @@ class Subscriber
     def setup_bundle b
       super
       b.on_headers do |code, headers|
-        if code != 200
-          @subscriber.on_failure error(code, "", b)
-          close b
-        else
+        if code == 200
           b.connected = true
           @notready -= 1
           @cooked_ready.signal true if @notready == 0
@@ -1303,20 +1300,27 @@ class Subscriber
           b.subparser.on_finish do
             b.subparser.finished = true
           end
+        else
+          #puts "BUFFER THE BODY"
+          #b.buffer_body!
         end
       end
       
       b.on_chunk do |chunk|
-        b.subparser << chunk if b.subparser
-        if HTTPBundle === b && b.subparser.finished
-          @subscriber.on_failure error(410, "Server Closed Connection", b)
-          @subscriber.finished+=1
-          close b
+        if b.subparser
+          b.subparser << chunk
+          if HTTPBundle === b && b.subparser.finished
+            @subscriber.on_failure error(410, "Server Closed Connection", b)
+            @subscriber.finished+=1
+            close b
+          end
         end
       end
       
       b.on_response do |code, headers, body|
-        if b.subparser.finished
+        if !b.subparser
+          @subscriber.on_failure error(code, "", b)
+        elsif b.subparser.finished
           @subscriber.on_failure error(410, "Server Closed Connection", b)
         else
           @subscriber.on_failure error(0, "Response completed unexpectedly", b)

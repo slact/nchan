@@ -1197,7 +1197,7 @@ class PubSubTest <  Minitest::Test
   def test_auth
     chan = short_id
     
-    subs = [:longpoll, :chunked, :eventsource, :websocket ]
+    subs = [:longpoll, :multipart, :chunked, :eventsource, :websocket ]
     
     subs.each do |t|
       sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
@@ -1205,7 +1205,7 @@ class PubSubTest <  Minitest::Test
       sub.run
       sub.wait
       assert sub.errors?
-      assert sub.match_errors(/502/)
+      assert sub.match_errors(/502/), "#{t} subscriber expected 502 error"
       sub.terminate
     end
     
@@ -1243,6 +1243,16 @@ class PubSubTest <  Minitest::Test
         sub.wait
         assert sub.errors?
         assert sub.match_errors(/406/)
+        sub.terminate
+      end
+      
+      subs.each do |t|
+        sub = Subscriber.new(url("sub/auth_fail_sleepy/#{chan}"), 1, client: t)
+        sub.on_failure { false }
+        sub.run
+        sub.wait
+        assert sub.errors?
+        assert sub.match_errors(/504/)
         sub.terminate
       end
       
