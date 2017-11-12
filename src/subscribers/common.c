@@ -57,6 +57,8 @@ ngx_http_request_t *subscriber_subrequest(subscriber_t *sub, ngx_str_t *url, ngx
   ngx_http_post_subrequest_t    *psr = ngx_pcalloc(r->pool, sizeof(*psr));
   nchan_subrequest_data_cb_t    *psrd = ngx_pcalloc(r->pool, sizeof(*psrd));
   ngx_http_request_t            *sr;
+  
+  DBG("%p (req %p) subrequest", sub, r);
 
   sub->fn->reserve(sub);
   
@@ -114,6 +116,8 @@ static ngx_int_t generic_subscriber_subrequest_old(subscriber_t *sub, ngx_http_c
   nchan_subrequest_stuff_t  *psr_stuff = ngx_palloc(sub->request->pool, sizeof(*psr_stuff));
   assert(psr_stuff != NULL);
   
+  DBG("%p (req %p) generic_subscriber_subrequest_old", sub, sub->request);
+  
   //ngx_http_request_t            *fake_parent_req = fake_cloned_parent_request(sub->request);
   
   ngx_http_post_subrequest_t    *psr = &psr_stuff->psr;
@@ -154,6 +158,7 @@ static void subscriber_authorize_timer_callback_handler(ngx_event_t *ev) {
   
   d->timer_cleanup->data = NULL;
   
+  DBG("%p (req %p) subscriber_authorize callback handler", d->sub, d->sub->request);
   d->sub->fn->release(d->sub, 1);
   
   if(d->rc == NGX_OK) {
@@ -198,6 +203,7 @@ static void subscriber_authorize_timer_callback_cleanup(ngx_event_t *timer) {
 static ngx_int_t subscriber_authorize_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
   nchan_subrequest_data_t       *d = data;
   ngx_event_t                   *timer;
+  DBG("%p (req %p) generic_subscriber_subrequest_old", d->sub, d->sub->request);
   
   if (rc == NGX_HTTP_CLIENT_CLOSED_REQUEST) {
     d->sub->fn->release(d->sub, 1);
@@ -234,6 +240,8 @@ ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_st
   
   ngx_http_complex_value_t  *authorize_request_url_ccv = sub->cf->authorize_request_url;
   
+  DBG("%p (req %p) nchan_subscriber_authorize_subscribe_request", sub, sub->request);
+  
   if(!authorize_request_url_ccv) {
     return nchan_subscriber_subscribe(sub, ch_id);
   }
@@ -246,7 +254,9 @@ static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, 
   nchan_subrequest_data_t       *d = data;
   nchan_request_ctx_t           *ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
   ngx_int_t                      finalize_code = ctx->unsubscribe_request_callback_finalize_code;
-  DBG("callback %p %p %i", r, data, rc);
+  
+  DBG("%p (req %p) subscriber_unsubscribe_request_callback", d->sub, d->sub->request);
+  
   if(d->sub->request->main->blocked) {
     d->sub->request->main->blocked = 0;
   }
@@ -263,6 +273,8 @@ static ngx_int_t subscriber_unsubscribe_request_callback(ngx_http_request_t *r, 
 ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t finalize_code) {
   ngx_int_t                    ret;
   //ngx_http_upstream_conf_t    *ucf;
+  
+  DBG("%p (req %p) nchan_subscriber_unsubscribe_request", sub, sub->request);
   
   if(!sub->enable_sub_unsub_callbacks) {
     return NGX_OK;
@@ -295,6 +307,7 @@ static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data
 
 ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+  DBG("%p (req %p) nchan_subscriber_subscribe_request", sub, sub->request);
   if(!ctx->sent_unsubscribe_request) {
     return generic_subscriber_subrequest_old(sub, sub->cf->subscribe_request_url, subscriber_subscribe_callback, NULL, NULL);
   }
@@ -309,6 +322,8 @@ ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
   nchan_loc_conf_t     *cf = sub->cf;
   int                   enable_sub_unsub_callbacks = sub->enable_sub_unsub_callbacks;
+  
+  DBG("%p (req %p) nchan_subscriber_subscribe", sub, sub->request);
   
   ret = sub->cf->storage_engine->subscribe(ch_id, sub);
   //don't access sub directly, it might have already been freed
