@@ -242,7 +242,7 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
 
 static void empty_handler(void) {}
 
-static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
+static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line,  ngx_chain_t *status_body){
   
   static ngx_str_t          empty_line = ngx_string("");
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
@@ -255,7 +255,7 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   }
   
   if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
-    return subscriber_respond_unqueued_status(fsub, status_code, status_line);
+    return subscriber_respond_unqueued_status(fsub, status_code, status_line, status_body);
   }
   
   es_ensure_headers_sent(fsub);

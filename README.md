@@ -545,7 +545,8 @@ Consider the configuration:
   }
 ```
 
-Here, any request to the location `/pubsub/auth/<...>` will need to be authorized by your application (`my_app`). Nginx will generate a `GET /pubsub_authorize` request to the application, with additional headers set by the `proxy_set_header` directives. Note that Nchan-specific variables are available for this authorization request. Once your application receives this request, it should decide whether or not to authorize the subscriber. This can be done based on a forwarded session cookie, IP address, or any set of parameters of your choosing. If authorized, it should respond with an empty `200 OK` response. Otherwise, respond with a `403 Forbidden`, which this will be forwarded to the client and the requested action will be aborted.
+Here, any request to the location `/pubsub/auth/<...>` will need to be authorized by your application (`my_app`). Nginx will generate a `GET /pubsub_authorize` request to the application, with additional headers set by the `proxy_set_header` directives. Note that Nchan-specific variables are available for this authorization request. Once your application receives this request, it should decide whether or not to authorize the subscriber. This can be done based on a forwarded session cookie, IP address, or any set of parameters of your choosing. If authorized, it should respond with an empty `200 OK` response.  
+All non-`2xx` response codes (such as `403 Forbidden`) are intepreted as authorization failures. In this case, the failing response is proxied to the client. 
 
 Note that Websocket and EventSource clients will only try to authorize during the initial handshake request, whereas Long-Poll and Interval-Poll subscribers will need to be authorized each time they request the next message, which may flood your application with too many authorization requests.
 
@@ -948,7 +949,7 @@ But if a request is made to `/sub_upstream`, it gets forwarded to your applicati
 Note that you can set any forwarded headers here like any [`proxy_pass`](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass) Nginx location, 
 but unlike the case with `nchan_authorize_request`, Nchan-specific variables are not available.
 
-Now, your application must be set up to handle the request to `/subscriber_x_accel_redirect`. You should make sure the client is properly authenticated (maybe using a session cookie), and generate an associated channel id. If authentication fails, respond with a normal `403 Forbidden` response.
+Now, your application must be set up to handle the request to `/subscriber_x_accel_redirect`. You should make sure the client is properly authenticated (maybe using a session cookie), and generate an associated channel id. If authentication fails, respond with a normal `403 Forbidden` response. You can also pass extra information about the failure in the response body and headers.
 
 If your application successfully authenticates the subscriber request, you now need to instruct Nginx to issue an internal redirect to `/sub/internal/my_channel_id`.
 This is accomplished by responding with an empty `200 OK` response that includes two headers:
@@ -1165,7 +1166,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
+  > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A `200` response code authorizes the request. All non-`2xx` code (like `403 Forbidden`) forbid it, and the response is proxied with headers and body to the client.
   [more details](#request-authorization)  
 
 - **nchan_subscribe_request** `<url>`  

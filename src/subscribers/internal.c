@@ -205,7 +205,7 @@ static ngx_int_t internal_respond_message(subscriber_t *self, nchan_msg_t *msg) 
   return dequeue_maybe(self);
 }
 
-static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
+static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
   DBG("%p status %i", self, status_code);
   if(status_code == NGX_HTTP_GONE) {

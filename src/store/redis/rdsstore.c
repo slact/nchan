@@ -2727,7 +2727,7 @@ static ngx_int_t subscribe_existing_channel_callback(ngx_int_t status, void *ch,
   redis_subscribe_data_t       *data = (redis_subscribe_data_t *)d;
   
   if(channel == NULL) {
-    data->sub->fn->respond_status(data->sub, NGX_HTTP_FORBIDDEN, NULL);
+    data->sub->fn->respond_status(data->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
     data->sub->fn->release(data->sub, 0);
   }
   else {

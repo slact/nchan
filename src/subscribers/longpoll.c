@@ -437,13 +437,10 @@ static ngx_int_t longpoll_multipart_respond(full_subscriber_t *fsub) {
   return NGX_OK;
 }
 
-static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line) {
-  
+static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body) {
   full_subscriber_t     *fsub = (full_subscriber_t *)self;
   ngx_http_request_t    *r = fsub->sub.request;
   nchan_loc_conf_t      *cf = fsub->sub.cf;
-  
-  //DBG("%p got status %i", self, status_code);
   
   if(fsub->data.act_as_intervalpoll) {
     if(status_code == NGX_HTTP_NO_CONTENT || status_code == NGX_HTTP_NOT_MODIFIED || status_code == NGX_HTTP_NOT_FOUND ) {
@@ -477,13 +474,13 @@ static ngx_int_t longpoll_respond_status(subscriber_t *self, ngx_int_t status_co
   //disable abort handler
   fsub->data.cln->handler = empty_handler;
   
-  nchan_respond_status(r, status_code, status_line, 0);
+  nchan_respond_status(r, status_code, status_line, status_body, 0);
 
   dequeue_maybe(self);
   return NGX_OK;
 }
 
-ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t status_code, const ngx_str_t *status_line) {
+ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body) {
   ngx_http_request_t     *r = fsub->sub.request;
   nchan_loc_conf_t       *cf = fsub->sub.cf;
   nchan_request_ctx_t    *ctx;
@@ -496,7 +493,7 @@ ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t 
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
     ctx->sent_unsubscribe_request = 1;
   }
-  return nchan_respond_status(r, status_code, status_line, 1);
+  return nchan_respond_status(r, status_code, status_line, status_body, 1);
 }
 
 void subscriber_maybe_dequeue_after_status_response(full_subscriber_t *fsub, ngx_int_t status_code) {

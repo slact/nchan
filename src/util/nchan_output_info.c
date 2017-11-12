@@ -266,6 +266,6 @@ ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_req
   }
   else {
     //404!
-    return nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, 0);
+    return nchan_respond_status(r, NGX_HTTP_NOT_FOUND, NULL, NULL, 0);
   }
 }

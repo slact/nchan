@@ -9,6 +9,33 @@ require "reel/rack/cli"
 require 'reel/rack'
 require "optparse"
 
+module ReelConnectionExtensions
+  def respond(code, headers, body)
+    if code == :ignore
+      @current_request = nil
+      @parser.reset
+    else
+      super
+    end
+  end
+end
+class Reel::Connection
+  prepend ReelConnectionExtensions
+end
+
+module ReelServeExtensions
+  def status_symbol(status)
+    if status == -1
+      :ignore
+    else
+      super
+    end
+  end
+end
+class Reel::Rack::Server
+  prepend ReelServeExtensions
+end
+
 class AuthServer
   attr_accessor :app
   
@@ -56,9 +83,16 @@ class AuthServer
           headers["X-Accel-Redirect"]="/pub/#{chid}"
         end
         headers["X-Accel-Buffering"] = "no"
-        
       when "/auth"
         #meh
+      when "/auth_fail_sleepy"
+        code = -1
+      when "/auth_fail_weird"
+        code = 406
+        headers["X-Banana"]="too-ripe"
+        headers["Content-Type"]="text/x-beef"
+        resp << "I don't accept."
+        resp << "That is all."
       when "/auth_fail"
         code = 403
       when "/sub"

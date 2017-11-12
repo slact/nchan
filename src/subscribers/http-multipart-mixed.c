@@ -46,7 +46,7 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
     
     if((bc = nchan_bufchain_pool_reserve(ctx->bcp, 1)) == NULL) {
       ERR("can't reserve bufchain for multipart headers");
-      nchan_respond_status(fsub->sub.request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+      nchan_respond_status(fsub->sub.request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 1);
       return;
     }
     
@@ -189,7 +189,7 @@ static ngx_int_t multipart_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   return rc;
 }
 
-static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line){
+static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_code, const ngx_str_t *status_line, ngx_chain_t *status_body){
   nchan_buf_and_chain_t    *bc;
   static u_char            *end_boundary=(u_char *)"--\r\n";
   full_subscriber_t        *fsub = (full_subscriber_t  *)sub;
@@ -201,13 +201,13 @@ static ngx_int_t multipart_respond_status(subscriber_t *sub, ngx_int_t status_co
   }
   
   if(fsub->data.shook_hands == 0 && status_code >= 400 && status_code <600) {
-    return subscriber_respond_unqueued_status(fsub, status_code, status_line);
+    return subscriber_respond_unqueued_status(fsub, status_code, status_line, status_body);
   }
   
   multipart_ensure_headers_sent(fsub);
   
   if((bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 1)) == NULL) {
-    nchan_respond_status(sub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 1);
+    nchan_respond_status(sub->request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 1);
     return NGX_ERROR;
   }
   

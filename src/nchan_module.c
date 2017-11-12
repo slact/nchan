@@ -432,7 +432,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
   switch(r->method) {
     case NGX_HTTP_GET:
       if(!cf->group.get) {
-        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
       }
       r->main->count++;
       cf->storage_engine->get_group(group, cf, (callback_pt )group_handler_callback, r);
@@ -441,7 +441,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
       
     case NGX_HTTP_POST:
       if(!cf->group.set) {
-        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
       }
       
       nchan_group_limits_t     limits;
@@ -456,7 +456,7 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
       
     case NGX_HTTP_DELETE:
       if(!cf->group.delete) {
-        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+        rc = nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
       }
       r->main->count++;
       cf->storage_engine->delete_group(group, cf, (callback_pt )group_handler_callback, r);
@@ -536,7 +536,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         return NGX_OK;
       }
       else {
-        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 0);
+        nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
         return NGX_OK;
       }
     }
@@ -649,7 +649,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   return rc;
   
 forbidden:
-  nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+  nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
   ctx->request_ran_content_handler = 1;
   return NGX_OK;
 
@@ -970,7 +970,7 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
       break;
       
     default: 
-      nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, 0);
+      nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
   }
   
 }

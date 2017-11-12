@@ -230,16 +230,15 @@ class PubSubTest <  Minitest::Test
     #  puts "====----====="
     #  puts resp_body
     #end
-    pub.post "!!"
     sub.run #celluloid async FTW
-    #sleep 2
-    pub.post ["!!!!", "what is this", "it's nothing", "nothing at all really"]
-    pub.post "BEEP"
-    pub.post "FIN"
+    ["!!!!", "nothing at all really",  "FIN"].each do |msg|
+      sleep 0.1
+      pub.post msg
+    end
     sub.wait
     verify pub, sub
     sub.terminate
-    #pub.terminate #kill websocket publisher
+    pub.terminate #kill websocket publisher
   end
   
   def test_channel_info
@@ -1197,15 +1196,15 @@ class PubSubTest <  Minitest::Test
   def test_auth
     chan = short_id
     
-    subs = [ :longpoll, :eventsource, :websocket, :multipart ]
+    subs = [:longpoll, :multipart, :chunked, :eventsource, :websocket ]
     
     subs.each do |t|
       sub = Subscriber.new(url("sub/auth_fail/#{chan}"), 1, client: t)
       sub.on_failure { false }
       sub.run
       sub.wait
-      assert(sub.errors?)
-      assert /code 500/, sub.errors.first
+      assert sub.errors?
+      assert sub.match_errors(/502/), "#{t} subscriber expected 502 error"
       sub.terminate
     end
     
@@ -1226,8 +1225,33 @@ class PubSubTest <  Minitest::Test
         sub.on_failure { false }
         sub.run
         sub.wait
-        assert(sub.errors?)
-        assert /code 403/, sub.errors.first
+        assert sub.errors?
+        assert sub.match_errors(/403/)
+        sub.terminate
+      end
+      
+      subs.each do |t|
+        sub = Subscriber.new(url("sub/auth_fail_weird/#{chan}"), 1, client: t)
+        sub.on_failure do |err, bundle|
+          assert_match "too-ripe", bundle.headers["X-Banana"]
+          assert_match "text/x-beef", bundle.headers["Content-Type"]
+          assert_match "f38697175091d1667f5187c016cba46d092baf6a", Digest::SHA1.hexdigest(bundle.body_buf)
+          false
+        end
+        sub.run
+        sub.wait
+        assert sub.errors?
+        assert sub.match_errors(/406/)
+        sub.terminate
+      end
+      
+      subs.each do |t|
+        sub = Subscriber.new(url("sub/auth_fail_sleepy/#{chan}"), 1, client: t)
+        sub.on_failure { false }
+        sub.run
+        sub.wait
+        assert sub.errors?
+        assert sub.match_errors(/504/)
         sub.terminate
       end
       
@@ -1247,6 +1271,7 @@ class PubSubTest <  Minitest::Test
       auth.stop
     end
   end
+  
   
   def test_x_accel_redirect
     
