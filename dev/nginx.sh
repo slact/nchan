@@ -173,11 +173,8 @@ _semver_lt() {
 }
 
 _semver_gteq() {
-  if (_semver_lt "$1" "$2"); then
-    return 1
-  else
-    return 0
-  fi
+  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/^[^\s+]/)) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
+  return $?
 }
 
 ulimit -c unlimited

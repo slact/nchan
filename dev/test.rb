@@ -448,10 +448,10 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
 
-  def test_authorized_channels
+  def test_preexisting_channels
     #must be published to before subscribing
     n=5
-    pub, sub = pubsub n, timeout: 6, sub: "sub/authorized/"
+    pub, sub = pubsub n, timeout: 6, sub: "sub/preexisting/"
     sub.on_failure { false }
     sub.run
     sleep 1
