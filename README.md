@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.1.9 (October 30, 2017) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.1.10 (November 13, 2017) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -1166,7 +1166,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A `200` response code authorizes the request. All non-`2xx` code (like `403 Forbidden`) forbid it, and the response is proxied with headers and body to the client.
+  > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](#request-authorization)  
 
 - **nchan_subscribe_request** `<url>`  

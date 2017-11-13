@@ -1,1 +1,1 @@
-#define NCHAN_VERSION "1.1.9"
+#define NCHAN_VERSION "1.1.10"

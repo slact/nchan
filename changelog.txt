@@ -1,4 +1,6 @@
+1.1.10 (Nov. 13 2017)
  feature: nchan_authorize_request failure response forwarded back to subscriber
+      Sponsored by Symless (https://symless.com/)
  fix: allow nchan_access_control_allow_origin in if blocks
  fix: longpoll-multipart may read uninitialized memory when receiving 
       zero-length message
