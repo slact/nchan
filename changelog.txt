@@ -1,3 +1,15 @@
+ feature: nchan_authorize_request failure response forwarded back to subscriber
+ fix: allow nchan_access_control_allow_origin in if blocks
+ fix: longpoll-multipart may read uninitialized memory when receiving 
+      zero-length message
+ fix (security): invalid memory access for aborted websocket subscriber 
+      after channel existence check via Redis
+ fix: websocket handhshake failure handled incorrectly when messages 
+      are available
+ fix (security): websocket subscriber disconnecting before handshake may
+      result in invalid memory access
+ fix (security): possible invalid memory access for disappearing longpoll sub
+ feature: add "shared memory limit" to nchan_stub_status output
 1.1.9 (Oct. 30 2017)
  fix: more proper websocket extension negotiation with more 
       informative failure messages
