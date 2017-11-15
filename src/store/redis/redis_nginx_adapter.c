@@ -218,22 +218,16 @@ void redis_nginx_cleanup(void *privdata) {
   if (privdata) {
     ngx_connection_t *connection = (ngx_connection_t *) privdata;
     redisAsyncContext *ac = (redisAsyncContext *) connection->data;
-    if (ac->err) {
-      //nchan_store_redis_connection_close_handler(ac);
-      //ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: connection to redis failed - %s", ac->errstr);
-      /**
-        * If the context had an error but the fd still valid is because another context got the same fd from OS.
-        * So we clean the reference to this fd on redisAsyncContext and on ngx_connection, avoiding close a socket in use.
-        */
-      if (redis_nginx_fd_is_valid(ac->c.fd)) {
-        ac->c.fd = -1;
-        connection->fd = NGX_INVALID_FILE;
-      }
-    }
+    // don't care why the connection is being cleaned up. if there's an error, close the fd. if an fd was being shared between
+    // workers or connections -- tough luck
     
     if ((connection->fd != NGX_INVALID_FILE)) {
-      redis_nginx_del_read(privdata);
-      redis_nginx_del_write(privdata);
+      if(connection->read->active) {
+        redis_nginx_del_read(privdata);
+      }
+      if(connection->write->active) {
+        redis_nginx_del_write(privdata);
+      }
       ngx_close_connection(connection);
     } else {
       ngx_free_connection(connection);
