@@ -754,7 +754,7 @@ channel_delete foo
 ```
 
 The event string itself is configirable with [nchan_channel_event_string](#nchan_channel_event_string). By default, it is set to `$nchan_channel_event $nchan_channel_id`. 
-This string can use any Nginx and [Nchan variables](/$variables).
+This string can use any Nginx and [Nchan variables](/#variables).
 
 
 ### nchan_stub_status Stats
