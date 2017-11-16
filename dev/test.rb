@@ -255,18 +255,37 @@ class PubSubTest <  Minitest::Test
     assert_equal 404, pub.response_code
     
     pub.post ["hello", "what is this i don't even"]
+    
+    mm = pub.response_body.match(/^queued messages: (.*)\r$/)
+    assert_equal "2", mm && mm[1]
+    mm = pub.response_body.match(/^last requested: (.*)\r$/)
+    assert_equal "-1 sec. ago", mm && mm[1]
+    mm = pub.response_body.match(/^active subscribers: (.*)\r$/)
+    assert_equal "0", mm && mm[1]
+    mm = pub.response_body.match(/^last message id: (.*)$/)
+    last_msgid = mm && mm[1]
+    assert last_msgid
+    
     assert_equal 202, pub.response_code
     pub.get
     
     assert_equal 200, pub.response_code
-    assert_match /last requested: -?\d+ sec/, pub.response_body
+    mm = pub.response_body.match(/^queued messages: (.*)\r$/)
+    assert_equal "2", mm && mm[1]
+    mm = pub.response_body.match(/^last requested: (.*)\r$/)
+    assert_equal "-1 sec. ago", mm && mm[1]
+    mm = pub.response_body.match(/^active subscribers: (.*)\r$/)
+    assert_equal "0", mm && mm[1]
+    mm = pub.response_body.match(/^last message id: (.*)$/)
+    assert_equal last_msgid, (mm && mm[1])
     
     pub.get "text/json"
     
     info_json=JSON.parse pub.response_body
     assert_equal 2, info_json["messages"]
-    #assert_equal 0, info_json["requested"]
+    assert_equal -1, info_json["requested"]
     assert_equal 0, info_json["subscribers"]
+    assert_equal last_msgid, info_json["last_message_id"]
 
     
     sub.run
@@ -276,14 +295,16 @@ class PubSubTest <  Minitest::Test
 
     info_json=JSON.parse pub.response_body
     assert_equal 2, info_json["messages"]
-    #assert_equal 0, info_json["requested"]
+    assert_match /^[0-4]$/, info_json["requested"].to_s
     assert_equal subs, info_json["subscribers"], "text/json subscriber count"
+    assert_equal last_msgid, info_json["last_message_id"]
 
     pub.get "text/xml"
     ix = Nokogiri::XML pub.response_body
     assert_equal 2, ix.at_xpath('//messages').content.to_i
-    #assert_equal 0, ix.at_xpath('//requested').content.to_i
+    assert_match /^[0-4]$/, ix.at_xpath('//requested').content
     assert_equal subs, ix.at_xpath('//subscribers').content.to_i
+    assert_equal last_msgid, ix.at_xpath('//last_message_id').content
     
     pub.get "text/yaml"
     yaml_resp1=pub.response_body
@@ -293,8 +314,9 @@ class PubSubTest <  Minitest::Test
     yaml_resp3=pub.response_body
     yam=YAML.load pub.response_body
     assert_equal 2, yam["messages"]
-    #assert_equal 0, yam["requested"]
+    assert_match /^[0-4]$/, yam["requested"].to_s
     assert_equal subs, yam["subscribers"]
+    assert_equal last_msgid, yam["last_message_id"]
     
     assert_equal yaml_resp1, yaml_resp2
     assert_equal yaml_resp2, yaml_resp3
@@ -303,11 +325,13 @@ class PubSubTest <  Minitest::Test
     pub.accept="text/json"
 
     pub.post "FIN"
+    
     #stats right before FIN was issued
     info_json=JSON.parse pub.response_body
     assert_equal 3, info_json["messages"]
-    #assert_equal 0, info_json["requested"]
+    assert_match /^[0-4]$/, info_json["requested"].to_s
     assert_equal subs, info_json["subscribers"]
+    last_msgid = info_json["last_message_id"]
     
     sub.wait
     sleep 0.5
@@ -315,9 +339,9 @@ class PubSubTest <  Minitest::Test
     pub.get "text/json"
     info_json=JSON.parse pub.response_body
     assert_equal 3, info_json["messages"], "number of messages received by channel is wrong"
-    #assert_equal 0, info_json["requested"]
+    assert_match /^[0-4]$/, info_json["requested"].to_s
     assert_equal 0, info_json["subscribers"], "channel should say there are no subscribers"
-    
+    assert_equal last_msgid, info_json["last_message_id"]
     sub.terminate
   end
   

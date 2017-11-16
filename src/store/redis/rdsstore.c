@@ -1505,8 +1505,9 @@ static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
   if(rdata) {
     d->chanhead->reserved++;
     nchan_redis_script(subscriber_register, rdata, &redis_subscriber_register_cb, d, &d->chanhead->id,
-                       "- %i",
-                       REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP
+                       "- %i %i",
+                       REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP,
+                       ngx_time()
                       );
   }
   else {
@@ -1930,37 +1931,36 @@ static ngx_int_t nchan_store_publish_generic(ngx_str_t *channel_id, rdstore_data
 }
 
 static ngx_int_t redis_array_to_channel(redisReply *r, nchan_channel_t *ch) {
-  if ( CHECK_REPLY_ARRAY_MIN_SIZE(r, 4)
+  ngx_str_t       msgid;
+  nchan_msg_id_t  zeroid = NCHAN_OLDEST_MSGID;
+  
+  if ( CHECK_REPLY_ARRAY_MIN_SIZE(r, 5)
     && CHECK_REPLY_INT(r->element[0])
     && CHECK_REPLY_INT(r->element[1])
-    && CHECK_REPLY_INT(r->element[2]) ) {
+    && CHECK_REPLY_INT(r->element[2])
+    && CHECK_REPLY_STR(r->element[3])
+    && CHECK_REPLY_INT(r->element[4])) {
     
     //channel info
     ch->expires = ngx_time() + r->element[0]->integer;
     ch->last_seen = r->element[1]->integer;
     ch->subscribers = r->element[2]->integer;
-    ch->messages = r->element[3]->integer;
+  
+    msgid.data = (u_char *)r->element[3]->str;
+    msgid.len = r->element[3]->len;
+      
+    if(msgid.len == 0) {
+      ch->last_published_msg_id = zeroid;
+    }
+    else if(nchan_parse_compound_msgid(&ch->last_published_msg_id, &msgid, 1) != NGX_OK) {
+      ERR("failed to parse last-msgid %V from redis", &msgid);
+    }
+  
+    ch->messages = r->element[4]->integer;
     
     //no id?..
     ch->id.len=0;
     ch->id.data=NULL;
-    
-    //last message id
-    if( CHECK_REPLY_ARRAY_MIN_SIZE(r, 5)
-      && CHECK_REPLY_STR(r->element[4])) {
-      
-      ngx_str_t      msgid;
-      msgid.data = (u_char *)r->element[4]->str;
-      msgid.len = r->element[4]->len;
-      
-      if(msgid.len > 0 && nchan_parse_compound_msgid(&ch->last_published_msg_id, &msgid, 1) != NGX_OK) {
-        ERR("failed to parse last-msgid %V from redis", &msgid);
-      }
-      else {
-        nchan_msg_id_t  zeroid = NCHAN_OLDEST_MSGID;
-        ch->last_published_msg_id = zeroid;
-      }
-    }
     
     //queued messages
     if( CHECK_REPLY_ARRAY_MIN_SIZE(r, 6)
@@ -2952,13 +2952,8 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   
   ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
   
-  if(reply && CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)) {
-    ch.last_published_msg_id.time=reply->element[0]->integer;
-    ch.last_published_msg_id.tag.fixed[0]=reply->element[1]->integer;
-    ch.last_published_msg_id.tagcount = 1;
-    ch.last_published_msg_id.tagactive = 0;
-    
-    cur=reply->element[2];
+  if(reply && CHECK_REPLY_ARRAY_MIN_SIZE(reply, 2)) {
+    cur=reply->element[0];
     switch(redis_array_to_channel(cur, &ch)) {
       case NGX_OK:
         d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
@@ -2992,8 +2987,9 @@ static void nchan_store_redis_add_fakesub_send(rdstore_data_t *rdata, void *pd) 
   if(rdata) {
     nchan_redis_script(add_fakesub, rdata, &nchan_store_redis_add_fakesub_callback, NULL, 
                        ((add_fakesub_data_t *)pd)->channel_id,
-                       "%i",
-                       ((add_fakesub_data_t *)pd)->count
+                       "%i %i",
+                       ((add_fakesub_data_t *)pd)->count,
+                       ngx_time()
                       );
   }
 }

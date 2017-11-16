@@ -1,5 +1,5 @@
 --input: keys: [],  values: [ namespace, channel_id ]
---output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
+--output: channel_hash {ttl, time_last_seen, subscribers, last_channel_id, messages} or nil
 -- finds and return the info hash of a channel, or nil of channel not found
 local ns = ARGV[1]
 local id = ARGV[2]
@@ -30,28 +30,41 @@ local oldestmsg=function(list_key, old_fmt)
   end
 end
 
+local tohash=function(arr)
+  if type(arr)~="table" then
+    return nil
+  end
+  local h = {}
+  local k=nil
+  for i, v in ipairs(arr) do
+    if k == nil then
+      k=v
+    else
+      --dbg(k.."="..v)
+      h[k]=v; k=nil
+    end
+  end
+  return h
+end
+
 if redis.call('EXISTS', channel_key) ~= 0 then
-  local ch = redis.call('hmget', channel_key, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers', 'current_message')
-  if(ch[4]) then
-    --replace subscribers count with fake_subscribers
-    ch[3]=ch[4]
-    table.remove(ch, 4)
-  end
-  for i = 1, 4 do
-    ch[i]=tonumber(ch[i]) or 0
-  end
-  if type(ch[5]) ~= "string" then
-    ch[5]=""
-  end
-  
+  local ch = tohash(redis.call('hgetall', channel_key))
+    
+  local msgs_count
   if redis.call("TYPE", messages_key)['ok'] == 'list' then
     oldestmsg(messages_key, channel_key ..':msg:%s')
-    table.insert(ch, tonumber(redis.call('llen', messages_key)))
+    msgs_count = tonumber(redis.call('llen', messages_key))
   else
-    table.insert(ch, 0)
+    msgs_count = 0
   end
   
-  return ch
+  return {
+    tonumber(ch.ttl) or 0,
+    tonumber(ch.last_seen_fake_subscriber) or 0,
+    tonumber(ch.fake_subscribers or ch.subscribers) or 0,
+    ch.current_message or "",
+    msgs_count
+  }
 else
   return nil
 end

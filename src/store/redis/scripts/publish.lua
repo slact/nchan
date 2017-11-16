@@ -1,5 +1,5 @@
 --input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
---output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}, channel_created_just_now?
+--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
 
 local ns, id=ARGV[1], ARGV[2]
 local time
@@ -43,9 +43,9 @@ local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
   for i = 1, #arg do
     arg[i]=tostring(arg[i])
   end
-  redis.call('echo', table.concat(arg))
-end
-]]
+  redis.call('echo', table.concat(arg, ", "))
+end]]
+
 if type(msg.content_type)=='string' and msg.content_type:find(':') then
   return {err='Message content-type cannot contain ":" character.'}
 end
@@ -277,4 +277,12 @@ end
 local num_messages = redis.call('llen', key.messages)
 
 --dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, "(fake: ", channel.fake_subscribers or "nil", "), messages: ", num_messages)
-return { msg.time, msg.tag, {tonumber(channel.ttl or msg.ttl), tonumber(channel.time or msg.time), tonumber(channel.fake_subscribers or channel.subscribers or 0), tonumber(num_messages)}, new_channel}
+local ch = {
+  tonumber(channel.ttl or msg.ttl),
+  tonumber(channel.last_seen_fake_subscriber) or 0,
+  tonumber(channel.fake_subscribers or channel.subscribers) or 0,
+  msg.time and msg.time and ("%i:%i"):format(msg.time, msg.tag) or "",
+  tonumber(num_messages)
+}
+
+return {ch, new_channel}

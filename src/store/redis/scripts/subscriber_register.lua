@@ -1,9 +1,9 @@
---input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl]
+--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time]
 --  'subscriber_id' can be '-' for new id, or an existing id
 --  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
 --output: subscriber_id, num_current_subscribers, next_keepalive_time
 
-local ns, id, sub_id, active_ttl = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20
+local ns, id, sub_id, active_ttl, time = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20, tonumber(ARGV[5])
 
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
 
@@ -36,6 +36,9 @@ if sub_id == "-" then
   sub_count=tonumber(redis.call('hincrby', keys.channel, 'subscribers', 1))
 else
   sub_count=tonumber(redis.call('hget', keys.channel, 'subscribers'))
+end
+if time then
+  redis.call('hset', keys.channel, "last_seen_subscriber", time)
 end
 
 local next_keepalive 

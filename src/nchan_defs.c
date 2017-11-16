@@ -90,6 +90,6 @@ const ngx_str_t NCHAN_CHANNEL_INFO_YAML = ngx_string(
   "messages: %ui" CRLF
   "requested: %d" CRLF
   "subscribers: %ui" CRLF
-  "last_message_id: %V" CRLF
+  "last_message_id: \"%V\"" CRLF
   CRLF
   "\0");

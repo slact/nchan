@@ -29,25 +29,27 @@ for k,channel_key in pairs(redis.call('SMEMBERS', subscribers)) do
   redis.call('PUBLISH', channel_key, del_msgpack)
 end
 
-local nearly_departed = nil
+local tohash=function(arr)
+  if type(arr)~="table" then
+    return nil
+  end
+  local h = {}
+  local k=nil
+  for i, v in ipairs(arr) do
+    if k == nil then
+      k=v
+    else
+      h[k]=v; k=nil
+    end
+  end
+  return h
+end
+
+local channel = nil
 if redis.call('EXISTS', key_channel) ~= 0 then
-  nearly_departed = redis.call('hmget', key_channel, 'ttl', 'time_last_seen', 'subscribers', 'fake_subscribers', 'current_message')
-  if(nearly_departed[4]) then
-    --replace subscribers count with fake_subscribers
-    nearly_departed[3]=nearly_departed[4]
-    table.remove(nearly_departed, 4)
-  end
-  for i = 1, 4 do
-    nearly_departed[i]=tonumber(nearly_departed[i]) or 0
-  end
-  if type(nearly_departed[5]) ~= "string" then
-    nearly_departed[5]=""
-  end
-  
+  channel = tohash(redis.call('hgetall', key_channel))
   --leave some crumbs behind showing this channel was just deleted
-  redis.call('setex', ch..":deleted", 5, 1)
-  
-  table.insert(nearly_departed, num_messages)
+  redis.call('setex', ch..":deleted", 5, 1)  
 end
 
 redis.call('DEL', key_channel, messages, subscribers)
@@ -56,4 +58,14 @@ if redis.call('PUBSUB','NUMSUB', pubsub)[2] > 0 then
   redis.call('PUBLISH', pubsub, del_msgpack)
 end
 
-return nearly_departed
+if channel then
+  return {
+    tonumber(channel.ttl) or 0,
+    tonumber(channel.last_seen_fake_subscriber) or 0,
+    tonumber(channel.fake_subscribers or channel.subscribers) or 0,
+    channel.current_message or "",
+    tonumber(num_messages)
+  }
+else
+  return nil
+end
