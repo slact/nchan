@@ -138,6 +138,8 @@ for opt in $*; do
       MEM="256M";;
     verylowmem|tiny)
       MEM="1M";;
+    sudo)
+      SUDO="sudo";;
   esac
 done
 
@@ -305,7 +307,7 @@ if [[ ! -f ./nginx ]]; then
 fi
 
 if [[ $debugger == 1 ]]; then
-  ./nginx $NGINX_OPT
+  $SUDO ./nginx $NGINX_OPT
   if ! [ $? -eq 0 ]; then; 
     echo "failed to start nginx"; 
     exit 1
@@ -322,7 +324,7 @@ elif [[ $valgrind == 1 ]]; then
   mkdir ./coredump 2>/dev/null
   pushd ./coredump >/dev/null
   if [[ $ATTACH_DDD == 1 ]]; then
-    valgrind $VALGRIND_OPT ../nginx $NGINX_OPT &
+    $SUDO valgrind $VALGRIND_OPT ../nginx $NGINX_OPT &
     _master_pid=$!
     echo "nginx at $_master_pid"
     sleep 4
@@ -337,6 +339,6 @@ elif [[ $valgrind == 1 ]]; then
 elif [[ $alleyoop == 1 ]]; then
   alleyoop ./nginx $NGINX_OPT
 else
-  ./nginx $NGINX_OPT &
+  $SUDO ./nginx $NGINX_OPT &
   wait $!
 fi
