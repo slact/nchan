@@ -51,7 +51,7 @@ _cacheconf="  proxy_cache_path _CACHEDIR_ levels=1:2 keys_zone=cache:1m; \\n  se
 NGINX_CONF_FILE="nginx.conf"
 
 NGINX_VER=$($DEVDIR/nginx -v 2>&1)
-NGINX_VER=${NGINX_VER:21}
+NGINX_VER=${NGINX_VER:15}
 
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
@@ -173,7 +173,7 @@ _semver_lt() {
 }
 
 _semver_gteq() {
-  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/^[^\s+]/)) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
+  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/\/([.\d]+)/)[1]) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
   return $?
 }
 
