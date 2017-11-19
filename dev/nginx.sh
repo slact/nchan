@@ -4,7 +4,7 @@ DEVDIR=`pwd`
 #SRCDIR=$(readlink -m $DEVDIR/../src) #not available on platforms like freebsd
 SRCDIR=`perl -e "use Cwd realpath; print realpath(\"$DEVDIR/../src\");"`
 
-VALGRIND_OPT=( "--tool=memcheck" "--trace-children=yes" "--track-origins=yes" "--read-var-info=yes" )
+VALGRIND_OPT=( "--tool=memcheck" "--track-origins=yes" "--read-var-info=yes" )
 
 VG_MEMCHECK_OPT=( "--leak-check=full" "--show-leak-kinds=all" "--leak-check-heuristics=all" "--keep-stacktraces=alloc-and-free" "--suppressions=${DEVDIR}/vg.supp" )
 
