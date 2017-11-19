@@ -61,6 +61,7 @@ struct memstore_channel_head_s {
   uint8_t                         multi_count;
   memstore_multi_t               *multi;
   
+  time_t                          time_of_death;
   const char                     *gc_reason;
   ngx_int_t                       gc_queued_times; // useful for debugging
   store_channel_head_shm_t       *shared;
