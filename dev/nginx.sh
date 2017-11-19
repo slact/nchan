@@ -159,23 +159,8 @@ conf_replace(){
     _sed_i_conf "s|^\( *\)\($1\)\( *\).*|\1\2\3$2;|g"
 }
 
-_semver_lt() {
-  _ver1=(${(s/./)1:t})
-  _ver2=(${(s/./)2:t})
-  
-  if (( ${_ver1[1]} < ${_ver2[1]} )); then
-    return 0
-  elif (( ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} < ${_ver2[2]} )); then
-    return 0
-  elif (( ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} == ${_ver2[2]} && ${_ver1[3]} < ${_ver2[3]} )); then
-    return 0
-  else
-    return 1
-  fi
-}
-
 _semver_gteq() {
-  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/\/([.\d]+)/)[1]) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
+  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/\/?([.\d]+)/)[1]) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
   return $?
 }
 
