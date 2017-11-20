@@ -20,6 +20,7 @@ struct sub_data_s {
   subscriber_t                 *sub;
   ngx_str_t                    *chid;
   ngx_int_t                     originator;
+  ngx_int_t                     unhooked;
   ngx_int_t                     owner;
   void                         *foreign_chanhead;
   ngx_event_t                   timeout_ev;
@@ -41,7 +42,12 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   if(d->timeout_ev.timer_set) {
     ngx_del_timer(&d->timeout_ev);
   }
-  ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
+  if(!d->unhooked) {
+    ret = memstore_ipc_send_unsubscribed(d->originator, d->chid, NULL);
+  }
+  else {
+    ret = NGX_OK;
+  }
   
   if(fsub->sub.reserved > 0) {
     DBG("%p (%V) not ready to destroy (reserved for %i)", fsub, d->chid, fsub->sub.reserved);
@@ -62,9 +68,12 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   //DBG("%p (%V) memstore subscriber (lastid %V) respond with message %V (lastid %V)", d->sub, d->chid, msgid_to_str(&d->sub->last_msg_id), msgid_to_str(&msg->id), msgid_to_str(&msg->prev_id));
   
   //update_subscriber_last_msg_id(d->sub, msg);
-  
-  rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, d->sub->cf, empty_callback, NULL);
-  
+  if(!d->unhooked) {
+    rc = memstore_ipc_send_publish_message(d->originator, d->chid, msg, d->sub->cf, empty_callback, NULL);
+  }
+  else {
+    rc = NGX_OK;
+  }
   //no multi-ids allowed here
   assert(msg->id.tagcount == 1);
     
@@ -101,7 +110,12 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
         ERR("unknown status %i", status);
     }
   }
-  return memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
+  if(!d->unhooked) {
+    return memstore_ipc_send_publish_status(d->originator, d->chid, status, status_line, empty_callback, NULL);
+  }
+  else {
+    return NGX_OK;
+  }
 }
 static void reset_timer(sub_data_t *data) {
   if(data->timeout_ev.timer_set) {
@@ -138,7 +152,9 @@ static void timeout_ev_handler(ngx_event_t *ev) {
 #endif
   DBG("%p (%V), timeout event. Ping originator to see if still needed.", d->sub, d->chid);
   d->sub->fn->reserve(d->sub);
-  memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead, keepalive_reply_handler, d);
+  if(!d->unhooked) {
+    memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead,  keepalive_reply_handler, d);
+  }
 #if FAKESHARD
   memstore_fakeprocess_pop();
 #endif
@@ -159,6 +175,7 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   d->sub = sub;
   d->chid = chid;
   d->originator = originator_slot;
+  d->unhooked = 0;
   assert(foreign_chanhead != NULL);
   d->foreign_chanhead = foreign_chanhead;
   //d->chanhead = local_chanhead;
@@ -170,4 +187,10 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   reset_timer(d);
   DBG("%p (%V) memstore-ipc subscriber created with privdata %p", d->sub, d->chid, d);
   return sub;
+}
+
+ngx_int_t memstore_ipc_subscriber_unhook(subscriber_t *sub) {
+  sub_data_t *d = internal_subscriber_get_privdata(sub);
+  d->unhooked = 1;
+  return NGX_OK;
 }

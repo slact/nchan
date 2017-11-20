@@ -16,6 +16,7 @@
   L(subscribe) \
   L(subscribe_reply) \
   L(subscribe_chanhead_release) \
+  L(subscribe_chanhead_nevermind_release) \
   L(unsubscribed) \
   L(publish_message) \
   L(publish_message_reply) \
@@ -164,8 +165,15 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   //we have the chanhead address, but are too afraid to use it.
   
   if((head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, d->cf)) == NULL) {
-    str_shm_free(d->shm_chid);
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
+    str_shm_free(d->shm_chid);
+    return;
+  }
+  str_shm_free(d->shm_chid);
+  
+  if(head != d->origin_chanhead) {    
+    assert(d->owner_chanhead);
+    ipc_cmd(subscribe_chanhead_nevermind_release, sender, d);
     return;
   }
   
@@ -204,8 +212,6 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     memstore_ready_chanhead_unless_stub(head);
   }
   
-  str_shm_free(d->shm_chid);
-  
   if(d->owner_chanhead) {
     ipc_cmd(subscribe_chanhead_release, sender, d);
   }
@@ -213,6 +219,20 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
 
 static void receive_subscribe_chanhead_release(ngx_int_t sender, subscribe_data_t *d) {
   DBG("release the %V", &d->owner_chanhead->id);
+  memstore_chanhead_release(d->owner_chanhead, "interprocess subscribe");
+}
+static void receive_subscribe_chanhead_nevermind_release(ngx_int_t sender, subscribe_data_t *d) {
+  ERR("release & nevermind the %V", &d->owner_chanhead->id);
+  memstore_channel_head_t      *head;
+  head = nchan_memstore_find_chanhead(d->shm_chid);
+  if(head == NULL || head != d->owner_chanhead) {
+    ERR("wrong chanhead on receive_subscribe_chanhead_nevermind_release ( expected %p, got %p)", d->owner_chanhead, head);
+    return;
+  }
+  
+  memstore_ipc_subscriber_unhook(d->subscriber);
+  d->subscriber->fn->respond_status(d->subscriber, NGX_HTTP_GONE, NULL, NULL);
+  
   memstore_chanhead_release(d->owner_chanhead, "interprocess subscribe");
 }
 
