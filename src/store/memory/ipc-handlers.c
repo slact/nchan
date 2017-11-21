@@ -884,21 +884,26 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
     d->renew = 0;
   }
   else {
-    assert(head == d->originator);
-    assert(head->status == READY || head->status == STUBBED);
-    assert(head->foreign_owner_ipc_sub == d->ipc_sub);
-    if(head->total_sub_count == 0) {
-      if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
-        d->renew = 0;
-        DBG("No subscribers lately. Time... to die.");
-      }
-      else {
-        DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed_local);
-        d->renew = 1;
-      }
+    if(head != d->originator) {
+      ERR("Got keepalive for expired channel %V", &head->id);
+      d->renew = 0;
     }
     else {
-      d->renew = 1;
+      assert(head->status == READY || head->status == STUBBED);
+      assert(head->foreign_owner_ipc_sub == d->ipc_sub);
+      if(head->total_sub_count == 0) {
+        if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
+          d->renew = 0;
+          DBG("No subscribers lately. Time... to die.");
+        }
+        else {
+          DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed_local);
+          d->renew = 1;
+        }
+      }
+      else {
+        d->renew = 1;
+      }
     }
   }
   ipc_cmd(subscriber_keepalive_reply, sender, d);
