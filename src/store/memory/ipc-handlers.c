@@ -202,8 +202,15 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     }
     
     assert(head->shared != NULL);
-    if(head->foreign_owner_ipc_sub) {
-      assert(head->foreign_owner_ipc_sub == d->subscriber);
+    if(head->foreign_owner_ipc_sub && head->foreign_owner_ipc_sub != d->subscriber) {
+      // we got another subscriber for this chanhead, probably due to some very heavy delays
+      // discard it, keeping the old one.
+      // (It might be nice to discard the _old_ subscriber, but the owner worker may havbe already deleted it
+      // or may have changed altogether due to a previous worker crash)
+      ERR("Got ipc-subscriber for an already subscribed channel %V", &head->id);
+      memstore_ready_chanhead_unless_stub(head);
+      ipc_cmd(subscribe_chanhead_nevermind_release, sender, d);
+      return;
     }
     else {
       head->foreign_owner_ipc_sub = d->subscriber;
