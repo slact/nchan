@@ -169,7 +169,6 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     str_shm_free(d->shm_chid);
     return;
   }
-  str_shm_free(d->shm_chid);
   
   if(head != d->origin_chanhead) {    
     assert(d->owner_chanhead);
@@ -219,6 +218,7 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     memstore_ready_chanhead_unless_stub(head);
   }
   
+  str_shm_free(d->shm_chid);
   if(d->owner_chanhead) {
     ipc_cmd(subscribe_chanhead_release, sender, d);
   }
@@ -241,6 +241,7 @@ static void receive_subscribe_chanhead_nevermind_release(ngx_int_t sender, subsc
   d->subscriber->fn->respond_status(d->subscriber, NGX_HTTP_GONE, NULL, NULL);
   
   memstore_chanhead_release(d->owner_chanhead, "interprocess subscribe");
+  str_shm_free(d->shm_chid);
 }
 
 
