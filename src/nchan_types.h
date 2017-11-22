@@ -6,7 +6,7 @@
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
 typedef enum {MSG_CHANNEL_NOTREADY, MSG_NORESPONSE, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
-typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY} chanhead_pubsub_status_t;
+typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY, DELETED} chanhead_pubsub_status_t;
 
 typedef enum {NCHAN_CONTENT_TYPE_PLAIN, NCHAN_CONTENT_TYPE_JSON, NCHAN_CONTENT_TYPE_XML, NCHAN_CONTENT_TYPE_YAML, NCHAN_CONTENT_TYPE_HTML} nchan_content_type_t;
 

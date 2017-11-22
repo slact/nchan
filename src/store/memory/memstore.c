@@ -657,6 +657,8 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     nchan_free_msg_id(&ch->oldest_msgid);
   }
   
+  ch->status = DELETED;
+  
   ngx_free(ch);
 }
 

@@ -16,6 +16,7 @@
   L(subscribe) \
   L(subscribe_reply) \
   L(subscribe_chanhead_release) \
+  L(subscribe_chanhead_nevermind_release) \
   L(unsubscribed) \
   L(publish_message) \
   L(publish_message_reply) \
@@ -164,8 +165,14 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   //we have the chanhead address, but are too afraid to use it.
   
   if((head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, d->cf)) == NULL) {
-    str_shm_free(d->shm_chid);
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
+    str_shm_free(d->shm_chid);
+    return;
+  }
+  
+  if(head != d->origin_chanhead) {    
+    assert(d->owner_chanhead);
+    ipc_cmd(subscribe_chanhead_nevermind_release, sender, d);
     return;
   }
   
@@ -194,8 +201,15 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     }
     
     assert(head->shared != NULL);
-    if(head->foreign_owner_ipc_sub) {
-      assert(head->foreign_owner_ipc_sub == d->subscriber);
+    if(head->foreign_owner_ipc_sub && head->foreign_owner_ipc_sub != d->subscriber) {
+      // we got another subscriber for this chanhead, probably due to some very heavy delays
+      // discard it, keeping the old one.
+      // (It might be nice to discard the _old_ subscriber, but the owner worker may havbe already deleted it
+      // or may have changed altogether due to a previous worker crash)
+      ERR("Got ipc-subscriber for an already subscribed channel %V", &head->id);
+      memstore_ready_chanhead_unless_stub(head);
+      ipc_cmd(subscribe_chanhead_nevermind_release, sender, d);
+      return;
     }
     else {
       head->foreign_owner_ipc_sub = d->subscriber;
@@ -205,7 +219,6 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   }
   
   str_shm_free(d->shm_chid);
-  
   if(d->owner_chanhead) {
     ipc_cmd(subscribe_chanhead_release, sender, d);
   }
@@ -214,6 +227,21 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
 static void receive_subscribe_chanhead_release(ngx_int_t sender, subscribe_data_t *d) {
   DBG("release the %V", &d->owner_chanhead->id);
   memstore_chanhead_release(d->owner_chanhead, "interprocess subscribe");
+}
+static void receive_subscribe_chanhead_nevermind_release(ngx_int_t sender, subscribe_data_t *d) {
+  ERR("release & nevermind the %V", &d->owner_chanhead->id);
+  memstore_channel_head_t      *head;
+  head = nchan_memstore_find_chanhead(d->shm_chid);
+  if(head == NULL || head != d->owner_chanhead) {
+    ERR("wrong chanhead on receive_subscribe_chanhead_nevermind_release ( expected %p, got %p)", d->owner_chanhead, head);
+    return;
+  }
+  
+  memstore_ipc_subscriber_unhook(d->subscriber);
+  d->subscriber->fn->respond_status(d->subscriber, NGX_HTTP_GONE, NULL, NULL);
+  
+  memstore_chanhead_release(d->owner_chanhead, "interprocess subscribe");
+  str_shm_free(d->shm_chid);
 }
 
 
@@ -857,21 +885,26 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
     d->renew = 0;
   }
   else {
-    assert(head == d->originator);
-    assert(head->status == READY || head->status == STUBBED);
-    assert(head->foreign_owner_ipc_sub == d->ipc_sub);
-    if(head->total_sub_count == 0) {
-      if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
-        d->renew = 0;
-        DBG("No subscribers lately. Time... to die.");
-      }
-      else {
-        DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed_local);
-        d->renew = 1;
-      }
+    if(head != d->originator) {
+      ERR("Got keepalive for expired channel %V", &head->id);
+      d->renew = 0;
     }
     else {
-      d->renew = 1;
+      assert(head->status == READY || head->status == STUBBED);
+      assert(head->foreign_owner_ipc_sub == d->ipc_sub);
+      if(head->total_sub_count == 0) {
+        if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
+          d->renew = 0;
+          DBG("No subscribers lately. Time... to die.");
+        }
+        else {
+          DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed_local);
+          d->renew = 1;
+        }
+      }
+      else {
+        d->renew = 1;
+      }
     }
   }
   ipc_cmd(subscriber_keepalive_reply, sender, d);

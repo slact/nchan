@@ -30,27 +30,9 @@ if [[ $SANITIZE_UNDEFINED == 1 ]]; then
 fi
 _include_http2=0
 
-_semver_lt() {
-  _ver1=(${1//./ })
-  _ver2=(${2//./ })
-  
-  if (( ${_ver1[0]} < ${_ver2[0]} )); then
-    return 0
-  elif (( ${_ver1[0]} == ${_ver2[0]} && ${_ver1[1]} < ${_ver2[1]} )); then
-    return 0
-  elif (( ${_ver1[0]} == ${_ver2[0]} && ${_ver1[1]} == ${_ver2[1]} && ${_ver1[2]} < ${_ver2[2]} )); then
-    return 0
-  else
-    return 1
-  fi
-}
-
 _semver_gteq() {
-  if (_semver_lt "$1" "$2"); then
-    return 1
-  else
-    return 0
-  fi
+  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/\/?([.\d]+)/)[1]) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
+  return $?
 }
 
 if [[ $NO_POOL == 1 ]] && [[ -z $USE_OPENRESTY ]]; then
@@ -107,6 +89,7 @@ arch=('any')
 install=install
 
 
+makedepends=('ruby')
 depends=('pcre' 'zlib' 'openssl')
 url="http://nginx.org"
 license=('custom')
