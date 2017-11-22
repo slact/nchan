@@ -1270,8 +1270,6 @@ ngx_int_t chanhead_gc_add(memstore_channel_head_t *ch, const char *reason) {
   ngx_int_t                   slot = memstore_slot();
   DBG("Chanhead gc add %p %V: %s", ch, &ch->id, reason);
   
-  ch->gc_reason = reason;
-  
   if(!ch->shutting_down) {
     assert(ch->foreign_owner_ipc_sub == NULL); //we don't accept still-subscribed chanheads
   }
