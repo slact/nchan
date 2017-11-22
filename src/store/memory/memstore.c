@@ -660,7 +660,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
   ch->status = DELETED;
   ch->time_of_death = ngx_time();
   
-  ngx_free(ch);
+  //ngx_free(ch);
 }
 
 static store_message_t *create_shared_message(nchan_msg_t *m, ngx_int_t msg_already_in_shm);
