@@ -204,7 +204,7 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
     if(head->foreign_owner_ipc_sub && head->foreign_owner_ipc_sub != d->subscriber) {
       // we got another subscriber for this chanhead, probably due to some very heavy delays
       // discard it, keeping the old one.
-      // (It might be nice to discard the _old_ subscriber, but the owner worker may havbe already deleted it
+      // (It might be nice to discard the _old_ subscriber, but the owner worker may have already deleted it
       // or may have changed altogether due to a previous worker crash)
       ERR("Got ipc-subscriber for an already subscribed channel %V", &head->id);
       memstore_ready_chanhead_unless_stub(head);
@@ -855,6 +855,7 @@ typedef struct {
   subscriber_t                *ipc_sub;
   memstore_channel_head_t     *originator;
   ngx_uint_t                   renew;
+  uintptr_t                    unhook;
   callback_pt                  callback;
   void                        *privdata;
 } sub_keepalive_data_t;
@@ -869,6 +870,7 @@ ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str
   data.ipc_sub = sub;
   data.originator = ch;
   data.renew = 0;
+  data.unhook = 0;
   data.callback = callback;
   data.privdata = privdata;
   
@@ -880,6 +882,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
   memstore_channel_head_t    *head;
   DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, d->shm_chid);
   head = nchan_memstore_find_chanhead(d->shm_chid);
+  d->unhook = 0;
   if(head == NULL) {
     DBG("not subscribed anymore");
     d->renew = 0;
@@ -891,8 +894,15 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
     }
     else {
       assert(head->status == READY || head->status == STUBBED);
-      assert(head->foreign_owner_ipc_sub == d->ipc_sub);
-      if(head->total_sub_count == 0) {
+      if(head->foreign_owner_ipc_sub != d->ipc_sub) {
+        // we got another subscriber for this chanhead, probably due to some very heavy delays
+        // discard it, keeping the old one.
+        // (It might be nice to discard the _old_ subscriber, but the owner worker may have already deleted it
+        ERR("Got ipc-subscriber during keepalive for an already subscribed channel %V", &head->id);
+        d->unhook = 1;
+        d->renew = 0;
+      }
+      else if(head->total_sub_count == 0) {
         if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
           d->renew = 0;
           DBG("No subscribers lately. Time... to die.");
@@ -911,7 +921,7 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
 }
 
 static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_data_t *d) {
-  d->callback(d->renew, NULL, d->privdata);
+  d->callback(d->renew, (void *)d->unhook, d->privdata);
   str_shm_free(d->shm_chid);
 }
 

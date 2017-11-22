@@ -125,9 +125,13 @@ static void reset_timer(sub_data_t *data) {
 }
 
 
-static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *_, void* pd) {
+static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *ptr, void* pd) {
   sub_data_t *d = (sub_data_t *)pd;
+  int unhook = (uintptr_t )ptr;
   DBG("%p (%V) keepalive reply - renew: %i.", d->sub, d->chid, renew);
+  if(unhook) {
+    memstore_ipc_subscriber_unhook(d->sub);
+  }
   if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
     if(renew) {
       reset_timer(d);
