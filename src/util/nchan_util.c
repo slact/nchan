@@ -678,6 +678,15 @@ static ngx_temp_file_t *make_temp_file(ngx_http_request_t *r, ngx_pool_t *pool) 
     return NULL;
   }
   tf->file.fd = NGX_INVALID_FILE;
+  if(r) {
+    tf->file.log = r->connection->log;
+  }
+  else if(pool && pool->log) {
+    tf->file.log = pool->log;
+  }
+  else {
+    tf->file.log = ngx_cycle->log;
+  }
   tf->path = temp_path;
   tf->pool = pool;
   tf->persistent = 1;
@@ -738,6 +747,11 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
     if(deflate_zstream->avail_out == 0 && tf == NULL) {
       //if we filled up the buffer, let's start dumping to a file.
       tf = make_temp_file(r, pool);
+      if(tf == NULL) { //couldn't make temp file for some reason
+        nchan_log_request_error(r, "failed to allocate output buf for deflated message");
+        deflateReset(deflate_zstream);
+        return NULL;
+      }
     }
     if(tf) {
       ngx_write_file(&tf->file, outbuf, have, written);
