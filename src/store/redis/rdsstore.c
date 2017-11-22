@@ -1096,6 +1096,8 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, nchan_compressed_msg_t 
   if(!cmp_read_str_size(cmp, &sz)) {
     return cmp_err(cmp);
   }
+  fwd_buf_to_str(mpb, sz, eventsource_event);
+  msg->eventsource_event = sz > 0 ? eventsource_event : NULL;
   
   //compression
   if(!cmp_read_int(cmp, &compression)) {
@@ -1109,9 +1111,6 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, nchan_compressed_msg_t 
   else {
     msg->compressed = NULL;
   }
-  
-  fwd_buf_to_str(mpb, sz, eventsource_event);
-  msg->eventsource_event = sz > 0 ? eventsource_event : NULL;
   
   return true;
 }
