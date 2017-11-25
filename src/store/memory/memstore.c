@@ -3199,16 +3199,13 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
   }
   
   if(cf->redis.enabled) {
-    assert(!msg_in_shm);
-    
     fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
     
     if(cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+      assert(!msg_in_shm);
       return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
     }
-    else { //BACKUP mode
-      nchan_store_redis.publish(channel_id, msg, cf, empty_callback, NULL);
-    }
+    //BACKUP mode gets published later
   }
   
   if((chead = nchan_memstore_get_chanhead(channel_id, cf)) == NULL) {
@@ -3278,6 +3275,10 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
       return NGX_ERROR;
     }
     return memstore_ipc_send_publish_message(owner, &chead->id, publish_msg, cf, callback, privdata);
+  }
+  
+  if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_BACKUP) {
+    nchan_store_redis.publish(&chead->id, msg, cf, empty_callback, NULL);
   }
   
   fill_message_timedata(msg, timeout);
