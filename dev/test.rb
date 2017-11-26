@@ -241,11 +241,20 @@ class PubSubTest <  Minitest::Test
     pub.terminate #kill websocket publisher
   end
   
+  def assert_channel_info_ok(info, arg={})
+    [:messages, :last_requested, :subscribers, :last_message_id].each do |attr|
+      refute_nil info[attr]
+      if arg[attr]
+        assert_equal arg[attr], info[attr], "#{attr} value is wrong"
+      elsif arg["#{attr}_min".to_sym]
+        assert info[attr] >= arg["#{attr}_min".to_sym], "#{attr} (#{info[attr]}) not >= #{arg["#{attr}_min".to_sym]}"
+      elsif arg["#{attr}_max".to_sym]
+        assert info[attr] <= arg["#{attr}_max".to_sym], "#{attr} (#{info[attr]}) not <= #{arg["#{attr}_max".to_sym]}"
+      end
+    end
+  end
+  
   def test_channel_info
-    require 'json'
-    require 'nokogiri'
-    require 'yaml'
-    
     subs=20
     
     chan=SecureRandom.hex
@@ -255,93 +264,55 @@ class PubSubTest <  Minitest::Test
     assert_equal 404, pub.response_code
     
     pub.post ["hello", "what is this i don't even"]
-    
-    mm = pub.response_body.match(/^queued messages: (.*)\r$/)
-    assert_equal "2", mm && mm[1]
-    mm = pub.response_body.match(/^last requested: (.*)\r$/)
-    assert_equal "-1 sec. ago", mm && mm[1]
-    mm = pub.response_body.match(/^active subscribers: (.*)\r$/)
-    assert_equal "0", mm && mm[1]
-    mm = pub.response_body.match(/^last message id: (.*)$/)
-    last_msgid = mm && mm[1]
-    assert last_msgid
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested: -1, subscribers: 0
+    info = pub.channel_info
+    last_msgid = info[:last_message_id]
     
     assert_equal 202, pub.response_code
     pub.get
     
     assert_equal 200, pub.response_code
-    mm = pub.response_body.match(/^queued messages: (.*)\r$/)
-    assert_equal "2", mm && mm[1]
-    mm = pub.response_body.match(/^last requested: (.*)\r$/)
-    assert_equal "-1 sec. ago", mm && mm[1]
-    mm = pub.response_body.match(/^active subscribers: (.*)\r$/)
-    assert_equal "0", mm && mm[1]
-    mm = pub.response_body.match(/^last message id: (.*)$/)
-    assert_equal last_msgid, (mm && mm[1])
+    assert_equal info, pub.channel_info
     
     pub.get "text/json"
-    
-    info_json=JSON.parse pub.response_body
-    assert_equal 2, info_json["messages"]
-    assert_equal -1, info_json["requested"]
-    assert_equal 0, info_json["subscribers"]
-    assert_equal last_msgid, info_json["last_message_id"]
-
+    assert_equal :json, pub.channel_info_type
+    assert_equal info, pub.channel_info
     
     sub.run
     sub.wait :ready
     sleep 0.15
     pub.get "text/json"
-
-    info_json=JSON.parse pub.response_body
-    assert_equal 2, info_json["messages"]
-    assert_match /^[0-4]$/, info_json["requested"].to_s
-    assert_equal subs, info_json["subscribers"], "text/json subscriber count"
-    assert_equal last_msgid, info_json["last_message_id"]
+    assert_equal :json, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
 
     pub.get "text/xml"
-    ix = Nokogiri::XML pub.response_body
-    assert_equal 2, ix.at_xpath('//messages').content.to_i
-    assert_match /^[0-4]$/, ix.at_xpath('//requested').content
-    assert_equal subs, ix.at_xpath('//subscribers').content.to_i
-    assert_equal last_msgid, ix.at_xpath('//last_message_id').content
+    assert_equal :xml, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
     
     pub.get "text/yaml"
-    yaml_resp1=pub.response_body
+    assert_equal :yaml, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
     pub.get "application/yaml"
-    yaml_resp2=pub.response_body
+    assert_equal :yaml, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
     pub.get "application/x-yaml"
+    assert_equal :yaml, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
     yaml_resp3=pub.response_body
-    yam=YAML.load pub.response_body
-    assert_equal 2, yam["messages"]
-    assert_match /^[0-4]$/, yam["requested"].to_s
-    assert_equal subs, yam["subscribers"]
-    assert_equal last_msgid, yam["last_message_id"]
-    
-    assert_equal yaml_resp1, yaml_resp2
-    assert_equal yaml_resp2, yaml_resp3
-    
+    assert_equal :yaml, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
     
     pub.accept="text/json"
-
     pub.post "FIN"
-    
-    #stats right before FIN was issued
-    info_json=JSON.parse pub.response_body
-    assert_equal 3, info_json["messages"]
-    assert_match /^[0-4]$/, info_json["requested"].to_s
-    assert_equal subs, info_json["subscribers"]
-    last_msgid = info_json["last_message_id"]
+    assert_equal :json, pub.channel_info_type
+    assert_channel_info_ok pub.channel_info, messages: 3, last_requested_min: 0, subscribers_min: 1
+    last_msgid = pub.channel_info[:last_message_id]
     
     sub.wait
     sleep 0.5
     
     pub.get "text/json"
-    info_json=JSON.parse pub.response_body
-    assert_equal 3, info_json["messages"], "number of messages received by channel is wrong"
-    assert_match /^[0-4]$/, info_json["requested"].to_s
-    assert_equal 0, info_json["subscribers"], "channel should say there are no subscribers"
-    assert_equal last_msgid, info_json["last_message_id"]
+    assert_channel_info_ok pub.channel_info, messages: 3, last_requested_min: 0, subscribers: 0, last_message_id: last_msgid
     sub.terminate
   end
   
