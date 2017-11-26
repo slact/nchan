@@ -1,6 +1,8 @@
 #!/usr/bin/ruby
 require 'typhoeus'
 require 'json'
+require 'nokogiri'
+require 'yaml'
 require 'pry'
 require 'celluloid/current'
 require 'date'
@@ -12,6 +14,8 @@ require 'permessage_deflate'
 
 require 'uri'
 require "http/parser"
+
+
 
 begin
   require "http/2"
@@ -43,11 +47,15 @@ module URI
   end
 end
 
+$seq = 0
 class Message
-  attr_accessor :content_type, :message, :times_seen, :etag, :last_modified
+  attr_accessor :content_type, :message, :times_seen, :etag, :last_modified, :eventsource_event
   def initialize(msg, last_modified=nil, etag=nil)
     @times_seen=1
     @message, @last_modified, @etag = msg, last_modified, etag
+    $seq+=1
+    @seq = $seq
+    @idhist = []
   end
   def serverside_id
     timestamp=nil
@@ -59,7 +67,7 @@ class Message
     end
   end
   def id=(val)
-    @id=val
+    @id=val.dup
   end
   def id
     @id||=serverside_id
@@ -75,6 +83,12 @@ class Message
   end
   def to_s
     @message
+  end
+  def length
+    self.to_s.length
+  end
+  def ==(msg)
+    @message == msg.message
   end
   
   def self.each_multipart_message(content_type, body)
@@ -100,10 +114,10 @@ class MessageStore
   include Enumerable
   attr_accessor :msgs, :name
 
-  def matches? (other_msg_store)
-    my_messages = messages
+  def matches? (other_msg_store, opt={})
+    my_messages = messages(raw: true)
     if MessageStore === other_msg_store
-      other_messages = other_msg_store.messages
+      other_messages = other_msg_store.messages(raw: true)
       other_name = other_msg_store.name
     else
       other_messages = other_msg_store
@@ -119,7 +133,14 @@ class MessageStore
       return false, err
     end
     other_messages.each_with_index do |msg, i|
-      return false, "Message #{i} doesn't match. (#{self.name} |#{my_messages[i].length}|, #{other_name} |#{msg.length}|) " if my_messages[i] != msg
+      mymsg = my_messages[i]
+#      puts "#{msg}, #{msg.class}"
+      return false, "Message #{i} doesn't match. (#{self.name} |#{mymsg.length}|, #{other_name} |#{msg.length}|) " unless mymsg == msg
+      [:content_type, :id, :eventsource_event].each do |field|
+        if opt[field] or opt[:all]
+          return false, "Message #{i} #{field} doesn't match. ('#{mymsg.send field}', '#{msg.send field}')" unless mymsg.send(field) == msg.send(field)
+        end
+      end
     end
     true
   end
@@ -129,8 +150,12 @@ class MessageStore
     clear
   end
 
-  def messages
-    self.to_a.map{|m|m.to_s}
+  def messages(opt={})
+    if opt[:raw]
+      self.to_a
+    else
+      self.to_a.map{|m|m.to_s}
+    end
   end
 
   #remove n oldest messages
@@ -1123,7 +1148,7 @@ class Subscriber
         if @buf[:comments].length > 0
           @on_event.call :comment, @buf[:comments].chomp!
         elsif @buf[:data].length > 0 || @buf[:id].length > 0 || !@buf[:event].nil?
-          @on_event.call @buf[:event] || :message, @buf[:data].chomp!, @buf[:id]
+          @on_event.call @buf[:event], @buf[:data].chomp!, @buf[:id]
         end
         buf_reset
       end
@@ -1177,22 +1202,22 @@ class Subscriber
       
       b.subparser.on_event do |evt, data, evt_id|
         case evt 
-        when :message
+        when :comment
+          if data.match(/^(?<code>\d+): (?<message>.*)/)
+            @subscriber.on_failure error($~[:code].to_i, $~[:message], b)
+            @subscriber.finished+=1
+            close b
+          end
+        else
           @timer.reset if @timer
           unless @nomsg
             msg=Message.new data.dup
             msg.id=evt_id
+            msg.eventsource_event=evt
           else
             msg=data
           end
-          
           if @subscriber.on_message(msg, b) == false
-            @subscriber.finished+=1
-            close b
-          end
-        when :comment
-          if data.match(/^(?<code>\d+): (?<message>.*)/)
-            @subscriber.on_failure error($~[:code].to_i, $~[:message], b)
             @subscriber.finished+=1
             close b
           end
@@ -1547,7 +1572,7 @@ end
 
 class Publisher
   #include Celluloid
-  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose, :ws
+  attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose, :ws, :channel_info, :channel_info_type
   def initialize(url, opt={})
     @url= url
     unless opt[:nostore]
@@ -1591,6 +1616,58 @@ class Publisher
       @url=prev_url
     else
       self
+    end
+  end
+  
+  def parse_channel_info(data, content_type=nil)
+    info = {}
+    case content_type
+    when "text/plain"
+      mm = data.match(/^queued messages: (.*)\r$/)
+      info[:messages] = mm[1].to_i if mm
+      mm = data.match(/^last requested: (.*) sec\. ago\r$/)
+      info[:last_requested] = mm[1].to_i if mm
+      mm = data.match(/^active subscribers: (.*)\r$/)
+      info[:subscribers] = mm[1].to_i if mm
+      mm = data.match(/^last message id: (.*)$/)
+      info[:last_message_id] = mm[1] if mm
+      return info, :plain
+    when "text/json", "application/json"
+      begin
+        info_json=JSON.parse data
+      rescue JSON::ParserError => e
+        return nil
+      end
+      info[:messages] = info_json["messages"].to_i
+      info[:last_requested] = info_json["requested"].to_i
+      info[:subscribers] = info_json["subscribers"].to_i
+      info[:last_message_id] = info_json["last_message_id"]
+      return info, :json
+    when "application/xml", "text/xml"
+      ix = Nokogiri::XML data
+      info[:messages] = ix.at_xpath('//messages').content.to_i
+      info[:last_requested] = ix.at_xpath('//requested').content.to_i
+      info[:subscribers] = ix.at_xpath('//subscribers').content.to_i
+      info[:last_message_id] = ix.at_xpath('//last_message_id').content
+      return info, :xml
+    when "application/yaml", "text/yaml"
+      begin
+        yam=YAML.load data
+      rescue
+        return nil
+      end
+      info[:messages] = yam["messages"].to_i
+      info[:last_requested] = yam["requested"].to_i
+      info[:subscribers] = yam["subscribers"].to_i
+      info[:last_message_id] = yam["last_message_id"]
+      return info, :yaml
+    when nil
+      ["text/plain", "text/json", "text/xml", "text/yaml"].each do |try_content_type|
+        ret, type = parse_channel_info data, try_content_type
+        return ret, type if ret
+      end
+    else
+      raise "Unexpected content-type #{content_type}"
     end
   end
   
@@ -1651,17 +1728,23 @@ class Publisher
     if body && @messages
       msg=Message.new body
       msg.content_type=content_type
+      msg.eventsource_event=eventsource_event
     end
     if @on_complete
       post.on_complete @on_complete
     else
       post.on_complete do |response|
         self.response=response
-        self.response_code=response.response_code
-        self.response_body=response.response_body
+        self.response_code=response.code
+        self.response_body=response.body
         if response.success?
           #puts "published message #{msg.to_s[0..15]}"
-          @messages << msg if @messages && msg
+          @channel_info, @channel_info_type = parse_channel_info response.body, response.headers["Content-Type"]
+          if @messages && msg
+            msg.id = @channel_info[:last_message_id] if @channel_info
+            @messages << msg
+          end
+          
         elsif response.timed_out?
           # aw hell no
           #puts "publisher err: timeout"
