@@ -63,10 +63,10 @@ def pubsub(concurrent_clients=1, opt={})
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
-def verify(pub, sub, check_errors=true)
-  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"} (sub url #{sub.url})" if check_errors
+def verify(pub, sub, opt={})
+  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"} (sub url #{sub.url})" unless opt[:check_errors]==false
   if pub then
-    ret, err = sub.messages.matches?(pub.messages)
+    ret, err = sub.messages.matches?(pub.messages, opt)
     assert ret, err ? "#{err} (sub url #{sub.url})" : "Messages don't match (sub url #{sub.url})"
   end
   i=0
@@ -848,7 +848,7 @@ class PubSubTest <  Minitest::Test
     sleep 0.1
     pub.post "hello"
     sub.wait
-    verify pub, sub, false
+    verify pub, sub, check_errors: false
     assert sub.match_errors(/code 408/)
     sub.terminate
   end
@@ -1597,6 +1597,22 @@ class PubSubTest <  Minitest::Test
     check_websocket_handshake(url, headers)    
   end
 
+  def test_eventsource
+    pub, sub = pubsub 1, client: :eventsource
+    sub.run
+    sub.wait :ready
+    pub.post "yes", nil, "yes-event"
+    pub.post "no", nil, "no-event"
+    pub.post "feh", nil, "feh-event"
+    pub.post "hmm", nil, "what?!"
+    pub.post "FIN", "text/texty", "wahh"
+    
+    sub.wait
+    sub.terminate
+    verify pub, sub, eventsource_event: true, id: true
+    
+  end
+  
 end
 
 
