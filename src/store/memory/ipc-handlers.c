@@ -850,17 +850,20 @@ static void receive_channel_auth_check_reply(ngx_int_t sender, channel_authcheck
 }
 
 /////////// SUBSCRIBER KEEPALIVE ///////////
+typedef enum {
+  KA_REPLY_NORENEW = 0, 
+  KA_REPLY_RENEW,
+  KA_REPLY_UNHOOK_NORENEW,
+} keepalive_reply_action_t;
+
 typedef struct {
   ngx_str_t                   *shm_chid;
   subscriber_t                *ipc_sub;
   memstore_channel_head_t     *originator;
-  ngx_uint_t                   renew;
-  uintptr_t                    unhook;
-  callback_pt                  callback;
-  void                        *privdata;
+  keepalive_reply_action_t     reply_action;  
 } sub_keepalive_data_t;
 
-ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, memstore_channel_head_t *ch, callback_pt callback, void *privdata) {
+ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str_t *chid, subscriber_t *sub, memstore_channel_head_t *ch) {
   sub_keepalive_data_t        data;
   DEBUG_MEMZERO(&data);
   if((data.shm_chid = str_shm_copy(chid)) == NULL) {
@@ -869,12 +872,13 @@ ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str
   }
   data.ipc_sub = sub;
   data.originator = ch;
-  data.renew = 0;
-  data.unhook = 0;
-  data.callback = callback;
-  data.privdata = privdata;
+  
+  data.reply_action = KA_REPLY_NORENEW;
+  
+  sub->fn->reserve(sub);
   
   DBG("send SUBSCRIBER KEEPALIVE to %i %V", dst, chid);
+  
   ipc_cmd(subscriber_keepalive, dst, &data);
   return NGX_OK;
 }
@@ -882,47 +886,73 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
   memstore_channel_head_t    *head;
   DBG("received SUBSCRIBER KEEPALIVE from %i for channel %V", sender, d->shm_chid);
   head = nchan_memstore_find_chanhead(d->shm_chid);
-  d->unhook = 0;
+  str_shm_free(d->shm_chid);
+  
   if(head == NULL) {
     DBG("not subscribed anymore");
-    d->renew = 0;
+    d->reply_action = KA_REPLY_NORENEW;
   }
   else {
     if(head != d->originator) {
       ERR("Got keepalive for expired channel %V", &head->id);
-      d->renew = 0;
+      d->reply_action = KA_REPLY_UNHOOK_NORENEW;
     }
-    else {
-      assert(head->status == READY || head->status == STUBBED);
-      if(head->foreign_owner_ipc_sub != d->ipc_sub) {
-        // we got another subscriber for this chanhead, probably due to some very heavy delays
-        // discard it, keeping the old one.
-        // (It might be nice to discard the _old_ subscriber, but the owner worker may have already deleted it
-        ERR("Got ipc-subscriber during keepalive for an already subscribed channel %V", &head->id);
-        d->unhook = 1;
-        d->renew = 0;
-      }
-      else if(head->total_sub_count == 0) {
-        if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
-          d->renew = 0;
-          DBG("No subscribers lately. Time... to die.");
-        }
-        else {
-          DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed_local);
-          d->renew = 1;
-        }
+    else if(head->status != READY && head->status != STUBBED) {
+      if(head->status == WAITING && head->foreign_owner_ipc_sub == NULL) {
+        //wrong-status head. don't renew, get rid of this chanhead
+        nchan_memstore_publish_generic(head, NULL, NGX_HTTP_SERVICE_UNAVAILABLE, NULL);
+        nchan_memstore_force_delete_channel(d->shm_chid, NULL, NULL);
+        d->reply_action = KA_REPLY_UNHOOK_NORENEW;
       }
       else {
-        d->renew = 1;
+        //something's gone extra weird. 
+        //kick out these subs, delete chanhead... just in case
+        nchan_memstore_publish_generic(head, NULL, NGX_HTTP_SERVICE_UNAVAILABLE, NULL);
+        nchan_memstore_force_delete_channel(d->shm_chid, NULL, NULL);
+        d->reply_action = KA_REPLY_UNHOOK_NORENEW;
       }
+    }
+    else if(head->foreign_owner_ipc_sub != d->ipc_sub) {
+      // we got another subscriber for this chanhead, probably due to some very heavy delays
+      // discard it, keeping the old one.
+      // (It might be nice to discard the _old_ subscriber, but the owner worker may have already deleted it
+      ERR("Got ipc-subscriber during keepalive for an already subscribed channel %V", &head->id);
+      d->reply_action = KA_REPLY_UNHOOK_NORENEW;
+    }
+    else if(head->total_sub_count == 0) {
+      if(ngx_time() - head->last_subscribed_local > MEMSTORE_IPC_SUBSCRIBER_TIMEOUT) {
+        d->reply_action = KA_REPLY_NORENEW;
+        DBG("No subscribers lately. Time... to die.");
+      }
+      else {
+        DBG("No subscribers, but there was one %i sec ago. don't unsubscribe.", ngx_time() - head->last_subscribed_local);
+        d->reply_action = KA_REPLY_RENEW;
+      }
+    }
+    else {
+      d->reply_action = KA_REPLY_RENEW;
     }
   }
   ipc_cmd(subscriber_keepalive_reply, sender, d);
 }
 
 static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_data_t *d) {
-  d->callback(d->renew, (void *)d->unhook, d->privdata);
-  str_shm_free(d->shm_chid);
+  subscriber_t     *sub = d->ipc_sub;
+  switch(d->reply_action) {
+    case KA_REPLY_NORENEW:
+      sub->fn->dequeue(sub);
+      sub->fn->release(sub, 0);
+      break;
+    case KA_REPLY_RENEW:
+      memstore_ipc_subscriber_keepalive_renew(sub);
+      sub->fn->release(sub, 0);
+      break;
+    case KA_REPLY_UNHOOK_NORENEW:
+      memstore_ipc_subscriber_unhook(sub);
+      sub->fn->release(sub, 0);
+    default:
+      raise(SIGABRT);
+  }
 }
 
 

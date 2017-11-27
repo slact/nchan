@@ -124,22 +124,9 @@ static void reset_timer(sub_data_t *data) {
   ngx_add_timer(&data->timeout_ev, MEMSTORE_IPC_SUBSCRIBER_TIMEOUT * 1000);
 }
 
-
-static ngx_int_t keepalive_reply_handler(ngx_int_t renew, void *ptr, void* pd) {
-  sub_data_t *d = (sub_data_t *)pd;
-  int unhook = (uintptr_t )ptr;
-  DBG("%p (%V) keepalive reply - renew: %i.", d->sub, d->chid, renew);
-  if(unhook) {
-    memstore_ipc_subscriber_unhook(d->sub);
-  }
-  if(d->sub->fn->release(d->sub, 0) == NGX_OK) {
-    if(renew) {
-      reset_timer(d);
-    }
-    else {
-      d->sub->fn->dequeue(d->sub);
-    }
-  }
+ngx_int_t memstore_ipc_subscriber_keepalive_renew(subscriber_t *sub) {
+  sub_data_t *d = internal_subscriber_get_privdata(sub);
+  reset_timer(d);
   return NGX_OK;
 }
 
@@ -155,9 +142,8 @@ static void timeout_ev_handler(ngx_event_t *ev) {
   memstore_fakeprocess_push(d->owner);
 #endif
   DBG("%p (%V), timeout event. Ping originator to see if still needed.", d->sub, d->chid);
-  d->sub->fn->reserve(d->sub);
   if(!d->unhooked) {
-    memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead,  keepalive_reply_handler, d);
+    memstore_ipc_send_memstore_subscriber_keepalive(d->originator, d->chid, d->sub, d->foreign_chanhead);
   }
 #if FAKESHARD
   memstore_fakeprocess_pop();
