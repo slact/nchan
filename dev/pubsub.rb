@@ -88,7 +88,7 @@ class Message
     self.to_s.length
   end
   def ==(msg)
-    @message == msg.message
+    @message == (msg.respond_to?(:message) ? msg.message : msg)
   end
   
   def self.each_multipart_message(content_type, body)
