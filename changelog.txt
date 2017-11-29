@@ -1,3 +1,4 @@
+1.1.11 (Nov. 29 2017)
  fix: Redis backup-mode not working (since 1.1.9)
  fix: incorrect handling of Redis permessage-deflated messages results in
       missing first char of eventsource event type
