@@ -13,6 +13,8 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SUB:COMMON:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:COMMON:" fmt, ##arg)
 
+static ngx_int_t flush_postponed_data_if_needed(ngx_http_request_t *r);
+
 typedef struct {
   subscriber_t       *sub;
   ngx_str_t          *ch_id;
@@ -36,6 +38,9 @@ typedef struct {
 
 static ngx_int_t subscriber_subrequest_handler(ngx_http_request_t *sr, void *pd, ngx_int_t rc) {
   nchan_subrequest_data_cb_t    *psrd = (nchan_subrequest_data_cb_t *)pd;
+  ngx_http_request_t            *r = psrd->sub->request;
+  
+  flush_postponed_data_if_needed(r);
   
   psrd->sub->fn->release(psrd->sub, 1);
   
@@ -342,9 +347,47 @@ ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub, ngx_int_t fina
   return ret;
 }
 
+typedef struct {
+  ngx_http_request_t *r;
+  ngx_event_t         timer;
+} subrequest_flush_postponed_data_t;
 
-static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *r, void *data, ngx_int_t rc) {
+static void subrequest_callback_flush_postponed_data(ngx_event_t *ev) {
+  subrequest_flush_postponed_data_t *d = ev->data;
+  nchan_flush_pending_output(d->r);
+}
+
+static void subscriber_subscribe_post_data_cleanup_abort_timer(subrequest_flush_postponed_data_t *d) {
+  if(d->timer.timer_set) {
+    ngx_del_timer(&d->timer);
+  }
+}
+
+static ngx_int_t flush_postponed_data_if_needed(ngx_http_request_t *r) {
+  if(r->postponed && r->postponed->request && r->postponed->next && r->postponed->next->out) {
+    subrequest_flush_postponed_data_t *post_data;
+    ngx_event_t                  *timer;
+    ngx_http_cleanup_t           *cln = ngx_http_cleanup_add(r, sizeof(*post_data));
+    if(!cln) {
+      return NGX_ERROR;
+    }
+    cln->handler = (ngx_http_cleanup_pt )subscriber_subscribe_post_data_cleanup_abort_timer;
+    post_data = cln->data;
+    post_data->r = r;
+    timer = &post_data->timer;
+    ngx_memzero(timer, sizeof(*timer));
+    nchan_init_timer(timer, subrequest_callback_flush_postponed_data, post_data);
+    ngx_add_timer(timer, 0);
+  }
+  return NGX_OK;
+}
+
+static ngx_int_t subscriber_subscribe_callback(ngx_http_request_t *sr, void *data, ngx_int_t rc) {
   nchan_subrequest_data_t       *d = data;
+  ngx_http_request_t            *r = d->sub->request;
+
+  flush_postponed_data_if_needed(r);
+
   d->sub->fn->release(d->sub, 0);
   return NGX_OK;
 }

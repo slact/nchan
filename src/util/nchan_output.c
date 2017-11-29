@@ -165,7 +165,7 @@ static void nchan_output_reserve_message_queue(ngx_http_request_t *r, nchan_msg_
 
 //general request-output functions and the iraq and the asian countries and dated references and the, uh, such
 
-static void nchan_flush_pending_output(ngx_http_request_t *r) {
+void nchan_flush_pending_output(ngx_http_request_t *r) {
   int                        rc;
   ngx_event_t               *wev;
   ngx_connection_t          *c;
