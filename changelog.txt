@@ -1,3 +1,13 @@
+ fix: Redis backup-mode not working (since 1.1.9)
+ fix: incorrect handling of Redis permessage-deflated messages results in
+      missing first char of eventsource event type
+ fix: worker crash when unable to create temp file for large websocket
+      permessage-deflate message
+ fix: CPU-bound overloaded Nginx may result in worker crashes
+      (may occur with large Openresty Lua load)
+ change: default nchan_shared_memory_size is now 128M
+ fix: some channel info from publisher GET requests may be incorrect with Redis
+ fix: file descriptor leak when reconnecting to Redis
 1.1.10 (Nov. 13 2017)
  feature: nchan_authorize_request failure response forwarded back to subscriber
       Sponsored by Symless (https://symless.com/)
