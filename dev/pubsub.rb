@@ -219,7 +219,8 @@ class MessageStore
 end
 
 class Subscriber
-  
+  class SubscriberError < Exception
+  end
   class Client
     attr_accessor :concurrency
     class ErrorResponse
@@ -358,7 +359,7 @@ class Subscriber
     end
     
     def run
-      raise "Not Implemented"
+      raise SubscriberError, "Not Implemented"
     end
     
     def stop(msg = "Stopped", src_bundle = nil)
@@ -620,7 +621,7 @@ class Subscriber
       if @ws.first
         @ws.first.first
       else
-        raise "Websocket client connection gone"
+        raise SubscriberError, "Websocket client connection gone"
       end
     end
     private :ws_client
@@ -806,7 +807,7 @@ class Subscriber
       GET_METHOD="GET"
       def initialize(uri, user_agent, accept="*/*", extra_headers=nil)
         if HTTP2_MISSING
-          raise "HTTP/2 gem missing"
+          raise SubscriberError, "HTTP/2 gem missing"
         end
         super
         @done = false
@@ -1139,6 +1140,8 @@ class Subscriber
           @buf[:retry_timeout] = $1
         when /^$/
           ret = parse_event
+        else
+          raise SubscriberError, "Invalid eventsource data: #{line}"
         end
         ret
       end
@@ -1239,7 +1242,7 @@ class Subscriber
       attr_accessor :bound, :finished, :buf
       def initialize(multipart_header)
         matches=/^multipart\/mixed; boundary=(?<boundary>.*)/.match multipart_header
-        raise "malformed Content-Type multipart/mixed header" unless matches[:boundary]
+        raise SubscriberError, "malformed Content-Type multipart/mixed header" unless matches[:boundary]
         @bound = matches[:boundary]
         @buf = ""
         @preambled = false
@@ -1461,7 +1464,7 @@ class Subscriber
     #puts "Starting subscriber on #{url}"
     @Client_Class = Client.lookup(opt[:client] || :longpoll)
     if @Client_Class.nil?
-      raise "unknown client type #{opt[:client]}"
+      raise SubscriberError, "unknown client type #{opt[:client]}"
     end
     
     if !opt[:nostore] && opt[:nomsg]
@@ -1572,6 +1575,10 @@ end
 
 class Publisher
   #include Celluloid
+  
+  class PublisherError < Exception
+  end
+  
   attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose, :ws, :channel_info, :channel_info_type
   def initialize(url, opt={})
     @url= url
@@ -1667,7 +1674,7 @@ class Publisher
         return ret, type if ret
       end
     else
-      raise "Unexpected content-type #{content_type}"
+      raise PublisherError, "Unexpected content-type #{content_type}"
     end
   end
   
@@ -1751,20 +1758,20 @@ class Publisher
           
           pub_url=URI.parse_possibly_unix_socket(response.request.url)
           pub_url = "#{pub_url.path}#{pub_url.query ? "?#{pub_url.query}" : nil}"
-          raise "Publisher #{response.request.options[:method]} to #{pub_url} timed out."
+          raise PublisherError, "Publisher #{response.request.options[:method]} to #{pub_url} timed out."
         elsif response.code == 0
           # Could not get an http response, something's wrong.
           #puts "publisher err: #{response.return_message}"
           errmsg="No HTTP response: #{response.return_message}"
           unless self.nofail then
-            raise errmsg
+            raise PublisherError, errmsg
           end
         else
           # Received a non-successful http response.
           #puts "publisher err: #{response.code.to_s}"
           errmsg="HTTP request failed: #{response.code.to_s}"
           unless self.nofail then
-            raise errmsg
+            raise PublisherError, errmsg
           end
         end
         block.call(self.response_code, self.response_body) if block
@@ -1786,7 +1793,7 @@ class Publisher
         end 
       end
       e.backtrace.insert last, "..."
-      raise e
+      raise PublisherError, e
     end
   end
   
