@@ -950,6 +950,7 @@ static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_d
     case KA_REPLY_UNHOOK_NORENEW:
       memstore_ipc_subscriber_unhook(sub);
       sub->fn->release(sub, 0);
+      break;
     default:
       raise(SIGABRT);
   }
