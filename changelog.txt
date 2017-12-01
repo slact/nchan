@@ -1,3 +1,7 @@
+1.1.12 (Dec. 1 2017)
+ fix: possible "Unexpected spool == nuspool" worker crash
+ fix: subscriber messages delivered during active nchan_subscribe subrequest
+      may be garbled
 1.1.11 (Nov. 29 2017)
  fix: Redis backup-mode not working (since 1.1.9)
  fix: incorrect handling of Redis permessage-deflated messages results in
