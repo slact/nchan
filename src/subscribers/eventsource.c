@@ -11,6 +11,16 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:EVENTSOURCE:" fmt, ##arg)
 #include <assert.h> 
 
+typedef struct {
+  u_char       charbuf[30];
+  void        *prev;
+  void        *next;
+} timestampbuf_t;
+
+static void *timestampbuf_alloc(void *pd) {
+  return ngx_palloc((ngx_pool_t *)pd, sizeof(timestampbuf_t));
+}
+
 static nchan_bufchain_pool_t *fsub_bcp(full_subscriber_t *fsub) {
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
   return ctx->bcp;
@@ -236,6 +246,18 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   else if(msg->eventsource_event) {
     prepend_es_response_line(fsub, &event_line, &first_link, msg->eventsource_event);
   }
+  else {
+    timestampbuf_t   *tsbuf = nchan_reuse_queue_push(ctx->output_str_queue);
+    struct timeval    tv;
+    ngx_str_t         timestamp;
+    u_char           *end;
+    timestamp.data =  tsbuf->charbuf;
+    ngx_gettimeofday(&tv);
+    
+    end = ngx_snprintf(timestamp.data, 30, "%l.%06l", tv.tv_sec, tv.tv_usec);
+    timestamp.len = end - timestamp.data;
+    prepend_es_response_line(fsub, &event_line, &first_link, &timestamp);
+  }
   
   return nchan_output_msg_filter(fsub->sub.request, msg, first_link);
 }
@@ -315,6 +337,9 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
   
   ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
   nchan_bufchain_pool_init(ctx->bcp, r->pool);
+  
+  ctx->output_str_queue = ngx_palloc(r->pool, sizeof(*ctx->output_str_queue));
+  nchan_reuse_queue_init(ctx->output_str_queue, offsetof(timestampbuf_t, prev), offsetof(timestampbuf_t, next), timestampbuf_alloc, NULL, sub->request->pool);
   
   //msgid bufs -- unique per response
   nchan_subscriber_init_msgid_reusepool(ctx, r->pool);
