@@ -1260,7 +1260,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           }
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 9 + msgbuf_size_changed + chid_present);
+            assert(array_sz >= 9 + msgbuf_size_changed + chid_present);
             if(chanhead && cmp_to_msg(&cmp, &msg, &content_type, &eventsource_event)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(chid, chanhead ? chanhead->rdt : rdata, &msg, 0, NULL);
