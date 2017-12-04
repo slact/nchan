@@ -1101,7 +1101,7 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, nchan_compressed_msg_t 
   
   //compression
   if(!cmp_read_int(cmp, &compression)) {
-    return cmp_err(cmp);
+    msg->compressed = NULL;
   }
   if(compression > 0) {
     msg->compressed = cmsg;
@@ -1276,7 +1276,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
           }
           
           if(ngx_strmatch(&msg_type, "msg")) {
-            assert(array_sz == 10 + msgbuf_size_changed + chid_present);
+            assert(array_sz >= 9 + msgbuf_size_changed + chid_present);
             if(chanhead && cmp_to_msg(&cmp, &msg, &cmsg, &content_type, &eventsource_event)) {
               //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "got msg %V", msgid_to_str(&msg));
               nchan_store_publish_generic(chid, chanhead ? chanhead->rdt : rdata, &msg, 0, NULL);
@@ -2143,8 +2143,8 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
    && CHECK_REPLY_STR(els[offset+5])   //message
    && CHECK_REPLY_STR(els[offset+6])   //content-type
    && CHECK_REPLY_STR(els[offset+7])  //eventsource event
-   && CHECK_REPLY_INT_OR_STR(els[offset+8])) {//compression
-     
+  ) {
+  
     content_type_len=els[offset+6]->len;
     es_event_len = els[offset+7]->len;
     
@@ -2156,11 +2156,6 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
     msg->buf.last_buf = 1;
     msg->buf.last_in_chain = 1;
     
-    if(redisReply_to_int(els[offset+8], &compression) != NGX_OK) {
-       ERR("invalid compression type integer value in msg response from redis");
-      return NGX_ERROR;
-    }
-    
     if(redisReply_to_int(els[offset], &ttl) != NGX_OK) {
       ERR("invalid ttl integer value in msg response from redis");
       return NGX_ERROR;
@@ -2171,10 +2166,17 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
     
     msg->expires = ngx_time() + ttl;
     
-    if((nchan_msg_compression_type_t )compression != NCHAN_MSG_COMPRESSION_INVALID && (nchan_msg_compression_type_t )compression != NCHAN_MSG_NO_COMPRESSION) {
-      msg->compressed = cmsg;
-      ngx_memzero(&cmsg->buf, sizeof(cmsg->buf));
-      cmsg->compression = (nchan_msg_compression_type_t )compression;
+    msg->compressed = NULL;
+    if(r->elements >= (uint16_t )(offset + 8)) {
+      if(!CHECK_REPLY_INT_OR_STR(els[offset+8]) || redisReply_to_int(els[offset+8], &compression) != NGX_OK) {
+        ERR("invalid compression type integer value in msg response from redis");
+        return NGX_ERROR;
+      }
+      if((nchan_msg_compression_type_t )compression != NCHAN_MSG_COMPRESSION_INVALID && (nchan_msg_compression_type_t )compression != NCHAN_MSG_NO_COMPRESSION) {
+        msg->compressed = cmsg;
+        ngx_memzero(&cmsg->buf, sizeof(cmsg->buf));
+        cmsg->compression = (nchan_msg_compression_type_t )compression;
+      }
     }
     
     if(content_type_len > 0) {
