@@ -10,7 +10,7 @@ require 'reel/rack'
 require "optparse"
 
 module ReelConnectionExtensions
-  def respond(code, headers, body)
+  def respond(code, headers, body=nil)
     if code == :ignore
       @current_request = nil
       @parser.reset
@@ -98,10 +98,11 @@ class AuthServer
       when "/sub"
         resp << "subbed"
       when "/pub"
-        resp << "WEE! + #{body}"
+        resp << publisher_upstream_transform_message(body)
       when "/pub_chunked"
-        resp << "WEE! + "
-        resp << body
+        transformed = publisher_upstream_transform_message(body)
+        resp << transformed[0..3]
+        resp << transformed[4..-1]
         chunked = true
       when "/pub_empty"
         #nothing
@@ -142,6 +143,10 @@ class AuthServer
   
   def stop
     @supervisor.terminate if @supervisor
+  end
+
+  def publisher_upstream_transform_message(msg)
+    "WEE! + #{msg}"
   end
 end
 
