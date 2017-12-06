@@ -204,6 +204,7 @@ static rdstore_data_t *find_rdata_by_node_id(ngx_str_t *id) {
 static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) {
   u_char     *cur = (u_char *)line;
   u_char     *max = cur;
+  u_char     *tmp;
   ngx_str_t   rest_line;
   
   if(cur[0]=='\0')
@@ -235,6 +236,11 @@ static char *redis_scan_cluster_nodes_line(char *line, cluster_nodes_line_t *l) 
   l->self = nchan_ngx_str_substr((&l->flags), "myself") ? 1 : 0;
   
   l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
+  
+  //redis >= 4.0 CLUSTER NODES format compatibility
+  if((tmp = memrchr(l->address.data, '@', l->address.len)) != NULL) {
+    l->address.len = tmp - l->address.data;
+  }
   
   cur = max;
   if(&cur[-1] > (u_char *)line && cur[-1] == '\0')
