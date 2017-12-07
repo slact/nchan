@@ -59,7 +59,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || short_id
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
@@ -1610,7 +1610,44 @@ class PubSubTest <  Minitest::Test
     sub.wait
     sub.terminate
     verify pub, sub, eventsource_event: true, id: true
-    
+  end
+  
+  def test_publisher_upstream_request
+    auth = start_authserver  quiet: true
+    begin
+      assert "" != auth.publisher_upstream_transform_message("")
+      
+      pub, sub = pubsub 2, pub: '/upstream_pubsub/' , quit_message: auth.publisher_upstream_transform_message('FIN')
+      sub.run
+      pub.post ["foo", "bar", "Baz", "q"*2048, "FIN"]
+      sub.wait
+      pub.messages.msgs.each {|m| m.message=auth.publisher_upstream_transform_message(m.message)}
+      verify pub, sub
+      sub.terminate
+      
+      pub, sub = pubsub 2, pub: '/upstream_pubsub_chunked/' , quit_message: auth.publisher_upstream_transform_message('FIN')
+      sub.run
+      pub.post ["foo", "bar", "Baz", "q"*2048, "FIN"]
+      sub.wait
+      pub.messages.msgs.each {|m| m.message=auth.publisher_upstream_transform_message(m.message)}
+      verify pub, sub
+      sub.terminate
+      
+      pub, sub = pubsub 1, pub: '/upstream_pubsub_empty/'
+      n = 0
+      sub.on_message do |msg, bundle|
+        n+=1
+        false if n == 5 #quit after 5th message
+      end
+      sub.run
+      pub.post ["foo", "bar", "Baz", "q"*2048, "FIN"]
+      sub.wait
+      pub.messages.msgs.each {|m| m.message=""}
+      verify pub, sub
+      sub.terminate
+    ensure
+      auth.stop
+    end
   end
   
 end

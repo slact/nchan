@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.1.11 (November 29, 2017) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.1.13 (December 4, 2017) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -43,7 +43,7 @@ With a well-tuned OS and network stack on commodity server hardware, expect to h
 ## Install
 
 #### Download Packages
- - [Arch Linux](https://archlinux.org): [nginx-mod-nchan](https://aur.archlinux.org/packages/nginx-mod-nchan/) (dynamic module build), [nginx-nchan](https://aur.archlinux.org/packages/nginx-nchan/) and [nginx-nchan-git](https://aur.archlinux.org/packages/nginx-nchan-git/) are available in the Arch User Repository.
+ - [Arch Linux](https://archlinux.org): [nginx-mod-nchan](https://aur.archlinux.org/packages/nginx-mod-nchan/) and [nginx-mainline-mod-nchan](https://aur.archlinux.org/packages/nginx-mainline-mod-nchan/) are available in the Arch User Repository.
  - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
  - [Debian](https://www.debian.org/): A dynamic module build is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.io/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.io/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
@@ -902,13 +902,13 @@ You must also take care to do at least one of the following:
 An ID that can be guessed is an ID that can be hijacked. If you are not authenticating subscribers (as described below), a channel ID should be impossible to guess. Use at least 128 bits of entropy to generate a random token, associate it with the authenticated user, and share it only with the user's client. Do not reuse tokens, just as you would not reuse session IDs.
 
 #### X-Accel-Redirect
-z
+
 This feature uses the [X-Accel feature](https://www.nginx.com/resources/wiki/start/topics/examples/x-accel) of Nginx upstream proxies to perform an internal request to a subscriber endpoint.
 It allows a subscriber client to be authenticated by your application, and then redirected by nginx internally to a location chosen by your appplication (such as a publisher or subscriber endpoint). This makes it possible to have securely authenticated clients that are unaware of the channel id they are subscribed to.
 
 Consider the following configuration:
 ```nginx 
-upstream my_app {
+upstream upstream_app {
   server 127.0.0.1:8080;
 }
 
