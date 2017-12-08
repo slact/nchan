@@ -246,18 +246,18 @@ static ngx_int_t es_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   else if(msg->eventsource_event) {
     prepend_es_response_line(fsub, &event_line, &first_link, msg->eventsource_event);
   }
-  else {
-    timestampbuf_t   *tsbuf = nchan_reuse_queue_push(ctx->output_str_queue);
-    struct timeval    tv;
-    ngx_str_t         timestamp;
-    u_char           *end;
-    timestamp.data =  tsbuf->charbuf;
-    ngx_gettimeofday(&tv);
-    
-    end = ngx_snprintf(timestamp.data, 30, "%l.%06l", tv.tv_sec, tv.tv_usec);
-    timestamp.len = end - timestamp.data;
-    prepend_es_response_line(fsub, &event_line, &first_link, &timestamp);
-  }
+  
+  
+  static ngx_str_t        timestamp_line = ngx_string(";timestamp: ");
+  timestampbuf_t   *tsbuf = nchan_reuse_queue_push(ctx->output_str_queue);
+  struct timeval    tv;
+  ngx_str_t         timestamp;
+  u_char           *end;
+  timestamp.data =  tsbuf->charbuf;
+  ngx_gettimeofday(&tv);
+  end = ngx_snprintf(timestamp.data, 30, "%l.%06l", tv.tv_sec, tv.tv_usec);
+  timestamp.len = end - timestamp.data;
+  prepend_es_response_line(fsub, &timestamp_line, &first_link, &timestamp);
   
   return nchan_output_msg_filter(fsub->sub.request, msg, first_link);
 }
