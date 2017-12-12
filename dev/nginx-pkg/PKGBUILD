@@ -8,7 +8,7 @@ _nginx_ver_very_old=0.8.55
 _ngx_echo_module_ver=0.60
 _lua_nginx_module_ver="master"
 _lua_upstream_nginx_module_ver="0.06"
-_openresty_ver=1.11.2.2
+_openresty_ver=1.13.6.1
 
 _target_module_name=nchan
 
