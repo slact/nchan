@@ -361,10 +361,14 @@ build() {
       ln -s auto/configure ./
     fi
     
+    if [[ -n $USE_OPENSSL_10 ]]; then
+      CFLAGS="-I/usr/include/openssl-1.0/ $CFLAGS"
+      LDFLAGS="-L/usr/lib/openssl-1.0/ $LDFLAGS"
+    fi
     
     if [[ -n $EXPLICIT_CFLAGS ]]; then
-      echo "./configure ${CONFIGURE[@]} --with-cc-opt=${CFLAGS}"
-      ./configure ${CONFIGURE[@]} "--with-cc-opt=${CFLAGS}"
+      echo "./configure ${CONFIGURE[@]} --with-cc-opt=${CFLAGS} --with-ld-opt=${LDFLAGS}"
+      ./configure ${CONFIGURE[@]} "--with-cc-opt=${CFLAGS}" "--with-ld-opt=${LDFLAGS}"
     else
       ./configure ${CONFIGURE[@]}
     fi

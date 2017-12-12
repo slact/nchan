@@ -107,6 +107,9 @@ for opt in $*; do
       export WITH_LUA_MODULE=""
       export USE_OPENRESTY=1
       ;;
+    openssl1.0)
+      export USE_OPENSSL_10=1
+      ;;
     openresty=*)
       export OPENRESTY_CUSTOM_VERSION="${opt:10}"
       export EXPLICIT_CFLAGS=1
