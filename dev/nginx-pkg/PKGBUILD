@@ -252,7 +252,7 @@ build() {
     if [[ $0 == "/usr/bin/makepkg" ]]; then
       CONFIGURE+=${EXTRA_CONFIG_OPT}
     else
-      CONFIGURE+=( ${=EXTRA_CONFIG_OPT} )
+      CONFIGURE+=( ${EXTRA_CONFIG_OPT} )
     fi    
   fi
   
