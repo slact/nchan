@@ -32,6 +32,7 @@
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDISTORE: " fmt, ##args)
 
 #define REDIS_CONNECTION_FOR_PUBLISH_WAIT 5000
+#define REDIS_CONNECTION_FOR_COMMAND_WAIT 2000
 
 u_char            redis_subscriber_id[255];
 size_t            redis_subscriber_id_len;
@@ -1515,6 +1516,45 @@ static void redis_subscriber_register_send(rdstore_data_t *rdata, void *pd) {
   }
 }
 
+static ngx_int_t redis_subscriber_register_send_when_connected(ngx_int_t status, void *rd, void *pd) {
+  rdstore_data_t                 *rdata = rd, *prev_rdata = rd;
+  redis_subscriber_register_t    *d = pd;
+  
+  d->chanhead->reserved--;
+  
+  if(status != NGX_OK) {
+    d->sub->fn->release(d->sub, 1);
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL);
+    ngx_free(d);
+    return NGX_OK;
+  }
+  
+  assert(rdata->status == CONNECTED);
+  
+  if((rdata = redis_cluster_rdata_from_channel(d->chanhead)) == NULL) {
+    ERR("redis_subscriber_register_send_when_connected cluster rdata is null");
+    d->sub->fn->release(d->sub, 1);
+    d->sub->fn->respond_status(d->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL);
+    ngx_free(d);
+    return NGX_ERROR;
+  }
+  
+  if(rdata != prev_rdata) {
+    //it's a cluster, and we need a different node
+    if(rdata->status != CONNECTED) {
+      //and it's not ready yet...
+      nchan_loc_conf_t           fake_cf;
+      fake_cf.redis.privdata = rdata;
+      d->chanhead->reserved++;
+      redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_COMMAND_WAIT, redis_subscriber_register_send_when_connected, d);
+      return NGX_OK;
+    }
+  }
+  
+  redis_subscriber_register_send(rdata, d);
+  return NGX_OK;
+}
+
 
 static ngx_int_t redis_subscriber_register(rdstore_channel_head_t *chanhead, subscriber_t *sub) {
   redis_subscriber_register_t *sdata=NULL;
@@ -1529,14 +1569,19 @@ static ngx_int_t redis_subscriber_register(rdstore_channel_head_t *chanhead, sub
   
   sub->fn->reserve(sub);
   
-  //input: keys: [], values: [channel_id, subscriber_id, active_ttl]
-  //  'subscriber_id' can be '-' for new id, or an existing id
-  //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
-  //output: subscriber_id, num_current_subscribers, next_keepalive_time
   if((rdata = redis_cluster_rdata_from_channel(chanhead)) == NULL) {
     return NGX_ERROR;
   }
-  redis_subscriber_register_send(rdata, sdata);
+  
+  if(rdata->status != CONNECTED) {
+    nchan_loc_conf_t           fake_cf;
+    sdata->chanhead->reserved++;
+    fake_cf.redis.privdata = rdata;
+    redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_COMMAND_WAIT, redis_subscriber_register_send_when_connected, sdata);
+  }
+  else {
+    redis_subscriber_register_send(rdata, sdata);
+  }
   
   return NGX_OK;
 }
@@ -1559,6 +1604,7 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   }
   
   if (!redisReplyOk(c, reply)) {
+    sdata->sub->fn->respond_status(sdata->sub, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL);
     ngx_free(sdata);
     return;
   }
