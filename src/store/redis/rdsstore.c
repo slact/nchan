@@ -1717,7 +1717,7 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
 static void redisChannelKeepaliveCallback_send(rdstore_data_t *rdata, void *pd) {
   rdstore_channel_head_t   *head = pd;
   time_t                    ttl;
-  if(rdata) {
+  if(rdata && rdata->status == CONNECTED) {
     head->reserved++;
     ttl = REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP * (1+head->keepalive_times_sent);
     if(ttl > REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX) { //1 week at most
@@ -2086,7 +2086,7 @@ static void redisChannelDeleteCallback(redisAsyncContext *c, void *r, void *priv
 
 static void nchan_store_delete_channel_send(rdstore_data_t *rdata, void *pd) {
   redis_channel_callback_data_t *d = pd;
-  if(rdata) {
+  if(rdata ) {
     nchan_redis_script(delete, rdata, &redisChannelDeleteCallback, d, d->channel_id, "");
   }
   else {
@@ -2119,10 +2119,11 @@ static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_con
   
   CREATE_CALLBACK_DATA(d, rdata, "delete", channel_id, callback, privdata);
   
-  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
+  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL
+    || rdata->status != CONNECTED ) {
+    redisChannelDeleteCallback(NULL, NULL, d);
     return NGX_ERROR;
   }
-  
   nchan_store_delete_channel_send(rdata, d);
   
   return NGX_OK;
@@ -2165,7 +2166,9 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   rdstore_data_t                *rdata = cf->redis.privdata;
   CREATE_CALLBACK_DATA(d, rdata, "find_channel", channel_id, callback, privdata);
   
-  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
+  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL
+    || rdata->status == CONNECTED) {
+    redisChannelInfoCallback(NULL, NULL, privdata);
     return NGX_ERROR;
   }
   nchan_store_find_channel_send(rdata, d);
