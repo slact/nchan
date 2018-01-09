@@ -1239,6 +1239,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
   [more details](#connecting-to-a-redis-server)  
 
+- **nchan_redis_wait_after_connecting**  
+  arguments: 1  
+  default: `0s`  
+  context: http, server, location  
+  > Wait this amount of time after connecting to Redis to process requests. Useful when dealng with connections to Redis cluster nodes of unknown role.    
+
 - **nchan_shared_memory_size** `<size>`  
   arguments: 1  
   default: `128M`  

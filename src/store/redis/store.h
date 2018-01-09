@@ -10,6 +10,9 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t 
 void redis_store_prepare_to_exit_worker(); // hark! a hack!!
 
 ngx_int_t nchan_store_redis_add_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf, nchan_loc_conf_t *loc_conf);
+
+int nchan_store_redis_ready(nchan_loc_conf_t *cf);
+
 ngx_int_t nchan_store_redis_remove_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf);
 
 ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, ngx_msec_t max_wait, callback_pt cb, void *privdata);

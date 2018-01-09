@@ -163,6 +163,7 @@ struct rdstore_data_s {
     unsigned                         loaded_scripts:1;
     unsigned                         cluster_checked:1;
   }                                detailed_status;
+  time_t                           time_connected;
   
   int                              scripts_loaded_count;
   int                              generation;
