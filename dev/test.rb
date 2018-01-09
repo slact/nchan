@@ -462,7 +462,7 @@ class PubSubTest <  Minitest::Test
     sub.run
     
     sleep 0.1
-    pub.post ["fwoop", "FIN"] { assert_match /20[12]/, pub.response_code.to_s }
+    pub.post(["fwoop", "FIN"]) { assert_match /20[12]/, pub.response_code.to_s }
     
     
     sub.wait
