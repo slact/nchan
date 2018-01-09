@@ -336,7 +336,7 @@ build() {
   fi
 
   
-  if [[ $CC == *clang* ]]; then
+  if [[ $CC == *clang* ]] || [[ "$OSTYPE" == "darwin"* ]]; then
     #not a valid clang parameter
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
