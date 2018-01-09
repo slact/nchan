@@ -351,7 +351,7 @@ build() {
   export CCACHE_CPP2=yes
   if ! [[ -z $CLANG_ANALYZER ]]; then
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
-    scan-build -o "$CLANG_ANALYZER" make
+    scan-build -o "$CLANG_ANALYZER" make -j4
   elif ! [[ -z $CONTINUE ]]; then
     make $REMAKE
   else
