@@ -2407,7 +2407,7 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   if(rdata->status != CONNECTED) {
     nchan_loc_conf_t           fake_cf;
     fake_cf.redis.privdata = rdata;
-    redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_PUBLISH_WAIT, redis_store_async_get_message_send_when_connected, d);
+    redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_COMMAND_WAIT, redis_store_async_get_message_send_when_connected, d);
   }
   else {
     nchan_store_async_get_message_send(rdata, d);
