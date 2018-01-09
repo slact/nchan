@@ -2167,7 +2167,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   CREATE_CALLBACK_DATA(d, rdata, "find_channel", channel_id, callback, privdata);
   
   if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL
-    || rdata->status == CONNECTED) {
+    || rdata->status != CONNECTED) {
     redisChannelInfoCallback(NULL, NULL, privdata);
     return NGX_ERROR;
   }
@@ -2353,6 +2353,40 @@ static void redis_get_message_callback(redisAsyncContext *c, void *r, void *priv
   ngx_free(d);
 }
 
+static ngx_int_t redis_store_async_get_message_send_when_connected(ngx_int_t status, void *rd, void *pd) {
+  rdstore_data_t                 *rdata = rd, *prev_rdata = rd;
+  redis_get_message_data_t       *d = pd;
+  
+  if(status != NGX_OK) {
+    d->callback(MSG_CHANNEL_NOTREADY, NULL, d->privdata);
+    ngx_free(d);
+    return NGX_OK;
+  }
+  
+  assert(rdata->status == CONNECTED);
+  
+  if((rdata = redis_cluster_rdata_from_channel_id(rdata, d->channel_id)) == NULL) {
+    ERR("redis_store_async_get_message_send_when_connected cluster rdata is null");
+    d->callback(MSG_CHANNEL_NOTREADY, NULL, d->privdata);
+    ngx_free(d);
+    return NGX_ERROR;
+  }
+  
+  if(rdata != prev_rdata) {
+    //it's a cluster, and we need a different node
+    if(rdata->status != CONNECTED) {
+      //and it's not ready yet...
+      nchan_loc_conf_t           fake_cf;
+      fake_cf.redis.privdata = rdata;
+      redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_COMMAND_WAIT, redis_store_async_get_message_send_when_connected, d);
+      return NGX_OK;
+    }
+  }
+  
+  nchan_store_async_get_message_send(rdata, d);
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_get_message_data_t           *d;
   rdstore_data_t                     *rdata = cf->redis.privdata;
@@ -2370,7 +2404,14 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
     return NGX_ERROR;
   }
-  nchan_store_async_get_message_send(rdata, d);
+  if(rdata->status != CONNECTED) {
+    nchan_loc_conf_t           fake_cf;
+    fake_cf.redis.privdata = rdata;
+    redis_store_callback_on_connected(&fake_cf, REDIS_CONNECTION_FOR_PUBLISH_WAIT, redis_store_async_get_message_send_when_connected, d);
+  }
+  else {
+    nchan_store_async_get_message_send(rdata, d);
+  }
   return NGX_OK; //async only now!
 }
 
@@ -3087,7 +3128,8 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
 ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t *cf, ngx_int_t count, uint8_t shutting_down) {
   rdstore_data_t                 *rdata;
   
-  if((rdata = redis_cluster_rdata_from_channel_id(cf->redis.privdata, channel_id)) == NULL) {
+  if((rdata = redis_cluster_rdata_from_channel_id(cf->redis.privdata, channel_id)) == NULL
+    || rdata->status != CONNECTED) {
     return NGX_ERROR;
   }
   if(!shutting_down) {
