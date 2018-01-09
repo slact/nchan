@@ -528,6 +528,12 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     return NGX_OK;
   }
   
+  if(cf->redis.enabled && !nchan_store_redis_ready(cf)) {
+    //using redis, and it's not ready yet
+    nchan_respond_status(r, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
+    return NGX_OK;
+  }
+  
   if(cf->pub.websocket || cf->pub.http) {
     char *err;
     if(!nchan_parse_message_buffer_config(r, cf, &err)) {

@@ -468,6 +468,7 @@ static void rdt_set_status(rdstore_data_t *rdata, redis_connection_status_t stat
     }
     
     nchan_update_stub_status(redis_connected_servers, 1);
+    rdata->time_connected = ngx_time();
     
     if(!rdata->ping_timer.timer_set && rdata->ping_interval > 0) {
       ngx_add_timer(&rdata->ping_timer, rdata->ping_interval * 1000);
@@ -2487,6 +2488,7 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->connect_params.peername.data = blob->peername;
   
   rdata->status = DISCONNECTED;
+  rdata->time_connected = 0;
   rdata->generation = 0;
   rdata->shutting_down = 0;
   rdata->lcf = lcf;
@@ -3049,6 +3051,25 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t 
     redis_sync_command(rdata, "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
   }
   return NGX_OK;
+}
+
+int nchan_store_redis_ready(nchan_loc_conf_t *cf) {
+  rdstore_data_t    *rdt;
+  time_t             wait = cf->redis.after_connect_wait_time;
+  
+  if(wait == 0) { //no need to wait
+    return 1;
+  }
+  
+  rdt = cf->redis.privdata;
+  
+  if(rdt == NULL
+  || rdt->status != CONNECTED
+  || rdt->time_connected == 0) {
+    return 0;
+  }
+  
+  return ngx_time() > rdt->time_connected + wait;
 }
 
 nchan_store_t nchan_store_redis = {
