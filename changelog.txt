@@ -1,3 +1,4 @@
+1.1.14 (Jan. 10 2018)
  feature: added nchan_redis_wait_after_connecting setting
  fix: compatibility with Redis >= 4.0 cluster
 1.1.13 (Dec. 4 2017)
