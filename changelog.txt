@@ -1,3 +1,6 @@
+1.1.7.2 (Jan. 10 2018)
+ fix: forward-compatibility with Redis Cluster rollouts for versions 1.1.8 and above.
+      Versions < 1.1.7.2 cannot run alongside > 1.1.8 on a Redis cluster.
 1.1.7 (Jul. 3 2017)
  fix: possible read-after-free after redis disconnect
  fix: publishing to redis cluster before it is connected results in worker crash
