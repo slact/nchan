@@ -2464,6 +2464,7 @@ static void retry_get_multi_message_after_MSG_NORESPONSE(void *pd) {
   get_multi_message_data_single_t  *sd = pd;
   get_multi_message_data_t         *d = sd->d;
   nchan_msg_id_t                    retry_msgid = NCHAN_ZERO_MSGID;
+  memstore_chanhead_release(d->chanhead, "retry multi getmsg after NORESPONSE");
   assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
   nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
 }
@@ -2504,6 +2505,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     //retry featching that message
     //this isn't clean, nor is it efficient
     //buf fuck it, we're doing it live.
+    memstore_chanhead_reserve(d->chanhead, "retry multi getmsg after NORESPONSE");
     nchan_add_oneshot_timer(retry_get_multi_message_after_MSG_NORESPONSE, sd, 10);
     return NGX_OK;
   }
