@@ -1714,7 +1714,12 @@ static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
   rdstore_data_t           *rdata;
   if(ev->timedout) {
     ev->timedout=0;
-    if((rdata = redis_cluster_rdata_from_channel(head)) != NULL) {
+    if(head->pubsub_status != SUBBED || head->status == NOTREADY) {
+      //no use trying to keepalive a not-ready (possibly disconnected) chanhead
+      DBG("Tried sending channel keepalive when channel is not ready");
+      ngx_add_timer(ev, REDIS_RECONNECT_TIME); //retry after reconnect timeout
+    }
+    else if((rdata = redis_cluster_rdata_from_channel(head)) != NULL) {
       redisChannelKeepaliveCallback_send(rdata, head);
     }
   }
