@@ -1,3 +1,6 @@
+1.1.15 (Apr. 27 2018)
+ fix: A disconnect from a Redis cluster node can result in a segfault
+ fix: Using Redis-backed multiplexed channels can result in a segfault
 1.1.14 (Jan. 10 2018)
  feature: added nchan_redis_wait_after_connecting setting
  fix: compatibility with Redis >= 4.0 cluster
