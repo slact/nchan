@@ -172,7 +172,10 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
 
 static ngx_int_t internal_dequeue(subscriber_t *self) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
-  assert(!f->already_dequeued);
+  if (f->already_dequeued) {
+    return NGX_OK; //it's ok to be dequeued more than once,
+    //because a subscriber may linger a bit before being deleted
+  }
   f->already_dequeued = 1;
   DBG("%p (%V) dequeue sub", self, f->sub.name);
   f->dequeue(NGX_OK, NULL, f->privdata);
