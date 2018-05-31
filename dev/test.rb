@@ -201,6 +201,59 @@ class PubSubTest <  Minitest::Test
     
   end
   
+  def test_multiplexed_expiring_message_delivery
+    #tests for a bug where a channel with expired messages may
+    # block delivery of other messages for a multiplexed channel 
+    # this was happening for redis-backed multiplexed channels
+    
+    chan_short, chan_long = short_id, short_id
+    
+    #short expiration time message
+    pub_short = Publisher.new url("/pub/#{chan_short}/expire/1")
+    sub_short = Subscriber.new(url("/sub/broadcast/#{chan_short}"), 1, client: :eventsource, quit_message: 'SHORTFIN', timeout: 5)
+    
+    #long expiration time messages
+    pub_long = Publisher.new url("/pub/#{chan_long}/expire/200")
+    sub_long = Subscriber.new(url("/sub/broadcast/#{chan_long}"), 1, client: :eventsource, quit_message: 'LONGFIN', timeout: 5)
+    
+    sub_short.run
+    sub_long.run
+    
+    sub_short.wait :ready
+    sub_long.wait :ready
+    
+    pub_short.post ["SHORTFIN"]
+    pub_long.post ["long1", "long2", "LONGFIN"]
+    
+    sub_short.wait
+    sub_long.wait
+    
+    verify pub_short, sub_short
+    verify pub_long, sub_long
+    
+    sub_short.terminate
+    
+    start = Time.now
+    7.times do
+      sleep 0.5
+      sub_multi=Subscriber.new(url("/sub/multi/#{chan_short}/#{chan_long}"), 1, client: :eventsource, quit_message: 'LONGFIN', timeout: 1)
+      sub_multi.run
+      sub_multi.wait
+      if sub_multi.match_errors(/Timeout/)
+        #double check that the message is there
+        sub_long.reset
+        sub_long.run
+        sub_long.wait
+        verify pub_long, sub_long
+        
+        assert false, "Failed to deliver non-expired messages after #{Time.now - start} sec"
+      end
+      sub_multi.terminate
+    end
+    
+    sub_long.terminate
+  end
+  
   def test_websocket_pubsub_echo
     sub=Subscriber.new(url("/pubsub/#{short_id}"), 1, client: :websocket, quit_message: 'FIN')
     

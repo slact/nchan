@@ -1501,6 +1501,7 @@ class Subscriber
     @errors.empty?
   end
   def match_errors(regex)
+    return false if no_errors?
     @errors.each do |err|
       return false unless err =~ regex
     end
