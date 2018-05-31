@@ -379,9 +379,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->redis.upstream_url = prev->redis.upstream_url;
     ngx_conf_set_redis_upstream(cf, &conf->redis.upstream_url, conf);
   }
-  if(conf->redis.storage_mode == REDIS_MODE_CONF_UNSET) {
-    conf->redis.storage_mode = prev->redis.storage_mode == REDIS_MODE_CONF_UNSET ? REDIS_MODE_DISTRIBUTED : prev->redis.storage_mode;
-  }
+  
+  MERGE_UNSET_CONF(conf->redis.storage_mode, prev->redis.storage_mode, REDIS_MODE_CONF_UNSET, REDIS_MODE_DISTRIBUTED);
   
   if(prev->request_handler != NULL && conf->request_handler == NULL) {
     conf->request_handler = prev->request_handler;

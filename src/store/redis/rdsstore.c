@@ -2562,6 +2562,19 @@ ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *l
   rcp.peername.len = 0;
   rcp.peername.data = NULL;
   
+  //server-scope loc_conf may have some undefined values (because it was never merged with a prev)
+  //thus we must reduntantly check for unser values
+  if(rcf->ping_interval == NGX_CONF_UNSET) {
+    rcf->ping_interval = NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME;
+  }
+  if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
+    rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
+  }
+  if(rcf->after_connect_wait_time == NGX_CONF_UNSET) {
+    rcf->after_connect_wait_time = 0;
+  }
+  
+  
   if((rdata = find_rdata_by_connect_params(&rcp)) == NULL) {
     rdata = redis_create_rdata(url, &rcp, rcf, lcf);
   }
