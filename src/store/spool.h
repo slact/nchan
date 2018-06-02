@@ -31,11 +31,10 @@ struct subscriber_pool_s {
   ngx_int_t                   fetchmsg_current_count;
   ngx_event_t                 fetchmsg_ev;
   
-  ngx_pool_t                 *pool;
   ngx_uint_t                  sub_count;
   ngx_uint_t                  non_internal_sub_count;
-  ngx_uint_t                  generation;
-  ngx_uint_t                  responded_count;
+  //ngx_uint_t                  generation;
+  //ngx_uint_t                  responded_count;
   uint8_t                     reserved;
   struct channel_spooler_s   *spooler;
 }; // subscriber_pool_t

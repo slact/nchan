@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <store/redis/store.h>
 #include <subscribers/memstore_ipc.h>
+#include <subscribers/getmsg_proxy.h>
 #include <subscribers/memstore_redis.h>
 #include <util/nchan_msg.h>
 
@@ -533,14 +534,19 @@ ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_ms
 typedef struct {
   ngx_int_t            sender;
   getmessage_data_t    data;
-} getmessage_data_rsub_pd_t;
+} getmessage_data_proxy_pd_t;
 
-static void ipc_handler_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status, void *pd) {
-  assert(status == MSG_EXPECTED || status == MSG_NORESPONSE);
-  getmessage_data_rsub_pd_t *gd = (getmessage_data_rsub_pd_t *)pd;
-  gd->data.d.resp.getmsg_code = status;
-  gd->data.d.resp.shm_msg = NULL;
-  ipc_cmd(get_message_reply, gd->sender, &gd->data);
+//for retrieving messages from unready buffers
+static ngx_int_t ipc_getmsg_proxy_callback(ngx_int_t code, store_message_t *msg, getmessage_data_proxy_pd_t *ppd) {
+  ERR("HERE WE GOOOOO");
+  ppd->data.d.resp.getmsg_code = code;
+  ppd->data.d.resp.shm_msg = msg;
+  if(msg) {
+    assert(msg_reserve(msg, "get_message_reply") == NGX_OK);
+  }
+  ipc_cmd(get_message_reply, ppd->sender, &ppd->data);
+  ngx_free(ppd);
+  return NGX_OK;
 }
 
 static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
@@ -558,26 +564,41 @@ static void receive_get_message(ngx_int_t sender, getmessage_data_t *d) {
     d->d.resp.getmsg_code = MSG_NOTFOUND;
     d->d.resp.shm_msg = NULL;
   }
-  else {
-    nchan_msg_status_t           status;
-    msg = chanhead_find_next_message(head, &d->d.req.msgid, &status);
-    
-    if(msg == NULL && head->cf && head->cf->redis.enabled) {
-      //messages from redis are not requested explicitly, but are delivered from oldest to newest
-      //by the memmstore-redis subscriber. 
-      getmessage_data_rsub_pd_t  rdata = {sender, *d};
-      
-      nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(head->redis_sub, &d->d.req.msgid, ipc_handler_notify_on_MSG_EXPECTED_callback, sizeof(rdata), &rdata);
-      return;
-    }
-    
-    d->d.resp.getmsg_code = status;
+  else if(head->msg_buffer_complete) {
+    msg = chanhead_find_next_message(head, &d->d.req.msgid, &d->d.resp.getmsg_code);
     d->d.resp.shm_msg = msg == NULL ? NULL : msg->msg;
+  }
+  else {
+    //buffer is not ready. reply when it's ready
+    getmessage_data_proxy_pd_t *ppd = ngx_alloc(sizeof(*ppd), ngx_cycle->log);
+    if(ppd == NULL) {
+      ERR("couldn't allocate getmessage proxy data for ipc get_message");
+      goto err;
+    }
+    ppd->data = *d;
+    ppd->sender = sender;
+    
+    subscriber_t *getmsg_sub = getmsg_proxy_subscriber_create(&d->d.req.msgid, (callback_pt )ipc_getmsg_proxy_callback, ppd);
+    if(!getmsg_sub) {
+      ERR("couldn't allocate getmessage proxy subscriber for ipc get_message");
+      goto err;
+    }
+    if(head->spooler.fn->add(&head->spooler, getmsg_sub) != NGX_OK) {
+      ERR("couldn't enqueue getmsg proxy subscriber for ipc get_message");
+      goto err;
+    }
+    return;
   }
   if(d->d.resp.shm_msg) {
     assert(msg_reserve(d->d.resp.shm_msg, "get_message_reply") == NGX_OK);
   }
   DBG("IPC: send get_message_reply for channel %V  msg %p, privdata: %p", d->shm_chid, msg, d->privdata);
+  ipc_cmd(get_message_reply, sender, d);
+  return;
+
+err:
+  d->d.resp.getmsg_code = MSG_ERROR;
+  d->d.resp.shm_msg = NULL;
   ipc_cmd(get_message_reply, sender, d);
 }
 
