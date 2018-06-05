@@ -1002,6 +1002,21 @@ class PubSubTest <  Minitest::Test
   #  
   #end
   
+  def test_getmulti_nonexistent_message_from_nonexistent_channel
+    chan = short_id
+    msgid = "#{Time.now.to_i - 2}:[32767],-"
+    pub = Publisher.new url("/pub/#{chan}"), accept: 'text/json'
+    sub = Subscriber.new url("/sub/multi/#{short_id}/#{chan}?last_event_id=#{msgid}"), 1,  timeout: 4, quit_message: 'FIN'
+    
+    sub.run
+    sleep 0.2
+    pub.post "huh"
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    sub.terminate
+  end
+  
   def test_urlencoded_msgid
     chan_id=short_id
     pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
@@ -1026,6 +1041,8 @@ class PubSubTest <  Minitest::Test
     
     verify pub, sub
     verify pub, sub2
+    sub1.terminate
+    sub2.terminate
   end
   
   def test_invalid_etag
