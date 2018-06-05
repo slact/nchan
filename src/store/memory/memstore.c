@@ -851,8 +851,7 @@ static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
     NULL
   };
   
-  //(head->use_redis && head->owner == memstore_slot()) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH
-  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, use_redis ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
+  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, FETCH, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
