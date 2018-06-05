@@ -219,6 +219,35 @@ class MessageStore
 end
 
 class Subscriber
+  
+  class Logger
+    def initialize
+      @log = []
+    end
+    
+    def log(id, type, msg=nil)
+      @log << {time: Time.now.to_f.round(4), id: id.to_sym, type: type, data: msg}
+    end
+    
+    def filter(opt)
+      opt[:id] = opt[:id].to_sym if opt[:id]
+      opt[:type] = opt[:type].to_sym if opt[:type]
+      @log.select do |l|
+        true unless ((opt[:id] && opt[:id] != l[:id]) ||
+                     (opt[:type] && opt[:type] != l[:type]) ||
+                     (opt[:data] && !l.match(opt[:data])))
+      end
+    end
+    
+    def show
+      @log
+    end
+    
+    def to_s
+      @log.map {|l| "#{l.id} (#{l.type}) #{msg.to_s}"}.join "\n"
+    end
+  end
+  
   class SubscriberError < Exception
   end
   class Client
@@ -275,9 +304,11 @@ class Subscriber
     end
     
     class ParserBundle
-      attr_accessor :uri, :sock, :body_buf, :connected, :verbose, :parser, :subparser, :headers, :code, :last_modified, :etag
-      def initialize(uri, *arg)
+      attr_accessor :id, :uri, :sock, :body_buf, :connected, :verbose, :parser, :subparser, :headers, :code, :last_modified, :etag
+      def initialize(uri, opt={})
         @uri=uri
+        @id=(opt[:id] or :"~").to_s.to_sym
+        @logger = opt[:logger]
         open_socket
       end
       def open_socket
@@ -305,6 +336,7 @@ class Subscriber
         if block_given?
           @on_headers = block
         else
+          @logger.log @id, :headers, "#{code or "no code"}; headers: #{h or "none"}" if @logger
           @on_headers.call(code, h) if @on_headers
         end
       end
@@ -314,6 +346,7 @@ class Subscriber
           @on_chunk = block
         else
           @body_buf << ch if @body_buf
+          @logger.log @id, :chunk, ch if @logger
           @on_chunk.call(ch) if @on_chunk
         end
       end
@@ -322,6 +355,7 @@ class Subscriber
         if block_given?
           @on_response = block
         else
+          @logger.log @id, :response, "code #{code or "-"}, headers: #{headers or "-"}, body: #{@body_buf}" if @logger
           @on_response.call(code, headers, @body_buf) if @on_response
         end
         
@@ -331,6 +365,7 @@ class Subscriber
         if block_given?
           @on_error = block
         else
+          @logger.log @id, :error, "#{e.to_s}, #{msg}" if @logger
           @on_error.call(msg, e) if @on_error
         end
       end
@@ -353,9 +388,10 @@ class Subscriber
       end
     end
     
-    def initialize(*arg)
+    def initialize(subscriber, arg={})
       @notready = 9000
       @cooked_ready=Celluloid::Condition.new
+      @logger = arg[:logger]
     end
     
     def run
@@ -364,6 +400,7 @@ class Subscriber
     
     def stop(msg = "Stopped", src_bundle = nil)
       @subscriber.on_failure error(0, msg, src_bundle)
+      @logger.log :subscriber, :stop if @logger
     end
     
   end
@@ -398,7 +435,7 @@ class Subscriber
     class WebSocketBundle
       attr_accessor :ws, :sock, :url, :last_message_time, :last_message_frame_type
       attr_accessor :connected
-      def initialize(sock, url, opt={})
+      def initialize(url, sock, opt={})
         @buf=""
         @url = url
         driver_opt = {max_length: 2**28-1} #256M
@@ -411,7 +448,8 @@ class Subscriber
         end
         
         @sock = sock
-        
+        @id = opt[:id] || :"~"
+        @logger = opt[:logger]
       end
       
       
@@ -472,11 +510,6 @@ class Subscriber
       @connected=0
       @nomsg = opt[:nomsg]
       @http2 = opt[:http2]
-      if @timeout
-        @timer = after(@timeout) do
-          stop "Timeout"
-        end
-      end
     end
     
     def stop(msg = "Stopped", src_bundle = nil)
@@ -484,6 +517,7 @@ class Subscriber
       @ws.each do |b, v|
         close b
       end
+      @timer.cancel if @timer
     end
     
     def run(was_success = nil)
@@ -501,7 +535,12 @@ class Subscriber
       end
       raise ArgumentError, "invalid websocket scheme #{uri.scheme} in #{@url}" unless uri.scheme == "unix" || uri.scheme.match(/^wss?$/)
       @notready=@concurrency
-      @concurrency.times do
+      if @timeout
+        @timer = after(@timeout) do
+          stop "Timeout"
+        end
+      end
+      @concurrency.times do |i|
         begin
           sock = ParserBundle.new(uri).open_socket.sock
         rescue SystemCallError => e
@@ -516,7 +555,7 @@ class Subscriber
           hs_url=@url
         end        
         
-        bundle = WebSocketBundle.new sock, hs_url, permessage_deflate: @permessage_deflate, subprotocol: @subprotocol
+        bundle = WebSocketBundle.new hs_url, sock, id: i, permessage_deflate: @permessage_deflate, subprotocol: @subprotocol, logger: @logger
         
         bundle.ws.on :open do |ev|
           bundle.connected = true
@@ -668,21 +707,21 @@ class Subscriber
     class HTTPBundle < ParserBundle
       attr_accessor :parser, :sock, :last_message_time, :done, :time_requested, :request_time, :stop_after_headers
       
-      def initialize(uri, user_agent, accept="*/*", extra_headers={})
+      def initialize(uri, opt={})
         super
-        @accept = accept
+        @accept = opt[:accept] or "*/*"
         @rcvbuf=""
         @sndbuf=""
         @parser = Http::Parser.new
         @done = false
-        extra_headers = extra_headers.map{|k,v| "#{k}: #{v}\n"}.join ""
+        extra_headers = (opt[:headers] or {}).map{|k,v| "#{k}: #{v}\n"}.join ""
         host = uri.host.match "[^/]+$"
         request_uri = "#{uri.path}#{uri.query && "?#{uri.query}"}"
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
           GET #{request_uri} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
-          User-Agent: #{user_agent || "HTTPBundle"}
+          User-Agent: #{opt[:useragent] || "HTTPBundle"}
           
         END
         
@@ -690,7 +729,7 @@ class Subscriber
           GET #{request_uri.gsub("%", "%%")} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
-          User-Agent: #{user_agent || "HTTPBundle"}
+          User-Agent: #{opt[:useragent] || "HTTPBundle"}
           If-Modified-Since: %s
           If-None-Match: %s
           
@@ -700,7 +739,7 @@ class Subscriber
           GET #{request_uri.gsub("%", "%%")} HTTP/1.1
           Host: #{host}#{uri.default_port == uri.port ? "" : ":#{uri.port}"}
           #{extra_headers}Accept: #{@accept}
-          User-Agent: #{user_agent || "HTTPBundle"}
+          User-Agent: #{opt[:useragent] || "HTTPBundle"}
           If-Modified-Since: %s
           
         END
@@ -805,7 +844,7 @@ class Subscriber
     class HTTP2Bundle < ParserBundle
       attr_accessor :stream, :sock, :last_message_time, :done, :time_requested, :request_time
       GET_METHOD="GET"
-      def initialize(uri, user_agent, accept="*/*", extra_headers=nil)
+      def initialize(uri, opt = {})
         if HTTP2_MISSING
           raise SubscriberError, "HTTP/2 gem missing"
         end
@@ -817,11 +856,11 @@ class Subscriber
           ':method' => GET_METHOD,
           ':path' => "#{uri.path}#{uri.query && "?#{uri.query}"}",
           ':authority' => [uri.host, uri.port].join(':'),
-          'user-agent' => "#{user_agent || "HTTP2Bundle"}",
-          'accept' => accept
+          'user-agent' => "#{opt[:useragent] || "HTTP2Bundle"}",
+          'accept' => opt[:accept] || "*/*"
         }
-        if extra_headers
-          extra_headers.each{ |h, v| @head[h.to_s.downcase]=v }
+        if opt[:headers]
+          opt[:headers].each{ |h, v| @head[h.to_s.downcase]=v }
         end
         @client = HTTP2::Client.new
         @client.on(:frame) do |bytes|
@@ -935,11 +974,6 @@ class Subscriber
       @extra_headers = opt[:extra_headers]
       @verbose=opt[:verbose]
       @http2=opt[:http2] || opt[:h2]
-      if @timeout
-        @timer = after(@timeout) do 
-          stop "Timeout"
-        end
-      end
     end
     
     def stop(msg="Stopped", src_bundle=nil)
@@ -947,6 +981,7 @@ class Subscriber
       @bundles.each do |b, v|
         close b
       end
+      @timer.cancel if @timer
     end
     
     def run(was_success = nil)
@@ -955,9 +990,15 @@ class Subscriber
       @cooked=Celluloid::Condition.new
       @connected = @concurrency
       @notready = @concurrency
+      @timer.cancel if @timer
+      if @timeout
+        @timer = after(@timeout) do 
+          stop "Timeout"
+        end
+      end
       @concurrency.times do |i|
         begin
-          bundle = new_bundle(uri, "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}")
+          bundle = new_bundle(uri, id: i, useragent: "pubsub.rb #{self.class.name} #{@use_http2 ? "(http/2)" : ""} ##{i}", logger: @logger)
         rescue SystemCallError => e
           @subscriber.on_failure error(0, e.to_s)
           close nil
@@ -990,14 +1031,14 @@ class Subscriber
       end
     end
     
-    def new_bundle(uri, useragent, accept="*/*", extra_headers={})
-      if @extra_headers
-        extra_headers = extra_headers.merge @extra_headers
+    def new_bundle(uri, opt={})
+      if opt[:headers]
+        opt[:headers] = opt[:headers].merge @extra_headers
       end
       if @gzip
-        extra_headers = extra_headers.merge({ "Accept-Encoding" => "gzip, deflate"})
+        opt[:headers] = (opt[:headaers] or {}).merge({ "Accept-Encoding" => "gzip, deflate"})
       end
-      b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, useragent, accept, extra_headers)
+      b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, opt)
       b.on_error do |msg, err|
         handle_bundle_error b, msg, err
       end
@@ -1162,8 +1203,9 @@ class Subscriber
       
     end
     
-    def new_bundle(uri, useragent=nil)
-      super uri, useragent, "text/event-stream"
+    def new_bundle(uri, opt={})
+      opt[:accept]="text/event-stream"
+      super
     end
     
     def setup_bundle(b)
@@ -1298,8 +1340,9 @@ class Subscriber
       
     end
     
-    def new_bundle(uri, useragent=nil)
-      super uri, useragent, "multipart/mixed"
+    def new_bundle(uri, opt)
+      opt[:accept]="multipart/mixed"
+      super
     end
     
     def setup_bundle b
@@ -1311,6 +1354,7 @@ class Subscriber
           @cooked_ready.signal true if @notready == 0
           b.subparser = MultipartMixedParser.new headers["Content-Type"]
           b.subparser.on_part do |headers, message|
+            @timer.reset if @timer
             unless @nomsg
               @timer.reset if @timer
               msg=Message.new message.dup, headers["Last-Modified"], headers["Etag"]
@@ -1379,8 +1423,10 @@ class Subscriber
       [:chunked]
     end
     
-    def new_bundle(uri, user_agent)
-      super uri, user_agent, "*/*", {"TE" => "Chunked"}
+    def new_bundle(uri, opt)
+       opt[:accept]="*/*"
+       opt[:headers]=(opt[:headers] or {}).merge({"TE" => "Chunked"})
+      super
     end
     
     def setup_bundle(b)
@@ -1454,7 +1500,7 @@ class Subscriber
     
   end
 
-  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class
+  attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class, :log
   def initialize(url, concurrency=1, opt={})
     @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
     @url=url
@@ -1474,6 +1520,10 @@ class Subscriber
     opt[:concurrency]=concurrency
     @concurrency = opt[:concurrency]
     @opt=opt
+    if opt[:log]
+      @log = Subscriber::Logger.new
+      opt[:logger]=@log
+    end
     new_client
     reset
   end

@@ -59,7 +59,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || short_id
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol], log: opt[:log]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
