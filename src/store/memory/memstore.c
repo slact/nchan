@@ -841,7 +841,6 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
 
 
 static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
-  int                               use_redis = head->cf && head->cf->redis.enabled;
   static channel_spooler_handlers_t handlers = {
     memstore_spooler_add_handler,
     NULL,
