@@ -369,7 +369,9 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       nuspool = get_spool(spool->spooler, &oldest_msg_id);
       if(spool != nuspool) {
         spool_transfer_subscribers(spool, nuspool, 1);
-        destroy_spool(spool);
+        if(spool->reserved == 0) {
+          destroy_spool(spool);
+        }
       }
       else if(spool->id.tagcount == 1 && nchan_compare_msgids(&spool->id, &oldest_msg_id) == 0) {
         // oldest msgid not found or expired. that means there are no messages in this channel, 
@@ -377,7 +379,9 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
         nuspool = get_spool(spool->spooler, &latest_msg_id);
         assert(spool != nuspool);
         spool_transfer_subscribers(spool, nuspool, 1);
-        destroy_spool(spool);
+        if(spool->reserved == 0) {
+          destroy_spool(spool);
+        }
       }
       else if(spool == &spool->spooler->current_msg_spool) {
         //sit there and wait, i guess
