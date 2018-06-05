@@ -64,6 +64,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
       case NGX_HTTP_CONFLICT:
       case NGX_HTTP_CLOSE: //delete
       case NGX_HTTP_FORBIDDEN:
+      case NGX_HTTP_NOT_FOUND:
       case NGX_HTTP_REQUEST_TIMEOUT:
         DBG("%p forwarding MSG_NOTFOUND", d->sub);
         d->cb(MSG_NOTFOUND, NULL, d->pd);
