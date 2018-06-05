@@ -1,3 +1,12 @@
+ fix: publishing to an unavailable Redis-backed channel may result in a following
+      400 Bad Request
+ change: Redis-backed channel messages are now delievered after the message
+      buffer is fully loaded into memory
+ fix: multiplexed Redis-backed channels may not deliver messages if one or
+      more channels' messages all expire
+ fix: possible crash when catching up to reconnected Redis channel with
+      subscribers waiting for consecutive messages
+ fix: possible crash from rapidly creating and deleting channels
 1.1.15 (Apr. 27 2018)
  fix: A disconnect from a Redis cluster node can result in a segfault
  fix: Using Redis-backed multiplexed channels can result in a segfault
