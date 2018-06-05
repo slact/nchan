@@ -1147,9 +1147,6 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     
     if(head->slot == owner) {
       head->msg_buffer_complete = 0;
-      if(!head->msg_buf_complete_timeout) {
-        head->msg_buf_complete_timeout=nchan_add_oneshot_timer(msg_buf_complete_timeout_callback, head, 4000);
-      }
     }
     else {
       head->msg_buffer_complete = 1; //always assume buffer is complete, and let the owner figure out the details
