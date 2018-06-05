@@ -8,7 +8,6 @@
 #define DBG(fmt, arg...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SPOOL:" fmt, ##arg)
 
-#define NCHAN_MSG_NORESPONSE_RETRY_TIME 200
 #define NCHAN_SPOOL_FETCHMSG_MAX_TIMES 20
 
 //////// SPOOLs -- Subscriber Pools  /////////
@@ -24,7 +23,6 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool);
 
 static nchan_msg_id_t     latest_msg_id = NCHAN_NEWEST_MSGID;
 static nchan_msg_id_t     oldest_msg_id = NCHAN_OLDEST_MSGID;
-
 
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
@@ -83,6 +81,17 @@ static int validate_spooler(channel_spooler_t *spl, char *str) {
   return d.err == 0;
 }
 */
+
+static void spool_reserve(subscriber_pool_t *spool) {
+  spool->reserved++;
+}
+static void spool_release(subscriber_pool_t *spool) {
+  spool->reserved--;
+  ngx_int_t immortal_spool = spool->id.time == NCHAN_NEWEST_MSGID_TIME;
+  if(!immortal_spool && spool->reserved == 0 && spool->sub_count == 0) {
+    destroy_spool(spool);
+  }
+}
 
 static int msg_ids_equal(nchan_msg_id_t *id1, nchan_msg_id_t *id2) {
   int           i, max;
@@ -155,11 +164,11 @@ static ngx_inline void init_spool(channel_spooler_t *spl, subscriber_pool_t *spo
   spool->msg_status = MSG_INVALID;
   
   spool->first = NULL;
-  spool->pool = NULL;
   spool->sub_count = 0;
   spool->non_internal_sub_count = 0;
-  spool->generation = 0;
-  spool->responded_count = 0;
+  //spool->generation = 0;
+  //spool->responded_count = 0;
+  spool->reserved = 0;
   ngx_memzero(&spool->fetchmsg_ev, sizeof(spool->fetchmsg_ev));
   nchan_init_timer(&spool->fetchmsg_ev, fetchmsg_ev_handler, spool);
   spool->fetchmsg_current_count=0;
@@ -228,11 +237,13 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
     newspool = !immortal_spool ? find_spool(spl, &new_id) : get_spool(spl, &new_id);
     
     if(newspool != NULL) {
+      //move subs to next, already existing spool
       assert(spool != newspool);
       spool_transfer_subscribers(spool, newspool, 0);
-      if(!immortal_spool) destroy_spool(spool);
+      if(!immortal_spool && spool->reserved == 0) destroy_spool(spool);
     }
     else {
+      //next spool doesn't exist. reuse this one as the next
       ngx_rbtree_node_t       *node;
       assert(!immortal_spool);
       node = rbtree_node_from_data(spool);
@@ -274,30 +285,6 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   }
   
   return NGX_OK;
-}
-
-typedef struct {
-  nchan_msg_id_t     msg_id;
-  channel_spooler_t *spooler;
-} nomsg_retry_data_t;
-
-static void spool_fetch_msg_noresponse_retry_cancel(void *pd) {
-  nomsg_retry_data_t *d = pd;
-  nchan_free_msg_id(&d->msg_id);
-  ngx_free(d);
-}
-
-static void spool_fetch_msg_noresponse_retry_callback(void *pd) {
-  nomsg_retry_data_t *d = pd;
-  subscriber_pool_t *spool = get_spool(d->spooler, &d->msg_id);
-  if(spool && spool->msg_status == MSG_INVALID) {
-    spool_fetch_msg(spool);
-  }
-  else if(!spool) {
-    DBG("spool not found for spool_fetch_msg_noresponse_retry_callback");
-  }
-  
-  spool_fetch_msg_noresponse_retry_cancel(pd);
 }
 
 static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nchan_msg_t *msg, fetchmsg_data_t *data) {
@@ -367,22 +354,6 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       spool->msg = NULL;
       spool->msg_status = findmsg_status;
       break;
-    
-    case MSG_NORESPONSE:
-      if(prev_status == MSG_PENDING) {
-        spool->msg_status = MSG_INVALID;
-        if(spool->sub_count > 0) {
-          nomsg_retry_data_t *retry_data = ngx_alloc(sizeof(*retry_data), ngx_cycle->log);
-          
-          retry_data->spooler = spl;
-          
-          free_msg_id = 0;
-          retry_data->msg_id = data->msgid;
-          
-          spooler_add_timer(spl, NCHAN_MSG_NORESPONSE_RETRY_TIME, spool_fetch_msg_noresponse_retry_callback, spool_fetch_msg_noresponse_retry_cancel, retry_data);
-        }
-      }
-      break;
       
     case MSG_NOTFOUND:
       if(spl->fetching_strategy == FETCH_IGNORE_MSG_NOTFOUND) {
@@ -398,7 +369,9 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       nuspool = get_spool(spool->spooler, &oldest_msg_id);
       if(spool != nuspool) {
         spool_transfer_subscribers(spool, nuspool, 1);
-        destroy_spool(spool);
+        if(spool->reserved == 0) {
+          destroy_spool(spool);
+        }
       }
       else if(spool->id.tagcount == 1 && nchan_compare_msgids(&spool->id, &oldest_msg_id) == 0) {
         // oldest msgid not found or expired. that means there are no messages in this channel, 
@@ -406,7 +379,9 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
         nuspool = get_spool(spool->spooler, &latest_msg_id);
         assert(spool != nuspool);
         spool_transfer_subscribers(spool, nuspool, 1);
-        destroy_spool(spool);
+        if(spool->reserved == 0) {
+          destroy_spool(spool);
+        }
       }
       else if(spool == &spool->spooler->current_msg_spool) {
         //sit there and wait, i guess
@@ -422,8 +397,12 @@ static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nch
       ERR("spool %p set status to MSG_PENDING", spool);
       break;
       
-    default:
-      assert(0);
+    case MSG_ERROR:
+      spool_respond_general(spool, NULL, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, 0);
+      break;
+      
+    case MSG_INVALID:
+      assert(0); //should never happen
       break;
   }
   
@@ -456,11 +435,13 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
     spool->fetchmsg_prev_msec = (ngx_timeofday())->msec;
   }
   
-  if(*spl->channel_status != READY) {
-    DBG("%p wanted to fetch msg %V, but channel %V not ready", spool, msgid_to_str(&spool->id), spl->chid);
+  if(*spl->channel_status != READY || !*spl->channel_buffer_complete) {
+    //DBG("%p wanted to fetch msg %V, but channel %V not ready or buffer not complete", spool, msgid_to_str(&spool->id), spl->chid);
     spool->msg_status = MSG_CHANNEL_NOTREADY;
+    //these will be fetch when channel is ready or when buffer is complete
     return NGX_DECLINED;
   }
+  
   DBG("%p fetch msg %V for channel %V", spool, msgid_to_str(&spool->id), spl->chid);
   data = ngx_alloc(sizeof(*data), ngx_cycle->log); //correctness over efficiency (at first).
   //TODO: optimize this alloc away
@@ -601,7 +582,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
   //int8_t                     i, max;
   
   ngx_memzero(numsubs, sizeof(numsubs));
-  self->generation++;
+  //self->generation++;
   
   DBG("spool %p (%V) (subs: %i) respond with msg %p or code %i", self, msgid_to_str(&self->id), self->sub_count, msg, code);
   if(msg) {
@@ -629,11 +610,11 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     nnext = nsub->next;
     
     if(msg) {
-      self->responded_count++;
+      //self->responded_count++;
       sub->fn->respond_message(sub, msg);
     }
     else if(!notice) {
-      self->responded_count++;
+      //self->responded_count++;
       sub->fn->respond_status(sub, code, code_data, NULL);
     }
     else {
@@ -641,7 +622,7 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
     }
   }
   
-  if(!notice && code != NGX_HTTP_NO_CONTENT) self->responded_count++;
+  //if(!notice && code != NGX_HTTP_NO_CONTENT) self->responded_count++;
   //assert(validate_spooler(spl, "after respond_general"));
   return NGX_OK;
 }
@@ -733,8 +714,9 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
       
     case MSG_EXPIRED:
     case MSG_NOTFOUND:
-    case MSG_NORESPONSE:
+    case MSG_ERROR:
       //shouldn't happen
+      
       assert(0);
   }
   
@@ -1078,16 +1060,26 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
 }
 
 static int its_time_for_a_spooling_filter(void *data) {
-  return ((subscriber_pool_t *)data)->msg_status == MSG_CHANNEL_NOTREADY;
+  subscriber_pool_t *spool = data;
+  if(spool->msg_status == MSG_CHANNEL_NOTREADY || spool->msg_status == MSG_INVALID) {
+    spool_reserve(spool);
+    return 1;
+  }
+  else {
+    return 0;
+  }
 }
 
 static ngx_int_t its_time_for_a_spooling(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
-  ngx_int_t       rc;
+  ngx_int_t       rc = NGX_OK;
   //validate_spool(spool);
-  assert(spool->msg_status == MSG_CHANNEL_NOTREADY || spool->msg_status == MSG_INVALID);
-  spool->msg_status = MSG_INVALID;
-  rc = spool_fetch_msg(spool);
-  assert(rc == NGX_OK || rc == NGX_DONE);
+  if(spool->msg_status == MSG_CHANNEL_NOTREADY || spool->msg_status == MSG_INVALID) {
+    //TODO: maybe don't fetch spool with zero subs?
+    spool->msg_status = MSG_INVALID;
+    rc = spool_fetch_msg(spool);
+    assert(rc == NGX_OK || rc == NGX_DONE || NGX_DECLINED);
+  }
+  spool_release(spool);
   return rc;
 }
 
@@ -1195,6 +1187,7 @@ static ngx_int_t remove_spool(subscriber_pool_t *spool) {
   channel_spooler_t    *spl = spool->spooler;
   ngx_rbtree_node_t    *node = rbtree_node_from_data(spool);
   
+  assert(spool->reserved == 0);
   DBG("remove spool node %p", node);
   
   assert(spool->spooler->running);
@@ -1231,7 +1224,7 @@ static ngx_int_t destroy_spool(subscriber_pool_t *spool) {
   assert(spool->sub_count == 0);
   assert(spool->first == NULL);
   
-  ngx_memset(spool, 0x42, sizeof(*spool)); //debug
+  //ngx_memset(spool, 0x42, sizeof(*spool)); //debug
   
   rbtree_destroy_node(seed, node);
   return NGX_OK;

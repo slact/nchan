@@ -21,12 +21,6 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:MEM-REDIS:" fmt, ##arg)
 
 
-typedef struct msgexpected_callback_llist_s msgexpected_callback_llist_t;
-struct msgexpected_callback_llist_s {
-  void                         (*cb)(nchan_msg_status_t, void *);
-  msgexpected_callback_llist_t  *next;
-};
-
 typedef struct sub_data_s sub_data_t;
 
 struct sub_data_s {
@@ -35,7 +29,6 @@ struct sub_data_s {
   ngx_str_t                    *chid;
   ngx_event_t                   timeout_ev;
   nchan_msg_status_t            last_msg_status;
-  msgexpected_callback_llist_t *waiting_for_msg_expected;
   sub_data_t                  **onconnect_callback_pd;
 }; //sub_data_t
 
@@ -44,17 +37,6 @@ static ngx_int_t empty_callback(){
   return NGX_OK;
 }
 */
-
-static void respond_msgexpected_callbacks(sub_data_t *d, nchan_msg_status_t status) {
-  msgexpected_callback_llist_t    *cur, *next;
-  cur = d->waiting_for_msg_expected;
-  d->waiting_for_msg_expected = NULL;
-  for(; cur != NULL; cur = next) {
-    next = cur->next;
-    cur->cb(status, &cur[1]);
-    ngx_free(cur);
-  }
-}
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p memstore-redis subsriber enqueued ok", d->sub);
@@ -72,7 +54,6 @@ ngx_int_t memstore_redis_subscriber_destroy(subscriber_t *sub) {
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   DBG("%p dequeue", d->sub);
-  respond_msgexpected_callbacks(d, MSG_NORESPONSE);
   return NGX_OK;
 }
 
@@ -103,8 +84,6 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   }
   
   lastid = &d->chanhead->latest_msgid;
-  
-  respond_msgexpected_callbacks(d, MSG_NORESPONSE);
   
   assert(lastid->tagcount == 1 && msg->id.tagcount == 1);
   if(lastid->time < msg->id.time || 
@@ -155,7 +134,6 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
   switch(status) {
     case NGX_HTTP_GONE: //delete
     case NGX_HTTP_CLOSE: //delete
-      respond_msgexpected_callbacks(d, MSG_NORESPONSE);
       fake_cf = *d->sub->cf;
       fake_cf.redis.enabled = 0;
       d->sub->destroy_after_dequeue = 1;
@@ -177,7 +155,6 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
         nchan_memstore_publish_notice(d->chanhead, NCHAN_NOTICE_BUFFER_LOADED, NULL);
       }
       d->last_msg_status = MSG_EXPECTED;
-      respond_msgexpected_callbacks(d, MSG_EXPECTED);
       //TODO: stuff about REDIS_MODE_BACKUP
       
       break;
@@ -199,30 +176,6 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
   return NGX_OK;
 }
 
-ngx_int_t nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(subscriber_t *sub, nchan_msg_id_t *id, void (*cb)(nchan_msg_status_t, void*), size_t pd_sz, void *pd) {
-  sub_data_t      *d = internal_subscriber_get_privdata(sub);
-  int8_t           cmpval = nchan_compare_msgids(id, &sub->last_msgid);
-  if(cmpval < 0) {
-    cb(MSG_NORESPONSE, pd);
-  }
-  else if(d->last_msg_status == MSG_EXPECTED) {
-    cb(MSG_EXPECTED, pd);
-  }
-  else {
-    msgexpected_callback_llist_t *cbl;
-    void  *pd_copy;
-    if((cbl = ngx_alloc(sizeof(*cbl) + pd_sz, ngx_cycle->log)) == NULL) {
-      ERR("Unable to allocate memory for notify_on_MSG_EXPECTED callback llist");
-      return NGX_ERROR;
-    }
-    pd_copy = &cbl[1];
-    ngx_memcpy(pd_copy, pd, pd_sz);
-    cbl->cb = cb;
-    cbl->next = d->waiting_for_msg_expected;
-    d->waiting_for_msg_expected = cbl;
-  }
-  return NGX_OK;
-}
 /*
 static void reset_timer(sub_data_t *data) {
   if(data->timeout_ev.timer_set) {
@@ -264,7 +217,6 @@ subscriber_t *memstore_redis_subscriber_create(memstore_channel_head_t *chanhead
   d->chanhead = chanhead;
   d->chid = &chanhead->id;
   d->last_msg_status = MSG_PENDING;
-  d->waiting_for_msg_expected = NULL;
   d->onconnect_callback_pd = NULL;
 
   

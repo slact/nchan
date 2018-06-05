@@ -44,6 +44,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/memstore_ipc.c \
   ${ngx_addon_dir}/src/subscribers/memstore_multi.c \
   ${ngx_addon_dir}/src/subscribers/memstore_redis.c \
+  ${ngx_addon_dir}/src/subscribers/getmsg_proxy.c \
 "
 
 _NCHAN_REDIS_STORE_SRCS="\
