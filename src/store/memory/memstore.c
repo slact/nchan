@@ -1043,7 +1043,6 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   }
   else {
     head->shared = NULL;
-    head->msg_buffer_complete = 1; //always assume buffer is complete, and let the owner figure out the details
   }
   
   //no lock needed, no one else knows about this chanhead yet.
@@ -1145,7 +1144,16 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->delta_fakesubs = 0;
     head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
     
-    head->msg_buffer_complete = 0;
+    
+    if(head->slot == owner) {
+      head->msg_buffer_complete = 0;
+      if(!head->msg_buf_complete_timeout) {
+        head->msg_buf_complete_timeout=nchan_add_oneshot_timer(msg_buf_complete_timeout_callback, head, 4000);
+      }
+    }
+    else {
+      head->msg_buffer_complete = 1; //always assume buffer is complete, and let the owner figure out the details
+    }
   }
   else {
     head->redis_idle_cache_ttl = 0;
