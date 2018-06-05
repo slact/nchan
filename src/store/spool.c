@@ -287,7 +287,8 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   return NGX_OK;
 }
 
-static ngx_int_t spool_fetch_msg_callback(nchan_msg_status_t findmsg_status, nchan_msg_t *msg, fetchmsg_data_t *data) {
+static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetchmsg_data_t *data) {
+  nchan_msg_status_t    findmsg_status = code;
   nchan_msg_status_t    prev_status;
   subscriber_pool_t    *spool, *nuspool;
   channel_spooler_t    *spl = data->spooler;

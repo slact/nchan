@@ -93,8 +93,8 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_
   return nchan_memstore_store_msg_ready_to_reap_generic(smsg, 1, force);
 }
 
-static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
-static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
+static void memstore_reap_message( nchan_msg_t *msg );
+static void memstore_reap_store_message( store_message_t *smsg );
 
 static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
@@ -1835,7 +1835,7 @@ static ngx_int_t validate_chanhead_messages(memstore_channel_head_t *ch) {
   return NGX_OK;
 }
 
-static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
+static void memstore_reap_message( nchan_msg_t *msg ) {
   ngx_buf_t         *buf = &msg->buf;
   ngx_file_t        *f = buf->file;
   
@@ -1870,16 +1870,14 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
   shm_free(shm, msg);
   nchan_update_stub_status(messages, -1);
-  return NGX_OK;
 }
 
-static ngx_int_t memstore_reap_store_message( store_message_t *smsg ) {
+static void memstore_reap_store_message( store_message_t *smsg ) {
   
   memstore_reap_message(smsg->msg);
   
   ngx_memset(smsg, 0xBC, sizeof(*smsg)); //debug stuff
   ngx_free(smsg);
-  return NGX_OK;
 }
 
 
@@ -2456,7 +2454,7 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
   d->msg_status = status;
 }
 
-static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd);
+static ngx_int_t nchan_store_async_get_multi_message_callback(ngx_int_t code, void *d, void *pd);
 
 static ngx_int_t nchan_store_async_get_multi_message_callback_cleanup(get_multi_message_data_t *d) {
   if(d->getting == 0) {
@@ -2469,7 +2467,11 @@ static ngx_int_t nchan_store_async_get_multi_message_callback_cleanup(get_multi_
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
+static ngx_int_t nchan_store_async_get_multi_message_callback(ngx_int_t code, void *ptr, void *pd) {
+  nchan_msg_status_t          status = code;
+  nchan_msg_t                *msg = ptr;
+  get_multi_message_data_single_t *sd = pd;
+  
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   //ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
@@ -2686,7 +2688,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       //DBG("get message from %V (n: %i) %V", getmsg_chid, i, msgid_to_str(&req_msgid[i]));
-      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], chead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], chead->cf, nchan_store_async_get_multi_message_callback, sd);
       sd++;
     }
   }
