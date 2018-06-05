@@ -537,8 +537,7 @@ typedef struct {
 } getmessage_data_proxy_pd_t;
 
 //for retrieving messages from unready buffers
-static ngx_int_t ipc_getmsg_proxy_callback(ngx_int_t code, store_message_t *msg, getmessage_data_proxy_pd_t *ppd) {
-  ERR("HERE WE GOOOOO");
+static ngx_int_t ipc_getmsg_proxy_callback(ngx_int_t code, nchan_msg_t *msg, getmessage_data_proxy_pd_t *ppd) {
   ppd->data.d.resp.getmsg_code = code;
   ppd->data.d.resp.shm_msg = msg;
   if(msg) {

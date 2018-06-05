@@ -103,13 +103,12 @@ static ngx_int_t sub_respond_message(ngx_int_t status, nchan_msg_t *msg, sub_dat
 }
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
-  DBG("%p subscriber respond with status (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
+  DBG("%p subscriber respond with status %i (%p %V %i) %V", d->multi->sub, status, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   switch(status) {
     case NGX_HTTP_GONE: //delete
     case NGX_HTTP_CLOSE: //delete
       nchan_memstore_publish_generic(d->multi_chanhead, NULL, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
       //nchan_store_memory.delete_channel(d->chid, NULL, NULL);
-      //TODO: change status to NOTREADY and whatnot
       break;
     
     case NGX_HTTP_CONFLICT:

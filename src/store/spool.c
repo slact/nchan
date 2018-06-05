@@ -432,7 +432,7 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
   }
   
   if(*spl->channel_status != READY || !*spl->channel_buffer_complete) {
-    DBG("%p wanted to fetch msg %V, but channel %V not ready or buffer not complete", spool, msgid_to_str(&spool->id), spl->chid);
+    //DBG("%p wanted to fetch msg %V, but channel %V not ready or buffer not complete", spool, msgid_to_str(&spool->id), spl->chid);
     spool->msg_status = MSG_CHANNEL_NOTREADY;
     //these will be fetch when channel is ready or when buffer is complete
     return NGX_DECLINED;

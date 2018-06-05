@@ -1355,11 +1355,11 @@ static ngx_str_t *chanhead_msg_to_str(store_message_t *msg) {
 
 ngx_int_t nchan_memstore_publish_notice(memstore_channel_head_t *head, ngx_int_t notice_code, const void *notice_data) {
   
-  ERR("tried publishing notice %i to chanhead %p (subs: %i)", notice_code, head, head->total_sub_count);
+  DBG("tried publishing notice %i to chanhead %p (subs: %i)", notice_code, head, head->total_sub_count);
   
   switch(notice_code) {
     case NCHAN_NOTICE_BUFFER_LOADED:
-      ERR("buffer loaded from Redis");
+      //DBG("buffer loaded from Redis");
       if(head->msg_buffer_complete == 0) {
         head->msg_buffer_complete = 1;
         ensure_chanhead_ready_or_trash_chanhead(head, 0);
