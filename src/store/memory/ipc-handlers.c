@@ -332,10 +332,10 @@ static void receive_publish_status(ngx_int_t sender, publish_code_data_t *d) {
 
 ////////// PUBLISH_NOTICE ////////////////
 ngx_int_t memstore_ipc_send_publish_notice(ngx_int_t dst, ngx_str_t *chid, ngx_int_t notice_code, void *notice_data) {
-  DBG("IPC: send publish status to %i ch %V", dst, chid);
+  DBG("IPC: send publish notice to %i ch %V", dst, chid);
   publish_code_data_t  data = {str_shm_copy(chid), notice_code, notice_data, NULL, NULL};
   if(data.shm_chid == NULL) {
-    nchan_log_ooshm_error("sending IPC status alert for channel %V", chid);
+    nchan_log_ooshm_error("sending IPC notice alert for channel %V", chid);
     return NGX_DECLINED;
   }
   return ipc_cmd(publish_notice, dst, &data);
