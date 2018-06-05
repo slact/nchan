@@ -714,7 +714,7 @@ class Subscriber
         @sndbuf=""
         @parser = Http::Parser.new
         @done = false
-        extra_headers = (opt[:headers] or {}).map{|k,v| "#{k}: #{v}\n"}.join ""
+        extra_headers = (opt[:headers] or opt[:extra_headers] or {}).map{|k,v| "#{k}: #{v}\n"}.join ""
         host = uri.host.match "[^/]+$"
         request_uri = "#{uri.path}#{uri.query && "?#{uri.query}"}"
         @send_noid_str= <<-END.gsub(/^ {10}/, '')
@@ -1032,11 +1032,12 @@ class Subscriber
     end
     
     def new_bundle(uri, opt={})
-      if opt[:headers] && @extra_headers
-        opt[:headers] = opt[:headers].merge @extra_headers
+      opt[:headers]||={}
+      if @extra_headers
+        opt[:headers].merge! @extra_headers
       end
       if @gzip
-        opt[:headers] = (opt[:headaers] or {}).merge({ "Accept-Encoding" => "gzip, deflate"})
+        opt[:headers]["Accept-Encoding"]="gzip, deflate"
       end
       b=(@http2 ? HTTP2Bundle : HTTPBundle).new(uri, opt)
       b.on_error do |msg, err|
