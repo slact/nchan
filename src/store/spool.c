@@ -1061,7 +1061,7 @@ static ngx_int_t spool_rbtree_compare(void *v1, void *v2) {
 
 static int its_time_for_a_spooling_filter(void *data) {
   subscriber_pool_t *spool = data;
-  if(spool->msg_status == MSG_CHANNEL_NOTREADY) {
+  if(spool->msg_status == MSG_CHANNEL_NOTREADY || spool->msg_status == MSG_INVALID) {
     spool_reserve(spool);
     return 1;
   }
@@ -1073,7 +1073,8 @@ static int its_time_for_a_spooling_filter(void *data) {
 static ngx_int_t its_time_for_a_spooling(rbtree_seed_t *seed, subscriber_pool_t *spool, void *data) {
   ngx_int_t       rc = NGX_OK;
   //validate_spool(spool);
-  if(spool->sub_count > 0 && spool->msg_status == MSG_CHANNEL_NOTREADY) {
+  if(spool->msg_status == MSG_CHANNEL_NOTREADY || spool->msg_status == MSG_INVALID) {
+    //TODO: maybe don't fetch spool with zero subs?
     spool->msg_status = MSG_INVALID;
     rc = spool_fetch_msg(spool);
     assert(rc == NGX_OK || rc == NGX_DONE || NGX_DECLINED);
