@@ -1032,7 +1032,7 @@ class Subscriber
     end
     
     def new_bundle(uri, opt={})
-      if opt[:headers]
+      if opt[:headers] && @extra_headers
         opt[:headers] = opt[:headers].merge @extra_headers
       end
       if @gzip
