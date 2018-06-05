@@ -385,15 +385,22 @@ void oneshot_timer_callback(ngx_event_t *ev) {
   ngx_free(timer);
  }
 
-ngx_int_t nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay) {
+void *nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay) {
   oneshot_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
   ngx_memzero(&timer->ev, sizeof(timer->ev));
   timer->cb = cb;
   nchan_init_timer(&timer->ev, oneshot_timer_callback, pd);
   ngx_add_timer(&timer->ev, delay);
-  return NGX_OK;
+  return timer;
 }
 
+void nchan_abort_oneshot_timer(void *t) {
+  oneshot_timer_t *timer = t;
+  if(timer->ev.timer_set) {
+    ngx_del_timer(&timer->ev);
+  }
+  ngx_free(timer);
+}
 
 typedef struct {
   ngx_event_t    ev;
