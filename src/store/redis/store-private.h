@@ -60,21 +60,27 @@ typedef struct {
   ngx_int_t     db;
 } redis_connect_params_t;
 
+typedef enum {
+  REDIS_NODE_UNKNOWN = 0, REDIS_NODE_MASTER, REDIS_NODE_SLAVE
+} redis_node_role_t;
+
 #define REDIS_NODE_FAILED                -1
 #define REDIS_NODE_DISCONNECTED           0
 #define REDIS_NODE_CONNECTED              1
 #define REDIS_NODE_CMD_AUTHENTICATING     2
 #define REDIS_NODE_PUBSUB_AUTHENTICATING  3
-#define REDIS_NODE_CMD_SELECTING_DB       4
-#define REDIS_NODE_PUBSUB_SELECTING_DB    5
-#define REDIS_NODE_DB_SELECTED            6
-#define REDIS_NODE_GETTING_INFO           7
-#define REDIS_NODE_LOADING_DATA           8
-#define REDIS_NODE_SCRIPTS_LOADED         9
+#define REDIS_NODE_AUTHENTICATED          4
+#define REDIS_NODE_CMD_SELECTING_DB       5
+#define REDIS_NODE_PUBSUB_SELECTING_DB    6
+#define REDIS_NODE_DB_SELECTED            7
+#define REDIS_NODE_GETTING_INFO           8
+
+#define REDIS_NODE_SCRIPTS_LOADED         10
 //#define REDIS_NODE_SCRIPTS_LOADED       10
 
 struct redis_node_s {
   int                       state;
+  redis_node_role_t         role;
   redis_connect_params_t    connect_params;
   redis_nodeset_t          *nodeset;
   struct {

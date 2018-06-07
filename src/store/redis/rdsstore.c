@@ -876,7 +876,7 @@ static int redis_initialize_ctx(redisAsyncContext **ctx, rdstore_data_t *rdata) 
   if(*ctx == NULL) {
     redisAsyncContext *new_ctx;
     DBG("connect to %V port %i", have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port);
-    new_ctx = redis_nginx_open_context(have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port);
+    new_ctx = redis_nginx_open_context(have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port, rdata);
     if(new_ctx != NULL) {
       *ctx = new_ctx;
       rdata_set_status_flag(rdata, connection_established, 1);
@@ -2612,7 +2612,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;
     assert(rcf->enabled);
-    if((nodeset = nodeset_find(&rcf->upstream)) == NULL) {
+    if((nodeset = nodeset_find(rcf)) == NULL) {
       nodeset = nodeset_create(rcf);
     }
     if(!nodeset) {

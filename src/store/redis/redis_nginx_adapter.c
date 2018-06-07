@@ -48,7 +48,6 @@ redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, void *pri
   if (ac->err) {
     ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
     redisAsyncFree(ac);
-    *context = NULL;
     return NULL;
   }
   

@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include "store-private.h"
+#include <store/store_common.h>
 #include "store.h"
 #include "redis_nginx_adapter.h"
 
@@ -21,11 +22,6 @@
   ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: Redis node %V:%d " fmt, &node->connect_params.hostname, node->connect_params.port, ##args)
 #define node_log_info(node, fmt, args...) \
   ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0, "nchan: Redis node %V:%d " fmt, &node->connect_params.hostname, node->connect_params.port, ##args)
-  
-}
-static ngx_int_t node_log_warning(redis_node_t *node) {
-  
-}
 
 static redis_nodeset_t redis_nodeset[NCHAN_MAX_NODESETS];
 static int             redis_nodeset_count = 0;
@@ -171,8 +167,8 @@ redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *r
 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
 
-static void node_connector_fail(redis_node_t *node) {
-  DBG("fail");
+static void node_connector_fail(redis_node_t *node, const char *err) {
+  node_log_error(node, "%s", err ? err : "failed to connect");
   node->state = REDIS_NODE_FAILED;
   if(node->ctx.cmd) {
     redisAsyncFree(node->ctx.cmd);
@@ -181,7 +177,7 @@ static void node_connector_fail(redis_node_t *node) {
     redisAsyncFree(node->ctx.pubsub);
   }
   if(node->ctx.sync) {
-    redisFree(node->ctx.syncl
+    redisFree(node->ctx.sync);
   }
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
@@ -189,25 +185,24 @@ static void node_connector_fail(redis_node_t *node) {
 }
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata) {
-  redisReply =               *reply = rep;
-  redis_node_t               *node = *privdata;
+  redisReply                 *reply = rep;
+  redis_node_t               *node = privdata;
   
-  redis_connect_params_t     *cp = node->connect_params;
-  redisAsyncContext          *ctx;
+  redis_connect_params_t     *cp = &node->connect_params;
 
   switch(node->state) {
     case REDIS_NODE_FAILED:
     case REDIS_NODE_DISCONNECTED:
       node->ctx.cmd = redis_nginx_open_context(&cp->hostname, cp->port, node); //always connect the cmd ctx to the hostname
       if(node->ctx.cmd == NULL) {
-        return node_connector_fail(node);
+        return node_connector_fail(node, "failed to open redis async context for cmd");
       }
       else if(cp->peername.len == 0) { //don't know peername yet
         set_preallocated_peername(node->ctx.cmd, &cp->peername);
       }
       node->ctx.pubsub = redis_nginx_open_context(cp->peername.len > 0 ? &cp->peername : &cp->hostname, cp->port, node); //try to connect to peername if possible
       if(node->ctx.pubsub == NULL) {
-        return node_connector_fail(node);
+        return node_connector_fail(node, "failed to open redis async context for pubsub");
       }
       //connection established. move on...   
       node->state++;
@@ -277,14 +272,14 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "Redis INFO command failed,");
       }
       if(ngx_strstrn((u_char *)reply->str, "loading:1", 8)) {
-        return node_connector_fail("is busy loading data...");
+        return node_connector_fail(node, "is busy loading data...");
         //TODO: retry later
       }
-      if(/*cluster*/) {
+      if(1/*cluster*/) {
         //do cluster stuff
       }
       else {
-        if(/*master*/) {
+        if(1/*master*/) {
           //get slaves
         }
         else {
