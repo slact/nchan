@@ -1041,7 +1041,7 @@ class PubSubTest <  Minitest::Test
     
     verify pub, sub
     verify pub, sub2
-    sub1.terminate
+    sub.terminate
     sub2.terminate
   end
   
