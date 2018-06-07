@@ -196,44 +196,41 @@ redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis
   return node;
 }
 
-ngx_int_t nodeset_node_destroy(redis_node_t *node) {
-  redis_node_t   *master = node->peers.master;
+static void node_remove_peer(redis_node_t *node, redis_node_t *peer) {
   redis_node_t  **cur;
-  int             slave_found = 0;
-  if(master) {
-    for(cur = nchan_list_first(&master->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
-      if(*cur == node) {
-        nchan_list_remove(&master->peers.slaves, cur);
-        slave_found = 1;
-        break;
-      }
-    }
-    assert(slave_found);
+  if(node->peers.master == peer) {
+    node->peers.master = NULL;
   }
   
   for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
-    assert((*cur)->peers.master == node);
-    (*cur)->peers.master = NULL;
+    if(*cur == node) {
+      nchan_list_remove(&node->peers.slaves, cur);
+      return;
+    }
   }
-  
+}
+
+ngx_int_t nodeset_node_destroy(redis_node_t *node) {
+  node_set_role(node, REDIS_NODE_UNKNOWN); //removes from all peer lists
+  nchan_list_empty(&node->peers.slaves);
   nchan_list_remove(&node->nodeset->nodes, node);
   return NGX_OK;
 }
 
 static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
   redis_node_t    *slave;
-  redis_node_t   **slaveref;
-  if(nodeset_node_find(master->nodeset, rcp)) {
+  if((slave = nodeset_node_find(master->nodeset, rcp))!= NULL) {
     //we know about it already
-    return;
+    assert(slave->role == REDIS_NODE_SLAVE);
+    assert(slave->peers.master == master);
   }
-  
-  slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
-  slave->discovered = 1;
-  slave->peers.master = master;
-  
-  slaveref = nchan_list_append(&master->peers.slaves);
-  *slaveref = slave;
+  else {
+    slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
+    slave->discovered = 1;
+    node_set_role(slave, REDIS_NODE_SLAVE);
+  }
+  node_set_master_node(slave, master); //this is idempotent
+  node_add_slave_node(master, slave);  //so is this
 }
 
 static void node_parseinfo_discover_slaves(redis_node_t *node, const char *info) {
@@ -262,10 +259,43 @@ static void node_parseinfo_discover_slaves(redis_node_t *node, const char *info)
   
 }
 
-static void node_parseinfo_discover_master(redis_node_t *node, const char *info) {
-  //eh?
+static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
+  redis_node_t *master;
+  if ((master = nodeset_node_find(slave->nodeset, rcp)) != NULL) {
+    assert(master->role == REDIS_NODE_MASTER);
+    assert(node_find_slave_node(master, slave));
+  }
+  else {
+    master = nodeset_node_create_with_connect_params(master->nodeset, rcp);
+    master->discovered = 1;
+    node_set_role(slave, REDIS_NODE_MASTER);
+  }
+  node_set_master_node(slave, master);
+  node_add_slave_node(master, slave);
 }
 
+static void node_parseinfo_discover_master(redis_node_t *node, const char *info) {
+  redis_connect_params_t    rcp;
+  ngx_str_t                 port;
+  if(!nchan_get_rest_of_line_in_cstr(info, "master_host:", &rcp.hostname)) {
+    node_log_error(node, "failed to find master_host while discovering master");
+    return;
+  }
+  
+  if(!nchan_get_rest_of_line_in_cstr(info, "master_port:", &port)) {
+    node_log_error(node, "failed to find master_port while discovering master");
+    return;
+  }
+  rcp.port = ngx_atoi(port.data, port.len);
+  if(rcp.port == NGX_ERROR) {
+    node_log_error(node, "failed to parse master_port while discovering master");
+    return;
+  }
+  rcp.db = node->connect_params.db;
+  rcp.password = node->connect_params.password;
+  
+  node_discover_master(node, &rcp);
+}
 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
 
@@ -284,6 +314,69 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
+}
+
+void node_set_role(redis_node_t *node, redis_node_role_t role) {
+  assert(node->role != role);
+  node->role = role;
+  redis_node_t  **cur;
+  switch(node->role) {
+    case REDIS_NODE_UNKNOWN:
+      if(node->peers.master) {
+        node_remove_peer(node->peers.master, node);
+        node->peers.master = NULL;
+      }
+      for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
+        assert((*cur)->peers.master == node);
+        node_remove_peer(*cur, node);
+      }
+      nchan_list_empty(&node->peers.slaves);
+      break;
+    
+    case REDIS_NODE_MASTER:
+      if(node->peers.master) {
+        node_remove_peer(node->peers.master, node);
+        node->peers.master = NULL;
+      }
+      break;
+    
+    case REDIS_NODE_SLAVE:
+      //do nothing
+      break;
+      
+  }
+}
+
+int node_set_master_node(redis_node_t *node, redis_node_t *master) {
+  if(node->peers.master && node->peers.master != master) {
+    node_remove_slave_node(master, node);
+  }
+  node->peers.master = master;
+  return 1;
+}
+redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave) {
+  redis_node_t **cur;
+  for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
+    if (*cur == slave) {
+      return slave;
+    }
+  }
+  return NULL;
+}
+int node_add_slave_node(redis_node_t *node, redis_node_t *slave) {
+  if(!node_find_slave_node(node, slave)) {
+    redis_node_t **slaveref;
+    slaveref = nchan_list_append(&node->peers.slaves);
+    *slaveref = slave;
+    return 1;
+  }
+  return 1;
+}
+int node_remove_slave_node(redis_node_t *node, redis_node_t *slave) {
+  if(!node_find_slave_node(node, slave)) {
+    nchan_list_remove(&node->peers.slaves, slave);
+  }
+  return 1;
 }
 
 static int node_parseinfo_set_preallocd_str(redis_node_t *node, ngx_str_t *target, const char *info, const char *linestart, size_t maxlen) {
@@ -399,15 +492,19 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "is busy loading data...");
         //TODO: retry later
       }
+      
       if(nchan_cstrmatch(reply->str, 1, "role:master")) {
+        node_set_role(node, REDIS_NODE_MASTER);
         node_parseinfo_discover_slaves(node, reply->str);
       }
       else if(nchan_cstrmatch(reply->str, 1, "role:slave")) {
+        node_set_role(node, REDIS_NODE_SLAVE);
         node_parseinfo_discover_master(node, reply->str);
       }
       else {
         return node_connector_fail(node, "can't tell if node is master or slave");
       }
+      
       if(nchan_cstrmatch(reply->str, 1, "cluster_enabled:1")) {
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, NULL, "CLUSTER INFO");
         node->state++;
