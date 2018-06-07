@@ -236,15 +236,19 @@ void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr) {
   //ERR("rest_line: \"%V\"", line);
   cur = (u_char *)memchr(line->data, chr, line->len);
   if(!cur) {
-    *str = *line;
+    if(str) {
+      *str = *line;
+    }
     line->data += line->len;
     line->len = 0;
   }
   else {
-    str->data = line->data;
-    str->len = (cur - line->data);
-    line->len -= str->len + 1;
-    line->data += str->len + 1;
+    if(str) {
+      str->data = line->data;
+      str->len = (cur - line->data);
+    }
+    line->len -= (cur - line->data) + 1;
+    line->data += (cur - line->data) + 1;
   }
   //ERR("str: \"%V\"", str);
 }
@@ -457,6 +461,25 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
     if(strncmp(cur, substr, sz) == 0) {
       return 1;
     }
+  }
+  return 0;
+}
+
+int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx_str_t *rest) {
+  char *first = strstr(cstr, line_start);
+  if(first && (first == cstr || first[-1]=='\n')) { //start of line or start of string
+    char *last = strchr(first, '\n');
+    if(last > first && last[-1]=='\r') {
+      last--;
+    }
+    if(rest) {
+      rest->len = last - first;
+      rest->data = (u_char *)first;
+    }
+    return 1;
+  }
+  if(rest) {
+    rest->len = 0;
   }
   return 0;
 }

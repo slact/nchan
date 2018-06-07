@@ -48,8 +48,5 @@ ngx_int_t nchan_list_traverse_and_empty(nchan_list_t *list, void (*)(void *data,
   ((nchan_list_el_t *)el_data - 1)
 #define nchan_list_data_from_el(el) \
   ((void *)&el[1])
-  
-#define NCHAN_LIST_EACH(list, cur) \
-  for(cur = nchan_list_data_from_el((list)->head); nchan_list_el_from_data(cur) != NULL; cur = nchan_list_data_from_el(nchan_list_el_from_data(cur)->next))
 
 #endif //NCHAN_LIST_H
