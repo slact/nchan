@@ -14,6 +14,89 @@
 #include <util/nchan_list.h>
 #include <store/spool.h>
 
+
+typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
+
+typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_NOTREADY, CLUSTER_READY, CLUSTER_FAILED} redis_cluster_status_t;
+
+typedef struct redis_nodeset_s redis_nodeset_t;
+typedef struct redis_node_s redis_node_t;
+
+typedef struct { //redis_nodeset_cluster_t
+  unsigned                    enabled:1;
+  unsigned                    ready:1;
+  rbtree_seed_t               hashslots; //cluster rbtree seed
+} redis_nodeset_cluster_t;
+
+struct redis_nodeset_s {
+  //a set of redis nodes
+  //  maybe just 1 master
+  //  maybe a master and its slaves
+  //  maybe a cluster of masters and their slaves
+  //slaves of slaves not included
+  
+  nchan_list_t                urls;
+  ngx_http_upstream_srv_conf_t *upstream;
+  unsigned                    ready:1;
+  nchan_list_t                nodes;
+  redis_nodeset_cluster_t     cluster;
+  struct {
+    nchan_redis_storage_mode_t  storage_mode;
+    struct {
+      unsigned                    master:1;
+      unsigned                    slave:1;
+    }                           pubsub_subscribe_to;
+  }                           settings;
+  
+  nchan_list_t                channels;
+  nchan_reaper_t              chanhead_reaper;
+}; //redis_nodeset_t
+
+typedef struct {
+  ngx_str_t     hostname;
+  ngx_str_t     peername; // resolved hostname (ip address)
+  ngx_int_t     port;
+  ngx_str_t     password;
+  ngx_int_t     db;
+} redis_connect_params_t;
+
+#define REDIS_NODE_FAILED                -1
+#define REDIS_NODE_DISCONNECTED           0
+#define REDIS_NODE_CONNECTED              1
+#define REDIS_NODE_CMD_AUTHENTICATING     2
+#define REDIS_NODE_PUBSUB_AUTHENTICATING  3
+#define REDIS_NODE_CMD_SELECTING_DB       4
+#define REDIS_NODE_PUBSUB_SELECTING_DB    5
+#define REDIS_NODE_DB_SELECTED            6
+#define REDIS_NODE_GETTING_INFO           7
+#define REDIS_NODE_LOADING_DATA           8
+#define REDIS_NODE_SCRIPTS_LOADED         9
+//#define REDIS_NODE_SCRIPTS_LOADED       10
+
+struct redis_node_s {
+  int                       state;
+  redis_connect_params_t    connect_params;
+  redis_nodeset_t          *nodeset;
+  struct {
+    unsigned                  connected:1;
+    unsigned                  authenticated:1;
+    unsigned                  not_loading_data:1;
+    unsigned                  cluster_checked:1;
+    unsigned                  scripts_loaded:1;
+  }                         status;
+  
+  struct {
+    redis_node_t              *master;
+    nchan_list_t               slaves;
+  }                         peers;
+  struct {
+    redisAsyncContext         *cmd;
+    redisAsyncContext         *pubsub;
+    redisContext              *sync;
+  }                         ctx;
+}; //redis_node_t
+
+
 typedef struct rdstore_data_s rdstore_data_t;
 typedef struct rdstore_channel_head_s rdstore_channel_head_t;
 
@@ -21,7 +104,6 @@ typedef struct {
   rdstore_data_t          *node_rdt;
   unsigned                 enabled:1;
 } rdstore_channel_head_cluster_data_t;
-
 
 typedef enum {SUBBING, SUBBED, UNSUBBING, UNSUBBED} redis_pubsub_status_t;
 
@@ -41,6 +123,8 @@ struct rdstore_channel_head_s {
   rdstore_data_t              *rdt;
   rdstore_channel_head_cluster_data_t cluster;
   
+  redis_node_t                *redis_node;
+  
   ngx_int_t                    reserved;
   
   rdstore_channel_head_t      *gc_prev;
@@ -58,14 +142,6 @@ struct rdstore_channel_head_s {
   UT_hash_handle               hh;
 };
 
-typedef struct {
-  ngx_str_t     hostname;
-  ngx_str_t     peername; // resolved hostname (ip address)
-  ngx_int_t     port;
-  ngx_str_t     password;
-  ngx_int_t     db;
-} redis_connect_params_t;
-
 typedef struct callback_chain_s callback_chain_t;
 struct callback_chain_s {
   callback_pt                  cb;
@@ -75,11 +151,6 @@ struct callback_chain_s {
   callback_chain_t            *prev;
   callback_chain_t            *next;
 };
-
-typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
-
-typedef enum {CLUSTER_DISCONNECTED, CLUSTER_CONNECTING, CLUSTER_NOTREADY, CLUSTER_READY, CLUSTER_FAILED} redis_cluster_status_t;
-
 
 typedef enum {CLUSTER_RETRY_BY_CHANHEAD, CLUSTER_RETRY_BY_CHANNEL_ID, CLUSTER_RETRY_BY_KEY, CLUSTER_RETRY_BY_CSTR} redis_cluster_retry_hashslot_t;
 typedef struct redis_cluster_retry_s redis_cluster_retry_t;
@@ -170,10 +241,12 @@ struct rdstore_data_s {
   ngx_event_t                      reconnect_timer;
   ngx_event_t                      ping_timer;
   time_t                           ping_interval;
+  
   struct {
     callback_chain_t                *head;
     callback_chain_t                *tail;
   }                                on_connected;
+  
   nchan_loc_conf_t                *lcf;
   
   //cluster stuff

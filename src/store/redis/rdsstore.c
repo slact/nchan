@@ -14,6 +14,7 @@
 
 #include <store/memory/store.h>
 
+#include "redis_nodeset.h"
 #include "redis_lua_commands.h"
 
 #define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP 600 //10min
@@ -571,6 +572,8 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   redis_nginx_init();
   
+  
+  //OLD
   rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_connector, &rc);
   return rc;
 }
@@ -870,11 +873,12 @@ static ngx_int_t rdata_set_peername(rdstore_data_t *rdata, redisAsyncContext *ct
 
 static int redis_initialize_ctx(redisAsyncContext **ctx, rdstore_data_t *rdata) {
   int have_peername = rdata->connect_params.peername.len > 0;
-  
   if(*ctx == NULL) {
+    redisAsyncContext *new_ctx;
     DBG("connect to %V port %i", have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port);
-    redis_nginx_open_context(have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port, rdata->connect_params.db, &rdata->connect_params.password, rdata, ctx);
-    if(*ctx != NULL) {
+    new_ctx = redis_nginx_open_context(have_peername ? &rdata->connect_params.peername : &rdata->connect_params.hostname, rdata->connect_params.port);
+    if(new_ctx != NULL) {
+      *ctx = new_ctx;
       rdata_set_status_flag(rdata, connection_established, 1);
       if(!have_peername) {
         rdata_set_peername(rdata, *ctx);
@@ -2594,6 +2598,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   nchan_redis_conf_t    *rcf;
   nchan_redis_conf_ll_t *cur;
   nchan_main_conf_t     *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
+  redis_nodeset_t       *nodeset;
   
   if(mcf->redis_publish_message_msgkey_size == NGX_CONF_UNSET_SIZE) {
     mcf->redis_publish_message_msgkey_size = NCHAN_REDIS_DEFAULT_PUBSUB_MESSAGE_MSGKEY_SIZE;
@@ -2604,6 +2609,19 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   
   redis_cluster_init_postconfig(cf);
   
+  for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
+    rcf = cur->cf;
+    assert(rcf->enabled);
+    if((nodeset = nodeset_find(&rcf->upstream)) == NULL) {
+      nodeset = nodeset_create(rcf);
+    }
+    if(!nodeset) {
+      ERR("Unable to create Redis nodeset.");
+      continue;
+    }
+  }
+  
+  //OLD
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;
     if(!rcf->enabled) {
