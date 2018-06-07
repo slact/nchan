@@ -64,6 +64,7 @@ typedef enum {
   REDIS_NODE_UNKNOWN = 0, REDIS_NODE_MASTER, REDIS_NODE_SLAVE
 } redis_node_role_t;
 
+#define REDIS_NODE_DEDUPLICATED        -100
 #define REDIS_NODE_FAILED                -1
 #define REDIS_NODE_DISCONNECTED           0
 #define REDIS_NODE_CONNECTED              1
@@ -74,23 +75,18 @@ typedef enum {
 #define REDIS_NODE_PUBSUB_SELECTING_DB    6
 #define REDIS_NODE_DB_SELECTED            7
 #define REDIS_NODE_GETTING_INFO           8
-
+#define REDIS_NODE_GETTING_CLUSTERINFO    9
 #define REDIS_NODE_SCRIPTS_LOADED         10
-//#define REDIS_NODE_SCRIPTS_LOADED       10
+#define REDIS_NODE_READY                  100
 
 struct redis_node_s {
-  int                       state;
+  int8_t                    state;
+  unsigned                  discovered:1;
   redis_node_role_t         role;
   redis_connect_params_t    connect_params;
   redis_nodeset_t          *nodeset;
-  struct {
-    unsigned                  connected:1;
-    unsigned                  authenticated:1;
-    unsigned                  not_loading_data:1;
-    unsigned                  cluster_checked:1;
-    unsigned                  scripts_loaded:1;
-  }                         status;
-  
+  ngx_str_t                 run_id;
+  ngx_str_t                 cluster_id;
   struct {
     redis_node_t              *master;
     nchan_list_t               slaves;

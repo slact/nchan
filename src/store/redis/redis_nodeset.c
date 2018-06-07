@@ -47,9 +47,13 @@ static ngx_int_t rbtree_cluster_hashslots_compare(void *v1, void *v2) {
     return 0;
 }
 
+#define MAX_RUN_ID_LENGTH 63
+#define MAX_CLUSTER_ID_LENGTH 63
 typedef struct {
   redis_node_t    node;
   u_char          peername[INET6_ADDRSTRLEN + 2];
+  u_char          run_id[MAX_RUN_ID_LENGTH+1];
+  u_char          cluster_id[MAX_CLUSTER_ID_LENGTH+1];
 } node_blob_t;
 
 redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
@@ -139,21 +143,31 @@ redis_node_t *nodeset_node_find(redis_nodeset_t *ns, redis_connect_params_t *rcp
   return NULL;
 }
 
-redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
+redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
   assert(!nodeset_node_find(ns, rcp));
-  
-  node_blob_t      *node_blob = nchan_list_append(&ns->nodes);
+  node_blob_t      *node_blob;
+  if(extra_space) {
+    node_blob = nchan_list_append(&ns->nodes);
+  }
+  else {
+    node_blob = nchan_list_append_sized(&ns->nodes, sizeof(*node_blob)+extra_space);
+    *extraspace_ptr = (void *)(&node_blob[1]);
+  }
   redis_node_t     *node = &node_blob->node;
   
   assert((void *)node_blob == (void *)node);
   assert(node);
   assert(nodeset_node_find(ns, rcp));
   
+  node->discovered = 0;
   node->connect_params = *rcp;
   node->connect_params.peername.data = node_blob->peername;
   node->connect_params.peername.len = 0;
+  node->cluster_id.len = 0;
+  node->cluster_id.data = node_blob->cluster_id;
+  node->run_id.len = 0;
+  node->run_id.data = node_blob->run_id;
   node->nodeset = ns;
-  ngx_memzero(&node->status, sizeof(node->status));
   
   node->peers.master = NULL;
   nchan_list_init(&node->peers.slaves, sizeof(redis_node_t *), "node slaves");
@@ -162,6 +176,94 @@ redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *r
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
   return node;
+}
+
+redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
+  return nodeset_node_create_with_space(ns, rcp, 0, NULL);
+}
+
+redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
+  redis_node_t  *node;
+  u_char        *space;
+  size_t         sz = rcp->hostname.len + rcp->password.len;
+  node = nodeset_node_create_with_space(ns, rcp, sz, (void **)&space);
+  assert(node);
+  node->connect_params.hostname.data = space;
+  nchan_strcpy(&node->connect_params.hostname, &rcp->hostname, 0);
+  
+  node->connect_params.password.data = &space[rcp->hostname.len];
+  nchan_strcpy(&node->connect_params.password, &rcp->password, 0);
+  return node;
+}
+
+ngx_int_t nodeset_node_destroy(redis_node_t *node) {
+  redis_node_t   *master = node->peers.master;
+  redis_node_t  **cur;
+  int             slave_found = 0;
+  if(master) {
+    for(cur = nchan_list_first(&master->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
+      if(*cur == node) {
+        nchan_list_remove(&master->peers.slaves, cur);
+        slave_found = 1;
+        break;
+      }
+    }
+    assert(slave_found);
+  }
+  
+  for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
+    assert((*cur)->peers.master == node);
+    (*cur)->peers.master = NULL;
+  }
+  
+  nchan_list_remove(&node->nodeset->nodes, node);
+  return NGX_OK;
+}
+
+static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
+  redis_node_t    *slave;
+  redis_node_t   **slaveref;
+  if(nodeset_node_find(master->nodeset, rcp)) {
+    //we know about it already
+    return;
+  }
+  
+  slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
+  slave->discovered = 1;
+  slave->peers.master = master;
+  
+  slaveref = nchan_list_append(&master->peers.slaves);
+  *slaveref = slave;
+}
+
+static void node_parseinfo_discover_slaves(redis_node_t *node, const char *info) {
+  char                   slavebuf[20]="slave0:";
+  int                    i = 0;
+  redis_connect_params_t rcp;
+  ngx_str_t              line;
+  while(nchan_get_rest_of_line_in_cstr(info, slavebuf, &line)) {
+    //ip=localhost,port=8537,state=online,offset=420,lag=1
+    ngx_str_t hostname, port;
+    nchan_scan_until_chr_on_line(&line, NULL,      '='); //ip=
+    nchan_scan_until_chr_on_line(&line, &hostname, ','); //ip=([^,]*),
+    nchan_scan_until_chr_on_line(&line, NULL,      '='); //port=
+    nchan_scan_until_chr_on_line(&line, &port,     ','); //port=([^,]*),
+    //don't care about the rest
+    rcp.hostname = hostname;
+    rcp.port = ngx_atoi(port.data, port.len);
+    rcp.password = node->connect_params.password;
+    rcp.peername.len = 0;
+    rcp.db = node->connect_params.db;
+    node_discover_slave(node, &rcp);
+    //next slave
+    i++;
+    ngx_sprintf((u_char *)slavebuf, "slave%d:", i);    
+  }
+  
+}
+
+static void node_parseinfo_discover_master(redis_node_t *node, const char *info) {
+  //eh?
 }
 
 
@@ -182,6 +284,25 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
+}
+
+static int node_parseinfo_set_preallocd_str(redis_node_t *node, ngx_str_t *target, const char *info, const char *linestart, size_t maxlen) {
+  ngx_str_t found;
+  if(nchan_get_rest_of_line_in_cstr(info, linestart, &found)) {
+    if(found.len > maxlen) {
+      node_log_error(node, "\"%s\" is too long", linestart);
+      return 0;
+    }
+    else {
+      target->len = found.len;
+      ngx_memcpy(target->data, found.data, found.len);
+      return 1;
+    }
+  }
+  return 0;
+}
+static int node_parseinfo_set_run_id(redis_node_t *node, const char *info) {
+  return node_parseinfo_set_preallocd_str(node, &node->run_id, info, "run_id:", MAX_RUN_ID_LENGTH);
 }
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -205,7 +326,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "failed to open redis async context for pubsub");
       }
       //connection established. move on...   
-      node->state++;
+      node->state = REDIS_NODE_CONNECTED;
       // intentional fallthrough IS INTENTIONAL!
     
     case REDIS_NODE_CONNECTED:
@@ -264,28 +385,38 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     
     case REDIS_NODE_DB_SELECTED:
       //getinfo time
-      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO");
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO all");
       node->state++;
     
     case REDIS_NODE_GETTING_INFO:
       if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
         return node_connector_fail(node, "Redis INFO command failed,");
       }
-      if(ngx_strstrn((u_char *)reply->str, "loading:1", 8)) {
+      if(!node_parseinfo_set_run_id(node, reply->str)) {
+        return node_connector_fail(node, "failed to set node run_id");
+      }
+      if(nchan_cstrmatch(reply->str, 1, "loading:1")) {
         return node_connector_fail(node, "is busy loading data...");
         //TODO: retry later
       }
-      if(1/*cluster*/) {
-        //do cluster stuff
+      if(nchan_cstrmatch(reply->str, 1, "role:master")) {
+        node_parseinfo_discover_slaves(node, reply->str);
+      }
+      else if(nchan_cstrmatch(reply->str, 1, "role:slave")) {
+        node_parseinfo_discover_master(node, reply->str);
       }
       else {
-        if(1/*master*/) {
-          //get slaves
-        }
-        else {
-          //get master
-        }
+        return node_connector_fail(node, "can't tell if node is master or slave");
       }
+      if(nchan_cstrmatch(reply->str, 1, "cluster_enabled:1")) {
+        redisAsyncCommand(node->ctx.cmd, node_connector_callback, NULL, "CLUSTER INFO");
+        node->state++;
+      }
+      else {
+        //we're done!
+        node->state = REDIS_NODE_READY;
+      }
+      
       
       
   }
