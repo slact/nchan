@@ -465,21 +465,43 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   return 0;
 }
 
-int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx_str_t *rest) {
-  char *first = strstr(cstr, line_start);
-  if(first && (first == cstr || first[-1]=='\n')) { //start of line or start of string
-    char *last = strchr(first, '\n');
-    if(last > first && last[-1]=='\r') {
-      last--;
-    }
-    if(rest) {
-      rest->len = last - first;
-      rest->data = (u_char *)first;
-    }
-    return 1;
+int nchan_cstr_match_line(const char *cstr, const char *line) {
+  ngx_str_t rest;
+  if(nchan_get_rest_of_line_in_cstr(cstr, line, &rest)) {
+    return rest.len == 0 ? 1 : 0;
   }
-  if(rest) {
-    rest->len = 0;
+  return 0;
+}
+
+int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx_str_t *rest) {
+  const char *cur = cstr;
+  const char *end = cur + strlen(cur);
+  
+  while(cur && cur < end) {
+    char *first = strstr(cstr, line_start);
+    if(!first) { //not found at all
+      if(rest) rest->len = 0;
+      return 0;
+    }
+    
+    if(first == cstr || first[-1]=='\n') { //start of line or start of string
+      char *last = strchr(first, '\n');
+      if(!last) { // end of string
+        last = end;
+      }
+      else if(last > first && last[-1]=='\r') {
+        last--;
+      }
+      if(rest) {
+        rest->len = last - first - strlen(line_start);
+        rest->data = (u_char *)first + strlen(line_start);
+      }
+      return 1;
+    }
+    else {
+      //we found a match in the middle of the string
+      cur = strchr(cur, '\n'); //move on, redo
+    }
   }
   return 0;
 }

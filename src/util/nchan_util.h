@@ -18,6 +18,7 @@ void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr);
 int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx_str_t *rest);
 
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2);
+int nchan_cstr_match_line(const char *cstr, const char *line);
 
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen);
 ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd);
