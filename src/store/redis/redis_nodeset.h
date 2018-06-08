@@ -16,6 +16,8 @@ redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_add_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
+ngx_int_t nodeset_connect_all(void);
+
 redis_node_t *nodeset_node_find(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 
