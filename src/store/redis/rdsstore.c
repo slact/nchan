@@ -572,9 +572,10 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   
   redis_nginx_init();
   
+  nodeset_connect_all();
   
   //OLD
-  rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_connector, &rc);
+  //rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_connector, &rc);
   return rc;
 }
 
