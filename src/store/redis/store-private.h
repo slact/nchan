@@ -28,6 +28,10 @@ typedef struct { //redis_nodeset_cluster_t
   rbtree_seed_t               hashslots; //cluster rbtree seed
 } redis_nodeset_cluster_t;
 
+typedef enum {
+  REDIS_NODESET_INVALID = -1, REDIS_NODESET_DISCONNECTED=0, REDIS_NODESET_CONNECTING, REDIS_NODESET_READY
+} redis_nodeset_status_t;
+
 struct redis_nodeset_s {
   //a set of redis nodes
   //  maybe just 1 master
@@ -35,6 +39,7 @@ struct redis_nodeset_s {
   //  maybe a cluster of masters and their slaves
   //slaves of slaves not included
   
+  redis_nodeset_status_t      status;
   nchan_list_t                urls;
   ngx_http_upstream_srv_conf_t *upstream;
   unsigned                    ready:1;
@@ -64,6 +69,8 @@ typedef enum {
   REDIS_NODE_UNKNOWN = 0, REDIS_NODE_MASTER, REDIS_NODE_SLAVE
 } redis_node_role_t;
 
+
+
 #define REDIS_NODE_DEDUPLICATED        -100
 #define REDIS_NODE_FAILED                -1
 #define REDIS_NODE_DISCONNECTED           0
@@ -86,7 +93,10 @@ struct redis_node_s {
   redis_connect_params_t    connect_params;
   redis_nodeset_t          *nodeset;
   ngx_str_t                 run_id;
-  ngx_str_t                 cluster_id;
+  struct {
+    unsigned                  enabled:1;
+    ngx_str_t                 id;
+  }                         cluster;
   struct {
     redis_node_t              *master;
     nchan_list_t               slaves;

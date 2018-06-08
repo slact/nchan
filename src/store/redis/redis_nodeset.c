@@ -68,6 +68,7 @@ redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
   ns->ready = 0;
   nchan_list_init(&ns->nodes, sizeof(node_blob_t), "redis nodes");
   
+  ns->status = REDIS_NODESET_DISCONNECTED;
   
   //init cluster stuff
   ns->cluster.enabled = 0;
@@ -188,8 +189,8 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   node->connect_params = *rcp;
   node->connect_params.peername.data = node_blob->peername;
   node->connect_params.peername.len = 0;
-  node->cluster_id.len = 0;
-  node->cluster_id.data = node_blob->cluster_id;
+  node->cluster.id.len = 0;
+  node->cluster.id.data = node_blob->cluster_id;
   node->run_id.len = 0;
   node->run_id.data = node_blob->run_id;
   node->nodeset = ns;
@@ -568,10 +569,64 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       else {
         //we're done!
         node->state = REDIS_NODE_READY;
+        nodeset_check_status(node->nodeset);
       }
 
   }
 }
+
+ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
+  //TODO
+  assert(0);
+}
+
+ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
+  redis_node_t *cur;
+  int cluster = 0, masters = 0, slaves = 0, total = 0, connecting = 0, ready = 0, disconnected = 0;
+  int discovered = 0;
+  for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    total++;
+    if(cur->cluster.enabled == 1) {
+      cluster++;
+    }
+    if(cur->discovered)
+      discovered++;
+    if(cur->role == REDIS_NODE_MASTER)
+      masters++;
+    if(cur->role == REDIS_NODE_SLAVE)
+      slaves++;
+    if(cur->state <= REDIS_NODE_DISCONNECTED)
+      disconnected++;
+    if(cur->state > REDIS_NODE_DISCONNECTED && cur->state < REDIS_NODE_READY)
+      connecting++;
+    if(cur->state == REDIS_NODE_READY)
+      ready++;
+  }
+  if(ready == total) {
+    if(ready == 0) {
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable nodes");
+    }
+    else if(cluster && cluster < total) {
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "cluster and non-cluster nodes in set");
+    }
+    else if (cluster == 0 && masters > 1) {
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "more than one master node in non-cluster set");
+    }
+    else if (cluster == 0 && masters == 0) {
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable master nodes in set");
+    }
+    else {
+      nodeset_set_status(nodeset, REDIS_NODESET_READY, "no reachable master nodes in set");
+    } 
+  }
+  else if(ready == 0) {
+    nodeset_set_status(nodeset, REDIS_NODESET_DISCONNECTED, NULL);
+  }
+  else if(ready < total) {
+    nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, NULL);
+  }
+}
+
 ngx_int_t nodeset_connect_all(void) {
   int                      i;
   ngx_str_t              **url;
