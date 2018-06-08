@@ -82,8 +82,12 @@ typedef enum {
 #define REDIS_NODE_PUBSUB_SELECTING_DB    6
 #define REDIS_NODE_DB_SELECTED            7
 #define REDIS_NODE_GETTING_INFO           8
-#define REDIS_NODE_GETTING_CLUSTERINFO    9
-#define REDIS_NODE_SCRIPTS_LOADED         10
+#define REDIS_NODE_GET_CLUSTERINFO        9
+#define REDIS_NODE_GETTING_CLUSTERINFO    10
+#define REDIS_NODE_GET_CLUSTER_NODES      11
+#define REDIS_NODE_GETTING_CLUSTER_NODES  12
+#define REDIS_NODE_SCRIPTS_LOAD           13
+#define REDIS_NODE_SCRIPTS_LOADING        14
 #define REDIS_NODE_READY                  100
 
 struct redis_node_s {
@@ -93,9 +97,12 @@ struct redis_node_s {
   redis_connect_params_t    connect_params;
   redis_nodeset_t          *nodeset;
   ngx_str_t                 run_id;
+  ngx_str_t                 version;
   struct {
     unsigned                  enabled:1;
+    unsigned                  ok:1;
     ngx_str_t                 id;
+    char                     *cluster_nodes;
   }                         cluster;
   struct {
     redis_node_t              *master;

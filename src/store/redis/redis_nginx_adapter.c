@@ -139,7 +139,7 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 void redis_nginx_read_event(ngx_event_t *ev) {
   redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
   int                fd = ac->c.fd; //because redisAsyncHandleRead might free the redisAsyncContext
-  int                bytes_left;
+  int                bytes_left = 0;
   redisAsyncHandleRead(ac);
   
   // we need to do this because hiredis, in its infinite wisdom, will read at 
