@@ -21,6 +21,9 @@
     goto fail
 
 
+static cluster_nodes_line_t   cluster_node_parsed_lines[MAX_CLUSTER_NODE_PARSED_LINES];
+static redis_connect_params_t parsed_connect_params[MAX_NODE_SLAVES_PARSED];
+    
 static char *nodeset_parser_scan_cluster_nodes_line(const char *line, cluster_nodes_line_t *l) {
   u_char     *cur = (u_char *)line;
   u_char     *max = cur;
@@ -62,13 +65,23 @@ static char *nodeset_parser_scan_cluster_nodes_line(const char *line, cluster_no
     l->address.len = tmp - l->address.data;
   }
   
+  if((tmp = memrchr(l->address.data, ':', l->address.len)) != NULL) {
+    //hostname and port from address
+    ngx_str_t   port;
+    l->hostname.data = l->address.data;
+    l->hostname.len = tmp - l->address.data;
+    port.len = l->address.len - l->hostname.len - 1;
+    port.data = &tmp[1];
+    l->port = ngx_atoi(port.data, port.len);
+  }
+  
   cur = max;
   if(&cur[-1] > (u_char *)line && cur[-1] == '\0')
     cur--;
   return (char *)cur;
 }
 
-u_char *nodeset_parser_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur, redis_cluster_slot_range_t *r) {
+static u_char *nodeset_parser_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur, redis_cluster_slot_range_t *r) {
   ngx_str_t       slot_min_str, slot_max_str, slot;
   ngx_int_t       slot_min,     slot_max;
   u_char         *dash;
@@ -116,9 +129,9 @@ fail:
   return NULL;
 }
 
-int parse_info_discover_slaves(redis_node_t *node, const char *info) {
+redis_connect_params_t *parse_info_slaves(redis_node_t *node, const char *info, size_t *count) {
   char                   slavebuf[20]="slave0:";
-  int                    i = 0;
+  int                    i = 0, skipped = 0;
   redis_connect_params_t rcp;
   ngx_str_t              line;
   while(nchan_get_rest_of_line_in_cstr(info, slavebuf, &line)) {
@@ -134,15 +147,23 @@ int parse_info_discover_slaves(redis_node_t *node, const char *info) {
     rcp.password = node->connect_params.password;
     rcp.peername.len = 0;
     rcp.db = node->connect_params.db;
-    node_discover_slave(node, &rcp);
-    //next slave
+    
+    if(i < MAX_NODE_SLAVES_PARSED) {
+      parsed_connect_params[i]=rcp;
+    }
+    else {
+      node_log_error(node, "too many slaves, skipping slave %d", i+1);
+    }
     i++;
-    ngx_sprintf((u_char *)slavebuf, "slave%d:", i);    
+    ngx_sprintf((u_char *)slavebuf, "slave%d:", i);
+    
+    
   }
-  return 1;
+  *count = i - skipped;
+  return parsed_connect_params;
 }
 
-int parse_info_discover_master(redis_node_t *node, const char *info) {
+redis_connect_params_t *parse_info_master(redis_node_t *node, const char *info) {
   redis_connect_params_t    rcp;
   ngx_str_t                 port;
   if(!nchan_get_rest_of_line_in_cstr(info, "master_host:", &rcp.hostname)) {
@@ -165,19 +186,25 @@ int parse_info_discover_master(redis_node_t *node, const char *info) {
   rcp.peername.data = NULL;
   rcp.peername.len = 0;
   
-  node_discover_master(node, &rcp);
-  return 1;
+  parsed_connect_params[0]=rcp;
+  return &parsed_connect_params[0];
 }
 
-int parse_cluster_nodes_discover_peers(redis_node_t *node, const char *clusternodes) {
+cluster_nodes_line_t *parse_cluster_nodes(redis_node_t *node, const char *clusternodes, size_t *count) {
+  
   const char           *line = clusternodes;
+  size_t                n = 0, discarded = 0;
   cluster_nodes_line_t  l;
   while((line = nodeset_parser_scan_cluster_nodes_line(line, &l)) != NULL) {
-    if(l.failed) //ignore failed nodes
-      continue;
-    //if(l.self)
-      
-    
+    if(n > MAX_CLUSTER_NODE_PARSED_LINES) {
+      node_log_error(node, "too many cluster nodes, discarding line %d", n + discarded);
+      discarded++;
+    }
+    else {
+      cluster_node_parsed_lines[n]=l;
+      n++;
+    }
   }
-  return 1;
+  *count = n;
+  return cluster_node_parsed_lines;
 }

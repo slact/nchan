@@ -147,7 +147,6 @@ static int equal_nonzero_strings(void *s1, void *s2) {
 typedef struct {
   char          *name;
   off_t          offset;
-  unsigned       byref;
   int          (*match)(void *, void *);
 } node_match_t;
 
@@ -156,9 +155,9 @@ static struct {
   node_match_t    cluster_id;
   node_match_t    connect_params;
 } _node_match = {
-  .run_id =          {"run_id",      offsetof(redis_node_t, run_id),          1, equal_nonzero_strings},
-  .cluster_id =      {"cluster_id",  offsetof(redis_node_t, cluster.id),      1, equal_nonzero_strings},
-  .connect_params =  {"url",         offsetof(redis_node_t, connect_params),  1, equal_redis_connect_params}
+  .run_id =          {"run_id",      offsetof(redis_node_t, run_id),          equal_nonzero_strings},
+  .cluster_id =      {"cluster_id",  offsetof(redis_node_t, cluster.id),      equal_nonzero_strings},
+  .connect_params =  {"url",         offsetof(redis_node_t, connect_params),  equal_redis_connect_params}
 };
 
 static int nodeset_node_deduplicate_by(redis_node_t *node, node_match_t *match) {
@@ -186,8 +185,6 @@ int nodeset_node_deduplicate_by_run_id(redis_node_t *node) {
 int nodeset_node_deduplicate_by_cluster_id(redis_node_t *node) {
   return nodeset_node_deduplicate_by(node, &_node_match.cluster_id);
 }
-
-
 
 static redis_node_t *nodeset_node_find_by(redis_nodeset_t *ns, node_match_t *match, void *data) {
   redis_node_t *cur;
@@ -297,7 +294,7 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
   return NGX_OK;
 }
 
-void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
+static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
   redis_node_t    *slave;
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
@@ -317,7 +314,7 @@ void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
   }
 }
 
-void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
+static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
   redis_node_t *master;
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
     assert(master->role == REDIS_NODE_MASTER);
@@ -334,6 +331,32 @@ void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
   if(master->state <= REDIS_NODE_DISCONNECTED) {
     node_connector_callback(NULL, NULL, master);
   }
+}
+
+static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
+  redis_connect_params_t   rcp;
+  redis_node_t            *peer;
+  assert(!l->self);
+  if(l->failed) {
+    return;
+  }
+  rcp.hostname = l->hostname;
+  rcp.port = l->port;
+  rcp.peername.len = 0;
+  rcp.db = node->connect_params.db;
+  rcp.password = node->connect_params.password;
+  
+  if((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL) {
+    return; //we already know this one.
+  }
+  if((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL) {
+    return; //we know this one by the cluster id
+  }
+  peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
+  peer->discovered = 1;
+  nchan_strcpy(&peer->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
+  //ignore all the other things for now
+  node_connector_callback(NULL, NULL, peer);
 }
 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
@@ -552,17 +575,29 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       
       if(nchan_cstr_match_line(reply->str, "role:master")) {
+        size_t                    i, n;
+        redis_connect_params_t   *rcp;
         node_set_role(node, REDIS_NODE_MASTER);
-        parse_info_discover_slaves(node, reply->str);
+        if(!(rcp = parse_info_slaves(node, reply->str, &n))) {
+          return node_connector_fail(node, "failed parsing slaves from INFO");
+        }
+        for(i=0; i<n; i++) {
+          node_discover_slave(node, &rcp[i]);
+        }
       }
       else if(nchan_cstr_match_line(reply->str, "role:slave")) {
+        redis_connect_params_t   *rcp;
         node_set_role(node, REDIS_NODE_SLAVE);
-        parse_info_discover_master(node, reply->str);
+        if(!(rcp = parse_info_master(node, reply->str))) {
+          return node_connector_fail(node, "failed parsing master from INFO");
+        }
+        node_discover_master(node, rcp);
       }
       else {
         return node_connector_fail(node, "can't tell if node is master or slave");
       }
       
+      //what's next?
       if(nchan_cstr_match_line(reply->str, "cluster_enabled:1")) {
         node->state = REDIS_NODE_GET_CLUSTERINFO;
         return node_connector_callback(NULL, NULL, node);
@@ -600,8 +635,20 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       if(!node_connector_reply_str_ok(reply)) {
         return node_connector_fail(node, "CLUSTER NODES command failed,");
       }
-      if(!parse_cluster_nodes_discover_peers(node, reply->str)) {
-        return node_connector_fail(node, "failed parsing CLUSTER NODES response");
+      else {
+        size_t                  i, n;
+        cluster_nodes_line_t   *l;
+        if(!(l = parse_cluster_nodes(node, reply->str, &n))) {
+          return node_connector_fail(node, "CLUSTER NODES command failed,");
+        }
+        for(i=0; i<n; i++) {
+          if(l[i].self) {
+            nchan_strcpy(&node->cluster.id, &l[i].id, MAX_CLUSTER_ID_LENGTH);
+          }
+          else if(!l[i].failed) {
+            node_discover_cluster_peer(node, &l[i]);
+          }
+        }
       }
       node->state = REDIS_NODE_SCRIPTS_LOAD;
       //inteonional fall-through is affirmatively consensual

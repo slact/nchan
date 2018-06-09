@@ -39,8 +39,6 @@ redis_node_t *nodeset_node_find_by_cluster_id(redis_nodeset_t *ns, ngx_str_t *cl
 
 redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 
-void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp);
-void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp);
 
 
 #endif /* NCHAN_REDIS_NODESET_H */

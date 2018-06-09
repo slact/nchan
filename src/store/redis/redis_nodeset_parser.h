@@ -1,6 +1,9 @@
 #ifndef REDIS_NODESET_PARSER_H
 #define REDIS_NODESET_PARSER_H
 
+#define MAX_CLUSTER_NODE_PARSED_LINES 512
+#define MAX_NODE_SLAVES_PARSED 512
+
 #include <nchan_module.h>
 #include "store-private.h"
 
@@ -8,6 +11,8 @@ typedef struct {
   ngx_str_t      line;
   ngx_str_t      id;         //node id
   ngx_str_t      address;    //address as known by redis
+  ngx_str_t      hostname;
+  ngx_int_t      port;
   ngx_str_t      flags;
   
   ngx_str_t      master_id;  //if slave
@@ -24,8 +29,8 @@ typedef struct {
   unsigned       self:1;
 } cluster_nodes_line_t;
 
-int parse_info_discover_slaves(redis_node_t *node, const char *info);
-int parse_info_discover_master(redis_node_t *node, const char *info);
-int parse_cluster_nodes_discover_peers(redis_node_t *node, const char *clusternodes);
+redis_connect_params_t *parse_info_slaves(redis_node_t *node, const char *info, size_t *count);
+redis_connect_params_t *parse_info_master(redis_node_t *node, const char *info);
+cluster_nodes_line_t *parse_cluster_nodes(redis_node_t *node, const char *clusternodes, size_t *count);
 
 #endif /*REDIS_NODESET_PARSER_H */
