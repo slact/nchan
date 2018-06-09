@@ -213,8 +213,12 @@ static size_t ngx_buf_writer(cmp_ctx_t *ctx, const void *data, size_t count) {
   return 0;
 }
 
-ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
+int nchan_store_redis_validate_url(ngx_str_t *url) {
+  redis_connect_params_t rcp;
+  return parse_redis_url(url, &rcp) == NGX_OK;
+}
 
+ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
   u_char                  *cur, *last, *ret;
   
   cur = url->data;
@@ -231,6 +235,7 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
     if((ret = ngx_strlchr(cur, last, '@')) == NULL) {
       rcp->password.data = NULL;
       rcp->password.len = 0;
+      return NGX_ERROR;
     }
     else {
       rcp->password.data = cur;
@@ -262,10 +267,9 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
     if((ret = ngx_strlchr(cur, last, '/')) == NULL) {
       ret = last;
     }
-    
     rcp->port = ngx_atoi(cur, ret-cur);
     if(rcp->port == NGX_ERROR) {
-      rcp->port = 6379;
+      return NGX_ERROR;
     }
   }
   cur = ret;

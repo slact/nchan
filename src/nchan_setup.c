@@ -1033,6 +1033,11 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
     return NGX_CONF_ERROR;
   }
   value = cf->args->elts;
+  
+  if(!nchan_store_redis_validate_url(&value[1])) {
+    return "url is invalid";
+  }
+  
   ngx_memzero(usrv, sizeof(*usrv));
 #if nginx_version >= 1007002
   usrv->name = value[1];
@@ -1046,9 +1051,14 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
 
 static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t  *lcf = conf;
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *arg = &val[1];
   
   if(lcf->redis.upstream) {
     return "can't be set here: already using nchan_redis_pass";
+  }
+  if(!nchan_store_redis_validate_url(arg)) {
+    return "url is invalid";
   }
   
   return ngx_conf_set_str_slot(cf, cmd, conf);
