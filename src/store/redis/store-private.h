@@ -14,6 +14,8 @@
 #include <util/nchan_list.h>
 #include <store/spool.h>
 
+#define REDIS_LUA_HASH_LENGTH 40
+
 
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
@@ -98,6 +100,7 @@ struct redis_node_s {
   redis_nodeset_t          *nodeset;
   ngx_str_t                 run_id;
   ngx_str_t                 version;
+  int                       scripts_loaded;
   struct {
     unsigned                  enabled:1;
     unsigned                  ok:1;

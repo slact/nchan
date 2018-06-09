@@ -6,6 +6,7 @@
 #include "store.h"
 #include "redis_nginx_adapter.h"
 #include "redis_nodeset_parser.h"
+#include "redis_lua_commands.h"
 
 #define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -36,6 +37,16 @@ static ngx_int_t rbtree_cluster_hashslots_compare(void *v1, void *v2) {
     return 1;
   else //there's an overlap
     return 0;
+}
+
+
+static char *rcp_cstr(redis_connect_params_t *rcp) {
+  static char    buf[512];
+  ngx_snprintf((u_char *)buf, 512, "%s:%d (%s) %Z", &rcp->hostname, rcp->port, rcp->peername);
+    return buf;
+}
+static char *node_cstr(redis_node_t *node) {
+  return rcp_cstr(&node->connect_params);
 }
 
 #define MAX_RUN_ID_LENGTH 64
@@ -296,6 +307,7 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
 
 static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
   redis_node_t    *slave;
+  node_log_info(master, "Discovering slave %s", rcp_cstr(rcp));
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
     assert(slave->role == REDIS_NODE_SLAVE);
@@ -319,11 +331,13 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
     assert(master->role == REDIS_NODE_MASTER);
     assert(node_find_slave_node(master, slave));
+    node_log_info(master, "Discovering master %s... already known", rcp_cstr(rcp));
   }
   else {
     master = nodeset_node_create_with_connect_params(slave->nodeset, rcp);
     master->discovered = 1;
     node_set_role(master, REDIS_NODE_MASTER);
+    node_log_info(master, "Discovering master %s", rcp_cstr(rcp));
   }
   node_set_master_node(slave, master);
   node_add_slave_node(master, slave);
@@ -346,12 +360,13 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
   rcp.db = node->connect_params.db;
   rcp.password = node->connect_params.password;
   
-  if((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL) {
+  if( ((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL)
+   || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
+  ) {
+    node_log_info(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
     return; //we already know this one.
   }
-  if((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL) {
-    return; //we know this one by the cluster id
-  }
+  node_log_info(node, "Discovering cluster node %s", rcp_cstr(&rcp));
   peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
   peer->discovered = 1;
   nchan_strcpy(&peer->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
@@ -362,8 +377,22 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
 
 static void node_connector_fail(redis_node_t *node, const char *err) {
-  assert(err);
-  node_log_error(node, "connection failed: %s", err);
+  const char  *ctxerr = NULL;
+  if(node->ctx.cmd && node->ctx.cmd->err) {
+    ctxerr = node->ctx.cmd->errstr;
+  }
+  else if(node->ctx.pubsub && node->ctx.pubsub->err) {
+    ctxerr = node->ctx.pubsub->errstr;
+  }
+  else if(node->ctx.sync && node->ctx.sync->err) {
+    ctxerr = node->ctx.sync->errstr;
+  }
+  if(ctxerr) {
+    node_log_error(node, "connection failed: %s (%s)", err, ctxerr);
+  }
+  else {
+    node_log_error(node, "connection failed: %s", err);
+  }
   node->state = REDIS_NODE_FAILED;
   if(node->ctx.cmd) {
     redisAsyncFree(node->ctx.cmd);
@@ -467,11 +496,40 @@ static int node_parseinfo_set_run_id(redis_node_t *node, const char *info) {
   return node_parseinfo_set_preallocd_str(node, &node->run_id, info, "run_id:", MAX_RUN_ID_LENGTH);
 }
 
+static int node_connector_loadscript_reply_ok(redis_node_t *node, redis_lua_script_t *script, redisReply *reply) {
+  if (reply == NULL) {
+    node_log_error(node, "missing reply after loading Redis Lua script %s", script->name);
+    return 0;
+  }
+  switch(reply->type) {
+    case REDIS_REPLY_ERROR:
+      node_log_error(node, "failed loading Redis Lua script %s: %s", script->name, reply->str);
+      return 0;
+    
+    case REDIS_REPLY_STRING:
+      if(ngx_strncmp(reply->str, script->hash, REDIS_LUA_HASH_LENGTH)!=0) {
+        node_log_error(node, "Lua script %s has unexpected hash %s (expected %s)", script->name, reply->str, script->hash);
+        return 0;
+      }
+      else {
+        return 1;
+      }
+      break;
+      
+    default:
+      node_log_error(node, "unexpected reply type while loading Redis Lua script %s", script->name);
+      return 0;
+  }
+}
+
+
+
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                 *reply = rep;
   redis_node_t               *node = privdata;
   
   redis_connect_params_t     *cp = &node->connect_params;
+  redis_lua_script_t         *next_script = (redis_lua_script_t *)&redis_lua_scripts;
 
   switch(node->state) {
     case REDIS_NODE_FAILED:
@@ -504,9 +562,8 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_CMD_AUTHENTICATING:
-      raise(SIGSTOP);
-      if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
-        return node_connector_fail(node, "AUTH command failed, probably because the password is incorrect");
+      if(!node_connector_reply_str_ok(reply)) {
+        return node_connector_fail(node, "AUTH command failed");
       }
       //now authenticate pubsub ctx
       redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "AUTH %b", STR(&cp->password));
@@ -514,8 +571,8 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_PUBSUB_AUTHENTICATING:
-      if(node_connector_reply_str_ok(reply)) {
-        return node_connector_fail(node, "AUTH command failed, probably because the password is incorrect");
+      if(!node_connector_reply_str_ok(reply)) {
+        return node_connector_fail(node, "AUTH command failed");
       }
       node->state++;
       //intentional, i tell you
@@ -658,10 +715,24 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //NOTE: consent required each time a fallthrough is imposed
     
     case REDIS_NODE_SCRIPTS_LOAD:
-      
+      node->scripts_loaded = 0;
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
+      node->state++;
       break;
     
-
+    case REDIS_NODE_SCRIPTS_LOADING:
+      if(!node_connector_loadscript_reply_ok(node, next_script, reply)) {
+        return node_connector_fail(node, "SCRIPT LOAD failed,");
+      }
+      node_log_info(node, "loaded script %s", next_script->name);
+      node->scripts_loaded++;
+      next_script = &next_script[node->scripts_loaded];
+      if(node->scripts_loaded < redis_lua_scripts_count) {
+        //load next script
+        redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
+        return;
+      }
+      node_log_info(node, "all scripts loaded!");
   }
 }
 
