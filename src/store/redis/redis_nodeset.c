@@ -178,7 +178,7 @@ static int nodeset_node_deduplicate_by(redis_node_t *node, node_match_t *match) 
   for(cur = nchan_list_first(&node->nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
     d2 = &((char *)cur)[match->offset];
     if(cur != node && match->match(d1, d2)) {
-      node_log_info(node, "deduplicated by %s", match->name);
+      node_log_notice(node, "deduplicated by %s", match->name);
       node_transfer_slaves(node, cur); //node->cur
       nodeset_node_destroy(node);
       return 1;
@@ -307,7 +307,7 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
 
 static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rcp) {
   redis_node_t    *slave;
-  node_log_info(master, "Discovering slave %s", rcp_cstr(rcp));
+  node_log_notice(master, "Discovering slave %s", rcp_cstr(rcp));
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
     assert(slave->role == REDIS_NODE_ROLE_SLAVE);
@@ -331,13 +331,13 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
     assert(master->role == REDIS_NODE_ROLE_MASTER);
     assert(node_find_slave_node(master, slave));
-    node_log_info(master, "Discovering master %s... already known", rcp_cstr(rcp));
+    node_log_notice(master, "Discovering master %s... already known", rcp_cstr(rcp));
   }
   else {
     master = nodeset_node_create_with_connect_params(slave->nodeset, rcp);
     master->discovered = 1;
     node_set_role(master, REDIS_NODE_ROLE_MASTER);
-    node_log_info(master, "Discovering master %s", rcp_cstr(rcp));
+    node_log_notice(master, "Discovering master %s", rcp_cstr(rcp));
   }
   node_set_master_node(slave, master);
   node_add_slave_node(master, slave);
@@ -363,10 +363,10 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
   if( ((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL)
    || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
   ) {
-    node_log_info(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
+    node_log_notice(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
     return; //we already know this one.
   }
-  node_log_info(node, "Discovering cluster node %s", rcp_cstr(&rcp));
+  node_log_notice(node, "Discovering cluster node %s", rcp_cstr(&rcp));
   peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
   peer->discovered = 1;
   nchan_strcpy(&peer->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
@@ -732,15 +732,12 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     
     case REDIS_NODE_SCRIPTS_LOADING:
       next_script = &next_script[node->scripts_loaded];
-      node_log_error(node, "loaded: %d", node->scripts_loaded);
-      //TODO: wrong hash
-      
       
       if(!node_connector_loadscript_reply_ok(node, next_script, reply)) {
         return node_connector_fail(node, "SCRIPT LOAD failed,");
       }
       else {
-        node_log_info(node, "loaded script %s", next_script->name);
+        node_log_debug(node, "loaded script %s", next_script->name);
         node->scripts_loaded++;
         next_script++;
       }
@@ -749,7 +746,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
         return;
       }
-      node_log_info(node, "all scripts loaded!");
+      node_log_notice(node, "all scripts loaded!");
   }
 }
 
