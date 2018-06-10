@@ -235,7 +235,7 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   
   assert((void *)node_blob == (void *)node);
   assert(node);
-  
+  node->role = REDIS_NODE_ROLE_UNKNOWN,
   node->state = REDIS_NODE_DISCONNECTED;
   node->discovered = 0;
   node->connect_params = *rcp;
@@ -293,7 +293,7 @@ static void node_remove_peer(redis_node_t *node, redis_node_t *peer) {
 }
 
 ngx_int_t nodeset_node_destroy(redis_node_t *node) {
-  node_set_role(node, REDIS_NODE_UNKNOWN); //removes from all peer lists
+  node_set_role(node, REDIS_NODE_ROLE_UNKNOWN); //removes from all peer lists
   nchan_list_empty(&node->peers.slaves);
   if(node->ctx.cmd)
     redisAsyncFree(node->ctx.cmd);
@@ -310,13 +310,13 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
   node_log_info(master, "Discovering slave %s", rcp_cstr(rcp));
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
-    assert(slave->role == REDIS_NODE_SLAVE);
+    assert(slave->role == REDIS_NODE_ROLE_SLAVE);
     assert(slave->peers.master == master);
   }
   else {
     slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
     slave->discovered = 1;
-    node_set_role(slave, REDIS_NODE_SLAVE);
+    node_set_role(slave, REDIS_NODE_ROLE_SLAVE);
   }
   node_set_master_node(slave, master); //this is idempotent
   node_add_slave_node(master, slave);  //so is this
@@ -329,14 +329,14 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
 static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
   redis_node_t *master;
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
-    assert(master->role == REDIS_NODE_MASTER);
+    assert(master->role == REDIS_NODE_ROLE_MASTER);
     assert(node_find_slave_node(master, slave));
     node_log_info(master, "Discovering master %s... already known", rcp_cstr(rcp));
   }
   else {
     master = nodeset_node_create_with_connect_params(slave->nodeset, rcp);
     master->discovered = 1;
-    node_set_role(master, REDIS_NODE_MASTER);
+    node_set_role(master, REDIS_NODE_ROLE_MASTER);
     node_log_info(master, "Discovering master %s", rcp_cstr(rcp));
   }
   node_set_master_node(slave, master);
@@ -415,7 +415,7 @@ void node_set_role(redis_node_t *node, redis_node_role_t role) {
   node->role = role;
   redis_node_t  **cur;
   switch(node->role) {
-    case REDIS_NODE_UNKNOWN:
+    case REDIS_NODE_ROLE_UNKNOWN:
       if(node->peers.master) {
         node_remove_peer(node->peers.master, node);
         node->peers.master = NULL;
@@ -427,14 +427,14 @@ void node_set_role(redis_node_t *node, redis_node_role_t role) {
       nchan_list_empty(&node->peers.slaves);
       break;
     
-    case REDIS_NODE_MASTER:
+    case REDIS_NODE_ROLE_MASTER:
       if(node->peers.master) {
         node_remove_peer(node->peers.master, node);
         node->peers.master = NULL;
       }
       break;
     
-    case REDIS_NODE_SLAVE:
+    case REDIS_NODE_ROLE_SLAVE:
       //do nothing
       break;
       
@@ -490,8 +490,18 @@ static int node_parseinfo_set_preallocd_str(redis_node_t *node, ngx_str_t *targe
 }
 
 static int node_connector_reply_str_ok(redisReply *reply) {
-  return (reply != NULL && reply->type == REDIS_REPLY_ERROR && reply->type == REDIS_REPLY_STRING);
+  return (reply != NULL && reply->type != REDIS_REPLY_ERROR && reply->type == REDIS_REPLY_STRING);
 }
+static int node_connector_reply_status_ok(redisReply *reply) {
+  return (
+    reply != NULL 
+    && reply->type != REDIS_REPLY_ERROR
+    && reply->type == REDIS_REPLY_STATUS
+    && reply->str
+    && strcmp(reply->str, "OK") == 0
+  );
+}
+
 static int node_parseinfo_set_run_id(redis_node_t *node, const char *info) {
   return node_parseinfo_set_preallocd_str(node, &node->run_id, info, "run_id:", MAX_RUN_ID_LENGTH);
 }
@@ -562,7 +572,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_CMD_AUTHENTICATING:
-      if(!node_connector_reply_str_ok(reply)) {
+      if(!node_connector_reply_status_ok(reply)) {
         return node_connector_fail(node, "AUTH command failed");
       }
       //now authenticate pubsub ctx
@@ -571,7 +581,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_PUBSUB_AUTHENTICATING:
-      if(!node_connector_reply_str_ok(reply)) {
+      if(!node_connector_reply_status_ok(reply)) {
         return node_connector_fail(node, "AUTH command failed");
       }
       node->state++;
@@ -634,7 +644,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       if(nchan_cstr_match_line(reply->str, "role:master")) {
         size_t                    i, n;
         redis_connect_params_t   *rcp;
-        node_set_role(node, REDIS_NODE_MASTER);
+        node_set_role(node, REDIS_NODE_ROLE_MASTER);
         if(!(rcp = parse_info_slaves(node, reply->str, &n))) {
           return node_connector_fail(node, "failed parsing slaves from INFO");
         }
@@ -644,7 +654,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       else if(nchan_cstr_match_line(reply->str, "role:slave")) {
         redis_connect_params_t   *rcp;
-        node_set_role(node, REDIS_NODE_SLAVE);
+        node_set_role(node, REDIS_NODE_ROLE_SLAVE);
         if(!(rcp = parse_info_master(node, reply->str))) {
           return node_connector_fail(node, "failed parsing master from INFO");
         }
@@ -721,12 +731,18 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_SCRIPTS_LOADING:
+      next_script = &next_script[node->scripts_loaded];
+      node_log_error(node, "loaded: %d", node->scripts_loaded);
+      //TODO: wrong hash
+      
+      
       if(!node_connector_loadscript_reply_ok(node, next_script, reply)) {
         return node_connector_fail(node, "SCRIPT LOAD failed,");
       }
-      node_log_info(node, "loaded script %s", next_script->name);
-      node->scripts_loaded++;
-      next_script = &next_script[node->scripts_loaded];
+      else {
+        node_log_info(node, "loaded script %s", next_script->name);
+        node->scripts_loaded++;
+      }
       if(node->scripts_loaded < redis_lua_scripts_count) {
         //load next script
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
@@ -763,9 +779,9 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
     }
     if(cur->discovered)
       discovered++;
-    if(cur->role == REDIS_NODE_MASTER)
+    if(cur->role == REDIS_NODE_ROLE_MASTER)
       masters++;
-    if(cur->role == REDIS_NODE_SLAVE)
+    if(cur->role == REDIS_NODE_ROLE_SLAVE)
       slaves++;
     if(cur->state <= REDIS_NODE_DISCONNECTED)
       disconnected++;

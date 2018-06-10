@@ -68,7 +68,7 @@ typedef struct {
 } redis_connect_params_t;
 
 typedef enum {
-  REDIS_NODE_UNKNOWN = 0, REDIS_NODE_MASTER, REDIS_NODE_SLAVE
+  REDIS_NODE_ROLE_UNKNOWN = 0, REDIS_NODE_ROLE_MASTER, REDIS_NODE_ROLE_SLAVE
 } redis_node_role_t;
 
 
