@@ -742,6 +742,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       else {
         node_log_info(node, "loaded script %s", next_script->name);
         node->scripts_loaded++;
+        next_script++;
       }
       if(node->scripts_loaded < redis_lua_scripts_count) {
         //load next script
