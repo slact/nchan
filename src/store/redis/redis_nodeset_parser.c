@@ -24,7 +24,7 @@
 static cluster_nodes_line_t   cluster_node_parsed_lines[MAX_CLUSTER_NODE_PARSED_LINES];
 static redis_connect_params_t parsed_connect_params[MAX_NODE_SLAVES_PARSED];
 
-static u_char *nodeset_parser_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur, redis_cluster_slot_range_t *r) {
+static u_char *nodeset_parser_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur, redis_slot_range_t *r) {
   ngx_str_t       slot_min_str, slot_max_str, slot;
   ngx_int_t       slot_min,     slot_max;
   u_char         *dash;
@@ -72,11 +72,11 @@ fail:
   return NULL;
 }
 
-int parse_cluster_node_slots(cluster_nodes_line_t *l, redis_cluster_slot_range_t *ranges) {
+int parse_cluster_node_slots(cluster_nodes_line_t *l, redis_slot_range_t *ranges) {
   //assumes the correct amount of ranges has already been allocated
-int                            i = 0;
-  redis_cluster_slot_range_t   range;
-  u_char                      *cur = NULL;
+int                    i = 0;
+  redis_slot_range_t   range;
+  u_char              *cur = NULL;
   while((cur = nodeset_parser_scan_cluster_nodes_slots_string(&l->slots, cur, &range)) != NULL) {
     if(i > l->slot_ranges_count) {
       return 0; //parsing more slot ranges than was expected
@@ -117,8 +117,8 @@ static char *nodeset_parser_scan_cluster_nodes_line(const char *line, cluster_no
     l->master = 1;
     
     //how many slot ranges?
-    int                          i = 0;
-    redis_cluster_slot_range_t   range;
+    int                  i = 0;
+    redis_slot_range_t   range;
     cur = NULL;
     while((cur = nodeset_parser_scan_cluster_nodes_slots_string(&l->slots, cur, &range)) != NULL) {
       i++;

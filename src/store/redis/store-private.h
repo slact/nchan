@@ -27,7 +27,7 @@ typedef struct redis_node_s redis_node_t;
 typedef struct { //redis_nodeset_cluster_t
   unsigned                    enabled:1;
   unsigned                    ready:1;
-  rbtree_seed_t               hashslots; //cluster rbtree seed
+  rbtree_seed_t               keyslots; //cluster rbtree seed
 } redis_nodeset_cluster_t;
 
 typedef enum {
@@ -71,8 +71,6 @@ typedef enum {
   REDIS_NODE_ROLE_UNKNOWN = 0, REDIS_NODE_ROLE_MASTER, REDIS_NODE_ROLE_SLAVE
 } redis_node_role_t;
 
-
-
 #define REDIS_NODE_DEDUPLICATED        -100
 #define REDIS_NODE_FAILED                -1
 #define REDIS_NODE_DISCONNECTED           0
@@ -92,10 +90,16 @@ typedef enum {
 #define REDIS_NODE_SCRIPTS_LOADING        14
 #define REDIS_NODE_READY                  100
 
+//OBSOLETE
 typedef struct {
   unsigned         min:16;
   unsigned         max:16;
 } redis_cluster_slot_range_t;
+
+typedef struct {
+  unsigned         min:16;
+  unsigned         max:16;
+} redis_slot_range_t;
 
 struct redis_node_s {
   int8_t                    state;
@@ -111,7 +115,7 @@ struct redis_node_s {
     unsigned                  ok:1;
     ngx_str_t                 id;
     struct {
-      redis_cluster_slot_range_t *range;
+      redis_slot_range_t         *range;
       size_t                      n;
     }                         slot_range; 
     char                     *cluster_nodes;
@@ -126,6 +130,11 @@ struct redis_node_s {
     redisContext              *sync;
   }                         ctx;
 }; //redis_node_t
+
+typedef struct {
+  redis_slot_range_t      range;
+  redis_node_t           *node;
+} redis_nodeset_slot_range_node_t;
 
 
 typedef struct rdstore_data_s rdstore_data_t;

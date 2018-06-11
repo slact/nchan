@@ -21,15 +21,15 @@ static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
 
-static void *rbtree_cluster_hashslots_id(void *data) {
+static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_cluster_keyslot_range_node_t *)data)->range;
 }
-static uint32_t rbtree_cluster_hashslots_bucketer(void *vid) {
+static uint32_t rbtree_cluster_keyslots_bucketer(void *vid) {
   return 1; //no buckets
 }
-static ngx_int_t rbtree_cluster_hashslots_compare(void *v1, void *v2) {
-  redis_cluster_slot_range_t   *r1 = v1;
-  redis_cluster_slot_range_t   *r2 = v2;
+static ngx_int_t rbtree_cluster_keyslots_compare(void *v1, void *v2) {
+  redis_slot_range_t   *r1 = v1;
+  redis_slot_range_t   *r2 = v2;
   
   if(r2->max < r1->min) //r2 is strictly left of r1
     return -1;
@@ -39,6 +39,25 @@ static ngx_int_t rbtree_cluster_hashslots_compare(void *v1, void *v2) {
     return 0;
 }
 
+
+static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
+  unsigned                         i;
+  ngx_rbtree_node_t               *rbtree_node;
+  redis_nodeset_slot_range_node_t *keyslot_tree_node;
+  for(i=0; i<node->cluster.slot_range.n; i++) {
+    if(nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[i])) { //overlap!
+      return 0;
+    }
+  }
+  
+  for(i=0; i<node->cluster.slot_range.n; i++) {
+    rbtree_node = rbtree_create_node(&node->nodeset->cluster.keyslots, sizeof(*keyslot_tree_node));
+    keyslot_tree_node = rbtree_data_from_node(rbtree_node);
+    keyslot_tree_node->range = node->cluster.slot_range.range[i];
+    keyslot_tree_node->node = node;
+  }
+  return 1;
+}
 
 static char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
@@ -79,7 +98,7 @@ redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
   //init cluster stuff
   ns->cluster.enabled = 0;
   ns->cluster.ready = 0;
-  rbtree_init(&ns->cluster.hashslots, "redis cluster node (by keyslot) data", rbtree_cluster_hashslots_id, rbtree_cluster_hashslots_bucketer, rbtree_cluster_hashslots_compare);
+  rbtree_init(&ns->cluster.keyslots, "redis cluster node (by keyslot) data", rbtree_cluster_keyslots_node_id, rbtree_cluster_keyslots_bucketer, rbtree_cluster_keyslots_compare);
   
   //urls
   if(rcf->upstream) {
@@ -217,6 +236,32 @@ redis_node_t *nodeset_node_find_by_run_id(redis_nodeset_t *ns, ngx_str_t *run_id
 redis_node_t *nodeset_node_find_by_cluster_id(redis_nodeset_t *ns, ngx_str_t *cluster_id) {
   return nodeset_node_find_by(ns, &_node_match.cluster_id, cluster_id);
 }
+
+static int keyslot_ranges_overlap(redis_slot_range_t *r1, redis_slot_range_t *r2) {
+  return rbtree_cluster_keyslots_compare(r1, r2) == 0;
+}
+
+redis_node_t *nodeset_node_find_by_range(redis_nodeset_t *ns, redis_slot_range_t *range) {
+  ngx_rbtree_node_t                   *rbtree_node;
+  redis_nodeset_slot_range_node_t     *keyslot_tree_node;
+  
+  if((rbtree_node = rbtree_find_node(&ns->cluster.keyslots, range)) != NULL) {
+    keyslot_tree_node = rbtree_data_from_node(rbtree_node);
+    assert(keyslot_ranges_overlap(range, &keyslot_tree_node->range));
+    return keyslot_tree_node->node;
+  }
+  else {
+    return NULL;
+  }
+}
+
+redis_node_t *nodeset_node_find_by_slot(redis_nodeset_t *ns, uint16_t slot) {
+  redis_slot_range_t range;
+  range.min = slot;
+  range.max = slot;
+  return nodeset_node_find_by_range(ns, &range);
+}
+
 
 
 redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
@@ -713,18 +758,31 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         for(i=0; i<n; i++) {
           if(l[i].self) {
             nchan_strcpy(&node->cluster.id, &l[i].id, MAX_CLUSTER_ID_LENGTH);
-            if(l[i].slot_ranges_count > 0) {
+            if(l[i].slot_ranges_count == 0 && l[i].master) {
+              node_log_notice(node, "is a master cluster node with no keyslots");
+            }
+            else {
+              redis_node_t       *conflict_node;
               node->cluster.slot_range.n = l[i].slot_ranges_count;
-              node->cluster.slot_range.range = ngx_alloc(sizeof(redis_cluster_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
+              size_t                 j;
+              node->cluster.slot_range.range = ngx_alloc(sizeof(redis_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
               if(!node->cluster.slot_range.range) {
                 return node_connector_fail(node, "failed allocating cluster slots range");
               }
               if(!parse_cluster_node_slots(&l[i], node->cluster.slot_range.range)) {
                 return node_connector_fail(node, "failed parsing cluster slots range");
               }
+              for(j = 0; j<node->cluster.slot_range.n; j++) {
+                if((conflict_node = nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[j]))!=NULL) {
+                  u_char buf[1024];
+                  ngx_snprintf(buf, 1024, "keyslot range conflict with node %s. These nodes are probably from different clusters.%Z", node_cstr(conflict_node));
+                  return node_connector_fail(node, (char *)buf);
+                }
+              }
               
-              //TODO: add to slot range tree
-              
+              if(!nodeset_cluster_node_index_keyslot_ranges(node)) {
+                return node_connector_fail(node, "indexing keyslot ranges failed");
+              }
             }
           }
           else if(!l[i].failed) {
