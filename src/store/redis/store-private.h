@@ -92,6 +92,11 @@ typedef enum {
 #define REDIS_NODE_SCRIPTS_LOADING        14
 #define REDIS_NODE_READY                  100
 
+typedef struct {
+  unsigned         min:16;
+  unsigned         max:16;
+} redis_cluster_slot_range_t;
+
 struct redis_node_s {
   int8_t                    state;
   unsigned                  discovered:1;
@@ -105,6 +110,10 @@ struct redis_node_s {
     unsigned                  enabled:1;
     unsigned                  ok:1;
     ngx_str_t                 id;
+    struct {
+      redis_cluster_slot_range_t *range;
+      size_t                      n;
+    }                         slot_range; 
     char                     *cluster_nodes;
   }                         cluster;
   struct {
@@ -225,11 +234,6 @@ typedef struct {
   unsigned          inactive:1;
   unsigned          indexed:1;
 } redis_cluster_node_t;
-
-typedef struct {
-  unsigned         min:16;
-  unsigned         max:16;
-} redis_cluster_slot_range_t;
 
 typedef struct {
   redis_cluster_slot_range_t   range;

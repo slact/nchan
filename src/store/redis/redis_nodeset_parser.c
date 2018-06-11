@@ -23,63 +23,6 @@
 
 static cluster_nodes_line_t   cluster_node_parsed_lines[MAX_CLUSTER_NODE_PARSED_LINES];
 static redis_connect_params_t parsed_connect_params[MAX_NODE_SLAVES_PARSED];
-    
-static char *nodeset_parser_scan_cluster_nodes_line(const char *line, cluster_nodes_line_t *l) {
-  u_char     *cur = (u_char *)line;
-  u_char     *max = cur;
-  u_char     *tmp;
-  ngx_str_t   rest_line;
-  
-  if(cur[0]=='\0')
-    return NULL;
-  
-  nchan_scan_split_by_chr(&max, strlen((char *)max), &rest_line, '\n');
-  l->line = rest_line;
-  
-  nchan_scan_until_chr_on_line(&rest_line, &l->id,           ' ');
-  nchan_scan_until_chr_on_line(&rest_line, &l->address,      ' ');
-  nchan_scan_until_chr_on_line(&rest_line, &l->flags,        ' ');
-  
-  nchan_scan_until_chr_on_line(&rest_line, &l->master_id,    ' ');
-  nchan_scan_until_chr_on_line(&rest_line, &l->ping_sent,    ' ');
-  nchan_scan_until_chr_on_line(&rest_line, &l->pong_recv,    ' ');
-  nchan_scan_until_chr_on_line(&rest_line, &l->config_epoch, ' ');
-  nchan_scan_until_chr_on_line(&rest_line, &l->link_state,   ' ');
-  
-  if(nchan_ngx_str_substr((&l->flags), "master")) {
-    l->slots = rest_line;
-    l->master = 1;
-  }
-  else {
-    l->slots.data = NULL;
-    l->slots.len = 0;
-    l->master = 0;
-  }
-  l->failed = nchan_ngx_str_substr((&l->flags), "fail");
-  l->self = nchan_ngx_str_substr((&l->flags), "myself") ? 1 : 0;
-  
-  l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
-  
-  //redis >= 4.0 CLUSTER NODES format compatibility
-  if((tmp = memrchr(l->address.data, '@', l->address.len)) != NULL) {
-    l->address.len = tmp - l->address.data;
-  }
-  
-  if((tmp = memrchr(l->address.data, ':', l->address.len)) != NULL) {
-    //hostname and port from address
-    ngx_str_t   port;
-    l->hostname.data = l->address.data;
-    l->hostname.len = tmp - l->address.data;
-    port.len = l->address.len - l->hostname.len - 1;
-    port.data = &tmp[1];
-    l->port = ngx_atoi(port.data, port.len);
-  }
-  
-  cur = max;
-  if(&cur[-1] > (u_char *)line && cur[-1] == '\0')
-    cur--;
-  return (char *)cur;
-}
 
 static u_char *nodeset_parser_scan_cluster_nodes_slots_string(ngx_str_t *str, u_char *cur, redis_cluster_slot_range_t *r) {
   ngx_str_t       slot_min_str, slot_max_str, slot;
@@ -127,6 +70,91 @@ static u_char *nodeset_parser_scan_cluster_nodes_slots_string(ngx_str_t *str, u_
   
 fail:
   return NULL;
+}
+
+int parse_cluster_node_slots(cluster_nodes_line_t *l, redis_cluster_slot_range_t *ranges) {
+  //assumes the correct amount of ranges has already been allocated
+int                            i = 0;
+  redis_cluster_slot_range_t   range;
+  u_char                      *cur = NULL;
+  while((cur = nodeset_parser_scan_cluster_nodes_slots_string(&l->slots, cur, &range)) != NULL) {
+    if(i > l->slot_ranges_count) {
+      return 0; //parsing more slot ranges than was expected
+    }
+    ranges[i]=range;
+    i++;
+  }
+  if(i !=l->slot_ranges_count) {
+    return 0; //parsed the wrong amount of slot ranges
+  }
+  return 1;
+}
+
+static char *nodeset_parser_scan_cluster_nodes_line(const char *line, cluster_nodes_line_t *l) {
+  u_char     *cur = (u_char *)line;
+  u_char     *max = cur;
+  u_char     *tmp;
+  ngx_str_t   rest_line;
+  
+  if(cur[0]=='\0')
+    return NULL;
+  
+  nchan_scan_split_by_chr(&max, strlen((char *)max), &rest_line, '\n');
+  l->line = rest_line;
+  
+  nchan_scan_until_chr_on_line(&rest_line, &l->id,           ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->address,      ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->flags,        ' ');
+  
+  nchan_scan_until_chr_on_line(&rest_line, &l->master_id,    ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->ping_sent,    ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->pong_recv,    ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->config_epoch, ' ');
+  nchan_scan_until_chr_on_line(&rest_line, &l->link_state,   ' ');
+  
+  if(nchan_ngx_str_substr((&l->flags), "master")) {
+    l->slots = rest_line;
+    l->master = 1;
+    
+    //how many slot ranges?
+    int                          i = 0;
+    redis_cluster_slot_range_t   range;
+    cur = NULL;
+    while((cur = nodeset_parser_scan_cluster_nodes_slots_string(&l->slots, cur, &range)) != NULL) {
+      i++;
+    }
+    l->slot_ranges_count = i;
+  }
+  else {
+    l->slots.data = NULL;
+    l->slots.len = 0;
+    l->slot_ranges_count = 0;
+    l->master = 0;
+  }
+  l->failed = nchan_ngx_str_substr((&l->flags), "fail");
+  l->self = nchan_ngx_str_substr((&l->flags), "myself") ? 1 : 0;
+  
+  l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
+  
+  //redis >= 4.0 CLUSTER NODES format compatibility
+  if((tmp = memrchr(l->address.data, '@', l->address.len)) != NULL) {
+    l->address.len = tmp - l->address.data;
+  }
+  
+  if((tmp = memrchr(l->address.data, ':', l->address.len)) != NULL) {
+    //hostname and port from address
+    ngx_str_t   port;
+    l->hostname.data = l->address.data;
+    l->hostname.len = tmp - l->address.data;
+    port.len = l->address.len - l->hostname.len - 1;
+    port.data = &tmp[1];
+    l->port = ngx_atoi(port.data, port.len);
+  }
+  
+  cur = max;
+  if(&cur[-1] > (u_char *)line && cur[-1] == '\0')
+    cur--;
+  return (char *)cur;
 }
 
 redis_connect_params_t *parse_info_slaves(redis_node_t *node, const char *info, size_t *count) {

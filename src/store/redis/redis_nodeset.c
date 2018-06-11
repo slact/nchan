@@ -245,6 +245,8 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   node->cluster.id.data = node_blob->cluster_id;
   node->cluster.enabled = 0;
   node->cluster.ok = 0;
+  node->cluster.slot_range.n = 0;
+  node->cluster.slot_range.range = NULL;
   node->run_id.len = 0;
   node->run_id.data = node_blob->run_id;
   node->nodeset = ns;
@@ -700,17 +702,30 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     
     case REDIS_NODE_GETTING_CLUSTER_NODES:
       if(!node_connector_reply_str_ok(reply)) {
-        return node_connector_fail(node, "CLUSTER NODES command failed,");
+        return node_connector_fail(node, "CLUSTER NODES command failed");
       }
       else {
         size_t                  i, n;
         cluster_nodes_line_t   *l;
         if(!(l = parse_cluster_nodes(node, reply->str, &n))) {
-          return node_connector_fail(node, "CLUSTER NODES command failed,");
+          return node_connector_fail(node, "parsing CLUSTER NODES command failed");
         }
         for(i=0; i<n; i++) {
           if(l[i].self) {
             nchan_strcpy(&node->cluster.id, &l[i].id, MAX_CLUSTER_ID_LENGTH);
+            if(l[i].slot_ranges_count > 0) {
+              node->cluster.slot_range.n = l[i].slot_ranges_count;
+              node->cluster.slot_range.range = ngx_alloc(sizeof(redis_cluster_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
+              if(!node->cluster.slot_range.range) {
+                return node_connector_fail(node, "failed allocating cluster slots range");
+              }
+              if(!parse_cluster_node_slots(&l[i], node->cluster.slot_range.range)) {
+                return node_connector_fail(node, "failed parsing cluster slots range");
+              }
+              
+              //TODO: add to slot range tree
+              
+            }
           }
           else if(!l[i].failed) {
             node_discover_cluster_peer(node, &l[i]);
