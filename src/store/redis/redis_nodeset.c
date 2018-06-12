@@ -61,7 +61,7 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
 
 static char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
-  ngx_snprintf((u_char *)buf, 512, "%s:%d (%s) %Z", &rcp->hostname, rcp->port, rcp->peername);
+  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
     return buf;
 }
 static char *node_cstr(redis_node_t *node) {
@@ -106,6 +106,7 @@ redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
     ngx_array_t                 *servers = rcf->upstream->servers;
     ngx_http_upstream_server_t  *usrv = servers->elts;
     ngx_str_t                   *upstream_url, **urlref;
+    ns->upstream = rcf->upstream;
     for(i=0; i < servers->nelts; i++) {
 #if nginx_version >= 1007002
       upstream_url = &usrv[i].name;
@@ -267,7 +268,7 @@ redis_node_t *nodeset_node_find_by_slot(redis_nodeset_t *ns, uint16_t slot) {
 redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
   assert(!nodeset_node_find_by_connect_params(ns, rcp));
   node_blob_t      *node_blob;
-  if(extra_space) {
+  if(!extra_space) {
     node_blob = nchan_list_append(&ns->nodes);
   }
   else {
@@ -318,8 +319,8 @@ redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis
   node = nodeset_node_create_with_space(ns, rcp, sz, (void **)&space);
   assert(node);
   node->connect_params.hostname.data = space;
+  node->connect_params.hostname.len = 0;
   nchan_strcpy(&node->connect_params.hostname, &rcp->hostname, 0);
-  
   node->connect_params.password.data = &space[rcp->hostname.len];
   nchan_strcpy(&node->connect_params.password, &rcp->password, 0);
   return node;
@@ -357,8 +358,8 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
   node_log_notice(master, "Discovering slave %s", rcp_cstr(rcp));
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
-    assert(slave->role == REDIS_NODE_ROLE_SLAVE);
-    assert(slave->peers.master == master);
+    assert(slave->role != REDIS_NODE_ROLE_MASTER);
+    //assert(slave->peers.master == master);
   }
   else {
     slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
@@ -376,9 +377,9 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
 static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
   redis_node_t *master;
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
-    assert(master->role == REDIS_NODE_ROLE_MASTER);
-    assert(node_find_slave_node(master, slave));
-    node_log_notice(master, "Discovering master %s... already known", rcp_cstr(rcp));
+    assert(master->role != REDIS_NODE_ROLE_SLAVE);
+    //assert(node_find_slave_node(master, slave));
+    //node_log_notice(master, "Discovering master %s... already known", rcp_cstr(rcp));
   }
   else {
     master = nodeset_node_create_with_connect_params(slave->nodeset, rcp);
@@ -410,7 +411,7 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
   if( ((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL)
    || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
   ) {
-    node_log_notice(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
+    //node_log_notice(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
     return; //we already know this one.
   }
   node_log_notice(node, "Discovering cluster node %s", rcp_cstr(&rcp));
@@ -724,7 +725,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_GET_CLUSTERINFO:
-      redisAsyncCommand(node->ctx.cmd, node_connector_callback, NULL, "CLUSTER INFO");
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "CLUSTER INFO");
       node->state++;
       break;
     
@@ -741,7 +742,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //Oi! 'Ave ya got a loicence for that fallthrough?
     
     case REDIS_NODE_GET_CLUSTER_NODES:
-      redisAsyncCommand(node->ctx.cmd, node_connector_callback, NULL, "CLUSTER NODES");
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "CLUSTER NODES");
       node->state++;
       break;
     
