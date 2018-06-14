@@ -715,6 +715,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //what's next?
       if(nchan_cstr_match_line(reply->str, "cluster_enabled:1")) {
         node->state = REDIS_NODE_GET_CLUSTERINFO;
+        node->cluster.enabled = 1;
         return node_connector_callback(NULL, NULL, node);
       }
       else {
@@ -822,6 +823,31 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       node_log_notice(node, "all scripts loaded!");
   }
+}
+
+static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
+  ngx_rbtree_node_t                  *node;
+  redis_slot_range_t                  range = {0, 0};
+  redis_cluster_keyslot_range_node_t *rangenode;
+  
+  while(range.min <= 16383) {
+    if((node = rbtree_find_node(&ns->cluster.keyslots, &range)) == NULL) {
+      DBG("cluster slots range incomplete: can't find slot %i", range.min);
+      return 0;
+    }
+    rangenode = rbtree_data_from_node(node);
+    
+    if(rangenode->rdata->status != CONNECTED) {
+      DBG("cluster node for range %i - %i not connected", rangenode->range.min, rangenode->range.max);
+      return 0;
+    }
+    
+    range.min = rangenode->range.max + 1;
+    range.max = range.min;
+  }
+  DBG("cluster range complete");
+  //print_cluster_slots(cluster);
+  return 1;
 }
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
