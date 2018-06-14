@@ -821,7 +821,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
         return;
       }
-      node_log_notice(node, "all scripts loaded!");
+      node_log_info(node, "all scripts loaded");
+      node->state = REDIS_NODE_READY;
+      nodeset_check_status(node->nodeset);
   }
 }
 
@@ -890,27 +892,31 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
   }
   if(ready == total) {
     if(ready == 0) {
-      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable servers");
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable Redis servers");
     }
     else if(cluster && cluster < total) {
-      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "cluster and non-cluster servers in set");
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "cluster and non-cluster Redis servers in set");
     }
     else if (cluster == 0 && masters > 1) {
-      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "more than one master servers in non-cluster set");
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "more than one master Redis servers in non-cluster set");
     }
     else if (cluster == 0 && masters == 0) {
-      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable master servers in set");
+      nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable master Redis servers in set");
+    }
+    else if(cluster > 0 && nodeset_cluster_keyslot_space_complete(nodeset)) {
+      nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, "keyslot space incomplete");
     }
     else {
-      nodeset_set_status(nodeset, REDIS_NODESET_READY, NULL);
+      nodeset_set_status(nodeset, REDIS_NODESET_READY, cluster > 0 ? "Redis cluster ready" : "Redis server ready");
     } 
   }
   else if(ready == 0) {
-    nodeset_set_status(nodeset, REDIS_NODESET_DISCONNECTED, NULL);
+    nodeset_set_status(nodeset, REDIS_NODESET_DISCONNECTED, "no connected Redis servers");
   }
   else if(ready < total) {
-    nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, NULL);
+    nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, "not all Redis servers are connected");
   }
+  
   return NGX_OK;
 }
 
