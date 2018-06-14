@@ -22,7 +22,7 @@ static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
 
 static void *rbtree_cluster_keyslots_node_id(void *data) {
-  return &((redis_cluster_keyslot_range_node_t *)data)->range;
+  return &((redis_nodeset_slot_range_node_t *)data)->range;
 }
 static uint32_t rbtree_cluster_keyslots_bucketer(void *vid) {
   return 1; //no buckets
@@ -44,6 +44,7 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   unsigned                         i;
   ngx_rbtree_node_t               *rbtree_node;
   redis_nodeset_slot_range_node_t *keyslot_tree_node;
+  rbtree_seed_t                   *tree = &node->nodeset->cluster.keyslots;
   for(i=0; i<node->cluster.slot_range.n; i++) {
     if(nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[i])) { //overlap!
       return 0;
@@ -51,10 +52,18 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   }
   
   for(i=0; i<node->cluster.slot_range.n; i++) {
-    rbtree_node = rbtree_create_node(&node->nodeset->cluster.keyslots, sizeof(*keyslot_tree_node));
+    rbtree_node = rbtree_create_node(tree, sizeof(*keyslot_tree_node));
     keyslot_tree_node = rbtree_data_from_node(rbtree_node);
     keyslot_tree_node->range = node->cluster.slot_range.range[i];
     keyslot_tree_node->node = node;
+    if(rbtree_insert_node(tree, rbtree_node) != NGX_OK) {
+      node_log_error(node, "couldn't insert keyslot node range %d-%d", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+      rbtree_destroy_node(tree, rbtree_node);
+      return 0;
+    }
+    else {
+      node_log_info(node, "inserted keyslot node range %d-%d", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+    }
   }
   return 1;
 }
@@ -830,7 +839,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
   ngx_rbtree_node_t                  *node;
   redis_slot_range_t                  range = {0, 0};
-  redis_cluster_keyslot_range_node_t *rangenode;
+  redis_nodeset_slot_range_node_t    *rangenode;
   
   while(range.min <= 16383) {
     if((node = rbtree_find_node(&ns->cluster.keyslots, &range)) == NULL) {
@@ -839,8 +848,8 @@ static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
     }
     rangenode = rbtree_data_from_node(node);
     
-    if(rangenode->rdata->status != CONNECTED) {
-      DBG("cluster node for range %i - %i not connected", rangenode->range.min, rangenode->range.max);
+    if(rangenode->node->state < REDIS_NODE_READY) {
+      node_log_notice(rangenode->node, "cluster node for range %i - %i not connected", rangenode->range.min, rangenode->range.max);
       return 0;
     }
     
@@ -903,7 +912,7 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
     else if (cluster == 0 && masters == 0) {
       nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable master Redis servers in set");
     }
-    else if(cluster > 0 && nodeset_cluster_keyslot_space_complete(nodeset)) {
+    else if(cluster > 0 && !nodeset_cluster_keyslot_space_complete(nodeset)) {
       nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, "keyslot space incomplete");
     }
     else {
