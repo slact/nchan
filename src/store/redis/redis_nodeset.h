@@ -20,9 +20,9 @@
 
 #define NCHAN_MAX_NODESETS 1024
 #define REDIS_NODESET_STATUS_CHECK_TIME_MSEC 4000
-#define REDIS_NODESET_MAX_CONNECTING_TIME_SEC 15
-#define REDIS_NODESET_MAX_RECONNECTING_TIME_SEC 5
-#define REDIS_NODESET_MAX_FAILING_TIME_SEC 3
+#define REDIS_NODESET_MAX_CONNECTING_TIME_SEC 5
+#define REDIS_NODESET_RECONNECT_WAIT_TIME_SEC 5
+#define REDIS_NODESET_MAX_FAILING_TIME_SEC 2
 
 #define REDIS_NODE_DEDUPLICATED        -100
 #define REDIS_NODE_FAILED                -1
@@ -117,6 +117,7 @@ struct redis_node_s {
     struct {
       redis_slot_range_t         *range;
       size_t                      n;
+      unsigned                    indexed:1;
     }                         slot_range; 
     char                     *cluster_nodes;
   }                         cluster;
