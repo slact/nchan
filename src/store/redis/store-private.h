@@ -31,7 +31,12 @@ typedef struct { //redis_nodeset_cluster_t
 } redis_nodeset_cluster_t;
 
 typedef enum {
-  REDIS_NODESET_INVALID = -1, REDIS_NODESET_DISCONNECTED=0, REDIS_NODESET_CONNECTING, REDIS_NODESET_READY
+  REDIS_NODESET_FAILED = -3,
+  REDIS_NODESET_FAILING = -2,
+  REDIS_NODESET_INVALID = -1,
+  REDIS_NODESET_DISCONNECTED = 0,
+  REDIS_NODESET_CONNECTING,
+  REDIS_NODESET_READY
 } redis_nodeset_status_t;
 
 struct redis_nodeset_s {
@@ -42,9 +47,12 @@ struct redis_nodeset_s {
   //slaves of slaves not included
   
   redis_nodeset_status_t      status;
+  time_t                      current_status_start;
+  ngx_int_t                   current_status_times_checked;
+  ngx_int_t                   generation;
+  ngx_event_t                 status_check_ev;
   nchan_list_t                urls;
   ngx_http_upstream_srv_conf_t *upstream;
-  unsigned                    ready:1;
   nchan_list_t                nodes;
   redis_nodeset_cluster_t     cluster;
   struct {
@@ -57,6 +65,7 @@ struct redis_nodeset_s {
   
   nchan_list_t                channels;
   nchan_reaper_t              chanhead_reaper;
+  time_t                      reconnect_delay_sec;
 }; //redis_nodeset_t
 
 typedef struct {
@@ -74,20 +83,22 @@ typedef enum {
 #define REDIS_NODE_DEDUPLICATED        -100
 #define REDIS_NODE_FAILED                -1
 #define REDIS_NODE_DISCONNECTED           0
-#define REDIS_NODE_CONNECTED              1
-#define REDIS_NODE_CMD_AUTHENTICATING     2
-#define REDIS_NODE_PUBSUB_AUTHENTICATING  3
-#define REDIS_NODE_AUTHENTICATED          4
-#define REDIS_NODE_CMD_SELECTING_DB       5
-#define REDIS_NODE_PUBSUB_SELECTING_DB    6
-#define REDIS_NODE_DB_SELECTED            7
-#define REDIS_NODE_GETTING_INFO           8
-#define REDIS_NODE_GET_CLUSTERINFO        9
-#define REDIS_NODE_GETTING_CLUSTERINFO    10
-#define REDIS_NODE_GET_CLUSTER_NODES      11
-#define REDIS_NODE_GETTING_CLUSTER_NODES  12
-#define REDIS_NODE_SCRIPTS_LOAD           13
-#define REDIS_NODE_SCRIPTS_LOADING        14
+#define REDIS_NODE_CMD_CONNECTING         1
+#define REDIS_NODE_PUBSUB_CONNECTING      2
+#define REDIS_NODE_CONNECTED              3
+#define REDIS_NODE_CMD_AUTHENTICATING     4
+#define REDIS_NODE_PUBSUB_AUTHENTICATING  5
+#define REDIS_NODE_AUTHENTICATED          6
+#define REDIS_NODE_CMD_SELECTING_DB       7
+#define REDIS_NODE_PUBSUB_SELECTING_DB    8
+#define REDIS_NODE_DB_SELECTED            9
+#define REDIS_NODE_GETTING_INFO           10
+#define REDIS_NODE_GET_CLUSTERINFO        11
+#define REDIS_NODE_GETTING_CLUSTERINFO    12
+#define REDIS_NODE_GET_CLUSTER_NODES      13
+#define REDIS_NODE_GETTING_CLUSTER_NODES  14
+#define REDIS_NODE_SCRIPTS_LOAD           15
+#define REDIS_NODE_SCRIPTS_LOADING        16
 #define REDIS_NODE_READY                  100
 
 //OBSOLETE

@@ -68,6 +68,24 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   return 1;
 }
 
+static int nodeset_cluster_node_unindex_keyslot_ranges(redis_node_t *node) {
+  ngx_rbtree_node_t               *rbtree_node;
+  redis_slot_range_t              *range;
+  rbtree_seed_t                   *tree = &node->nodeset->cluster.keyslots;
+  unsigned                         i;
+  for(i=0; i<node->cluster.slot_range.n; i++) {
+    range = &node->cluster.slot_range.range[i];
+    if((rbtree_node = rbtree_find_node(tree, range)) != NULL) {
+      rbtree_remove_node(tree, rbtree_node);
+      rbtree_destroy_node(tree, rbtree_node);
+    }
+    else {
+      node_log_error(node, "unable to unindex keyslot range %d-%d: range not found in tree", range->min, range->max);
+    }
+  }
+  return 1;
+}
+
 static char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
   ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
@@ -88,6 +106,8 @@ typedef struct {
   u_char          version[MAX_VERSION_LENGTH];
 } node_blob_t;
 
+static void nodeset_status_check_event(ngx_event_t *ev);
+
 redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
   redis_nodeset_t *ns = &redis_nodeset[redis_nodeset_count]; //incremented once everything is ok
 
@@ -99,10 +119,16 @@ redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
   assert(!nodeset_find(rcf)); //must be unique
   
   nchan_list_init(&ns->urls, sizeof(ngx_str_t *), "redis urls");
-  ns->ready = 0;
   nchan_list_init(&ns->nodes, sizeof(node_blob_t), "redis nodes");
   
+  ns->reconnect_delay_sec = 5;
+  ns->current_status_times_checked = 0;
+  ns->current_status_start = 0;
+  ns->generation = 0;
+  
   ns->status = REDIS_NODESET_DISCONNECTED;
+  ngx_memzero(&ns->status_check_ev, sizeof(ns->status_check_ev));
+  nchan_init_timer(&ns->status_check_ev, nodeset_status_check_event, ns);
   
   //init cluster stuff
   ns->cluster.enabled = 0;
@@ -379,7 +405,7 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
   node_add_slave_node(master, slave);  //so is this
   //try to connect
   if(slave->state <= REDIS_NODE_DISCONNECTED) {
-    node_connector_callback(NULL, NULL, slave);
+    node_connect(slave);
   }
 }
 
@@ -400,7 +426,7 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
   node_add_slave_node(master, slave);
   //try to connect
   if(master->state <= REDIS_NODE_DISCONNECTED) {
-    node_connector_callback(NULL, NULL, master);
+    node_connect(master);
   }
 }
 
@@ -428,7 +454,7 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
   peer->discovered = 1;
   nchan_strcpy(&peer->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
   //ignore all the other things for now
-  node_connector_callback(NULL, NULL, peer);
+  node_connect(peer);
 }
 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
@@ -450,12 +476,29 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
   else {
     node_log_error(node, "connection failed: %s", err);
   }
+  node_disconnect(node);
   node->state = REDIS_NODE_FAILED;
+}
+
+int node_connect(redis_node_t *node) {
+  assert(node->state <= REDIS_NODE_DISCONNECTED);
+  node_connector_callback(NULL, NULL, node);
+  return 1;
+}
+
+int node_disconnect(redis_node_t *node) {
+  node_log_debug(node, "disconnect");
   if(node->ctx.cmd) {
+    node->ctx.cmd->onDisconnect = NULL;
+    //redisAsyncSetDisconnectCallback(node->ctx.cmd, NULL); //this only sets the callback if it's currently null...
     redisAsyncFree(node->ctx.cmd);
+    node_log_debug(node, "redisAsyncFree %p", node->ctx.cmd);
   }
   if(node->ctx.pubsub) {
+    node->ctx.pubsub->onDisconnect = NULL;
+    //redisAsyncSetDisconnectCallback(node->ctx.pubsub, NULL);  //this only sets the callback if it's currently null...
     redisAsyncFree(node->ctx.pubsub);
+    node_log_debug(node, "redisAsyncFree pubsub %p", node->ctx.pubsub);
   }
   if(node->ctx.sync) {
     redisFree(node->ctx.sync);
@@ -463,6 +506,11 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
+  node->state = REDIS_NODE_DISCONNECTED;
+  if(node->cluster.enabled) {
+    nodeset_cluster_node_unindex_keyslot_ranges(node);
+  }
+  return 1;
 }
 
 void node_set_role(redis_node_t *node, redis_node_role_t role) {
@@ -589,28 +637,104 @@ static int node_connector_loadscript_reply_ok(redis_node_t *node, redis_lua_scri
   }
 }
 
+static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncContext *ac, int status) {
+  redis_node_t    *node = ac->data;
+  char            *which_ctx;
+  ERR("unexpected disconnct event handler ac %p", ac);
+  if(node) {
+    if(node->ctx.cmd == ac) {
+      which_ctx = "cmd";
+      node->ctx.cmd = NULL;
+    }
+    else if(node->ctx.pubsub == ac) {
+      node->ctx.pubsub = NULL;
+      which_ctx = "pubsub";
+    }
+    else {
+      node_log_error(node, "unknown redisAsyncContext disconnected");
+      which_ctx = "unknown";
+    }
+    
+    if(node->state >= REDIS_NODE_READY && !ngx_exiting && !ngx_quit) {
+      if(ac->err) {
+        node_log_error(node, "%s connection lost: %s.", which_ctx, ac->errstr);
+      }
+      else {
+        node_log_error(node, "%s connection lost", which_ctx);
+      }
+    }
+    node_disconnect(node);
+    
+    nchan_add_oneshot_timer((void (*)(void *))nodeset_check_status, node->nodeset, 10);
+  }
+}
+
+static void redis_nginx_connect_event_handler(const redisAsyncContext *ac, int status) {
+  node_connector_callback((redisAsyncContext *)ac, NULL, ac->data);
+}
+
+static redisAsyncContext *node_connect_context(redis_node_t *node, ngx_str_t *host, ngx_int_t port) {
+  redisAsyncContext *ctx = redis_nginx_open_context(host, port, node);
+  if(ctx) {
+    redisAsyncSetConnectCallback(ctx, redis_nginx_connect_event_handler);
+    redisAsyncSetDisconnectCallback(ctx, redis_nginx_unexpected_disconnect_event_handler);
+  }
+  return ctx;
+}
+
+static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *reply) {
+  redis_connect_params_t   *rcp;
+  size_t                    i, n;
+  if(!(rcp = parse_info_slaves(node, reply->str, &n))) {
+    return 0;
+  }
+  for(i=0; i<n; i++) {
+    node_discover_slave(node, &rcp[i]);
+  }
+  return 1;
+}
+
 
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                 *reply = rep;
   redis_node_t               *node = privdata;
-  
+  char                        errstr[1024];
   redis_connect_params_t     *cp = &node->connect_params;
   redis_lua_script_t         *next_script = (redis_lua_script_t *)&redis_lua_scripts;
-
+  node_log_notice(node, "node_connector_callback state %d", node->state);
+  
+  
   switch(node->state) {
     case REDIS_NODE_FAILED:
     case REDIS_NODE_DISCONNECTED:
-      node->ctx.cmd = redis_nginx_open_context(&cp->hostname, cp->port, node); //always connect the cmd ctx to the hostname
-      if(node->ctx.cmd == NULL) {
+      if((node->ctx.cmd = node_connect_context(node, &cp->hostname, cp->port)) == NULL) { //always connect the cmd ctx to the hostname
         return node_connector_fail(node, "failed to open redis async context for cmd");
       }
       else if(cp->peername.len == 0) { //don't know peername yet
         set_preallocated_peername(node->ctx.cmd, &cp->peername);
       }
-      node->ctx.pubsub = redis_nginx_open_context(cp->peername.len > 0 ? &cp->peername : &cp->hostname, cp->port, node); //try to connect to peername if possible
-      if(node->ctx.pubsub == NULL) {
+      node->state = REDIS_NODE_CMD_CONNECTING;
+      break; //wait until the onConnect callback brings us back
+      
+    case REDIS_NODE_CMD_CONNECTING:
+      if(ac->err || ac->c.err) {
+        node->ctx.cmd = NULL; //to avoid calling redisAsyncFree on the ctx during node_disconnect()
+        //(it will be called automatically when this function returns control back to hiredis
+        return node_connector_fail(node, ac->errstr);
+      }
+      if((node->ctx.pubsub = node_connect_context(node, &cp->peername, cp->port)) == NULL) {
         return node_connector_fail(node, "failed to open redis async context for pubsub");
+      }
+      node->state++;
+      break; //wait until the onConnect callback brings us back
+    
+    case REDIS_NODE_PUBSUB_CONNECTING:
+      if(ac->err || ac->c.err) {
+        node->ctx.pubsub = NULL; //to avoid calling redisAsyncFree on the ctx during node_disconnect()
+        //(it will be called automatically when this function returns control back to hiredis
+        ngx_snprintf((u_char *)errstr, 1024, "(pubsub) %s%Z", ac->errstr);
+        return node_connector_fail(node, errstr);
       }
       //connection established. move on...   
       node->state = REDIS_NODE_CONNECTED;
@@ -672,6 +796,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     
     case REDIS_NODE_DB_SELECTED:
       //getinfo time
+      raise(SIGSTOP);
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO all");
       node->state++;
       break;
@@ -699,14 +824,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       
       if(nchan_cstr_match_line(reply->str, "role:master")) {
-        size_t                    i, n;
-        redis_connect_params_t   *rcp;
         node_set_role(node, REDIS_NODE_ROLE_MASTER);
-        if(!(rcp = parse_info_slaves(node, reply->str, &n))) {
+        if(!node_discover_slaves_from_info_reply(node, reply)) {
           return node_connector_fail(node, "failed parsing slaves from INFO");
-        }
-        for(i=0; i<n; i++) {
-          node_discover_slave(node, &rcp[i]);
         }
       }
       else if(nchan_cstr_match_line(reply->str, "role:slave")) {
@@ -821,7 +941,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "SCRIPT LOAD failed,");
       }
       else {
-        node_log_debug(node, "loaded script %s", next_script->name);
+        //node_log_debug(node, "loaded script %s", next_script->name);
         node->scripts_loaded++;
         next_script++;
       }
@@ -861,27 +981,75 @@ static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
   return 1;
 }
 
-ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
-  //TODO
-  if(msg) {
-    ngx_uint_t  lvl;
-    if(status == REDIS_NODESET_INVALID)
-      lvl = NGX_LOG_ERR;
-    else if(status == REDIS_NODE_DISCONNECTED)
-      lvl = NGX_LOG_WARN;
-    else
-      lvl = NGX_LOG_NOTICE;
-    nchan_log(lvl, ngx_cycle->log, 0, "%s", msg);
+static int nodeset_status_timer_interval(redis_nodeset_status_t status) {
+  switch(status) {
+    case REDIS_NODESET_FAILED:
+    case REDIS_NODESET_INVALID:
+    case REDIS_NODESET_DISCONNECTED:
+      return 2000;
+    case REDIS_NODESET_FAILING:
+      return 800;
+    case REDIS_NODESET_CONNECTING:
+      return 1000;
+    case REDIS_NODESET_READY:
+      return 10000;
   }
-  //TODO: actual status-setting-stuff
+}
+
+ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
+  if(nodeset->status != status) {
+    if(msg) {
+      ngx_uint_t  lvl;
+      if(status == REDIS_NODESET_INVALID)
+        lvl = NGX_LOG_ERR;
+      else if(status == REDIS_NODE_DISCONNECTED)
+        lvl = NGX_LOG_WARN;
+      else
+        lvl = NGX_LOG_NOTICE;
+      nchan_log(lvl, ngx_cycle->log, 0, "%s", msg);
+    }
+    nodeset->current_status_start = ngx_time();
+    nodeset->status = status;
+    if(nodeset->status_check_ev.timer_set) {
+      ngx_del_timer(&nodeset->status_check_ev);
+    }
+    switch(status) {
+      case REDIS_NODESET_FAILED:
+      case REDIS_NODESET_DISCONNECTED:
+      case REDIS_NODESET_INVALID:
+        nodeset_disconnect(nodeset);
+        break;
+      case REDIS_NODESET_FAILING:
+        nodeset_connect(nodeset);
+        break;
+      case REDIS_NODESET_CONNECTING:
+        //no special actions
+        break;
+      case REDIS_NODESET_READY:
+        //nothing special -- for now
+        break;
+    }
+  }
+  
+  if(!nodeset->status_check_ev.timer_set) {
+    ngx_add_timer(&nodeset->status_check_ev, nodeset_status_timer_interval(status));
+  }
   return NGX_OK;
 }
 
+static void node_find_slaves_callback(redisAsyncContext *ac, void *rep, void *pd) {
+  redis_node_t   *node = pd;
+  redisReply     *reply = rep;
+  node_discover_slaves_from_info_reply(node, reply);
+}
+
 ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
-  redis_node_t *cur;
+  redis_node_t *cur, *next;
   int cluster = 0, masters = 0, slaves = 0, total = 0, connecting = 0, ready = 0, disconnected = 0;
-  int discovered = 0;
-  for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+  int discovered = 0, failed_masters=0, failed_slaves = 0;
+  redis_nodeset_status_t current_status = nodeset->status;
+  for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = next) {
+    next = nchan_list_next(cur);
     total++;
     if(cur->cluster.enabled == 1) {
       cluster++;
@@ -896,9 +1064,28 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
       disconnected++;
     if(cur->state > REDIS_NODE_DISCONNECTED && cur->state < REDIS_NODE_READY)
       connecting++;
-    if(cur->state == REDIS_NODE_READY)
+    if(cur->state == REDIS_NODE_READY) {
       ready++;
+    }
+    if(cur->state == REDIS_NODE_FAILED) {
+      if(cur->role == REDIS_NODE_ROLE_MASTER) {
+        failed_masters++;
+      }
+      if(cur->role == REDIS_NODE_ROLE_SLAVE) {
+        failed_slaves++;
+        if(cur->peers.master) {
+          //rediscover slaves
+          redisAsyncCommand(cur->peers.master->ctx.cmd, node_find_slaves_callback, cur->peers.master, "INFO REPLICATION");
+        }
+        //remove failed slave
+        node_log_info(cur, "removed failed slave node");
+        node_disconnect(cur);
+        nchan_list_remove(&cur->nodeset->nodes, cur);
+        total--;
+      }
+    }
   }
+  
   if(ready == total) {
     if(ready == 0) {
       nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable Redis servers");
@@ -919,6 +1106,9 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
       nodeset_set_status(nodeset, REDIS_NODESET_READY, cluster > 0 ? "Redis cluster ready" : "Redis server ready");
     } 
   }
+  else if(current_status == REDIS_NODESET_READY && (ready == 0 || ready < total)) {
+    nodeset_set_status(nodeset, REDIS_NODESET_FAILING, NULL);
+  }
   else if(ready == 0) {
     nodeset_set_status(nodeset, REDIS_NODESET_DISCONNECTED, "no connected Redis servers");
   }
@@ -929,27 +1119,90 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
   return NGX_OK;
 }
 
+static void nodeset_status_check_event(ngx_event_t *ev) {
+  redis_nodeset_t *ns = ev->data;
+  u_char           errstr[512];
+  
+  if(!ev->timedout) {
+    return;
+  }
+  DBG("nodeset %p status check event", ns);
+  ev->timedout = 0;
+  
+  switch(ns->status) {
+    case REDIS_NODESET_FAILED:
+    case REDIS_NODESET_INVALID:
+    case REDIS_NODESET_DISCONNECTED:
+      //connect whatever needs to be connected
+      nodeset_connect(ns);
+      break;
+    
+    case REDIS_NODESET_CONNECTING:
+      //wait it out
+      if(ngx_time() - ns->current_status_start > REDIS_NODESET_MAX_CONNECTING_TIME_SEC) {
+        ngx_snprintf(errstr, 512, "Redis node set took too long to connect. Will retry in %d sec.%Z", ns->reconnect_delay_sec);
+        nodeset_set_status(ns, REDIS_NODESET_DISCONNECTED, (const char *)errstr);
+      }
+      break;
+      
+    case REDIS_NODESET_FAILING:
+      if(ngx_time() - ns->current_status_start > REDIS_NODESET_MAX_FAILING_TIME_SEC) {
+        nodeset_set_status(ns, REDIS_NODESET_FAILED, "Redis node set took too long to reconnect.");
+      }
+      break;
+    
+    case REDIS_NODESET_READY:
+      //all is well.
+      break;
+  }
+  
+  //check again soon!
+  ngx_add_timer(ev, nodeset_status_timer_interval(ns->status));
+}
+
+int nodeset_connect(redis_nodeset_t *ns) {
+  redis_node_t             *node;
+  ngx_str_t               **url;
+  redis_connect_params_t    rcp;
+  for(url = nchan_list_first(&ns->urls); url != NULL; url = nchan_list_next(url)) {
+    parse_redis_url(*url, &rcp);
+    if((node = nodeset_node_find_by_connect_params(ns, &rcp)) == NULL) {
+      node = nodeset_node_create(ns, &rcp);
+      node_log_debug(node, "created");
+    }
+    assert(node);
+  }
+  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
+    if(node->state <= REDIS_NODE_DISCONNECTED) {
+      node_log_debug(node, "start connecting");
+      node_connect(node);
+    }
+  }
+  nodeset_set_status(ns, REDIS_NODESET_CONNECTING, NULL);
+  return 1;
+}
+
+int nodeset_disconnect(redis_nodeset_t *ns) {
+  redis_node_t *node;
+  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_first(&ns->nodes)) {
+    if(node->state != REDIS_NODE_DISCONNECTED) {
+      node_log_debug(node, "intiating disconnect");
+      node_disconnect(node);
+    }
+    nchan_list_remove(&ns->nodes, node);
+  }
+  
+  return 1;
+}
+
+
 ngx_int_t nodeset_connect_all(void) {
   int                      i;
-  ngx_str_t              **url;
-  redis_connect_params_t   rcp;
   redis_nodeset_t         *ns;
-  redis_node_t            *node;
   DBG("connect all");
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
-    for(url = nchan_list_first(&ns->urls); url != NULL; url = nchan_list_next(url)) {
-      parse_redis_url(*url, &rcp);
-      if((node = nodeset_node_find_by_connect_params(ns, &rcp)) == NULL) {
-        node = nodeset_node_create(ns, &rcp);
-        node_log_debug(node, "created");
-      }
-      assert(node);
-      if(node->state <= REDIS_NODE_DISCONNECTED) {
-        node_log_debug(node, "start connecting");
-        node_connector_callback(NULL, NULL, node);
-      }
-    }
+    nodeset_connect(ns);
   }
   return NGX_OK;
 }
