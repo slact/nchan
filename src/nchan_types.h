@@ -413,4 +413,12 @@ typedef struct {
 } nchan_request_ctx_t;
 
 
+typedef struct {
+  ngx_str_t     hostname;
+  ngx_str_t     peername; // resolved hostname (ip address)
+  ngx_int_t     port;
+  ngx_str_t     password;
+  ngx_int_t     db;
+} redis_connect_params_t;
+
 #endif  /* NCHAN_TYPES_H */
