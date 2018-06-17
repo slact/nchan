@@ -13,6 +13,15 @@ int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
 }
 
 
+int nchan_ngx_str_nonzero_match(ngx_str_t *str1, ngx_str_t *str2) {
+  if(str1->len == 0) {
+    return 0;
+  }
+  else {
+    return nchan_ngx_str_match(str1, str2);
+  }
+}
+
 ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last) {
   //inspired by ngx_strnstr
   char   *s2 = (char *)find->data;
@@ -255,7 +264,7 @@ void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr) {
 
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen) {
   size_t len = src->len > maxlen && maxlen > 0 ? maxlen : src->len;
-  ngx_memcpy(dst->data, src->data, len);
+  memcpy(dst->data, src->data, len);
   dst->len = len;
 }
 
@@ -485,7 +494,7 @@ int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx
     }
     
     if(first == cstr || first[-1]=='\n') { //start of line or start of string
-      char *last = strchr(first, '\n');
+      const char *last = strchr(first, '\n');
       if(!last) { // end of string
         last = end;
       }
