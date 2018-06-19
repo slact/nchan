@@ -55,9 +55,33 @@ struct rdstore_channel_head_s {
   rdstore_data_t              *rdt;
   rdstore_channel_head_cluster_data_t cluster;
   
-  //redis_node_t                *redis_node;
-  
   ngx_int_t                    reserved;
+  
+  struct {                   //redis
+    int                          generation;
+    redis_nodeset_t             *nodeset;
+    struct {                   //node
+      redis_node_t                *cmd;
+      redis_node_t                *pubsub;
+    }                            node;
+    
+    struct {                  //linked list links
+      struct {
+        rdstore_channel_head_t      *prev;
+        rdstore_channel_head_t      *next;
+      }                            nodeset;
+      struct {
+        rdstore_channel_head_t      *prev;
+        rdstore_channel_head_t      *next;
+      }                            node_cmd;
+      struct {
+        rdstore_channel_head_t      *prev;
+        rdstore_channel_head_t      *next;
+      }                            node_pubsub;
+    }                            slist;
+    
+  }                            redis;
+  
   
   rdstore_channel_head_t      *gc_prev;
   rdstore_channel_head_t      *gc_next;
