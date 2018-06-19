@@ -512,44 +512,6 @@ static void redis_reconnect_timer_handler(ngx_event_t *ev) {
   redis_ensure_connected((rdstore_data_t *)ev->data);
 }
 
-static void redis_ping_callback(redisAsyncContext *c, void *r, void *privdata) {
-  redisReply         *reply = (redisReply *)r;
-  rdstore_data_t     *rdata = c->data;
-  
-  rdata->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
-  
-  if(redisReplyOk(c, r)) {
-    if(CHECK_REPLY_INT(reply)) {
-      if(reply->integer < 1) {
-        ERR("failed to forward ping to sub_ctx");
-      }
-    }
-    else {
-      ERR("unexpected reply type for redis_ping_callback");
-    }
-  }
-}
-
-static void redis_ping_timer_handler(ngx_event_t *ev) {
-  rdstore_data_t  *rdata = ev->data, *cmd_rdata;
-  if(!ev->timedout || ngx_exiting || ngx_quit)
-    return;
-  
-  ev->timedout = 0;
-  if(rdata->status == CONNECTED && rdata->ctx && rdata->sub_ctx) {
-    if((cmd_rdata = redis_cluster_rdata_from_cstr(rdata, redis_subscriber_id)) != NULL) { //works right for clusters only if redis_subscriber_id has a curlybraced {...} string in it
-      redis_command(cmd_rdata, redis_ping_callback, NULL, "PUBLISH %b%s ping", STR(&cmd_rdata->namespace), redis_subscriber_id);
-    }
-    else {
-      //TODO: what to do?...
-    }
-    if(rdata->ping_interval > 0) {
-      ngx_add_timer(ev, rdata->ping_interval * 1000);
-    }
-  }
-}
-
 static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata);
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
@@ -2492,7 +2454,6 @@ rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, 
   rdata->shutting_down = 0;
   rdata->lcf = lcf;
   nchan_init_timer(&rdata->reconnect_timer, redis_reconnect_timer_handler, rdata);
-  nchan_init_timer(&rdata->ping_timer, redis_ping_timer_handler, rdata);
 
   rdata->pending_commands = 0;  
   nchan_init_timer(&rdata->stall_timer, redis_stall_timer_handler, rdata);
