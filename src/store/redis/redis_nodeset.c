@@ -398,7 +398,7 @@ static void node_remove_peer(redis_node_t *node, redis_node_t *peer) {
   }
   
   for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
-    if(*cur == node) {
+    if(*cur == peer) {
       nchan_list_remove(&node->peers.slaves, cur);
       return;
     }
