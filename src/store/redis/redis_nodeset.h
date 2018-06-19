@@ -44,6 +44,7 @@
 #define REDIS_NODE_GETTING_CLUSTER_NODES  14
 #define REDIS_NODE_SCRIPTS_LOAD           15
 #define REDIS_NODE_SCRIPTS_LOADING        16
+#define REDIS_NODE_SUBSCRIBING_WORKER     17
 #define REDIS_NODE_READY                  100
   
 typedef struct redis_nodeset_s redis_nodeset_t;
@@ -95,6 +96,7 @@ struct redis_nodeset_s {
       unsigned                    master:1;
       unsigned                    slave:1;
     }                           pubsub_subscribe_to;
+    time_t                      ping_interval;
   }                           settings;
   
   nchan_list_t                channels;
@@ -112,6 +114,7 @@ struct redis_node_s {
   ngx_str_t                 run_id;
   ngx_str_t                 version;
   int                       scripts_loaded;
+  ngx_event_t               ping_timer;
   struct {
     unsigned                  enabled:1;
     unsigned                  ok:1;
@@ -143,6 +146,7 @@ typedef struct {
 
 
 redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf);
+ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler);
 redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
 ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset);
 

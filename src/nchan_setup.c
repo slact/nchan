@@ -162,6 +162,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
   lcf->redis.storage_mode = REDIS_MODE_CONF_UNSET;
   lcf->redis.after_connect_wait_time = NGX_CONF_UNSET;
+  lcf->redis.privdata = NULL;
+  lcf->redis.nodeset = NULL;
   
   lcf->request_handler = NULL;
   return lcf;

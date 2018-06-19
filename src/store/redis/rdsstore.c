@@ -39,11 +39,6 @@ static rbtree_seed_t              redis_data_tree;
 static rdstore_channel_head_t    *chanhead_hash = NULL;
 static size_t                     redis_publish_message_msgkey_size;
 
-redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf) {
-  rdstore_data_t  *rdata = cf->redis.privdata;
-  return rdata->status;
-}
-
 void redis_store_expire_on_connected_callback(ngx_event_t *ev) {
   callback_chain_t  *d = ev->data;
   
@@ -555,25 +550,19 @@ static void redis_ping_timer_handler(ngx_event_t *ev) {
   }
 }
 
-static ngx_int_t redis_data_tree_connector(rbtree_seed_t *seed, rdstore_data_t *rdata, ngx_int_t *total_rc) {
-  ngx_int_t  rc = redis_ensure_connected(rdata);
-  if(rc != NGX_OK) {
-    *total_rc = rc;
-  }
-  return NGX_OK;
-}
+static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata);
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_int_t rc = NGX_OK;
   u_char *cur;
-  ngx_memzero(&redis_subscriber_id, sizeof(redis_subscriber_id));
-  cur = ngx_snprintf(redis_subscriber_id, 512, "nchan_worker:{%i:time:%i}", ngx_pid, ngx_time());
+  cur = ngx_snprintf(redis_subscriber_id, 512, "nchan_worker:{%i:time:%i}%Z", ngx_pid, ngx_time());
   redis_subscriber_id_len = cur - redis_subscriber_id;
   
   //DBG("worker id %s len %i", redis_subscriber_id, redis_subscriber_id_len);
   
   redis_nginx_init();
   
+  nodeset_initialize((char *)redis_subscriber_id, redis_subscriber_callback);
   nodeset_connect_all();
   
   //OLD
@@ -714,8 +703,6 @@ static void redisInitScripts(rdstore_data_t *rdata){
   }
 }
 
-static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privdata);
-
 static void redis_nginx_connect_event_handler(const redisAsyncContext *ac, int status) {
   //ERR("redis_nginx_connect_event_handler %v: %i", rdt.connect_url, status);
   rdstore_data_t    *rdata = ac->data;
@@ -803,7 +790,7 @@ void redis_get_server_info_callback(redisAsyncContext *ac, void *rep, void *priv
     redisInitScripts(rdata);
     if(rdata->sub_ctx) {
       //ERR("rdata->sub_ctx OK, subscribing for %V", rdata->connect_url);
-      if(redis_cluster_rdata_from_cstr(rdata, redis_subscriber_id) == rdata) { //works only if redis_subsriber_id has a curlybraced {...} string in it
+      if(redis_cluster_rdata_from_cstr(rdata, redis_subscriber_id) == rdata) {
         redisAsyncCommand(rdata->sub_ctx, redis_subscriber_callback, NULL, "SUBSCRIBE %b%s", STR(&rdata->namespace), redis_subscriber_id);
       }
     }
@@ -2615,6 +2602,19 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;
     assert(rcf->enabled);
+    
+      //server-scope loc_conf may have some undefined values (because it was never merged with a prev)
+  //thus we must reduntantly check for unser values
+    if(rcf->ping_interval == NGX_CONF_UNSET) {
+      rcf->ping_interval = NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME;
+    }
+    if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
+      rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
+    }
+    if(rcf->after_connect_wait_time == NGX_CONF_UNSET) {
+      rcf->after_connect_wait_time = 0;
+    }
+    
     if((nodeset = nodeset_find(rcf)) == NULL) {
       nodeset = nodeset_create(rcf);
       rdstore_initialize_chanhead_reaper(&nodeset->chanhead_reaper, "Redis channel reaper");
@@ -2672,75 +2672,13 @@ void redis_store_prepare_to_exit_worker() {
   }
 }
 
-static ngx_int_t redis_data_tree_exiter_stage1(rbtree_seed_t *seed, rdstore_data_t *rdata, void *pd) {
-  rdata->shutting_down = 1;
-  
-  callback_chain_t     *ccur, *cnext;  
-  for(ccur = rdata->on_connected.head; ccur != NULL; ccur = cnext) {
-    cnext = ccur->next;
-    ccur->cb(NGX_ABORT, rdata, ccur->pd);
-    if(ccur->timeout_ev.timer_set) {
-      ngx_del_timer(&ccur->timeout_ev);
-    }
-    ngx_free(ccur);
-  }
-  rdata->on_connected.head = NULL;
-  rdata->on_connected.tail = NULL;
-
-  return NGX_OK;
-}
-
 void nodeset_exiter_stage1(redis_nodeset_t *ns, void *pd) {
   nodeset_abort_on_ready_callbacks(ns);
 }
-
-static ngx_int_t redis_data_tree_exiter_stage2(rbtree_seed_t *seed, rdstore_data_t *rdata, unsigned *chanheads) {
-  
-  *chanheads += rdata->chanhead_reaper.count;
-  
-  nchan_reaper_stop(&rdata->chanhead_reaper);
-  
-  if(rdata->ctx)
-    redis_nginx_force_close_context(&rdata->ctx);
-  if(rdata->sub_ctx)
-    redis_nginx_force_close_context(&rdata->sub_ctx);
-  if(rdata->sync_ctx) {
-    redisFree(rdata->sync_ctx);
-    rdata->sync_ctx = NULL;
-  }
-
-  return NGX_OK;
-}
-
 void nodeset_exiter_stage2(redis_nodeset_t *ns, void *pd) {
   unsigned *chanheads = pd;
   *chanheads += ns->chanhead_reaper.count;
   nchan_reaper_stop(&ns->chanhead_reaper);
-}
-
-static ngx_int_t redis_data_tree_exiter_stage3(rbtree_seed_t *seed, rdstore_data_t *rdata, unsigned *chanheads) {
-  
-  DBG("exiting3 rdata %p %V", rdata, rdata->connect_url);
-  
-  if(rdata->ctx)
-    redis_nginx_force_close_context(&rdata->ctx);
-  if(rdata->sub_ctx)
-    redis_nginx_force_close_context(&rdata->sub_ctx);
-  if(rdata->sync_ctx) {
-    redisFree(rdata->sync_ctx);
-    rdata->sync_ctx = NULL;
-  }
-  if(rdata->ping_timer.timer_set) {
-    ngx_del_timer(&rdata->ping_timer);
-  }
-  if(rdata->stall_timer.timer_set) {
-    ngx_del_timer(&rdata->stall_timer);
-  }
-  if(rdata->reconnect_timer.timer_set) {
-    ngx_del_timer(&rdata->reconnect_timer);
-  }
-
-  return NGX_OK;
 }
 
 void nodeset_exiter_stage3(redis_nodeset_t *ns, void *pd) {

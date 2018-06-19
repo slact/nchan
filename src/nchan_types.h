@@ -44,6 +44,7 @@ typedef struct {
   ngx_flag_t                    upstream_inheritable;
   unsigned                      enabled:1;
   time_t                        after_connect_wait_time;
+  void                         *nodeset;
   void                         *privdata;
 } nchan_redis_conf_t;
 
