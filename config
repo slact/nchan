@@ -68,6 +68,7 @@ _nchan_util_dir="${ngx_addon_dir}/src/util"
 _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_debug.c \
   $_nchan_util_dir/nchan_list.c \
+  $_nchan_util_dir/nchan_slist.c \
   $_nchan_util_dir/ngx_nchan_hacked_slab.c \
   $_nchan_util_dir/shmem.c \
   $_nchan_util_dir/nchan_rbtree.c \
