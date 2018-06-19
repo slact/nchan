@@ -8,6 +8,7 @@
 
 #include <store/redis/store.h>
 #include <store/redis/store-private.h>
+#include <store/redis/redis_nodeset.h>
 
 #include <util/nchan_msg.h>
 #include "internal.h"
@@ -130,6 +131,7 @@ static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
 
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   nchan_loc_conf_t  fake_cf;
+  redis_nodeset_t   *nodeset;
   DBG("%p memstore-redis subscriber respond with status %i", d->sub, status);
   switch(status) {
     case NGX_HTTP_GONE: //delete
@@ -141,11 +143,12 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
       //now the chanhead will be in the garbage collector
       d->chanhead->redis_sub = NULL;
       
-      if(redis_connection_status(d->sub->cf) != CONNECTED && d->onconnect_callback_pd == NULL) {
+      nodeset = nodeset_find(&d->sub->cf->redis);
+      if(nodeset->status != REDIS_NODESET_READY && d->onconnect_callback_pd == NULL) {
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;
         d->onconnect_callback_pd = dd;
-        redis_store_callback_on_connected(d->sub->cf, 0, reconnect_callback, dd);
+        nodeset_callback_on_ready(nodeset, 0, reconnect_callback, dd);
       }
       break;
       
