@@ -138,8 +138,24 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, ngx_msec_t max
 
 #define nchan_redis_sync_script(script_name, rdata, channel_id, fmt, args...)  \
   redis_sync_script(script_name, rdata, "0 %b %b " fmt, STR(&rdata->namespace), STR(channel_id), ##args)
+
   
+#define NEWredis_command(node, cb, pd, fmt, args...)                 \
+  do {                                                               \
+    if(node->state >= REDIS_NODE_READY) {                            \
+      node->pending_commands++;                                      \
+      nchan_update_stub_status(redis_pending_commands, 1);           \
+      redisAsyncCommand((node)->ctx.cmd, cb, pd, fmt, ##args);       \
+    } else {                                                         \
+      node_log_error(node, "Can't run redis command: no connection to redis server.");\
+    }                                                                \
+  }while(0)                                                          \
   
+#define NEWredis_script(script_name, node, cb, pd, fmt, args...)                         \
+  NEWredis_command(node, cb, pd, "EVALSHA %s " fmt, redis_lua_scripts.script_name.hash, ##args)
+
+#define NEWnchan_redis_script(script_name, node, cb, pd, channel_id, fmt, args...)       \
+  NEWredis_script(script_name, node, cb, pd, "0 %b %b " fmt, STR((node)->nodeset->settings.namespace), STR(channel_id), ##args)
 
   
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
@@ -154,6 +170,7 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, ngx_msec_t max
 static ngx_int_t nchan_store_publish_generic(ngx_str_t *, rdstore_data_t *, nchan_msg_t *, ngx_int_t, const ngx_str_t *);
 
 static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata);
+static rdstore_channel_head_t * nchan_store_get_NS_chanhead(ngx_str_t *channel_id, redis_nodeset_t *);
 
 static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
   ngx_memzero(buf, sizeof(*buf));
@@ -920,19 +937,21 @@ typedef struct {
   rdstore_data_t               *rdata;
 } redis_get_message_from_key_data_t;
 
-static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *privdata);
+static void get_msg_from_msgkey_callback(redisAsyncContext *ac, void *r, void *privdata);
 
-static void get_msg_from_msgkey_send(rdstore_data_t *rdata, void *pd) {
+static ngx_int_t get_msg_from_msgkey_send(redis_nodeset_t *ns, void *pd) {
   redis_get_message_from_key_data_t *d = pd;
-  if(rdata) {
-    redis_script(get_message_from_key, rdata, &get_msg_from_msgkey_callback, d, "1 %b", STR(&d->msg_key));
+  if(nodeset_ready(ns)) {
+    redis_node_t  *node = nodeset_node_find_by_key(ns, &d->msg_key);
+    NEWredis_script(get_message_from_key, node, &get_msg_from_msgkey_callback, d, "1 %b", STR(&d->msg_key));
   }
   else {
     ngx_free(d);
   }
+  return NGX_OK;
 }
 
-static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *privdata) {
+static void get_msg_from_msgkey_callback(redisAsyncContext *ac, void *r, void *privdata) {
   redis_get_message_from_key_data_t *d = (redis_get_message_from_key_data_t *)privdata;
   redisReply           *reply = r;
   nchan_msg_t           msg;
@@ -940,17 +959,17 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *c, void *r, void *pr
   ngx_str_t             content_type;
   ngx_str_t             eventsource_event;
   ngx_str_t            *chid = &d->channel_id;
-  rdstore_data_t       *rdata = c->data;
+  redis_node_t         *node = ac->data;
   
-  rdata->pending_commands--;
+  node->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
   DBG("get_msg_from_msgkey_callback");
   
   log_redis_reply(d->name, d->t);
   
-  if(!clusterKeySlotOk(c, r)) {
-    cluster_add_retry_command_with_channel_id(rdata->node.cluster, chid, get_msg_from_msgkey_send, d);
+  if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+    nodeset_callback_on_ready(node->nodeset, 1000, get_msg_from_msgkey_send, d);
     return;
   }
   
@@ -1072,12 +1091,12 @@ static bool cmp_to_msg(cmp_ctx_t *cmp, nchan_msg_t *msg, nchan_compressed_msg_t 
   return true;
 }
 
-static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, rdstore_data_t *rdata, nchan_msg_id_t *msgid, ngx_str_t *msg_redis_hash_key) {
+static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, redis_nodeset_t *nodeset, nchan_msg_id_t *msgid, ngx_str_t *msg_redis_hash_key) {
   rdstore_channel_head_t              *head;
   redis_get_message_from_key_data_t   *d;
   DBG("Get message from msgkey %V", msg_redis_hash_key);
   
-  head = nchan_store_get_chanhead(channel_id, rdata);
+  head = nchan_store_get_NS_chanhead(channel_id, nodeset);
   if(head->sub_count == 0) {
     DBG("Nobody wants this message we'll need to grab with an HMGET");
     return NGX_OK;
@@ -1094,16 +1113,12 @@ static ngx_int_t get_msg_from_msgkey(ngx_str_t *channel_id, rdstore_data_t *rdat
   nchan_strcpy(&d->msg_key, msg_redis_hash_key, 0);
   
   d->t = ngx_current_msec;
-  d->rdata = rdata;
   
   d->name = "get_message_from_key";
   
   //d->hcln = put_current_subscribers_in_limbo(head);
   //assert(d->hcln != 0);
-  if((rdata = redis_cluster_rdata_from_key(rdata, msg_redis_hash_key)) == NULL) {
-    return NGX_ERROR;
-  }
-  get_msg_from_msgkey_send(rdata, d);
+  get_msg_from_msgkey_send(nodeset, d);
 
   return NGX_OK;
 }
@@ -1157,7 +1172,8 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   cmp_ctx_t               cmp;
   
   rdstore_channel_head_t     *chanhead = NULL;
-  rdstore_data_t             *rdata = c->data;
+  rdstore_data_t             *rdata = c->data; //WRONG!
+  redis_node_t               *node = c->data;
   
   msg.expires = 0;
   msg.refcount = 0;
@@ -1264,7 +1280,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
               
               if(cmp_to_str(&cmp, &msg_redis_hash_key)) {
-                get_msg_from_msgkey(chid, chanhead ? chanhead->rdt : rdata, &msgid, &msg_redis_hash_key);
+                get_msg_from_msgkey(chid, chanhead ? chanhead->redis.nodeset : node->nodeset, &msgid, &msg_redis_hash_key);
               }
             }
             else {
@@ -1772,12 +1788,110 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, rdstore_da
   return head;
 }
 
+static rdstore_channel_head_t *create_NS_chanhead(ngx_str_t *channel_id, redis_nodeset_t *ns) {
+  rdstore_channel_head_t   *head;
+  
+  head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+  if(head==NULL) {
+    ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
+    return NULL;
+  }
+  head->id.len = channel_id->len;
+  head->id.data = (u_char *)&head[1];
+  ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
+  head->sub_count=0;
+  head->fetching_message_count=0;
+  head->redis_subscriber_privdata = NULL;
+  head->status = NOTREADY;
+  head->pubsub_status = UNSUBBED;
+  head->generation = 0;
+  head->last_msgid.time=0;
+  head->last_msgid.tag.fixed[0]=0;
+  head->last_msgid.tagcount = 1;
+  head->last_msgid.tagactive = 0;
+  head->shutting_down = 0;
+  head->reserved = 0;
+  head->keepalive_times_sent = 0;
+  
+  head->in_gc_reaper = NULL;
+  
+  if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
+    head->meta = 1;
+  }
+  else {
+    head->meta = 0;
+  }
+
+  ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
+  nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
+  
+  if(channel_id->len > 2) { // absolutely no multiplexed channels allowed
+    assert(ngx_strncmp(head->id.data, "m/", 2) != 0);
+  }
+  
+  head->rd_next = NULL;
+  head->rd_prev = NULL;
+  head->redis.nodeset = ns;
+  head->redis.generation = 0;
+  head->redis.node.cmd = NULL;
+  head->redis.node.pubsub = NULL;
+  ngx_memzero(&head->redis.slist, sizeof(head->redis.slist));
+  
+  if(head->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP) {
+    head->status = READY;
+  }
+  
+  head->spooler.running=0;
+  start_chanhead_spooler(head);
+  if(head->meta) {
+    head->spooler.publish_events = 0;
+  }
+  
+  ensure_chanhead_pubsub_subscribed_if_needed(head);
+  CHANNEL_HASH_ADD(head);
+  
+  return head;
+}
+
 static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, rdstore_data_t *rdata) {
   rdstore_channel_head_t    *head;
   
   CHANNEL_HASH_FIND(channel_id, head);
   if(head==NULL) {
     head = create_chanhead(channel_id, rdata);
+  }
+  if(head == NULL) {
+    ERR("can't create chanhead for redis store");
+    return NULL;
+  }
+  
+  if (head->status == INACTIVE) { //recycled chanhead
+    ensure_chanhead_pubsub_subscribed_if_needed(head);
+    redis_chanhead_gc_withdraw(head);
+    
+    if(head->rdt->storage_mode == REDIS_MODE_BACKUP) {
+      head->status = READY;
+    }
+    else {
+      head->status = head->pubsub_status == SUBBED ? READY : NOTREADY;
+    }
+  }
+
+  if(!head->spooler.running) {
+    DBG("Spooler for channel %p %V wasn't running. start it.", head, &head->id);
+    start_chanhead_spooler(head);
+  }
+  
+  return head;
+}
+
+
+static rdstore_channel_head_t * nchan_store_get_NS_chanhead(ngx_str_t *channel_id, redis_nodeset_t *nodeset) {
+  rdstore_channel_head_t    *head;
+  
+  CHANNEL_HASH_FIND(channel_id, head); //BUG: this doesn't account for namespacing!!
+  if(head==NULL) {
+    head = create_NS_chanhead(channel_id, nodeset);
   }
   if(head == NULL) {
     ERR("can't create chanhead for redis store");
@@ -1948,15 +2062,15 @@ typedef struct {
   void                *privdata;
 } redis_channel_callback_data_t;
 
-#define CREATE_CALLBACK_DATA(d, rdata, namestr, channel_id, callback, privdata) \
+#define CREATE_CALLBACK_DATA(d, nodeset, cf, namestr, channel_id, callback, privdata) \
   do {                                                                       \
-    if ((d = ngx_alloc(sizeof(*d) + ((rdata->node.cluster != NULL) ? (sizeof(*channel_id) + channel_id->len) : 0), ngx_cycle->log)) == NULL) { \
+    if ((d = ngx_alloc(sizeof(*d) + ((nodeset)->cluster.enabled ? (sizeof(*channel_id) + channel_id->len) : 0), ngx_cycle->log)) == NULL) { \
       ERR("Can't allocate redis %s channel callback data", namestr);         \
       return NGX_ERROR;                                                      \
     }                                                                        \
     d->t = ngx_current_msec;                                                 \
     d->name = namestr;                                                       \
-    if(rdata->node.cluster != NULL) {                                        \
+    if((nodeset)->cluster.enabled) {                                            \
       /* might need to use channel id later to retry the command */          \
       d->channel_id = (ngx_str_t *)&d[1];                                    \
       d->channel_id->data = (u_char *)&d->channel_id[1];                     \
@@ -2000,28 +2114,29 @@ static void redisChannelInfoCallback(redisAsyncContext *c, void *r, void *privda
 
 static void redisChannelDeleteCallback(redisAsyncContext *c, void *r, void *privdata);
 
-static void nchan_store_delete_channel_send(rdstore_data_t *rdata, void *pd) {
+static ngx_int_t nchan_store_delete_channel_send(redis_nodeset_t *ns, void *pd) {
   redis_channel_callback_data_t *d = pd;
-  if(rdata) {
-    nchan_redis_script(delete, rdata, &redisChannelDeleteCallback, d, d->channel_id, "");
+  if(nodeset_ready(ns)) {
+    redis_node_t *node = nodeset_node_find_by_channel_id(ns, d->channel_id);
+    NEWnchan_redis_script(delete, node, &redisChannelDeleteCallback, d, d->channel_id, "");
+    return NGX_OK;
   }
   else {
     redisChannelDeleteCallback(NULL, NULL, d);
+    return NGX_ERROR;
   }
 }
 
 static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *privdata) {
-  rdstore_data_t  *rdata;
+  redis_node_t  *node;
   
   nchan_update_stub_status(redis_pending_commands, -1);
   if(ac) {
-    rdata = ac->data;
-    rdata->pending_commands--;
+    node = ac->data;
+    node->pending_commands--;
     
-    if(!clusterKeySlotOk(ac, r)) {
-      redis_channel_callback_data_t  *d = privdata;
-      
-      cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_delete_channel_send, privdata);
+    if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r)) {
+      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_delete_channel_send, privdata);
       return;
     }
   }
@@ -2031,45 +2146,39 @@ static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *pri
 
 static ngx_int_t nchan_store_delete_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_channel_callback_data_t *d;
-  rdstore_data_t                *rdata = cf->redis.privdata;
-  
-  CREATE_CALLBACK_DATA(d, rdata, "delete", channel_id, callback, privdata);
-  
-  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
-    return NGX_ERROR;
-  }
-  
-  nchan_store_delete_channel_send(rdata, d);
-  
-  return NGX_OK;
+  redis_nodeset_t               *ns = nodeset_find(&cf->redis);
+  CREATE_CALLBACK_DATA(d, ns, cf, "delete", channel_id, callback, privdata);
+
+  return nchan_store_delete_channel_send(ns, d);
 }
 
 
 static void redisChannelFindCallback(redisAsyncContext *c, void *r, void *privdata);
 
-static void nchan_store_find_channel_send(rdstore_data_t *rdata, void *pd) {
+static ngx_int_t nchan_store_find_channel_send(redis_nodeset_t *ns, void *pd) {
   redis_channel_callback_data_t *d = pd;
-  if(rdata) {
-    nchan_redis_script(find_channel, rdata, &redisChannelFindCallback, d, d->channel_id, "");
+  if(nodeset_ready(ns)) {
+    redis_node_t *node = nodeset_node_find_by_channel_id(ns, d->channel_id);
+    NEWnchan_redis_script(find_channel, node, &redisChannelFindCallback, d, d->channel_id, "");
   }
   else {
     redisChannelFindCallback(NULL, NULL, d);
   }
+  return NGX_OK;
 }
 
 static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privdata) {
-  rdstore_data_t                 *rdata = NULL;
+  redis_node_t                 *node = NULL;
   
   if(ac) {
-    rdata = ac->data;
-    rdata->pending_commands--;
+    node = ac->data;
+    node->pending_commands--;
     nchan_update_stub_status(redis_pending_commands, -1);
-  }
-  
-  if(ac && !clusterKeySlotOk(ac, r)) {
-    redis_channel_callback_data_t  *d = privdata;
-    cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_find_channel_send, privdata);
-    return;
+    
+    if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r)) {
+      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_find_channel_send, privdata);
+      return;
+    }
   }
   
   redisChannelInfoCallback(ac, r, privdata);
@@ -2078,13 +2187,10 @@ static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privd
 
 static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_channel_callback_data_t *d;
-  rdstore_data_t                *rdata = cf->redis.privdata;
-  CREATE_CALLBACK_DATA(d, rdata, "find_channel", channel_id, callback, privdata);
+  redis_nodeset_t               *ns = nodeset_find(&cf->redis);
+  CREATE_CALLBACK_DATA(d, ns, cf, "find_channel", channel_id, callback, privdata);
   
-  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
-    return NGX_ERROR;
-  }
-  nchan_store_find_channel_send(rdata, d);
+  nchan_store_find_channel_send(ns, d);
   
   return NGX_OK;
 }
@@ -2196,12 +2302,13 @@ typedef struct {
 
 static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata);
 
-static void nchan_store_async_get_message_send(rdstore_data_t *rdata, void *pd) {
+static ngx_int_t nchan_store_async_get_message_send(redis_nodeset_t *ns, void *pd) {
   redis_get_message_data_t           *d = pd;
   //input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]
   //output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, channel_subscriber_count
-  if(rdata) {
-    nchan_redis_script(get_message, rdata, &redis_get_message_callback, d, d->channel_id, "%i %i FILO 0", 
+  if(nodeset_ready(ns)) {
+    redis_node_t *node = nodeset_node_find_by_channel_id(ns, d->channel_id);
+    NEWnchan_redis_script(get_message, node, &redis_get_message_callback, d, d->channel_id, "%i %i FILO 0", 
                        d->msg_id.time, 
                        d->msg_id.tag
                       );
@@ -2210,65 +2317,73 @@ static void nchan_store_async_get_message_send(rdstore_data_t *rdata, void *pd) 
     //TODO: pass on a get_msg error status maybe?
     ngx_free(d);
   }
+  return NGX_OK;
 }
 
-static void redis_get_message_callback(redisAsyncContext *c, void *r, void *privdata) {
+static void redis_get_message_callback(redisAsyncContext *ac, void *r, void *privdata) {
   redisReply                *reply= r;
   redis_get_message_data_t  *d= (redis_get_message_data_t *)privdata;
   nchan_msg_t                msg;
   nchan_compressed_msg_t     cmsg;
   ngx_str_t                  content_type;
   ngx_str_t                  eventsource_event;
-  rdstore_data_t            *rdata = c->data;
-  
-  rdata->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
-  
-  if(!clusterKeySlotOk(c, r)) {
-    cluster_add_retry_command_with_channel_id(rdata->node.cluster, d->channel_id, nchan_store_async_get_message_send, d);
-    return;
-  }
-  
+  redis_node_t              *node;
+
   if(d == NULL) {
     ERR("redis_get_mesage_callback has NULL userdata");
     return;
   }
   
-  log_redis_reply(d->name, d->t);
+  if(ac) {
+    node = ac->data;
+    
+    node->pending_commands--;
+    nchan_update_stub_status(redis_pending_commands, -1);
+    
+    if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_async_get_message_send, privdata);
+      return;
+    }
   
-  //output: result_code, msg_time, msg_tag, message, content_type,  channel-subscriber-count
-  // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
+    log_redis_reply(d->name, d->t);
   
-  if (!redisReplyOk(c, r) || !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 1) || !CHECK_REPLY_INT(reply->element[0]) ) {
-    //no good
-    ngx_free(d);
-    return;
+    //output: result_code, msg_time, msg_tag, message, content_type,  channel-subscriber-count
+    // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
+  
+    if (!redisReplyOk(ac, r) || !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 1) || !CHECK_REPLY_INT(reply->element[0]) ) {
+      //no good
+      ngx_free(d);
+      return;
+    }
+  
+    switch(reply->element[0]->integer) {
+      case 200: //ok
+        if(msg_from_redis_get_message_reply(&msg, &cmsg, &content_type, &eventsource_event, reply, 1) == NGX_OK) {
+          d->callback(MSG_FOUND, &msg, d->privdata);
+        }
+        break;
+      case 403: //channel not found
+      case 404: //not found
+        d->callback(MSG_NOTFOUND, NULL, d->privdata);
+        break;
+      case 410: //gone
+        d->callback(MSG_EXPIRED, NULL, d->privdata);
+        break;
+      case 418: //not yet available
+        d->callback(MSG_EXPECTED, NULL, d->privdata);
+        break;
+    }
   }
-  
-  switch(reply->element[0]->integer) {
-    case 200: //ok
-      if(msg_from_redis_get_message_reply(&msg, &cmsg, &content_type, &eventsource_event, reply, 1) == NGX_OK) {
-        d->callback(MSG_FOUND, &msg, d->privdata);
-      }
-      break;
-    case 403: //channel not found
-    case 404: //not found
-      d->callback(MSG_NOTFOUND, NULL, d->privdata);
-      break;
-    case 410: //gone
-      d->callback(MSG_EXPIRED, NULL, d->privdata);
-      break;
-    case 418: //not yet available
-      d->callback(MSG_EXPECTED, NULL, d->privdata);
-      break;
+  else {
+    ERR("redisAsyncContext NULL for redis_get_message_callback");
   }
   
   ngx_free(d);
 }
 
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
-  redis_get_message_data_t           *d;
-  rdstore_data_t                     *rdata = cf->redis.privdata;
+  redis_get_message_data_t      *d;
+  redis_nodeset_t               *ns = nodeset_find(&cf->redis);
   if(callback==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "no callback given for async get_message. someone's using the API wrong!");
     return NGX_ERROR;
@@ -2276,14 +2391,11 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   
   assert(msg_id->tagcount == 1);
   
-  CREATE_CALLBACK_DATA(d, rdata, "get_message", channel_id, callback, privdata);
+  CREATE_CALLBACK_DATA(d, ns, cf, "get_message", channel_id, callback, privdata);
   d->msg_id.time = msg_id->time;
   d->msg_id.tag = msg_id->tag.fixed[0];
   
-  if((rdata = redis_cluster_rdata_from_channel_id(rdata, channel_id)) == NULL) {
-    return NGX_ERROR;
-  }
-  nchan_store_async_get_message_send(rdata, d);
+  nchan_store_async_get_message_send(ns, d);
   return NGX_OK; //async only now!
 }
 
@@ -2758,6 +2870,7 @@ typedef struct {
   ngx_msec_t            t;
   char                 *name;
   ngx_str_t            *channel_id;
+  ngx_str_t            *namespace;
   time_t                msg_time;
   nchan_msg_t          *msg;
   unsigned              shared_msg:1;
@@ -2857,10 +2970,10 @@ static ngx_int_t redis_publish_message_send_when_connected(ngx_int_t status, voi
 static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t *msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
   redis_publish_callback_data_t  *d=NULL;
   rdstore_data_t                 *rdata = cf->redis.privdata;
-  
+  redis_nodeset_t                *ns = nodeset_find(&cf->redis);
   assert(callback != NULL);
 
-  CREATE_CALLBACK_DATA(d, rdata, "publish_message", channel_id, callback, privdata);
+  CREATE_CALLBACK_DATA(d, ns, cf, "publish_message", channel_id, callback, privdata);
   
   d->msg_time=msg->id.time;
   if(d->msg_time == 0) {

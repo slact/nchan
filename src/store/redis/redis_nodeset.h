@@ -66,7 +66,8 @@ typedef enum {
 } redis_node_role_t;
 
 typedef enum {
-  REDIS_NODESET_FAILED = -3,
+  REDIS_NODESET_FAILED = -4,
+  REDIS_NODESET_CLUSTER_FAILING = -3,
   REDIS_NODESET_FAILING = -2,
   REDIS_NODESET_INVALID = -1,
   REDIS_NODESET_DISCONNECTED = 0,
@@ -82,21 +83,23 @@ struct redis_nodeset_s {
   //slaves of slaves not included
   
   redis_nodeset_status_t      status;
+  ngx_event_t                 status_check_ev;
+  const char                 *status_msg;
   time_t                      current_status_start;
   ngx_int_t                   current_status_times_checked;
   ngx_int_t                   generation;
-  ngx_event_t                 status_check_ev;
   nchan_list_t                urls;
   ngx_http_upstream_srv_conf_t *upstream;
   nchan_list_t                nodes;
   redis_nodeset_cluster_t     cluster;
-  struct {
+  struct {                    //settings
     nchan_redis_storage_mode_t  storage_mode;
-    struct {
+    struct {                    //pubsub_subscribe_to
       unsigned                    master:1;
       unsigned                    slave:1;
     }                           pubsub_subscribe_to;
     time_t                      ping_interval;
+    ngx_str_t                  *namespace;
   }                           settings;
   
   nchan_list_t                channels;
@@ -135,6 +138,7 @@ struct redis_node_s {
     redisAsyncContext         *pubsub;
     redisContext              *sync;
   }                         ctx;
+  int                       pending_commands;
   nchan_slist_t             channels;
 }; //redis_node_t
 
@@ -167,7 +171,7 @@ int nodeset_disconnect(redis_nodeset_t *ns);
 ngx_int_t nodeset_destroy_all(void);
 ngx_int_t nodeset_each(void (*)(redis_nodeset_t *, void *), void *privdata);
 ngx_int_t nodeset_each_node(redis_nodeset_t *, void (*)(redis_node_t *, void *), void *privdata);
-ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t, callback_pt, void *pd);
+ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd);
 ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns);
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg);
@@ -181,10 +185,15 @@ redis_node_t *nodeset_node_find_by_run_id(redis_nodeset_t *ns, ngx_str_t *run_id
 redis_node_t *nodeset_node_find_by_cluster_id(redis_nodeset_t *ns, ngx_str_t *cluster_id);
 redis_node_t *nodeset_node_find_by_range(redis_nodeset_t *ns, redis_slot_range_t *range);
 redis_node_t *nodeset_node_find_by_slot(redis_nodeset_t *ns, uint16_t slot);
+redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *channel_id);
+redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key);
+redis_node_t *nodeset_node_find_any_master(redis_nodeset_t *ns);
+int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *r);
+int nodeset_ready(redis_nodeset_t *nodeset);
 
 
 redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 
-
+uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
 #endif /* NCHAN_REDIS_NODESET_H */

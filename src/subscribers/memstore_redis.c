@@ -108,9 +108,9 @@ static ngx_int_t sub_destroy_handler(ngx_int_t status, void *d, sub_data_t *pd) 
   return NGX_OK;
 }
 
-static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
+static ngx_int_t reconnect_callback(redis_nodeset_t *ns, void *pd) {
   sub_data_t *sd = *((sub_data_t **) pd);
-  if(status != NGX_OK) {
+  if(!nodeset_ready(ns)) {
     return NGX_ERROR;
   }
   if(sd) {
@@ -124,7 +124,7 @@ static ngx_int_t reconnect_callback(ngx_int_t status, void *d, void *pd) {
     ngx_free(pd);
   }
   else {
-    DBG("%reconnect callback skipped");
+    DBG("%reconnect callback skipped"); //probably because the channel was deleted while we were waiting
   }
   return NGX_OK;
 }
@@ -144,7 +144,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
       d->chanhead->redis_sub = NULL;
       
       nodeset = nodeset_find(&d->sub->cf->redis);
-      if(nodeset->status != REDIS_NODESET_READY && d->onconnect_callback_pd == NULL) {
+      if(!nodeset_ready(nodeset) && d->onconnect_callback_pd == NULL) {
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;
         d->onconnect_callback_pd = dd;
