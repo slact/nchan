@@ -17,6 +17,14 @@
 static redis_nodeset_t redis_nodeset[NCHAN_MAX_NODESETS];
 static int             redis_nodeset_count = 0;
 
+typedef struct {
+  ngx_event_t      ev;
+  callback_pt      cb;
+  void            *pd;
+  redis_nodeset_t *ns;
+} nodeset_onready_callback_t;
+
+
 static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
@@ -89,7 +97,7 @@ static int nodeset_cluster_node_unindex_keyslot_ranges(redis_node_t *node) {
     node_log_notice(node, "already unindexed");
     return 1;
   }
-  node_log_notice(node, "unindex keyslot ranges");
+  //node_log_notice(node, "unindex keyslot ranges");
   
   //rbtree_walk_incr(tree, print_slot_range_node, NULL);
   
@@ -143,6 +151,7 @@ redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
   
   nchan_list_init(&ns->urls, sizeof(ngx_str_t *), "redis urls");
   nchan_list_init(&ns->nodes, sizeof(node_blob_t), "redis nodes");
+  nchan_list_init(&ns->onready_callbacks, sizeof(nodeset_onready_callback_t), "nodeset onReady callbacks");
   
   ns->reconnect_delay_sec = 5;
   ns->current_status_times_checked = 0;
@@ -406,8 +415,7 @@ static void node_remove_peer(redis_node_t *node, redis_node_t *peer) {
 }
 
 ngx_int_t nodeset_node_destroy(redis_node_t *node) {
-  node_set_role(node, REDIS_NODE_ROLE_UNKNOWN); //removes from all peer lists
-  nchan_list_empty(&node->peers.slaves);
+  node_set_role(node, REDIS_NODE_ROLE_UNKNOWN); //removes from all peer lists, and clears own slave list
   if(node->ctx.cmd)
     redisAsyncFree(node->ctx.cmd);
   if(node->ctx.pubsub)
@@ -541,6 +549,11 @@ int node_disconnect(redis_node_t *node) {
   if(node->cluster.enabled) {
     nodeset_cluster_node_unindex_keyslot_ranges(node);
   }
+  if(node->cluster.slot_range.range) {
+    ngx_free(node->cluster.slot_range.range);
+    node->cluster.slot_range.n=0;
+    node->cluster.slot_range.range = NULL;
+  }
   return 1;
 }
 
@@ -554,10 +567,13 @@ void node_set_role(redis_node_t *node, redis_node_role_t role) {
     case REDIS_NODE_ROLE_UNKNOWN:
       if(node->peers.master) {
         node_remove_peer(node->peers.master, node);
+        ERR("removed %p from peers of %p", node->peers.master, node);
         node->peers.master = NULL;
       }
       for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
+        ERR("*cur=%p (*cur)->peers.master=%p", *cur, (*cur)->peers.master);
         assert((*cur)->peers.master == node);
+        ERR("remove peer *cur=%p node=%p", *cur, node);
         node_remove_peer(*cur, node);
       }
       nchan_list_empty(&node->peers.slaves);
@@ -926,6 +942,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
               redis_node_t       *conflict_node;
               node->cluster.slot_range.n = l[i].slot_ranges_count;
               size_t                 j;
+              if(node->cluster.slot_range.range) {
+                ngx_free(node->cluster.slot_range.range);
+              }
               node->cluster.slot_range.range = ngx_alloc(sizeof(redis_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
               if(!node->cluster.slot_range.range) {
                 return node_connector_fail(node, "failed allocating cluster slots range");
@@ -1026,6 +1045,50 @@ static int nodeset_status_timer_interval(redis_nodeset_status_t status) {
   }
 }
 
+void nodeset_onready_expire_event(ngx_event_t *ev) {
+  nodeset_onready_callback_t *rcb = ev->data;
+  rcb->cb(NGX_DECLINED, rcb->ns, rcb->pd);
+  nchan_list_remove(&rcb->ns->onready_callbacks, rcb);
+}
+
+ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, callback_pt cb, void *pd) {
+  nodeset_onready_callback_t *ncb;
+  
+  if(ns->status == REDIS_NODESET_READY) {
+    cb(NGX_OK, ns, pd);
+    return NGX_OK;
+  }
+  
+  ncb = nchan_list_append(&ns->onready_callbacks);
+  if(ncb == NULL) {
+    ERR("failed to add to onready_callback list");
+    return NGX_ERROR;
+  }
+  
+  ncb->cb = cb;
+  ncb->pd = pd;
+  ncb->ns = ns;
+  ngx_memzero(&ncb->ev, sizeof(ncb->ev));
+  if(max_wait > 0) {
+    nchan_init_timer(&ncb->ev, nodeset_onready_expire_event, ncb);
+    ngx_add_timer(&ncb->ev, max_wait);
+  }
+  
+  return NGX_OK;
+}
+
+ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns) {
+  nodeset_onready_callback_t *rcb;
+  for(rcb = nchan_list_first(&ns->onready_callbacks); rcb != NULL; rcb = nchan_list_next(rcb)) {
+    if(rcb->ev.timer_set) {
+      ngx_del_timer(&rcb->ev);
+    }
+    rcb->cb(NGX_DECLINED, ns, rcb->pd);
+  }
+  nchan_list_empty(&ns->onready_callbacks);
+  return NGX_OK;
+}
+
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
   if(nodeset->status != status) {
     if(msg) {
@@ -1046,6 +1109,8 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
       ngx_del_timer(&nodeset->status_check_ev);
     }
     
+    nodeset_onready_callback_t *rcb;
+    
     switch(status) {
       case REDIS_NODESET_FAILED:
       case REDIS_NODESET_DISCONNECTED:
@@ -1059,7 +1124,13 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
         //no special actions
         break;
       case REDIS_NODESET_READY:
-        //nothing special -- for now
+        for(rcb = nchan_list_first(&nodeset->onready_callbacks); rcb != NULL; rcb = nchan_list_next(rcb)) {
+          if(rcb->ev.timer_set) {
+            ngx_del_timer(&rcb->ev);
+          }
+          rcb->cb(NGX_OK, nodeset, rcb->pd);
+        }
+        nchan_list_empty(&nodeset->onready_callbacks);
         break;
     }
   }
@@ -1124,7 +1195,7 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
         //remove failed slave
         node_log_notice(cur, "removed failed slave node");
         node_disconnect(cur);
-        nchan_list_remove(&cur->nodeset->nodes, cur);
+        nodeset_node_destroy(cur);
         total--;
       }
       else {
@@ -1251,7 +1322,8 @@ int nodeset_disconnect(redis_nodeset_t *ns) {
       node_log_debug(node, "intiating disconnect");
       node_disconnect(node);
     }
-    nchan_list_remove(&ns->nodes, node);
+    ERR("destroy node %p", node);
+    nodeset_node_destroy(node);
   }
   
   return 1;
@@ -1265,6 +1337,37 @@ ngx_int_t nodeset_connect_all(void) {
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
     nodeset_connect(ns);
+  }
+  return NGX_OK;
+}
+
+ngx_int_t nodeset_destroy_all(void) {
+  int                      i;
+  redis_nodeset_t         *ns;
+  ERR ("nodeset destroy all");
+  for(i=0; i<redis_nodeset_count; i++) {
+    ns = &redis_nodeset[i];
+    nodeset_disconnect(ns);
+    nchan_list_empty(&ns->urls);
+  }
+  redis_nodeset_count = 0;
+  return NGX_OK;
+}
+
+ngx_int_t nodeset_each(void (*cb)(redis_nodeset_t *, void *), void *privdata) {
+  int                      i;
+  redis_nodeset_t         *ns;
+  for(i=0; i<redis_nodeset_count; i++) {
+    ns = &redis_nodeset[i];
+    cb(ns, privdata);
+  }
+  return NGX_OK;
+}
+ngx_int_t nodeset_each_node(redis_nodeset_t *ns, void (*cb)(redis_node_t *, void *), void *privdata) {
+  redis_node_t             *node, *next;
+  for(node = nchan_list_first(&ns->nodes); node != NULL; node = next) {
+    next = nchan_list_next(node);
+    cb(node, privdata);
   }
   return NGX_OK;
 }

@@ -2617,6 +2617,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     assert(rcf->enabled);
     if((nodeset = nodeset_find(rcf)) == NULL) {
       nodeset = nodeset_create(rcf);
+      rdstore_initialize_chanhead_reaper(&nodeset->chanhead_reaper, "Redis channel reaper");
     }
     if(!nodeset) {
       ERR("Unable to create Redis nodeset.");
@@ -2625,6 +2626,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   }
   
   //OLD
+  /*
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     rcf = cur->cf;
     if(!rcf->enabled) {
@@ -2651,6 +2653,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
       redis_add_connection_data(rcf, cur->loc_conf, NULL);
     }
   }
+  */
   
   return NGX_OK;
 }
@@ -2687,6 +2690,10 @@ static ngx_int_t redis_data_tree_exiter_stage1(rbtree_seed_t *seed, rdstore_data
   return NGX_OK;
 }
 
+void nodeset_exiter_stage1(redis_nodeset_t *ns, void *pd) {
+  nodeset_abort_on_ready_callbacks(ns);
+}
+
 static ngx_int_t redis_data_tree_exiter_stage2(rbtree_seed_t *seed, rdstore_data_t *rdata, unsigned *chanheads) {
   
   *chanheads += rdata->chanhead_reaper.count;
@@ -2703,6 +2710,12 @@ static ngx_int_t redis_data_tree_exiter_stage2(rbtree_seed_t *seed, rdstore_data
   }
 
   return NGX_OK;
+}
+
+void nodeset_exiter_stage2(redis_nodeset_t *ns, void *pd) {
+  unsigned *chanheads = pd;
+  *chanheads += ns->chanhead_reaper.count;
+  nchan_reaper_stop(&ns->chanhead_reaper);
 }
 
 static ngx_int_t redis_data_tree_exiter_stage3(rbtree_seed_t *seed, rdstore_data_t *rdata, unsigned *chanheads) {
@@ -2730,11 +2743,19 @@ static ngx_int_t redis_data_tree_exiter_stage3(rbtree_seed_t *seed, rdstore_data
   return NGX_OK;
 }
 
+void nodeset_exiter_stage3(redis_nodeset_t *ns, void *pd) {
+  nodeset_disconnect(ns);
+}
+
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   rdstore_channel_head_t     *cur, *tmp;
   unsigned                    chanheads = 0;
   DBG("redis exit worker");
-  rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage1, NULL);
+  
+  //old
+  //rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage1, NULL);
+  
+  nodeset_each(nodeset_exiter_stage1, NULL);
   
   HASH_ITER(hh, chanhead_hash, cur, tmp) {
     cur->shutting_down = 1;
@@ -2744,9 +2765,16 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
     }
   }
   
-  rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
+  nodeset_each(nodeset_exiter_stage2, &chanheads);
   
-  rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage3, NULL);
+  //OLD
+  //rbtree_walk(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage2, &chanheads);
+  
+  nodeset_destroy_all();
+  
+  //OLD
+  //rbtree_empty(&redis_data_tree, (rbtree_walk_callback_pt )redis_data_tree_exiter_stage3, NULL);
+  
   nchan_exit_notice_about_remaining_things("redis channel", "", chanheads);
   
   redis_cluster_exit_worker(cycle);
@@ -2754,6 +2782,7 @@ static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
 
 static void nchan_store_exit_master(ngx_cycle_t *cycle) {
   rbtree_empty(&redis_data_tree, NULL, NULL);
+  nodeset_destroy_all();
 }
 
 typedef struct {

@@ -7,6 +7,7 @@
 #include <util/nchan_reaper.h>
 #include <util/nchan_rbtree.h>
 #include <util/nchan_list.h>
+#include <util/nchan_slist.h>
 
 //#include "store-private.h"
 
@@ -99,6 +100,7 @@ struct redis_nodeset_s {
   nchan_list_t                channels;
   nchan_reaper_t              chanhead_reaper;
   time_t                      reconnect_delay_sec;
+  nchan_list_t                onready_callbacks;
 }; //redis_nodeset_t
 
 struct redis_node_s {
@@ -130,12 +132,15 @@ struct redis_node_s {
     redisAsyncContext         *pubsub;
     redisContext              *sync;
   }                         ctx;
+  nchan_slist_t             channels;
 }; //redis_node_t
 
 typedef struct {
   redis_slot_range_t      range;
   redis_node_t           *node;
 } redis_nodeset_slot_range_node_t;
+
+
 
 redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf);
 redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
@@ -155,6 +160,11 @@ int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);
 int nodeset_disconnect(redis_nodeset_t *ns);
+ngx_int_t nodeset_destroy_all(void);
+ngx_int_t nodeset_each(void (*)(redis_nodeset_t *, void *), void *privdata);
+ngx_int_t nodeset_each_node(redis_nodeset_t *, void (*)(redis_node_t *, void *), void *privdata);
+ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t, callback_pt, void *pd);
+ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns);
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg);
 
@@ -167,6 +177,7 @@ redis_node_t *nodeset_node_find_by_run_id(redis_nodeset_t *ns, ngx_str_t *run_id
 redis_node_t *nodeset_node_find_by_cluster_id(redis_nodeset_t *ns, ngx_str_t *cluster_id);
 redis_node_t *nodeset_node_find_by_range(redis_nodeset_t *ns, redis_slot_range_t *range);
 redis_node_t *nodeset_node_find_by_slot(redis_nodeset_t *ns, uint16_t slot);
+
 
 redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 
