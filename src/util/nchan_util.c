@@ -6,8 +6,14 @@
 #endif
 
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
+  if(str1 == str2) {
+    return 1;
+  }
   if(str1->len != str2->len) {
     return 0;
+  }
+  if(str1->len == 0) {
+    return 1;
   }
   return memcmp(str1->data, str2->data, str1->len) == 0;
 }
