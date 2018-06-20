@@ -100,7 +100,7 @@ ngx_int_t nchan_slist_remove(nchan_slist_t *list, void *el) {
 void *nchan_slist_shift(nchan_slist_t *list) {
   void *head = list->head;
   if(head) {
-    nchan_list_remove(list, head);
+    nchan_slist_remove(list, head);
   }
   return head;
 }
@@ -108,7 +108,7 @@ void *nchan_slist_shift(nchan_slist_t *list) {
 void *nchan_slist_pop(nchan_slist_t *list) {
   void *tail = list->tail;
   if(tail) {
-    nchan_list_remove(list, tail);
+    nchan_slist_remove(list, tail);
   }
   return tail;
 }
