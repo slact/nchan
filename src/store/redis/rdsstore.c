@@ -103,24 +103,27 @@ ngx_int_t redis_store_callback_on_connected(nchan_loc_conf_t *cf, ngx_msec_t max
     }                                                                \
   }while(0)                                                          \
   
-#define redis_sync_command(rdata, fmt, args...)                      \
+  
+  
+#define redis_sync_command(node, fmt, args...)                       \
   do {                                                               \
-    if((rdata)->sync_ctx == NULL) {                                  \
-      redis_nginx_open_sync_context(((rdata)->connect_params.peername.len > 0 ? &(rdata)->connect_params.peername : &(rdata)->connect_params.hostname), (rdata)->connect_params.port, (rdata)->connect_params.db, &(rdata)->connect_params.password, &(rdata)->sync_ctx); \
+    if((node)->ctx.sync == NULL) {                                   \
+      redis_nginx_open_sync_context(((node)->connect_params.peername.len > 0 ? &(node)->connect_params.peername : &(node)->connect_params.hostname), (node)->connect_params.port, (node)->connect_params.db, &(node)->connect_params.password, &(node)->ctx.sync); \
     }                                                                \
-    if((rdata)->sync_ctx) {                                          \
-      redisCommand((rdata)->sync_ctx, fmt, ##args);                  \
+    if((node)->ctx.sync) {                                          \
+      redisCommand((node)->ctx.sync, fmt, ##args);                  \
     } else {                                                         \
       ERR("Can't run redis command: no connection to redis server.");\
     }                                                                \
   }while(0)
 
-#define redis_sync_script(script_name, rdata, fmt, args...)                    \
-  redis_sync_command(rdata, "EVALSHA %s " fmt, redis_lua_scripts.script_name.hash, ##args)
+#define redis_sync_script(script_name, node, fmt, args...)                    \
+  redis_sync_command(node, "EVALSHA %s " fmt, redis_lua_scripts.script_name.hash, ##args)
 
-#define nchan_redis_sync_script(script_name, rdata, channel_id, fmt, args...)  \
-  redis_sync_script(script_name, rdata, "0 %b %b " fmt, STR(&rdata->namespace), STR(channel_id), ##args)
+#define nchan_redis_sync_script(script_name, node, channel_id, fmt, args...)  \
+  redis_sync_script(script_name, node, "0 %b %b " fmt, STR(node->nodeset->settings.namespace), STR(channel_id), ##args)
 
+  
   
 #define redis_command(node, cb, pd, fmt, args...)                 \
   do {                                                               \
@@ -1616,11 +1619,14 @@ static ngx_int_t redis_subscriber_unregister(rdstore_channel_head_t *chanhead, s
     redis_subscriber_unregister_send(chanhead->redis.nodeset, &d);
   }
   else {
-    rdstore_data_t *rdata = redis_cluster_rdata_from_channel(chanhead);
-    nchan_redis_sync_script(subscriber_unregister, rdata, &chanhead->id, "%i %i", 
-                            0/*TODO: sub->id*/,
-                            cf->channel_timeout
-                           );
+    if(nodeset_ready(chanhead->redis.nodeset)) {
+      //TODO: optimize this
+      redis_node_t   *node = nodeset_node_find_by_channel_id(chanhead->redis.nodeset, &chanhead->id);
+      nchan_redis_sync_script(subscriber_unregister, node, &chanhead->id, "%i %i", 
+                              0/*TODO: sub->id*/,
+                              cf->channel_timeout
+                            );
+    }
   }
   return NGX_OK;
 }
@@ -3106,16 +3112,17 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
 }
 
 ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t *cf, ngx_int_t count, uint8_t shutting_down) {
-  redis_nodeset_t  *ns = nodeset_find(&cf->redis);
+  redis_nodeset_t  *nodeset = nodeset_find(&cf->redis);
   
   if(!shutting_down) {
     add_fakesub_data_t   data = {channel_id, count};
-    nchan_store_redis_add_fakesub_send(ns, &data);
+    nchan_store_redis_add_fakesub_send(nodeset, &data);
   }
   else {
-    
-    rdstore_data_t *rdata = redis_cluster_rdata_from_channel_id(cf->redis.privdata, channel_id);
-    redis_sync_command(rdata, "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
+    if(nodeset_ready(nodeset)) {
+      redis_node_t *node = nodeset_node_find_by_channel_id(nodeset, channel_id);
+      redis_sync_command(node, "EVALSHA %s 0 %b %i", redis_lua_scripts.add_fakesub.hash, STR(channel_id), count);
+    }
   }
   return NGX_OK;
 }
