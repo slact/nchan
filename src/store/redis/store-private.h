@@ -16,7 +16,7 @@
 
 #include "redis_nodeset.h"
 #define REDIS_LUA_HASH_LENGTH 40
-
+#define REDIS_NODESET_NOT_READY_MAX_RETRIES 2
 
 typedef enum {DISCONNECTED, CONNECTING, AUTHENTICATING, LOADING, LOADING_SCRIPTS, CONNECTED} redis_connection_status_t;
 
