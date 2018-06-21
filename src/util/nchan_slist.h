@@ -21,7 +21,7 @@ typedef struct {
 
 
 #define nchan_slist_init(slist, data_type, prev_field, next_field) \
-  __nchan_slist_init(slist, offsetof(data_type, prev_field), offsetof(data_type, next_field)
+  __nchan_slist_init(slist, offsetof(data_type, prev_field), offsetof(data_type, next_field))
 ngx_int_t __nchan_slist_init(nchan_slist_t *list, off_t offset_prev, off_t offset_next);
 void *nchan_slist_first(nchan_slist_t *list);
 void *nchan_slist_last(nchan_slist_t *list);
