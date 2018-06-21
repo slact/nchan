@@ -441,7 +441,6 @@ typedef struct {
   ngx_str_t                     channel_id;
   nchan_msg_id_t               *msg_id;
   ngx_str_t                     msg_key;
-  rdstore_data_t               *rdata;
 } redis_get_message_from_key_data_t;
 
 static void get_msg_from_msgkey_callback(redisAsyncContext *ac, void *r, void *privdata);
