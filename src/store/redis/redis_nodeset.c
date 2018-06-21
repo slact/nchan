@@ -8,8 +8,8 @@
 #include "redis_nodeset_parser.h"
 #include "redis_lua_commands.h"
 
-#define DEBUG_LEVEL NGX_LOG_WARN
-//#define DEBUG_LEVEL NGX_LOG_DEBUG
+//#define DEBUG_LEVEL NGX_LOG_WARN
+#define DEBUG_LEVEL NGX_LOG_DEBUG
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDIS NODESET: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS NODESET: " fmt, ##args)
@@ -188,7 +188,6 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   //init cluster stuff
   ns->cluster.enabled = 0;
-  ns->cluster.ready = 0;
   rbtree_init(&ns->cluster.keyslots, "redis cluster node (by keyslot) data", rbtree_cluster_keyslots_node_id, rbtree_cluster_keyslots_bucketer, rbtree_cluster_keyslots_compare);
   
   //urls
@@ -853,7 +852,7 @@ static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncCont
     }
     node_disconnect(node);
     node->state = REDIS_NODE_FAILED;
-    nchan_add_oneshot_timer((void (*)(void *))nodeset_check_status, node->nodeset, 10);
+    nchan_add_oneshot_timer((void (*)(void *))nodeset_examine, node->nodeset, 10);
   }
 }
 
@@ -1213,7 +1212,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       if(!node->ping_timer.timer_set && nodeset->settings.ping_interval > 0) {
         ngx_add_timer(&node->ping_timer, nodeset->settings.ping_interval * 1000);
       }
-      nodeset_check_status(nodeset);
+      nodeset_examine(nodeset);
       break;
       
   }
@@ -1366,7 +1365,7 @@ static void node_find_slaves_callback(redisAsyncContext *ac, void *rep, void *pd
   node_discover_slaves_from_info_reply(node, reply);
 }
 
-ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
+ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
   redis_node_t *cur, *next;
   int cluster = 0, masters = 0, slaves = 0, total = 0, connecting = 0, ready = 0, disconnected = 0;
   int discovered = 0, failed_masters=0, failed_slaves = 0, failed_unknowns = 0;
@@ -1423,6 +1422,8 @@ ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset) {
     }
   }
 
+  nodeset->cluster.enabled = cluster > 0;
+  
   if(current_status == REDIS_NODESET_CONNECTING && disconnected > 0) {
     //still connecting, with a few nodws yet to try to connect
     return NGX_OK;
@@ -1488,7 +1489,7 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
         nodeset_set_status(ns, REDIS_NODESET_DISCONNECTED, "Redis node set took too long to connect");
       }
       else {
-        nodeset_check_status(ns); // full status check
+        nodeset_examine(ns); // full status check
       }
       break;
     case REDIS_NODESET_CLUSTER_FAILING:

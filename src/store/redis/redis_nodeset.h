@@ -53,7 +53,6 @@ typedef struct redis_node_s redis_node_t;
 
 typedef struct { //redis_nodeset_cluster_t
   unsigned                    enabled:1;
-  unsigned                    ready:1;
   rbtree_seed_t               keyslots; //cluster rbtree seed
 } redis_nodeset_cluster_t;
 
@@ -154,7 +153,7 @@ typedef struct {
 redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf);
 ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler);
 redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
-ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset);
+ngx_int_t nodeset_examine(redis_nodeset_t *nodeset);
 
 ngx_int_t nodeset_node_destroy(redis_node_t *node);
 

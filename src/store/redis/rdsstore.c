@@ -2018,7 +2018,8 @@ static ngx_int_t nchan_store_subscribe_continued(redis_subscribe_data_t *d) {
   //nchan_loc_conf_t           *cf = d->sub->cf;
   rdstore_channel_head_t       *ch;
   //ngx_int_t                   create_channel_ttl = cf->subscribe_only_existing_channel==1 ? 0 : cf->channel_timeout;
-  redis_nodeset_t              *nodeset = d->sub->cf->redis.privdata;
+  assert(d->sub->cf->redis.enabled);
+  redis_nodeset_t              *nodeset = nodeset_find(&d->sub->cf->redis);
   ngx_int_t                     rc;
   
   ch = nchan_store_get_chanhead(d->channel_id, nodeset);
