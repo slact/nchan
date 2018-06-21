@@ -167,6 +167,8 @@ redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
   nchan_list_init(&ns->nodes, sizeof(node_blob_t), "redis nodes");
   nchan_list_init(&ns->onready_callbacks, sizeof(nodeset_onready_callback_t), "nodeset onReady callbacks");
   
+  nchan_slist_init(&ns->channels, rdstore_channel_head_t, redis.slist.nodeset.prev, redis.slist.nodeset.next);
+  
   ns->reconnect_delay_sec = 5;
   ns->current_status_times_checked = 0;
   ns->current_status_start = 0;
@@ -494,6 +496,8 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   node->run_id.len = 0;
   node->run_id.data = node_blob->run_id;
   node->nodeset = ns;
+  
+  nchan_slist_init(&node->channels, rdstore_channel_head_t, redis.slist.nodeset.prev, redis.slist.nodeset.next);
   
   node->peers.master = NULL;
   nchan_list_init(&node->peers.slaves, sizeof(redis_node_t *), "node slaves");
@@ -1600,6 +1604,81 @@ static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *ds
 }
 
 
+//sneaky channel stuff
+ngx_int_t nodeset_associate_chanhead(redis_nodeset_t *ns, void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  if(ch->redis.nodeset && ch->redis.nodeset != ns) {
+    nodeset_dissociate_chanhead(ch);
+  }
+  ch->redis.nodeset = ns;
+  nchan_slist_append(&ns->channels, ch);
+  return NGX_OK;
+}
+ngx_int_t nodeset_dissociate_chanhead(void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  redis_nodeset_t *ns = ch->redis.nodeset;
+  if(ns) {
+    ch->redis.nodeset = NULL;
+    nchan_slist_remove(&ns->channels, ch);
+  }
+  return NGX_OK;
+}
+ngx_int_t nodeset_node_associate_chanhead(redis_node_t *node, void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  assert(ch->redis.node.cmd == NULL);
+  assert(node->nodeset == ch->redis.nodeset);
+  ch->redis.node.cmd = node;
+  if(ch->redis.node.pubsub != node) {
+    //not associated with this node for pubsub reasons
+    nchan_slist_append(&node->channels, ch);
+  }
+  return NGX_OK;
+}
+ngx_int_t nodeset_node_associate_pubsub_chanhead(redis_node_t *node, void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  assert(ch->redis.node.pubsub == NULL);
+  assert(node->nodeset == ch->redis.nodeset);
+  ch->redis.node.pubsub = node;
+  if(ch->redis.node.cmd != node) {
+    //not associated with this node for pubsub reasons
+    nchan_slist_append(&node->channels, ch);
+  }
+  return NGX_OK;
+}
+ngx_int_t nodeset_node_dissociate_chanhead(void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  if(ch->redis.node.cmd && ch->redis.node.cmd != ch->redis.node.pubsub) {
+    nchan_slist_remove(&ch->redis.node.cmd->channels, ch);
+  }
+  ch->redis.node.cmd = NULL;
+  return NGX_OK;
+}
+ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  if(ch->redis.node.pubsub && ch->redis.node.pubsub != ch->redis.node.cmd) {
+    nchan_slist_remove(&ch->redis.node.pubsub->channels, ch);
+  }
+  ch->redis.node.pubsub = NULL; 
+  return NGX_OK;
+}
+
+redis_node_t *nodeset_node_find_by_chanhead(void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  if(ch->redis.node.cmd) {
+    return ch->redis.node.cmd;
+  }
+  ch->redis.node.cmd = nodeset_node_find_by_channel_id(ch->redis.nodeset, &ch->id);
+  return ch->redis.node.cmd;
+}
+redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chan) {
+  rdstore_channel_head_t *ch = chan;
+  if(ch->redis.node.pubsub) {
+    return ch->redis.node.pubsub;
+  }
+  ch->redis.node.pubsub = nodeset_node_find_by_channel_id(ch->redis.nodeset, &ch->id);
+  //TODO: maybe subscribe to a slave?
+  return ch->redis.node.pubsub;
+}
 
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)

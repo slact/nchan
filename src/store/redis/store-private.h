@@ -90,11 +90,11 @@ struct rdstore_channel_head_s {
   rdstore_channel_head_t      *rd_prev;
   
   time_t                       gc_time;
-  nchan_reaper_t              *in_gc_reaper;
   
   redis_pubsub_status_t        pubsub_status;
   unsigned                     meta:1;
   unsigned                     shutting_down:1;
+  unsigned                     in_gc_reaper:1;
   UT_hash_handle               hh;
 };
 
@@ -216,20 +216,15 @@ redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf);
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
 int redisReplyOk(redisAsyncContext *c, void *r);
 ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url);
-rdstore_data_t *redis_create_rdata(ngx_str_t *url, redis_connect_params_t *rcp, nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf);
 ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
 ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name);
 
 ngx_int_t redis_chanhead_gc_add(rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
-ngx_int_t redis_chanhead_gc_add_to_reaper(nchan_reaper_t *, rdstore_channel_head_t *head, ngx_int_t expire, const char *reason);
 ngx_int_t redis_chanhead_gc_withdraw(rdstore_channel_head_t *head);
 ngx_int_t redis_chanhead_gc_withdraw_from_reaper(nchan_reaper_t *, rdstore_channel_head_t *head);
 ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch);
 
-
-void redis_associate_chanhead_with_rdata(rdstore_channel_head_t *head, rdstore_data_t *rdata);
-nchan_reaper_t *rdstore_get_chanhead_reaper(rdstore_channel_head_t *ch);
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch);
 
 void __rdt_process_detailed_status(rdstore_data_t *rdata);

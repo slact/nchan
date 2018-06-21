@@ -102,7 +102,7 @@ struct redis_nodeset_s {
     ngx_str_t                  *namespace;
   }                           settings;
   
-  nchan_list_t                channels;
+  nchan_slist_t               channels;
   nchan_reaper_t              chanhead_reaper;
   time_t                      reconnect_delay_sec;
   nchan_list_t                onready_callbacks;
@@ -190,6 +190,20 @@ redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key);
 redis_node_t *nodeset_node_find_any_master(redis_nodeset_t *ns);
 int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *r);
 int nodeset_ready(redis_nodeset_t *nodeset);
+
+//chanheads are (void *) here to avoid circular typedef dependency with store-private.h
+//it's terrible, and dirty -- but quick
+ngx_int_t nodeset_associate_chanhead(redis_nodeset_t *, void *chanhead);
+ngx_int_t nodeset_dissociate_chanhead(void *chanhead);
+
+ngx_int_t nodeset_node_associate_chanhead(redis_node_t *, void *chanhead);
+ngx_int_t nodeset_node_associate_pubsub_chanhead(redis_node_t *, void *chanhead);
+ngx_int_t nodeset_node_dissociate_chanhead(void *chanhead);
+ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chanhead);
+
+redis_node_t *nodeset_node_find_by_chanhead(void *chanhead);
+redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chanhead);
+
 
 
 redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp);

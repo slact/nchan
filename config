@@ -50,7 +50,6 @@ _NCHAN_SUBSCRIBERS_SRCS="\
 _NCHAN_REDIS_STORE_SRCS="\
   ${_NCHAN_HIREDIS_SRCS} \
   ${ngx_addon_dir}/src/store/redis/cmp.c \
-  ${ngx_addon_dir}/src/store/redis/cluster.c \
   ${ngx_addon_dir}/src/store/redis/redis_lua_commands.c \
   ${ngx_addon_dir}/src/store/redis/redis_nodeset_parser.c \
   ${ngx_addon_dir}/src/store/redis/redis_nodeset.c \
