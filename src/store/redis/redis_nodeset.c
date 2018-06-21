@@ -970,7 +970,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, errstr);
       }
       //connection established. move on...   
-      node->state = REDIS_NODE_CONNECTED;
+      node->state++;
       // intentional fallthrough IS INTENTIONAL!
     
     case REDIS_NODE_CONNECTED:
@@ -980,7 +980,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         node->state++;
       }
       else {
-        node->state = REDIS_NODE_AUTHENTICATED;
+        node->state = REDIS_NODE_SELECT_DB;
         return node_connector_callback(NULL, NULL, node); //continue as if authenticated
       }
       break;
@@ -1001,13 +1001,13 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       //intentional, i tell you
     
-    case REDIS_NODE_AUTHENTICATED:
+    case REDIS_NODE_SELECT_DB:
       if(cp->db > 0) {
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SELECT %d", cp->db);
         node->state++;
       }
       else {
-        node->state = REDIS_NODE_DB_SELECTED;
+        node->state = REDIS_NODE_SCRIPTS_LOAD;
         return node_connector_callback(NULL, NULL, node);
       }
       break;
@@ -1027,12 +1027,57 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       //falling throooooouuuughhhhh
     
-    case REDIS_NODE_DB_SELECTED:
-      //getinfo time
-      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO all");
+    case REDIS_NODE_SCRIPTS_LOAD:
+      node->scripts_loaded = 0;
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
       node->state++;
       break;
     
+    case REDIS_NODE_SCRIPTS_LOADING:
+      next_script = &next_script[node->scripts_loaded];
+      
+      if(!node_connector_loadscript_reply_ok(node, next_script, reply)) {
+        return node_connector_fail(node, "SCRIPT LOAD failed,");
+      }
+      else {
+        //node_log_debug(node, "loaded script %s", next_script->name);
+        node->scripts_loaded++;
+        next_script++;
+      }
+      if(node->scripts_loaded < redis_lua_scripts_count) {
+        //load next script
+        redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
+        return;
+      }
+      node_log_debug(node, "all scripts loaded");
+      node->state++;
+      //fallthrough is falley-throughey
+    
+    case REDIS_NODE_SUBSCRIBE_WORKER:
+      //TODO
+      redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
+      node->state++;
+      break;
+    
+    case REDIS_NODE_SUBSCRIBING_WORKER:  
+      if( reply->type != REDIS_REPLY_ARRAY || reply->elements != 3 
+       || reply->element[0]->type != REDIS_REPLY_STRING || reply->element[1]->type != REDIS_REPLY_STRING
+       || strcmp(reply->element[0]->str, "subscribe") != 0
+       || strcmp(reply->element[1]->str, redis_worker_id) != 0
+      ) {
+        return node_connector_fail(node, "failed to subscribe to worker PUBSUB channel");
+      }
+      nchan_update_stub_status(redis_connected_servers, 1);
+      
+      node->state++;
+      //fallthrough quite intentionally
+      
+    case REDIS_NODE_GET_INFO:
+      //getinfo time
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO ALL");
+      node->state++;
+      break;
+      
     case REDIS_NODE_GETTING_INFO:
       if(reply && reply->type == REDIS_REPLY_ERROR && nchan_cstr_startswith(reply->str, "NOAUTH")) {
         return node_connector_fail(node, "authentication required");
@@ -1080,45 +1125,6 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       //vert intentionally falling through
     
-    case REDIS_NODE_SCRIPTS_LOAD:
-      node->scripts_loaded = 0;
-      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
-      node->state++;
-      break;
-    
-    case REDIS_NODE_SCRIPTS_LOADING:
-      next_script = &next_script[node->scripts_loaded];
-      
-      if(!node_connector_loadscript_reply_ok(node, next_script, reply)) {
-        return node_connector_fail(node, "SCRIPT LOAD failed,");
-      }
-      else {
-        //node_log_debug(node, "loaded script %s", next_script->name);
-        node->scripts_loaded++;
-        next_script++;
-      }
-      if(node->scripts_loaded < redis_lua_scripts_count) {
-        //load next script
-        redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
-        return;
-      }
-      node_log_debug(node, "all scripts loaded");
-      redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
-      node->state++;
-      break;
-    
-    case REDIS_NODE_SUBSCRIBING_WORKER:  
-      if( reply->type != REDIS_REPLY_ARRAY || reply->elements != 3 
-       || reply->element[0]->type != REDIS_REPLY_STRING || reply->element[1]->type != REDIS_REPLY_STRING
-       || strcmp(reply->element[0]->str, "subscribe") != 0
-       || strcmp(reply->element[1]->str, redis_worker_id) != 0
-      ) {
-        return node_connector_fail(node, "failed to subscribe to worker PUBSUB channel");
-      }
-      nchan_update_stub_status(redis_connected_servers, 1);
-      
-      node->state++;
-      //fallthrough quite intentionally
     
     case REDIS_NODE_GET_CLUSTERINFO:
       if(!node->cluster.enabled) {
@@ -1196,7 +1202,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
           }
         }
       }
-      node->state = REDIS_NODE_SCRIPTS_LOAD;
+      node->state = REDIS_NODE_READY;
       //inteonional fall-through is affirmatively consensual
       //yes, i consent to being fallen through.
       //                               Signed, 
