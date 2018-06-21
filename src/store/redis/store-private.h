@@ -53,7 +53,7 @@ struct rdstore_channel_head_s {
   
   void                        *redis_subscriber_privdata;
   rdstore_data_t              *rdt;
-  rdstore_channel_head_cluster_data_t cluster;
+  //rdstore_channel_head_cluster_data_t cluster;
   
   ngx_int_t                    reserved;
   
@@ -82,19 +82,18 @@ struct rdstore_channel_head_s {
     
   }                            redis;
   
+  struct {                   //gc
+    rdstore_channel_head_t      *prev;
+    rdstore_channel_head_t      *next;
+    time_t                       time;
+    unsigned                     in_reaper:1;
+  }                            gc;
   
-  rdstore_channel_head_t      *gc_prev;
-  rdstore_channel_head_t      *gc_next;
   
-  rdstore_channel_head_t      *rd_next;
-  rdstore_channel_head_t      *rd_prev;
-  
-  time_t                       gc_time;
   
   redis_pubsub_status_t        pubsub_status;
   unsigned                     meta:1;
   unsigned                     shutting_down:1;
-  unsigned                     in_gc_reaper:1;
   UT_hash_handle               hh;
 };
 
@@ -216,7 +215,6 @@ redis_connection_status_t redis_connection_status(nchan_loc_conf_t *cf);
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
 int redisReplyOk(redisAsyncContext *c, void *r);
 ngx_int_t redis_add_connection_data(nchan_redis_conf_t *rcf, nchan_loc_conf_t *lcf, ngx_str_t *override_url);
-ngx_int_t redis_ensure_connected(rdstore_data_t *rdata);
 ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
 ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name);
 
