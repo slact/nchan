@@ -89,6 +89,7 @@ struct redis_nodeset_s {
   ngx_int_t                   current_status_times_checked;
   ngx_int_t                   generation;
   nchan_list_t                urls;
+  nchan_loc_conf_t           *first_loc_conf;
   ngx_http_upstream_srv_conf_t *upstream;
   nchan_list_t                nodes;
   redis_nodeset_cluster_t     cluster;
@@ -149,7 +150,7 @@ typedef struct {
 
 
 
-redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf);
+redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf);
 ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler);
 redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
 ngx_int_t nodeset_check_status(redis_nodeset_t *nodeset);

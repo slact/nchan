@@ -966,7 +966,9 @@ static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
     spooler_get_message_start_handler,
     spooler_get_message_finish_handler
   };
-  start_spooler(&head->spooler, &head->id, &head->status, &channel_buffer_complete, &nchan_store_redis, head->rdt->lcf, FETCH, &handlers, head);
+  nchan_loc_conf_t *lcf = head->redis.nodeset->first_loc_conf; //any loc_conf that refers to this nodeset will work. 
+  //the spooler needs it to pass to get_message calls, which in rdstore's case only cares about the nodeset referenced in the loc_conf
+  start_spooler(&head->spooler, &head->id, &head->status, &channel_buffer_complete, &nchan_store_redis, lcf, FETCH, &handlers, head);
   return NGX_OK;
 }
 
@@ -1224,7 +1226,7 @@ ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch
   redis_node_t       *pubsub_node;
   ngx_str_t          *namespace;
   if( ch->pubsub_status != SUBBED && ch->pubsub_status != SUBBING
-   && ch->rdt->storage_mode == REDIS_MODE_DISTRIBUTED
+   && ch->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED
    && nodeset_ready(ch->redis.nodeset)
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
@@ -1322,7 +1324,7 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
     ensure_chanhead_pubsub_subscribed_if_needed(head);
     redis_chanhead_gc_withdraw(head);
     
-    if(head->rdt->storage_mode == REDIS_MODE_BACKUP) {
+    if(head->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP) {
       head->status = READY;
     }
     else {
@@ -1801,27 +1803,25 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
 
 typedef struct nchan_redis_conf_ll_s nchan_redis_conf_ll_t;
 struct nchan_redis_conf_ll_s {
-  nchan_redis_conf_t     *cf;
-  nchan_loc_conf_t       *loc_conf;
+  nchan_loc_conf_t       *lcf;
   nchan_redis_conf_ll_t  *next;
 };
 
 nchan_redis_conf_ll_t   *redis_conf_head;
 
-ngx_int_t nchan_store_redis_add_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf, nchan_loc_conf_t *loc_conf) {
+ngx_int_t nchan_store_redis_add_active_loc_conf(ngx_conf_t *cf, nchan_loc_conf_t *loc_conf) {
   nchan_redis_conf_ll_t  *rcf_ll = ngx_palloc(cf->pool, sizeof(*rcf_ll));
-  rcf_ll->cf = rcf;
-  rcf_ll->loc_conf = loc_conf;
+  rcf_ll->lcf = loc_conf;
   rcf_ll->next = redis_conf_head;
   redis_conf_head = rcf_ll;
   return NGX_OK;
 }
 
-ngx_int_t nchan_store_redis_remove_server_conf(ngx_conf_t *cf, nchan_redis_conf_t *rcf) {
+ngx_int_t nchan_store_redis_remove_active_loc_conf(ngx_conf_t *cf, nchan_loc_conf_t *loc_conf) {
   nchan_redis_conf_ll_t  *cur, *prev;
   
   for(cur = redis_conf_head, prev = NULL; cur != NULL; prev = cur, cur = cur->next) {
-    if(cur->cf == rcf) { //found it
+    if(cur->lcf == loc_conf) { //found it
       if(prev == NULL) {
         redis_conf_head = cur->next;
       }
@@ -1859,6 +1859,7 @@ ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name)
 
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   nchan_redis_conf_t    *rcf;
+  nchan_loc_conf_t      *lcf;
   nchan_redis_conf_ll_t *cur;
   nchan_main_conf_t     *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
   redis_nodeset_t       *nodeset;
@@ -1869,7 +1870,8 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   redis_publish_message_msgkey_size = mcf->redis_publish_message_msgkey_size;
   
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
-    rcf = cur->cf;
+    lcf = cur->lcf;
+    rcf = &lcf->redis;
     assert(rcf->enabled);
     
       //server-scope loc_conf may have some undefined values (because it was never merged with a prev)
@@ -1885,7 +1887,7 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     }
     
     if((nodeset = nodeset_find(rcf)) == NULL) {
-      nodeset = nodeset_create(rcf);
+      nodeset = nodeset_create(lcf);
       rdstore_initialize_chanhead_reaper(&nodeset->chanhead_reaper, "Redis channel reaper");
     }
     if(!nodeset) {

@@ -240,7 +240,7 @@ static char *ngx_conf_set_redis_upstream(ngx_conf_t *cf, ngx_str_t *url, void *c
   
   lcf->redis.enabled = 1;
   global_redis_enabled = 1;
-  nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+  nchan_store_redis_add_active_loc_conf(cf, lcf);
   
   return NGX_CONF_OK;
 }
@@ -375,7 +375,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   if(conf->redis.url_enabled) {
     conf->redis.enabled = 1;
-    nchan_store_redis_add_server_conf(cf, &conf->redis, conf);
+    nchan_store_redis_add_active_loc_conf(cf, conf);
   }
   if(conf->redis.upstream_inheritable && !conf->redis.upstream && prev->redis.upstream && prev->redis.upstream_url.len > 0) {
     conf->redis.upstream_url = prev->redis.upstream_url;
@@ -998,12 +998,12 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   if(*fp) {
     if(!lcf->redis.enabled) {
       lcf->redis.enabled = 1;
-      nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+      nchan_store_redis_add_active_loc_conf(cf, lcf);
     }
     global_redis_enabled = 1;
   }
   else {
-    nchan_store_redis_remove_server_conf(cf, &lcf->redis);
+    nchan_store_redis_remove_active_loc_conf(cf, lcf);
   }
   
   return rc;

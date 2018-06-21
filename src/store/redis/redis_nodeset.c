@@ -151,10 +151,13 @@ ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler
   return NGX_OK;
 }
 
-redis_nodeset_t *nodeset_create(nchan_redis_conf_t *rcf) {
-  redis_nodeset_t *ns = &redis_nodeset[redis_nodeset_count]; //incremented once everything is ok
-
+redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
+  nchan_redis_conf_t  *rcf = &lcf->redis;
+  redis_nodeset_t     *ns = &redis_nodeset[redis_nodeset_count]; //incremented once everything is ok
+  assert(rcf->enabled);
   assert(!rcf->nodeset);
+  
+  ns->first_loc_conf = lcf;
   
   if(redis_nodeset_count >= NCHAN_MAX_NODESETS) {
     nchan_log_error("Cannot create more than %i Redis nodesets", NCHAN_MAX_NODESETS);
