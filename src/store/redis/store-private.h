@@ -25,15 +25,9 @@ typedef struct {
 } redis_cluster_slot_range_t;
 
 
-typedef struct rdstore_data_s rdstore_data_t;
 typedef struct rdstore_channel_head_s rdstore_channel_head_t;
 
-typedef struct {
-  rdstore_data_t          *node_rdt;
-  unsigned                 enabled:1;
-} rdstore_channel_head_cluster_data_t;
-
-typedef enum {SUBBING, SUBBED, UNSUBBING, UNSUBBED} redis_pubsub_status_t;
+typedef enum {REDIS_PUBSUB_SUBSCRIBING, REDIS_PUBSUB_SUBSCRIBED, REDIS_PUBSUB_UNSUBSCRIBED} redis_pubsub_status_t;
 
 struct rdstore_channel_head_s {
   ngx_str_t                    id; //channel id
