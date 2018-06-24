@@ -73,6 +73,8 @@ struct rdstore_channel_head_s {
         rdstore_channel_head_t      *prev;
         rdstore_channel_head_t      *next;
       }                            node_pubsub;
+      unsigned                     in_disconnected_cmd_list:1;
+      unsigned                     in_disconnected_pubsub_list:1;
     }                            slist;
     
   }                            redis;

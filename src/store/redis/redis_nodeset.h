@@ -25,7 +25,7 @@
 #define REDIS_NODESET_RECONNECT_WAIT_TIME_SEC 5
 #define REDIS_NODESET_MAX_FAILING_TIME_SEC 2
 
-#define REDIS_NODE_DEDUPLICATED        -100
+#define REDIS_NODE_DEDUPLICATED         -100
 #define REDIS_NODE_FAILED                 -1
 #define REDIS_NODE_DISCONNECTED            0
 #define REDIS_NODE_CMD_CONNECTING          1
@@ -103,7 +103,12 @@ struct redis_nodeset_s {
     ngx_str_t                  *namespace;
   }                           settings;
   
-  nchan_slist_t               channels;
+  struct {
+    nchan_slist_t               all;
+    nchan_slist_t               disconnected_cmd;
+    nchan_slist_t               disconnected_pubsub;
+  }                           channels;
+  
   nchan_reaper_t              chanhead_reaper;
   time_t                      reconnect_delay_sec;
   nchan_list_t                onready_callbacks;
@@ -140,7 +145,10 @@ struct redis_node_s {
     redisContext              *sync;
   }                         ctx;
   int                       pending_commands;
-  nchan_slist_t             channels;
+  struct {
+  nchan_slist_t               cmd;
+  nchan_slist_t               pubsub;
+  }                         channels;
 }; //redis_node_t
 
 typedef struct {

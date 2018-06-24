@@ -242,16 +242,14 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   
   DBG("reap channel %V", &ch->id);
 
-  if(ch->pubsub_status == SUBBED) {
+  if(ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBED) {
     assert(ch->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED);
     assert(ch->redis.node.pubsub);
     node = ch->redis.node.pubsub;
-    ch->pubsub_status = UNSUBBING;
+    ch->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
     redis_subscriber_command(node, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(ch->redis.nodeset->settings.namespace), STR(&ch->id));
   }
   
-  nodeset_node_dissociate_pubsub_chanhead(ch);
-  nodeset_node_dissociate_chanhead(ch);
   nodeset_dissociate_chanhead(ch);
   
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
@@ -290,7 +288,7 @@ static ngx_int_t nchan_redis_chanhead_ready_to_reap(rdstore_channel_head_t *ch, 
       return NGX_DECLINED;
     }
     
-    //if(ch->pubsub_status == SUBBING) {
+    //if(ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBING) {
     //  return NGX_DECLINED;
     //}
     
@@ -864,10 +862,10 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     if(chid) {
       chanhead = find_chanhead_for_pubsub_callback(chid);
       if(chanhead != NULL) {
-        if(chanhead->pubsub_status != SUBBING) {
-          ERR("expected previous pubsub_status for channel %p (id: %V) to be SUBBING (%i), was %i", chanhead, &chanhead->id, SUBBING, chanhead->pubsub_status);
+        if(chanhead->pubsub_status != REDIS_PUBSUB_SUBSCRIBING) {
+          ERR("expected previous pubsub_status for channel %p (id: %V) to be REDIS_PUBSUB_SUBSCRIBING (%i), was %i", chanhead, &chanhead->id, REDIS_PUBSUB_SUBSCRIBING, chanhead->pubsub_status);
         }
-        chanhead->pubsub_status = SUBBED;
+        chanhead->pubsub_status = REDIS_PUBSUB_SUBSCRIBED;
         
         switch(chanhead->status) {
           case NOTREADY:
@@ -1210,7 +1208,7 @@ static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
   rdstore_channel_head_t   *head = ev->data;
   if(ev->timedout) {
     ev->timedout=0;
-    if(head->pubsub_status != SUBBED || head->status == NOTREADY) {
+    if(head->pubsub_status != REDIS_PUBSUB_SUBSCRIBED || head->status == NOTREADY) {
       //no use trying to keepalive a not-ready (possibly disconnected) chanhead
       DBG("Tried sending channel keepalive when channel is not ready");
       ngx_add_timer(ev, REDIS_RECONNECT_TIME); //retry after reconnect timeout
@@ -1224,14 +1222,14 @@ static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch) {
   redis_node_t       *pubsub_node;
   ngx_str_t          *namespace;
-  if( ch->pubsub_status != SUBBED && ch->pubsub_status != SUBBING
+  if( ch->pubsub_status != REDIS_PUBSUB_SUBSCRIBED && ch->pubsub_status != REDIS_PUBSUB_SUBSCRIBING
    && ch->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED
    && nodeset_ready(ch->redis.nodeset)
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
     namespace = ch->redis.nodeset->settings.namespace;
     DBG("SUBSCRIBING to %V{channel:%V}:pubsub", namespace, &ch->id);
-    ch->pubsub_status = SUBBING;
+    ch->pubsub_status = REDIS_PUBSUB_SUBSCRIBING;
     redis_subscriber_command(pubsub_node, redis_subscriber_callback, NULL, "SUBSCRIBE %b{channel:%b}:pubsub", STR(namespace), STR(&ch->id));
   }
   return NGX_OK;
@@ -1256,7 +1254,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, redis_node
   head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
   head->status = NOTREADY;
-  head->pubsub_status = UNSUBBED;
+  head->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
   head->generation = 0;
   head->last_msgid.time=0;
   head->last_msgid.tag.fixed[0]=0;
@@ -1327,7 +1325,7 @@ static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, 
       head->status = READY;
     }
     else {
-      head->status = head->pubsub_status == SUBBED ? READY : NOTREADY;
+      head->status = head->pubsub_status == REDIS_PUBSUB_SUBSCRIBED ? READY : NOTREADY;
     }
   }
 
