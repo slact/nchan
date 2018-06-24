@@ -250,7 +250,40 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     redis_subscriber_command(node, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(ch->redis.nodeset->settings.namespace), STR(&ch->id));
   }
   
+  redis_nodeset_t *ns = ch->redis.nodeset;
+  redis_node_t *cmd = node = ch->redis.node.cmd;
+  redis_node_t *pubsub = node = ch->redis.node.cmd;
+  
   nodeset_dissociate_chanhead(ch);
+  rdstore_channel_head_t *cur;
+  
+  for(cur = nchan_slist_first(&ns->channels.all); cur != NULL; cur = nchan_slist_next(&ns->channels.all, cur)) {
+    assert(cur != ch);
+  }
+  for(cur = nchan_slist_first(&ns->channels.disconnected_cmd); cur != NULL; cur = nchan_slist_next(&ns->channels.disconnected_cmd, cur)) {
+    assert(cur != ch);
+  }
+  for(cur = nchan_slist_first(&ns->channels.disconnected_pubsub); cur != NULL; cur = nchan_slist_next(&ns->channels.disconnected_pubsub, cur)) {
+    assert(cur != ch);
+  }
+  if(cmd) {
+    for(cur = nchan_slist_first(&cmd->channels.cmd); cur != NULL; cur = nchan_slist_next(&cmd->channels.cmd, cur)) {
+      assert(cur != ch);
+    }
+    for(cur = nchan_slist_first(&cmd->channels.pubsub); cur != NULL; cur = nchan_slist_next(&cmd->channels.pubsub, cur)) {
+      assert(cur != ch);
+    }
+  }
+  if(pubsub) {
+    for(cur = nchan_slist_first(&pubsub->channels.cmd); cur != NULL; cur = nchan_slist_next(&pubsub->channels.cmd, cur)) {
+      assert(cur != ch);
+    }
+    for(cur = nchan_slist_first(&pubsub->channels.pubsub); cur != NULL; cur = nchan_slist_next(&pubsub->channels.pubsub, cur)) {
+      assert(cur != ch);
+    }
+  }
+  
+  
   
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);
   if(ch->keepalive_timer.timer_set) {
