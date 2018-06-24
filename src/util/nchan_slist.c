@@ -48,7 +48,6 @@ ngx_int_t nchan_slist_append(nchan_slist_t *list, void *el) {
     list->head = el;
   }
   if(list->tail == NULL) {
-    list->tail = el;
     *el_prev_ptr = NULL;
   }
   else {
@@ -56,6 +55,7 @@ ngx_int_t nchan_slist_append(nchan_slist_t *list, void *el) {
     *el_prev_ptr = list->tail;
     *tail_next = el;
   }
+  list->tail = el;
   *el_next_ptr = NULL;
   list->n++;
   return NGX_OK;
@@ -67,14 +67,14 @@ ngx_int_t nchan_slist_prepend(nchan_slist_t *list, void *el) {
     list->tail = el;
   }
   if(list->head == NULL) {
-    list->head = el;
     *el_next_ptr = NULL;
   }
   else {
-    void **head_prev_ptr = nchan_slist_next_ptr(list, list->head);
+    void **head_prev_ptr = nchan_slist_prev_ptr(list, list->head);
     *el_next_ptr = list->head;
     *head_prev_ptr = el;
   }
+  list->head = el;
   *el_prev_ptr = NULL;
   list->n++;
   return NGX_OK;
@@ -90,12 +90,12 @@ ngx_int_t nchan_slist_remove(nchan_slist_t *list, void *el) {
     list->tail = el_prev;
   }
   if(el_prev) {
-    void **el_prev_next = nchan_slist_prev_ptr(list, el_prev);
-    *el_prev_next = el_next;
+    void **el_prev_next_ptr = nchan_slist_next_ptr(list, el_prev);
+    *el_prev_next_ptr = el_next;
   }
   if(el_next) {
-    void **el_next_prev = nchan_slist_next_ptr(list, el_next);
-    *el_next_prev = el_prev;
+    void **el_next_prev_ptr = nchan_slist_prev_ptr(list, el_next);
+    *el_next_prev_ptr = el_prev;
   }
   *el_prev_ptr = NULL;
   *el_next_ptr = NULL;
