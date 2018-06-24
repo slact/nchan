@@ -1,4 +1,5 @@
 #include "nchan_slist.h"
+#include <assert.h>
 
  /*
   * Boring non-allocating doubly-linked "static" list.
@@ -6,11 +7,15 @@
   */
  
 ngx_int_t __nchan_slist_init(nchan_slist_t *list, off_t offset_prev, off_t offset_next) {
+  list->offset.prev = offset_prev;
+  list->offset.next = offset_next;
+  return nchan_slist_reset(list);
+}
+
+ngx_int_t nchan_slist_reset(nchan_slist_t *list) {
   list->head = NULL;
   list->tail = NULL;
   list->n = 0;
-  list->offset.prev = offset_prev;
-  list->offset.next = offset_next;
   return NGX_OK;
 }
 
@@ -94,6 +99,37 @@ ngx_int_t nchan_slist_remove(nchan_slist_t *list, void *el) {
   }
   *el_prev_ptr = NULL;
   *el_next_ptr = NULL;
+  return NGX_OK;
+}
+
+ngx_int_t nchan_slist_transfer(nchan_slist_t *dst, nchan_slist_t *src) {
+  assert(dst->offset.prev == src->offset.prev); //same-ish slists
+  assert(dst->offset.next == src->offset.next); //same-ish slists
+  void **src_head_prev_ptr = nchan_slist_prev_ptr(src, src->head);
+  void **dst_tail_next_ptr = nchan_slist_next_ptr(dst, src->tail);
+  
+  if(src->n == 0) {
+    assert(src->head == NULL);
+    assert(src->tail == NULL);
+    return NGX_OK; //nothing to do
+  }
+  
+  *src_head_prev_ptr = dst->tail;
+  if(dst->tail) {
+    *dst_tail_next_ptr = src->head;
+  }
+  dst->tail = src->tail;
+  
+  if(dst->head == NULL) {
+    dst->head = src->head;
+  }
+  dst->tail = src->tail;
+  dst->n += src->n;
+  
+  src->n = 0;
+  src->head = NULL;
+  src->tail = NULL;
+  
   return NGX_OK;
 }
 
