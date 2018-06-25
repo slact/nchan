@@ -445,7 +445,7 @@ static void node_ping_event(ngx_event_t *ev) {
   if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
   
-  node_log_error(node, "node ping event");
+  node_log_debug(node, "node ping event");
   
   ev->timedout = 0;
   if(node->state == REDIS_NODE_READY) {
@@ -1607,11 +1607,11 @@ int nodeset_connect(redis_nodeset_t *ns) {
 int nodeset_disconnect(redis_nodeset_t *ns) {
   redis_node_t *node;
   for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_first(&ns->nodes)) {
+    node_log_debug(node, "destroy %p", node);
     if(node->state > REDIS_NODE_DISCONNECTED) {
       node_log_debug(node, "intiating disconnect");
       node_disconnect(node);
     }
-    ERR("destroy node %p", node);
     nodeset_node_destroy(node);
   }
   
@@ -1633,7 +1633,7 @@ ngx_int_t nodeset_connect_all(void) {
 ngx_int_t nodeset_destroy_all(void) {
   int                      i;
   redis_nodeset_t         *ns;
-  ERR ("nodeset destroy all");
+  DBG("nodeset destroy all");
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
     nodeset_disconnect(ns);
