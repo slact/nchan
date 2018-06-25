@@ -123,6 +123,7 @@ struct redis_node_s {
   ngx_str_t                 run_id;
   ngx_str_t                 version;
   int                       scripts_loaded;
+  int                       generation;
   ngx_event_t               ping_timer;
   struct {
     unsigned                  enabled:1;

@@ -500,6 +500,7 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   node->run_id.len = 0;
   node->run_id.data = node_blob->run_id;
   node->nodeset = ns;
+  node->generation = 0;
   
   nchan_slist_init(&node->channels.cmd, rdstore_channel_head_t, redis.slist.node_cmd.prev, redis.slist.node_cmd.next);
   nchan_slist_init(&node->channels.pubsub, rdstore_channel_head_t, redis.slist.node_pubsub.prev, redis.slist.node_pubsub.next);
@@ -1231,13 +1232,15 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //inteonional fall-through is affirmatively consensual
       //yes, i consent to being fallen through.
       //                               Signed, 
-      //                                 Redis_Node_script_Load
+      //                                 REDIS_NODE_GETTING_CLUSTER_NODES
       //NOTE: consent required each time a fallthrough is imposed
     
     case REDIS_NODE_READY:
       if(!node->ping_timer.timer_set && nodeset->settings.ping_interval > 0) {
         ngx_add_timer(&node->ping_timer, nodeset->settings.ping_interval * 1000);
       }
+      node_log_notice(node, "%s", node->generation == 0 ? "connected" : "reconnected");
+      node->generation++;
       nodeset_examine(nodeset);
       break;
       
