@@ -1286,6 +1286,7 @@ static int nodeset_status_timer_interval(redis_nodeset_status_t status) {
     case REDIS_NODESET_READY:
       return 10000;
   }
+  return 500; //default?
 }
 
 void nodeset_onready_expire_event(ngx_event_t *ev) {
