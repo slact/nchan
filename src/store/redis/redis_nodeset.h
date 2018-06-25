@@ -183,6 +183,7 @@ ngx_int_t nodeset_each(void (*)(redis_nodeset_t *, void *), void *privdata);
 ngx_int_t nodeset_each_node(redis_nodeset_t *, void (*)(redis_node_t *, void *), void *privdata);
 ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd);
 ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns);
+ngx_int_t nodeset_run_on_ready_callbacks(redis_nodeset_t *ns);
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg);
 

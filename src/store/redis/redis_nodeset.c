@@ -1320,6 +1320,18 @@ ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, ng
   return NGX_OK;
 }
 
+ngx_int_t nodeset_run_on_ready_callbacks(redis_nodeset_t *ns) {
+  nodeset_onready_callback_t *rcb;
+  for(rcb = nchan_list_first(&ns->onready_callbacks); rcb != NULL; rcb = nchan_list_next(rcb)) {
+    if(rcb->ev.timer_set) {
+      ngx_del_timer(&rcb->ev);
+    }
+    rcb->cb(ns, rcb->pd);
+  }
+  nchan_list_empty(&ns->onready_callbacks);
+  return NGX_OK;
+}
+
 ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns) {
   nodeset_onready_callback_t *rcb;
   for(rcb = nchan_list_first(&ns->onready_callbacks); rcb != NULL; rcb = nchan_list_next(rcb)) {
@@ -1387,8 +1399,6 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
       ngx_del_timer(&nodeset->status_check_ev);
     }
     
-    nodeset_onready_callback_t *rcb;
-    
     switch(status) {
       case REDIS_NODESET_FAILED:
       case REDIS_NODESET_DISCONNECTED:
@@ -1405,13 +1415,8 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
         //no special actions
         break;
       case REDIS_NODESET_READY:
-        for(rcb = nchan_list_first(&nodeset->onready_callbacks); rcb != NULL; rcb = nchan_list_next(rcb)) {
-          if(rcb->ev.timer_set) {
-            ngx_del_timer(&rcb->ev);
-          }
-          rcb->cb(nodeset, rcb->pd);
-        }
-        nchan_list_empty(&nodeset->onready_callbacks);
+        nodeset_reconnect_disconnected_channels(nodeset);
+        nodeset_run_on_ready_callbacks(nodeset);
         break;
     }
   }
@@ -1571,7 +1576,8 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
       break;
     
     case REDIS_NODESET_READY:
-      //all is well.
+      nodeset_reconnect_disconnected_channels(ns); //in case there are any waiting around
+      nodeset_run_on_ready_callbacks(ns); //in case there are any that got left behind
       break;
   }
   
