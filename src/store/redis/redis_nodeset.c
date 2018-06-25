@@ -1759,6 +1759,27 @@ ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
   return NGX_OK;
 }
 
+static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
+  assert(master->role == REDIS_NODE_ROLE_MASTER);
+  if(master->peers.slaves.n == 0) {
+    return master;
+  }
+  int n = ngx_random() % (master->peers.slaves.n+1);
+  if(n == 0) {
+    //node_log_error(master, "got master");
+    return master;
+  }
+  else {
+    int           i = 0;
+    redis_node_t **nodeptr;
+    for(nodeptr = nchan_list_first(&master->peers.slaves); nodeptr != NULL && i < n-1; nodeptr = nchan_list_next(nodeptr)) {
+      i++;
+    }
+    //node_log_error(*nodeptr, "got slave");
+    return *nodeptr;
+  }
+}
+
 redis_node_t *nodeset_node_find_by_chanhead(void *chan) {
   rdstore_channel_head_t *ch = chan;
   redis_node_t           *node;
@@ -1776,9 +1797,8 @@ redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chan) {
     return ch->redis.node.pubsub;
   }
   node = nodeset_node_find_by_channel_id(ch->redis.nodeset, &ch->id);
+  node = nodeset_node_random_master_or_slave(node);
   nodeset_node_associate_pubsub_chanhead(node, ch);
-  //TODO: maybe subscribe to a slave?
-  nodeset_node_associate_chanhead(node, ch);
   return ch->redis.node.pubsub;
 }
 
