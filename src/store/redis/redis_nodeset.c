@@ -708,11 +708,21 @@ int node_disconnect(redis_node_t *node) {
     nodeset_node_dissociate_chanhead(cur);
     nchan_slist_append(disconnected_cmd, cur);
     cur->redis.slist.in_disconnected_cmd_list = 1;
+    if(cur->status && cur->status == READY) {
+      cur->status = NOTREADY;
+    }
   }
   for(cur = nchan_slist_first(pubsub); cur != NULL; cur = nchan_slist_first(pubsub)) {
     nodeset_node_dissociate_pubsub_chanhead(cur);
     nchan_slist_append(disconnected_pubsub, cur);
     cur->redis.slist.in_disconnected_pubsub_list = 1;
+    
+    cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
+    
+    if(cur->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && cur->status == READY) {
+      cur->status = NOTREADY;
+    }
+
   }
   return 1;
 }
@@ -1073,7 +1083,6 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //fallthrough is falley-throughey
     
     case REDIS_NODE_SUBSCRIBE_WORKER:
-      //TODO
       redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
       node->state++;
       break;
@@ -1116,7 +1125,6 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       
       if(nchan_cstr_match_line(reply->str, "loading:1")) {
         return node_connector_fail(node, "is busy loading data...");
-        //TODO: retry later
       }
       
       if(nchan_cstr_match_line(reply->str, "role:master")) {
@@ -1323,18 +1331,25 @@ ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns) {
   return NGX_OK;
 }
 
+static ngx_int_t update_chanhead_status_on_reconnect(rdstore_channel_head_t *ch) {
+  if(ch->redis.node.cmd && ch->redis.node.pubsub && ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBED && ch->status == NOTREADY) {
+    ch->status = READY;
+  }
+  return NGX_OK;
+}
+
 ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   rdstore_channel_head_t *cur, *next;
   nchan_slist_t *disconnected_cmd = &ns->channels.disconnected_cmd;
   nchan_slist_t *disconnected_pubsub = &ns->channels.disconnected_pubsub;
   assert(nodeset_ready(ns));
+
   for(cur = nchan_slist_first(disconnected_cmd); cur != NULL; cur = next) {
     next = nchan_slist_next(disconnected_cmd, cur);
     assert(cur->redis.node.cmd == NULL);
     cur->redis.slist.in_disconnected_cmd_list = 0;
     assert(nodeset_node_find_by_chanhead(cur)); // this reuses the linked-list fields
-
-    //TODO: update chanhead status maybe?
+    update_chanhead_status_on_reconnect(cur);
   }
   nchan_slist_reset(disconnected_cmd);
   for(cur = nchan_slist_first(disconnected_pubsub); cur != NULL; cur = next) {
@@ -1344,8 +1359,7 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     assert(nodeset_node_pubsub_find_by_chanhead(cur)); // this reuses the linked-list fields
     redis_chanhead_catch_up_after_reconnect(cur);
     ensure_chanhead_pubsub_subscribed_if_needed(cur);
-    
-    //TODO: update chanhead status maybe?
+    update_chanhead_status_on_reconnect(cur);
   }
   nchan_slist_reset(disconnected_pubsub);
   return NGX_OK;
