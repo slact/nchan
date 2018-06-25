@@ -486,6 +486,7 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   node->role = REDIS_NODE_ROLE_UNKNOWN,
   node->state = REDIS_NODE_DISCONNECTED;
   node->discovered = 0;
+  node->connect_timeout = NULL;
   node->connect_params = *rcp;
   node->connect_params.peername.data = node_blob->peername;
   node->connect_params.peername.len = 0;
@@ -559,6 +560,10 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node) {
     redisAsyncFree(node->ctx.pubsub);
   if(node->ctx.sync)
     redisFree(node->ctx.sync);
+  if(node->connect_timeout) {
+    nchan_abort_oneshot_timer(node->connect_timeout);
+    node->connect_timeout = NULL;
+  }
   nchan_list_remove(&node->nodeset->nodes, node);
   return NGX_OK;
 }
@@ -646,14 +651,16 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
   else if(node->ctx.sync && node->ctx.sync->err) {
     ctxerr = node->ctx.sync->errstr;
   }
-  if(ctxerr) {
+  if(node->state == REDIS_NODE_CONNECTION_TIMED_OUT) {
+    node_log_error(node, "connection failed: %s", err);
+  }
+  else if(ctxerr) {
     node_log_error(node, "connection failed: %s (%s)", err, ctxerr);
   }
   else {
     node_log_error(node, "connection failed: %s", err);
   }
-  node_disconnect(node);
-  node->state = REDIS_NODE_FAILED;
+  node_disconnect(node, REDIS_NODE_FAILED);
 }
 
 int node_connect(redis_node_t *node) {
@@ -662,7 +669,7 @@ int node_connect(redis_node_t *node) {
   return 1;
 }
 
-int node_disconnect(redis_node_t *node) {
+int node_disconnect(redis_node_t *node, int disconnected_state) {
   ngx_int_t prev_state = node->state;
   node_log_debug(node, "disconnect");
   if(node->ctx.cmd) {
@@ -680,10 +687,14 @@ int node_disconnect(redis_node_t *node) {
   if(node->ctx.sync) {
     redisFree(node->ctx.sync);
   }
+  if(node->connect_timeout) {
+    nchan_abort_oneshot_timer(node->connect_timeout);
+    node->connect_timeout = NULL;
+  }
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
-  node->state = REDIS_NODE_DISCONNECTED;
+  node->state = disconnected_state;
   if(prev_state >= REDIS_NODE_READY) {
     nchan_update_stub_status(redis_connected_servers, -1);
   }
@@ -853,6 +864,9 @@ static int node_connector_loadscript_reply_ok(redis_node_t *node, redis_lua_scri
   }
 }
 
+void nodeset_examine_timer_wrapper(void *pd) {
+  nodeset_examine(pd);
+}
 static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncContext *ac, int status) {
   redis_node_t    *node = ac->data;
   char            *which_ctx;
@@ -879,9 +893,8 @@ static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncCont
         node_log_error(node, "%s connection lost", which_ctx);
       }
     }
-    node_disconnect(node);
-    node->state = REDIS_NODE_FAILED;
-    nchan_add_oneshot_timer((void (*)(void *))nodeset_examine, node->nodeset, 10);
+    node_disconnect(node, REDIS_NODE_FAILED);
+    nchan_add_oneshot_timer(nodeset_examine_timer_wrapper, node->nodeset, 10);
   }
 }
 
@@ -955,6 +968,18 @@ static void node_subscribe_callback(redisAsyncContext *ac, void *rep, void *priv
   }
 }
 
+void node_connector_connect_timeout(void *pd) {
+  redis_node_t  *node = pd;
+  node->connect_timeout = NULL;
+  if(node->state == REDIS_NODE_CMD_CONNECTING || node->state == REDIS_NODE_PUBSUB_CONNECTING) {
+    //onConnect won't be fired, so the connector must be called manually
+    node->state = REDIS_NODE_CONNECTION_TIMED_OUT;
+    node_connector_callback(NULL, NULL, node);
+  }
+  else {
+    node_disconnect(node, REDIS_NODE_CONNECTION_TIMED_OUT);
+  }
+}
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                 *reply = rep;
@@ -963,18 +988,22 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
   char                        errstr[1024];
   redis_connect_params_t     *cp = &node->connect_params;
   redis_lua_script_t         *next_script = (redis_lua_script_t *)&redis_lua_scripts;
-  //node_log_notice(node, "node_connector_callback state %d", node->state);
-  
+  node_log_debug(node, "node_connector_callback state %d", node->state);
   
   switch(node->state) {
+    case REDIS_NODE_CONNECTION_TIMED_OUT:
+      return node_connector_fail(node, "connection timed out");
+      break;
     case REDIS_NODE_FAILED:
     case REDIS_NODE_DISCONNECTED:
+      assert(!node->connect_timeout);
       if((node->ctx.cmd = node_connect_context(node, &cp->hostname, cp->port)) == NULL) { //always connect the cmd ctx to the hostname
         return node_connector_fail(node, "failed to open redis async context for cmd");
       }
       else if(cp->peername.len == 0) { //don't know peername yet
         set_preallocated_peername(node->ctx.cmd, &cp->peername);
       }
+      node->connect_timeout = nchan_add_oneshot_timer(node_connector_connect_timeout, node, REDIS_NODE_CONNECT_TIMEOUT_MSEC);
       node->state = REDIS_NODE_CMD_CONNECTING;
       break; //wait until the onConnect callback brings us back
       
@@ -1236,6 +1265,10 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //NOTE: consent required each time a fallthrough is imposed
     
     case REDIS_NODE_READY:
+      if(node->connect_timeout) {
+        nchan_abort_oneshot_timer(node->connect_timeout);
+        node->connect_timeout = NULL;
+      }
       if(!node->ping_timer.timer_set && nodeset->settings.ping_interval > 0) {
         ngx_add_timer(&node->ping_timer, nodeset->settings.ping_interval * 1000);
       }
@@ -1481,7 +1514,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
         }
         //remove failed slave
         node_log_notice(cur, "removed failed slave node");
-        node_disconnect(cur);
+        node_disconnect(cur, REDIS_NODE_FAILED);
         nodeset_node_destroy(cur);
         total--;
       }
@@ -1493,7 +1526,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
 
   nodeset->cluster.enabled = cluster > 0;
   
-  if(current_status == REDIS_NODESET_CONNECTING && disconnected > 0) {
+  if(current_status == REDIS_NODESET_CONNECTING && connecting > 0) {
     //still connecting, with a few nodws yet to try to connect
     return NGX_OK;
   }
@@ -1617,7 +1650,7 @@ int nodeset_disconnect(redis_nodeset_t *ns) {
     node_log_debug(node, "destroy %p", node);
     if(node->state > REDIS_NODE_DISCONNECTED) {
       node_log_debug(node, "intiating disconnect");
-      node_disconnect(node);
+      node_disconnect(node, REDIS_NODE_DISCONNECTED);
     }
     nodeset_node_destroy(node);
   }

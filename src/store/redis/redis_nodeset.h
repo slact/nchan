@@ -20,12 +20,14 @@
 #define node_log_debug(node, fmt, args...)    node_log((node), NGX_LOG_DEBUG, fmt, ##args)
 
 #define NCHAN_MAX_NODESETS 1024
+#define REDIS_NODE_CONNECT_TIMEOUT_MSEC 600
 #define REDIS_NODESET_STATUS_CHECK_TIME_MSEC 4000
 #define REDIS_NODESET_MAX_CONNECTING_TIME_SEC 5
 #define REDIS_NODESET_RECONNECT_WAIT_TIME_SEC 5
 #define REDIS_NODESET_MAX_FAILING_TIME_SEC 2
 
 #define REDIS_NODE_DEDUPLICATED         -100
+#define REDIS_NODE_CONNECTION_TIMED_OUT   -2
 #define REDIS_NODE_FAILED                 -1
 #define REDIS_NODE_DISCONNECTED            0
 #define REDIS_NODE_CMD_CONNECTING          1
@@ -119,6 +121,7 @@ struct redis_node_s {
   unsigned                  discovered:1;
   redis_node_role_t         role;
   redis_connect_params_t    connect_params;
+  void                     *connect_timeout;
   redis_nodeset_t          *nodeset;
   ngx_str_t                 run_id;
   ngx_str_t                 version;
@@ -167,7 +170,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset);
 ngx_int_t nodeset_node_destroy(redis_node_t *node);
 
 
-int node_disconnect(redis_node_t *node);
+int node_disconnect(redis_node_t *node, int disconnected_state);
 int node_connect(redis_node_t *node);
 void node_set_role(redis_node_t *node, redis_node_role_t role);
 int node_set_master_node(redis_node_t *node, redis_node_t *master);
