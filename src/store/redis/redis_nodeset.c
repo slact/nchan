@@ -737,13 +737,11 @@ void node_set_role(redis_node_t *node, redis_node_role_t role) {
     case REDIS_NODE_ROLE_UNKNOWN:
       if(node->peers.master) {
         node_remove_peer(node->peers.master, node);
-        ERR("removed %p from peers of %p", node->peers.master, node);
+        DBG("removed %p from peers of %p", node->peers.master, node);
         node->peers.master = NULL;
       }
       for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
-        ERR("*cur=%p (*cur)->peers.master=%p", *cur, (*cur)->peers.master);
         assert((*cur)->peers.master == node);
-        ERR("remove peer *cur=%p node=%p", *cur, node);
         node_remove_peer(*cur, node);
       }
       nchan_list_empty(&node->peers.slaves);
