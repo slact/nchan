@@ -1503,6 +1503,14 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
   else if(connecting > 0) {
     nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, NULL);
   }
+  else if(failed_masters > 0) {
+    if(current_status == REDIS_NODESET_READY) {
+      nodeset_set_status(nodeset, REDIS_NODESET_FAILING, NULL);
+    }
+    else {
+      nodeset_set_status(nodeset, REDIS_NODESET_FAILED, NULL);
+    }
+  }
   else if (masters == 0) {
     //this prevents slave-of-slave-of-master lookups
     nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable master Redis servers in set");
