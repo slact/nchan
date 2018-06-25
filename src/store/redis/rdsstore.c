@@ -1051,6 +1051,12 @@ static ngx_int_t redis_subscriber_register(rdstore_channel_head_t *chanhead, sub
   return NGX_OK;
 }
 
+static ngx_int_t redis_subscriber_register_send_retry_wrapper(redis_nodeset_t *nodeset, void *pd) {
+  redis_subscriber_register_t   *d = pd;
+  d->chanhead->reserved--;
+  return redis_subscriber_register_send(nodeset, pd);
+}
+
 static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *privdata) {
   redis_subscriber_register_t *sdata= (redis_subscriber_register_t *) privdata;
   redisReply                  *reply = (redisReply *)vr;
@@ -1061,12 +1067,14 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   nchan_update_stub_status(redis_pending_commands, -1);
   
   sdata->chanhead->reserved--;
-  sdata->sub->fn->release(sdata->sub, 0);
   
   if(!nodeset_node_reply_keyslot_ok(node, reply)) {
-    nodeset_callback_on_ready(node->nodeset, 1000, redis_subscriber_register_send, sdata);
+    sdata->chanhead->reserved++;
+    nodeset_callback_on_ready(node->nodeset, 1000, redis_subscriber_register_send_retry_wrapper, sdata);
     return; 
   }
+  
+  sdata->sub->fn->release(sdata->sub, 0);
   
   if (!redisReplyOk(c, reply)) {
     ngx_free(sdata);
