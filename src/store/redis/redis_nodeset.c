@@ -1543,7 +1543,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
       }
       else if(cur->role == REDIS_NODE_ROLE_SLAVE) {
         failed_slaves++;
-        if(cur->peers.master && cur->peers.master->state >= REDIS_NODE_READY) {
+        if(cur->peers.master && cur->peers.master->state >= REDIS_NODE_READY && cur->nodeset->status == REDIS_NODESET_READY) {
           //rediscover slaves
           redisAsyncCommand(cur->peers.master->ctx.cmd, node_find_slaves_callback, cur->peers.master, "INFO REPLICATION");
         }
