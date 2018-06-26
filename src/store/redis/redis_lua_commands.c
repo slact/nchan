@@ -386,7 +386,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\", tonumber(compression or 0)}\n"},
 
-  {"publish", "d984f78ef7f98b94a472104738c9d9e2e3072457",
+  {"publish", "8052fb4406fc90c8d5ca41a298344d57f5942a45",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]\n"
    "--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?\n"
    "\n"
@@ -656,12 +656,11 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "--dbg((\"Stored message with id %i:%i => %s\"):format(msg.time, msg.tag, msg.data))\n"
    "\n"
-   "--now publish to the efficient channel\n"
-   "local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]\n"
-   "if tonumber(numsub) > 0 then\n"
-   "  msgpacked = cmsgpack.pack(unpacked)\n"
-   "  redis.call('PUBLISH', channel_pubsub, msgpacked)\n"
-   "end\n"
+   "--we used to publish conditionally on subscribers on the Redis pubsub channel\n"
+   "--but now that we're subscribing to slaves this is not possible\n"
+   "--so just PUBLISH always.\n"
+   "msgpacked = cmsgpack.pack(unpacked)\n"
+   "redis.call('PUBLISH', channel_pubsub, msgpacked)\n"
    "\n"
    "local num_messages = redis.call('llen', key.messages)\n"
    "\n"

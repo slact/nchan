@@ -267,12 +267,11 @@ local msgpacked
 
 --dbg(("Stored message with id %i:%i => %s"):format(msg.time, msg.tag, msg.data))
 
---now publish to the efficient channel
-local numsub = redis.call('PUBSUB','NUMSUB', channel_pubsub)[2]
-if tonumber(numsub) > 0 then
-  msgpacked = cmsgpack.pack(unpacked)
-  redis.call('PUBLISH', channel_pubsub, msgpacked)
-end
+--we used to publish conditionally on subscribers on the Redis pubsub channel
+--but now that we're subscribing to slaves this is not possible
+--so just PUBLISH always.
+msgpacked = cmsgpack.pack(unpacked)
+redis.call('PUBLISH', channel_pubsub, msgpacked)
 
 local num_messages = redis.call('llen', key.messages)
 
