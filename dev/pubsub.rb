@@ -1597,17 +1597,17 @@ class Subscriber
     @client.poke until_what
   end
 
-  def on_message(msg=nil, req=nil, &block)
+  def on_message(msg=nil, bundle=nil, &block)
     #puts "received message #{msg && msg.to_s[0..15]}"
     if block_given?
       @on_message=block
     else
       @messages << msg if @messages
       if @quit_message == msg.to_s
-        @on_message.call(msg, req) if @on_message
+        @on_message.call(msg, bundle) if @on_message
         return false 
       end
-      @on_message.call(msg, req) if @on_message
+      @on_message.call(msg, bundle) if @on_message
     end
   end
   
