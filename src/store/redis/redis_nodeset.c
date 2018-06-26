@@ -96,7 +96,7 @@ static int nodeset_cluster_node_unindex_keyslot_ranges(redis_node_t *node) {
   rbtree_seed_t                   *tree = &node->nodeset->cluster.keyslots;
   unsigned                         i;
   if(!node->cluster.slot_range.indexed) {
-    node_log_notice(node, "already unindexed");
+    //node_log_notice(node, "already unindexed");
     return 1;
   }
   //node_log_notice(node, "unindex keyslot ranges");
@@ -160,7 +160,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   ns->first_loc_conf = lcf;
   
   if(redis_nodeset_count >= NCHAN_MAX_NODESETS) {
-    nchan_log_error("Cannot create more than %i Redis nodesets", NCHAN_MAX_NODESETS);
+    nchan_log_error("Cannot create more than %d Redis nodesets", NCHAN_MAX_NODESETS);
     return NULL;
   }
   
@@ -374,10 +374,10 @@ redis_node_t *nodeset_node_find_by_slot(redis_nodeset_t *ns, uint16_t slot) {
   range.max = slot;
   return nodeset_node_find_by_range(ns, &range);
 }
-redis_node_t *nodeset_node_find_any_master(redis_nodeset_t *ns) {
+redis_node_t *nodeset_node_find_any_ready_master(redis_nodeset_t *ns) {
   redis_node_t *cur;
   for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
-    if(cur->role == REDIS_NODE_ROLE_MASTER) {
+    if(cur->state >= REDIS_NODE_READY && cur->role == REDIS_NODE_ROLE_MASTER) {
       return cur;
     }
   }
@@ -386,7 +386,7 @@ redis_node_t *nodeset_node_find_any_master(redis_nodeset_t *ns) {
 
 redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *channel_id) {
   if(!ns->cluster.enabled) {
-    return nodeset_node_find_any_master(ns);
+    return nodeset_node_find_any_ready_master(ns);
   }
   
   static uint16_t  prefix_crc = 0;
@@ -401,7 +401,7 @@ redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *ch
 
 redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key) {
   if(!ns->cluster.enabled) {
-    return nodeset_node_find_any_master(ns);
+    return nodeset_node_find_any_ready_master(ns);
   }
   
   char        *start, *end;
@@ -869,28 +869,28 @@ void nodeset_examine_timer_wrapper(void *pd) {
 }
 static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncContext *ac, int status) {
   redis_node_t    *node = ac->data;
-  char            *which_ctx;
+  //char            *which_ctx;
   //DBG("unexpected disconnect event handler ac %p", ac);
   if(node) {
     if(node->ctx.cmd == ac) {
-      which_ctx = "cmd";
+      //which_ctx = "cmd";
       node->ctx.cmd = NULL;
     }
     else if(node->ctx.pubsub == ac) {
       node->ctx.pubsub = NULL;
-      which_ctx = "pubsub";
+      //which_ctx = "pubsub";
     }
     else {
       node_log_error(node, "unknown redisAsyncContext disconnected");
-      which_ctx = "unknown";
+      //which_ctx = "unknown";
     }
     
     if(node->state >= REDIS_NODE_READY && !ngx_exiting && !ngx_quit) {
       if(ac->err) {
-        node_log_error(node, "%s connection lost: %s.", which_ctx, ac->errstr);
+        node_log_error(node, "connection lost: %s.", ac->errstr);
       }
       else {
-        node_log_error(node, "%s connection lost", which_ctx);
+        node_log_error(node, "connection lost");
       }
     }
     node_disconnect(node, REDIS_NODE_FAILED);
@@ -1412,18 +1412,53 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   return NGX_OK;
 }
 
+const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
+  static char str[1024];
+  const char *what = NULL;
+  ngx_str_t  *name = NULL;
+  what = nodeset->cluster.enabled ? "cluster" : "server";
+  if(nodeset->upstream) {
+    name = &nodeset->upstream->host;
+  }
+  else {
+    ngx_str_t **url = nchan_list_first(&nodeset->urls);
+    if(url && *url) {
+      name = *url;
+    }
+  }
+  if(what && name) {
+    ngx_snprintf((u_char *)str, 1024, "%s %V%Z", what, name);
+  }
+  else if(what) {
+    ngx_snprintf((u_char *)str, 1024, "%s%Z", what);
+  }
+  else if(name) {
+    ngx_snprintf((u_char *)str, 1024, "%V%Z", name);
+  }
+  else {
+    ngx_snprintf((u_char *)str, 1024, "node set");
+  }
+  return str;
+}
+
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
   nodeset->status_msg = msg;
   if(nodeset->status != status) {
     if(msg) {
       ngx_uint_t  lvl;
-      if(status == REDIS_NODESET_INVALID)
+      if(status == REDIS_NODESET_INVALID) {
         lvl = NGX_LOG_ERR;
-      else if(status == REDIS_NODESET_DISCONNECTED)
+      }
+      else if(status == REDIS_NODESET_DISCONNECTED
+        ||    status == REDIS_NODESET_CLUSTER_FAILING
+        ||    status == REDIS_NODESET_FAILED
+      ) {
         lvl = NGX_LOG_WARN;
-      else
+      }
+      else {
         lvl = NGX_LOG_NOTICE;
-      nchan_log(lvl, ngx_cycle->log, 0, "%s", msg);
+      }
+      nodeset_log(nodeset, lvl, "%s", msg);
     }
     nodeset->current_status_start = ngx_time();
     nodeset->current_status_times_checked = 0;
@@ -1523,7 +1558,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
       }
     }
   }
-
+  
   nodeset->cluster.enabled = cluster > 0;
   
   if(current_status == REDIS_NODESET_CONNECTING && connecting > 0) {
@@ -1531,13 +1566,13 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
     return NGX_OK;
   }
   if(ready == 0 && total == 0) {
-    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable Redis servers");
+    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable servers");
   }
   else if(cluster == 0 && masters > 1) {
-    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "more than one master Redis servers in non-cluster set");
+    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "invalid config, more than one master in non-cluster");
   }
   else if(ready_cluster > 0 && ready_non_cluster > 0) {
-    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "cluster and non-cluster Redis servers in set");
+    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "invalid config, cluster and non-cluster servers present");
   }
   else if(connecting > 0) {
     nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, NULL);
@@ -1552,19 +1587,19 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
   }
   else if (masters == 0) {
     //this prevents slave-of-slave-of-master lookups
-    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable master Redis servers in set");
+    nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable masters");
   }
   else if(cluster > 0 && !nodeset_cluster_keyslot_space_complete(nodeset)) {
-    nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, "keyslot space incomplete");
+      nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, "keyslot space incomplete");
   }
   else if(current_status == REDIS_NODESET_READY && (ready == 0 || ready < total)) {
     nodeset_set_status(nodeset, REDIS_NODESET_FAILING, NULL);
   }
   else if(ready == 0) {
-    nodeset_set_status(nodeset, REDIS_NODESET_DISCONNECTED, "no connected Redis servers");
+    nodeset_set_status(nodeset, REDIS_NODESET_DISCONNECTED, "no connected servers");
   }
   else {
-    nodeset_set_status(nodeset, REDIS_NODESET_READY, cluster > 0 ? "Redis cluster ready" : "Redis server ready");
+    nodeset_set_status(nodeset, REDIS_NODESET_READY, "ready");
   } 
   
   return NGX_OK;
@@ -1583,7 +1618,7 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
     case REDIS_NODESET_FAILED:
       //fall-through rather intentionally
       if(ngx_time() - ns->current_status_start > REDIS_NODESET_RECONNECT_WAIT_TIME_SEC) {
-        nchan_log_notice("Reconnecting node set...");
+        nodeset_log_notice(ns, "reconnecting...");
         nodeset_connect(ns);
       }
       break;
@@ -1815,8 +1850,15 @@ static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
     for(nodeptr = nchan_list_first(&master->peers.slaves); nodeptr != NULL && i < n-1; nodeptr = nchan_list_next(nodeptr)) {
       i++;
     }
-    //node_log_error(*nodeptr, "got slave");
-    return *nodeptr;
+    if((*nodeptr)->state < REDIS_NODE_READY) {
+      //not ready? play it safe.
+      //node_log_error(*nodeptr, "got slave, but it's not ready. return master instead");
+      return master;
+    }
+    else {
+      //node_log_error(*nodeptr, "got slave");
+      return *nodeptr;
+    }
   }
 }
 

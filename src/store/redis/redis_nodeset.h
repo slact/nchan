@@ -18,8 +18,16 @@
 #define node_log_notice(node, fmt, args...)   node_log((node), NGX_LOG_NOTICE, fmt, ##args)
 #define node_log_info(node, fmt, args...)     node_log((node), NGX_LOG_INFO, fmt, ##args)
 #define node_log_debug(node, fmt, args...)    node_log((node), NGX_LOG_DEBUG, fmt, ##args)
+  
+#define nodeset_log(nodeset, lvl, fmt, args...) \
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s: " fmt, __nodeset_nickname_cstr(nodeset), ##args)
+#define nodeset_log_error(nodeset, fmt, args...)    nodeset_log((nodeset), NGX_LOG_ERR, fmt, ##args)
+#define nodeset_log_warning(nodeset, fmt, args...)  nodeset_log((nodeset), NGX_LOG_WARN, fmt, ##args)
+#define nodeset_log_notice(nodeset, fmt, args...)   nodeset_log((nodeset), NGX_LOG_NOTICE, fmt, ##args)
+#define nodeset_log_info(nodeset, fmt, args...)     nodeset_log((nodeset), NGX_LOG_INFO, fmt, ##args)
+#define nodeset_log_debug(nodeset, fmt, args...)    nodeset_log((nodeset), NGX_LOG_DEBUG, fmt, ##args)
 
-#define NCHAN_MAX_NODESETS 1024
+#define NCHAN_MAX_NODESETS 128
 #define REDIS_NODE_CONNECT_TIMEOUT_MSEC 600
 #define REDIS_NODESET_STATUS_CHECK_TIME_MSEC 4000
 #define REDIS_NODESET_MAX_CONNECTING_TIME_SEC 5
@@ -201,7 +209,7 @@ redis_node_t *nodeset_node_find_by_range(redis_nodeset_t *ns, redis_slot_range_t
 redis_node_t *nodeset_node_find_by_slot(redis_nodeset_t *ns, uint16_t slot);
 redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *channel_id);
 redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key);
-redis_node_t *nodeset_node_find_any_master(redis_nodeset_t *ns);
+redis_node_t *nodeset_node_find_any_ready_master(redis_nodeset_t *ns);
 int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *r);
 int nodeset_ready(redis_nodeset_t *nodeset);
 
@@ -224,4 +232,7 @@ redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *r
 
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
+
+const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset);
+  
 #endif /* NCHAN_REDIS_NODESET_H */
