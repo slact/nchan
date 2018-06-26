@@ -32,6 +32,11 @@ ngx_pool_t *nchan_list_get_pool(nchan_list_t *list);
 void *nchan_list_append(nchan_list_t *list);
 void *nchan_list_prepend(nchan_list_t *list);
 
+void *nchan_list_first(nchan_list_t *list);
+void *nchan_list_last(nchan_list_t *list);
+void *nchan_list_prev(void *data);
+void *nchan_list_next(void *data);
+
 void *nchan_list_prepend_sized(nchan_list_t *list, size_t sz);
 void *nchan_list_append_sized(nchan_list_t *list, size_t sz);
 

@@ -234,11 +234,20 @@ if [[ -z $NO_MAKE ]]; then
   rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \
      --format whole \
-     ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
+     --header-only \
+     --no-static \
+     ${rdstore_dir}/redis-lua-scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
   if ! [ $? -eq 0 ]; then;
     echo "failed generating redis lua scripts";
     exit 1
   fi  
+  echo "#include \"redis_lua_commands.h\"\n" > "${rdstore_dir}/redis_lua_commands.c"
+  bundle exec hsss \
+     --format whole \
+     --data-only \
+     --no-static \
+     ${rdstore_dir}/redis-lua-scripts/*.lua >> ${rdstore_dir}/redis_lua_commands.c
+  
   pushd $pkg_path >/dev/null
   
   _build_nginx

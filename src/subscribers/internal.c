@@ -150,7 +150,7 @@ void *internal_subscriber_get_privdata(subscriber_t *sub) {
 }
 
 static void reset_timer(internal_subscriber_t *f) {
-  if(f->sub.cf->subscriber_timeout > 0) {
+  if(f->sub.cf && f->sub.cf->subscriber_timeout > 0) {
     if(f->timeout_ev.timer_set) {
       ngx_del_timer(&f->timeout_ev);
     }
@@ -161,7 +161,7 @@ static void reset_timer(internal_subscriber_t *f) {
 static ngx_int_t internal_enqueue(subscriber_t *self) {
   internal_subscriber_t   *fsub = (internal_subscriber_t *)self;
   DBG("%p (%V) enqueue", self, fsub->sub.name);
-  if(self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
+  if(self->cf && self->cf->subscriber_timeout > 0 && !fsub->timeout_ev.timer_set) {
     //add timeout timer
     reset_timer(fsub);
   }
@@ -172,12 +172,15 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
 
 static ngx_int_t internal_dequeue(subscriber_t *self) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
-  assert(!f->already_dequeued);
+  if (f->already_dequeued) {
+    return NGX_OK; //it's ok to be dequeued more than once,
+    //because a subscriber may linger a bit before being deleted
+  }
   f->already_dequeued = 1;
   DBG("%p (%V) dequeue sub", self, f->sub.name);
   f->dequeue(NGX_OK, NULL, f->privdata);
   f->dequeue_handler(self, f->dequeue_handler_data);
-  if(self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
+  if(self->cf && self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
     ngx_del_timer(&f->timeout_ev);
   }
   self->enqueued = 0;

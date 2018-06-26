@@ -8,6 +8,7 @@ ngx_int_t memstore_ipc_send_unsubscribe(ngx_int_t dst, ngx_str_t *chid, void *su
 ngx_int_t memstore_ipc_send_unsubscribed(ngx_int_t dst, ngx_str_t *chid, void* privdata);
 ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_t *shm_msg, nchan_loc_conf_t *cf, callback_pt callback, void *privdata);
 ngx_int_t memstore_ipc_send_publish_status(ngx_int_t dst, ngx_str_t *chid, ngx_int_t status_code, const ngx_str_t *status_line, callback_pt callback, void *privdata);
+ngx_int_t memstore_ipc_send_publish_notice(ngx_int_t dst, ngx_str_t *chid, ngx_int_t notice_code, void *notice_data);
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t owner, ngx_str_t *shm_chid, nchan_msg_id_t *msgid, void * privdata);
 ngx_int_t memstore_ipc_send_delete(ngx_int_t owner, ngx_str_t *shm_chid, callback_pt callback, void *privdata);
 void memstore_ipc_alert_handler(ngx_int_t sender, ngx_uint_t code, void *data);

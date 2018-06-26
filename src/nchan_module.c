@@ -35,6 +35,9 @@ ngx_int_t           nchan_worker_processes;
 int                 nchan_stub_status_enabled = 0;
 
 
+static void nchan_publisher_body_handler(ngx_http_request_t *r);
+static void nchan_publisher_unavailable_body_handler(ngx_http_request_t *r);
+
 //#define DEBUG_LEVEL NGX_LOG_WARN
 //#define DEBUG_LEVEL NGX_LOG_DEBUG
 
@@ -203,9 +206,7 @@ ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf) {
   return num;
 }
 
-static void nchan_publisher_body_handler(ngx_http_request_t *r);
-
-static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
+static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r, void (*body_handler)(ngx_http_request_t *r)) {
   ngx_int_t                       rc;
   nchan_request_ctx_t            *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   
@@ -223,7 +224,7 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r) {
   //don't buffer the request body --send it right on through
   //r->request_body_no_buffering = 1;
 
-  rc = ngx_http_read_client_request_body(r, nchan_publisher_body_handler);
+  rc = ngx_http_read_client_request_body(r, body_handler);
   if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
     return rc;
   }
@@ -530,7 +531,13 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   
   if(cf->redis.enabled && !nchan_store_redis_ready(cf)) {
     //using redis, and it's not ready yet
-    nchan_respond_status(r, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
+    if(r->method == NGX_HTTP_POST || r->method == NGX_HTTP_PUT) {
+      //discard request body before responding
+      nchan_http_publisher_handler(r, nchan_publisher_unavailable_body_handler);
+    }
+    else {
+      nchan_respond_status(r, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
+    }
     return NGX_OK;
   }
   
@@ -598,7 +605,7 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
           sub_create = longpoll_subscriber_create;
         }
         else if(cf->pub.http) {
-          nchan_http_publisher_handler(r);
+          nchan_http_publisher_handler(r, nchan_publisher_body_handler);
         }
         else {
           goto forbidden;
@@ -628,14 +635,14 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
       case NGX_HTTP_POST:
       case NGX_HTTP_PUT:
         if(cf->pub.http) {
-          nchan_http_publisher_handler(r);
+          nchan_http_publisher_handler(r, nchan_publisher_body_handler);
         }
         else goto forbidden;
         break;
       
       case NGX_HTTP_DELETE:
         if(cf->pub.http) {
-          nchan_http_publisher_handler(r);
+          nchan_http_publisher_handler(r, nchan_publisher_body_handler);
         }
         else goto forbidden;
         break;
@@ -1009,6 +1016,11 @@ static ngx_int_t nchan_publisher_body_authorize_handler(ngx_http_request_t *r, v
     nchan_http_finalize_request(r->parent, rc);
   }
   return NGX_OK;
+}
+
+static void nchan_publisher_unavailable_body_handler(ngx_http_request_t *r) {
+  nchan_http_finalize_request(r, NGX_HTTP_SERVICE_UNAVAILABLE);
+  return;
 }
 
 static void nchan_publisher_body_handler(ngx_http_request_t *r) {

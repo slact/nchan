@@ -5,7 +5,7 @@
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
-typedef enum {MSG_CHANNEL_NOTREADY, MSG_NORESPONSE, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
+typedef enum {MSG_ERROR, MSG_CHANNEL_NOTREADY, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY, DELETED} chanhead_pubsub_status_t;
 
 typedef enum {NCHAN_CONTENT_TYPE_PLAIN, NCHAN_CONTENT_TYPE_JSON, NCHAN_CONTENT_TYPE_XML, NCHAN_CONTENT_TYPE_YAML, NCHAN_CONTENT_TYPE_HTML} nchan_content_type_t;
@@ -44,6 +44,7 @@ typedef struct {
   ngx_flag_t                    upstream_inheritable;
   unsigned                      enabled:1;
   time_t                        after_connect_wait_time;
+  void                         *nodeset;
   void                         *privdata;
 } nchan_redis_conf_t;
 
@@ -412,5 +413,13 @@ typedef struct {
   
 } nchan_request_ctx_t;
 
+
+typedef struct {
+  ngx_str_t     hostname;
+  ngx_str_t     peername; // resolved hostname (ip address)
+  ngx_int_t     port;
+  ngx_str_t     password;
+  ngx_int_t     db;
+} redis_connect_params_t;
 
 #endif  /* NCHAN_TYPES_H */

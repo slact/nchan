@@ -59,7 +59,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || short_id
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol], log: opt[:log]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
@@ -199,6 +199,59 @@ class PubSubTest <  Minitest::Test
     sub.wait
     verify pub, sub
     
+  end
+  
+  def test_multiplexed_expiring_message_delivery
+    #tests for a bug where a channel with expired messages may
+    # block delivery of other messages for a multiplexed channel 
+    # this was happening for redis-backed multiplexed channels
+    
+    chan_short, chan_long = short_id, short_id
+    
+    #short expiration time message
+    pub_short = Publisher.new url("/pub/#{chan_short}/expire/1")
+    sub_short = Subscriber.new(url("/sub/broadcast/#{chan_short}"), 1, client: :eventsource, quit_message: 'SHORTFIN', timeout: 5)
+    
+    #long expiration time messages
+    pub_long = Publisher.new url("/pub/#{chan_long}/expire/200")
+    sub_long = Subscriber.new(url("/sub/broadcast/#{chan_long}"), 1, client: :eventsource, quit_message: 'LONGFIN', timeout: 5)
+    
+    sub_short.run
+    sub_long.run
+    
+    sub_short.wait :ready
+    sub_long.wait :ready
+    
+    pub_short.post ["SHORTFIN"]
+    pub_long.post ["long1", "long2", "LONGFIN"]
+    
+    sub_short.wait
+    sub_long.wait
+    
+    verify pub_short, sub_short
+    verify pub_long, sub_long
+    
+    sub_short.terminate
+    
+    start = Time.now
+    7.times do
+      sleep 0.5
+      sub_multi=Subscriber.new(url("/sub/multi/#{chan_short}/#{chan_long}"), 1, client: :eventsource, quit_message: 'LONGFIN', timeout: 1)
+      sub_multi.run
+      sub_multi.wait
+      if sub_multi.match_errors(/Timeout/)
+        #double check that the message is there
+        sub_long.reset
+        sub_long.run
+        sub_long.wait
+        verify pub_long, sub_long
+        
+        assert false, "Failed to deliver non-expired messages after #{Time.now - start} sec"
+      end
+      sub_multi.terminate
+    end
+    
+    sub_long.terminate
   end
   
   def test_websocket_pubsub_echo
@@ -530,24 +583,29 @@ class PubSubTest <  Minitest::Test
     rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
     pub=[]
     sub=[]
+    concurrency = 55
     10.times do |i|
-      pub[i], sub[i]=pubsub 15
+      pub[i], sub[i]=pubsub concurrency, timeout: 20
       sub[i].run
     end
     pub.each do |p|
-      rand(1..10).times do
-        p.post rands.sample
+      rand(1..10).times do |ii|
+        p.post "#{ii} --- #{rands.sample}"
       end
     end
     sleep 1
-    pub.each do |p|
-      p.post 'FIN'
-    end
-    sub.each do |s|
-      s.wait
-    end
+    pub.each {|p| p.post 'FIN' }
+    sub.each &:wait
     pub.each_with_index do |p, i|
-      verify p, sub[i]
+      s = sub[i]
+      if s.errors?
+        puts "should have #{concurrency} each of:"
+        puts p.messages.msgs.map {|v| "  #{v.id}:\"#{v.message}\""}.join "\n"
+        puts "but have:"
+        puts s.messages.msgs.map {|k, v| " #{v.id}:\"#{v.message}\" #{v.times_seen}"}.join "\n"
+      end
+      
+      verify p, s
     end
     sub.each &:terminate
   end
@@ -586,7 +644,23 @@ class PubSubTest <  Minitest::Test
       sub.wait
       verify pub, sub
       sub.terminate
+      #print "ok.. try again"
+    end
+  end
+  
+    def test_longpoll_multipart_keepup(range=150..155)
+    range.each do |i|
+      pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 20
+      pub.post ["foo", "bar","baz", "bax"]
       sleep 0.1
+      sub.run
+      i.times do |n|
+        pub.post "#{n+1}"
+      end
+      pub.post "FIN"
+      sub.wait
+      verify pub, sub
+      sub.terminate
     end
   end
   
@@ -928,6 +1002,21 @@ class PubSubTest <  Minitest::Test
   #  
   #end
   
+  def test_getmulti_nonexistent_message_from_nonexistent_channel
+    chan = short_id
+    msgid = "#{Time.now.to_i - 2}:[32767],-"
+    pub = Publisher.new url("/pub/#{chan}"), accept: 'text/json'
+    sub = Subscriber.new url("/sub/multi/#{short_id}/#{chan}?last_event_id=#{msgid}"), 1,  timeout: 4, quit_message: 'FIN'
+    
+    sub.run
+    sleep 0.2
+    pub.post "huh"
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    sub.terminate
+  end
+  
   def test_urlencoded_msgid
     chan_id=short_id
     pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
@@ -942,16 +1031,18 @@ class PubSubTest <  Minitest::Test
 
     last_msgid = "#{last_msgid_time}%3A-%2C-%2C%5B0%5D%2C-"
     
-    sub = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 3)
     sub.run
     sub.wait
     
-    sub2 = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{URI.decode last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub2 = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{URI.decode last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 3)
     sub2.run
     sub2.wait
     
     verify pub, sub
     verify pub, sub2
+    sub1.terminate
+    sub2.terminate
   end
   
   def test_invalid_etag

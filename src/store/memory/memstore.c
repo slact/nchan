@@ -17,6 +17,7 @@
 #include <store/redis/store.h>
 #include <store/store_common.h>
 #include <subscribers/memstore_redis.h>
+#include <subscribers/getmsg_proxy.h>
 #include <subscribers/memstore_multi.h>
 
 #define NCHAN_CHANHEAD_EXPIRE_SEC 5
@@ -92,8 +93,8 @@ static ngx_int_t nchan_memstore_store_msg_ready_to_reap_wait_util_expired(store_
   return nchan_memstore_store_msg_ready_to_reap_generic(smsg, 1, force);
 }
 
-static ngx_int_t memstore_reap_message( nchan_msg_t *msg );
-static ngx_int_t memstore_reap_store_message( store_message_t *smsg );
+static void memstore_reap_message( nchan_msg_t *msg );
+static void memstore_reap_store_message( store_message_t *smsg );
 
 static ngx_int_t chanhead_messages_delete(memstore_channel_head_t *ch);
 
@@ -840,7 +841,6 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
 
 
 static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
-  int                               use_redis = head->cf && head->cf->redis.enabled;
   static channel_spooler_handlers_t handlers = {
     memstore_spooler_add_handler,
     NULL,
@@ -850,10 +850,7 @@ static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
     NULL
   };
   
-  
-  
-  //(head->use_redis && head->owner == memstore_slot()) ? FETCH_IGNORE_MSG_NOTFOUND : FETCH
-  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, use_redis ? FETCH_IGNORE_MSG_NOTFOUND : FETCH, &handlers, head);
+  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, FETCH, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
@@ -1028,18 +1025,6 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->cf = NULL;
   }
   
-  if(head->cf && head->cf->redis.enabled && !head->multi) { // both DISTRIBUTED and BACKUP redis storage modes
-    nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
-    head->delta_fakesubs = 0;
-    head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
-    
-    head->msg_buffer_complete = 0;
-  }
-  else {
-    head->redis_idle_cache_ttl = 0;
-    head->msg_buffer_complete = 1;
-  }
-  
   if(head->slot == owner) {
     if((head->shared = shm_alloc(shm, sizeof(*head->shared), "channel shared data")) == NULL) {
       ngx_free(head);
@@ -1056,7 +1041,6 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   }
   else {
     head->shared = NULL;
-    head->msg_buffer_complete = 1; //always assume buffer is complete, and let the owner figure out the details
   }
   
   //no lock needed, no one else knows about this chanhead yet.
@@ -1151,6 +1135,24 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->oldest_msgid.tagcount = 1;
     
     head->multi = NULL;
+  }
+  
+  if(head->cf && head->cf->redis.enabled && !head->multi) { // both DISTRIBUTED and BACKUP redis storage modes
+    nchan_init_timer(&head->delta_fakesubs_timer_ev, delta_fakesubs_timer_handler, head);
+    head->delta_fakesubs = 0;
+    head->redis_idle_cache_ttl = cf->redis_idle_channel_cache_timeout;
+    
+    
+    if(head->slot == owner) {
+      head->msg_buffer_complete = 0;
+    }
+    else {
+      head->msg_buffer_complete = 1; //always assume buffer is complete, and let the owner figure out the details
+    }
+  }
+  else {
+    head->redis_idle_cache_ttl = 0;
+    head->msg_buffer_complete = 1;
   }
   
   start_chanhead_spooler(head);
@@ -1352,10 +1354,11 @@ ngx_int_t nchan_memstore_publish_notice(memstore_channel_head_t *head, ngx_int_t
   
   switch(notice_code) {
     case NCHAN_NOTICE_BUFFER_LOADED:
+      //DBG("buffer loaded from Redis");
       if(head->msg_buffer_complete == 0) {
         head->msg_buffer_complete = 1;
         ensure_chanhead_ready_or_trash_chanhead(head, 0);
-        head->spooler.fn->handle_channel_status_change(&head->spooler); // re-fetches all the MSG_STATUS_NOT_READY spools
+        head->spooler.fn->handle_channel_status_change(&head->spooler);
       }
       break;
     
@@ -1832,7 +1835,7 @@ static ngx_int_t validate_chanhead_messages(memstore_channel_head_t *ch) {
   return NGX_OK;
 }
 
-static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
+static void memstore_reap_message( nchan_msg_t *msg ) {
   ngx_buf_t         *buf = &msg->buf;
   ngx_file_t        *f = buf->file;
   
@@ -1867,16 +1870,14 @@ static ngx_int_t memstore_reap_message( nchan_msg_t *msg ) {
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
   shm_free(shm, msg);
   nchan_update_stub_status(messages, -1);
-  return NGX_OK;
 }
 
-static ngx_int_t memstore_reap_store_message( store_message_t *smsg ) {
+static void memstore_reap_store_message( store_message_t *smsg ) {
   
   memstore_reap_message(smsg->msg);
   
   ngx_memset(smsg, 0xBC, sizeof(*smsg)); //debug stuff
   ngx_free(smsg);
-  return NGX_OK;
 }
 
 
@@ -1969,6 +1970,8 @@ store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_m
   time_t           mid_time; //optimization yeah
   int16_t          mid_tag; //optimization yeah
   
+  assert(ch->msg_buffer_complete); //we only deal with complete buffers here
+  
   //DBG("find next message %V", msgid_to_str(msgid));
   if(ch == NULL) {
     *status = MSG_NOTFOUND;
@@ -2004,13 +2007,6 @@ store_message_t *chanhead_find_next_message(memstore_channel_head_t *ch, nchan_m
     store_message_t  *prev = NULL;
     
     assert(mid_tag != 0);
-    
-    if(mid_tag <= 0 && !ch->msg_buffer_complete) {
-      // want nth from most recent message,
-      // but buffer isn't complete yet
-      *status = MSG_CHANNEL_NOTREADY;
-      return NULL;
-    }
     
     for(cur = (direction>0 ? ch->msg_first : ch->msg_last); cur != NULL && n > 1; cur = (direction>0 ? cur->next : cur->prev)) {
       prev = cur;
@@ -2458,16 +2454,7 @@ static ngx_inline void set_multimsg_msg(get_multi_message_data_t *d, get_multi_m
   d->msg_status = status;
 }
 
-static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd);
-
-static void retry_get_multi_message_after_MSG_NORESPONSE(void *pd) {
-  get_multi_message_data_single_t  *sd = pd;
-  get_multi_message_data_t         *d = sd->d;
-  nchan_msg_id_t                    retry_msgid = NCHAN_ZERO_MSGID;
-  memstore_chanhead_release(d->chanhead, "retry multi getmsg after NORESPONSE");
-  assert(nchan_extract_from_multi_msgid(&d->wanted_msgid, sd->n, &retry_msgid) == NGX_OK);
-  nchan_store_async_get_message(&d->chanhead->multi[sd->n].id, &retry_msgid, d->chanhead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
-}
+static ngx_int_t nchan_store_async_get_multi_message_callback(ngx_int_t code, void *d, void *pd);
 
 static ngx_int_t nchan_store_async_get_multi_message_callback_cleanup(get_multi_message_data_t *d) {
   if(d->getting == 0) {
@@ -2480,7 +2467,11 @@ static ngx_int_t nchan_store_async_get_multi_message_callback_cleanup(get_multi_
   return NGX_OK;
 }
 
-static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t status, nchan_msg_t *msg, get_multi_message_data_single_t *sd) {
+static ngx_int_t nchan_store_async_get_multi_message_callback(ngx_int_t code, void *ptr, void *pd) {
+  nchan_msg_status_t          status = code;
+  nchan_msg_t                *msg = ptr;
+  get_multi_message_data_single_t *sd = pd;
+  
   static int16_t              multi_largetag[NCHAN_MULTITAG_MAX], multi_prevlargetag[NCHAN_MULTITAG_MAX];
   //ngx_str_t                   empty_id_str = ngx_string("-");
   get_multi_message_data_t   *d = sd->d;
@@ -2499,15 +2490,6 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(nchan_msg_status_t
     ERR("multimsg callback #%i for %p received after expiring at %ui status %i msg %p", d->n, d, d->expired, status, msg);
     d->getting--;
     return nchan_store_async_get_multi_message_callback_cleanup(d);
-  }
-  
-  if(status == MSG_NORESPONSE) {
-    //retry featching that message
-    //this isn't clean, nor is it efficient
-    //buf fuck it, we're doing it live.
-    memstore_chanhead_reserve(d->chanhead, "retry multi getmsg after NORESPONSE");
-    nchan_add_oneshot_timer(retry_get_multi_message_after_MSG_NORESPONSE, sd, 10);
-    return NGX_OK;
   }
   d->getting--;
   
@@ -2706,7 +2688,7 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
       
       getmsg_chid = (multi == NULL) ? &ids[i] : &multi[i].id;
       //DBG("get message from %V (n: %i) %V", getmsg_chid, i, msgid_to_str(&req_msgid[i]));
-      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], chead->cf, (callback_pt )nchan_store_async_get_multi_message_callback, sd);
+      nchan_store_async_get_message(getmsg_chid, &req_msgid[i], chead->cf, nchan_store_async_get_multi_message_callback, sd);
       sd++;
     }
   }
@@ -2714,9 +2696,8 @@ static ngx_int_t nchan_store_async_get_multi_message(ngx_str_t *chid, nchan_msg_
   return NGX_OK;
 }
 
-void async_get_message_notify_on_MSG_EXPECTED_callback(nchan_msg_status_t status, void *pd){
-  subscribe_data_t            *d = (subscribe_data_t *) pd; 
-  nchan_memstore_handle_get_message_reply(NULL, status, d);
+static ngx_int_t getmsg_proxy_completebuffer_callback(ngx_int_t code, nchan_msg_t *msg, void *data) {
+  return nchan_memstore_handle_get_message_reply(msg, code, data);
 }
 
 static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_id_t *msg_id, nchan_loc_conf_t *cf, callback_pt callback, void *privdata) {
@@ -2725,8 +2706,6 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   subscribe_data_t            *d; 
   nchan_msg_status_t           findmsg_status;
   memstore_channel_head_t     *chead;
-  
-  ngx_int_t                    ask_redis = 0;
   
   if(callback==NULL) {
     ERR("no callback given for async get_message. someone's using the API wrong!");
@@ -2738,17 +2717,6 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
   }
   
   chead = nchan_memstore_find_chanhead(channel_id);
-  if(chead) {
-    ask_redis = chead->cf && chead->cf->redis.enabled;// && chead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED;
-  }
-  
-  if(ask_redis && !chead->msg_buffer_complete && msg_id->time == NCHAN_NTH_MSGID_TIME && msg_id->tag.fixed[0] <= 0) {
-    // want nth from most recent message,
-    // but buffer isn't complete yet.
-    //don't even try
-    callback(MSG_CHANNEL_NOTREADY, NULL, privdata);
-    return NGX_OK;
-  }
   
   d = subscribe_data_alloc(owner);
   d->channel_owner = owner;
@@ -2763,26 +2731,29 @@ static ngx_int_t nchan_store_async_get_message(ngx_str_t *channel_id, nchan_msg_
     //check if we need to ask for a message
     if(memstore_ipc_send_get_message(d->channel_owner, d->channel_id, &d->msg_id, d) == NGX_DECLINED) {
       subscribe_data_free(d);
-      callback(MSG_EXPECTED, NULL, privdata); //this is a lie
-      
-      //this is very crashy for some reason. //TODO: figure out why and deliver status to subscribers
-      //if(chead) {
-      //  nchan_memstore_publish_generic(chead, NULL, NGX_HTTP_INSUFFICIENT_STORAGE, NULL);
-      //}
+      callback(MSG_ERROR, NULL, privdata);
       return NGX_ERROR;
     }
   }
+  else if(!chead->msg_buffer_complete) {
+    assert(d->allocd == 1); //let's assume subscribe_data_alloc always allocates
+    subscriber_t *getmsg_sub = getmsg_proxy_subscriber_create(msg_id, (callback_pt )getmsg_proxy_completebuffer_callback, d);
+    if(getmsg_sub == NULL) {
+      ERR("Unable to create getmsg proxy sub for async get_message");
+      subscribe_data_free(d);
+      callback(MSG_ERROR, NULL, privdata);
+      return NGX_ERROR;
+    }
+    if(chead->spooler.fn->add(&chead->spooler, getmsg_sub) != NGX_OK) {
+      ERR("Unable to subscribe getmsg sub for async get_message");
+      subscribe_data_free(d);
+      callback(MSG_ERROR, NULL, privdata);
+      return NGX_ERROR;
+    }
+    return NGX_OK;
+  }
   else {
     chmsg = chanhead_find_next_message(d->chanhead, &d->msg_id, &findmsg_status);
-    
-    if(chmsg == NULL && ask_redis) {
-      int       was_it_allocd = d->allocd;
-      d->allocd = 0;
-      nchan_memstore_redis_subscriber_notify_on_MSG_EXPECTED(chead->redis_sub, msg_id, async_get_message_notify_on_MSG_EXPECTED_callback, sizeof(*d), d);
-      d->allocd = was_it_allocd;
-      subscribe_data_free(d);
-      return NGX_OK;
-    }
     return nchan_memstore_handle_get_message_reply(chmsg == NULL ? NULL : chmsg->msg, findmsg_status, d);
   }
   

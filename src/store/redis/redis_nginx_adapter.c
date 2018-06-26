@@ -31,7 +31,7 @@ void redis_nginx_init(void) {
 }
 
 
-redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int database, ngx_str_t *password, void *privdata, redisAsyncContext **context) {
+redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, void *privdata) {
   redisAsyncContext *ac = NULL;
   u_char             hostchr[1024] = {0};
   if(host->len >= 1023) {
@@ -39,28 +39,25 @@ redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, int datab
     return NULL;
   }
   ngx_memcpy(hostchr, host->data, host->len);
+  ac = redisAsyncConnect((const char *)hostchr, port);
+  if (ac == NULL) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %V:%d", host, port);
+    return NULL;
+  }
   
-  if ((context == NULL) || (*context == NULL) || (*context)->err) {
-    ac = redisAsyncConnect((const char *)hostchr, port);
-    if (ac == NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %V:%d", host, port);
-      return NULL;
-    }
-    
-    if (ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
-      redisAsyncFree(ac);
-      *context = NULL;
-      return NULL;
-    }
-    
-    if(redis_nginx_event_attach(ac) == REDIS_OK) {
-      ac->data = privdata;
-      *context = ac;
-    }
+  if (ac->err) {
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
+    redisAsyncFree(ac);
+    return NULL;
+  }
+  
+  if(redis_nginx_event_attach(ac) == REDIS_OK) {
+    ac->data = privdata;
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: redis context already open");
+    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not attach nginx events %V:%d", host, port);
+    redisAsyncFree(ac);
+    return NULL;
   }
 
   return ac;
@@ -142,7 +139,7 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 void redis_nginx_read_event(ngx_event_t *ev) {
   redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
   int                fd = ac->c.fd; //because redisAsyncHandleRead might free the redisAsyncContext
-  int                bytes_left;
+  int                bytes_left = 0;
   redisAsyncHandleRead(ac);
   
   // we need to do this because hiredis, in its infinite wisdom, will read at 

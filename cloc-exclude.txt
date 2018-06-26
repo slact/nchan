@@ -11,3 +11,4 @@ dev/nginx-pkg
 dev/clang-analyzer
 dev/package
 dev/src
+dev/redis-trib.rb

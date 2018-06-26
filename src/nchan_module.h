@@ -61,15 +61,13 @@ size_t nchan_get_used_shmem(void);
 int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
 #endif
 
-#define nchan_log_notice(fmt, args...)  ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "nchan: " fmt, ##args)
-#define nchan_log_warning(fmt, args...) ngx_log_error(NGX_LOG_WARN,   ngx_cycle->log, 0, "nchan: " fmt, ##args)
-#define nchan_log_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: " fmt, ##args)
-#define nchan_log_ooshm_error(fmt, args...)   ngx_log_error(NGX_LOG_ERR,    ngx_cycle->log, 0, "nchan: Out of shared memory while " fmt ". Increase nchan_max_reserved_memory.", ##args)
+#define nchan_log(level, log, errno, fmt, args...) ngx_log_error(level, log, errno, "nchan: " fmt, ##args)
+#define nchan_log_notice(fmt, args...) nchan_log(NGX_LOG_NOTICE, ngx_cycle->log, 0, fmt, ##args)
+#define nchan_log_warning(fmt, args...) nchan_log(NGX_LOG_WARN, ngx_cycle->log, 0, fmt, ##args)
+#define nchan_log_error(fmt, args...) nchan_log(NGX_LOG_ERR, ngx_cycle->log, 0, fmt, ##args)
+#define nchan_log_ooshm_error(fmt, args...) nchan_log(NGX_LOG_ERR, ngx_cycle->log, 0, "Out of shared memory while " fmt ". Increase nchan_max_reserved_memory.", ##args)
 
 #define nchan_log_request_warning(request, fmt, args...) ngx_log_error(NGX_LOG_WARN, (request)->connection->log, 0, "nchan: " fmt, ##args)
 #define nchan_log_request_error(request, fmt, args...)    ngx_log_error(NGX_LOG_ERR, ((request) ? (request)->connection->log : ngx_cycle->log), 0, "nchan: " fmt, ##args)
-
-#define nchan_log(level, log, errno, fmt, args...) ngx_log_error(level, log, errno, "nchan: " fmt, ##args)
-
 
 #endif /*NCHAN_MODULE_H*/

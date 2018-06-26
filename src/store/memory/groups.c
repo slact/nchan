@@ -553,7 +553,8 @@ static ngx_int_t group_add_subscribers_internal(nchan_group_t *shm_group, int n)
   return NGX_OK;
 }
 
-static ngx_int_t group_add_subscribers_callback(ngx_int_t rc, nchan_group_t *shm_group, intptr_t n) {
+static ngx_int_t group_add_subscribers_callback(ngx_int_t rc, nchan_group_t *shm_group, void *pd) {
+  intptr_t    n = (intptr_t )pd;
   group_add_subscribers_internal(shm_group, n);
   return NGX_OK;
 }
