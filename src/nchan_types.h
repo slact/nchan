@@ -266,6 +266,12 @@ typedef struct {
  ngx_atomic_uint_t               max_messages;
 } nchan_loc_conf_shared_data_t;
 
+typedef struct {
+  struct {
+      ngx_msec_t                    connect_timeout;
+  }                               redis;
+} nchan_srv_conf_t;
+
 struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   ngx_int_t                       shared_data_index;

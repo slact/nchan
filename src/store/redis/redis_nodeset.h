@@ -28,7 +28,6 @@
 #define nodeset_log_debug(nodeset, fmt, args...)    nodeset_log((nodeset), NGX_LOG_DEBUG, fmt, ##args)
 
 #define NCHAN_MAX_NODESETS 128
-#define REDIS_NODE_CONNECT_TIMEOUT_MSEC 600
 #define REDIS_NODESET_STATUS_CHECK_TIME_MSEC 4000
 #define REDIS_NODESET_MAX_CONNECTING_TIME_SEC 5
 #define REDIS_NODESET_RECONNECT_WAIT_TIME_SEC 5

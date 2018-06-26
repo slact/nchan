@@ -94,6 +94,20 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   return mcf;
 }
 
+static void *nchan_create_srv_conf(ngx_conf_t *cf) {
+  nchan_srv_conf_t       *scf = ngx_pcalloc(cf->pool, sizeof(*scf));
+  if(scf == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  scf->redis.connect_timeout = NGX_CONF_UNSET_MSEC;
+}
+
+static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
+  nchan_srv_conf_t       *prev = parent, *conf = child;
+  ngx_conf_merge_msec_value(conf->redis.connect_timeout, prev->redis.connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
+  return NGX_CONF_OK;
+}
+
 //location config stuff
 static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   nchan_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(*lcf));
@@ -1136,8 +1150,8 @@ static ngx_http_module_t  nchan_module_ctx = {
     nchan_postconfig,              /* postconfiguration */
     nchan_create_main_conf,        /* create main configuration */
     NULL,                          /* init main configuration */
-    NULL,                          /* create server configuration */
-    NULL,                          /* merge server configuration */
+    nchan_create_srv_conf,         /* create server configuration */
+    nchan_merge_srv_conf,          /* merge server configuration */
     nchan_create_loc_conf,         /* create location configuration */
     nchan_merge_loc_conf,          /* merge location configuration */
 };

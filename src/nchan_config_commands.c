@@ -338,6 +338,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.after_connect_wait_time),
     NULL } ,
 
+  { ngx_string("nchan_redis_connect_timeout"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_msec_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.connect_timeout),
+    NULL } ,
+
   { ngx_string("nchan_redis_namespace"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_redis_namespace_slot,

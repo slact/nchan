@@ -425,6 +425,15 @@ CfCmd.new do
       default: "0s",
       info: "Wait this amount of time after connecting to Redis to process requests. Useful when dealng with connections to Redis cluster nodes of unknown role."
   
+  nchan_redis_connect_timeout [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.connect_timeout"],
+      
+      group: "storage",
+      tags: ['redis'],
+      default: "600ms",
+      info: "Redis server connection timeout."
+  
   nchan_redis_namespace [:main, :srv, :upstream], 
       :ngx_conf_set_redis_namespace_slot,
       [:loc_conf, :"redis.namespace"],
