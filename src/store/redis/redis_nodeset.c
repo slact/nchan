@@ -1000,7 +1000,6 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
   else {
     connect_timeout_msec = NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC;
   }
-  raise(SIGSTOP);
   switch(node->state) {
     case REDIS_NODE_CONNECTION_TIMED_OUT:
       return node_connector_fail(node, "connection timed out");
