@@ -100,6 +100,7 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   scf->redis.connect_timeout = NGX_CONF_UNSET_MSEC;
+  return scf;
 }
 
 static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
