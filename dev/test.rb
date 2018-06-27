@@ -1741,6 +1741,22 @@ class PubSubTest <  Minitest::Test
     end
   end
   
+  def test_buffer_size_respected
+    pub, sub = pubsub 1, pub: "/pub/buflen_5/", client: :eventsource
+    pub.post ["1", "2", "3", "4", "FIN"]
+    sub.run
+    sub.wait
+    verify pub, sub
+    
+    pub.reset
+    sub.reset
+    
+    pub.post ["5", "6", "7", "8", "FIN"]
+    sub.run
+    sub.wait
+    verify pub, sub
+  end
+  
 end
 
 

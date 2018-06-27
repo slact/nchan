@@ -921,13 +921,15 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return concat(#channel_ids, \"channels,\", known_msgs_count, \"messages, all ok\")\n"
    "end\n"},
 
-  {"subscriber_register", "b897b034901b428492cc136c0c2ed1fd79d463ad",
-   "--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time]\n"
+  {"subscriber_register", "9db24e03e0e7983955946216c560c2e18bae291f",
+   "--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time, want_channel_settings]\n"
    "--  'subscriber_id' can be '-' for new id, or an existing id\n"
    "--  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec\n"
-   "--output: subscriber_id, num_current_subscribers, next_keepalive_time\n"
+   "--output: subscriber_id, num_current_subscribers, next_keepalive_time, channel_buffer_length\n"
+   "--  'channel_buffer_length' is returned only if want_channel_settings is 1\n"
    "\n"
    "local ns, id, sub_id, active_ttl, time = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20, tonumber(ARGV[5])\n"
+   "local want_channel_settings = tonumber(ARGV[6]) == 1\n"
    "\n"
    "--local dbg = function(...) redis.call('echo', table.concat({...})); end\n"
    "\n"
@@ -974,7 +976,14 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  next_keepalive = random_safe_next_ttl(actual_ttl)\n"
    "end\n"
    "\n"
-   "return {sub_id, sub_count, next_keepalive}\n"},
+   "\n"
+   "local ret = {sub_id, sub_count, next_keepalive}\n"
+   "if want_channel_settings then\n"
+   "  local max_messages = tonumber(redis.call('hget', keys.channel, 'max_stored_messages'))\n"
+   "  table.insert(ret, max_messages)\n"
+   "end\n"
+   "\n"
+   "return ret\n"},
 
   {"subscriber_unregister", "a98e07b21485951a7d34cf80736e53db1b6e87a6",
    "--input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]\n"

@@ -49,10 +49,11 @@ typedef struct {
   //redis-store consistency check
   redis_lua_script_t rsck;
 
-  //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time]
+  //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time, want_channel_settings]
   //  'subscriber_id' can be '-' for new id, or an existing id
   //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
-  //output: subscriber_id, num_current_subscribers, next_keepalive_time
+  //output: subscriber_id, num_current_subscribers, next_keepalive_time, channel_buffer_length
+  //  'channel_buffer_length' is returned only if want_channel_settings is 1
   redis_lua_script_t subscriber_register;
 
   //input: keys: [], values: [namespace, channel_id, subscriber_id, empty_ttl]

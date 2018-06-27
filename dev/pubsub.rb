@@ -1863,6 +1863,10 @@ class Publisher
   def put(body, content_type=nil, es_event=nil, &block)
     submit body, :PUT, content_type, es_event, &block
   end
+  
+  def reset
+    @messages.clear    
+  end
 
   
 end

@@ -1017,7 +1017,7 @@ static ngx_int_t redis_subscriber_register_send(redis_nodeset_t *nodeset, void *
     redis_node_t *node = nodeset_node_find_by_chanhead(d->chanhead);
     
     nchan_redis_script(subscriber_register, node, &redis_subscriber_register_cb, d, &d->chanhead->id,
-                       "- %i %i",
+                       "- %i %i 1",
                        REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP,
                        ngx_time()
                       );
@@ -1072,6 +1072,13 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
     sdata->chanhead->reserved++;
     nodeset_callback_on_ready(node->nodeset, 1000, redis_subscriber_register_send_retry_wrapper, sdata);
     return; 
+  }
+  
+  if(  CHECK_REPLY_ARRAY_MIN_SIZE(reply, 4)
+    && CHECK_REPLY_INT(reply->element[3])
+  ) {
+    //notify about channel buffer size if it's present
+    sdata->sub->fn->notify(sdata->sub, NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE, (void *)(intptr_t )reply->element[3]->integer);
   }
   
   sdata->sub->fn->release(sdata->sub, 0);
@@ -1786,7 +1793,7 @@ static void redis_get_message_callback(redisAsyncContext *ac, void *r, void *pri
   
     log_redis_reply(d->name, d->t);
   
-    //output: result_code, msg_time, msg_tag, message, content_type,  channel-subscriber-count
+    //output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression_type, channel_subscriber_count
     // result_code can be: 200 - ok, 403 - channel not found, 404 - not found, 410 - gone, 418 - not yet available
   
     if (!redisReplyOk(ac, r) || !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 1) || !CHECK_REPLY_INT(reply->element[0]) ) {

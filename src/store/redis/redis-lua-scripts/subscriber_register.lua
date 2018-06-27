@@ -1,9 +1,11 @@
---input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time]
+--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time, want_channel_settings]
 --  'subscriber_id' can be '-' for new id, or an existing id
 --  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
---output: subscriber_id, num_current_subscribers, next_keepalive_time
+--output: subscriber_id, num_current_subscribers, next_keepalive_time, channel_buffer_length
+--  'channel_buffer_length' is returned only if want_channel_settings is 1
 
 local ns, id, sub_id, active_ttl, time = ARGV[1], ARGV[2], ARGV[3], tonumber(ARGV[4]) or 20, tonumber(ARGV[5])
+local want_channel_settings = tonumber(ARGV[6]) == 1
 
 --local dbg = function(...) redis.call('echo', table.concat({...})); end
 
@@ -50,4 +52,11 @@ else
   next_keepalive = random_safe_next_ttl(actual_ttl)
 end
 
-return {sub_id, sub_count, next_keepalive}
+
+local ret = {sub_id, sub_count, next_keepalive}
+if want_channel_settings then
+  local max_messages = tonumber(redis.call('hget', keys.channel, 'max_stored_messages'))
+  table.insert(ret, max_messages)
+end
+
+return ret
