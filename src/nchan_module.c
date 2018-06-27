@@ -891,7 +891,11 @@ static ngx_int_t nchan_publisher_upstream_handler(ngx_http_request_t *sr, void *
         if(sr->upstream) {
           content_type = (sr->upstream->headers_in.content_type ? &sr->upstream->headers_in.content_type->value : NULL);
           content_length = nchan_subrequest_content_length(sr);
+#if nginx_version >= 1013010
+          request_chain = sr->out;
+#else
           request_chain = sr->upstream->out_bufs;
+#endif
         }
         else {
           content_type = NULL;
