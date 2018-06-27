@@ -44,7 +44,7 @@ With a well-tuned OS and network stack on commodity server hardware, expect to h
 
 #### Download Packages
  - [Arch Linux](https://archlinux.org): [nginx-mod-nchan](https://aur.archlinux.org/packages/nginx-mod-nchan/) and [nginx-mainline-mod-nchan](https://aur.archlinux.org/packages/nginx-mainline-mod-nchan/) are available in the Arch User Repository.
- - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap homebrew/nginx; brew install nginx-full --with-nchan-module`
+ - Mac OS X: a [homebrew](http://brew.sh) package is available. `brew tap denji/nginx; brew install nginx-full --with-nchan-module`
  - [Debian](https://www.debian.org/): A dynamic module build is available in the Debian package repository: [libnginx-mod-nchan](https://packages.debian.org/sid/libnginx-mod-nchan).  
  Additionally, you can use the pre-built static module packages [nginx-common.deb](https://nchan.io/download/nginx-common.deb) and [nginx-extras.deb](https://nchan.io/download/nginx-extras.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`.
  - [Ubuntu](http://www.ubuntu.com/):  [nginx-common.ubuntu.deb](https://nchan.io/download/nginx-common.ubuntu.deb) and [nginx-extras.ubuntu.deb](https://nchan.io/download/nginx-extras.ubuntu.deb). Download both and install them with `dpkg -i`, followed by `sudo apt-get -f install`. Who knows when Ubuntu will add Nchan to their repository?...
