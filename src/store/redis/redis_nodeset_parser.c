@@ -4,6 +4,7 @@
 #include "redis_nginx_adapter.h"
 
 #include <util/nchan_msg.h>
+#include <util/memrchr.h>
 #include <store/store_common.h>
 #include "redis_nodeset_parser.h"
 #include "redis_nodeset.h"
