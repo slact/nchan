@@ -1792,6 +1792,7 @@ ngx_int_t nodeset_dissociate_chanhead(void *chan) {
       nodeset_node_dissociate_chanhead(ch);
     }
     else if(ch->redis.slist.in_disconnected_cmd_list) {
+      ch->redis.slist.in_disconnected_cmd_list = 0;
       nchan_slist_remove(&ns->channels.disconnected_cmd, ch);
     }
     
@@ -1800,6 +1801,7 @@ ngx_int_t nodeset_dissociate_chanhead(void *chan) {
       nodeset_node_dissociate_pubsub_chanhead(ch);
     }
     else if(ch->redis.slist.in_disconnected_pubsub_list) {
+      ch->redis.slist.in_disconnected_pubsub_list = 0;
       nchan_slist_remove(&ns->channels.disconnected_pubsub, ch);
     }
     
