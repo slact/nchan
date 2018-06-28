@@ -93,6 +93,7 @@ extern const ngx_str_t NCHAN_WEBSOCKET;
 extern const ngx_str_t NCHAN_ANYSTRING;
 extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS;
 extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS;
+extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_PUBSUB_HEADERS;
 extern const ngx_str_t NCHAN_ACCESS_CONTROL_ALLOWED_GROUP_HEADERS;
 extern const ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE;
 extern const ngx_str_t NCHAN_ALLOW_GET_POST_DELETE;

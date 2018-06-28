@@ -927,8 +927,8 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def assert_header_includes(response, header, str)
-    assert response.headers[header].include?(str), "Response header '#{header}: #{response.headers[header]}' must contain \"#{str}\", but does not."
+  def assert_header_includes(description, response, header, str)
+    assert response.headers[header].include?(str), "#{description} response header '#{header}: #{response.headers[header]}' must contain \"#{str}\", but does not."
   end
   
   def test_access_control_options
@@ -939,15 +939,15 @@ class PubSubTest <  Minitest::Test
     
     assert_equal "http://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET ).each do |v| 
-      assert_header_includes resp, "Access-Control-Allow-Methods", v
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Methods", v
+      assert_header_includes "subscriber CORS", resp, "Allow", v
     end
-    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Headers", v}
     
     request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS
     resp = request.run
     %w( GET ).each do |v| 
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "subscriber OPTIONS", resp, "Allow", v
     end
     
     
@@ -955,16 +955,21 @@ class PubSubTest <  Minitest::Test
     resp = request.run
     assert_equal "https://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET POST DELETE ).each do |v| 
-      assert_header_includes resp, "Access-Control-Allow-Methods", v
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "publisher CORS", resp, "Access-Control-Allow-Methods", v
+      assert_header_includes "publisher CORS", resp, "Allow", v
     end
-    %w( Content-Type ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    %w( Content-Type ).each {|v| assert_header_includes "publisher CORS", resp, "Access-Control-Allow-Headers", v}
     
     request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS
     resp = request.run
     %w( GET POST DELETE ).each do |v| 
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "publisher OPTIONS", resp, "Allow", v
     end
+    
+    request = Typhoeus::Request.new url("pubsub/#{chan}"), method: :OPTIONS, headers: { 'Origin' => "https://example.com" }
+    resp = request.run
+    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes "pubsub CORS", resp, "Access-Control-Allow-Headers", v}
+    
   end
   
   def generic_test_access_control(opt)

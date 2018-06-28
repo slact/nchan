@@ -648,7 +648,10 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         break;
       
       case NGX_HTTP_OPTIONS:
-        if(cf->pub.http) {
+        if(cf->pub.http && (cf->sub.poll || cf->sub.longpoll || cf->sub.eventsource || cf->sub.websocket)) {
+          nchan_OPTIONS_respond(r, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBSUB_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE);
+        }
+        else if(cf->pub.http) {
           nchan_OPTIONS_respond(r, &NCHAN_ACCESS_CONTROL_ALLOWED_PUBLISHER_HEADERS, &NCHAN_ALLOW_GET_POST_PUT_DELETE);
         }
         else if(cf->sub.poll || cf->sub.longpoll || cf->sub.eventsource || cf->sub.websocket) {
