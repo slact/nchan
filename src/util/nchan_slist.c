@@ -97,6 +97,7 @@ ngx_int_t nchan_slist_remove(nchan_slist_t *list, void *el) {
     void **el_next_prev_ptr = nchan_slist_prev_ptr(list, el_next);
     *el_next_prev_ptr = el_prev;
   }
+  list->n--;
   *el_prev_ptr = NULL;
   *el_next_ptr = NULL;
   return NGX_OK;
