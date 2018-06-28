@@ -36,4 +36,6 @@ ngx_int_t nchan_slist_transfer(nchan_slist_t *dst, nchan_slist_t *src);
 void *nchan_slist_pop(nchan_slist_t *list);
 void *nchan_slist_shift(nchan_slist_t *list);
 
+int nchan_slist_is_empty(nchan_slist_t *list);
+
 #endif /*NCHAN_SLIST_H*/

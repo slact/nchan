@@ -235,7 +235,6 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
 }
 
 static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
-  redis_node_t     *node;
   if(!ch->shutting_down) {
     assert(ch->sub_count == 0 && ch->fetching_message_count == 0);
   }
@@ -245,14 +244,13 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   if(ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBED) {
     assert(ch->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED);
     assert(ch->redis.node.pubsub);
-    node = ch->redis.node.pubsub;
     ch->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-    redis_subscriber_command(node, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(ch->redis.nodeset->settings.namespace), STR(&ch->id));
+    redis_subscriber_command(ch->redis.node.pubsub, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(ch->redis.nodeset->settings.namespace), STR(&ch->id));
   }
   
   redis_nodeset_t *ns = ch->redis.nodeset;
-  redis_node_t *cmd = node = ch->redis.node.cmd;
-  redis_node_t *pubsub = node = ch->redis.node.cmd;
+  redis_node_t *cmd = ch->redis.node.cmd;
+  redis_node_t *pubsub = ch->redis.node.pubsub;
   
   nodeset_dissociate_chanhead(ch);
   rdstore_channel_head_t *cur;

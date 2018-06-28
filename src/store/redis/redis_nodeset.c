@@ -1396,21 +1396,21 @@ static ngx_int_t update_chanhead_status_on_reconnect(rdstore_channel_head_t *ch)
 }
 
 ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
-  rdstore_channel_head_t *cur, *next;
+  rdstore_channel_head_t *cur;
   nchan_slist_t *disconnected_cmd = &ns->channels.disconnected_cmd;
   nchan_slist_t *disconnected_pubsub = &ns->channels.disconnected_pubsub;
   assert(nodeset_ready(ns));
 
-  for(cur = nchan_slist_first(disconnected_cmd); cur != NULL; cur = next) {
-    next = nchan_slist_next(disconnected_cmd, cur);
+  while((cur = nchan_slist_pop(disconnected_cmd)) != NULL) {
     assert(cur->redis.node.cmd == NULL);
     cur->redis.slist.in_disconnected_cmd_list = 0;
     assert(nodeset_node_find_by_chanhead(cur)); // this reuses the linked-list fields
     update_chanhead_status_on_reconnect(cur);
   }
-  nchan_slist_reset(disconnected_cmd);
-  for(cur = nchan_slist_first(disconnected_pubsub); cur != NULL; cur = next) {
-    next = nchan_slist_next(disconnected_pubsub, cur);
+  //training wheels
+  assert(nchan_slist_is_empty(disconnected_cmd));
+  
+  while((cur = nchan_slist_pop(disconnected_pubsub)) != NULL) {
     assert(cur->redis.node.pubsub == NULL);
     cur->redis.slist.in_disconnected_pubsub_list = 0;
     assert(nodeset_node_pubsub_find_by_chanhead(cur)); // this reuses the linked-list fields
@@ -1418,7 +1418,8 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     ensure_chanhead_pubsub_subscribed_if_needed(cur);
     update_chanhead_status_on_reconnect(cur);
   }
-  nchan_slist_reset(disconnected_pubsub);
+  //training wheels
+  assert(nchan_slist_is_empty(disconnected_pubsub));
   return NGX_OK;
 }
 
@@ -1811,6 +1812,7 @@ ngx_int_t nodeset_node_associate_chanhead(redis_node_t *node, void *chan) {
   rdstore_channel_head_t *ch = chan;
   assert(ch->redis.node.cmd == NULL);
   assert(node->nodeset == ch->redis.nodeset);
+  assert(ch->redis.slist.in_disconnected_cmd_list == 0);
   if(ch->redis.node.cmd != node) { //dat idempotence tho
     nchan_slist_append(&node->channels.cmd, ch);
   }
@@ -1821,6 +1823,7 @@ ngx_int_t nodeset_node_associate_pubsub_chanhead(redis_node_t *node, void *chan)
   rdstore_channel_head_t *ch = chan;
   assert(ch->redis.node.pubsub == NULL);
   assert(node->nodeset == ch->redis.nodeset);
+  assert(ch->redis.slist.in_disconnected_pubsub_list == 0);
   if(ch->redis.node.pubsub != node) { //dat idempotence tho
     nchan_slist_append(&node->channels.pubsub, ch);
   }

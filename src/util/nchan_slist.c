@@ -148,3 +148,16 @@ void *nchan_slist_pop(nchan_slist_t *list) {
   }
   return tail;
 }
+
+int nchan_slist_is_empty(nchan_slist_t *list) {
+  if(list->n == 0) {
+    assert(list->head == NULL);
+    assert(list->tail == NULL);
+    return 1;
+  }
+  else {
+    assert(list->head != NULL);
+    assert(list->tail != NULL);
+    return 0;
+  }
+}
