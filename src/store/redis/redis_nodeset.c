@@ -470,10 +470,12 @@ static void node_ping_event(ngx_event_t *ev) {
 redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
   assert(!nodeset_node_find_by_connect_params(ns, rcp));
   node_blob_t      *node_blob;
-  if(!extra_space) {
+  if(extra_space == 0) {
+    assert(extraspace_ptr == NULL);
     node_blob = nchan_list_append(&ns->nodes);
   }
   else {
+    assert(extraspace_ptr);
     node_blob = nchan_list_append_sized(&ns->nodes, sizeof(*node_blob)+extra_space);
     if(extra_space) {
       *extraspace_ptr = (void *)(&node_blob[1]);
@@ -1865,7 +1867,7 @@ static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
     for(nodeptr = nchan_list_first(&master->peers.slaves); nodeptr != NULL && i < n-1; nodeptr = nchan_list_next(nodeptr)) {
       i++;
     }
-    if((*nodeptr)->state < REDIS_NODE_READY) {
+    if(nodeptr == NULL || (*nodeptr)->state < REDIS_NODE_READY) {
       //not ready? play it safe.
       //node_log_error(*nodeptr, "got slave, but it's not ready. return master instead");
       return master;
