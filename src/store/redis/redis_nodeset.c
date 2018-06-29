@@ -171,8 +171,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   nchan_list_init(&ns->onready_callbacks, sizeof(nodeset_onready_callback_t), "nodeset onReady callbacks");
   
   nchan_slist_init(&ns->channels.all, rdstore_channel_head_t, redis.slist.nodeset.prev, redis.slist.nodeset.next);
-  nchan_slist_init(&ns->channels.disconnected_cmd, rdstore_channel_head_t, redis.slist.nodeset.prev, redis.slist.nodeset.next);
-  nchan_slist_init(&ns->channels.disconnected_pubsub, rdstore_channel_head_t, redis.slist.nodeset.prev, redis.slist.nodeset.next);
+  nchan_slist_init(&ns->channels.disconnected_cmd, rdstore_channel_head_t, redis.slist.node_cmd.prev, redis.slist.node_cmd.next);
+  nchan_slist_init(&ns->channels.disconnected_pubsub, rdstore_channel_head_t, redis.slist.node_pubsub.prev, redis.slist.node_pubsub.next);
   
   ns->reconnect_delay_sec = 5;
   ns->current_status_times_checked = 0;
