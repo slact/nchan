@@ -50,6 +50,21 @@ static ngx_int_t rbtree_cluster_keyslots_compare(void *v1, void *v2) {
 }
 
 
+typedef struct {
+  int  n;
+  redis_node_t *node[128];
+} redis_node_dbg_list_t;
+
+static redis_node_dbg_list_t *nodeset_dbg_node_list(redis_nodeset_t *nodeset) {
+  static redis_node_dbg_list_t dbg;
+  redis_node_t  *cur;
+  ngx_memzero(&dbg, sizeof(dbg));
+  for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    dbg.node[dbg.n++]=cur;
+  }
+  return &dbg;
+}
+
 static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   unsigned                         i;
   ngx_rbtree_node_t               *rbtree_node;
@@ -385,18 +400,33 @@ redis_node_t *nodeset_node_find_any_ready_master(redis_nodeset_t *ns) {
 }
 
 redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *channel_id) {
+  redis_node_t *node;
+  
   if(!ns->cluster.enabled) {
-    return nodeset_node_find_any_ready_master(ns);
+    node = nodeset_node_find_any_ready_master(ns);
+    if(node == NULL) {
+      redis_node_dbg_list_t *dbg = nodeset_dbg_node_list(ns);
+      nchan_log_error("dbg %p", dbg);
+      raise(SIGABRT);
+    }
+  }
+  else {
+    static uint16_t  prefix_crc = 0;
+    if(prefix_crc == 0) {
+      prefix_crc = redis_crc16(0, "channel:", 8);
+    }
+    uint16_t   slot = redis_crc16(prefix_crc, (const char *)channel_id->data, channel_id->len) % 16384;
+    //DBG("channel id %V (key {channel:%V}) slot %i", str, str, slot);
+    
+    node = nodeset_node_find_by_slot(ns, slot);
+    if(node == NULL) {
+      redis_node_dbg_list_t *dbg = nodeset_dbg_node_list(ns);
+      nchan_log_error("dbg %p", dbg);
+      raise(SIGABRT);
+    }
   }
   
-  static uint16_t  prefix_crc = 0;
-  if(prefix_crc == 0) {
-    prefix_crc = redis_crc16(0, "channel:", 8);
-  }
-  uint16_t   slot = redis_crc16(prefix_crc, (const char *)channel_id->data, channel_id->len) % 16384;
-  //DBG("channel id %V (key {channel:%V}) slot %i", str, str, slot);
-  
-  return nodeset_node_find_by_slot(ns, slot);
+  return node;
 }
 
 redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key) {
