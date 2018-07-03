@@ -614,7 +614,12 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
   redis_node_t    *slave;
   if((slave = nodeset_node_find_by_connect_params(master->nodeset, rcp))!= NULL) {
     //we know about it already
-    assert(slave->role != REDIS_NODE_ROLE_MASTER);
+    if(slave->role != REDIS_NODE_ROLE_SLAVE && slave->state > REDIS_NODE_GET_INFO) {
+      node_log_notice(slave, "Node appears to have changed to slave -- need to update");
+      node_set_role(slave, REDIS_NODE_ROLE_UNKNOWN);
+      node_disconnect(slave, REDIS_NODE_FAILED);
+      node_connect(slave);
+    }
     //assert(slave->peers.master == master);
   }
   else {
@@ -634,7 +639,12 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
 static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *rcp) {
   redis_node_t *master;
   if ((master = nodeset_node_find_by_connect_params(slave->nodeset, rcp)) != NULL) {
-    assert(master->role != REDIS_NODE_ROLE_SLAVE);
+      if(master->role != REDIS_NODE_ROLE_MASTER && master->state > REDIS_NODE_GET_INFO) {
+        node_log_notice(master, "Node appears to have changed to master -- need to update");
+        node_set_role(master, REDIS_NODE_ROLE_UNKNOWN);
+        node_disconnect(master, REDIS_NODE_FAILED);
+        node_connect(master);
+      }
     //assert(node_find_slave_node(master, slave));
     //node_log_notice(slave, "Discovering master %s... already known", rcp_cstr(rcp));
   }
@@ -936,7 +946,7 @@ static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncCont
       }
     }
     node_disconnect(node, REDIS_NODE_FAILED);
-    nchan_add_oneshot_timer(nodeset_examine_timer_wrapper, node->nodeset, 10);
+    nodeset_examine(node->nodeset);
   }
 }
 
@@ -965,6 +975,16 @@ static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *
   return 1;
 }
 
+int nodeset_node_keyslot_changed(redis_node_t *node) {
+  if(node->state >= REDIS_NODE_READY) {
+    node_disconnect(node, REDIS_NODE_FAILED);
+  }
+  char errstr[512];
+  ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d", &(node)->connect_params.hostname, node->connect_params.port);
+  nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errstr);
+  return 1;
+}
+
 int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
   if(reply && reply->type == REDIS_REPLY_ERROR) {
     char    *script_nonlocal_key_error = "Lua script attempted to access a non local key in a cluster node";
@@ -977,9 +997,10 @@ int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
      || nchan_cstr_startswith(reply->str, command_ask_error)) {
       if(!node->cluster.enabled) {
         node_log_error(node, "got a cluster error on a non-cluster redis connection: %s", reply->str);
+        node_disconnect(node, REDIS_NODE_FAILED);
       }
       else {
-        nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "cluster keyspace needs to be updated");
+        nodeset_node_keyslot_changed(node);
       }
       return 0;
     }

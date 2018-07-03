@@ -1150,7 +1150,7 @@ static void redis_subscriber_unregister_cb(redisAsyncContext *c, void *r, void *
     errstr.len = strlen(reply->str);
     
     if(ngx_str_chop_if_startswith(&errstr, "CLUSTER KEYSLOT ERROR. ")) {
-      nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "cluster keyspace needs to be updated");
+      nodeset_node_keyslot_changed(node);
       nchan_scan_until_chr_on_line(&errstr, &countstr, ' ');
       channel_timeout = ngx_atoi(countstr.data, countstr.len);
       channel_id = errstr;
@@ -1784,7 +1784,7 @@ static void redis_get_message_callback(redisAsyncContext *ac, void *r, void *pri
     node->pending_commands--;
     nchan_update_stub_status(redis_pending_commands, -1);
     
-    if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+    if(!nodeset_ready(node->nodeset) || !nodeset_node_reply_keyslot_ok(node, reply)) {
       nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_async_get_message_send, privdata);
       return;
     }
@@ -2293,7 +2293,7 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
     errstr.len = strlen(reply->str);
     
     if(ngx_str_chop_if_startswith(&errstr, "CLUSTER KEYSLOT ERROR. ")) {
-      nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "cluster keyspace needs to be updated");
+      nodeset_node_keyslot_changed(node);
       nchan_scan_until_chr_on_line(&errstr, &countstr, ' ');
       count = ngx_atoi(countstr.data, countstr.len);
       channel_id = errstr;

@@ -214,6 +214,7 @@ int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);
+int nodeset_node_keyslot_changed(redis_node_t *node);
 int nodeset_disconnect(redis_nodeset_t *ns);
 ngx_int_t nodeset_destroy_all(void);
 ngx_int_t nodeset_each(void (*)(redis_nodeset_t *, void *), void *privdata);
