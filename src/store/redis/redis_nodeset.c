@@ -41,9 +41,9 @@ static ngx_int_t rbtree_cluster_keyslots_compare(void *v1, void *v2) {
   redis_slot_range_t   *r1 = v1;
   redis_slot_range_t   *r2 = v2;
   
-  if(r2->max < r1->min) //r2 is strictly left of r1
+  if(r1->max < r2->min) //r1 is strictly left of r2
     return -1;
-  else if(r2->min > r1->max) //r2 is strictly right of r1
+  else if(r1->min > r2->max) //r1 is strictly right of r2
     return 1;
   else //there's an overlap
     return 0;
