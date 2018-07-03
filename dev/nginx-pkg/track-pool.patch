@@ -1,0 +1,49 @@
+--- nginx/src/core/ngx_palloc.c	2018-07-03 17:21:34.582927058 -0400
++++ nginx-patched/src/core/ngx_palloc.c.new	2018-07-03 17:21:08.246149440 -0400
+@@ -7,6 +7,7 @@
+ 
+ #include <ngx_config.h>
+ #include <ngx_core.h>
++#include <signal.h>
+ 
+ 
+ static ngx_inline void *ngx_palloc_small(ngx_pool_t *pool, size_t size,
+@@ -39,6 +40,8 @@
+     p->cleanup = NULL;
+     p->log = log;
+ 
++    p->locked = 0;
++    p->total_allocd = 0;
+     return p;
+ }
+ 
+@@ -116,12 +119,18 @@
+     pool->current = pool;
+     pool->chain = NULL;
+     pool->large = NULL;
++    pool->locked = 0;
++    pool->total_allocd=0;
+ }
+ 
+ 
+ void *
+ ngx_palloc(ngx_pool_t *pool, size_t size)
+ {
++    if(pool->locked) {
++      raise(SIGABRT);
++    }
++    pool->total_allocd+=size;
+ #if !(NGX_DEBUG_PALLOC)
+     if (size <= pool->max) {
+         return ngx_palloc_small(pool, size, 1);
+--- nginx/src/core/ngx_palloc.h	2018-07-03 17:21:34.582927058 -0400
++++ nginx-patched/src/core/ngx_palloc.h.new	2018-07-03 17:21:17.296187571 -0400
+@@ -62,6 +62,8 @@
+     ngx_pool_large_t     *large;
+     ngx_pool_cleanup_t   *cleanup;
+     ngx_log_t            *log;
++    unsigned             locked;
++    size_t               total_allocd;
+ };
+ 
+ 

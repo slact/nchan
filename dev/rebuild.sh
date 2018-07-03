@@ -40,6 +40,8 @@ for opt in $*; do
       export CC=gcc-4.7;;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
+    trackpool|track-pool) 
+      export TRACK_POOL=1;;
     debug-pool|debugpool) 
       export NGX_DEBUG_POOL=1;;
     dynamic)
