@@ -11,6 +11,8 @@
 
 //#include "store-private.h"
 
+#define REDIS_NODESET_DBG 1
+
 #define node_log(node, lvl, fmt, args...) \
   ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %V:%d " fmt, &(node)->connect_params.hostname, node->connect_params.port, ##args)
 #define node_log_error(node, fmt, args...)    node_log((node), NGX_LOG_ERR, fmt, ##args)
@@ -84,6 +86,23 @@ typedef enum {
   REDIS_NODESET_READY
 } redis_nodeset_status_t;
 
+#if REDIS_NODESET_DBG
+typedef struct {
+  int  n;
+  redis_node_t *node[128];
+} redis_node_dbg_list_t;
+typedef struct {
+  redis_slot_range_t range;
+  redis_node_t       *node;
+} redis_node_range_dbg_t;
+typedef struct {
+  int  n;
+  redis_node_range_dbg_t node[128];
+} redis_nodeset_dbg_range_tree_t;
+#endif
+
+
+
 struct redis_nodeset_s {
   //a set of redis nodes
   //  maybe just 1 master
@@ -121,6 +140,14 @@ struct redis_nodeset_s {
   nchan_reaper_t              chanhead_reaper;
   time_t                      reconnect_delay_sec;
   nchan_list_t                onready_callbacks;
+#if REDIS_NODESET_DBG
+  struct {
+    redis_node_dbg_list_t       nodes;
+    redis_nodeset_dbg_range_tree_t ranges;
+    int                         keyspace_complete;
+  }                           dbg;
+#endif
+  
 }; //redis_nodeset_t
 
 struct redis_node_s {

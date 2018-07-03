@@ -30,6 +30,7 @@ typedef struct {
 static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
+static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns);
 
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
@@ -47,22 +48,6 @@ static ngx_int_t rbtree_cluster_keyslots_compare(void *v1, void *v2) {
     return 1;
   else //there's an overlap
     return 0;
-}
-
-
-typedef struct {
-  int  n;
-  redis_node_t *node[128];
-} redis_node_dbg_list_t;
-
-static redis_node_dbg_list_t *nodeset_dbg_node_list(redis_nodeset_t *nodeset) {
-  static redis_node_dbg_list_t dbg;
-  redis_node_t  *cur;
-  ngx_memzero(&dbg, sizeof(dbg));
-  for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
-    dbg.node[dbg.n++]=cur;
-  }
-  return &dbg;
 }
 
 static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
@@ -133,6 +118,33 @@ static int nodeset_cluster_node_unindex_keyslot_ranges(redis_node_t *node) {
   node->cluster.slot_range.indexed = 0;
   return 1;
 }
+
+#if REDIS_NODESET_DBG
+
+
+static ngx_int_t nodeset_debug_rangetree_collector(rbtree_seed_t *tree, void *node_data, void *privdata) {
+  redis_nodeset_slot_range_node_t     *rangenode = node_data;
+  redis_nodeset_dbg_range_tree_t      *dbg = privdata;
+  dbg->node[dbg->n].range = rangenode->range;
+  dbg->node[dbg->n].node = rangenode->node;
+  dbg->n++;
+  return NGX_OK;
+}
+
+static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset) {
+  rbtree_seed_t         *tree = &nodeset->cluster.keyslots;
+  redis_node_dbg_list_t *node_dbg = &nodeset->dbg.nodes;
+  redis_node_t  *cur;
+  ngx_memzero(&nodeset->dbg, sizeof(nodeset->dbg));
+  for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    node_dbg->node[node_dbg->n++]=cur;
+  }
+  nodeset->dbg.keyspace_complete = nodeset_cluster_keyslot_space_complete(nodeset);
+  rbtree_walk_incr(tree, nodeset_debug_rangetree_collector, &nodeset->dbg.ranges);
+  return NGX_OK;
+}
+#endif
+
 
 static char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
@@ -400,31 +412,29 @@ redis_node_t *nodeset_node_find_any_ready_master(redis_nodeset_t *ns) {
 }
 
 redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *channel_id) {
-  redis_node_t *node;
+  redis_node_t      *node;
+  static uint16_t    prefix_crc = 0;
+  uint16_t           slot;
   
   if(!ns->cluster.enabled) {
     node = nodeset_node_find_any_ready_master(ns);
-    if(node == NULL) {
-      redis_node_dbg_list_t *dbg = nodeset_dbg_node_list(ns);
-      nchan_log_error("dbg %p", dbg);
-      raise(SIGABRT);
-    }
   }
   else {
-    static uint16_t  prefix_crc = 0;
     if(prefix_crc == 0) {
       prefix_crc = redis_crc16(0, "channel:", 8);
     }
-    uint16_t   slot = redis_crc16(prefix_crc, (const char *)channel_id->data, channel_id->len) % 16384;
+    slot = redis_crc16(prefix_crc, (const char *)channel_id->data, channel_id->len) % 16384;
     //DBG("channel id %V (key {channel:%V}) slot %i", str, str, slot);
     
     node = nodeset_node_find_by_slot(ns, slot);
-    if(node == NULL) {
-      redis_node_dbg_list_t *dbg = nodeset_dbg_node_list(ns);
-      nchan_log_error("dbg %p", dbg);
-      raise(SIGABRT);
-    }
   }
+  
+#if REDIS_NODESET_DBG
+  if(node == NULL) {
+    nodeset_update_debuginfo(ns);
+    raise(SIGABRT);
+  }
+#endif
   
   return node;
 }
