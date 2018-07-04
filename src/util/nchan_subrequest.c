@@ -273,3 +273,53 @@ size_t nchan_subrequest_content_length(ngx_http_request_t *sr) {
   
   return len;
 }
+
+
+ngx_http_request_t *nchan_create_subrequest(ngx_http_request_t *r, ngx_str_t *url, ngx_buf_t *body, ngx_http_post_subrequest_pt cb, void *pd) {
+  ngx_http_post_subrequest_t    *psr = ngx_pcalloc(r->pool, sizeof(*psr));
+  ngx_http_request_t            *sr;
+  
+  psr->handler = cb;
+  psr->data = pd;
+  
+  ngx_http_subrequest(r, url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
+  
+  if((sr->request_body = ngx_pcalloc(r->pool, sizeof(*sr->request_body))) == NULL) { //dummy request body 
+    return NULL;
+  }
+  
+  if(body && ngx_buf_size(body) > 0) {
+    static ngx_str_t                   POST_REQUEST_STRING = {4, (u_char *)"POST "};
+    size_t                             sz;
+    ngx_http_request_body_t           *sr_body = sr->request_body;
+    ngx_chain_t                       *fakebody_chain;
+    ngx_buf_t                         *fakebody_buf;
+    
+    fakebody_chain = ngx_palloc(r->pool, sizeof(*fakebody_chain));
+    fakebody_buf = ngx_pcalloc(r->pool, sizeof(*fakebody_buf));
+    sr_body->bufs = fakebody_chain;
+    fakebody_chain->next = NULL;
+    fakebody_chain->buf = fakebody_buf;
+    fakebody_buf->last_buf = 1;
+    fakebody_buf->last_in_chain = 1;
+    fakebody_buf->flush = 1;
+    fakebody_buf->memory = 1;
+    
+    //just copy the buffer contents. it's inefficient but I don't care at the moment.
+    //this can and should be optimized later
+    sz = ngx_buf_size(body);
+    fakebody_buf->start = ngx_palloc(r->pool, sz); //huuh?
+    ngx_memcpy(fakebody_buf->start, body->start, sz);
+    fakebody_buf->end = fakebody_buf->start + sz;
+    fakebody_buf->pos = fakebody_buf->start;
+    fakebody_buf->last = fakebody_buf->end;
+    
+    nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, sr_body, sz, NULL);
+  }
+  else {
+    sr->header_only = 1;
+  }
+  sr->args = r->args;
+  
+  return sr;
+}
