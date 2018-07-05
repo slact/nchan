@@ -203,22 +203,23 @@ ngx_http_request_t *nchan_create_fake_request(ngx_connection_t *c) {
 }
 
 ngx_http_request_t *nchan_create_derivative_fake_request(ngx_connection_t *c, ngx_http_request_t *rsrc) {
-  ngx_http_request_t      *r = nchan_new_fake_request(c);
-  if(r == NULL) {
+  ngx_http_request_t      *fr = nchan_new_fake_request(c);
+  if(fr == NULL) {
     return NULL;
   }
   
-  *r = *rsrc;
-  r->read_event_handler = NULL;
-  r->write_event_handler = NULL;
-  r->connection = c;
-  r->main = r;
-  r->pool = c->pool;
-  r->parent = NULL;
-  r->http_state = NGX_HTTP_PROCESS_REQUEST_STATE;
-  r->signature = NGX_HTTP_MODULE;
+  *fr = *rsrc;
+  fr->read_event_handler = NULL;
+  fr->write_event_handler = NULL;
+  fr->connection = c;
+  fr->main = fr;
+  fr->pool = c->pool;
+  fr->parent = NULL;
+  fr->cleanup = NULL;
+  fr->http_state = NGX_HTTP_PROCESS_REQUEST_STATE;
+  fr->signature = NGX_HTTP_MODULE;
   
-  return r;
+  return fr;
 }
 
 void nchan_finalize_fake_request(ngx_http_request_t *r, ngx_int_t rc) {
@@ -350,6 +351,8 @@ static ngx_int_t nchan_requestmachine_subrequest_handler(ngx_http_request_t *sr,
   else if(d->cb) {
     d->cb(NGX_ABORT, sr, d->pd);
   }
+  d->running = 0;
+  assert(d->r);
   ngx_add_timer(&d->cleanup_timer, 0);
   return NGX_OK;
 }
