@@ -43,6 +43,8 @@ ngx_connection_t *nchan_create_fake_connection(ngx_pool_t *pool) {
       goto failed;
   }
 
+  c->write->active = 1;
+  
   c->log = log;
   c->log->connection = c->number;
   c->log->action = NULL;
@@ -84,6 +86,7 @@ void nchan_close_fake_connection(ngx_connection_t *c) {
   }
 
   c->read->closed = 1;
+  c->write->active = 0;
   c->write->closed = 1;
 
   /* we temporarily use a valid fd (0) to make ngx_free_connection happy */
@@ -116,13 +119,14 @@ static ngx_http_request_t *nchan_new_fake_request(ngx_connection_t *c) {
 
   c->requests++;
 
-  r->pool = c->pool;
   c->data = r;
   return r;
 }
 
 static ngx_int_t nchan_initialize_fake_request(ngx_http_request_t *r, ngx_connection_t *c) {
   ngx_memzero(r, sizeof(*r));
+  r->pool = c->pool;
+  assert(c->data == r);
   
   #if 0
   hc = ngx_pcalloc(c->pool, sizeof(ngx_http_connection_t));
@@ -148,7 +152,7 @@ static ngx_int_t nchan_initialize_fake_request(ngx_http_request_t *r, ngx_connec
   }
 #endif
 
-  r->ctx = ngx_pcalloc(r->pool, sizeof(void *) * ngx_http_max_module);
+  r->ctx = ngx_pcalloc(c->pool, sizeof(void *) * ngx_http_max_module);
   if (r->ctx == NULL) {
       return NGX_ERROR;
   }
@@ -203,10 +207,17 @@ ngx_http_request_t *nchan_create_derivative_fake_request(ngx_connection_t *c, ng
   if(r == NULL) {
     return NULL;
   }
+  
   *r = *rsrc;
+  r->read_event_handler = NULL;
+  r->write_event_handler = NULL;
+  r->connection = c;
   r->main = r;
   r->pool = c->pool;
   r->parent = NULL;
+  r->http_state = NGX_HTTP_PROCESS_REQUEST_STATE;
+  r->signature = NGX_HTTP_MODULE;
+  
   return r;
 }
 
@@ -312,13 +323,13 @@ void nchan_free_fake_request(ngx_http_request_t *r) {
 
 ngx_int_t nchan_requestmachine_initialize(nchan_requestmachine_t *rm, ngx_http_request_t *template_request) {
   rm->template_request = template_request;
-  nchan_slist_init(&rm->data, nchan_fakereq_subrequest_data_t, slist.prev, slist.next);
+  nchan_slist_init(&rm->request_queue, nchan_fakereq_subrequest_data_t, slist.prev, slist.next);
   return NGX_OK;
 }
 
 static ngx_int_t nchan_requestmachine_run(nchan_requestmachine_t *rm) {
-  nchan_fakereq_subrequest_data_t *head = nchan_slist_first(&rm->data);
-  if(!head->running) {
+  nchan_fakereq_subrequest_data_t *head = nchan_slist_first(&rm->request_queue);
+  if(head && !head->running) {
     head->running = 1;
     ngx_http_run_posted_requests(head->r->connection);
   }
@@ -327,15 +338,25 @@ static ngx_int_t nchan_requestmachine_run(nchan_requestmachine_t *rm) {
 
 static ngx_int_t nchan_requestmachine_subrequest_handler(ngx_http_request_t *sr, void *pd, ngx_int_t code) {
   nchan_fakereq_subrequest_data_t *d = pd;
-  nchan_requestmachine_t          *rm;
   
   if(!d->aborted && d->rm) {
-    assert(d->rm->data.head == d);
-    nchan_slist_remove(&d->rm->data, d);
+    assert(d->rm->request_queue.head == d);
+    nchan_slist_remove(&d->rm->request_queue, d);
+    if(d->cb) {
+      d->cb(code, sr, d->pd);
+    }
     nchan_requestmachine_run(d->rm);
   }
-  nchan_finalize_fake_request(d->r, NGX_OK);
+  else if(d->cb) {
+    d->cb(NGX_ABORT, sr, d->pd);
+  }
+  ngx_add_timer(&d->cleanup_timer, 0);
   return NGX_OK;
+}
+
+static void fakerequest_cleanup_timer_handler(ngx_event_t *ev) {
+  nchan_fakereq_subrequest_data_t *d = ev->data;
+  nchan_finalize_fake_request(d->r, NGX_OK);
 }
 
 ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, ngx_pool_t *pool, ngx_str_t *url, ngx_buf_t *body, callback_pt cb, void *pd) {
@@ -351,11 +372,20 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, ngx_pool_t *p
     return NGX_ERROR;
   }
   
+  fr->main_conf = rm->template_request->main_conf;
+  fr->srv_conf = rm->template_request->srv_conf;
+  fr->loc_conf = rm->template_request->loc_conf;
+  
   d->pd = pd;
   d->cb = cb;
   d->running = 0;
   d->aborted = 0;
   d->r = fr;
+  d->rm = rm;
+  ngx_memzero(&d->cleanup_timer, sizeof(d->cleanup_timer));
+  nchan_init_timer(&d->cleanup_timer, fakerequest_cleanup_timer_handler, d);
+  
+  fr->main->count++; //make sure the fake request doesn't auto-finalize on subrequest completion
   
   psr->handler = nchan_requestmachine_subrequest_handler;
   psr->data = d;
@@ -395,7 +425,7 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, ngx_pool_t *p
   }
   sr->args = fr->args;
   
-  nchan_slist_append(&rm->data, fc);
+  nchan_slist_append(&rm->request_queue, d);
   
   nchan_requestmachine_run(rm);
   return NGX_OK;
@@ -406,7 +436,7 @@ ngx_int_t nchan_requestmachine_shutdown(nchan_requestmachine_t *rm) {
 
 ngx_int_t nchan_requestmachine_abort(nchan_requestmachine_t *rm) {
   nchan_fakereq_subrequest_data_t *cur;
-  while((cur = nchan_slist_pop(&rm->data)) != NULL) {
+  while((cur = nchan_slist_pop(&rm->request_queue)) != NULL) {
     cur->aborted = 1; //callback won't be called
     cur->rm = NULL;
   }

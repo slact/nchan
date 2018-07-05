@@ -522,6 +522,8 @@ static void websocket_publish_continue(ws_publish_data_t *d) {
   full_subscriber_t       *fsub = d->fsub;
   ngx_http_request_t      *r = d->fsub->sub.request;
   
+  ngx_memzero(msg, sizeof(*msg));
+  
   msg->buf=*d->msgbuf;
   if(r->headers_in.content_type) {
     msg->content_type = &r->headers_in.content_type->value;
@@ -648,7 +650,6 @@ ngx_int_t websocket_publish_upstream_handler(ngx_int_t rc, ngx_http_request_t *s
   
   return NGX_OK;
 }
-
 static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int binary) {
 #if (NGX_DEBUG_POOL)
   ERR("ws request pool size: %V", ngx_http_debug_pool_str(fsub->sub.request->pool));
@@ -671,7 +672,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
   }
   else {
     nchan_pub_upstream_stuff_t  *sup = fsub->publisher.upstream;
-    websocket_reserve(&fsub->sub);
+    websocket_reserve(&d->fsub->sub);
     rc = nchan_requestmachine_request(&sup->requestmachine, d->pool, &sup->request_url, d->msgbuf, (callback_pt )websocket_publish_upstream_handler, d);
   }
   
@@ -754,6 +755,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
       goto fail;
     }
     ngx_http_complex_value(r, fsub->sub.cf->publisher_upstream_request_url, &fsub->publisher.upstream->request_url);
+    nchan_requestmachine_initialize(&fsub->publisher.upstream->requestmachine, r);
   }
   else {
     fsub->publisher.upstream = NULL;
@@ -1419,7 +1421,7 @@ static void websocket_reading(ngx_http_request_t *r) {
             
             //TODO: check max websocket message length
             if(frame->payload == NULL) {
-              if(ws_get_msgpool(fsub)) {
+              if(ws_get_msgpool(fsub) == NULL) {
                 ERR("failed to get msgpool");
                 websocket_send_close_frame(fsub, CLOSE_INTERNAL_SERVER_ERROR, NULL);
                 return websocket_reading_finalize(r);

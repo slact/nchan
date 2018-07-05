@@ -16,9 +16,10 @@ struct nchan_fakereq_subrequest_data_s {
   ngx_http_request_t *sr;
   void          *pd;
   callback_pt    cb;
+  nchan_requestmachine_t *rm;
+  ngx_event_t    cleanup_timer;
   unsigned       running:1;
   unsigned       aborted:1;
-  nchan_requestmachine_t *rm;
   struct {
     nchan_fakereq_subrequest_data_t *prev;
     nchan_fakereq_subrequest_data_t *next;
@@ -27,7 +28,7 @@ struct nchan_fakereq_subrequest_data_s {
 
 struct nchan_requestmachine_s {
   ngx_http_request_t *template_request;
-  nchan_slist_t       data;
+  nchan_slist_t       request_queue;
   unsigned            shutdown_when_finished;
 };// nchan_requestmachine_t;
 
