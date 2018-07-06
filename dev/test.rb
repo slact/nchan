@@ -1708,12 +1708,12 @@ class PubSubTest <  Minitest::Test
     verify pub, sub, eventsource_event: true, id: true
   end
   
-  def test_publisher_upstream_request
+  def test_publisher_pubsub_upstream_request(websocket=false)
     auth = start_authserver  quiet: true
     begin
       assert "" != auth.publisher_upstream_transform_message("")
       
-      pub, sub = pubsub 2, pub: '/upstream_pubsub/' , quit_message: auth.publisher_upstream_transform_message('FIN')
+      pub, sub = pubsub 2, pub: '/upstream_pubsub/' , quit_message: auth.publisher_upstream_transform_message('FIN'), websocket_publisher: websocket
       sub.run
       pub.post ["foo", "bar", "Baz", "q"*2048, "FIN"]
       sub.wait
@@ -1744,6 +1744,10 @@ class PubSubTest <  Minitest::Test
     ensure
       auth.stop
     end
+  end
+  
+  def test_websocket_publisher_pubsub_upstream_request
+    test_publisher_pubsub_upstream_request(true)
   end
   
   def test_buffer_size_respected
