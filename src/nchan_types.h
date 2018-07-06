@@ -2,6 +2,7 @@
 #define NCHAN_TYPES_H
 #include <util/nchan_reuse_queue.h>
 #include <util/nchan_bufchainpool.h>
+//#include <util/nchan_fake_request.h>
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
@@ -376,6 +377,8 @@ struct subscriber_s {
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
   ngx_uint_t                 reserved;
+  //ngx_requestmachine_t      *upstream_requestmachine;
+  
   unsigned                   enable_sub_unsub_callbacks;
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;

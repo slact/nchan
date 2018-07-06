@@ -532,7 +532,12 @@ void nchan_subscriber_init(subscriber_t *sub, const subscriber_t *tmpl, ngx_http
   if(r) {
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
     sub->cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+    
+    //nchan_requestmachine_initialize(&sub->upstream_requestmachine, r);
   }
+  //else {
+  //  sub->upstream_requestmachine = NULL;
+  //}
   sub->reserved = 0;
   sub->enqueued = 0;
   sub->status = ALIVE;

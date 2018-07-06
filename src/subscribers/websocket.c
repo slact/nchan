@@ -538,7 +538,7 @@ static void websocket_publish_continue(ws_publish_data_t *d) {
   if(d->binary) {
     msg->content_type = &binary_mimetype;
   }
-  
+  //ERR("%p pool sz %d", fsub, r->pool->total_allocd);
   msg->storage = NCHAN_MSG_POOL;
   
   websocket_reserve(&fsub->sub);
