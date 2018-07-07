@@ -100,12 +100,16 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   scf->redis.connect_timeout = NGX_CONF_UNSET_MSEC;
+  scf->redis.master_weight = NGX_CONF_UNSET;
+  scf->redis.slave_weight = NGX_CONF_UNSET;
   return scf;
 }
 
 static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_srv_conf_t       *prev = parent, *conf = child;
   ngx_conf_merge_msec_value(conf->redis.connect_timeout, prev->redis.connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
+  ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
+  ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);
   return NGX_CONF_OK;
 }
 
@@ -995,6 +999,41 @@ static char *nchan_set_longpoll_multipart(ngx_conf_t *cf, ngx_command_t *cmd, vo
     ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid value for %V: %V;'. Must be 'on', 'off', or 'raw'", &cmd->name, val);
     return NGX_CONF_ERROR;
   }
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_subscribe_weights(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_int_t  master = NGX_CONF_UNSET;
+  ngx_int_t  slave = NGX_CONF_UNSET;
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *cur;
+  int        i;
+  nchan_srv_conf_t *scf = conf;
+  for(i=1; i<3; i++) {
+    cur = &val[i];
+    if(nchan_str_after(&cur, "master=")) {
+      if((master = ngx_atoi(cur->data, cur->len)) == NGX_ERROR) {
+        return "has invalid weight for master";
+      }
+    }
+    else if(nchan_str_after(&cur, "slave=")) {
+      if((slave = ngx_atoi(cur->data, cur->len)) == NGX_ERROR) {
+        return "has invalid weight for slave";
+      }
+    }
+  }
+  
+  if(master != NGX_CONF_UNSET) {
+    scf->redis.master_weight = master;
+  }
+  if(slave != NGX_CONF_UNSET) {
+    scf->redis.slave_weight = slave;
+  }
+  
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_optimize_for(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   return NGX_CONF_OK;
 }
 

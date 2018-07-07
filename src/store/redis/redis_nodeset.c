@@ -221,11 +221,18 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   //urls
   if(rcf->upstream) {
+    nchan_srv_conf_t           *scf = NULL;
+    scf = ngx_http_conf_upstream_srv_conf(rcf->upstream, ngx_nchan_module);
+    
     ngx_uint_t                   i;
     ngx_array_t                 *servers = rcf->upstream->servers;
     ngx_http_upstream_server_t  *usrv = servers->elts;
     ngx_str_t                   *upstream_url, **urlref;
     ns->upstream = rcf->upstream;
+    
+    ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
+    ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
+    
     for(i=0; i < servers->nelts; i++) {
 #if nginx_version >= 1007002
       upstream_url = &usrv[i].name;
@@ -238,6 +245,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   }
   else {
     ns->upstream = NULL;
+    ns->settings.node_weight.master = 1;
+    ns->settings.node_weight.slave = 1;
     ngx_str_t **urlref = nchan_list_append(&ns->urls);
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
   }
@@ -1913,19 +1922,23 @@ ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
 }
 
 static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
+  redis_nodeset_t *ns = master->nodeset;
+  int master_total = ns->settings.node_weight.master;
+  int slave_total = master->peers.slaves.n * ns->settings.node_weight.slave;
+  int n = ngx_random() % (slave_total + master_total);
   assert(master->role == REDIS_NODE_ROLE_MASTER);
-  if(master->peers.slaves.n == 0) {
+  
+  if(master_total + slave_total == 0) {
     return master;
   }
-  int n = ngx_random() % (master->peers.slaves.n+1);
-  if(n == 0) {
-    //node_log_error(master, "got master");
+  else if(n < master_total) {
     return master;
   }
   else {
     int           i = 0;
+    n = ngx_random() % master->peers.slaves.n; //random slave
     redis_node_t **nodeptr;
-    for(nodeptr = nchan_list_first(&master->peers.slaves); nodeptr != NULL && i < n-1; nodeptr = nchan_list_next(nodeptr)) {
+    for(nodeptr = nchan_list_first(&master->peers.slaves); nodeptr != NULL && i < n; nodeptr = nchan_list_next(nodeptr)) {
       i++;
     }
     if(nodeptr == NULL || (*nodeptr)->state < REDIS_NODE_READY) {
