@@ -230,6 +230,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ngx_str_t                   *upstream_url, **urlref;
     ns->upstream = rcf->upstream;
     
+    ns->settings.connect_timeout = scf->redis.connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.connect_timeout;
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
     
@@ -245,6 +246,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   }
   else {
     ns->upstream = NULL;
+    ns->settings.connect_timeout = NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC;
     ns->settings.node_weight.master = 1;
     ns->settings.node_weight.slave = 1;
     ngx_str_t **urlref = nchan_list_append(&ns->urls);
@@ -1061,17 +1063,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
   redis_connect_params_t     *cp = &node->connect_params;
   redis_lua_script_t         *next_script = (redis_lua_script_t *)&redis_lua_scripts;
   node_log_debug(node, "node_connector_callback state %d", node->state);
-  ngx_msec_t                  connect_timeout_msec;
-  nchan_srv_conf_t           *scf = NULL;
-  if(nodeset->upstream) {
-    scf = ngx_http_conf_upstream_srv_conf(nodeset->upstream, ngx_nchan_module);
-  }
-  if(scf && scf->redis.connect_timeout != NGX_CONF_UNSET_MSEC) {
-    connect_timeout_msec = scf->redis.connect_timeout;
-  }
-  else {
-    connect_timeout_msec = NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC;
-  }
+  
   switch(node->state) {
     case REDIS_NODE_CONNECTION_TIMED_OUT:
       return node_connector_fail(node, "connection timed out");
@@ -1085,7 +1077,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       else if(cp->peername.len == 0) { //don't know peername yet
         set_preallocated_peername(node->ctx.cmd, &cp->peername);
       }
-      node->connect_timeout = nchan_add_oneshot_timer(node_connector_connect_timeout, node, connect_timeout_msec);
+      node->connect_timeout = nchan_add_oneshot_timer(node_connector_connect_timeout, node, nodeset->settings.connect_timeout);
       node->state = REDIS_NODE_CMD_CONNECTING;
       break; //wait until the onConnect callback brings us back
       
