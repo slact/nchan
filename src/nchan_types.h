@@ -269,6 +269,8 @@ typedef struct {
 typedef struct {
   struct {
       ngx_msec_t                    connect_timeout;
+      ngx_int_t                     master_weight;
+      ngx_int_t                     slave_weight;
   }                               redis;
 } nchan_srv_conf_t;
 

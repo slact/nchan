@@ -434,6 +434,17 @@ CfCmd.new do
       default: "600ms",
       info: "Redis server connection timeout."
   
+  nchan_redis_subscribe_weights [:upstream],
+      :ngx_conf_set_redis_subscribe_weights,
+      :srv_conf,
+      args: 1..2,
+      
+      group: "storage",
+      tags: ['redis'],
+      value: "master=<integer> slave=<integer>",
+      default: "master=1 slave=1",
+      info: "Determines how subscriptions to Redis PUBSUB channels are distributed between master and slave nodes. The higher the number, the more likely that each node of that type will be chosen for each new channel. The weights for slave nodes are cumulative, so an equal 1:1 master:slave weight ratio with two slaves would have a 1/3 chance of picking a master, and 2/3 chance of picking one of the slaves. The weight must be a non-negative integer."
+  
   nchan_redis_namespace [:main, :srv, :upstream], 
       :ngx_conf_set_redis_namespace_slot,
       [:loc_conf, :"redis.namespace"],

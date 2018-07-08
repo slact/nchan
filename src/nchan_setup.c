@@ -1007,9 +1007,9 @@ static char *ngx_conf_set_redis_subscribe_weights(ngx_conf_t *cf, ngx_command_t 
   ngx_int_t  slave = NGX_CONF_UNSET;
   ngx_str_t *val = cf->args->elts;
   ngx_str_t *cur;
-  int        i;
+  unsigned   i;
   nchan_srv_conf_t *scf = conf;
-  for(i=1; i<3; i++) {
+  for(i=1; i < cf->args->nelts; i++) {
     cur = &val[i];
     if(nchan_str_after(&cur, "master=")) {
       if((master = ngx_atoi(cur->data, cur->len)) == NGX_ERROR) {
