@@ -100,6 +100,7 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
     return NGX_CONF_ERROR;
   }
   scf->redis.connect_timeout = NGX_CONF_UNSET_MSEC;
+  scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
   scf->redis.slave_weight = NGX_CONF_UNSET;
   return scf;
@@ -108,6 +109,7 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
 static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_srv_conf_t       *prev = parent, *conf = child;
   ngx_conf_merge_msec_value(conf->redis.connect_timeout, prev->redis.connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
+  MERGE_UNSET_CONF(conf->redis.optimize_target, prev->redis.optimize_target, NCHAN_REDIS_OPTIMIZE_UNSET, NCHAN_REDIS_OPTIMIZE_CPU);
   ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
   ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);
   return NGX_CONF_OK;
@@ -1033,7 +1035,18 @@ static char *ngx_conf_set_redis_subscribe_weights(ngx_conf_t *cf, ngx_command_t 
   return NGX_CONF_OK;
 }
 
-static char *ngx_conf_set_redis_optimize_for(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *ngx_conf_set_redis_optimize_target(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_srv_conf_t   *scf = conf;
+  if(nchan_strmatch(val, 2, "bandwidth", "bw")) {
+    scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_BANDWIDTH;
+  }
+  else if(nchan_strmatch(val, 2, "cpu", "CPU")) {
+    scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_CPU;
+  }
+  else {
+    return "invalid value, must be \"bandwidth\" or \"cpu\"";
+  }
   return NGX_CONF_OK;
 }
 

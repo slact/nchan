@@ -129,6 +129,7 @@ struct redis_nodeset_s {
     }                           node_weight;
     time_t                      ping_interval;
     ngx_str_t                  *namespace;
+    nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  connect_timeout;
   }                           settings;
   

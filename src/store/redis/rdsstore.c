@@ -2147,7 +2147,7 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
   //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
   //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
   nchan_redis_script(publish, node, &redisPublishCallback, d, d->channel_id, 
-                     "%i %b %b %b %i %i %i %i", 
+                     "%i %b %b %b %i %i %i %i %i", 
                      msg->id.time, 
                      STR(&msgstr), 
                      STR((msg->content_type ? msg->content_type : &empty)), 
@@ -2155,7 +2155,8 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
                      d->compression,
                      d->message_timeout, 
                      d->max_messages, 
-                     redis_publish_message_msgkey_size
+                     redis_publish_message_msgkey_size,
+                     nodeset->settings.optimize_target
                     );
   if(mmapped && munmap(msgstr.data, msgstr.len) == -1) {
     ERR("munmap was a problem");
