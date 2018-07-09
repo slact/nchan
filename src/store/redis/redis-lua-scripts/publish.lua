@@ -1,9 +1,22 @@
---input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]
 --output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
 
 local ns, id=ARGV[1], ARGV[2]
+
+local store_at_most_n_messages = tonumber(ARGV[9])
+if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
+  return {err="Argument 9, max_msg_buf_size, can't be empty"}
+end
+if store_at_most_n_messages == 0 then
+  msg.unbuffered = 1
+end
+
+local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
+
+local optimize_target = tonumber(ARGV[11]) == 2 and "bandwidth" or "cpu"
+
 local time
-if redis.replicate_commands then
+if optimize_target == "cpu" and redis.replicate_commands then
   -- we're on redis >= 3.2. We can use We can use 'script effects replication' to allow
   -- writing nondeterministic command values like TIME.
   -- That's exactly what we want to do, use Redis' TIME rather than the given time from Nginx
@@ -28,15 +41,6 @@ local msg={
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
 end
-local store_at_most_n_messages = tonumber(ARGV[9])
-if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
-  return {err="Argument 9, max_msg_buf_size, can't be empty"}
-end
-if store_at_most_n_messages == 0 then
-  msg.unbuffered = 1
-end
-
-local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
 
 --[[local dbg = function(...)
   local arg = {...}
@@ -131,7 +135,7 @@ if key.last_message then
   lasttime, lasttag = tonumber(lastmsg[1]), tonumber(lastmsg[2])
   --dbg("New message id: last_time ", lasttime, " last_tag ", lasttag, " msg_time ", msg.time)
   if lasttime and tonumber(lasttime) > tonumber(msg.time) then
-    redis.log(redis.LOG_WARNING, "Nchan: message for " .. id .. " arrived a little late and may be delivered out of order. Redis must be very busy.")
+    redis.log(redis.LOG_WARNING, "Nchan: message for " .. id .. " arrived a little late and may be delivered out of order. Redis must be very busy, or the Nginx servers do not have their times synchronized.")
     msg.time = lasttime
     time = lasttime
   end

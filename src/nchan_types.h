@@ -267,9 +267,18 @@ typedef struct {
  ngx_atomic_uint_t               max_messages;
 } nchan_loc_conf_shared_data_t;
 
+typedef enum {
+  NCHAN_REDIS_OPTIMIZE_UNSET = -1,
+  NCHAN_REDIS_OPTIMIZE_CPU = 1,
+  NCHAN_REDIS_OPTIMIZE_BANDWIDTH = 2
+} nchan_redis_optimize_t;
+
 typedef struct {
   struct {
       ngx_msec_t                    connect_timeout;
+      nchan_redis_optimize_t        optimize_target;
+      ngx_int_t                     master_weight;
+      ngx_int_t                     slave_weight;
   }                               redis;
 } nchan_srv_conf_t;
 

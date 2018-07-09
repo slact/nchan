@@ -219,6 +219,29 @@ int nchan_cstr_startswith(char *cstr, char *match) {
   }
   return 1;
 }
+int nchan_str_startswith(ngx_str_t *str, const char *match) {
+  size_t sz = strlen(match);
+  if(sz > str->len) {
+    return 0;
+  }
+  if(memcmp(str->data, match, sz) == 0) {
+    return 1;
+  }
+  return 0;
+}
+
+int nchan_str_after(ngx_str_t **str, const char *match) {
+  if(nchan_str_startswith(*str, match)) {
+    size_t sz = strlen(match);
+    (*str)->data+=sz;
+    (*str)->len-=sz;
+    return 1;
+  }
+  else {
+    return 0;
+  }
+}
+
 
 void nchan_scan_split_by_chr(u_char **cur, size_t max_len, ngx_str_t *str, u_char chr) {
   u_char   *shortest = NULL;
