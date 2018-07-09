@@ -841,7 +841,16 @@ ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r,
     }
     rc = inflate(stream, trailer_appended ? Z_SYNC_FLUSH : Z_NO_FLUSH);
     assert(rc != Z_STREAM_ERROR);
-    
+    switch (rc) {
+      case Z_DATA_ERROR:
+        nchan_log_request_error(r, "inflate error %d: %s", rc, stream->msg);
+        break;
+      case Z_NEED_DICT:
+      case Z_MEM_ERROR:
+        nchan_log_request_error(r, "inflate error %d", rc);
+        break;
+    }
+
     have = ZLIB_CHUNK - stream->avail_out;
     
     if(stream->avail_out == 0 && tf == NULL) {
@@ -852,7 +861,7 @@ ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r,
       ngx_write_file(&tf->file, outbuf, have, written);
     }
     written += have;
-  } while(rc != Z_BUF_ERROR);
+  } while(rc == Z_OK);
   
   if(mmapped) {
     munmap(mm_instr.data, mm_instr.len);
