@@ -351,6 +351,14 @@ static ngx_command_t  nchan_commands[] = {
     NGX_HTTP_SRV_CONF_OFFSET,
     0,
     NULL } ,
+
+  { ngx_string("nchan_redis_optimize_target"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_redis_optimize_target,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_redis_namespace"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_redis_namespace_slot,
