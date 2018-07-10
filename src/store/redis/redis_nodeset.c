@@ -1919,13 +1919,16 @@ static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
   redis_nodeset_t *ns = master->nodeset;
   int master_total = ns->settings.node_weight.master;
   int slave_total = master->peers.slaves.n * ns->settings.node_weight.slave;
-  int n = ngx_random() % (slave_total + master_total);
+  int n;
+  
   assert(master->role == REDIS_NODE_ROLE_MASTER);
   
   if(master_total + slave_total == 0) {
     return master;
   }
-  else if(n < master_total) {
+  
+  n = ngx_random() % (slave_total + master_total);
+  if(n < master_total) {
     return master;
   }
   else {
