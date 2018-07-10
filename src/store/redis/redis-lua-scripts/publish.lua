@@ -141,7 +141,7 @@ end
 msg.id=('%i:%i'):format(msg.time, msg.tag)
 
 key.message=key.message:format(msg.id)
-if true or redis.call('EXISTS', key.message) ~= 0 then
+if redis.call('EXISTS', key.message) ~= 0 then
   local hash_tostr=function(h)
     local tt = {}
     for k, v in pairs(h) do

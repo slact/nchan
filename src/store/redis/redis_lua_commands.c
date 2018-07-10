@@ -386,7 +386,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\", tonumber(compression or 0)}\n"},
 
-  {"publish", "079110428238bde27d84e09ab3190d900dc592de",
+  {"publish", "7cd47e6dc4f2ff1777a135e26b13128a003afca3",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]\n"
    "--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?\n"
    "\n"
@@ -530,7 +530,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "msg.id=('%i:%i'):format(msg.time, msg.tag)\n"
    "\n"
    "key.message=key.message:format(msg.id)\n"
-   "if true or redis.call('EXISTS', key.message) ~= 0 then\n"
+   "if redis.call('EXISTS', key.message) ~= 0 then\n"
    "  local hash_tostr=function(h)\n"
    "    local tt = {}\n"
    "    for k, v in pairs(h) do\n"
