@@ -67,16 +67,6 @@ local hmset = function (key, dict)
   return redis.call('HMSET', key, unpack(bulk))
 end
 
---[[
-local hash_tostr=function(h)
-  local tt = {}
-  for k, v in pairs(h) do
-    table.insert(tt, ("%s: %s"):format(k, v))
-  end
-  return "{" .. table.concat(tt,", ") .. "}"
-end
-]]
-
 local tohash=function(arr)
   if type(arr)~="table" then
     return nil
@@ -151,12 +141,16 @@ end
 msg.id=('%i:%i'):format(msg.time, msg.tag)
 
 key.message=key.message:format(msg.id)
-if redis.call('EXISTS', key.message) ~= 0 then
-  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s"
-  errmsg = errmsg:format(key.message, id, msg.id, time, lasttime, lasttag)
-  --redis.log(redis.LOG_WARNING, errmsg)
-  --redis.log(redis.LOG_WARNING, "channel: " .. key.channel .. hash_tostr(channel))
-  --redis.log(redis.LOG_WARNING, ("messages: %s {%s}"):format(key.messages, table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ")))
+if true or redis.call('EXISTS', key.message) ~= 0 then
+  local hash_tostr=function(h)
+    local tt = {}
+    for k, v in pairs(h) do
+      table.insert(tt, ("%s: %s"):format(k, v))
+    end
+    return "{" .. table.concat(tt,", ") .. "}"
+  end
+  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s."
+  errmsg = errmsg:format(key.message, id, msg.id or "-", time or "-", lasttime or "-", lasttag or "-", hash_tostr(channel), key.messages, "["..table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ").."]")
   return {err=errmsg}
 end
 
