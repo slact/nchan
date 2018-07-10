@@ -15,7 +15,7 @@ $parallel = 1
 $sub_timeout = 10
 $channels = 10
 
-$rand_seed = 1
+$rand_seed = SecureRandom.rand(10000000)
 
 class Flock
   class PubSub
