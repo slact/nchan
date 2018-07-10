@@ -1518,6 +1518,17 @@ const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
   return str;
 }
 
+const char *__node_nickname_cstr(redis_node_t *node) {
+  static char str[1024];
+  if(node) {
+    ngx_snprintf((u_char *)str, 1024, "%V:%d%Z", &node->connect_params.hostname, node->connect_params.port);
+  }
+  else {
+    ngx_snprintf((u_char *)str,1024, "???%Z");
+  }
+  return str;
+}
+
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
   nodeset->status_msg = msg;
   if(nodeset->status != status) {

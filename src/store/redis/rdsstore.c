@@ -355,15 +355,16 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReplyOk(c, r);
 }
-int redisReplyOk(redisAsyncContext *c, void *r) {
+int redisReplyOk(redisAsyncContext *ac, void *r) {
   static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
+  redis_node_t         *node = ac->data;
   redisReply *reply = (redisReply *)r;
   if(reply == NULL) { //redis disconnected?...
-    if(c->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed while waiting for reply - %s", c->errstr);
+    if(ac->err) {
+      node_log_error(node, "connection to redis failed while waiting for reply - %s", ac->errstr);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "got a NULL redis reply for unknown reason");
+      node_log_error(node, "got a NULL redis reply for unknown reason");
     }
     return 0;
   }
@@ -373,14 +374,14 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
       redis_lua_script_t  *script;
       REDIS_LUA_SCRIPTS_EACH(script) {
         if (ngx_strncmp(script->hash, hash, REDIS_LUA_HASH_LENGTH)==0) {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
+          node_log_error(node, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
           return 0;
         }
       }
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
+      node_log_error(node, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY ERROR: %s", reply->str);
+      node_log_error(node, "REDIS REPLY ERROR: %s", reply->str);
     }
     return 0;
   }
@@ -391,26 +392,28 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
 
 static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
   redisReply      *reply = r;
+  redis_node_t    *node = NULL;
   unsigned    i;
   //nchan_channel_t * channel = (nchan_channel_t *)privdata;
   if(ac) {
+    node = ac->data;
     if(ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed - %s", ac->errstr);
+      node_log_error(node, "connection to redis failed - %s", ac->errstr);
       return;
     }
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis was terminated");
+    node_log_error(node, "connection to redis was terminated");
     return;
   }
   if(reply == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY is NULL");
+    node_log_error(node, "REDIS REPLY is NULL");
     return;
   }  
   
   switch(reply->type) {
     case REDIS_REPLY_STATUS:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STATUS  %s", reply->str);
+      node_log_error(node, "REDIS_REPLY_STATUS  %s", reply->str);
       break;
       
     case REDIS_REPLY_ERROR:
@@ -418,19 +421,19 @@ static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
       break;
       
     case REDIS_REPLY_INTEGER:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_INTEGER: %i", reply->integer);
+      node_log_error(node, "REDIS_REPLY_INTEGER: %i", reply->integer);
       break;
       
     case REDIS_REPLY_NIL:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_NIL: nil");
+      node_log_error(node, "REDIS_REPLY_NIL: nil");
       break;
       
     case REDIS_REPLY_STRING:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STRING: %s", reply->str);
+      node_log_error(node, "REDIS_REPLY_STRING: %s", reply->str);
       break;
       
     case REDIS_REPLY_ARRAY:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ARRAY: %i", reply->elements);
+      node_log_error(node, "REDIS_REPLY_ARRAY: %i", reply->elements);
       for(i=0; i< reply->elements; i++) {
         redisEchoCallback(ac, reply->element[i], "  ");
       }
