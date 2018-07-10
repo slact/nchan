@@ -1056,12 +1056,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > when set to 'on', enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server. When set to 'raw', sends multiple messages using the http-raw-stream message separator.    
 
-- **nchan_permessage_deflate_compression_memlevel** `[ 1-9 ]`  
-  arguments: 1  
-  default: `8`  
-  context: http  
-  > Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed    
-
 - **nchan_publisher** `[ http | websocket ]`  
   arguments: 0 - 2  
   default: `http websocket`  
@@ -1089,6 +1083,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.    
   [more details](#pubsub-endpoint)  
+
+- **nchan_subscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](#subscriber-presence)  
 
 - **nchan_subscriber** `[ websocket | eventsource | longpoll | intervalpoll | chunked | multipart-mixed | http-raw-stream ]`  
   arguments: 0 - 5  
@@ -1145,12 +1145,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber_timeout  
   > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.    
 
-- **nchan_unsubscribe_request** `<url>`  
-  arguments: 1  
-  context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](#subscriber-presence)  
-
 - **nchan_websocket_client_heartbeat** `<heartbeat_in> <heartbeat_out>`  
   arguments: 2  
   default: `none (disabled)`  
@@ -1169,10 +1163,10 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](#request-authorization)  
 
-- **nchan_subscribe_request** `<url>`  
+- **nchan_unsubscribe_request** `<url>`  
   arguments: 1  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after subscribing. Disabled for longpoll and interval-polling subscribers.    
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
   [more details](#subscriber-presence)  
 
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
@@ -1206,6 +1200,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, upstream  
   > Prefix all Redis keys with this string. All Nchan-related keys in redis will be of the form "nchan_redis_namespace:*" . Default is empty.    
 
+- **nchan_redis_optimize_target** `[ cpu | bandwidth ]`  
+  arguments: 1  
+  default: `cpu`  
+  context: upstream  
+  > This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. Optimizing for CPU usage enables effect replication, costing additional bandwidth (between 1.2 and 2 times more) between all master->slave links. Optimizing for bandwidth increases CPU load on slaves, but keeps outgoing bandwidth used for replication the same as the incoming bandwidth on Master.    
+
 - **nchan_redis_pass**  
   arguments: 1  
   context: http, server, location  
@@ -1232,18 +1232,11 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   >   
   > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.    
 
-- **nchan_redis_url**  
-  arguments: 1  
-  default: `127.0.0.1:6379`  
-  context: http, server, location  
-  > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
-  [more details](#connecting-to-a-redis-server)  
-
-- **nchan_redis_wait_after_connecting**  
-  arguments: 1  
-  default: `0s`  
-  context: http, server, location  
-  > Wait this amount of time after connecting to Redis to process requests. Useful when dealng with connections to Redis cluster nodes of unknown role.    
+- **nchan_redis_subscribe_weights** `master=<integer> slave=<integer>`  
+  arguments: 1 - 2  
+  default: `master=1 slave=1`  
+  context: upstream  
+  > Determines how subscriptions to Redis PUBSUB channels are distributed between master and slave nodes. The higher the number, the more likely that each node of that type will be chosen for each new channel. The weights for slave nodes are cumulative, so an equal 1:1 master:slave weight ratio with two slaves would have a 1/3 chance of picking a master, and 2/3 chance of picking one of the slaves. The weight must be a non-negative integer.    
 
 - **nchan_shared_memory_size** `<size>`  
   arguments: 1  
@@ -1266,6 +1259,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   > Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best    
 
+- **nchan_permessage_deflate_compression_memlevel** `[ 1-9 ]`  
+  arguments: 1  
+  default: `8`  
+  context: http  
+  > Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed    
+
 - **nchan_permessage_deflate_compression_strategy** `[ default | filtered | huffman-only | rle | fixed ]`  
   arguments: 1  
   default: `default`  
@@ -1278,12 +1277,29 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   > Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor.    
 
+- **nchan_redis_url**  
+  arguments: 1  
+  default: `127.0.0.1:6379`  
+  context: http, server, location  
+  > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
+  [more details](#connecting-to-a-redis-server)  
+
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  
   default: `off`  
   context: http, server, location  
   > Use redis for message storage at this location.    
   [more details](#connecting-to-a-redis-server)  
+
+- **nchan_redis_wait_after_connecting**  
+  arguments: 1  
+  context: http, server, location  
+
+- **nchan_redis_connect_timeout**  
+  arguments: 1  
+  default: `600ms`  
+  context: upstream  
+  > Redis server connection timeout.    
 
 - **nchan_access_control_allow_origin** `<string>`  
   arguments: 1  
