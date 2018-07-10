@@ -1925,9 +1925,6 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
       rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
     }
-    if(rcf->after_connect_wait_time == NGX_CONF_UNSET) {
-      rcf->after_connect_wait_time = 0;
-    }
     
     if((nodeset = nodeset_find(rcf)) == NULL) {
       nodeset = nodeset_create(lcf);
@@ -2335,16 +2332,7 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t 
 
 int nchan_store_redis_ready(nchan_loc_conf_t *cf) {
   redis_nodeset_t   *nodeset = nodeset_find(&cf->redis);
-  time_t             wait = cf->redis.after_connect_wait_time;
-  time_t             time_ready;
-  if(!nodeset || !nodeset_ready(nodeset)) {
-    return 0;
-  }
-  
-  time_ready = ngx_time() - nodeset->current_status_start;
-  
-  
-  return time_ready > wait;
+  return nodeset && nodeset_ready(nodeset);
 }
 
 nchan_store_t nchan_store_redis = {

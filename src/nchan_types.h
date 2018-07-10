@@ -43,7 +43,6 @@ typedef struct {
   ngx_http_upstream_srv_conf_t *upstream;
   ngx_flag_t                    upstream_inheritable;
   unsigned                      enabled:1;
-  time_t                        after_connect_wait_time;
   void                         *nodeset;
   void                         *privdata;
 } nchan_redis_conf_t;
