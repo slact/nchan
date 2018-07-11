@@ -927,7 +927,11 @@ static ngx_int_t extract_deflate_window_bits(full_subscriber_t *fsub, u_char *lc
     while(nend <= lend && *nend >='0' && *nend <='9') nend++;
     bits = ngx_atoi(ltmp, nend - ltmp);
     if(bits == NGX_ERROR) {
-      bits = 0;
+      // the client is not limiting client_max_window_bits, so we must use the max
+      // this is in accordance with RFC 7692: the client may announce the extension
+      // without specifying a value
+      // for server_max_window_bits, this shouldn't happen
+      bits = 15;
     }
     else if(bits < 9 || bits > 15) {
       fsub->sub.dequeue_after_response = 1;
@@ -1132,7 +1136,7 @@ static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *
     strm->zfree = Z_NULL;
     strm->opaque = Z_NULL;
     
-    rc = inflateInit2(strm, -fsub->deflate.server_max_window_bits);
+    rc = inflateInit2(strm, -fsub->deflate.client_max_window_bits);
     
     if(rc != Z_OK) {
       nchan_log_error("couldn't initialize inflate stream.");
