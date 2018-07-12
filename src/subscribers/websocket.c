@@ -63,6 +63,10 @@
 
 #define WEBSOCKET_CLOSING_TIMEOUT           250 //ms
 
+#define DEFLATE_MAX_WINDOW_BITS             15
+#define DEFLATE_MIN_WINDOW_BITS             9
+#define DEFLATE_DEFAULT_WINDOW_BITS         10
+
 /**
  * here's what a websocket frame looks like
  * 
@@ -214,6 +218,13 @@ struct full_subscriber_s {
   unsigned                finalize_request:1;
   unsigned                awaiting_destruction:1;
 };// full_subscriber_t
+
+static enum extract_result {
+  NOT_FOUND           = -1,
+  NO_VALUE            = -2,
+  INVALID_VALUE       = -3,
+  VALUE_OUT_OF_RANGE  = -4
+};
 
 static void empty_handler() { }
 
@@ -916,8 +927,8 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
-static ngx_int_t extract_deflate_window_bits(full_subscriber_t *fsub, u_char *lcur, u_char *lend, const char* setting_name, int8_t *dst, int min, int max) {
-  int        bits= -1;
+static ngx_int_t extract_deflate_window_bits(full_subscriber_t *fsub, u_char *lcur, u_char *lend, const char* setting_name) {
+  ngx_int_t bits= -1;
   u_char    *ltmp;
   if((ltmp = ngx_strnstr(lcur, (char *)setting_name, lend - lcur)) != NULL) {
     ltmp += strlen(setting_name); //strlen
@@ -925,24 +936,27 @@ static ngx_int_t extract_deflate_window_bits(full_subscriber_t *fsub, u_char *lc
     if(*ltmp == '"') ltmp++;
     u_char    *nend = ltmp;
     while(nend <= lend && *nend >='0' && *nend <='9') nend++;
-    bits = ngx_atoi(ltmp, nend - ltmp);
-    if(bits == NGX_ERROR) {
-      // the client is not limiting client_max_window_bits, so we must use the max
-      // this is in accordance with RFC 7692: the client may announce the extension
-      // without specifying a value
-      // for server_max_window_bits, this shouldn't happen
-      bits = 15;
+    if(nend == lend) {
+      return NO_VALUE;
     }
-    else if(bits < 9 || bits > 15) {
-      fsub->sub.dequeue_after_response = 1;
-      fsub->sub.request->header_only = 0;
-      nchan_respond_sprintf(fsub->sub.request, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, 1,
-                            "%s permessage-deflate setting is out of range", setting_name);
-      return NGX_ERROR;
+    bits = ngx_atoi(ltmp, nend - ltmp);
+    switch (bits) {
+      case NGX_ERROR:
+        return INVALID_VALUE;
+      case DEFLATE_MIN_WINDOW_BITS ... DEFLATE_MAX_WINDOW_BITS:
+        return bits;
+      default:
+        return VALUE_OUT_OF_RANGE;
     }
   }
-  *dst = bits;
-  return bits == -1 ? NGX_DECLINED : NGX_OK;
+  return NOT_FOUND;
+}
+
+static ngx_int_t respond_with_error(full_subscriber_t *fsub, const char* msg) {
+  fsub->sub.dequeue_after_response = 1;
+  fsub->sub.request->header_only = 0;
+  nchan_respond_sprintf(fsub->sub.request, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, 1, "%s", msg);
+  return NGX_ERROR;
 }
   
 static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
@@ -961,6 +975,8 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
   static ngx_str_t webkit_perframe_deflate = ngx_string("x-webkit-deflate-frame");
   
   permessage_deflate_t pmd = {NULL,0,0,0,0,0};
+  pmd.server_max_window_bits = DEFLATE_MAX_WINDOW_BITS;
+  pmd.client_max_window_bits = DEFLATE_MAX_WINDOW_BITS;
   
   ngx_sha1_t          sha1;
   
@@ -1008,7 +1024,7 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
     
     u_char      *cur = tmp->data, *end = tmp->data + tmp->len;
     u_char      *lcur, *lend;
-    ngx_int_t    rc;
+    ngx_int_t    bits;
     
     if(nchan_strscanstr(&cur, &permessage_deflate, end)) {
       which_deflate_extension = &permessage_deflate;
@@ -1031,28 +1047,47 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
       pmd.server_no_context_takeover = ngx_strnstr(lcur, "server_no_context_takeover", lend - lcur) != NULL ? 1 : 0;
       
       if(which_deflate_extension == &permessage_deflate) {
-        if(extract_deflate_window_bits(fsub, lcur, lend, "client_max_window_bits", &pmd.client_max_window_bits, 9, 15) == NGX_ERROR) {
-          return NGX_ERROR;
+        bits = extract_deflate_window_bits(fsub, lcur, lend, "client_max_window_bits");
+        switch(bits) {
+          case DEFLATE_MIN_WINDOW_BITS ... DEFLATE_MAX_WINDOW_BITS:
+            pmd.client_max_window_bits = bits;
+            break;
+          case NOT_FOUND:
+            pmd.client_max_window_bits = DEFLATE_MAX_WINDOW_BITS;
+            break;
+          case NO_VALUE:
+            pmd.client_max_window_bits = DEFLATE_DEFAULT_WINDOW_BITS;
+            break;
+          default:
+            return respond_with_error(fsub, "invalid client_max_window_bits permessage-deflate setting");;
         }
-        if(extract_deflate_window_bits(fsub, lcur, lend, "server_max_window_bits", &pmd.server_max_window_bits, 9, 15) == NGX_ERROR) {
-          return NGX_ERROR;
+        bits = extract_deflate_window_bits(fsub, lcur, lend, "server_max_window_bits");
+        switch(bits) {
+          case DEFLATE_MIN_WINDOW_BITS ... DEFLATE_MAX_WINDOW_BITS:
+            pmd.server_max_window_bits = bits;
+            break;
+          case NOT_FOUND:
+            pmd.server_max_window_bits = DEFLATE_MAX_WINDOW_BITS;
+            break;
+          default:
+            return respond_with_error(fsub, "invalid server_max_window_bits permessage-deflate setting");
         }
       }
       else if(which_deflate_extension == &webkit_perframe_deflate || which_deflate_extension == &perframe_deflate) {
-        rc = extract_deflate_window_bits(fsub, lcur, lend, "max_window_bits", &pmd.server_max_window_bits, 9, 15);
-        if(rc == NGX_OK) {
-          pmd.client_max_window_bits = pmd.server_max_window_bits;
-        }
-        else if(rc == NGX_ERROR) {
-          return NGX_ERROR;
+        bits = extract_deflate_window_bits(fsub, lcur, lend, "max_window_bits");
+        switch(bits) {
+          case DEFLATE_MIN_WINDOW_BITS ... DEFLATE_MAX_WINDOW_BITS:
+            pmd.server_max_window_bits = pmd.client_max_window_bits = bits;
+            break;
+          case NOT_FOUND:
+            pmd.server_max_window_bits = DEFLATE_MAX_WINDOW_BITS;
+            break;
+          default:
+            return respond_with_error(fsub, "invalid max_window_bits perframe-deflate setting");
         }
       }
-    }
-    
-    if(pmd.enabled) {
+
       fsub->deflate = pmd;
-      fsub->deflate.server_max_window_bits = 10;
-      fsub->deflate.client_max_window_bits = pmd.client_max_window_bits;
     }
   }
 
@@ -1085,7 +1120,7 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
     
     if(which_deflate_extension == &webkit_perframe_deflate || which_deflate_extension == &perframe_deflate) {
       ws_ext_end = ngx_snprintf(permessage_deflate_buf, 128, "%V; ", which_deflate_extension);
-      if (pmd.server_max_window_bits > 0) {
+      if (fsub->deflate.server_max_window_bits < DEFLATE_MAX_WINDOW_BITS) {
         ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
                                   "max_window_bits=%i; ",
                                   fsub->deflate.server_max_window_bits);
@@ -1096,12 +1131,12 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
                                 which_deflate_extension,
                                 fsub->deflate.server_no_context_takeover ? "server_no_context_takeover; " : "",
                                 fsub->deflate.client_no_context_takeover ? "client_no_context_takeover; " : "");
-      if (pmd.server_max_window_bits > 0) {
+      if (fsub->deflate.server_max_window_bits < DEFLATE_MAX_WINDOW_BITS) {
         ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
                                   "server_max_window_bits=%i; ", 
                                   fsub->deflate.server_max_window_bits);
       }
-      if (fsub->deflate.client_max_window_bits > 0) {
+      if (fsub->deflate.client_max_window_bits < DEFLATE_MAX_WINDOW_BITS) {
         ws_ext_end = ngx_snprintf(ws_ext_end, (permessage_deflate_buf + 128 - ws_ext_end),
                                   "client_max_window_bits=%i; ", 
                                   fsub->deflate.client_max_window_bits);
