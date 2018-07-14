@@ -146,12 +146,12 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
 #endif
 
 
-static char *rcp_cstr(redis_connect_params_t *rcp) {
+static const char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
   ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
     return buf;
 }
-static char *node_cstr(redis_node_t *node) {
+static const char *node_cstr(redis_node_t *node) {
   return rcp_cstr(&node->connect_params);
 }
 
@@ -929,9 +929,6 @@ static int node_connector_loadscript_reply_ok(redis_node_t *node, redis_lua_scri
   }
 }
 
-void nodeset_examine_timer_wrapper(void *pd) {
-  nodeset_examine(pd);
-}
 static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncContext *ac, int status) {
   redis_node_t    *node = ac->data;
   //char            *which_ctx;
@@ -1516,14 +1513,12 @@ const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
 }
 
 const char *__node_nickname_cstr(redis_node_t *node) {
-  static char str[1024];
   if(node) {
-    ngx_snprintf((u_char *)str, 1024, "%V:%d%Z", &node->connect_params.hostname, node->connect_params.port);
+    return node_cstr(node);
   }
   else {
-    ngx_snprintf((u_char *)str,1024, "???%Z");
+    return "???";
   }
-  return str;
 }
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
