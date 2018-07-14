@@ -749,13 +749,15 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
     fsub->publisher.channel_id = nchan_get_channel_id(r, PUB, 0);
   }
   
-  if(fsub->sub.cf->publisher_upstream_request_url) {
-    if((fsub->publisher.upstream = ngx_pcalloc(r->pool, sizeof(*fsub->publisher.upstream))) == NULL) {
+  if(fsub->sub.cf->publisher_upstream_request_url && fsub->sub.upstream_requestmachine == NULL) {
+    if((fsub->sub.upstream_requestmachine = ngx_pcalloc(r->pool, sizeof(nchan_requestmachine_t))) == NULL) {
       err="Unable to allocate websocket upstream stuff";
       goto fail;
     }
+    else {
+      nchan_requestmachine_initialize(fsub->sub.upstream_requestmachine, r);
+    }
     ngx_http_complex_value(r, fsub->sub.cf->publisher_upstream_request_url, &fsub->publisher.upstream->request_url);
-    nchan_requestmachine_initialize(&fsub->publisher.upstream->requestmachine, r);
   }
   else {
     fsub->publisher.upstream = NULL;
@@ -1988,6 +1990,7 @@ static const subscriber_t new_websocket_sub = {
   &websocket_fn,
   UNKNOWN,
   NCHAN_ZERO_MSGID,
+  NULL,
   NULL,
   NULL,
   0, //reserved

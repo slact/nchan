@@ -2,9 +2,10 @@
 #define NCHAN_TYPES_H
 #include <util/nchan_reuse_queue.h>
 #include <util/nchan_bufchainpool.h>
-//#include <util/nchan_fake_request.h>
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
+
+#include <util/nchan_fake_request.h>
 
 typedef enum {MSG_ERROR, MSG_CHANNEL_NOTREADY, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY, DELETED} chanhead_pubsub_status_t;
@@ -385,13 +386,14 @@ struct subscriber_s {
   nchan_msg_id_t             last_msgid;
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
+  void                      *upstream_requestmachine;
   ngx_uint_t                 reserved;
-  //ngx_requestmachine_t      *upstream_requestmachine;
   
   unsigned                   enable_sub_unsub_callbacks;
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
   unsigned                   enqueued:1;
+  
 #if FAKESHARD
   ngx_int_t                  owner;
 #endif
@@ -422,7 +424,6 @@ typedef struct {
   ngx_str_t                     *request_origin_header;
   ngx_str_t                     *allow_origin;
   
-  ngx_int_t                      unsubscribe_request_callback_finalize_code;
   unsigned                       sent_unsubscribe_request:1;
   unsigned                       request_ran_content_handler:1;
 #if NCHAN_BENCHMARK

@@ -262,6 +262,7 @@ static const subscriber_t new_internal_sub = {
   NCHAN_ZERO_MSGID,
   NULL,
   NULL,
+  NULL,
   0, //reserved
   0, //enable sub/unsub callbacks
   0, //stick around after response
