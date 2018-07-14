@@ -993,7 +993,7 @@ int nodeset_node_keyslot_changed(redis_node_t *node) {
     node_disconnect(node, REDIS_NODE_FAILED);
   }
   char errstr[512];
-  ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d", &(node)->connect_params.hostname, node->connect_params.port);
+  ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d%Z", &(node)->connect_params.hostname, node->connect_params.port);
   nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errstr);
   return 1;
 }
@@ -1513,7 +1513,7 @@ const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
     ngx_snprintf((u_char *)str, 1024, "%V%Z", name);
   }
   else {
-    ngx_snprintf((u_char *)str, 1024, "node set");
+    ngx_snprintf((u_char *)str, 1024, "node set%Z");
   }
   return str;
 }
