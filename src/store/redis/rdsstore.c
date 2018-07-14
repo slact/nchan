@@ -911,7 +911,8 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             ERR("REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
             break;
           case INACTIVE:
-            ERR("REDIS: PUB/SUB already unsubscribed from %s, chanhead %p (id %V) INACTIVE.", reply->element[1]->str, chanhead, &chanhead->id);
+            // this is fine, inactive channels can be pubsubbed, they will be garbage collected
+            // later if needed
             break;
           default:
             ERR("REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
