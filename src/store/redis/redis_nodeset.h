@@ -11,7 +11,7 @@
 
 //#include "store-private.h"
 
-#define REDIS_NODESET_DBG 1
+//#define REDIS_NODESET_DBG 1
 
 #define node_log(node, lvl, fmt, args...) \
   ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %s " fmt, __node_nickname_cstr(node), ##args)

@@ -1473,8 +1473,6 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     assert(nodeset_node_find_by_chanhead(cur)); // this reuses the linked-list fields
     update_chanhead_status_on_reconnect(cur);
   }
-  //training wheels
-  assert(nchan_slist_is_empty(disconnected_cmd));
   
   while((cur = nchan_slist_pop(disconnected_pubsub)) != NULL) {
     assert(cur->redis.node.pubsub == NULL);
@@ -1484,8 +1482,7 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     ensure_chanhead_pubsub_subscribed_if_needed(cur);
     update_chanhead_status_on_reconnect(cur);
   }
-  //training wheels
-  assert(nchan_slist_is_empty(disconnected_pubsub));
+  
   return NGX_OK;
 }
 
