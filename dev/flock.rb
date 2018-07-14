@@ -13,7 +13,7 @@ $omit_longmsg=false
 $verbose=false
 $parallel = 1
 $sub_timeout = 10
-$channels = 10
+$channels = 1000
 
 $rand_seed = SecureRandom.rand(10000000)
 
@@ -90,7 +90,7 @@ class Flock
     puts "ok go!"
     while true do
       random_publish
-      sleep(rand 0.1..0.15)
+      #sleep(rand 0.01..0.015)
     end
   end
   
@@ -99,11 +99,16 @@ class Flock
     ps.published+=1
     @n[ps]||=0
     @n[ps]+=1
-    resp = ps.pub.post "global message #{@n[ps]}"
-    active_subs = resp.body.match(/active subscribers: (\d+)/)[1].to_i
-    #if active_subs != $parallel
-    #  puts "wrong active_subscriber count for #{ps.channel_id}: expected #{$parallel}, got #{active_subs}"
-    #end
+    begin
+      resp = ps.pub.post "global message #{@n[ps]}"
+    
+      active_subs = resp.body.match(/active subscribers: (\d+)/)[1].to_i
+      if active_subs != $parallel
+        #puts "wrong active_subscriber count for #{ps.channel_id}: expected #{$parallel}, got #{active_subs}"
+      end
+    rescue Publisher::PublisherError => e
+      puts "publishing error #{e}"
+    end
   end
 end
 
