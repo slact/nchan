@@ -386,7 +386,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\", tonumber(compression or 0)}\n"},
 
-  {"publish", "7cd47e6dc4f2ff1777a135e26b13128a003afca3",
+  {"publish", "caa2639ec865ceecb4cae90d4cabd5dc4c46451d",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]\n"
    "--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?\n"
    "\n"
@@ -538,8 +538,9 @@ redis_lua_scripts_t redis_lua_scripts = {
    "    end\n"
    "    return \"{\" .. table.concat(tt,\", \") .. \"}\"\n"
    "  end\n"
-   "  local errmsg = \"Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s.\"\n"
-   "  errmsg = errmsg:format(key.message, id, msg.id or \"-\", time or \"-\", lasttime or \"-\", lasttag or \"-\", hash_tostr(channel), key.messages, \"[\"..table.concat(redis.call('LRANGE', key.messages, 0, -1), \", \")..\"]\")\n"
+   "  local existing_msg = tohash(redis.call('HGETALL', key.message))\n"
+   "  local errmsg = \"Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s, msg: %s, msg_expire: %s.\"\n"
+   "  errmsg = errmsg:format(key.message, id, msg.id or \"-\", time or \"-\", lasttime or \"-\", lasttag or \"-\", hash_tostr(channel), key.messages, \"[\"..table.concat(redis.call('LRANGE', key.messages, 0, -1), \", \")..\"]\", hash_tostr(existing_msg), redis.call('TTL', key.message))\n"
    "  return {err=errmsg}\n"
    "end\n"
    "\n"
@@ -614,10 +615,10 @@ redis_lua_scripts_t redis_lua_scripts = {
    "--set expiration times for all the things\n"
    "local channel_ttl = tonumber(redis.call('TTL',  key.channel))\n"
    "redis.call('EXPIRE', key.message, msg.ttl)\n"
-   "if msg.ttl > channel_ttl then\n"
-   "  redis.call('EXPIRE', key.channel, msg.ttl)\n"
-   "  redis.call('EXPIRE', key.messages, msg.ttl)\n"
-   "  redis.call('EXPIRE', key.subscribers, msg.ttl)\n"
+   "if msg.ttl + 1 > channel_ttl then -- a little extra time for failover weirdness for 1-second TTL messages\n"
+   "  redis.call('EXPIRE', key.channel, msg.ttl + 1)\n"
+   "  redis.call('EXPIRE', key.messages, msg.ttl + 1)\n"
+   "  redis.call('EXPIRE', key.subscribers, msg.ttl + 1)\n"
    "end\n"
    "\n"
    "--publish message\n"

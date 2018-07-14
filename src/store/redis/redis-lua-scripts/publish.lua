@@ -149,8 +149,9 @@ if redis.call('EXISTS', key.message) ~= 0 then
     end
     return "{" .. table.concat(tt,", ") .. "}"
   end
-  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s."
-  errmsg = errmsg:format(key.message, id, msg.id or "-", time or "-", lasttime or "-", lasttag or "-", hash_tostr(channel), key.messages, "["..table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ").."]")
+  local existing_msg = tohash(redis.call('HGETALL', key.message))
+  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s, msg: %s, msg_expire: %s."
+  errmsg = errmsg:format(key.message, id, msg.id or "-", time or "-", lasttime or "-", lasttag or "-", hash_tostr(channel), key.messages, "["..table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ").."]", hash_tostr(existing_msg), redis.call('TTL', key.message))
   return {err=errmsg}
 end
 
@@ -225,10 +226,10 @@ end
 --set expiration times for all the things
 local channel_ttl = tonumber(redis.call('TTL',  key.channel))
 redis.call('EXPIRE', key.message, msg.ttl)
-if msg.ttl > channel_ttl then
-  redis.call('EXPIRE', key.channel, msg.ttl)
-  redis.call('EXPIRE', key.messages, msg.ttl)
-  redis.call('EXPIRE', key.subscribers, msg.ttl)
+if msg.ttl + 1 > channel_ttl then -- a little extra time for failover weirdness for 1-second TTL messages
+  redis.call('EXPIRE', key.channel, msg.ttl + 1)
+  redis.call('EXPIRE', key.messages, msg.ttl + 1)
+  redis.call('EXPIRE', key.subscribers, msg.ttl + 1)
 end
 
 --publish message
