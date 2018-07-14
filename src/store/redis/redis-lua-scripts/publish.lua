@@ -3,6 +3,8 @@
 
 local ns, id=ARGV[1], ARGV[2]
 
+local msg = {}
+
 local store_at_most_n_messages = tonumber(ARGV[9])
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 9, max_msg_buf_size, can't be empty"}
@@ -28,16 +30,15 @@ else
   time = tonumber(ARGV[3])
 end
 
-local msg={
-  id=nil,
-  data= ARGV[4],
-  content_type=ARGV[5],
-  eventsource_event=ARGV[6],
-  compression=tonumber(ARGV[7]),
-  ttl= tonumber(ARGV[8]),
-  time= time,
-  tag= 0
-}
+msg.id=nil
+msg.data= ARGV[4]
+msg.content_type=ARGV[5]
+msg.eventsource_event=ARGV[6]
+msg.compression=tonumber(ARGV[7])
+msg.ttl= tonumber(ARGV[8])
+msg.time= time
+msg.tag= 0
+
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
 end
