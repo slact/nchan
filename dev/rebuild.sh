@@ -33,11 +33,11 @@ for opt in $*; do
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
     gcc6)
-      export CC=gcc-6;;
+      export CC="ccache gcc-6";;
     gcc5)
-      export CC=gcc-5;;
+      export CC="ccache gcc-5";;
     gcc4|gcc47|gcc4.7)
-      export CC=gcc-4.7;;
+      export CC="ccache gcc-4.7";;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     trackpool|track-pool) 

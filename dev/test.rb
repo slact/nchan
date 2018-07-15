@@ -1396,7 +1396,7 @@ class PubSubTest <  Minitest::Test
     
     ver= proc do |bundle| 
       assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
-      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
+      %w( Last-Modified Etag ).each {|v| assert_header_includes "CORS Expose-Headers", bundle, "Access-Control-Expose-Headers", v}
     end
     generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
       verify pub, sub
@@ -1406,7 +1406,7 @@ class PubSubTest <  Minitest::Test
     origin_host=""
     ver= proc do |bundle| 
       assert_equal origin_host, bundle.headers["Access-Control-Allow-Origin"]
-      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
+      %w( Last-Modified Etag ).each {|v| assert_header_includes "CORS Expose-Headers", bundle, "Access-Control-Expose-Headers", v}
     end
     origin_host="http://foo.bar"
     generic_test_access_control(origin: origin_host, verify_sub_response: ver, param: {foo: "foobar"}, sub_url: "/sub/access_control_in_if_block/") do |pub, sub|

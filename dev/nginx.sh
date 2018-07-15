@@ -303,7 +303,7 @@ if [[ $debugger == 1 ]]; then
   kill $master_pid
 elif [[ $debug_master == 1 ]]; then
   pushd $SRCDIR
-  kdbg -a "$NGINX_OPT" "./nginx"
+  sudo kdbg -a "$NGINX_OPT" "./nginx"
   popd
 elif [[ $valgrind == 1 ]]; then
   mkdir ./coredump 2>/dev/null

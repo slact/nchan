@@ -3,6 +3,8 @@
 
 local ns, id=ARGV[1], ARGV[2]
 
+local msg = {}
+
 local store_at_most_n_messages = tonumber(ARGV[9])
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 9, max_msg_buf_size, can't be empty"}
@@ -28,16 +30,15 @@ else
   time = tonumber(ARGV[3])
 end
 
-local msg={
-  id=nil,
-  data= ARGV[4],
-  content_type=ARGV[5],
-  eventsource_event=ARGV[6],
-  compression=tonumber(ARGV[7]),
-  ttl= tonumber(ARGV[8]),
-  time= time,
-  tag= 0
-}
+msg.id=nil
+msg.data= ARGV[4]
+msg.content_type=ARGV[5]
+msg.eventsource_event=ARGV[6]
+msg.compression=tonumber(ARGV[7])
+msg.ttl= tonumber(ARGV[8])
+msg.time= time
+msg.tag= 0
+
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
 end
@@ -66,16 +67,6 @@ local hmset = function (key, dict)
   end
   return redis.call('HMSET', key, unpack(bulk))
 end
-
---[[
-local hash_tostr=function(h)
-  local tt = {}
-  for k, v in pairs(h) do
-    table.insert(tt, ("%s: %s"):format(k, v))
-  end
-  return "{" .. table.concat(tt,", ") .. "}"
-end
-]]
 
 local tohash=function(arr)
   if type(arr)~="table" then
@@ -152,11 +143,16 @@ msg.id=('%i:%i'):format(msg.time, msg.tag)
 
 key.message=key.message:format(msg.id)
 if redis.call('EXISTS', key.message) ~= 0 then
-  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s"
-  errmsg = errmsg:format(key.message, id, msg.id, time, lasttime, lasttag)
-  --redis.log(redis.LOG_WARNING, errmsg)
-  --redis.log(redis.LOG_WARNING, "channel: " .. key.channel .. hash_tostr(channel))
-  --redis.log(redis.LOG_WARNING, ("messages: %s {%s}"):format(key.messages, table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ")))
+  local hash_tostr=function(h)
+    local tt = {}
+    for k, v in pairs(h) do
+      table.insert(tt, ("%s: %s"):format(k, v))
+    end
+    return "{" .. table.concat(tt,", ") .. "}"
+  end
+  local existing_msg = tohash(redis.call('HGETALL', key.message))
+  local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s, msg: %s, msg_expire: %s."
+  errmsg = errmsg:format(key.message, id, msg.id or "-", time or "-", lasttime or "-", lasttag or "-", hash_tostr(channel), key.messages, "["..table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ").."]", hash_tostr(existing_msg), redis.call('TTL', key.message))
   return {err=errmsg}
 end
 
@@ -231,10 +227,10 @@ end
 --set expiration times for all the things
 local channel_ttl = tonumber(redis.call('TTL',  key.channel))
 redis.call('EXPIRE', key.message, msg.ttl)
-if msg.ttl > channel_ttl then
-  redis.call('EXPIRE', key.channel, msg.ttl)
-  redis.call('EXPIRE', key.messages, msg.ttl)
-  redis.call('EXPIRE', key.subscribers, msg.ttl)
+if msg.ttl + 1 > channel_ttl then -- a little extra time for failover weirdness for 1-second TTL messages
+  redis.call('EXPIRE', key.channel, msg.ttl + 1)
+  redis.call('EXPIRE', key.messages, msg.ttl + 1)
+  redis.call('EXPIRE', key.subscribers, msg.ttl + 1)
 end
 
 --publish message

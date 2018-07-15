@@ -146,12 +146,12 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
 #endif
 
 
-static char *rcp_cstr(redis_connect_params_t *rcp) {
+static const char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
   ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
     return buf;
 }
-static char *node_cstr(redis_node_t *node) {
+static const char *node_cstr(redis_node_t *node) {
   return rcp_cstr(&node->connect_params);
 }
 
@@ -929,9 +929,6 @@ static int node_connector_loadscript_reply_ok(redis_node_t *node, redis_lua_scri
   }
 }
 
-void nodeset_examine_timer_wrapper(void *pd) {
-  nodeset_examine(pd);
-}
 static void redis_nginx_unexpected_disconnect_event_handler(const redisAsyncContext *ac, int status) {
   redis_node_t    *node = ac->data;
   //char            *which_ctx;
@@ -993,7 +990,7 @@ int nodeset_node_keyslot_changed(redis_node_t *node) {
     node_disconnect(node, REDIS_NODE_FAILED);
   }
   char errstr[512];
-  ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d", &(node)->connect_params.hostname, node->connect_params.port);
+  ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d%Z", &(node)->connect_params.hostname, node->connect_params.port);
   nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errstr);
   return 1;
 }
@@ -1473,8 +1470,6 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     assert(nodeset_node_find_by_chanhead(cur)); // this reuses the linked-list fields
     update_chanhead_status_on_reconnect(cur);
   }
-  //training wheels
-  assert(nchan_slist_is_empty(disconnected_cmd));
   
   while((cur = nchan_slist_pop(disconnected_pubsub)) != NULL) {
     assert(cur->redis.node.pubsub == NULL);
@@ -1484,8 +1479,7 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     ensure_chanhead_pubsub_subscribed_if_needed(cur);
     update_chanhead_status_on_reconnect(cur);
   }
-  //training wheels
-  assert(nchan_slist_is_empty(disconnected_pubsub));
+  
   return NGX_OK;
 }
 
@@ -1513,9 +1507,18 @@ const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
     ngx_snprintf((u_char *)str, 1024, "%V%Z", name);
   }
   else {
-    ngx_snprintf((u_char *)str, 1024, "node set");
+    ngx_snprintf((u_char *)str, 1024, "node set%Z");
   }
   return str;
+}
+
+const char *__node_nickname_cstr(redis_node_t *node) {
+  if(node) {
+    return node_cstr(node);
+  }
+  else {
+    return "???";
+  }
 }
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
@@ -1919,13 +1922,16 @@ static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
   redis_nodeset_t *ns = master->nodeset;
   int master_total = ns->settings.node_weight.master;
   int slave_total = master->peers.slaves.n * ns->settings.node_weight.slave;
-  int n = ngx_random() % (slave_total + master_total);
+  int n;
+  
   assert(master->role == REDIS_NODE_ROLE_MASTER);
   
   if(master_total + slave_total == 0) {
     return master;
   }
-  else if(n < master_total) {
+  
+  n = ngx_random() % (slave_total + master_total);
+  if(n < master_total) {
     return master;
   }
   else {

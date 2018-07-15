@@ -11,10 +11,10 @@
 
 //#include "store-private.h"
 
-#define REDIS_NODESET_DBG 1
+//#define REDIS_NODESET_DBG 1
 
 #define node_log(node, lvl, fmt, args...) \
-  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %V:%d " fmt, &(node)->connect_params.hostname, node->connect_params.port, ##args)
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %s " fmt, __node_nickname_cstr(node), ##args)
 #define node_log_error(node, fmt, args...)    node_log((node), NGX_LOG_ERR, fmt, ##args)
 #define node_log_warning(node, fmt, args...)  node_log((node), NGX_LOG_WARN, fmt, ##args)
 #define node_log_notice(node, fmt, args...)   node_log((node), NGX_LOG_NOTICE, fmt, ##args)
@@ -263,5 +263,6 @@ uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
 
 const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset);
+const char *__node_nickname_cstr(redis_node_t *node);
   
 #endif /* NCHAN_REDIS_NODESET_H */

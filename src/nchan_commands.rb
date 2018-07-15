@@ -417,13 +417,12 @@ CfCmd.new do
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
   nchan_redis_wait_after_connecting [:main, :srv, :loc],
-      :ngx_conf_set_sec_slot,
-      [:loc_conf, :"redis.after_connect_wait_time"],
+      :nchan_ignore_obsolete_setting,
+      :loc_conf,
       
-      group: "storage",
+      group: "obsolete",
       tags: ['redis'],
-      default: "0s",
-      info: "Wait this amount of time after connecting to Redis to process requests. Useful when dealng with connections to Redis cluster nodes of unknown role."
+      uncocumented: true
   
   nchan_redis_connect_timeout [:upstream],
       :ngx_conf_set_msec_slot,

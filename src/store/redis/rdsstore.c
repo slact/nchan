@@ -355,15 +355,16 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReplyOk(c, r);
 }
-int redisReplyOk(redisAsyncContext *c, void *r) {
+int redisReplyOk(redisAsyncContext *ac, void *r) {
   static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
+  redis_node_t         *node = ac->data;
   redisReply *reply = (redisReply *)r;
   if(reply == NULL) { //redis disconnected?...
-    if(c->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed while waiting for reply - %s", c->errstr);
+    if(ac->err) {
+      node_log_error(node, "connection to redis failed while waiting for reply - %s", ac->errstr);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "got a NULL redis reply for unknown reason");
+      node_log_error(node, "got a NULL redis reply for unknown reason");
     }
     return 0;
   }
@@ -373,14 +374,14 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
       redis_lua_script_t  *script;
       REDIS_LUA_SCRIPTS_EACH(script) {
         if (ngx_strncmp(script->hash, hash, REDIS_LUA_HASH_LENGTH)==0) {
-          ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
+          node_log_error(node, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
           return 0;
         }
       }
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
+      node_log_error(node, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
     }
     else {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY ERROR: %s", reply->str);
+      node_log_error(node, "REDIS REPLY ERROR: %s", reply->str);
     }
     return 0;
   }
@@ -391,26 +392,28 @@ int redisReplyOk(redisAsyncContext *c, void *r) {
 
 static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
   redisReply      *reply = r;
+  redis_node_t    *node = NULL;
   unsigned    i;
   //nchan_channel_t * channel = (nchan_channel_t *)privdata;
   if(ac) {
+    node = ac->data;
     if(ac->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis failed - %s", ac->errstr);
+      node_log_error(node, "connection to redis failed - %s", ac->errstr);
       return;
     }
   }
   else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "connection to redis was terminated");
+    node_log_error(node, "connection to redis was terminated");
     return;
   }
   if(reply == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS REPLY is NULL");
+    node_log_error(node, "REDIS REPLY is NULL");
     return;
   }  
   
   switch(reply->type) {
     case REDIS_REPLY_STATUS:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STATUS  %s", reply->str);
+      node_log_error(node, "REDIS_REPLY_STATUS  %s", reply->str);
       break;
       
     case REDIS_REPLY_ERROR:
@@ -418,19 +421,19 @@ static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
       break;
       
     case REDIS_REPLY_INTEGER:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_INTEGER: %i", reply->integer);
+      node_log_error(node, "REDIS_REPLY_INTEGER: %i", reply->integer);
       break;
       
     case REDIS_REPLY_NIL:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_NIL: nil");
+      node_log_error(node, "REDIS_REPLY_NIL: nil");
       break;
       
     case REDIS_REPLY_STRING:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_STRING: %s", reply->str);
+      node_log_error(node, "REDIS_REPLY_STRING: %s", reply->str);
       break;
       
     case REDIS_REPLY_ARRAY:
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS_REPLY_ARRAY: %i", reply->elements);
+      node_log_error(node, "REDIS_REPLY_ARRAY: %i", reply->elements);
       for(i=0; i< reply->elements; i++) {
         redisEchoCallback(ac, reply->element[i], "  ");
       }
@@ -908,7 +911,8 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             ERR("REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
             break;
           case INACTIVE:
-            ERR("REDIS: PUB/SUB already unsubscribed from %s, chanhead %p (id %V) INACTIVE.", reply->element[1]->str, chanhead, &chanhead->id);
+            // this is fine, inactive channels can be pubsubbed, they will be garbage collected
+            // later if needed
             break;
           default:
             ERR("REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
@@ -1925,9 +1929,6 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
       rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
     }
-    if(rcf->after_connect_wait_time == NGX_CONF_UNSET) {
-      rcf->after_connect_wait_time = 0;
-    }
     
     if((nodeset = nodeset_find(rcf)) == NULL) {
       nodeset = nodeset_create(lcf);
@@ -2335,16 +2336,7 @@ ngx_int_t nchan_store_redis_fakesub_add(ngx_str_t *channel_id, nchan_loc_conf_t 
 
 int nchan_store_redis_ready(nchan_loc_conf_t *cf) {
   redis_nodeset_t   *nodeset = nodeset_find(&cf->redis);
-  time_t             wait = cf->redis.after_connect_wait_time;
-  time_t             time_ready;
-  if(!nodeset || !nodeset_ready(nodeset)) {
-    return 0;
-  }
-  
-  time_ready = ngx_time() - nodeset->current_status_start;
-  
-  
-  return time_ready > wait;
+  return nodeset && nodeset_ready(nodeset);
 }
 
 nchan_store_t nchan_store_redis = {
