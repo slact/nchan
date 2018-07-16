@@ -129,6 +129,7 @@ static ngx_int_t nchan_subscriber_subrequest_fire_and_forget(subscriber_t *sub, 
   param.cb = NULL;
   param.pd = NULL;
   param.pool = NULL;
+  param.body = NULL;
   param.response_headers_only = 1;
   
   return nchan_subscriber_subrequest(sub, &param);
