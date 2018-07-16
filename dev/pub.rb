@@ -19,6 +19,7 @@ accept = nil
 timeout = 3
 verbose = nil
 url=nil
+websocket = nil
 
 opt=OptionParser.new do |opts|
   opts.on("-s", "--server SERVER (#{server})", "server and port.") {|v| server=v}
@@ -35,6 +36,7 @@ opt=OptionParser.new do |opts|
   opts.on("-c", "--content-type TYPE", "set content-type for all messages"){|v| content_type=v}
   opts.on(      "--eventsource_event EVENT", "event: line for eversource subscribers"){|v| eventsource_event=v}
   opts.on("-e",  "--eval RUBY_BLOCK", '{|n| "message #{n}" }'){|v| msg_gen = eval " Proc.new #{v} "}
+  opts.on("-w", "--websocket", "user websocket to publish"){websocket = true}
   opts.on("-d", "--delete", "delete channel via a DELETE request"){method = :DELETE}
   opts.on("-p", "--put", "create channel without submitting message"){method = :PUT}
   opts.on("-t", "--timeout SECONDS", "publishing timeout (sec). default #{timeout} sec"){|v| timeout = v.to_i}
@@ -55,7 +57,7 @@ puts "Publishing to #{url}."
 
 loopmsg=("\r"*20) + "sending message #"
 
-pub = Publisher.new url, nostore: true, timeout: timeout, verbose: verbose
+pub = Publisher.new url, nostore: true, timeout: timeout, verbose: verbose, websocket: websocket
 pub.accept=accept
 pub.nofail=true
 repeat=true
