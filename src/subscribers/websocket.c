@@ -513,6 +513,10 @@ static void websocket_publish_continue(ws_publish_data_t *d) {
   //ERR("%p pool sz %d", fsub, r->pool->total_allocd);
   msg->storage = NCHAN_MSG_POOL;
   
+  if(nchan_need_to_deflate_message(fsub->sub.cf)) {
+    nchan_deflate_message_if_needed(msg, fsub->sub.cf, r, d->pool);
+  }
+  
   websocket_reserve(&fsub->sub);
   fsub->sub.cf->storage_engine->publish(fsub->publisher.channel_id, msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, d); 
   nchan_update_stub_status(total_published_messages, 1);
