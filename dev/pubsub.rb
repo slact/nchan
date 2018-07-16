@@ -1653,15 +1653,20 @@ class Publisher
         if @messages && sent
           @messages << sent[:msg]
         end
-        sent[:condition].signal true if sent[:condition]
         
         self.response=Typhoeus::Response.new
         self.response_code=200 #fake it
         self.response_body=msg
         
+        sent[:response] = self.response
+        sent[:condition].signal true if sent[:condition]
+        
         @on_response.call(self.response_code, self.response_body) if @on_response
-
       end
+      @ws.on_failure do |err|
+        raise PublisherError, err
+      end
+      
       @ws.run
       @ws.wait :ready
     end
@@ -1750,7 +1755,9 @@ class Publisher
       @ws.client.send_data(body)
     end
     if @ws_wait_until_response
-      sent[:condition].wait
+      while not sent[:response] do
+        sent[:condition].wait 0.5
+      end
     end
     sent[:msg]
   end
