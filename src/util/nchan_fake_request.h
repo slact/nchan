@@ -35,8 +35,22 @@ struct nchan_requestmachine_s {
   unsigned            shutdown_when_finished;
 };// nchan_requestmachine_t;
 
+typedef struct {
+  union {
+    ngx_str_t                 *str;
+    ngx_http_complex_value_t  *cv;
+  }                          url;
+  ngx_pool_t                *pool;
+  ngx_buf_t                 *body;
+  
+  callback_pt                cb;
+  void                      *pd;
+  unsigned                   response_headers_only:1;
+  unsigned                   url_complex:1;
+} nchan_requestmachine_request_params_t;
+
 ngx_int_t nchan_requestmachine_initialize(nchan_requestmachine_t *rm, ngx_http_request_t *template_request);
-ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, ngx_pool_t *pool, ngx_str_t *url, ngx_buf_t *body, callback_pt cb, void *pd);
+ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params);
 ngx_int_t nchan_requestmachine_abort(nchan_requestmachine_t *rm);
 ngx_int_t nchan_requestmachine_shutdown(nchan_requestmachine_t *rm);
 

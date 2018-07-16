@@ -976,7 +976,7 @@ static void nchan_publisher_body_handler_continued(ngx_http_request_t *r, ngx_st
         psrd->ch_id = channel_id;
         
         ngx_http_subrequest(r, &publisher_upstream_request_url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
-        nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, r->request_body, r->headers_in.content_length_n, NULL);
+        nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, r->request_body, r->headers_in.content_length_n);
         sr->args = r->args;
       }
       break;
