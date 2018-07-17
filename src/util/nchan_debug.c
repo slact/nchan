@@ -73,7 +73,7 @@ void subscriber_debug_assert_isempty(void) {
   if(subdebug_head != NULL) {
     subscriber_t *cur;
     for(cur = subdebug_head; cur != NULL; cur = cur->dbg_next) {
-      nchan_log_error("  LEFTOVER: %V sub (req. %p (pool %p) cf %p) lbl %s", cur->name, cur->request, cur->request ? cur->request->pool : NULL, cur->cf, cur->lbl ? cur->lbl : (u_char *)"nolbl");
+      nchan_log_error("  LEFTOVER: %V sub (req. %p (pool %p) cf %p rsv: %d) lbl %s", cur->name, cur->request, cur->request ? cur->request->pool : NULL, cur->cf, cur->reserved, cur->lbl ? cur->lbl : (u_char *)"nolbl");
     }
     raise(SIGABRT);
   }
