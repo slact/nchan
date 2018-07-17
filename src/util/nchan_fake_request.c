@@ -4,11 +4,13 @@
 //fake request and connection code adapted from lua-nginx-module by agentzh
 
 static void nchan_close_fake_request(ngx_http_request_t *r);
+static void nchan_close_fake_connection(ngx_connection_t *c);
 
-ngx_connection_t *nchan_create_fake_connection(ngx_pool_t *pool) {
+static ngx_connection_t *nchan_create_fake_connection(ngx_pool_t *pool) {
   ngx_log_t               *log;
   ngx_connection_t        *c;
   ngx_connection_t        *saved_c = NULL;
+  assert(pool);
 
   /* (we temporarily use a valid fd (0) to make ngx_get_connection happy) */
   if (ngx_cycle->files) {
@@ -28,15 +30,7 @@ ngx_connection_t *nchan_create_fake_connection(ngx_pool_t *pool) {
   c->fd = (ngx_socket_t) -1;
   c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
-  if (pool) {
-    c->pool = pool;
-  } 
-  else {
-    c->pool = ngx_create_pool(128, c->log);
-    if (c->pool == NULL) {
-      goto failed;
-    }
-  }
+  c->pool = pool;
 
   log = ngx_pcalloc(c->pool, sizeof(ngx_log_t));
   if (log == NULL) {
@@ -66,7 +60,7 @@ failed:
   return NULL;
 }
 
-void nchan_close_fake_connection(ngx_connection_t *c) {
+static void nchan_close_fake_connection(ngx_connection_t *c) {
   ngx_pool_t          *pool;
   ngx_connection_t    *saved_c = NULL;
 
@@ -222,6 +216,7 @@ ngx_http_request_t *nchan_create_derivative_fake_request(ngx_connection_t *c, ng
   fr->cleanup = NULL;
   fr->http_state = NGX_HTTP_PROCESS_REQUEST_STATE;
   fr->signature = NGX_HTTP_MODULE;
+  fr->count = 1;
   
   return fr;
 }
@@ -343,20 +338,20 @@ static ngx_int_t nchan_requestmachine_run(nchan_requestmachine_t *rm) {
 
 static ngx_int_t nchan_requestmachine_subrequest_handler(ngx_http_request_t *sr, void *pd, ngx_int_t code) {
   nchan_fakereq_subrequest_data_t *d = pd;
-  
-  if(!d->aborted && d->rm) {
+  d->running = 0;
+  if(d->rm) {
     assert(d->rm->request_queue.head == d);
-    nchan_slist_remove(&d->rm->request_queue, d);
     if(d->cb) {
       d->cb(code, sr, d->pd);
     }
-    nchan_requestmachine_run(d->rm);
+    if(d->rm) {
+      nchan_slist_remove(&d->rm->request_queue, d);
+      nchan_requestmachine_run(d->rm);
+    }
   }
   else if(d->cb) {
     d->cb(NGX_ABORT, sr, d->pd);
   }
-  d->running = 0;
-  assert(d->r);
   if(!d->cleanup_timer.timer_set) {
     ngx_add_timer(&d->cleanup_timer, 0);
   }
@@ -365,11 +360,15 @@ static ngx_int_t nchan_requestmachine_subrequest_handler(ngx_http_request_t *sr,
 
 static void fakerequest_cleanup_timer_handler(ngx_event_t *ev) {
   nchan_fakereq_subrequest_data_t *d = ev->data;
+  d->r->main->count--;
+  assert(d->r->main->count == 1);
   nchan_finalize_fake_request(d->r, NGX_OK);
 }
 
 ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params) {
+  nchan_fakereq_subrequest_data_t *d;
   ngx_pool_t *pool = params->pool;
+  int         created_pool = 0;
   ngx_str_t url;
   
   if(!pool) {
@@ -377,11 +376,14 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
       nchan_log_error("failed to create requestmachine pool");
       return NGX_ERROR;
     }
+    created_pool = 1;
   }
   
   if(params->url_complex) {
     if(ngx_http_complex_value_custom_pool(rm->template_request, params->url.cv, &url, pool) != NGX_OK) {
-      ngx_destroy_pool(pool);
+      if(created_pool) {
+        ngx_destroy_pool(pool);
+      }
       nchan_log_error("failed to create subrequest url");
       return NGX_ERROR;
     }
@@ -396,7 +398,7 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
   ngx_http_request_t          *fr = nchan_create_derivative_fake_request(fc, rm->template_request);
   ngx_http_request_t          *sr;
   
-  nchan_fakereq_subrequest_data_t *d = ngx_palloc(pool, sizeof(*d));
+  d = ngx_palloc(pool, sizeof(*d));
   ngx_http_post_subrequest_t  *psr = ngx_pcalloc(pool, sizeof(*psr));
   if(fr == NULL || d == NULL || psr == NULL) {
     ngx_destroy_pool(pool);
@@ -410,7 +412,6 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
   d->pd = params->pd;
   d->cb = params->cb;
   d->running = 0;
-  d->aborted = 0;
   d->r = fr;
   d->rm = rm;
   ngx_memzero(&d->cleanup_timer, sizeof(d->cleanup_timer));
@@ -473,8 +474,7 @@ ngx_int_t nchan_requestmachine_shutdown(nchan_requestmachine_t *rm) {
 ngx_int_t nchan_requestmachine_abort(nchan_requestmachine_t *rm) {
   nchan_fakereq_subrequest_data_t *cur;
   while((cur = nchan_slist_pop(&rm->request_queue)) != NULL) {
-    cur->aborted = 1; //callback won't be called
-    cur->rm = NULL;
+    cur->rm = NULL; //no requestmachine ref means the machine stopped.
   }
   return NGX_OK;
 }

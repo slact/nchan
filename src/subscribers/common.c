@@ -29,6 +29,7 @@ static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t 
   }
   else if (rc == NGX_HTTP_CLIENT_CLOSED_REQUEST) {
     //this shouldn't happen, but if it does, no big deal
+    sub->fn->release(d->sub, 1);
     sub->fn->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL); //couldn't reach upstream
   }
   else if(rc == NGX_OK) {
@@ -75,6 +76,7 @@ static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t 
     }
   }
   else if(rc >= 500 && rc < 600) {
+    sub->fn->release(d->sub, 1);
     sub->fn->respond_status(sub, rc, NULL, NULL); //auto-closes subscriber
   }
   else {
@@ -297,7 +299,8 @@ ngx_int_t nchan_subscriber_subrequest(subscriber_t *sub, nchan_requestmachine_re
 }
 
 ngx_int_t nchan_subscriber_subrequest_cleanup(subscriber_t *sub) {
-  if(sub->upstream_requestmachine == NULL) {
+  if(sub->upstream_requestmachine != NULL) {
+    nchan_requestmachine_shutdown(sub->upstream_requestmachine);
     ngx_free(sub->upstream_requestmachine);
     sub->upstream_requestmachine = NULL;
   }

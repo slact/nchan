@@ -100,11 +100,11 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
     nchan_free_msg_id(&fsub->sub.last_msgid);
     assert(sub->status == DEAD);
+    nchan_subscriber_subrequest_cleanup(sub);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
     ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
 #endif
-    nchan_subscriber_subrequest_cleanup(sub);
     ngx_free(fsub);
   }
   return NGX_OK;
