@@ -1,3 +1,7 @@
+ refactor: all publisher and subscriber upstream requests are now more memory-efficient
+ fix: Using websocket publisher upstream requests may result in invalid memory access
+ fix: publishing Redis-backed messages with 1-second expiration may fail after
+      cluster restart
  change: nchan_redis_wait_after_connecting directive is now obsolete, and is ignored
  feature: nchan_redis_optimize_target for "cpu" or "bandwidth". Trades off CPU
       load on Redis slaves for syncronization bandwidth.
