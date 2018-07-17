@@ -16,6 +16,7 @@ $server_url="http://127.0.0.1:8082"
 $default_client=:longpoll
 $omit_longmsg=false
 $verbose=false
+$ordered_tests = false
 
 extra_opts = []
 orig_args = ARGV.dup
@@ -32,6 +33,7 @@ opt=OptionParser.new do |opts|
     puts opts
     raise OptionParser::InvalidOption , "--help"
   end
+  opts.on("--ordered", "order tests alphabetically"){$ordered_tests = true}
 end
 
 begin
@@ -79,6 +81,12 @@ end
 class PubSubTest <  Minitest::Test
   def setup
     Celluloid.boot
+  end
+  
+  if $ordered_tests
+    def self.test_order
+      :alpha
+    end
   end
   
   def test_interval_poll
