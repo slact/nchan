@@ -116,7 +116,7 @@ static ngx_http_request_t *nchan_new_fake_request(ngx_connection_t *c) {
   c->data = r;
   return r;
 }
-
+/*
 static ngx_int_t nchan_initialize_fake_request(ngx_http_request_t *r, ngx_connection_t *c) {
   ngx_memzero(r, sizeof(*r));
   r->pool = c->pool;
@@ -183,19 +183,7 @@ static ngx_int_t nchan_initialize_fake_request(ngx_http_request_t *r, ngx_connec
   r->discard_body = 1;
   return NGX_OK;
 }
-
-ngx_http_request_t *nchan_create_fake_request(ngx_connection_t *c) {
-  ngx_http_request_t      *r = nchan_new_fake_request(c);
-  if(r == NULL) {
-    return NULL;
-  }
-  if(nchan_initialize_fake_request(r, c) != NGX_OK) {
-    nchan_free_fake_request(r);
-    return NULL;
-  }
-  return r;
-}
-
+*/
 void empty_handler(ngx_http_request_t *r) {
   //do nothing
 }
@@ -365,7 +353,7 @@ static void fakerequest_cleanup_timer_handler(ngx_event_t *ev) {
   nchan_finalize_fake_request(d->r, NGX_OK);
 }
 
-ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params) {
+nchan_fakereq_subrequest_data_t *nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params) {
   nchan_fakereq_subrequest_data_t *d;
   ngx_pool_t *pool = params->pool;
   int         created_pool = 0;
@@ -374,7 +362,7 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
   if(!pool) {
     if((pool = ngx_create_pool(1024, ngx_cycle->log)) == NULL) {
       nchan_log_error("failed to create requestmachine pool");
-      return NGX_ERROR;
+      return NULL;
     }
     created_pool = 1;
   }
@@ -385,15 +373,17 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
         ngx_destroy_pool(pool);
       }
       nchan_log_error("failed to create subrequest url");
-      return NGX_ERROR;
+      return NULL;
     }
     params->url.str = &url;
   }
   
   ngx_connection_t            *fc = nchan_create_fake_connection(pool);
   if(fc == NULL) {
-    ngx_destroy_pool(pool);
-    return NGX_ERROR;
+    if(created_pool) {
+      ngx_destroy_pool(pool);
+    }
+    return NULL;
   }
   ngx_http_request_t          *fr = nchan_create_derivative_fake_request(fc, rm->template_request);
   ngx_http_request_t          *sr;
@@ -401,8 +391,10 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
   d = ngx_palloc(pool, sizeof(*d));
   ngx_http_post_subrequest_t  *psr = ngx_pcalloc(pool, sizeof(*psr));
   if(fr == NULL || d == NULL || psr == NULL) {
-    ngx_destroy_pool(pool);
-    return NGX_ERROR;
+    if(created_pool) {
+      ngx_destroy_pool(pool);
+    }
+    return NULL;
   }
   
   fr->main_conf = rm->template_request->main_conf;
@@ -424,14 +416,18 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
   
   ngx_http_subrequest(fr, params->url.str, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
   if(sr == NULL) {
-    ngx_destroy_pool(pool);
-    return NGX_ERROR;
+    if(created_pool) {
+      ngx_destroy_pool(pool);
+    }
+    return NULL;
   }
   d->sr = sr;
   
   if((sr->request_body = ngx_pcalloc(pool, sizeof(*sr->request_body))) == NULL) { //dummy request body 
-    ngx_destroy_pool(pool);
-    return NGX_ERROR;
+    if(created_pool) {
+      ngx_destroy_pool(pool);
+    }
+    return NULL;
   }
   
   if(params->body && ngx_buf_size(params->body) > 0) {
@@ -465,7 +461,7 @@ ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_request
   nchan_slist_append(&rm->request_queue, d);
   
   nchan_requestmachine_run(rm);
-  return NGX_OK;
+  return d;
 }
 ngx_int_t nchan_requestmachine_shutdown(nchan_requestmachine_t *rm) {
   return nchan_requestmachine_abort(rm);

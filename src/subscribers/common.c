@@ -112,7 +112,7 @@ ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_st
     param.cb = (callback_pt )subscriber_authorize_callback;
     param.pd = d;
     
-    if(nchan_subscriber_subrequest(sub, &param) == NGX_OK) {
+    if(nchan_subscriber_subrequest(sub, &param) != NULL) {
       sub->fn->reserve(sub);
       return NGX_OK;
     }
@@ -134,7 +134,7 @@ static ngx_int_t nchan_subscriber_subrequest_fire_and_forget(subscriber_t *sub, 
   param.body = NULL;
   param.response_headers_only = 1;
   
-  return nchan_subscriber_subrequest(sub, &param);
+  return nchan_subscriber_subrequest(sub, &param) == NULL ? NGX_ERROR : NGX_OK;
 }
 
 ngx_int_t nchan_subscriber_unsubscribe_request(subscriber_t *sub) {
@@ -283,12 +283,12 @@ void nchan_subscriber_init_timeout_timer(subscriber_t *sub, ngx_event_t *ev) {
   nchan_init_timer(ev, nchan_subscriber_timeout_ev_handler, sub);
 }
 
-ngx_int_t nchan_subscriber_subrequest(subscriber_t *sub, nchan_requestmachine_request_params_t *params) {
+nchan_fakereq_subrequest_data_t *nchan_subscriber_subrequest(subscriber_t *sub, nchan_requestmachine_request_params_t *params) {
   if(sub->upstream_requestmachine == NULL) {
     sub->upstream_requestmachine = ngx_calloc(sizeof(nchan_requestmachine_t), ngx_cycle->log);
     if(sub->upstream_requestmachine == NULL) {
       nchan_log_error("failed to allocate upstream_requestmachine for subscriber %p", sub);
-      return NGX_ERROR;
+      return NULL;
     }
     else {
       nchan_requestmachine_initialize(sub->upstream_requestmachine, sub->request);

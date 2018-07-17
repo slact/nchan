@@ -4,7 +4,6 @@
 #include <nchan_module.h>
 #include <util/nchan_slist.h>
 
-ngx_http_request_t *nchan_create_fake_request(ngx_connection_t *c);
 ngx_http_request_t *nchan_create_derivative_fake_request(ngx_connection_t *c, ngx_http_request_t *rsrc);
 void nchan_finalize_fake_request(ngx_http_request_t *r, ngx_int_t rc);
 void nchan_free_fake_request(ngx_http_request_t *r);
@@ -48,7 +47,7 @@ typedef struct {
 } nchan_requestmachine_request_params_t;
 
 ngx_int_t nchan_requestmachine_initialize(nchan_requestmachine_t *rm, ngx_http_request_t *template_request);
-ngx_int_t nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params);
+nchan_fakereq_subrequest_data_t *nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params);
 ngx_int_t nchan_requestmachine_abort(nchan_requestmachine_t *rm);
 ngx_int_t nchan_requestmachine_shutdown(nchan_requestmachine_t *rm);
 

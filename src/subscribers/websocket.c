@@ -658,7 +658,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
     
     websocket_reserve(&d->fsub->sub);
     
-    rc = nchan_subscriber_subrequest(&fsub->sub, &param);
+    rc = nchan_subscriber_subrequest(&fsub->sub, &param) == NULL ? NGX_ERROR : NGX_OK;
   }
   
   return rc;

@@ -14,7 +14,7 @@ ngx_int_t nchan_request_set_content_type_multipart_boundary_header(ngx_http_requ
 ngx_int_t nchan_subscriber_empty_notify(subscriber_t *, ngx_int_t code, void *data);
 
 
-ngx_int_t nchan_subscriber_subrequest(subscriber_t *sub, nchan_requestmachine_request_params_t *params);
+nchan_fakereq_subrequest_data_t *nchan_subscriber_subrequest(subscriber_t *sub, nchan_requestmachine_request_params_t *params);
 
 
 void nchan_subscriber_timeout_ev_handler(ngx_event_t *ev);
