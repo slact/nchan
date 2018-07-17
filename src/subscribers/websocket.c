@@ -431,6 +431,7 @@ typedef struct {
   full_subscriber_t *fsub;
   ngx_pool_t        *pool;
   ngx_buf_t         *msgbuf;
+  nchan_fakereq_subrequest_data_t *subrequest;
   unsigned           binary:1;
   nchan_msg_t        msg;
 } ws_publish_data_t;
@@ -452,8 +453,13 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     messages  = ch->messages;
     msgid = &ch->last_published_msg_id;
   }
-  
-  ngx_destroy_pool(d->pool);
+  if(d->subrequest) {
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
+  }
+  else {
+    ngx_destroy_pool(d->pool);
+  }
+  d = NULL;
   
   if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
     //zombie publisher
@@ -548,9 +554,11 @@ ngx_int_t websocket_publish_upstream_handler(ngx_int_t rc, ngx_http_request_t *s
   ws_publish_data_t       *d = pd;
   full_subscriber_t       *fsub = d->fsub;
   
+  assert(d->subrequest);
+  
   if(websocket_release(&fsub->sub, 0) == NGX_ABORT || rc == NGX_ABORT) {
     //websocket client disappered, or subrequest got canceled some other way
-    ngx_destroy_pool(d->pool);
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
     return NGX_OK;
   }
   
@@ -604,21 +612,22 @@ ngx_int_t websocket_publish_upstream_handler(ngx_int_t rc, ngx_http_request_t *s
       
       case NGX_HTTP_NOT_MODIFIED:
         websocket_publish_continue(d);
-        
+        //cleaned up later
         break;
         
       case NGX_HTTP_NO_CONTENT:
-        //cancel publication
+        //cancel publishing
+        nchan_requestmachine_request_cleanup_manual(d->subrequest);
         break;
       
       default:
-        ngx_destroy_pool(d->pool); //should free all the relevant things
+        nchan_requestmachine_request_cleanup_manual(d->subrequest);
         websocket_respond_status(&fsub->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
         break;
     }
   }
   else {
-    ngx_destroy_pool(d->pool); //should free all the relevant things
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
     websocket_respond_status(&fsub->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL);
   }
   
@@ -644,6 +653,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
   fsub->publisher.msg_pool = NULL;
   
   if(fsub->publisher.upstream_request_url == NULL) { // don't need to send request upstream
+    d->subrequest = NULL;
     websocket_publish_continue(d);
   }
   else {
@@ -655,10 +665,13 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
     param.response_headers_only = 1;
     param.cb = (callback_pt )websocket_publish_upstream_handler;
     param.pd = d;
+    param.manual_cleanup = 1;
     
     websocket_reserve(&d->fsub->sub);
     
-    rc = nchan_subscriber_subrequest(&fsub->sub, &param) == NULL ? NGX_ERROR : NGX_OK;
+    d->subrequest = nchan_subscriber_subrequest(&fsub->sub, &param);
+    
+    rc = d->subrequest == NULL ? NGX_ERROR : NGX_OK;
   }
   
   return rc;

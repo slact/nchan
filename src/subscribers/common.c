@@ -18,6 +18,7 @@
 typedef struct {
   subscriber_t       *sub;
   ngx_str_t          *ch_id;
+  nchan_fakereq_subrequest_data_t *subrequest;
 } nchan_subscribe_auth_request_data_t;
 
 static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t *sr, void *data) {
@@ -25,10 +26,12 @@ static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t 
   subscriber_t                        *sub = d->sub;
   
   if(sub->status == DEAD) {
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
     sub->fn->release(d->sub, 0);
   }
   else if (rc == NGX_HTTP_CLIENT_CLOSED_REQUEST) {
     //this shouldn't happen, but if it does, no big deal
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
     sub->fn->release(d->sub, 1);
     sub->fn->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL); //couldn't reach upstream
   }
@@ -36,6 +39,7 @@ static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t 
     ngx_int_t        code = sr->headers_out.status;
     sub->fn->release(sub, 1);
     if(code >= 200 && code <299) {
+      nchan_requestmachine_request_cleanup_manual(d->subrequest);
       nchan_subscriber_subscribe(sub, d->ch_id);
     }
     else {
@@ -71,15 +75,18 @@ static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t 
         r->headers_out.content_type = *content_type;
       }
       r->headers_out.content_length_n = content_length;
-      
+      nchan_requestmachine_request_cleanup_on_request_finalize(d->subrequest, r);
       sub->fn->respond_status(sub, code, NULL, request_chain); //auto-closes subscriber
     }
   }
   else if(rc >= 500 && rc < 600) {
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
     sub->fn->release(d->sub, 1);
     sub->fn->respond_status(sub, rc, NULL, NULL); //auto-closes subscriber
   }
   else {
+    nchan_requestmachine_request_cleanup_manual(d->subrequest);
+    sub->fn->release(d->sub, 1);
     d->sub->fn->respond_status(d->sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL); //auto-closes subscriber
   }
   
@@ -101,22 +108,25 @@ ngx_int_t nchan_subscriber_authorize_subscribe_request(subscriber_t *sub, ngx_st
     param.pool = ngx_create_pool(1024, ngx_cycle->log);
     param.body = NULL;
     param.response_headers_only = 0;
+    param.manual_cleanup = 1;
     
     nchan_subscribe_auth_request_data_t  *d = ngx_palloc(param.pool, sizeof(*d));
     if(!d) {
       ngx_destroy_pool(param.pool);
       return NGX_ERROR;
     }
-    d->sub = sub;
-    d->ch_id = ch_id;
     param.cb = (callback_pt )subscriber_authorize_callback;
     param.pd = d;
     
-    if(nchan_subscriber_subrequest(sub, &param) != NULL) {
+    d->sub = sub;
+    d->ch_id = ch_id;
+    d->subrequest = nchan_subscriber_subrequest(sub, &param);
+    if(d->subrequest != NULL) {
       sub->fn->reserve(sub);
       return NGX_OK;
     }
     else {
+      ngx_destroy_pool(param.pool);
       return NGX_ERROR;
     }
   }
@@ -133,6 +143,7 @@ static ngx_int_t nchan_subscriber_subrequest_fire_and_forget(subscriber_t *sub, 
   param.pool = NULL;
   param.body = NULL;
   param.response_headers_only = 1;
+  param.manual_cleanup = 0;
   
   return nchan_subscriber_subrequest(sub, &param) == NULL ? NGX_ERROR : NGX_OK;
 }

@@ -340,9 +340,30 @@ static ngx_int_t nchan_requestmachine_subrequest_handler(ngx_http_request_t *sr,
   else if(d->cb) {
     d->cb(NGX_ABORT, sr, d->pd);
   }
+  if(!d->manual_cleanup && !d->cleanup_timer.timer_set) {
+    ngx_add_timer(&d->cleanup_timer, 0);
+  }
+  return NGX_OK;
+}
+
+ngx_int_t nchan_requestmachine_request_cleanup_manual(nchan_fakereq_subrequest_data_t *d) {
   if(!d->cleanup_timer.timer_set) {
     ngx_add_timer(&d->cleanup_timer, 0);
   }
+  return NGX_OK;
+}
+
+static void nchan_requestmachine_request_cleanup_on_request_finalize_cln_handler(void *d) {
+  nchan_requestmachine_request_cleanup_manual(d);
+}
+
+ngx_int_t nchan_requestmachine_request_cleanup_on_request_finalize(nchan_fakereq_subrequest_data_t *d, ngx_http_request_t *r) {
+  ngx_http_cleanup_t     *cln = ngx_http_cleanup_add(r, 0);
+  if(cln == NULL) {
+    return NGX_ERROR;
+  }
+  cln->data = d;
+  cln->handler = nchan_requestmachine_request_cleanup_on_request_finalize_cln_handler;
   return NGX_OK;
 }
 
@@ -406,6 +427,7 @@ nchan_fakereq_subrequest_data_t *nchan_requestmachine_request(nchan_requestmachi
   d->running = 0;
   d->r = fr;
   d->rm = rm;
+  d->manual_cleanup = params->manual_cleanup;
   ngx_memzero(&d->cleanup_timer, sizeof(d->cleanup_timer));
   nchan_init_timer(&d->cleanup_timer, fakerequest_cleanup_timer_handler, d);
   
