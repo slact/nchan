@@ -1643,6 +1643,7 @@ class PubSubTest <  Minitest::Test
       pub.post "q"*40000
       pub.post "C:#{Random.new.bytes 10000}", "application/octet-stream"
       pub.post "C:#{Random.new.bytes 40000}", "application/octet-stream"
+      pub.post "C:#{Random.new.bytes 1000000}", "application/octet-stream"
       pub.post "FIN"
       
       sub.wait
