@@ -13,5 +13,5 @@ mkdir $core_dir 2>/dev/null
 echo "saving coredump for $target at $dump"
 
 sudo coredumpctl dump $target > $dump
-kdbg ./nginx "$dump" 2>/dev/null
+sudo kdbg ./nginx "$dump" 2>/dev/null
 # rm "$dump" #keep it around for now

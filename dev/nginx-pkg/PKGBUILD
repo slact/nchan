@@ -1,7 +1,7 @@
 #!/bin/zsh
-_nginx_ver_latest=1.13.6
-_nginx_ver_stable=1.12.2
-_nginx_ver_nopool=1.13.6
+_nginx_ver_latest=1.15.1
+_nginx_ver_stable=1.14.0
+_nginx_ver_nopool=1.13.8
 _nginx_ver_legacy=1.8.1
 _nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
@@ -204,7 +204,10 @@ if [[ $NO_POOL == 1 ]] && [[ -z $USE_OPENRESTY ]]; then
   md5sums+=( 'SKIP')
 fi
 
-
+if [[ $TRACK_POOL == 1 ]]; then
+  source+=("track-pool.patch")
+  md5sums+=('SKIP')
+fi
 
 build() {
   local _src_dir="${srcdir}/${_extracted_dir}"
@@ -230,6 +233,16 @@ build() {
         patch -p1 < "${srcdir}/nginx-${_nginx_ver}-no_pool.patch"
       fi
     fi
+    
+    if [[ $TRACK_POOL == 1 ]]; then
+      echo "using the track-pool patch"
+      if [[ -n $USE_OPENRESTY ]]; then
+        echo "track_pool patch not available for openresty"
+      else
+        patch -p1 -F 5 < "${srcdir}/track-pool.patch"
+      fi
+    fi
+    
     if [[ $NGX_SLAB_PATCH == 1 ]]; then
       echo "using the ngx_slab patch to fix large alloc/frees"
       patch -p1 < "${startdir}/ngx_slab.patch"

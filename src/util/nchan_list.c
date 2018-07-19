@@ -34,6 +34,32 @@ void *nchan_list_append(nchan_list_t *list) {
  return nchan_list_append_sized(list, list->data_sz);
 }
 
+void *nchan_list_first(nchan_list_t *list) {
+  if(list->head) {
+    return nchan_list_data_from_el(list->head);
+  }
+  else {
+    return NULL;
+  }
+}
+void *nchan_list_last(nchan_list_t *list) {
+  if(list->tail) {
+    return nchan_list_data_from_el(list->tail);
+  }
+  else {
+    return NULL;
+  }
+}
+
+void *nchan_list_prev(void *data) {
+  nchan_list_el_t  *el = nchan_list_el_from_data(data)->prev;
+  return el == NULL ? NULL : nchan_list_data_from_el(el);
+}
+void *nchan_list_next(void *data) {
+  nchan_list_el_t  *el = nchan_list_el_from_data(data)->next;
+  return el == NULL ? NULL : nchan_list_data_from_el(el);
+}
+
 void *nchan_list_append_sized(nchan_list_t *list, size_t sz) {
   nchan_list_el_t  *el, *tail = list->tail;
   if(list->pool_sz > 0) {

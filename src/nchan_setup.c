@@ -94,6 +94,27 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   return mcf;
 }
 
+static void *nchan_create_srv_conf(ngx_conf_t *cf) {
+  nchan_srv_conf_t       *scf = ngx_pcalloc(cf->pool, sizeof(*scf));
+  if(scf == NULL) {
+    return NGX_CONF_ERROR;
+  }
+  scf->redis.connect_timeout = NGX_CONF_UNSET_MSEC;
+  scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
+  scf->redis.master_weight = NGX_CONF_UNSET;
+  scf->redis.slave_weight = NGX_CONF_UNSET;
+  return scf;
+}
+
+static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
+  nchan_srv_conf_t       *prev = parent, *conf = child;
+  ngx_conf_merge_msec_value(conf->redis.connect_timeout, prev->redis.connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
+  MERGE_UNSET_CONF(conf->redis.optimize_target, prev->redis.optimize_target, NCHAN_REDIS_OPTIMIZE_UNSET, NCHAN_REDIS_OPTIMIZE_CPU);
+  ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
+  ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);
+  return NGX_CONF_OK;
+}
+
 //location config stuff
 static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   nchan_loc_conf_t       *lcf = ngx_pcalloc(cf->pool, sizeof(*lcf));
@@ -161,7 +182,8 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.ping_interval = NGX_CONF_UNSET;
   lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
   lcf->redis.storage_mode = REDIS_MODE_CONF_UNSET;
-  lcf->redis.after_connect_wait_time = NGX_CONF_UNSET;
+  lcf->redis.privdata = NULL;
+  lcf->redis.nodeset = NULL;
   
   lcf->request_handler = NULL;
   return lcf;
@@ -238,7 +260,7 @@ static char *ngx_conf_set_redis_upstream(ngx_conf_t *cf, ngx_str_t *url, void *c
   
   lcf->redis.enabled = 1;
   global_redis_enabled = 1;
-  nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+  nchan_store_redis_add_active_loc_conf(cf, lcf);
   
   return NGX_CONF_OK;
 }
@@ -369,19 +391,17 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
   ngx_conf_merge_str_value(conf->redis.namespace, prev->redis.namespace, "");
   ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
-  ngx_conf_merge_sec_value(conf->redis.after_connect_wait_time, prev->redis.after_connect_wait_time, 0);
   
   if(conf->redis.url_enabled) {
     conf->redis.enabled = 1;
-    nchan_store_redis_add_server_conf(cf, &conf->redis, conf);
+    nchan_store_redis_add_active_loc_conf(cf, conf);
   }
   if(conf->redis.upstream_inheritable && !conf->redis.upstream && prev->redis.upstream && prev->redis.upstream_url.len > 0) {
     conf->redis.upstream_url = prev->redis.upstream_url;
     ngx_conf_set_redis_upstream(cf, &conf->redis.upstream_url, conf);
   }
-  if(conf->redis.storage_mode == REDIS_MODE_CONF_UNSET) {
-    conf->redis.storage_mode = prev->redis.storage_mode == REDIS_MODE_CONF_UNSET ? REDIS_MODE_DISTRIBUTED : prev->redis.storage_mode;
-  }
+  
+  MERGE_UNSET_CONF(conf->redis.storage_mode, prev->redis.storage_mode, REDIS_MODE_CONF_UNSET, REDIS_MODE_DISTRIBUTED);
   
   if(prev->request_handler != NULL && conf->request_handler == NULL) {
     conf->request_handler = prev->request_handler;
@@ -982,6 +1002,52 @@ static char *nchan_set_longpoll_multipart(ngx_conf_t *cf, ngx_command_t *cmd, vo
   return NGX_CONF_OK;
 }
 
+static char *ngx_conf_set_redis_subscribe_weights(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_int_t  master = NGX_CONF_UNSET;
+  ngx_int_t  slave = NGX_CONF_UNSET;
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *cur;
+  unsigned   i;
+  nchan_srv_conf_t *scf = conf;
+  for(i=1; i < cf->args->nelts; i++) {
+    cur = &val[i];
+    if(nchan_str_after(&cur, "master=")) {
+      if((master = ngx_atoi(cur->data, cur->len)) == NGX_ERROR) {
+        return "has invalid weight for master";
+      }
+    }
+    else if(nchan_str_after(&cur, "slave=")) {
+      if((slave = ngx_atoi(cur->data, cur->len)) == NGX_ERROR) {
+        return "has invalid weight for slave";
+      }
+    }
+  }
+  
+  if(master != NGX_CONF_UNSET) {
+    scf->redis.master_weight = master;
+  }
+  if(slave != NGX_CONF_UNSET) {
+    scf->redis.slave_weight = slave;
+  }
+  
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_optimize_target(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_srv_conf_t   *scf = conf;
+  if(nchan_strmatch(val, 2, "bandwidth", "bw")) {
+    scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_BANDWIDTH;
+  }
+  else if(nchan_strmatch(val, 2, "cpu", "CPU")) {
+    scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_CPU;
+  }
+  else {
+    return "invalid value, must be \"bandwidth\" or \"cpu\"";
+  }
+  return NGX_CONF_OK;
+}
+
 static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   char                *rc;
   ngx_flag_t          *fp;
@@ -997,12 +1063,12 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   if(*fp) {
     if(!lcf->redis.enabled) {
       lcf->redis.enabled = 1;
-      nchan_store_redis_add_server_conf(cf, &lcf->redis, lcf);
+      nchan_store_redis_add_active_loc_conf(cf, lcf);
     }
     global_redis_enabled = 1;
   }
   else {
-    nchan_store_redis_remove_server_conf(cf, &lcf->redis);
+    nchan_store_redis_remove_active_loc_conf(cf, lcf);
   }
   
   return rc;
@@ -1034,6 +1100,11 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
     return NGX_CONF_ERROR;
   }
   value = cf->args->elts;
+  
+  if(!nchan_store_redis_validate_url(&value[1])) {
+    return "url is invalid";
+  }
+  
   ngx_memzero(usrv, sizeof(*usrv));
 #if nginx_version >= 1007002
   usrv->name = value[1];
@@ -1047,9 +1118,14 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
 
 static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t  *lcf = conf;
+  ngx_str_t *val = cf->args->elts;
+  ngx_str_t *arg = &val[1];
   
   if(lcf->redis.upstream) {
     return "can't be set here: already using nchan_redis_pass";
+  }
+  if(!nchan_store_redis_validate_url(arg)) {
+    return "url is invalid";
   }
   
   return ngx_conf_set_str_slot(cf, cmd, conf);
@@ -1125,8 +1201,8 @@ static ngx_http_module_t  nchan_module_ctx = {
     nchan_postconfig,              /* postconfiguration */
     nchan_create_main_conf,        /* create main configuration */
     NULL,                          /* init main configuration */
-    NULL,                          /* create server configuration */
-    NULL,                          /* merge server configuration */
+    nchan_create_srv_conf,         /* create server configuration */
+    nchan_merge_srv_conf,          /* merge server configuration */
     nchan_create_loc_conf,         /* create location configuration */
     nchan_merge_loc_conf,          /* merge location configuration */
 };

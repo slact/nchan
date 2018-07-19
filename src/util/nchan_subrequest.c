@@ -45,11 +45,12 @@ static ngx_inline ngx_uint_t nchan_hash_str(u_char *src, size_t n) {
 #define nchan_hash_literal(s)                                        \
   nchan_hash_str((u_char *) s, sizeof(s) - 1)
 
-static ngx_int_t nchan_set_content_length_header(ngx_http_request_t *r, off_t len, u_char *p) {
+ngx_int_t nchan_set_content_length_header(ngx_http_request_t *r, off_t len) {
   ngx_table_elt_t                 *h, *header;
   ngx_list_part_t                 *part;
   ngx_http_request_t              *pr;
   ngx_uint_t                       i;
+  u_char                          *p;
   static ngx_uint_t                nchan_content_length_hash = 0;
   if(nchan_content_length_hash == 0) {
     nchan_content_length_hash = nchan_hash_literal("content-length");
@@ -70,11 +71,9 @@ static ngx_int_t nchan_set_content_length_header(ngx_http_request_t *r, off_t le
   h->lowcase_key= (u_char *)"content-length";
 
   r->headers_in.content_length = h;
-  if(p == NULL) {
-    p = ngx_palloc(r->pool, NGX_OFF_T_LEN);
-    if (p == NULL) {
-      return NGX_ERROR;
-    }
+  p = ngx_palloc(r->pool, NGX_OFF_T_LEN);
+  if (p == NULL) {
+    return NGX_ERROR;
   }
 
   h->value.data = p;
@@ -120,7 +119,7 @@ static ngx_int_t nchan_set_content_length_header(ngx_http_request_t *r, off_t le
   return NGX_OK;
 }
 
-ngx_int_t nchan_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method, ngx_str_t *method_name, ngx_http_request_body_t *request_body, size_t content_length_n, u_char *content_len_str) {
+ngx_int_t nchan_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method, ngx_str_t *method_name, ngx_http_request_body_t *request_body, size_t content_length_n) {
   //ngx_http_core_main_conf_t  *cmcf;
   ngx_http_request_t         *r;
   ngx_http_request_body_t    *body;
@@ -154,7 +153,7 @@ ngx_int_t nchan_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method, ngx
   if ((body = request_body)!=NULL) {
     sr->request_body = body;
 
-    rc = nchan_set_content_length_header(sr, content_length_n, content_len_str);
+    rc = nchan_set_content_length_header(sr, content_length_n);
     
     if (rc != NGX_OK) {
       return NGX_ERROR;
@@ -253,9 +252,17 @@ size_t nchan_subrequest_content_length(ngx_http_request_t *sr) {
   size_t                            len = 0;
   ngx_http_upstream_headers_in_t   *headers_in = &sr->upstream->headers_in;
   ngx_chain_t                      *chain;
+  ngx_chain_t                      *body_chain;
+#if nginx_version >= 1013010
+  body_chain = sr->out;
+#else
+  body_chain = sr->upstream->out_bufs;
+#endif
+  
+  
   if(headers_in->chunked || headers_in->content_length_n == -1) {
     //count it
-    for(chain = sr->upstream->out_bufs; chain != NULL; chain = chain->next) {
+    for(chain = body_chain; chain != NULL; chain = chain->next) {
       len += ngx_buf_size((chain->buf));
     }
   }
@@ -264,4 +271,54 @@ size_t nchan_subrequest_content_length(ngx_http_request_t *sr) {
   }
   
   return len;
+}
+
+
+ngx_http_request_t *nchan_create_subrequest(ngx_http_request_t *r, ngx_str_t *url, ngx_buf_t *body, ngx_http_post_subrequest_pt cb, void *pd) {
+  ngx_http_post_subrequest_t    *psr = ngx_pcalloc(r->pool, sizeof(*psr));
+  ngx_http_request_t            *sr;
+  
+  psr->handler = cb;
+  psr->data = pd;
+  
+  ngx_http_subrequest(r, url, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
+  
+  if((sr->request_body = ngx_pcalloc(r->pool, sizeof(*sr->request_body))) == NULL) { //dummy request body 
+    return NULL;
+  }
+  
+  if(body && ngx_buf_size(body) > 0) {
+    static ngx_str_t                   POST_REQUEST_STRING = {4, (u_char *)"POST "};
+    size_t                             sz;
+    ngx_http_request_body_t           *sr_body = sr->request_body;
+    ngx_chain_t                       *fakebody_chain;
+    ngx_buf_t                         *fakebody_buf;
+    
+    fakebody_chain = ngx_palloc(r->pool, sizeof(*fakebody_chain));
+    fakebody_buf = ngx_pcalloc(r->pool, sizeof(*fakebody_buf));
+    sr_body->bufs = fakebody_chain;
+    fakebody_chain->next = NULL;
+    fakebody_chain->buf = fakebody_buf;
+    fakebody_buf->last_buf = 1;
+    fakebody_buf->last_in_chain = 1;
+    fakebody_buf->flush = 1;
+    fakebody_buf->memory = 1;
+    
+    //just copy the buffer contents. it's inefficient but I don't care at the moment.
+    //this can and should be optimized later
+    sz = ngx_buf_size(body);
+    fakebody_buf->start = ngx_palloc(r->pool, sz); //huuh?
+    ngx_memcpy(fakebody_buf->start, body->start, sz);
+    fakebody_buf->end = fakebody_buf->start + sz;
+    fakebody_buf->pos = fakebody_buf->start;
+    fakebody_buf->last = fakebody_buf->end;
+    
+    nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, sr_body, sz);
+  }
+  else {
+    sr->header_only = 1;
+  }
+  sr->args = r->args;
+  
+  return sr;
 }

@@ -33,13 +33,15 @@ for opt in $*; do
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
     gcc6)
-      export CC=gcc-6;;
+      export CC="ccache gcc-6";;
     gcc5)
-      export CC=gcc-5;;
+      export CC="ccache gcc-5";;
     gcc4|gcc47|gcc4.7)
-      export CC=gcc-4.7;;
+      export CC="ccache gcc-4.7";;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
+    trackpool|track-pool) 
+      export TRACK_POOL=1;;
     debug-pool|debugpool) 
       export NGX_DEBUG_POOL=1;;
     dynamic)
@@ -234,11 +236,20 @@ if [[ -z $NO_MAKE ]]; then
   rdstore_dir=${MY_PATH}/../src/store/redis
   bundle exec hsss \
      --format whole \
-     ${rdstore_dir}/scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
+     --header-only \
+     --no-static \
+     ${rdstore_dir}/redis-lua-scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
   if ! [ $? -eq 0 ]; then;
     echo "failed generating redis lua scripts";
     exit 1
   fi  
+  echo "#include \"redis_lua_commands.h\"\n" > "${rdstore_dir}/redis_lua_commands.c"
+  bundle exec hsss \
+     --format whole \
+     --data-only \
+     --no-static \
+     ${rdstore_dir}/redis-lua-scripts/*.lua >> ${rdstore_dir}/redis_lua_commands.c
+  
   pushd $pkg_path >/dev/null
   
   _build_nginx

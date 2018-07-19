@@ -117,6 +117,16 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
     return NGX_OK;
   }
 }
+
+static ngx_int_t sub_respond_notice(ngx_int_t notice, void *ptr, sub_data_t *d) {
+  if(!d->unhooked) {
+    return memstore_ipc_send_publish_notice(d->originator, d->chid, notice, NULL);
+  }
+  else {
+    return NGX_OK;
+  }
+}
+
 static void reset_timer(sub_data_t *data) {
   if(data->timeout_ev.timer_set) {
     ngx_del_timer(&data->timeout_ev);
@@ -158,7 +168,7 @@ subscriber_t *memstore_ipc_subscriber_create(ngx_int_t originator_slot, ngx_str_
   subscriber_t               *sub;
   
   assert(originator_slot != memstore_slot());
-  sub = internal_subscriber_create_init(&sub_name, cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, NULL, NULL);
+  sub = internal_subscriber_create_init(&sub_name, cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_respond_notice, NULL);
   
   sub->last_msgid = newest_msgid;
   sub->destroy_after_dequeue = 1;

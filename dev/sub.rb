@@ -49,6 +49,8 @@ opt_parser=OptionParser.new do |opts|
   opts.on("--http2", "use HTTP/2"){opt[:http2] = true}
   
   opts.on("--websocket-permessage-deflate", "Try to use the websocket permessage-deflate extension."){opt[:permessage_deflate]=true}
+  opts.on("--websocket-permessage-deflate-max-window-bits NUM", "max-window-bits permessage-deflate setting") {|n|opt[:permessage_deflate_max_window_bits]=n.to_i}
+  opts.on("--websocket-permessage-deflate-server-max-window-bits NUM", "server-max-window-bits permessage-deflate setting") {|n|opt[:permessage_deflate_server_max_window_bits]=n.to_i}
   opts.on("--websocket-meta-subprotocol", "Use the ws+meta.nchan websocket subprotocol"){opt[:subprotocol]="ws+meta.nchan"}
   
   opts.on("-v", "--verbose", "somewhat rather extraneously wordful output") do

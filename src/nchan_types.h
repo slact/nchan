@@ -5,7 +5,9 @@
 
 typedef ngx_int_t (*callback_pt)(ngx_int_t, void *, void *);
 
-typedef enum {MSG_CHANNEL_NOTREADY, MSG_NORESPONSE, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
+#include <util/nchan_fake_request.h>
+
+typedef enum {MSG_ERROR, MSG_CHANNEL_NOTREADY, MSG_INVALID, MSG_PENDING, MSG_NOTFOUND, MSG_FOUND, MSG_EXPECTED, MSG_EXPIRED} nchan_msg_status_t;
 typedef enum {INACTIVE, NOTREADY, WAITING, STUBBED, READY, DELETED} chanhead_pubsub_status_t;
 
 typedef enum {NCHAN_CONTENT_TYPE_PLAIN, NCHAN_CONTENT_TYPE_JSON, NCHAN_CONTENT_TYPE_XML, NCHAN_CONTENT_TYPE_YAML, NCHAN_CONTENT_TYPE_HTML} nchan_content_type_t;
@@ -43,7 +45,7 @@ typedef struct {
   ngx_http_upstream_srv_conf_t *upstream;
   ngx_flag_t                    upstream_inheritable;
   unsigned                      enabled:1;
-  time_t                        after_connect_wait_time;
+  void                         *nodeset;
   void                         *privdata;
 } nchan_redis_conf_t;
 
@@ -265,6 +267,21 @@ typedef struct {
  ngx_atomic_uint_t               max_messages;
 } nchan_loc_conf_shared_data_t;
 
+typedef enum {
+  NCHAN_REDIS_OPTIMIZE_UNSET = -1,
+  NCHAN_REDIS_OPTIMIZE_CPU = 1,
+  NCHAN_REDIS_OPTIMIZE_BANDWIDTH = 2
+} nchan_redis_optimize_t;
+
+typedef struct {
+  struct {
+      ngx_msec_t                    connect_timeout;
+      nchan_redis_optimize_t        optimize_target;
+      ngx_int_t                     master_weight;
+      ngx_int_t                     slave_weight;
+  }                               redis;
+} nchan_srv_conf_t;
+
 struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   ngx_int_t                       shared_data_index;
@@ -368,11 +385,14 @@ struct subscriber_s {
   nchan_msg_id_t             last_msgid;
   nchan_loc_conf_t          *cf;
   ngx_http_request_t        *request;
+  void                      *upstream_requestmachine;
   ngx_uint_t                 reserved;
+  
   unsigned                   enable_sub_unsub_callbacks;
   unsigned                   dequeue_after_response:1;
   unsigned                   destroy_after_dequeue:1;
   unsigned                   enqueued:1;
+  
 #if FAKESHARD
   ngx_int_t                  owner;
 #endif
@@ -403,7 +423,6 @@ typedef struct {
   ngx_str_t                     *request_origin_header;
   ngx_str_t                     *allow_origin;
   
-  ngx_int_t                      unsubscribe_request_callback_finalize_code;
   unsigned                       sent_unsubscribe_request:1;
   unsigned                       request_ran_content_handler:1;
 #if NCHAN_BENCHMARK
@@ -412,5 +431,13 @@ typedef struct {
   
 } nchan_request_ctx_t;
 
+
+typedef struct {
+  ngx_str_t     hostname;
+  ngx_str_t     peername; // resolved hostname (ip address)
+  ngx_int_t     port;
+  ngx_str_t     password;
+  ngx_int_t     db;
+} redis_connect_params_t;
 
 #endif  /* NCHAN_TYPES_H */

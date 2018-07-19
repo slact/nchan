@@ -100,6 +100,7 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
     DBG("%p destroy for req %p", sub, fsub->sub.request);
     nchan_free_msg_id(&fsub->sub.last_msgid);
     assert(sub->status == DEAD);
+    nchan_subscriber_subrequest_cleanup(sub);
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
     subscriber_debug_remove(sub);
     ngx_memset(fsub, 0xB9, sizeof(*fsub)); //debug
@@ -154,13 +155,6 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
 
-  
-#if nginx_version >= 1003015
-  if(self->cf->unsubscribe_request_url) {
-    self->request->read_event_handler = nchan_subscriber_unsubscribe_callback_http_test_reading;
-  }
-#endif
-  
   return NGX_OK;
 }
 
@@ -175,20 +169,8 @@ static ngx_int_t longpoll_dequeue(subscriber_t *self) {
   DBG("%p dequeue", self);
   fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
   
-  if(self->enqueued && self->enable_sub_unsub_callbacks && self->cf->unsubscribe_request_url 
-   && ctx->unsubscribe_request_callback_finalize_code != NGX_HTTP_CLIENT_CLOSED_REQUEST) {
-    r->main->blocked = 1;
-    if(fsub->data.finalize_request) {
-      nchan_subscriber_unsubscribe_request(self, NGX_OK);
-      self->status = DEAD;
-    }
-    else {
-      nchan_subscriber_unsubscribe_request(self, NGX_DONE);
-    }
-    if(ctx->request_ran_content_handler) {
-      ngx_http_run_posted_requests(r->connection);
-    }
-    finalize_now = 0;
+  if(self->enqueued && self->enable_sub_unsub_callbacks && self->cf->unsubscribe_request_url) {
+    nchan_subscriber_unsubscribe_request(self);
   }
   
   self->enqueued = 0;
@@ -491,7 +473,7 @@ ngx_int_t subscriber_respond_unqueued_status(full_subscriber_t *fsub, ngx_int_t 
   fsub->sub.fn->dequeue(&fsub->sub);
   if(cf->unsubscribe_request_url || cf->subscribe_request_url) {
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-    ctx->sent_unsubscribe_request = 1;
+    ctx->sent_unsubscribe_request = 1; //lie about having sent the unsub request already to avoid sending it
   }
   return nchan_respond_status(r, status_code, status_line, status_body, 1);
 }
@@ -543,6 +525,7 @@ static const subscriber_t new_longpoll_sub = {
   &longpoll_fn,
   UNKNOWN,
   NCHAN_ZERO_MSGID,
+  NULL,
   NULL,
   NULL,
   0, //reservations

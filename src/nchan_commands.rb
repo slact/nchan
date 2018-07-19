@@ -417,13 +417,42 @@ CfCmd.new do
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
   nchan_redis_wait_after_connecting [:main, :srv, :loc],
-      :ngx_conf_set_sec_slot,
-      [:loc_conf, :"redis.after_connect_wait_time"],
+      :nchan_ignore_obsolete_setting,
+      :loc_conf,
+      
+      group: "obsolete",
+      tags: ['redis'],
+      uncocumented: true
+  
+  nchan_redis_connect_timeout [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.connect_timeout"],
       
       group: "storage",
       tags: ['redis'],
-      default: "0s",
-      info: "Wait this amount of time after connecting to Redis to process requests. Useful when dealng with connections to Redis cluster nodes of unknown role."
+      default: "600ms",
+      info: "Redis server connection timeout."
+  
+  nchan_redis_subscribe_weights [:upstream],
+      :ngx_conf_set_redis_subscribe_weights,
+      :srv_conf,
+      args: 1..2,
+      
+      group: "storage",
+      tags: ['redis'],
+      value: "master=<integer> slave=<integer>",
+      default: "master=1 slave=1",
+      info: "Determines how subscriptions to Redis PUBSUB channels are distributed between master and slave nodes. The higher the number, the more likely that each node of that type will be chosen for each new channel. The weights for slave nodes are cumulative, so an equal 1:1 master:slave weight ratio with two slaves would have a 1/3 chance of picking a master, and 2/3 chance of picking one of the slaves. The weight must be a non-negative integer."
+  
+  nchan_redis_optimize_target [:upstream],
+      :ngx_conf_set_redis_optimize_target,
+      :srv_conf,
+      
+      group: "storage",
+      tags: ['redis'],
+      value: [:cpu, :bandwidth],
+      default: "cpu",
+      info: "This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. Optimizing for CPU usage enables effect replication, costing additional bandwidth (between 1.2 and 2 times more) between all master->slave links. Optimizing for bandwidth increases CPU load on slaves, but keeps outgoing bandwidth used for replication the same as the incoming bandwidth on Master."
   
   nchan_redis_namespace [:main, :srv, :upstream], 
       :ngx_conf_set_redis_namespace_slot,

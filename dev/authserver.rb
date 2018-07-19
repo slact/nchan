@@ -74,11 +74,16 @@ class AuthServer
       print_request env, body
       
       case env["REQUEST_PATH"] || env["PATH_INFO"]
-      when /^\/accel_redirect\/(\w+)\/(\w+)/
+      when /^\/accel_redirect\/(\w+)\/(\w+)(\/(\w+))?/
         what=$1
         chid=$2
+        chid2=$4
         if what == "sub"
           headers["X-Accel-Redirect"]="/sub/internal/#{chid}"
+        elsif what == "sub_multi"
+          headers["X-Accel-Redirect"]="/sub/multi/#{chid}/#{chid2}"
+        elsif what == "sub_withcb"
+          headers["X-Accel-Redirect"]="/sub/withcb/#{chid}"
         else
           headers["X-Accel-Redirect"]="/pub/#{chid}"
         end

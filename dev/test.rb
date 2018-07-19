@@ -16,6 +16,7 @@ $server_url="http://127.0.0.1:8082"
 $default_client=:longpoll
 $omit_longmsg=false
 $verbose=false
+$ordered_tests = false
 
 extra_opts = []
 orig_args = ARGV.dup
@@ -32,6 +33,7 @@ opt=OptionParser.new do |opts|
     puts opts
     raise OptionParser::InvalidOption , "--help"
   end
+  opts.on("--ordered", "order tests alphabetically"){$ordered_tests = true}
 end
 
 begin
@@ -59,7 +61,7 @@ def pubsub(concurrent_clients=1, opt={})
   sub_url=opt[:sub] || "sub/broadcast/"
   pub_url=opt[:pub] || "pub/"
   chan_id = opt[:channel] || short_id
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol]
+  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol], log: opt[:log]
   pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
   return pub, sub
 end
@@ -79,6 +81,12 @@ end
 class PubSubTest <  Minitest::Test
   def setup
     Celluloid.boot
+  end
+  
+  if $ordered_tests
+    def self.test_order
+      :alpha
+    end
   end
   
   def test_interval_poll
@@ -199,6 +207,59 @@ class PubSubTest <  Minitest::Test
     sub.wait
     verify pub, sub
     
+  end
+  
+  def test_multiplexed_expiring_message_delivery
+    #tests for a bug where a channel with expired messages may
+    # block delivery of other messages for a multiplexed channel 
+    # this was happening for redis-backed multiplexed channels
+    
+    chan_short, chan_long = short_id, short_id
+    
+    #short expiration time message
+    pub_short = Publisher.new url("/pub/#{chan_short}/expire/1")
+    sub_short = Subscriber.new(url("/sub/broadcast/#{chan_short}"), 1, client: :eventsource, quit_message: 'SHORTFIN', timeout: 5)
+    
+    #long expiration time messages
+    pub_long = Publisher.new url("/pub/#{chan_long}/expire/200")
+    sub_long = Subscriber.new(url("/sub/broadcast/#{chan_long}"), 1, client: :eventsource, quit_message: 'LONGFIN', timeout: 5)
+    
+    sub_short.run
+    sub_long.run
+    
+    sub_short.wait :ready
+    sub_long.wait :ready
+    
+    pub_short.post ["SHORTFIN"]
+    pub_long.post ["long1", "long2", "LONGFIN"]
+    
+    sub_short.wait
+    sub_long.wait
+    
+    verify pub_short, sub_short
+    verify pub_long, sub_long
+    
+    sub_short.terminate
+    
+    start = Time.now
+    7.times do
+      sleep 0.5
+      sub_multi=Subscriber.new(url("/sub/multi/#{chan_short}/#{chan_long}"), 1, client: :eventsource, quit_message: 'LONGFIN', timeout: 1)
+      sub_multi.run
+      sub_multi.wait
+      if sub_multi.match_errors(/Timeout/)
+        #double check that the message is there
+        sub_long.reset
+        sub_long.run
+        sub_long.wait
+        verify pub_long, sub_long
+        
+        assert false, "Failed to deliver non-expired messages after #{Time.now - start} sec"
+      end
+      sub_multi.terminate
+    end
+    
+    sub_long.terminate
   end
   
   def test_websocket_pubsub_echo
@@ -530,24 +591,29 @@ class PubSubTest <  Minitest::Test
     rands= %w( foo bar baz bax qqqqqqqqqqqqqqqqqqq eleven andsoon andsoforth feh )
     pub=[]
     sub=[]
+    concurrency = 55
     10.times do |i|
-      pub[i], sub[i]=pubsub 15
+      pub[i], sub[i]=pubsub concurrency, timeout: 20
       sub[i].run
     end
     pub.each do |p|
-      rand(1..10).times do
-        p.post rands.sample
+      rand(1..10).times do |ii|
+        p.post "#{ii} --- #{rands.sample}"
       end
     end
     sleep 1
-    pub.each do |p|
-      p.post 'FIN'
-    end
-    sub.each do |s|
-      s.wait
-    end
+    pub.each {|p| p.post 'FIN' }
+    sub.each &:wait
     pub.each_with_index do |p, i|
-      verify p, sub[i]
+      s = sub[i]
+      if s.errors?
+        puts "should have #{concurrency} each of:"
+        puts p.messages.msgs.map {|v| "  #{v.id}:\"#{v.message}\""}.join "\n"
+        puts "but have:"
+        puts s.messages.msgs.map {|k, v| " #{v.id}:\"#{v.message}\" #{v.times_seen}"}.join "\n"
+      end
+      
+      verify p, s
     end
     sub.each &:terminate
   end
@@ -586,7 +652,23 @@ class PubSubTest <  Minitest::Test
       sub.wait
       verify pub, sub
       sub.terminate
+      #print "ok.. try again"
+    end
+  end
+  
+    def test_longpoll_multipart_keepup(range=150..155)
+    range.each do |i|
+      pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 20
+      pub.post ["foo", "bar","baz", "bax"]
       sleep 0.1
+      sub.run
+      i.times do |n|
+        pub.post "#{n+1}"
+      end
+      pub.post "FIN"
+      sub.wait
+      verify pub, sub
+      sub.terminate
     end
   end
   
@@ -853,8 +935,8 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def assert_header_includes(response, header, str)
-    assert response.headers[header].include?(str), "Response header '#{header}: #{response.headers[header]}' must contain \"#{str}\", but does not."
+  def assert_header_includes(description, response, header, str)
+    assert response.headers[header].include?(str), "#{description} response header '#{header}: #{response.headers[header]}' must contain \"#{str}\", but does not."
   end
   
   def test_access_control_options
@@ -865,15 +947,15 @@ class PubSubTest <  Minitest::Test
     
     assert_equal "http://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET ).each do |v| 
-      assert_header_includes resp, "Access-Control-Allow-Methods", v
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Methods", v
+      assert_header_includes "subscriber CORS", resp, "Allow", v
     end
-    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Headers", v}
     
     request = Typhoeus::Request.new url("sub/broadcast/#{chan}"), method: :OPTIONS
     resp = request.run
     %w( GET ).each do |v| 
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "subscriber OPTIONS", resp, "Allow", v
     end
     
     
@@ -881,16 +963,21 @@ class PubSubTest <  Minitest::Test
     resp = request.run
     assert_equal "https://example.com", resp.headers["Access-Control-Allow-Origin"]
     %w( GET POST DELETE ).each do |v| 
-      assert_header_includes resp, "Access-Control-Allow-Methods", v
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "publisher CORS", resp, "Access-Control-Allow-Methods", v
+      assert_header_includes "publisher CORS", resp, "Allow", v
     end
-    %w( Content-Type ).each {|v| assert_header_includes resp, "Access-Control-Allow-Headers", v}
+    %w( Content-Type ).each {|v| assert_header_includes "publisher CORS", resp, "Access-Control-Allow-Headers", v}
     
     request = Typhoeus::Request.new url("pub/#{chan}"), method: :OPTIONS
     resp = request.run
     %w( GET POST DELETE ).each do |v| 
-      assert_header_includes resp, "Allow", v
+      assert_header_includes "publisher OPTIONS", resp, "Allow", v
     end
+    
+    request = Typhoeus::Request.new url("pubsub/#{chan}"), method: :OPTIONS, headers: { 'Origin' => "https://example.com" }
+    resp = request.run
+    %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes "pubsub CORS", resp, "Access-Control-Allow-Headers", v}
+    
   end
   
   def generic_test_access_control(opt)
@@ -928,6 +1015,21 @@ class PubSubTest <  Minitest::Test
   #  
   #end
   
+  def test_getmulti_nonexistent_message_from_nonexistent_channel
+    chan = short_id
+    msgid = "#{Time.now.to_i - 2}:[32767],-"
+    pub = Publisher.new url("/pub/#{chan}"), accept: 'text/json'
+    sub = Subscriber.new url("/sub/multi/#{short_id}/#{chan}?last_event_id=#{msgid}"), 1,  timeout: 4, quit_message: 'FIN'
+    
+    sub.run
+    sleep 0.2
+    pub.post "huh"
+    pub.post "FIN"
+    sub.wait
+    verify pub, sub
+    sub.terminate
+  end
+  
   def test_urlencoded_msgid
     chan_id=short_id
     pub = Publisher.new url("/pub/#{chan_id}"), accept: 'text/json'
@@ -942,16 +1044,18 @@ class PubSubTest <  Minitest::Test
 
     last_msgid = "#{last_msgid_time}%3A-%2C-%2C%5B0%5D%2C-"
     
-    sub = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 3)
     sub.run
     sub.wait
     
-    sub2 = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{URI.decode last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+    sub2 = Subscriber.new(url("/sub/split/#{short_id}_#{short_id}_#{chan_id}_#{short_id}?last_event_id=#{URI.decode last_msgid}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 3)
     sub2.run
     sub2.wait
     
     verify pub, sub
     verify pub, sub2
+    sub.terminate
+    sub2.terminate
   end
   
   def test_invalid_etag
@@ -1300,7 +1404,7 @@ class PubSubTest <  Minitest::Test
     
     ver= proc do |bundle| 
       assert_equal "http://foo.bar", bundle.headers["Access-Control-Allow-Origin"] 
-      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
+      %w( Last-Modified Etag ).each {|v| assert_header_includes "CORS Expose-Headers", bundle, "Access-Control-Expose-Headers", v}
     end
     generic_test_access_control(origin: "http://foo.bar", verify_sub_response: ver, sub_url: "sub/from_foo.bar/") do |pub, sub|
       verify pub, sub
@@ -1310,7 +1414,7 @@ class PubSubTest <  Minitest::Test
     origin_host=""
     ver= proc do |bundle| 
       assert_equal origin_host, bundle.headers["Access-Control-Allow-Origin"]
-      %w( Last-Modified Etag ).each {|v| assert_header_includes bundle, "Access-Control-Expose-Headers", v}
+      %w( Last-Modified Etag ).each {|v| assert_header_includes "CORS Expose-Headers", bundle, "Access-Control-Expose-Headers", v}
     end
     origin_host="http://foo.bar"
     generic_test_access_control(origin: origin_host, verify_sub_response: ver, param: {foo: "foobar"}, sub_url: "/sub/access_control_in_if_block/") do |pub, sub|
@@ -1612,12 +1716,12 @@ class PubSubTest <  Minitest::Test
     verify pub, sub, eventsource_event: true, id: true
   end
   
-  def test_publisher_upstream_request
+  def test_publisher_pubsub_upstream_request(websocket=false)
     auth = start_authserver  quiet: true
     begin
       assert "" != auth.publisher_upstream_transform_message("")
       
-      pub, sub = pubsub 2, pub: '/upstream_pubsub/' , quit_message: auth.publisher_upstream_transform_message('FIN')
+      pub, sub = pubsub 2, pub: '/upstream_pubsub/' , quit_message: auth.publisher_upstream_transform_message('FIN'), websocket_publisher: websocket
       sub.run
       pub.post ["foo", "bar", "Baz", "q"*2048, "FIN"]
       sub.wait
@@ -1648,6 +1752,58 @@ class PubSubTest <  Minitest::Test
     ensure
       auth.stop
     end
+  end
+  
+  def test_websocket_publisher_pubsub_upstream_request
+    test_publisher_pubsub_upstream_request(true)
+  end
+  
+  def test_websocket_permessage_deflate_allowed_windows_bits
+    (8..16).each do |n|
+      ["permessage-deflate; client_max_window_bits", "permessage-deflate; server_max_window_bits", "deflate-frame; max_window_bits"].each do |ext|
+        request = Typhoeus::Request.new url("sub/broadcast/#{short_id}"), method: :GET, forbid_reuse: true, headers: {
+          'Upgrade' =>'Websocket',
+          'Connection' => 'Upgrade',
+          'Sec-WebSocket-Key' => 'BUy97UID2mxgDTFA+6EZHg==',
+          'Sec-WebSocket-Version' => '13',
+          'Sec-WebSocket-Extensions' => "#{ext}=#{n}"
+        }
+        resp = request.run
+        if n < 9 || n > 15 then
+          assert_equal 400, resp.code, "#{ext}=#{n} should be invalid"
+        else
+          assert_equal 101, resp.code, "#{ext}=#{n} should be valid"
+          m = ext.match(/^(.*); (.*)/)
+          assert_match m[1], resp.headers["Sec-WebSocket-Extensions"]
+          if m[2].match(/^(server_)?max_window_bits/)
+            #server_max_window_bits is always 10?...
+            reply_n = 10
+          else
+            reply_n = n
+          end
+          
+          assert_match "#{m[2]}=#{reply_n}", resp.headers["Sec-WebSocket-Extensions"]
+        end
+      end
+    end
+    
+    
+  end
+  
+  def test_buffer_size_respected
+    pub, sub = pubsub 1, pub: "/pub/buflen_5/", client: :eventsource
+    pub.post ["1", "2", "3", "4", "FIN"]
+    sub.run
+    sub.wait
+    verify pub, sub
+    
+    pub.reset
+    sub.reset
+    
+    pub.post ["5", "6", "7", "8", "FIN"]
+    sub.run
+    sub.wait
+    verify pub, sub
   end
   
 end

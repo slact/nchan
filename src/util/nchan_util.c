@@ -6,12 +6,27 @@
 #endif
 
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
+  if(str1 == str2) {
+    return 1;
+  }
   if(str1->len != str2->len) {
     return 0;
+  }
+  if(str1->len == 0) {
+    return 1;
   }
   return memcmp(str1->data, str2->data, str1->len) == 0;
 }
 
+
+int nchan_ngx_str_nonzero_match(ngx_str_t *str1, ngx_str_t *str2) {
+  if(str1->len == 0) {
+    return 0;
+  }
+  else {
+    return nchan_ngx_str_match(str1, str2);
+  }
+}
 
 ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last) {
   //inspired by ngx_strnstr
@@ -70,6 +85,53 @@ ngx_int_t ngx_http_complex_value_noalloc(ngx_http_request_t *r, ngx_http_complex
     return NGX_ERROR;
   }
   
+  value->len = len;
+
+  e.ip = val->values;
+  e.pos = value->data;
+  e.buf = *value;
+
+  while (*(uintptr_t *) e.ip) {
+    code = *(ngx_http_script_code_pt *) e.ip;
+    code((ngx_http_script_engine_t *) &e);
+  }
+
+  *value = e.buf;
+
+  return NGX_OK;
+}
+
+ngx_int_t ngx_http_complex_value_custom_pool(ngx_http_request_t *r, ngx_http_complex_value_t *val, ngx_str_t *value, ngx_pool_t *pool) {
+  size_t                        len;
+  ngx_http_script_code_pt       code;
+  ngx_http_script_len_code_pt   lcode;
+  ngx_http_script_engine_t      e;
+
+  if (val->lengths == NULL) {
+    *value = val->value;
+    return NGX_OK;
+  }
+
+  ngx_http_script_flush_complex_value(r, val);
+
+  ngx_memzero(&e, sizeof(ngx_http_script_engine_t));
+
+  e.ip = val->lengths;
+  e.request = r;
+  e.flushed = 1;
+
+  len = 0;
+
+  while (*(uintptr_t *) e.ip) {
+    lcode = *(ngx_http_script_len_code_pt *) e.ip;
+    len += lcode(&e);
+  }
+  
+  value->data = ngx_palloc(pool, len);
+  if(value->data == NULL) {
+    nchan_log_error("couldn't palloc for ngx_http_complex_value_custom_pool");
+    return NGX_ERROR;
+  }
   value->len = len;
 
   e.ip = val->values;
@@ -204,6 +266,29 @@ int nchan_cstr_startswith(char *cstr, char *match) {
   }
   return 1;
 }
+int nchan_str_startswith(ngx_str_t *str, const char *match) {
+  size_t sz = strlen(match);
+  if(sz > str->len) {
+    return 0;
+  }
+  if(memcmp(str->data, match, sz) == 0) {
+    return 1;
+  }
+  return 0;
+}
+
+int nchan_str_after(ngx_str_t **str, const char *match) {
+  if(nchan_str_startswith(*str, match)) {
+    size_t sz = strlen(match);
+    (*str)->data+=sz;
+    (*str)->len-=sz;
+    return 1;
+  }
+  else {
+    return 0;
+  }
+}
+
 
 void nchan_scan_split_by_chr(u_char **cur, size_t max_len, ngx_str_t *str, u_char chr) {
   u_char   *shortest = NULL;
@@ -236,22 +321,26 @@ void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr) {
   //ERR("rest_line: \"%V\"", line);
   cur = (u_char *)memchr(line->data, chr, line->len);
   if(!cur) {
-    *str = *line;
+    if(str) {
+      *str = *line;
+    }
     line->data += line->len;
     line->len = 0;
   }
   else {
-    str->data = line->data;
-    str->len = (cur - line->data);
-    line->len -= str->len + 1;
-    line->data += str->len + 1;
+    if(str) {
+      str->data = line->data;
+      str->len = (cur - line->data);
+    }
+    line->len -= (cur - line->data) + 1;
+    line->data += (cur - line->data) + 1;
   }
   //ERR("str: \"%V\"", str);
 }
 
 void nchan_strcpy(ngx_str_t *dst, ngx_str_t *src, size_t maxlen) {
   size_t len = src->len > maxlen && maxlen > 0 ? maxlen : src->len;
-  ngx_memcpy(dst->data, src->data, len);
+  memcpy(dst->data, src->data, len);
   dst->len = len;
 }
 
@@ -385,15 +474,22 @@ void oneshot_timer_callback(ngx_event_t *ev) {
   ngx_free(timer);
  }
 
-ngx_int_t nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay) {
+void *nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay) {
   oneshot_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
   ngx_memzero(&timer->ev, sizeof(timer->ev));
   timer->cb = cb;
   nchan_init_timer(&timer->ev, oneshot_timer_callback, pd);
   ngx_add_timer(&timer->ev, delay);
-  return NGX_OK;
+  return timer;
 }
 
+void nchan_abort_oneshot_timer(void *t) {
+  oneshot_timer_t *timer = t;
+  if(timer->ev.timer_set) {
+    ngx_del_timer(&timer->ev);
+  }
+  ngx_free(timer);
+}
 
 typedef struct {
   ngx_event_t    ev;
@@ -449,6 +545,47 @@ int nchan_ngx_str_char_substr(ngx_str_t *str, char *substr, size_t sz) {
   for(len = str->len; len >= sz; cur++, len--) {
     if(strncmp(cur, substr, sz) == 0) {
       return 1;
+    }
+  }
+  return 0;
+}
+
+int nchan_cstr_match_line(const char *cstr, const char *line) {
+  ngx_str_t rest;
+  if(nchan_get_rest_of_line_in_cstr(cstr, line, &rest)) {
+    return rest.len == 0 ? 1 : 0;
+  }
+  return 0;
+}
+
+int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx_str_t *rest) {
+  const char *cur = cstr;
+  const char *end = cur + strlen(cur);
+  
+  while(cur && cur < end) {
+    char *first = strstr(cstr, line_start);
+    if(!first) { //not found at all
+      if(rest) rest->len = 0;
+      return 0;
+    }
+    
+    if(first == cstr || first[-1]=='\n') { //start of line or start of string
+      const char *last = strchr(first, '\n');
+      if(!last) { // end of string
+        last = end;
+      }
+      else if(last > first && last[-1]=='\r') {
+        last--;
+      }
+      if(rest) {
+        rest->len = last - first - strlen(line_start);
+        rest->data = (u_char *)first + strlen(line_start);
+      }
+      return 1;
+    }
+    else {
+      //we found a match in the middle of the string
+      cur = strchr(cur, '\n'); //move on, redo
     }
   }
   return 0;

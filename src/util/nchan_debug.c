@@ -8,13 +8,13 @@
 char *nchan_msg_status_to_cstr(nchan_msg_status_t status) {
   switch(status) {
     STRINGIFY_ENUM(MSG_CHANNEL_NOTREADY)
-    STRINGIFY_ENUM(MSG_NORESPONSE)
     STRINGIFY_ENUM(MSG_INVALID)
     STRINGIFY_ENUM(MSG_PENDING)
     STRINGIFY_ENUM(MSG_NOTFOUND)
     STRINGIFY_ENUM(MSG_FOUND)
     STRINGIFY_ENUM(MSG_EXPECTED)
     STRINGIFY_ENUM(MSG_EXPIRED)
+    STRINGIFY_ENUM(MSG_ERROR)
   }
   return "???";
 }
@@ -73,7 +73,7 @@ void subscriber_debug_assert_isempty(void) {
   if(subdebug_head != NULL) {
     subscriber_t *cur;
     for(cur = subdebug_head; cur != NULL; cur = cur->dbg_next) {
-      nchan_log_error("  LEFTOVER: %V sub (req. %p (pool %p) cf %p) lbl %s", cur->name, cur->request, cur->request ? cur->request->pool : NULL, cur->cf, cur->lbl ? cur->lbl : (u_char *)"nolbl");
+      nchan_log_error("  LEFTOVER: %V sub (req. %p (pool %p) cf %p rsv: %d) lbl %s", cur->name, cur->request, cur->request ? cur->request->pool : NULL, cur->cf, cur->reserved, cur->lbl ? cur->lbl : (u_char *)"nolbl");
     }
     raise(SIGABRT);
   }

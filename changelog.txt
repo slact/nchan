@@ -1,3 +1,33 @@
+ refactor: all publisher and subscriber upstream requests are now more memory-efficient
+ fix: Using websocket publisher upstream requests may result in invalid memory access
+ fix: publishing Redis-backed messages with 1-second expiration may fail after
+      cluster restart
+ change: nchan_redis_wait_after_connecting directive is now obsolete, and is ignored
+ feature: nchan_redis_optimize_target for "cpu" or "bandwidth". Trades off CPU
+      load on Redis slaves for syncronization bandwidth.
+ feature: configurable Redis master/slave channel subscribe weights with
+      nchan_redis_subscribe_weights
+ fix: Compilation issues on OS X and systems lacking non-POSIX memrchr()
+ fix: nchan_pubsub CORS Allowed headers did not include headers used by subscribers
+ fix: Redis-backed channel buffer length could exceed nchan_message_buffer_length
+ fix: Publisher upstream compatibility for Nginx > 1.13.10
+ feature: nchan_redis_connect_timeout to configure maximum connection time 
+      to Redis servers
+ feature: Offload Redis SUBSCRIBE traffic to slaves 
+      (one SUBSCRIBE per channel per worker)
+ fix: Redis cluster and master/slave failover and reconnection issues
+ refactor: Redis connection handling rewritten from scratch
+ fix: subscribers may not receive new messages after reconnecting to Redis
+ fix: publishing to an unavailable Redis-backed channel may result in a 
+      following 400 Bad Request
+ change: Old Redis-backed channel messages are now delivered after the message
+      buffer is fully loaded into memory. Previously they were delivered
+      incrementally while the buffer loaded.
+ fix: multiplexed Redis-backed channels may not deliver messages if one or
+      more channels' messages all expire
+ fix: possible crash when catching up to reconnected Redis channel with
+      subscribers waiting for consecutive messages
+ fix: possible crash from rapidly creating and deleting channels
 1.1.15 (Apr. 27 2018)
  fix: A disconnect from a Redis cluster node can result in a segfault
  fix: Using Redis-backed multiplexed channels can result in a segfault
