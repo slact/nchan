@@ -1758,6 +1758,38 @@ class PubSubTest <  Minitest::Test
     test_publisher_pubsub_upstream_request(true)
   end
   
+  def test_websocket_permessage_deflate_allowed_windows_bits
+    (8..16).each do |n|
+      ["permessage-deflate; client_max_window_bits", "permessage-deflate; server_max_window_bits", "deflate-frame; max_window_bits"].each do |ext|
+        request = Typhoeus::Request.new url("sub/broadcast/#{short_id}"), method: :GET, forbid_reuse: true, headers: {
+          'Upgrade' =>'Websocket',
+          'Connection' => 'Upgrade',
+          'Sec-WebSocket-Key' => 'BUy97UID2mxgDTFA+6EZHg==',
+          'Sec-WebSocket-Version' => '13',
+          'Sec-WebSocket-Extensions' => "#{ext}=#{n}"
+        }
+        resp = request.run
+        if n < 9 || n > 15 then
+          assert_equal 400, resp.code, "#{ext}=#{n} should be invalid"
+        else
+          assert_equal 101, resp.code, "#{ext}=#{n} should be valid"
+          m = ext.match(/^(.*); (.*)/)
+          assert_match m[1], resp.headers["Sec-WebSocket-Extensions"]
+          if m[2].match(/^(server_)?max_window_bits/)
+            #server_max_window_bits is always 10?...
+            reply_n = 10
+          else
+            reply_n = n
+          end
+          
+          assert_match "#{m[2]}=#{reply_n}", resp.headers["Sec-WebSocket-Extensions"]
+        end
+      end
+    end
+    
+    
+  end
+  
   def test_buffer_size_respected
     pub, sub = pubsub 1, pub: "/pub/buflen_5/", client: :eventsource
     pub.post ["1", "2", "3", "4", "FIN"]
