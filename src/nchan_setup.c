@@ -86,7 +86,7 @@ static void * nchan_create_main_conf(ngx_conf_t *cf) {
   
 #if (NGX_ZLIB)
   mcf->zlib_params.level = Z_DEFAULT_COMPRESSION;
-  mcf->zlib_params.windowBits = -10;
+  mcf->zlib_params.windowBits = 10;
   mcf->zlib_params.memLevel = 8;
   mcf->zlib_params.strategy = Z_DEFAULT_STRATEGY;
 #endif
@@ -742,7 +742,7 @@ static char *nchan_conf_deflate_compression_window_directive(ngx_conf_t *cf, ngx
     return "must be between 9 and 15";
   }
   
-  mcf->zlib_params.windowBits = -np;
+  mcf->zlib_params.windowBits = np;
 #endif
   return NGX_CONF_OK;
 }

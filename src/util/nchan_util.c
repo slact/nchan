@@ -740,7 +740,7 @@ static ngx_path_t      *message_temp_path = NULL;
 
 ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf) {
   int rc;
-  
+  int windowBits;
   message_temp_path = mcf->message_temp_path;
   
   if((deflate_zstream = ngx_calloc(sizeof(*deflate_zstream), ngx_cycle->log)) == NULL) {
@@ -748,11 +748,13 @@ ngx_int_t nchan_common_deflate_init(nchan_main_conf_t  *mcf) {
     return NGX_ERROR;
   }
   
+  windowBits = -mcf->zlib_params.windowBits; //negative to disable headers and use a raw stream
+  
   deflate_zstream->zalloc = Z_NULL;
   deflate_zstream->zfree = Z_NULL;
   deflate_zstream->opaque = Z_NULL;
   
-  rc = deflateInit2(deflate_zstream, (int) mcf->zlib_params.level, Z_DEFLATED, mcf->zlib_params.windowBits, mcf->zlib_params.memLevel, mcf->zlib_params.strategy);
+  rc = deflateInit2(deflate_zstream, (int) mcf->zlib_params.level, Z_DEFLATED, windowBits, mcf->zlib_params.memLevel, mcf->zlib_params.strategy);
   if(rc != Z_OK) {
     nchan_log_error("couldn't initialize deflate stream.");
     deflate_zstream = NULL;
