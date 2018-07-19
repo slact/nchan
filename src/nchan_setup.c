@@ -756,11 +756,11 @@ static char *nchan_conf_deflate_compression_memlevel_directive(ngx_conf_t *cf, n
   if (np == NGX_ERROR) {
     return "invalid number";
   }
-  if(np < 9 || np > 15) {
+  if(np < 1 || np > 9) {
     return "must be between 1 and 9";
   }
   
-  mcf->zlib_params.windowBits = -np;
+  mcf->zlib_params.memLevel = np;
 #endif
   return NGX_CONF_OK;
 }
