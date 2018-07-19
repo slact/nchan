@@ -1759,7 +1759,8 @@ class PubSubTest <  Minitest::Test
   end
   
   def test_websocket_permessage_deflate_allowed_windows_bits
-    (8..16).each do |n|
+    server_min_window_bytes = 10
+    (0..30).each do |n|
       ["permessage-deflate; client_max_window_bits", "permessage-deflate; server_max_window_bits", "deflate-frame; max_window_bits"].each do |ext|
         request = Typhoeus::Request.new url("sub/broadcast/#{short_id}"), method: :GET, forbid_reuse: true, headers: {
           'Upgrade' =>'Websocket',
@@ -1769,11 +1770,12 @@ class PubSubTest <  Minitest::Test
           'Sec-WebSocket-Extensions' => "#{ext}=#{n}"
         }
         resp = request.run
-        if n < 9 || n > 15 then
+        m = ext.match(/^(.*); (.*)/)
+        min_window_bytes = m[2].match(/^(server_)?max_window_bits/) ? server_min_window_bytes : 9
+        if n < min_window_bytes || n > 15 then
           assert_equal 400, resp.code, "#{ext}=#{n} should be invalid"
         else
           assert_equal 101, resp.code, "#{ext}=#{n} should be valid"
-          m = ext.match(/^(.*); (.*)/)
           assert_match m[1], resp.headers["Sec-WebSocket-Extensions"]
           if m[2].match(/^(server_)?max_window_bits/)
             #server_max_window_bits is always 10?...
