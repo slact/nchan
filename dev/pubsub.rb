@@ -1766,7 +1766,7 @@ class Publisher
     end
     if @ws_wait_until_response
       while not sent[:response] do
-        sent[:condition].wait 0.5
+        Celluloid.sleep 0.1
       end
     end
     sent[:msg]
