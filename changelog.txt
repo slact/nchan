@@ -1,3 +1,4 @@
+ feature: configurable support for CORS Access-Control-Allow-Credentials header
  fix: better compliance with RFC7692  Websocket permessage-deflate parameter negotiation
  fix (security): possible busy-loop denial-of-service for specially crafted 
       handshakes from Websocket subscribers using permessage-deflate
