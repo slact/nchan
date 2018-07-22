@@ -308,6 +308,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_str_t                       subscriber_http_raw_stream_separator;
 
   ngx_http_complex_value_t       *allow_origin;
+  ngx_int_t                       allow_credentials;
   
   nchan_complex_value_arr_t       last_message_id;
   ngx_str_t                       custom_msgtag_header;

@@ -15,6 +15,7 @@ const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_HEADERS = ngx_string("Access-
 const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_METHODS = ngx_string("Access-Control-Allow-Methods");
 const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN = ngx_string("Access-Control-Allow-Origin");
 const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_EXPOSE_HEADERS = ngx_string("Access-Control-Expose-Headers");
+const  ngx_str_t NCHAN_HEADER_ACCESS_CONTROL_ALLOW_CREDENTIALS = ngx_string("Access-Control-Allow-Credentials");
 
 const  ngx_str_t NCHAN_HEADER_EVENTSOURCE_EVENT = ngx_string("X-EventSource-Event");
 

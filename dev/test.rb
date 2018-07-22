@@ -938,6 +938,9 @@ class PubSubTest <  Minitest::Test
   def assert_header_includes(description, response, header, str)
     assert response.headers[header].include?(str), "#{description} response header '#{header}: #{response.headers[header]}' must contain \"#{str}\", but does not."
   end
+  def assert_header_absent(description, response, header)
+    assert response.headers[header].nil?, "#{description} response header '#{header}' must be absent."
+  end
   
   def test_access_control_options
     chan=SecureRandom.hex
@@ -949,6 +952,7 @@ class PubSubTest <  Minitest::Test
     %w( GET ).each do |v| 
       assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Methods", v
       assert_header_includes "subscriber CORS", resp, "Allow", v
+      assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Credentials", "true"
     end
     %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes "subscriber CORS", resp, "Access-Control-Allow-Headers", v}
     
@@ -978,6 +982,13 @@ class PubSubTest <  Minitest::Test
     resp = request.run
     %w( If-None-Match If-Modified-Since Content-Type Cache-Control X-EventSource-Event ).each {|v| assert_header_includes "pubsub CORS", resp, "Access-Control-Allow-Headers", v}
     
+    request = Typhoeus::Request.new url("/pub/#{chan}"), method: :GET, headers: { 'Origin' => "https://example.com" }
+    resp  = request.run
+    assert_header_includes "publisher GET", resp, "Access-Control-Allow-Credentials", "true"
+    
+    request = Typhoeus::Request.new url("/pub/nocredentials/#{chan}"), method: :GET, headers: { 'Origin' => "https://example.com" }
+    resp  = request.run
+    assert_header_absent "publisher GET", resp, "Access-Control-Allow-Credentials"
   end
   
   def generic_test_access_control(opt)

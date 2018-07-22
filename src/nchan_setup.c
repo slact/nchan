@@ -162,6 +162,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->msg_in_etag_only = NGX_CONF_UNSET;
   
+  lcf->allow_origin = NULL;
+  lcf->allow_credentials = NGX_CONF_UNSET;
+  
   lcf->channel_events_channel_id = NULL;
   lcf->channel_event_string = NULL;
   
@@ -326,6 +329,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_str_value(conf->channel_id_split_delimiter, prev->channel_id_split_delimiter, "");
   MERGE_CONF(conf, prev, allow_origin);
+  ngx_conf_merge_value(conf->allow_credentials, prev->allow_credentials, 1);
   ngx_conf_merge_str_value(conf->eventsource_event, prev->eventsource_event, "");
   ngx_conf_merge_str_value(conf->custom_msgtag_header, prev->custom_msgtag_header, "");
   ngx_conf_merge_value(conf->msg_in_etag_only, prev->msg_in_etag_only, 0);

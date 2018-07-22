@@ -1301,6 +1301,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Redis server connection timeout.    
 
+- **nchan_access_control_allow_credentials**  
+  arguments: 1  
+  default: `on`  
+  context: http, server, location, if  
+  > When enabled, sets the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Credentials` header to `true`.    
+
 - **nchan_access_control_allow_origin** `<string>`  
   arguments: 1  
   default: `$http_origin`  

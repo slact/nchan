@@ -526,6 +526,17 @@ CfCmd.new do
       tags: ['publisher', 'subscriber'],
       default: "$http_origin",
       info: "Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the incoming request's `Origin` header does not match this value, respond with a `403 Forbidden`."
+
+  nchan_access_control_allow_credentials [:main, :srv, :loc, :if], 
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :allow_credentials],
+      args: 1,
+      
+      group: "security",
+      tags: ['publisher', 'subscriber'],
+      default: "on",
+      info: "When enabled, sets the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Credentials` header to `true`."
+  
   
   nchan_channel_group [:srv, :loc, :if], 
       :ngx_http_set_complex_value_slot, 

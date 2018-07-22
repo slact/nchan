@@ -302,6 +302,8 @@ ngx_int_t nchan_output_msg_filter(ngx_http_request_t *r, nchan_msg_t *msg, ngx_c
 void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request_ctx_t *ctx) {
   ngx_str_t          *origin;
   ngx_str_t          *allow_origin_val;
+  static ngx_str_t    true_string = ngx_string("true");
+  nchan_loc_conf_t   *cf;
   if(!ctx) {
     ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   }
@@ -310,7 +312,12 @@ void nchan_include_access_control_if_needed(ngx_http_request_t *r, nchan_request
   }
   
   if((origin = nchan_get_header_value_origin(r, ctx)) != NULL) {
-    allow_origin_val = nchan_get_allow_origin_value(r, NULL, ctx);
+    cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+    
+    if(cf->allow_credentials) {
+      nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_CREDENTIALS, &true_string);
+    }
+    allow_origin_val = nchan_get_allow_origin_value(r, cf, ctx);
     if(allow_origin_val && allow_origin_val->len == 1 && allow_origin_val->data[0]=='*') {
       nchan_add_response_header(r, &NCHAN_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN, allow_origin_val);
     }

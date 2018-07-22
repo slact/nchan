@@ -438,6 +438,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, allow_origin),
     NULL } ,
 
+  { ngx_string("nchan_access_control_allow_credentials"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, allow_credentials),
+    NULL } ,
+
   { ngx_string("nchan_channel_group"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_http_set_complex_value_slot,
