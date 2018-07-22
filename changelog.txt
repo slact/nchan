@@ -1,3 +1,8 @@
+ fix: better compliance with RFC7692  Websocket permessage-deflate parameter negotiation
+ fix (security): possible busy-loop denial-of-service for specially crafted 
+      handshakes from Websocket subscribers using permessage-deflate
+      (Thanks, Benjamin Michéle)
+ fix: nchan_permessage_deflate_compression_memlevel was not applied when set
  refactor: all publisher and subscriber upstream requests are now more memory-efficient
  fix: Using websocket publisher upstream requests may result in invalid memory access
  fix: publishing Redis-backed messages with 1-second expiration may fail after
