@@ -342,7 +342,7 @@ if opt[:newversion]
   l = changelog.lines.first
   changes_logged = l.match(/^\s+/) && true
   unless changes_logged
-    prev_ver = l.match(/(\d+\.\d+\.\d+\w*)/)
+    prev_ver = l.match(/^(\d+\.\d+\.\d+\w*)/)
     unless prev_ver
       STDERR.puts "Invalid changelog.txt first line: expected a version, got something weird..."
       exit 1
@@ -358,7 +358,7 @@ if opt[:newversion]
   else
     prev_ver = nil
     changelog.lines.each do |l|
-      prev_ver = l.match(/(\d+\.\d+\.\d+\w*)/)
+      prev_ver = l.match(/^(\d+\.\d+\.\d+\w*)/)
       if prev_ver
         prev_ver = prev_ver.to_s
         break
