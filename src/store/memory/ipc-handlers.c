@@ -821,7 +821,6 @@ typedef struct {
 static ngx_int_t redis_receive_channel_auth_check_callback(ngx_int_t status, void *ch, void *d) {
   nchan_channel_t                     *channel = (nchan_channel_t *)ch;
   channel_authcheck_data_callback_t   *data = (channel_authcheck_data_callback_t *)d;
-  assert(status == NGX_OK);
   if(channel == NULL) {
     data->d.auth_ok = !data->d.channel_must_exist;
   }
