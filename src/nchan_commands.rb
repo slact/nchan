@@ -348,8 +348,9 @@ CfCmd.new do
       
       group: "storage",
       tags: ['redis'],
+      value: "<redis-url>",
       default: "127.0.0.1:6379",
-      info: "The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.",
+      info: "Use of this command is discouraged in favor of upstreams blocks with (`nchan_redis_server`)[#nchan_redis_server]. The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.",
       uri: "#connecting-to-a-redis-server"
   
   nchan_redis_pass [:main, :srv, :loc],
@@ -358,8 +359,9 @@ CfCmd.new do
       
       group: "storage",
       tags: ['publisher', 'subscriber', 'redis'],
+      value: "<upstream-name>",
       info: "Use an upstream config block for Redis servers.",
-      uri: "#redis-cluster"
+      uri: "#connecting-to-a-redis-server"
   
   nchan_redis_pass_inheritable [:main, :srv, :loc],
       :ngx_conf_set_flag_slot,
@@ -379,8 +381,9 @@ CfCmd.new do
       :loc_conf,
       group: "storage",
       tags: ['redis'],
-      info: "Used in upstream { } blocks to set redis servers.",
-      uri: "#redis-cluster"
+      value: "<redis-url>",
+      info: "Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.",
+      uri: "#connecting-to-a-redis-server"
   
   nchan_redis_storage_mode [:main, :srv, :upstream], 
       :ngx_conf_set_redis_storage_mode_slot,
@@ -404,7 +407,7 @@ CfCmd.new do
       tags: ['redis', 'publisher', 'subscriber'],
       value: [ :on, :off ],
       default: :off,
-      info: "Use redis for message storage at this location.", 
+      info: "Use of this command is discouraged in favor of (`nchan_redis_pass`)[#nchan_redis_pass]. Use Redis for message storage at this location.",
       uri: "#connecting-to-a-redis-server"
   
   nchan_redis_ping_interval [:main, :srv, :loc],
