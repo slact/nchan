@@ -704,7 +704,7 @@ Redis Cluster connections are designed to be resilient and try to recover from e
 
 All Nchan servers sharing a Redis server or cluster should have their times synchronized (via ntpd or your favorite ntp daemon). Failure to do so may result in missed or duplicate messages.
 
-##### Tweaks and Optimizations
+#### Tweaks and Optimizations
 
 As of version 1.2.0, Nchan uses Redis slaves to load-balance PUBSUB traffic. By default, there is an equal chance that a channel's PUBSUB subscription will go to any master or slave. The [`nchan_redis_subscribe_weights`](#nchan_redis_subscribe_weights) setting is available to fine-tune this load-balancing.
 
