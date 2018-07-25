@@ -359,8 +359,9 @@ CfCmd.new do
       
       group: "storage",
       tags: ['publisher', 'subscriber', 'redis'],
+      value: "<upstream-name>",
       info: "Use an upstream config block for Redis servers.",
-      uri: "#redis-cluster"
+      uri: "#connecting-to-a-redis-server"
   
   nchan_redis_pass_inheritable [:main, :srv, :loc],
       :ngx_conf_set_flag_slot,
@@ -382,7 +383,7 @@ CfCmd.new do
       tags: ['redis'],
       value: "<redis-url>",
       info: "Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.",
-      uri: "#redis-cluster"
+      uri: "#connecting-to-a-redis-server"
   
   nchan_redis_storage_mode [:main, :srv, :upstream], 
       :ngx_conf_set_redis_storage_mode_slot,

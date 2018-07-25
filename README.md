@@ -706,7 +706,7 @@ All Nchan servers sharing a Redis server or cluster should have their times sync
 
 ##### Tweaks and Optimizations
 
-As of version 1.2.0, Nchan uses Redis slaves to load-balance PUBSUB traffic. By default, there is an equal chance that a channel's PUBSUB subscription will go to any master or slave. The [`nchan_redis_subscribe_weights`](nchan_redis_subscribe_weights) setting is available to fine-tune this load-balancing.
+As of version 1.2.0, Nchan uses Redis slaves to load-balance PUBSUB traffic. By default, there is an equal chance that a channel's PUBSUB subscription will go to any master or slave. The [`nchan_redis_subscribe_weights`](#nchan_redis_subscribe_weights) setting is available to fine-tune this load-balancing.
 
 Also from 1.2.0 onward, [`nchan_redis_optimize_target`](#nchan_redis_optimize_target) can be used to prefer optimizing Redis slaves for CPU or bandwidth. For heavy publishing loads, the tradeoff is very roughly 35% replication bandwidth per slave to 30% CPU load on slaves.
 
@@ -1214,11 +1214,11 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. Optimizing for CPU usage enables effect replication, costing additional bandwidth (between 1.2 and 2 times more) between all master->slave links. Optimizing for bandwidth increases CPU load on slaves, but keeps outgoing bandwidth used for replication the same as the incoming bandwidth on Master.    
 
-- **nchan_redis_pass**  
+- **nchan_redis_pass** `<upstream-name>`  
   arguments: 1  
   context: http, server, location  
   > Use an upstream config block for Redis servers.    
-  [more details](#redis-cluster)  
+  [more details](#connecting-to-a-redis-server)  
 
 - **nchan_redis_ping_interval**  
   arguments: 1  
@@ -1230,7 +1230,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: upstream  
   > Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.    
-  [more details](#redis-cluster)  
+  [more details](#connecting-to-a-redis-server)  
 
 - **nchan_redis_storage_mode** `[ distributed | backup ]`  
   arguments: 1  
