@@ -88,8 +88,7 @@ _NCHAN_UTIL_SRCS=" \
 ngx_feature="memrchr()"
 ngx_feature_run=yes
 ngx_feature_incs=" \
-  #include <string.h> 
-  #include <stddef.h> 
+  #include <stddef.h>
 "
 ngx_feature_test=" \
   const char *str = \"aboobar\"; \
@@ -98,7 +97,7 @@ ngx_feature_test=" \
   if(place != found) { return 1; } \
 "
 . auto/feature
- 
+
 if [ $ngx_found = no ]; then
   _NCHAN_UTIL_SRCS="$_NCHAN_UTIL_SRCS  $_nchan_util_dir/memrchr.c"
 fi
