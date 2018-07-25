@@ -1058,6 +1058,8 @@ static char *ngx_conf_enable_redis(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   char                *p = conf;
   nchan_loc_conf_t    *lcf = conf;
   
+  ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Use of %V is discouraged in favor of nchan_redis_pass.", &cmd->name);
+  
   rc = ngx_conf_set_flag_slot(cf, cmd, conf);
   if(rc == NGX_CONF_ERROR) {
     return rc;
@@ -1124,6 +1126,8 @@ static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   nchan_loc_conf_t  *lcf = conf;
   ngx_str_t *val = cf->args->elts;
   ngx_str_t *arg = &val[1];
+  
+  ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Use of %V is discouraged in favor of an upstream { } block with nchan_redis_server %V;", &cmd->name, arg);
   
   if(lcf->redis.upstream) {
     return "can't be set here: already using nchan_redis_pass";

@@ -636,23 +636,25 @@ This default storage method uses a segment of shared memory to store messages an
 <!-- tag:redis -->
 
 #### Connecting to a Redis Server
-To connect to a single Redis master server, use the `nchan_redis_url` and `nchan_use_redis` settings:
+To connect to a single Redis master server, use an `upstream` with `nchan_redis_server` and `nchan_redis_pass` settings:
 
 ```nginx
 http {
-  nchan_redis_url "redis://redis_server:6379";
+  upstream my_redis_server {
+    nchan_redis_server 127.0.0.1;
+  }
   server {
     listen 80;
     
     location ~ /redis_sub/(\w+)$ {
       nchan_subscriber;
       nchan_channel_id $1;
-      nchan_use_redis on; 
+      nchan_redis_pass my_redis_server;
     }
     location ~ /redis_pub/(\w+)$ {
+      nchan_redis_pass my_redis_server;
       nchan_publisher;
       nchan_channel_id $1;
-      nchan_use_redis on;
     }
   }
 } 
@@ -662,9 +664,9 @@ All servers with the above configuration connecting to the same redis server sha
 
 Channels that don't use Redis can be configured side-by-side with Redis-backed channels, provided the endpoints never overlap. (This can be ensured, as above, by setting separate `nchan_channel_group`s.). Different locations can also connect to different Redis servers.
 
-<!-- commands: nchan_redis_url nchan_use_redis -->
 Nchan can work with a single Redis master. It can also auto-discover and use Redis slaves to balance PUBSUB traffic.
 
+<!-- commands: nchan_redis_server nchan_redis_pass -->
 
 #### Redis Cluster
 Nchan also supports using Redis Cluster, which adds scalability via sharding channels among cluster nodes. Redis cluster also provides **automatic failover**, **high availability**, and eliminates the single point of failure of one shared Redis server. It is configred and used like so:
@@ -1224,10 +1226,10 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   > Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable.    
 
-- **nchan_redis_server**  
+- **nchan_redis_server** `<redis-url>`  
   arguments: 1  
   context: upstream  
-  > Used in upstream { } blocks to set redis servers.    
+  > Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.    
   [more details](#redis-cluster)  
 
 - **nchan_redis_storage_mode** `[ distributed | backup ]`  
@@ -1283,18 +1285,18 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http  
   > Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor.    
 
-- **nchan_redis_url**  
+- **nchan_redis_url** `<redis-url>`  
   arguments: 1  
   default: `127.0.0.1:6379`  
   context: http, server, location  
-  > The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
+  > Use of this command is discouraged in favor of upstreams blocks with (`nchan_redis_server`)[#nchan_redis_server]. The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
   [more details](#connecting-to-a-redis-server)  
 
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  
   default: `off`  
   context: http, server, location  
-  > Use redis for message storage at this location.    
+  > Use of this command is discouraged in favor of (`nchan_redis_pass`)[#nchan_redis_pass]. Use Redis for message storage at this location.    
   [more details](#connecting-to-a-redis-server)  
 
 - **nchan_redis_wait_after_connecting**  
