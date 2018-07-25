@@ -660,10 +660,11 @@ http {
 
 All servers with the above configuration connecting to the same redis server share channel and message data.
 
-All redis-backed publisher and subscriber endpoints [must be configured](#publisher-endpoint-configs) with `nchan_use_redis on;`.
-Channels that never use redis can be configured side-by-side with redis-backed channels, provided the endpoints never overlap. (This can be ensured, as above, by setting separate `nchan_channel_group`s.). Different locations can also connect to different Redis servers.
+Channels that don't use Redis can be configured side-by-side with Redis-backed channels, provided the endpoints never overlap. (This can be ensured, as above, by setting separate `nchan_channel_group`s.). Different locations can also connect to different Redis servers.
 
 <!-- commands: nchan_redis_url nchan_use_redis -->
+Nchan can work with a single Redis master. It can also auto-discover and use Redis slaves to balance PUBSUB traffic.
+
 
 #### Redis Cluster
 Nchan also supports using Redis Cluster, which adds scalability via sharding channels among cluster nodes. Redis cluster also provides **automatic failover**, **high availability**, and eliminates the single point of failure of one shared Redis server. It is configred and used like so:
@@ -697,10 +698,15 @@ http {
 <!-- commands: nchan_redis_server nchan_redis_pass -->
 
 ##### High Availability
-Redis Cluster connections are designed to be resilient and try to recover from errors. Interrupted connections will have their commands queued until reconnection, and Nchan will publish any messages missed while disconnected. Nchan is also adaptive to cluster modifications. It will add new nodes and remove them as needed.
+Redis Cluster connections are designed to be resilient and try to recover from errors. Interrupted connections will have their commands queued until reconnection, and Nchan will publish any messages it succesfully received while disconnected. Nchan is also adaptive to cluster modifications. It will add new nodes and remove them as needed.
 
 All Nchan servers sharing a Redis server or cluster should have their times synchronized (via ntpd or your favorite ntp daemon). Failure to do so may result in missed or duplicate messages.
-  
+
+##### Tweaks and Optimizations
+
+As of version 1.2.0, Nchan uses Redis slaves to load-balance PUBSUB traffic. By default, there is an equal chance that a channel's PUBSUB subscription will go to any master or slave. The [`nchan_redis_subscribe_weights`](nchan_redis_subscribe_weights) setting is available to fine-tune this load-balancing.
+
+Also from 1.2.0 onward, [`nchan_redis_optimize_target`](#nchan_redis_optimize_target) can be used to prefer optimizing Redis slaves for CPU or bandwidth. For heavy publishing loads, the tradeoff is very roughly 35% replication bandwidth per slave to 30% CPU load on slaves.
 
 ## Introspection
 
