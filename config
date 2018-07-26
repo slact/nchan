@@ -5,17 +5,18 @@ ngx_addon_name=ngx_nchan_module
 # because we now use a hacked connect function
 # maybe it can be brought back at some later time...
 ngx_feature="hiredis with stored sockaddr"
+ngx_feature_name="NCHAN_HAVE_HIREDIS_WITH_SOCKADDR"
 ngx_feature_run=yes
 ngx_feature_incs=" \
   #include <hiredis/hiredis.h>
   #include <sys/socket.h>
 "
+ngx_feature_libs="-lhiredis"
 ngx_feature_test=" \
   redisContext c; \
   if(HIREDIS_SONAME < 0.13) { return 1; } \
   if(sizeof(c.sockaddr) != sizeof(struct sockaddr)) { return 1;} \
 "
-ngx_feature_libs="-lhiredis"
 . auto/feature
 if [ $ngx_found = no ]; then
   _NCHAN_HIREDIS_SRCS="\
@@ -86,7 +87,10 @@ _NCHAN_UTIL_SRCS=" \
 
 #do we have memrchr() on the platform?
 ngx_feature="memrchr()"
+ngx_feature_name="NCHAN_HAVE_MEMRCHR"
 ngx_feature_run=yes
+ngx_feature_path=
+ngx_feature_libs=
 ngx_feature_incs=" \
   #include <string.h> 
   #include <stddef.h> 
