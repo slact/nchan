@@ -7,6 +7,7 @@ ngx_addon_name=ngx_nchan_module
 ngx_feature="hiredis with stored sockaddr"
 ngx_feature_name="NCHAN_HAVE_HIREDIS_WITH_SOCKADDR"
 ngx_feature_run=yes
+ngx_feature_path=
 ngx_feature_incs=" \
   #include <hiredis/hiredis.h>
   #include <sys/socket.h>
