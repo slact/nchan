@@ -32,6 +32,24 @@ else
   _NCHAN_HIREDIS_SRCS=""
 fi
 
+#do we have memrchr() on the platform?
+ngx_feature="memrchr()"
+ngx_feature_name="NCHAN_HAVE_MEMRCHR"
+ngx_feature_run=yes
+ngx_feature_path=
+ngx_feature_libs=
+ngx_feature_incs=" \
+  #include <string.h> 
+  #include <stddef.h> 
+"
+ngx_feature_test=" \
+  const char *str = \"aboobar\"; \
+  const void *place = &str[4]; \
+  const void *found = memrchr(str, 'b', strlen(str)); \
+  if(place != found) { return 1; } \
+"
+. auto/feature
+
 _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/common.c \
   ${ngx_addon_dir}/src/subscribers/longpoll.c \
@@ -85,28 +103,6 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_reaper.c \
   $_nchan_util_dir/nchan_subrequest.c \
 "
-
-#do we have memrchr() on the platform?
-ngx_feature="memrchr()"
-ngx_feature_name="NCHAN_HAVE_MEMRCHR"
-ngx_feature_run=yes
-ngx_feature_path=
-ngx_feature_libs=
-ngx_feature_incs=" \
-  #include <string.h> 
-  #include <stddef.h> 
-"
-ngx_feature_test=" \
-  const char *str = \"aboobar\"; \
-  const void *place = &str[4]; \
-  const void *found = memrchr(str, 'b', strlen(str)); \
-  if(place != found) { return 1; } \
-"
-. auto/feature
- 
-if [ $ngx_found = no ]; then
-  _NCHAN_UTIL_SRCS="$_NCHAN_UTIL_SRCS  $_nchan_util_dir/memrchr.c"
-fi
 
 _NCHAN_STORE_SRCS="\
   ${ngx_addon_dir}/src/store/spool.c \
