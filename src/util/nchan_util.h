@@ -1,3 +1,8 @@
+#include <string.h>
+#include <stddef.h>
+#ifndef NCHAN_HAVE_MEMRCHR
+void *memrchr(const void *s, int c, size_t n);
+#endif
 ngx_int_t ngx_http_complex_value_noalloc(ngx_http_request_t *r, ngx_http_complex_value_t *val, ngx_str_t *value, size_t maxlen);
 ngx_int_t ngx_http_complex_value_custom_pool(ngx_http_request_t *r, ngx_http_complex_value_t *val, ngx_str_t *value, ngx_pool_t *pool);
 u_char *nchan_strsplit(u_char **s1, ngx_str_t *sub, u_char *last_char);

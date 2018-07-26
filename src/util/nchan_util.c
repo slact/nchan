@@ -5,6 +5,19 @@
 #include <zlib.h>
 #endif
 
+#ifndef NCHAN_HAVE_MEMRCHR
+void *memrchr(const void *s, int c, size_t n) {
+  const char *start = s;
+  const char *end = &start[n]; //one too much on purpose
+  while(--end >= start) { //and this is why
+    if(c == *end) {
+      return (void *)end;
+    }
+  }
+  return NULL;
+}
+#endif
+
 int nchan_ngx_str_match(ngx_str_t *str1, ngx_str_t *str2) {
   if(str1 == str2) {
     return 1;
