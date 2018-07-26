@@ -6,7 +6,7 @@ _nginx_ver_legacy=1.8.1
 _nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
 _ngx_echo_module_ver=0.60
-_lua_nginx_module_ver="master"
+_lua_nginx_module_ver=0.10.13
 _lua_upstream_nginx_module_ver="0.06"
 _openresty_ver=1.11.2.2
 
