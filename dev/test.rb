@@ -183,12 +183,7 @@ class PubSubTest <  Minitest::Test
     pub.post ['hey there', "banana", "huh", "notweird", "FIN"]
     
     #first request with non-empty msgtags
-    sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20, etag: "10,20,30")
-    sub.on_failure { false }
-    sub.run
-    sub.wait
-    assert sub.match_errors(/code 400/), "expected 400 for subscriber"
-    sub.terminate
+    # this is now valid and ignored as a result of compound msgids in Etag
     
     #wrong msgid count
     sub = Subscriber.new(url("/sub/multi/#{short_id}/#{short_id}/#{chan_id}"), 1, quit_message: 'FIN', retry_delay: 1, timeout: 20)
