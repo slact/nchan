@@ -1298,6 +1298,18 @@ class PubSubTest <  Minitest::Test
     end
   end
   
+
+  def test_subscriber_abort
+    subs = [:longpoll, :multipart, :chunked, :eventsource, :websocket ]
+    subs.each do |t|
+      sub = Subscriber.new(url("sub/broadcast/#{short_id}"), 20, client: t)
+      sub.on_failure { false }
+      sub.run
+      sleep 0.5
+      sub.terminate
+    end
+  end
+  
   def test_auth
     chan = short_id
     

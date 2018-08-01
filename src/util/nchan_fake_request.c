@@ -491,8 +491,30 @@ ngx_int_t nchan_requestmachine_shutdown(nchan_requestmachine_t *rm) {
 
 ngx_int_t nchan_requestmachine_abort(nchan_requestmachine_t *rm) {
   nchan_fakereq_subrequest_data_t *cur;
+  ngx_http_request_t              *r;
+  ngx_http_core_main_conf_t       *cmcf;
   while((cur = nchan_slist_pop(&rm->request_queue)) != NULL) {
     cur->rm = NULL; //no requestmachine ref means the machine stopped.
+    r = cur->r;
+    //clear stuff that might be used after the upstream request finishes
+    /*
+    if (ngx_list_init(&r->headers_out.headers, r->pool, 0, sizeof(ngx_table_elt_t)) != NGX_OK) {
+      nchan_log_error("couldn't create headers_out for requestmachine request");
+    }
+    if (ngx_list_init(&r->headers_in.headers, r->pool, 0,sizeof(ngx_table_elt_t)) != NGX_OK) {
+      nchan_log_error("couldn't create headers_in for requestmachine request");
+    }
+    */
+
+    r->ctx = ngx_pcalloc(r->pool, sizeof(void *) * ngx_http_max_module);
+    if (r->ctx == NULL) {
+      nchan_log_error("couldn't create ctx for requestmachine request");
+    }
+    cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
+    r->variables = ngx_pcalloc(r->pool, cmcf->variables.nelts * sizeof(ngx_http_variable_value_t));
+    if (r->variables == NULL) {
+      nchan_log_error("couldn't create vars for requestmachine request");
+    }
   }
   return NGX_OK;
 }

@@ -281,6 +281,7 @@ static ngx_int_t websocket_finalize_request(full_subscriber_t *fsub) {
   if(sub->cf->unsubscribe_request_url && sub->enqueued) {
     nchan_subscriber_unsubscribe_request(sub);
   }
+  nchan_subscriber_subrequest_cleanup(sub);
   
   sub->status = DEAD;
   if(sub->enqueued) {
