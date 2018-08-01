@@ -1708,13 +1708,13 @@ class PubSubTest <  Minitest::Test
     assert_equal Digest::SHA1.base64digest("#{headers["Sec-Websocket-Key"].strip}#{ws_guid}"), resp.headers["Sec-Websocket-Accept"]
     
     headers["Sec-Websocket-Extensions"]="permessage-deflate; client_max_window_bits=6"
-    check_websocket_handshake(url, headers, 400, /client_max_window_bits.*out of range/)
+    check_websocket_handshake(url, headers, 400, /invalid.*client_max_window_bits.*/)
     
     headers["Sec-Websocket-Extensions"]="permessage-deflate; server_max_window_bits=2000"
-    check_websocket_handshake(url, headers, 400, /server_max_window_bits.*out of range/)
+    check_websocket_handshake(url, headers, 400, /invalid.*server_max_window_bits.*/)
     
     headers["Sec-Websocket-Extensions"]="x-webkit-deflate-frame; max_window_bits=6"
-    check_websocket_handshake(url, headers, 400, /max_window_bits.*out of range/)
+    check_websocket_handshake(url, headers, 400, /invalid.*max_window_bits/)
     
     headers["Sec-Websocket-Extensions"]="x-webkit-deflate-frame; max_window_bits=10"
     check_websocket_handshake(url, headers)    
