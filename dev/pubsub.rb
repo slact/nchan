@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 require 'typhoeus'
 require 'json'
-require 'nokogiri'
+require 'oga'
 require 'yaml'
 require 'pry'
 require 'celluloid/current'
@@ -1718,11 +1718,11 @@ class Publisher
       info[:last_message_id] = info_json["last_message_id"]
       return info, :json
     when "application/xml", "text/xml"
-      ix = Nokogiri::XML data
-      info[:messages] = ix.at_xpath('//messages').content.to_i
-      info[:last_requested] = ix.at_xpath('//requested').content.to_i
-      info[:subscribers] = ix.at_xpath('//subscribers').content.to_i
-      info[:last_message_id] = ix.at_xpath('//last_message_id').content
+      ix = Oga.parse_xml(data, :strict => true)
+      info[:messages] = ix.at_xpath('//messages').text.to_i
+      info[:last_requested] = ix.at_xpath('//requested').text.to_i
+      info[:subscribers] = ix.at_xpath('//subscribers').text.to_i
+      info[:last_message_id] = ix.at_xpath('//last_message_id').text
       return info, :xml
     when "application/yaml", "text/yaml"
       begin
