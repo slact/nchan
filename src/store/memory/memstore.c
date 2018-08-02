@@ -1035,7 +1035,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->shared->internal_sub_count = 0;
     head->shared->total_message_count = 0;
     head->shared->stored_message_count = 0;
-    head->shared->last_seen = ngx_time();
+    head->shared->last_seen = 0;
     head->shared->gc.outside_refcount=0;
     nchan_update_stub_status(channels, 1);
   }
@@ -1068,7 +1068,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
   head->channel.messages = 0;
   head->channel.subscribers = 0;
-  head->channel.last_seen = ngx_time();
+  head->channel.last_seen = 0;
   head->max_messages = (ngx_int_t) -1;
   
   if(head->id.len >= 5 && ngx_strncmp(head->id.data, "meta/", 5) == 0) {
