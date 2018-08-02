@@ -47,11 +47,16 @@ static ngx_int_t subscriber_authorize_callback(ngx_int_t rc, ngx_http_request_t 
       ngx_http_request_t       *r = d->sub->request;
       ngx_str_t                *content_type;
       ngx_int_t                 content_length;
-      ngx_chain_t              *request_chain;
+      ngx_chain_t              *request_chain = NULL;
       content_type = (sr->upstream->headers_in.content_type ? &sr->upstream->headers_in.content_type->value : NULL);
       content_length = nchan_subrequest_content_length(sr);
-      request_chain = sr->upstream->out_bufs;
-      
+      if(content_length > 0) {
+#if nginx_version >= 1013010
+        request_chain = sr->out;
+#else
+        request_chain = sr->upstream->out_bufs;
+#endif
+      }
       //copy headers
       ngx_uint_t                       i;
       ngx_list_part_t                 *part = &sr->headers_out.headers.part;
