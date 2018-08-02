@@ -667,7 +667,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
     param.url_complex = 0;
     param.pool = d->pool;
     param.body = buf;
-    param.response_headers_only = 1;
+    param.response_headers_only = 0;
     param.cb = (callback_pt )websocket_publish_upstream_handler;
     param.pd = d;
     param.manual_cleanup = 1;
