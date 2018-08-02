@@ -337,27 +337,16 @@ class PubSubTest <  Minitest::Test
     sub.run
     sub.wait :ready
     sleep 0.15
-    pub.get "text/json"
-    assert_equal :json, pub.channel_info_type
-    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
+    types = [ ["text/json", :json], ["application/json", :json], ["text/xml", :xml], 
+              ["text/yaml", :yaml], ["application/yaml", :yaml], ["application/x-yaml", :yaml],
+    ]
+    
+    types.each do |t|
+      pub.get t[0]
+      assert_equal t[1], pub.channel_info_type
+      assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: subs, last_message_id: last_msgid
+    end
 
-    pub.get "text/xml"
-    assert_equal :xml, pub.channel_info_type
-    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
-    
-    pub.get "text/yaml"
-    assert_equal :yaml, pub.channel_info_type
-    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
-    pub.get "application/yaml"
-    assert_equal :yaml, pub.channel_info_type
-    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
-    pub.get "application/x-yaml"
-    assert_equal :yaml, pub.channel_info_type
-    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
-    yaml_resp3=pub.response_body
-    assert_equal :yaml, pub.channel_info_type
-    assert_channel_info_ok pub.channel_info, messages: 2, last_requested_min: 0, subscribers_min: 1, last_message_id: last_msgid
-    
     pub.accept="text/json"
     pub.post "FIN"
     assert_equal :json, pub.channel_info_type
