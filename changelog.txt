@@ -1,3 +1,7 @@
+ fix: channel last_requested was set to 0 instead of -1 on channel creation
+ fix: authentication failure body not forwarded for Nginx > 1.13.10
+ fix: possible invalid memory access for websocket unsubscribe requests
+ fix: building Nchan could interfere with building other modules
 1.2.0 (Jul. 23 2018)
  feature: configurable support for CORS Access-Control-Allow-Credentials header
  fix: better compliance with RFC7692  Websocket permessage-deflate parameter negotiation
