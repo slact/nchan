@@ -1,3 +1,4 @@
+1.2.1 (Aug. 2 2018)
  fix: channel last_requested was set to 0 instead of -1 on channel creation
  fix: authentication failure body not forwarded for Nginx > 1.13.10
  fix: possible invalid memory access for websocket unsubscribe requests
