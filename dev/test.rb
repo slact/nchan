@@ -1816,6 +1816,31 @@ class PubSubTest <  Minitest::Test
     verify pub, sub
   end
   
+  def test_channel_events
+    chan_id = short_id
+    meta=Subscriber.new(url("channel_events/#{chan_id}"), 1, client: :websocket, timeout: 5, quit_message: "subscriber_dequeue #{chan_id}")
+    meta.run
+    meta.wait :ready
+    
+    pub, sub = pubsub 1, pub: "/evented_pub/", sub: "/evented_sub/", client: :websocket, channel: chan_id
+    sub.run
+    sub.wait :ready
+    pub.post ["1", "2", "FIN"]
+    sub.wait
+    meta.wait
+    
+    verify pub, sub
+    
+    expected_meta_msgs = ["subscriber_enqueue", "channel_publish", "channel_publish", "channel_publish", "subscriber_dequeue"]
+    expected_meta_msgs.map! {|msg| "#{msg} #{chan_id}"}
+    
+    meta.messages.each do |msg|
+      assert_equal expected_meta_msgs.shift, msg.to_s
+    end
+    sub.terminate
+    meta.terminate
+  end
+  
 end
 
 
