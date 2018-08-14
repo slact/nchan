@@ -133,6 +133,7 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *r, channel_
   msg.id.tag.fixed[0] = 0;
   msg.id.tagactive = 0;
   msg.id.tagcount = 1;
+  msg.storage = NCHAN_MSG_STACK;
   
   if(evcf == NULL) {
     evcf = &evcf_data;
