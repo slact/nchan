@@ -1101,8 +1101,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       //connection established. move on...   
       node->state++;
-      // intentional fallthrough IS INTENTIONAL!
-    
+      /* fall through */
     case REDIS_NODE_CONNECTED:
       //now we need to authenticate maybe?
       if(cp->password.len > 0) {
@@ -1129,8 +1128,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "AUTH command failed");
       }
       node->state++;
-      //intentional, i tell you
-    
+      /* fall through */
     case REDIS_NODE_SELECT_DB:
       if(cp->db > 0) {
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SELECT %d", cp->db);
@@ -1154,9 +1152,8 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
         return node_connector_fail(node, "Redis SELECT command failed,");
       }
-      node->state++;
-      //falling throooooouuuughhhhh
-    
+      node->state++; // fallthru
+      /* fall through */
     case REDIS_NODE_SCRIPTS_LOAD:
       node->scripts_loaded = 0;
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
@@ -1181,8 +1178,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       node_log_debug(node, "all scripts loaded");
       node->state++;
-      //fallthrough is falley-throughey
-    
+      /* fall through */
     case REDIS_NODE_SUBSCRIBE_WORKER:
       redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
       node->state++;
@@ -1199,8 +1195,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       nchan_update_stub_status(redis_connected_servers, 1);
       
       node->state++;
-      //fallthrough quite intentionally
-      
+      /* fall through */
     case REDIS_NODE_GET_INFO:
       //getinfo time
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO ALL");
@@ -1251,9 +1246,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         node->cluster.enabled = 1;
       }
       node->state++;
-      //vert intentionally falling through
-    
-    
+      /* fall through */
     case REDIS_NODE_GET_CLUSTERINFO:
       if(!node->cluster.enabled) {
         node->state = REDIS_NODE_READY;
@@ -1275,8 +1268,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       node->cluster.ok=1;
       node->state++;
-      //Oi! 'Ave ya got a loicence for that fallthrough?
-    
+      /* fall through */
     case REDIS_NODE_GET_CLUSTER_NODES:
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "CLUSTER NODES");
       node->state++;
@@ -1331,12 +1323,12 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         }
       }
       node->state = REDIS_NODE_READY;
-      //inteonional fall-through is affirmatively consensual
+      //intentional fall-through is affirmatively consensual
       //yes, i consent to being fallen through.
       //                               Signed, 
       //                                 REDIS_NODE_GETTING_CLUSTER_NODES
       //NOTE: consent required each time a fallthrough is imposed
-    
+      /* fall through */
     case REDIS_NODE_READY:
       if(node->connect_timeout) {
         nchan_abort_oneshot_timer(node->connect_timeout);
