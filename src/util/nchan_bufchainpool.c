@@ -31,6 +31,8 @@ static void validate_stuff(nchan_bufchain_pool_t *bcp) {
 }
 */
 
+
+
 nchan_buf_and_chain_t *nchan_bufchain_pool_reserve(nchan_bufchain_pool_t *bcp, ngx_int_t count) {
   nchan_bufchain_link_t      *cur = NULL, *last = NULL, *first = NULL;
   nchan_bufchain_link_t      **rhead = &bcp->bc_recycle_head;
@@ -65,6 +67,82 @@ nchan_buf_and_chain_t *nchan_bufchain_pool_reserve(nchan_bufchain_pool_t *bcp, n
   //validate_stuff(bcp);
   return &first->bc;
 }
+
+static ngx_buf_t *nchan_bufchain_append(nchan_bufchain_pool_t *bcp) {
+  static ngx_buf_t            throwaway;
+  ngx_chain_t                *chain;
+  ngx_chain_t               **rhead = &bcp->bc.recycle_head;
+  
+  if(*rhead) {
+    chain = *rhead;
+    *rhead = chain->next;
+    bcp->bc.recycle_count --;
+  } 
+  else {
+    nchan_buf_and_chain_t *bufchain = ngx_palloc(bcp->pool, sizeof(*bufchain));
+    if(bufchain == NULL) {
+      nchan_log_error("unable to palloc bufchain");
+      return &throwaway;
+    }
+    chain = &bufchain->chain;
+    chain->buf = &bufchain->buf;
+  }
+  
+  chain->buf->last_buf = 1;
+  chain->buf->last_in_chain = 1;
+  chain->next = NULL;
+  
+  if(!bcp->bc.head) {
+    bcp->bc.head = chain;
+  }
+  
+  if(bcp->bc.tail) {
+    ngx_buf_t *tbuf = bcp->bc.tail->buf;
+    tbuf->last_buf = 0;
+    tbuf->last_in_chain = 0;
+    bcp->bc.tail->next = chain;
+  }
+  bcp->bc.tail = chain;
+  bcp->bc.count++;
+  return chain->buf;
+}
+
+ngx_int_t nchan_bufchain_append_buf(nchan_bufchain_pool_t *bcp, ngx_buf_t *inbuf) {
+  ngx_buf_t *buf = nchan_bufchain_append(bcp);
+  *buf = *inbuf;
+  buf->last_buf = 1;
+  buf->last_in_chain = 1;
+  bcp->bc.length += ngx_buf_size(inbuf);
+  return NGX_OK;
+}
+
+ngx_int_t nchan_bufchain_append_str(nchan_bufchain_pool_t *bcp, ngx_str_t *str) {
+  ngx_buf_t *buf = nchan_bufchain_append(bcp);
+  ngx_memzero(buf, sizeof(*buf));
+  buf->start = str->data;
+  buf->pos = buf->start;
+  buf->end = str->data + str->len;
+  buf->last = buf->end;
+  buf->memory = 1;
+  buf->last_buf = 1;
+  buf->last_in_chain = 1;
+  bcp->bc.length += str->len;
+  return NGX_OK;
+}
+ngx_int_t nchan_bufchain_append_cstr(nchan_bufchain_pool_t *bcp, char *cstr) {
+  ngx_str_t str;
+  str.data = (u_char *)cstr;
+  str.len = strlen(cstr);
+  return nchan_bufchain_append_str(bcp, &str);
+}
+
+size_t nchan_bufchain_length(nchan_bufchain_pool_t *bcp) {
+  return bcp->bc.length;
+}
+ngx_chain_t *nchan_bufchain_first_chain(nchan_bufchain_pool_t *bcp) {
+  return bcp->bc.head;
+}
+
 
 ngx_file_t *nchan_bufchain_pool_reserve_file(nchan_bufchain_pool_t *bcp) {
   nchan_file_link_t    *cur;
@@ -103,6 +181,13 @@ ngx_int_t nchan_bufchain_pool_init(nchan_bufchain_pool_t *bcp, ngx_pool_t *pool)
   bcp->bc_head = NULL;
   bcp->bc_recycle_head = NULL;
   
+  bcp->bc.head = NULL;
+  bcp->bc.tail = NULL;
+  bcp->bc.recycle_head = NULL;
+  bcp->bc.count = 0;
+  bcp->bc.recycle_count = 0;
+  bcp->bc.length = 0;
+  
   bcp->file_head = NULL;
   bcp->file_recycle_head = NULL;
   
@@ -115,6 +200,17 @@ void nchan_bufchain_pool_flush(nchan_bufchain_pool_t *bcp) {
   nchan_bufchain_link_t      *cur;
   nchan_file_link_t          *fcur, **fhead = &bcp->file_head, **rfhead = &bcp->file_recycle_head;
   //validate_stuff(bcp);
+  
+  if(bcp->bc.tail) {
+    bcp->bc.tail->next = bcp->bc.recycle_head; //link just-used and recycled-in-waiting chains
+  }
+  bcp->bc.recycle_head = bcp->bc.head;
+  bcp->bc.recycle_count += bcp->bc.count;
+  bcp->bc.count = 0;
+  bcp->bc.length = 0;
+  bcp->bc.tail = NULL;
+  bcp->bc.head = NULL;
+  
   while(bcp->bc_head != NULL) {
     cur = bcp->bc_head;
     bcp->bc_head = cur->next;

@@ -29,6 +29,16 @@ typedef struct {
   nchan_file_link_t         *file_head;
   nchan_file_link_t         *file_recycle_head;
   ngx_pool_t                *pool;
+  
+  struct {
+    size_t                     length;
+    ngx_int_t                  count;
+    ngx_chain_t               *head;
+    ngx_chain_t               *tail;
+    
+    ngx_int_t                  recycle_count;
+    ngx_chain_t               *recycle_head;
+  }                          bc;
 } nchan_bufchain_pool_t;
 
 ngx_int_t nchan_bufchain_pool_init(nchan_bufchain_pool_t *bcp, ngx_pool_t *pool);
@@ -36,4 +46,11 @@ nchan_buf_and_chain_t *nchan_bufchain_pool_reserve(nchan_bufchain_pool_t *bcp, n
 ngx_file_t *nchan_bufchain_pool_reserve_file(nchan_bufchain_pool_t *bcp);
 void nchan_bufchain_pool_refresh_files(nchan_bufchain_pool_t *bcp);
 void nchan_bufchain_pool_flush(nchan_bufchain_pool_t *bcp);
+
+ngx_chain_t *nchan_bufchain_first_chain(nchan_bufchain_pool_t *bcp);
+size_t nchan_bufchain_length(nchan_bufchain_pool_t *bcp);
+ngx_int_t nchan_bufchain_append_buf(nchan_bufchain_pool_t *bcp, ngx_buf_t *buf);
+ngx_int_t nchan_bufchain_append_str(nchan_bufchain_pool_t *bcp, ngx_str_t *str);
+ngx_int_t nchan_bufchain_append_cstr(nchan_bufchain_pool_t *bcp, char *cstr);
+
 #endif //NCHAN_BUFCHAINPOOL_H
