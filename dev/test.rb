@@ -625,6 +625,21 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
+  def test_longpoll_multipart_raw
+    pub, sub = pubsub 1, sub: 'sub/multipart_raw/', use_message_id: false, timeout: 3
+    
+    pub.post "first", "text/x-foobar"
+    pub.post ["second", "", "third"]
+    pub.post "", "text/x-banana"
+    sub.run
+    sub.wait :ready
+    pub.post "FIN"
+    sub.wait
+   
+    verify pub, sub
+    sub.terminate
+  end
+  
   def test_longpoll_multipart_extended(range=30..35)
     range.each do |i|
       pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 3
