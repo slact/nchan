@@ -613,9 +613,12 @@ class PubSubTest <  Minitest::Test
   def test_longpoll_multipart
     pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false
     
+    largemsg = "abcdefg"* 5000
+    
     pub.post "first", "text/x-foobar"
     pub.post ["1", "2", "3", "4", "beeeeeeeeeeeeeeeeeeeeeeeee", "", "foobar"]
     pub.post "", "text/x-banana"
+    pub.post largemsg
     sub.run
     sleep 0.5
     pub.post "FIN"
@@ -625,19 +628,37 @@ class PubSubTest <  Minitest::Test
     sub.terminate
   end
   
-  def test_longpoll_multipart_raw
-    pub, sub = pubsub 1, sub: 'sub/multipart_raw/', use_message_id: false, timeout: 3
+  def test_longpoll_multipart_raw(sub_url="sub/multipart_raw/", divider="")
+    pub, sub = pubsub 1, sub: sub_url, use_message_id: false, timeout: 3
+    
+    divider = "#{divider}\n"
+    
+    largemsg = "abcdefg"* 100000
     
     pub.post "first", "text/x-foobar"
     pub.post ["second", "", "third"]
     pub.post "", "text/x-banana"
+    pub.post largemsg
+    sleep 0.5
     sub.run
-    sub.wait :ready
+    sleep 0.5
+    puts 3
     pub.post "FIN"
     sub.wait
-   
-    verify pub, sub
+    
+    assert sub.errors.empty?
+    
+    first_chunk_messages = ["first", "second", "", "third", "", largemsg]
+    
+    assert_equal 2, sub.messages.count
+    assert_equal "#{first_chunk_messages.join(divider)}#{divider}", sub.messages[0].to_s
+    assert_equal "FIN", sub.messages[1].to_s
+    
     sub.terminate
+  end
+  
+  def test_longpoll_multipart_raw_custom_divider
+    test_longpoll_multipart_raw(sub_url="sub/multipart_raw_custom_divider/", divider="-=such divider much wow=-")
   end
   
   def test_longpoll_multipart_extended(range=30..35)
