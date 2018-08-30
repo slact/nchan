@@ -1179,23 +1179,6 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node_log_debug(node, "all scripts loaded");
       node->state++;
       /* fall through */
-    case REDIS_NODE_SUBSCRIBE_WORKER:
-      redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
-      node->state++;
-      break;
-    
-    case REDIS_NODE_SUBSCRIBING_WORKER:  
-      if( reply->type != REDIS_REPLY_ARRAY || reply->elements != 3 
-       || reply->element[0]->type != REDIS_REPLY_STRING || reply->element[1]->type != REDIS_REPLY_STRING
-       || strcmp(reply->element[0]->str, "subscribe") != 0
-       || strcmp(reply->element[1]->str, redis_worker_id) != 0
-      ) {
-        return node_connector_fail(node, "failed to subscribe to worker PUBSUB channel");
-      }
-      nchan_update_stub_status(redis_connected_servers, 1);
-      
-      node->state++;
-      /* fall through */
     case REDIS_NODE_GET_INFO:
       //getinfo time
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO ALL");
@@ -1245,6 +1228,45 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       if(nchan_cstr_match_line(reply->str, "cluster_enabled:1")) {
         node->cluster.enabled = 1;
       }
+      node->state++;
+      /* fall through */
+    case REDIS_NODE_PUBSUB_GET_INFO:
+      redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "INFO SERVER");
+      node->state++;
+      break;
+    case REDIS_NODE_PUBSUB_GETTING_INFO:
+      if(reply && reply->type == REDIS_REPLY_ERROR && nchan_cstr_startswith(reply->str, "NOAUTH")) {
+        return node_connector_fail(node, "authentication required");
+      }
+      else if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        return node_connector_fail(node, "INFO command failed");
+      }
+      else {
+        u_char    idbuf[MAX_RUN_ID_LENGTH];
+        ngx_str_t pubsub_run_id = {0, idbuf};
+        node_parseinfo_set_preallocd_str(node, &pubsub_run_id, reply->str, "run_id:", MAX_RUN_ID_LENGTH);
+        if(!nchan_ngx_str_match(&node->run_id, &pubsub_run_id)) {
+          return node_connector_fail(node, "IP address connects to more than one server. Is Redis behind a proxy?");
+        }
+        node->state++;
+      }
+      /* fall through */
+      case REDIS_NODE_SUBSCRIBE_WORKER:
+      redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
+      node->state++;
+      break;
+    
+    case REDIS_NODE_SUBSCRIBING_WORKER:  
+      if( reply->type != REDIS_REPLY_ARRAY || reply->elements != 3 
+       || reply->element[0]->type != REDIS_REPLY_STRING || reply->element[1]->type != REDIS_REPLY_STRING
+       || strcmp(reply->element[0]->str, "subscribe") != 0
+       || strcmp(reply->element[1]->str, redis_worker_id) != 0
+      ) {
+        raise(SIGSTOP);
+        return node_connector_fail(node, "failed to subscribe to worker PUBSUB channel");
+      }
+      nchan_update_stub_status(redis_connected_servers, 1);
+      
       node->state++;
       /* fall through */
     case REDIS_NODE_GET_CLUSTERINFO:
