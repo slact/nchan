@@ -349,6 +349,14 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   time_t                          channel_timeout;
   nchan_store_t                  *storage_engine;
   
+  struct {
+    time_t                          time;
+    ngx_int_t                       msg_rate;
+    ngx_int_t                       msg_padding;
+    ngx_int_t                       channels;
+    ngx_int_t                       subscribers_per_channel;
+  }                               benchmark;
+  
   ngx_int_t                     (*request_handler)(ngx_http_request_t *r);
 };// nchan_loc_conf_t;
 

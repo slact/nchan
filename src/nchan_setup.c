@@ -189,6 +189,12 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.nodeset = NULL;
   
   lcf->request_handler = NULL;
+  
+  lcf->benchmark.time = NGX_CONF_UNSET;
+  lcf->benchmark.msg_rate = NGX_CONF_UNSET;
+  lcf->benchmark.msg_padding = NGX_CONF_UNSET;
+  lcf->benchmark.channels = NGX_CONF_UNSET;
+  lcf->benchmark.subscribers_per_channel = NGX_CONF_UNSET;
   return lcf;
 }
 
@@ -414,6 +420,12 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     nchan_setup_handler(cf, conf->request_handler);
   }
   
+  ngx_conf_merge_value(conf->benchmark.time, prev->benchmark.time, 10);
+  ngx_conf_merge_value(conf->benchmark.msg_rate, prev->benchmark.msg_rate, 100);
+  ngx_conf_merge_value(conf->benchmark.msg_padding, prev->benchmark.msg_padding, 0);
+  ngx_conf_merge_value(conf->benchmark.channels, prev->benchmark.channels, 1000);
+  ngx_conf_merge_value(conf->benchmark.subscribers_per_channel, prev->benchmark.subscribers_per_channel, 100);
+  
   return NGX_CONF_OK;
 }
 
@@ -631,6 +643,12 @@ static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *con
     return NGX_CONF_ERROR;
   }
   lcf->request_handler = &nchan_group_handler;
+  return NGX_CONF_OK;
+}
+
+static char *nchan_benchmark_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t     *lcf = conf;
+  lcf->request_handler = &nchan_benchmark_handler;
   return NGX_CONF_OK;
 }
 
