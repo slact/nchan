@@ -11,7 +11,8 @@
 #define ERR(fmt, arg...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "SUB:BENCHMARK:" fmt, ##arg)
 
 typedef struct {
-  subscriber_t   *sub;
+  subscriber_t        *sub;
+  nchan_benchmark_t   *bench;
 } sub_data_t;
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
@@ -36,7 +37,7 @@ static ngx_int_t sub_respond_notice(ngx_int_t notice, void *ptr, sub_data_t *d) 
 
 static ngx_str_t  sub_name = ngx_string("benchmark");
 
-subscriber_t *benchmark_subscriber_create(nchan_loc_conf_t *cf) {
+subscriber_t *benchmark_subscriber_create(nchan_benchmark_t *bench, nchan_loc_conf_t *cf) {
   static  nchan_msg_id_t      newest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                 *d;
   subscriber_t               *sub;
@@ -46,6 +47,7 @@ subscriber_t *benchmark_subscriber_create(nchan_loc_conf_t *cf) {
   sub->last_msgid = newest_msgid;
   sub->destroy_after_dequeue = 1;
   d->sub = sub;
+  d->bench = bench;
 
   DBG("%p benchmark subscriber created with privdata %p", d->sub, d);
   return sub;
