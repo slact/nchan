@@ -350,7 +350,7 @@ int hdr_init_nchan_shm(
     return 0;
 }
 
-void hdr_close(struct hdr_histogram* h)
+void hdr_close_nchan_shm(struct hdr_histogram* h)
 {
     shm_free(nchan_store_memory_shmem, h->counts);
     shm_free(nchan_store_memory_shmem, h);

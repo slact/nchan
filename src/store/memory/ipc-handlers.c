@@ -10,6 +10,7 @@
 #include <subscribers/getmsg_proxy.h>
 #include <subscribers/memstore_redis.h>
 #include <util/nchan_msg.h>
+#include <util/benchmark.h>
 
 
 //macro black magic, AKA X-Macros
@@ -36,7 +37,8 @@
   L(get_group) \
   L(group) \
   L(group_delete) \
-  L(flood_test)
+  L(flood_test) \
+  L(benchmark_start)
 
 
 
@@ -1047,6 +1049,27 @@ static void receive_flood_test(ngx_int_t sender, flood_data_t *d) {
   tv.tv_nsec=8000000;
   ERR("      received FLOOD TEST from %i seq %l", sender, d->n);
   nanosleep(&tv, NULL);
+}
+
+////////// BENCHMARK START //////////////
+typedef struct {
+  nchan_loc_conf_t *cf;
+  time_t        start;
+  nchan_benchmark_shared_t shared;
+} benchmark_data_t;
+
+ngx_int_t memstore_ipc_broadcast_benchmark_start(void *bench_pd) {
+  nchan_benchmark_t      *bench = bench_pd;
+  benchmark_data_t        data;
+  DEBUG_MEMZERO(&data);
+  data.cf = bench->cf;
+  data.start = bench->time_start;
+  data.shared = bench->shared_data;
+  
+  return ipc_broadcast_cmd(benchmark_start, &data);
+}
+static void receive_benchmark_start(ngx_int_t sender, flood_data_t *d) {
+  
 }
 
 #define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,

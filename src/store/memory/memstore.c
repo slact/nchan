@@ -420,6 +420,13 @@ ngx_int_t memstore_str_owner(ngx_str_t *str) {
 #endif
 }
 
+ngx_int_t nchan_nginx_worker_procslot(ngx_int_t worker_number) {
+  if( worker_number < 0 || worker_number > shdata->max_workers) {
+    return NGX_ERROR;
+  }
+  return shdata->procslot[worker_number + memstore_procslot_offset];
+}
+
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   return nchan_channel_id_is_multi(id) ? memstore_slot() : memstore_str_owner(id);
 }
