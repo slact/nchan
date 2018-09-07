@@ -1,4 +1,5 @@
 #include "benchmark.h"
+#include <subscribers/benchmark.h>
 
 ngx_int_t nchan_benchmark_start(ngx_http_request_t *r) {
   subscriber_t                   *sub;

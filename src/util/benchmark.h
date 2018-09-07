@@ -1,3 +1,6 @@
+#ifndef NCHAN_BENCHMARK_H
+#define NCHAN_BENCHMARK_H
+
 #include <nchan_module.h>
 
 typedef struct nchan_benchmark_s nchan_benchmark_t;
@@ -12,3 +15,7 @@ struct nchan_benchmark_s {
   ngx_int_t           subs_per_channel;
   subscriber_t      **subs;
 }; //nchan_benchmark_t
+
+ngx_int_t nchan_benchmark_start(ngx_http_request_t *r);
+
+#endif //NCHAN_BENCHMARK_H

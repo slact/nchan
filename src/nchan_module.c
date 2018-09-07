@@ -1098,10 +1098,13 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
 }
 
 ngx_int_t nchan_benchmark_handler(ngx_http_request_t *r) {
-  
-  nchan_benchmark_start(r);
-  
-  return NGX_OK;
+  if(nchan_benchmark_start(r) == NGX_OK) {
+    r->main->count++;
+    return NGX_OK;
+  }
+  else {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
 }
 
 #if NCHAN_BENCHMARK
