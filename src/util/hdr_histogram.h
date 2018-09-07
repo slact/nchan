@@ -59,7 +59,7 @@ extern "C" {
  * significant_figure value is outside of the allowed range, ENOMEM if malloc
  * failed.
  */
-int hdr_init(
+int hdr_init_nchan_shm(
     int64_t lowest_trackable_value,
     int64_t highest_trackable_value,
     int significant_figures,
@@ -70,15 +70,7 @@ int hdr_init(
  *
  * @param h The histogram you want to close.
  */
-void hdr_close(struct hdr_histogram* h);
-
-/**
- * Allocate the memory and initialise the hdr_histogram.  This is the equivalent of calling
- * hdr_init(1, highest_trackable_value, significant_figures, result);
- *
- * @deprecated use hdr_init.
- */
-int hdr_alloc(int64_t highest_trackable_value, int significant_figures, struct hdr_histogram** result);
+void hdr_close_nchan_shm(struct hdr_histogram* h);
 
 
 /**

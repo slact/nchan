@@ -4,15 +4,19 @@
  * as explained at http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+#include <math.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <math.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
 #include <inttypes.h>
+
+#include <nchan_module.h>
+#include <util/shmem.h>
+#include <store/memory/store.h>
 
 #include "hdr_histogram.h"
 
@@ -316,7 +320,7 @@ void hdr_init_preallocated(struct hdr_histogram* h, struct hdr_histogram_bucket_
     h->total_count                     = 0;
 }
 
-int hdr_init(
+int hdr_init_nchan_shm(
         int64_t lowest_trackable_value,
         int64_t highest_trackable_value,
         int significant_figures,
@@ -330,8 +334,8 @@ int hdr_init(
         return r;
     }
 
-    int64_t* counts = calloc((size_t) cfg.counts_len, sizeof(int64_t));
-    struct hdr_histogram* histogram = calloc(1, sizeof(struct hdr_histogram));
+    int64_t* counts = shm_calloc(nchan_store_memory_shmem, (size_t) cfg.counts_len * sizeof(int64_t), "hdrhistogram counts");
+    struct hdr_histogram* histogram = shm_calloc(nchan_store_memory_shmem, sizeof(struct hdr_histogram), "hdrhistogram");
 
     if (!counts || !histogram)
     {
@@ -348,13 +352,8 @@ int hdr_init(
 
 void hdr_close(struct hdr_histogram* h)
 {
-    free(h->counts);
-    free(h);
-}
-
-int hdr_alloc(int64_t highest_trackable_value, int significant_figures, struct hdr_histogram** result)
-{
-    return hdr_init(1, highest_trackable_value, significant_figures, result);
+    shm_free(nchan_store_memory_shmem, h->counts);
+    shm_free(nchan_store_memory_shmem, h);
 }
 
 // reset a histogram to zero.
