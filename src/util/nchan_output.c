@@ -254,7 +254,7 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
   c = r->connection;
   wev = c->write;
 
-  if(ctx->bcp) {
+  if(ctx && ctx->bcp) {
     nchan_bufchain_pool_refresh_files(ctx->bcp);
   }
   
@@ -273,7 +273,9 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
       ngx_add_timer(wev, clcf->send_timeout);
     }
     if ((ngx_handle_write_event(wev, clcf->send_lowat)) != NGX_OK) {
-      flush_all_the_reserved_things(ctx);
+      if(ctx) {
+        flush_all_the_reserved_things(ctx);
+      }
       return NGX_ERROR;
     }
     return NGX_OK;
@@ -286,7 +288,9 @@ static ngx_int_t nchan_output_filter_generic(ngx_http_request_t *r, nchan_msg_t 
   }
   
   if(r->out == NULL) {
-    flush_all_the_reserved_things(ctx);
+    if(ctx) {
+      flush_all_the_reserved_things(ctx);
+    }
   }
   
   return rc;

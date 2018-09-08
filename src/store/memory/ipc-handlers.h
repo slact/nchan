@@ -20,3 +20,5 @@ ngx_int_t memstore_ipc_broadcast_group_delete(nchan_group_t *shared_group);
 ngx_int_t memstore_ipc_send_flood_test(ngx_int_t dst);
 
 ngx_int_t memstore_ipc_broadcast_benchmark_start(void *bench);
+ngx_int_t memstore_ipc_broadcast_benchmark_stop(void *bench);
+ngx_int_t memstore_ipc_broadcast_benchmark_finish(void *bench);

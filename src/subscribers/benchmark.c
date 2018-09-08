@@ -57,6 +57,6 @@ subscriber_t *benchmark_subscriber_create(nchan_benchmark_t *bench) {
   d->sub = sub;
   d->bench = bench;
 
-  DBG("%p benchmark subscriber created with privdata %p", d->sub, d);
+  DBG("%p benchmark subscriber created with privdata %p", sub, d);
   return sub;
 }

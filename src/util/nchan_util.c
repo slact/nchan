@@ -522,15 +522,23 @@ void interval_timer_callback(ngx_event_t *ev) {
   }
 }
 
-ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t interval) {
+void *nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t interval) {
   interval_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
   ngx_memzero(&timer->ev, sizeof(timer->ev));
   timer->cb = cb;
   timer->wait = interval;
   nchan_init_timer(&timer->ev, interval_timer_callback, pd);
   ngx_add_timer(&timer->ev, interval);
-  return NGX_OK;
+  return timer;
 }
+void nchan_abort_interval_timer(void *t) {
+  interval_timer_t *timer = t;
+  if(timer->ev.timer_set) {
+    ngx_del_timer(&timer->ev);
+  }
+  ngx_free(timer);
+}
+
 
 ngx_str_t *nchan_urldecode_str(ngx_http_request_t *r, ngx_str_t *str) {
   ngx_str_t   *out;
