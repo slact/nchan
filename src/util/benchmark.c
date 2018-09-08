@@ -51,7 +51,6 @@ ngx_int_t nchan_benchmark_initialize(ngx_http_request_t *r) {
   bench.shared_data.subscribers_enqueued = shm_calloc(nchan_store_memory_shmem, sizeof(*(bench.shared_data.subscribers_enqueued)), "hdrhistogram subscribers_enqueued count");
   bench.shared_data.subscribers_dequeued = shm_calloc(nchan_store_memory_shmem, sizeof(*(bench.shared_data.subscribers_dequeued)), "hdrhistogram subscribers_dequeued count");
   bench.shared_data.channels = shm_calloc(nchan_store_memory_shmem, sizeof(nchan_benchmark_channel_t) * cf->benchmark.channels, "benchmark channel states");
-  
   assert(bench.data.msg_latency == NULL);
   hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_latency);
   
@@ -310,10 +309,18 @@ ngx_int_t nchan_benchmark_finish(void) {
   shm_free(nchan_store_memory_shmem, (void *)bench.shared_data.subscribers_dequeued);
   shm_free(nchan_store_memory_shmem, bench.shared_data.channels);
   hdr_close_nchan_shm(bench.data.msg_latency);
-  ngx_memzero(&bench, sizeof(bench));
+  nchan_benchmark_cleanup();
   *bench_active = 0;
-  bench_initiating_request = NULL;
   
+  return NGX_OK;
+}
+
+ngx_int_t nchan_benchmark_cleanup(void) {
+  ngx_memzero(&bench, sizeof(bench));
+  bench_initiating_request = NULL;
+  assert(bench_publisher_timers == NULL);
+  assert(bench_subscribers == NULL);
+  assert(bench_subscribers_count == 0);
   return NGX_OK;
 }
 

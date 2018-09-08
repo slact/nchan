@@ -43,6 +43,7 @@ ngx_int_t nchan_benchmark_dequeue_subscribers(void);
 ngx_int_t nchan_benchmark_finish_response(void);
 ngx_int_t nchan_benchmark_receive_finished_data(nchan_benchmark_data_t *data);
 ngx_int_t nchan_benchmark_finish(void);
+ngx_int_t nchan_benchmark_cleanup(void);
 
 ngx_int_t nchan_benchmark_channel_id(int n, ngx_str_t *chid);
 uint64_t nchan_benchmark_message_delivery_msec(nchan_msg_t *msg);
