@@ -507,22 +507,28 @@ void nchan_abort_oneshot_timer(void *t) {
 typedef struct {
   ngx_event_t    ev;
   ngx_msec_t     wait;
-  int          (*cb)(void *pd);
+  ngx_int_t    (*cb)(void *pd);
 } interval_timer_t;
 
 void interval_timer_callback(ngx_event_t *ev) {
   interval_timer_t  *timer = container_of(ev, interval_timer_t, ev);
-  int again = timer->cb(ev->data);
-  if(again && ev->timedout) {
+  ngx_int_t rc = timer->cb(ev->data);
+  if((rc == NGX_OK || rc == NGX_AGAIN) && ev->timedout) {
     ev->timedout=0;
     ngx_add_timer(&timer->ev, timer->wait);
   }
-  else {
+  else if(rc > NGX_OK && ev->timedout) {
+    timer->wait = rc;
+    ev->timedout=0;
+    ngx_add_timer(&timer->ev, timer->wait);
+  }
+  else { //rc < 0, != NGX_EAGAIN
+    //NGX_DONE, for example, or NGX_ABORT
     ngx_free(timer);
   }
 }
 
-void *nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t interval) {
+void *nchan_add_interval_timer(ngx_int_t (*cb)(void *), void *pd, ngx_msec_t interval) {
   interval_timer_t *timer = ngx_alloc(sizeof(*timer), ngx_cycle->log);
   ngx_memzero(&timer->ev, sizeof(timer->ev));
   timer->cb = cb;

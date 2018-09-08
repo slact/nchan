@@ -27,12 +27,12 @@ ngx_int_t clear_group_if_not_owner(rbtree_seed_t *seed, void *node_data, void *p
   return NGX_OK;
 }
 
-int jerk_group_clearer(void *pd) {
+ngx_int_t jerk_group_clearer(void *pd) {
   memstore_groups_t *gp = pd;
   
   rbtree_walk(&gp->tree, clear_group_if_not_owner, NULL);
   
-  return 1;
+  return NGX_OK;
 }
 #endif
 

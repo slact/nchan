@@ -24,6 +24,20 @@ ngx_atomic_int_t    *worker_counter = NULL;
 ngx_int_t            bench_worker_number = 0;
 void                *readiness_timer = NULL;
 
+unsigned             bench_base_msg_period = 0;
+
+unsigned bench_msg_period_jittered(void) {
+  int max_diff = bench_base_msg_period * ((float )bench.cf->benchmark.msg_rate_jitter_percent/100);
+  int range = max_diff * 2;
+  int jitter = (rand() / (RAND_MAX / range + 1)) - max_diff;
+  int jittered_msg_period = bench_base_msg_period + jitter;
+  if(jittered_msg_period <= 0) {
+    jittered_msg_period = 1;
+  }
+  //DBG("jittered %d into %d", bench_base_msg_period, jittered_msg_period);
+  return (unsigned )jittered_msg_period;
+}
+
 int nchan_benchmark_running(void) {
   return bench_active && *bench_active > 0 && bench_worker_running > 0;
 }
@@ -123,7 +137,7 @@ static ngx_int_t benchmark_publish_callback(ngx_int_t status, void *data, void *
   return NGX_OK;
 }
 
-static int benchmark_publish_message(void *pd) {
+static ngx_int_t benchmark_publish_message(void *pd) {
   time_t      time_start = (time_t)(uintptr_t )pd;
   struct      timeval tv;
   uint64_t    now;
@@ -137,7 +151,7 @@ static int benchmark_publish_message(void *pd) {
   nchan_benchmark_channel_t *chan;
   if(*bench_active == 0 || bench.time_start != time_start) {
     DBG("benchmark not running. stop trying to publish");
-    return 0; //we're done here
+    return NGX_ABORT; //we're done here
   }
   
   channel_n = rand() / (RAND_MAX / (bench.cf->benchmark.channels) + 1);
@@ -174,27 +188,27 @@ static int benchmark_publish_message(void *pd) {
   
   bench.cf->storage_engine->publish(&channel_id, &msg, bench.cf, (callback_pt )benchmark_publish_callback, (void *)(uintptr_t)now);
   
-  return 1;
+  return bench_msg_period_jittered();
 }
 
-static int benchmark_check_ready_to_start_publishing(void *pd) {
+static ngx_int_t benchmark_check_ready_to_start_publishing(void *pd) {
   uint64_t required_subs = bench.cf->benchmark.subscribers_per_channel * bench.cf->benchmark.channels;
   if(*bench.shared_data.subscribers_enqueued == required_subs) {
     int       i;
-    unsigned  msg_period = 1000.0/((double)bench.cf->benchmark.msgs_per_minute / 60.0);
-    msg_period *= nchan_worker_processes;
-    DBG("ready to begin benchmark, msg period: %d msec", msg_period);
+    bench_base_msg_period = 1000.0/((double)bench.cf->benchmark.msgs_per_minute / 60.0);
+    bench_base_msg_period *= nchan_worker_processes;
+    DBG("ready to begin benchmark, msg period: %d msec", bench_base_msg_period);
     assert(bench_publisher_timers == NULL);
     bench_publisher_timers = ngx_alloc(sizeof(void *) * bench.cf->benchmark.channels, ngx_cycle->log);
     for(i=0; i < bench.cf->benchmark.channels; i++) {
-      bench_publisher_timers[i] = nchan_add_interval_timer(benchmark_publish_message, (void *)(uintptr_t )bench.time_start, msg_period);
+      bench_publisher_timers[i] = nchan_add_interval_timer(benchmark_publish_message, (void *)(uintptr_t )bench.time_start, bench_msg_period_jittered());
     }
     readiness_timer = NULL;
-    return 0;
+    return NGX_ABORT;
   }
   else {
     DBG("not ready to benchmark: subs required: %d, ready: %d", required_subs, *bench.shared_data.subscribers_enqueued);
-    return 1; //retry again
+    return NGX_AGAIN;
   }
 }
 static void benchmark_finish_phase1(void *pd);

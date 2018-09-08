@@ -595,6 +595,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, benchmark.msgs_per_minute),
     NULL } ,
 
+  { ngx_string("nchan_benchmark_message_rate_jitter_percent"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_num_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, benchmark.msg_rate_jitter_percent),
+    NULL } ,
+
   { ngx_string("nchan_benchmark_message_padding_bytes"),
     NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_num_slot,
