@@ -14,10 +14,15 @@
 
 nchan_benchmark_t    bench;
 ngx_atomic_int_t    *bench_active;
+ngx_atomic_int_t     bench_worker_running = 0;
 ngx_http_request_t  *bench_initiating_request;
 void               **bench_publisher_timers = NULL;
 subscriber_t       **bench_subscribers = NULL;
 size_t               bench_subscribers_count = 0;
+
+int nchan_benchmark_running(void) {
+  return bench_active && *bench_active > 0 && bench_worker_running > 0;
+}
 
 ngx_int_t nchan_benchmark_init_module(ngx_cycle_t *cycle) {
   bench_active = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_int_t), "benchmark active");
@@ -51,8 +56,10 @@ ngx_int_t nchan_benchmark_initialize(ngx_http_request_t *r) {
   bench.shared_data.subscribers_enqueued = shm_calloc(nchan_store_memory_shmem, sizeof(*(bench.shared_data.subscribers_enqueued)), "hdrhistogram subscribers_enqueued count");
   bench.shared_data.subscribers_dequeued = shm_calloc(nchan_store_memory_shmem, sizeof(*(bench.shared_data.subscribers_dequeued)), "hdrhistogram subscribers_dequeued count");
   bench.shared_data.channels = shm_calloc(nchan_store_memory_shmem, sizeof(nchan_benchmark_channel_t) * cf->benchmark.channels, "benchmark channel states");
-  assert(bench.data.msg_latency == NULL);
-  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_latency);
+  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_delivery_latency);
+  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_publishing_latency);
+  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.subscriber_readiness_latency);
+  
   
   for(i=0; i<cf->benchmark.channels; i++) {
     bench.shared_data.channels[i].n=i;
@@ -74,7 +81,9 @@ ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, 
   bench.time_start = start;
   bench.shared_data = *shared_data;
   ngx_memzero(&bench.data, sizeof(bench.data));
-  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_latency);
+  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_delivery_latency);
+  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.msg_publishing_latency);
+  hdr_init_nchan_shm(1, 10000000, 4, &bench.data.subscriber_readiness_latency);
   
   nchan_benchmark_start(initiating_worker_slot);
   
@@ -82,13 +91,21 @@ ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, 
 }
 
 static ngx_int_t benchmark_publish_callback(ngx_int_t status, void *data, void *pd) {
-  switch(status) {
-    case NCHAN_MESSAGE_QUEUED:
-    case NCHAN_MESSAGE_RECEIVED:
-      bench.data.msg_sent++;
-      break;
-    default:
-      bench.data.msg_send_failed++;
+  struct      timeval tv;
+  uint64_t    t1;
+  uintptr_t   t0 = (uintptr_t )pd;
+  if(nchan_benchmark_running()) {
+    ngx_gettimeofday(&tv);
+    t1 = (tv.tv_sec - bench.time_start) * (uint64_t)1000000 + tv.tv_usec;
+    switch(status) {
+      case NCHAN_MESSAGE_QUEUED:
+      case NCHAN_MESSAGE_RECEIVED:
+        bench.data.msg_sent++;
+        break;
+      default:
+        bench.data.msg_send_failed++;
+    }
+    hdr_record_value(bench.data.msg_publishing_latency, t1-t0);
   }
   return NGX_OK;
 }
@@ -126,7 +143,7 @@ static int benchmark_publish_message(void *pd) {
   
   last = ngx_snprintf(msgbuf, 64, "%D %D ", now, msgnum);
   
-  DBG("publish to channel %V msg #%D (t: %D)", &channel_id, msgnum, now);
+  //DBG("publish to channel %V msg #%D (t: %D)", &channel_id, msgnum, now);
   
   ngx_memzero(&msg, sizeof(msg));
   msg.buf.temporary = 1;
@@ -142,7 +159,7 @@ static int benchmark_publish_message(void *pd) {
   
   msg.content_type = (ngx_str_t *)&NCHAN_CONTENT_TYPE_TEXT_PLAIN;
   
-  bench.cf->storage_engine->publish(&channel_id, &msg, bench.cf, (callback_pt )benchmark_publish_callback, chan);
+  bench.cf->storage_engine->publish(&channel_id, &msg, bench.cf, (callback_pt )benchmark_publish_callback, (void *)(uintptr_t)now);
   
   return 1;
 }
@@ -178,7 +195,8 @@ ngx_int_t nchan_benchmark_start(ngx_int_t initiating_worker_slot) {
     subs_per_channel += bench.cf->benchmark.subscribers_per_channel % nchan_worker_processes;
     nchan_add_oneshot_timer(benchmark_finish_phase1, NULL, bench.cf->benchmark.time * 1000);
   }
-  
+  assert(bench_worker_running == 0);
+  bench_worker_running = 1;
   assert(bench_subscribers == NULL);
   assert(bench_subscribers_count == 0);
   bench_subscribers_count = subs_per_channel * bench.cf->benchmark.channels;
@@ -215,7 +233,7 @@ ngx_int_t nchan_benchmark_dequeue_subscribers(void) {
 static void benchmark_finish_phase1(void *pd) {
   bench.time_end = ngx_time();
   memstore_ipc_broadcast_benchmark_stop(&bench);
-  nchan_benchmark_stop_publishing();
+  nchan_benchmark_stop();
   nchan_add_oneshot_timer(benchmark_finish_phase2, NULL, 4000);
 }
 static int waiting_for_data = 0;
@@ -238,9 +256,12 @@ ngx_int_t nchan_benchmark_receive_finished_data(nchan_benchmark_data_t *data) {
   bench.data.msg_sent += data->msg_sent;
   bench.data.msg_send_failed += data->msg_send_failed;
   bench.data.msg_received += data->msg_received;
-  hdr_add(bench.data.msg_latency, data->msg_latency);
-  
-  hdr_close_nchan_shm(data->msg_latency);
+  hdr_add(bench.data.msg_delivery_latency, data->msg_delivery_latency);
+  hdr_close_nchan_shm(data->msg_delivery_latency);
+  hdr_add(bench.data.msg_publishing_latency, data->msg_publishing_latency);
+  hdr_close_nchan_shm(data->msg_publishing_latency);
+  hdr_add(bench.data.subscriber_readiness_latency, data->subscriber_readiness_latency);
+  hdr_close_nchan_shm(data->subscriber_readiness_latency);
   
   if(waiting_for_data == 0) {
     nchan_benchmark_finish_response();
@@ -263,12 +284,27 @@ ngx_int_t nchan_benchmark_finish_response(void) {
     "  send failed:        %d\n"
     "  received:           %d\n"
     "  unreceived:         %d\n"
-    "message delivery latency (msec)\n"
-    "  avg:                %.3f\n"
-    "  min:                %.3f\n"
-    "  99th percentile:    %.3f\n"
-    "  max:                %.3f\n"
-    "  stddev              %.3f\n"
+    "message publishing latency\n"
+    "  min:                %.3fms\n"
+    "  avg:                %.3fms\n"
+    "  99th percentile:    %.3fms\n"
+    "  max:                %.3fms\n"
+    "  stddev              %.3fms\n"
+    "  samples:            %D\n"
+    "message delivery latency\n"
+    "  min:                %.3fms\n"
+    "  avg:                %.3fms\n"
+    "  99th percentile:    %.3fms\n"
+    "  max:                %.3fms\n"
+    "  stddev              %.3fms\n"
+    "  samples:            %D\n"
+    "subscriber readiness latency\n"
+    "  min:                %.3fms\n"
+    "  avg:                %.3fms\n"
+    "  99th percentile:    %.3fms\n"
+    "  max:                %.3fms\n"
+    "  stddev              %.3fms\n"
+    "  samples:            %D\n"
     "%Z";
     
   ngx_snprintf(str, 2048, fmt, 
@@ -281,18 +317,34 @@ ngx_int_t nchan_benchmark_finish_response(void) {
     bench.data.msg_send_failed,
     bench.data.msg_received,
     bench.data.msg_sent * bench.cf->benchmark.subscribers_per_channel - bench.data.msg_received,
-    (double )hdr_mean(bench.data.msg_latency)/1000.0,
-    (double )hdr_min(bench.data.msg_latency)/1000.0,
-    (double )hdr_value_at_percentile(bench.data.msg_latency, 99.0)/1000.0,
-    (double )hdr_max(bench.data.msg_latency)/1000.0,
-    (double )hdr_stddev(bench.data.msg_latency)/1000.0
+    (double )hdr_min(bench.data.msg_publishing_latency)/1000.0,
+    (double )hdr_mean(bench.data.msg_publishing_latency)/1000.0,
+    (double )hdr_value_at_percentile(bench.data.msg_publishing_latency, 99.0)/1000.0,
+    (double )hdr_max(bench.data.msg_publishing_latency)/1000.0,
+    (double )hdr_stddev(bench.data.msg_publishing_latency)/1000.0,
+    bench.data.msg_publishing_latency->total_count,
+    
+    (double )hdr_min(bench.data.msg_delivery_latency)/1000.0,
+    (double )hdr_mean(bench.data.msg_delivery_latency)/1000.0,
+    (double )hdr_value_at_percentile(bench.data.msg_delivery_latency, 99.0)/1000.0,
+    (double )hdr_max(bench.data.msg_delivery_latency)/1000.0,
+    (double )hdr_stddev(bench.data.msg_delivery_latency)/1000.0,
+    bench.data.msg_delivery_latency->total_count,
+    
+    (double )hdr_min(bench.data.subscriber_readiness_latency)/1000.0,
+    (double )hdr_mean(bench.data.subscriber_readiness_latency)/1000.0,
+    (double )hdr_value_at_percentile(bench.data.subscriber_readiness_latency, 99.0)/1000.0,
+    (double )hdr_max(bench.data.subscriber_readiness_latency)/1000.0,
+    (double )hdr_stddev(bench.data.subscriber_readiness_latency)/1000.0,
+    bench.data.subscriber_readiness_latency->total_count
   );
   
   return nchan_respond_cstring(r, NGX_HTTP_OK, &NCHAN_CONTENT_TYPE_TEXT_PLAIN,( char *)str, 1);
 }
 
-ngx_int_t nchan_benchmark_stop_publishing(void) {
+ngx_int_t nchan_benchmark_stop(void) {
   int i;
+  bench_worker_running = 0;
   DBG("stop publishing");
   for(i=0; i< bench.cf->benchmark.channels; i++) {
     nchan_abort_interval_timer(bench_publisher_timers[i]);
@@ -308,14 +360,19 @@ ngx_int_t nchan_benchmark_finish(void) {
   shm_free(nchan_store_memory_shmem, (void *)bench.shared_data.subscribers_enqueued);
   shm_free(nchan_store_memory_shmem, (void *)bench.shared_data.subscribers_dequeued);
   shm_free(nchan_store_memory_shmem, bench.shared_data.channels);
-  hdr_close_nchan_shm(bench.data.msg_latency);
+  hdr_close_nchan_shm(bench.data.msg_publishing_latency);
+  hdr_close_nchan_shm(bench.data.msg_delivery_latency);
+  hdr_close_nchan_shm(bench.data.subscriber_readiness_latency);
   nchan_benchmark_cleanup();
+  DBG("benchmark finish..");
   *bench_active = 0;
+  DBG("benchmark finished");
   
   return NGX_OK;
 }
 
 ngx_int_t nchan_benchmark_cleanup(void) {
+  DBG("benchmark cleanup");
   ngx_memzero(&bench, sizeof(bench));
   bench_initiating_request = NULL;
   assert(bench_publisher_timers == NULL);

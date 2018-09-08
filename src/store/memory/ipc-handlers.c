@@ -1086,7 +1086,7 @@ ngx_int_t memstore_ipc_broadcast_benchmark_stop(void *bench_pd) {
   return ipc_broadcast_cmd(benchmark_stop, &data);
 }
 static void receive_benchmark_stop(ngx_int_t sender, benchmark_stop_data_t *d) {
-  nchan_benchmark_stop_publishing();
+  nchan_benchmark_stop();
 }
 
 ////////// BENCHMARK FINISH ////////////////
@@ -1106,6 +1106,7 @@ static void receive_benchmark_finish(ngx_int_t sender, benchmark_finish_data_t *
   nchan_benchmark_dequeue_subscribers();
   data.data = bench->data;
   ipc_cmd(benchmark_finish_reply, sender, &data);
+  nchan_benchmark_cleanup();
 }
 
 static void receive_benchmark_finish_reply(ngx_int_t sender, benchmark_finish_data_t *d) {

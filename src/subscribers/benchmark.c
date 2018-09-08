@@ -14,23 +14,35 @@
 typedef struct {
   subscriber_t        *sub;
   nchan_benchmark_t   *bench;
+  uint64_t             time_start;
 } sub_data_t;
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
-  ngx_atomic_fetch_add(d->bench->shared_data.subscribers_enqueued, 1);
+  struct timeval tv;
+  uint64_t t1;
+  ngx_gettimeofday(&tv);
+  if(nchan_benchmark_running()) {
+    t1 = (tv.tv_sec - d->bench->time_start) * (uint64_t)1000000 + tv.tv_usec;
+    hdr_record_value(d->bench->data.subscriber_readiness_latency, t1 - d->time_start);
+    ngx_atomic_fetch_add(d->bench->shared_data.subscribers_enqueued, 1);
+  }
   return NGX_OK;
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  ngx_atomic_fetch_add(d->bench->shared_data.subscribers_dequeued, 1);
+  if(nchan_benchmark_running()) {
+    ngx_atomic_fetch_add(d->bench->shared_data.subscribers_dequeued, 1);
+  }
   return NGX_OK;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
   nchan_msg_t *msg = ptr;
   uint64_t msec = nchan_benchmark_message_delivery_msec(msg);
-  hdr_record_value(d->bench->data.msg_latency, msec);
-  d->bench->data.msg_received++;
+  if(nchan_benchmark_running()) {
+    hdr_record_value(d->bench->data.msg_delivery_latency, msec);
+    d->bench->data.msg_received++;
+  }
   return NGX_OK;
 }
 
@@ -49,6 +61,7 @@ subscriber_t *benchmark_subscriber_create(nchan_benchmark_t *bench) {
   sub_data_t                 *d;
   subscriber_t               *sub;
   nchan_loc_conf_t           *cf = bench->cf;
+  struct timeval tv;
   
   sub = internal_subscriber_create_init(&sub_name, cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_respond_notice, NULL);
   
@@ -56,7 +69,10 @@ subscriber_t *benchmark_subscriber_create(nchan_benchmark_t *bench) {
   sub->destroy_after_dequeue = 1;
   d->sub = sub;
   d->bench = bench;
-
+  ngx_gettimeofday(&tv);
+  
+  d->time_start = (tv.tv_sec - d->bench->time_start) * (uint64_t)1000000 + tv.tv_usec;
+  
   DBG("%p benchmark subscriber created with privdata %p", sub, d);
   return sub;
 }
