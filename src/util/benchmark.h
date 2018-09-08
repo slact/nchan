@@ -7,13 +7,13 @@
 typedef struct {
   struct hdr_histogram* msg_latency;
   uint64_t              msg_sent;
+  uint64_t              msg_send_failed;
   uint64_t              msg_received;
-  uint64_t              subscribers_ready;
 } nchan_benchmark_data_t;
 
 typedef struct {
   uint64_t              n;
-  uint64_t              msg_count;
+  ngx_atomic_t          msg_count;
 } nchan_benchmark_channel_t;
 
 typedef struct {
@@ -38,4 +38,5 @@ ngx_int_t nchan_benchmark_start(ngx_int_t initiator_slot);
 ngx_int_t nchan_benchmark_finish(void);
 
 ngx_int_t nchan_benchmark_channel_id(int n, ngx_str_t *chid);
+uint64_t nchan_benchmark_message_delivery_msec(nchan_msg_t *msg);
 #endif //NCHAN_BENCHMARK_H
