@@ -2,6 +2,7 @@
 #include <subscribers/common.h>
 #include "internal.h"
 #include "benchmark.h"
+#include <util/benchmark.h>
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
@@ -16,14 +17,20 @@ typedef struct {
 } sub_data_t;
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
+  ngx_atomic_fetch_add(d->bench->shared_data.subscribers_enqueued, 1);
   return NGX_OK;
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
+  ngx_atomic_fetch_add(d->bench->shared_data.subscribers_dequeued, 1);
   return NGX_OK;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
+  nchan_msg_t *msg = ptr;
+  uint64_t msec = nchan_benchmark_message_delivery_msec(msg);
+  hdr_record_value(d->bench->data.msg_latency, msec);
+  d->bench->data.msg_received++;
   return NGX_OK;
 }
 
