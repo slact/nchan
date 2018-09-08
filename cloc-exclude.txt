@@ -1,6 +1,8 @@
 src/uthash.h
 src/hiredis
 src/util/ngx_nchan_hacked_slab.c
+src/util/hdr_histogram.c
+src/util/hdr_histogram.h
 src/store/redis/cmp.c
 src/store/redis/cmp.h
 src/store/redis/redis_lua_commands.h
