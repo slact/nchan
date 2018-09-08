@@ -37,6 +37,7 @@ struct nchan_benchmark_s {
 int nchan_benchmark_running(void);
   
 ngx_int_t nchan_benchmark_init_module(ngx_cycle_t *cycle);
+ngx_int_t nchan_benchmark_init_worker(ngx_cycle_t *cycle);
 ngx_int_t nchan_benchmark_exit_master(ngx_cycle_t *cycle);
 
 ngx_int_t nchan_benchmark_initialize(ngx_http_request_t *r);

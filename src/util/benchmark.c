@@ -20,18 +20,31 @@ void               **bench_publisher_timers = NULL;
 subscriber_t       **bench_subscribers = NULL;
 size_t               bench_subscribers_count = 0;
 
+ngx_atomic_int_t    *worker_counter = NULL;
+ngx_int_t            bench_worker_number = 0;
+void                *readiness_timer = NULL;
+
 int nchan_benchmark_running(void) {
   return bench_active && *bench_active > 0 && bench_worker_running > 0;
 }
 
 ngx_int_t nchan_benchmark_init_module(ngx_cycle_t *cycle) {
   bench_active = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_int_t), "benchmark active");
+  worker_counter = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_int_t), "benchmark worker counter");
+  return NGX_OK;
+}
+
+ngx_int_t nchan_benchmark_init_worker(ngx_cycle_t *cycle) {
+  DBG("init worker");
+  bench_worker_number = ngx_atomic_fetch_add(worker_counter, 1);
   return NGX_OK;
 }
 
 ngx_int_t nchan_benchmark_exit_master(ngx_cycle_t *cycle) {
   shm_free(nchan_store_memory_shmem, bench_active);
+  shm_free(nchan_store_memory_shmem, worker_counter);
   bench_active = NULL;
+  worker_counter = NULL;
   return NGX_OK;
 }
 
@@ -176,6 +189,7 @@ static int benchmark_check_ready_to_start_publishing(void *pd) {
     for(i=0; i < bench.cf->benchmark.channels; i++) {
       bench_publisher_timers[i] = nchan_add_interval_timer(benchmark_publish_message, (void *)(uintptr_t )bench.time_start, msg_period);
     }
+    readiness_timer = NULL;
     return 0;
   }
   else {
@@ -190,20 +204,32 @@ ngx_int_t nchan_benchmark_start(ngx_int_t initiating_worker_slot) {
   int           c, i;
   subscriber_t **sub;
   ngx_str_t     channel_id;
-  ngx_int_t subs_per_channel = bench.cf->benchmark.subscribers_per_channel / nchan_worker_processes;
+  ngx_int_t divided_subs = bench.cf->benchmark.subscribers_per_channel / nchan_worker_processes;
+  ngx_int_t leftover_subs = bench.cf->benchmark.subscribers_per_channel % nchan_worker_processes;
+  ngx_int_t subs_per_channel;
+  
   if(ngx_process_slot == initiating_worker_slot) {
-    subs_per_channel += bench.cf->benchmark.subscribers_per_channel % nchan_worker_processes;
     nchan_add_oneshot_timer(benchmark_finish_phase1, NULL, bench.cf->benchmark.time * 1000);
   }
+  
+  
   assert(bench_worker_running == 0);
   bench_worker_running = 1;
   assert(bench_subscribers == NULL);
   assert(bench_subscribers_count == 0);
-  bench_subscribers_count = subs_per_channel * bench.cf->benchmark.channels;
+  for(c=0; c<bench.cf->benchmark.channels; c++) {
+    bench_subscribers_count += divided_subs;
+    if (c%nchan_worker_processes == bench_worker_number) {
+      bench_subscribers_count += leftover_subs;
+    }
+  }
+  DBG("bench_subscribers_count = %d", bench_subscribers_count);
   bench_subscribers = ngx_alloc(sizeof(subscriber_t *) * bench_subscribers_count, ngx_cycle->log);
   sub = &bench_subscribers[0];
   
   for(c=0; c<bench.cf->benchmark.channels; c++) {
+    subs_per_channel = divided_subs + (((c % nchan_worker_processes) == bench_worker_number) ? leftover_subs : 0);
+    //DBG("worker number %d channel %d subs %d", bench_worker_number, c, subs_per_channel);
     for(i=0; i<subs_per_channel; i++) {
       nchan_benchmark_channel_id(c, &channel_id);
       *sub = benchmark_subscriber_create(&bench);
@@ -214,7 +240,7 @@ ngx_int_t nchan_benchmark_start(ngx_int_t initiating_worker_slot) {
     }
   }
   
-  nchan_add_interval_timer(benchmark_check_ready_to_start_publishing, NULL, 250);
+  readiness_timer = nchan_add_interval_timer(benchmark_check_ready_to_start_publishing, NULL, 250);
   
   return NGX_OK;
 }
@@ -345,13 +371,20 @@ ngx_int_t nchan_benchmark_finish_response(void) {
 ngx_int_t nchan_benchmark_stop(void) {
   int i;
   bench_worker_running = 0;
-  DBG("stop publishing");
-  for(i=0; i< bench.cf->benchmark.channels; i++) {
-    nchan_abort_interval_timer(bench_publisher_timers[i]);
-    //TODO: publish FIN
+  DBG("stop benchmark");
+  if(readiness_timer) {
+    nchan_abort_interval_timer(readiness_timer);
+    readiness_timer = NULL;
   }
-  ngx_free(bench_publisher_timers);
-  bench_publisher_timers = NULL;
+  if(bench_publisher_timers) {
+    for(i=0; i< bench.cf->benchmark.channels; i++) {
+      if(bench_publisher_timers[i]) {
+        nchan_abort_interval_timer(bench_publisher_timers[i]);
+      }
+    }
+    ngx_free(bench_publisher_timers);
+    bench_publisher_timers = NULL;
+  }
   return NGX_OK;
 }
 
@@ -373,6 +406,7 @@ ngx_int_t nchan_benchmark_finish(void) {
 
 ngx_int_t nchan_benchmark_cleanup(void) {
   DBG("benchmark cleanup");
+  readiness_timer = NULL;
   ngx_memzero(&bench, sizeof(bench));
   bench_initiating_request = NULL;
   assert(bench_publisher_timers == NULL);

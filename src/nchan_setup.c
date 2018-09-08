@@ -46,6 +46,9 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
   if(nchan_store_memory.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
+  if(global_benchmark_enabled) {
+    nchan_benchmark_init_worker(cycle);
+  }
   
   if(global_redis_enabled && nchan_store_redis.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
