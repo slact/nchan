@@ -921,7 +921,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return concat(#channel_ids, \"channels,\", known_msgs_count, \"messages, all ok\")\n"
    "end\n"},
 
-  {"subscriber_register", "9db24e03e0e7983955946216c560c2e18bae291f",
+  {"subscriber_register", "0418d941e41ce9d8cb938860fd340d85c121d4cc",
    "--input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time, want_channel_settings]\n"
    "--  'subscriber_id' can be '-' for new id, or an existing id\n"
    "--  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec\n"
@@ -937,7 +937,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "local ch=(\"%s{channel:%s}\"):format(ns, id)\n"
    "local keys = {\n"
    "  channel =     ch,\n"
-   "  messages =    ch..':messages:',\n"
+   "  messages =    ch..':messages',\n"
    "  subscribers = ch..':subscribers'\n"
    "}\n"
    "\n"

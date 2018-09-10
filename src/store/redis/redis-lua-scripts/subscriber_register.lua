@@ -13,7 +13,7 @@ redis.call('echo', ' ######## SUBSCRIBER REGISTER SCRIPT ####### ')
 local ch=("%s{channel:%s}"):format(ns, id)
 local keys = {
   channel =     ch,
-  messages =    ch..':messages:',
+  messages =    ch..':messages',
   subscribers = ch..':subscribers'
 }
 
