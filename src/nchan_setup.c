@@ -1217,8 +1217,11 @@ static char *ngx_conf_set_redis_storage_mode_slot(ngx_conf_t *cf, ngx_command_t 
   else if(nchan_strmatch(arg, 1, "distributed")) {
     *field = REDIS_MODE_DISTRIBUTED;
   }
+  else if(nchan_strmatch(arg, 1, "nostore") ||  nchan_strmatch(arg, 1, "distributed-nostore")) {
+    *field = REDIS_MODE_DISTRIBUTED_NOSTORE;
+  }
   else {
-    return "is invalid, must be either 'distributed' or 'backup'";
+    return "is invalid, must be one of 'distributed',  'backup' or 'nostore'";
   }
   
   return NGX_CONF_OK;

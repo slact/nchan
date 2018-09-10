@@ -391,12 +391,14 @@ CfCmd.new do
       
       group: "storage",
       tags: ['redis'],
-      value: ["distributed", "backup"],
+      value: ["distributed", "backup", "nostore"],
       default: "distributed",
       info: <<-EOS.gsub(/^ {8}/, '')
         The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but suffers the latency penalty of all message publishing going through Redis first.
         
         In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.
+        
+        In `nostore` mode, messages are published as in `distributed` mode, but are not stored. Thus Redis is used to broadcast messages to many Nchan instances with no delivery guarantees during connection failure, and only local in-memory storage. This means that there are also no message delivery guarantees for subscribers switching from one Nchan instance to another connected to the same Redis server or cluster.
       EOS
   
   nchan_use_redis [:main, :srv, :loc],

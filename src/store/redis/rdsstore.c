@@ -242,7 +242,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   DBG("reap channel %V", &ch->id);
 
   if(ch->pubsub_status == REDIS_PUBSUB_SUBSCRIBED) {
-    assert(ch->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED);
+    assert(ch->redis.nodeset->settings.storage_mode >= REDIS_MODE_DISTRIBUTED);
     assert(ch->redis.node.pubsub);
     ch->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
     redis_subscriber_command(ch->redis.node.pubsub, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(ch->redis.nodeset->settings.namespace), STR(&ch->id));
@@ -990,6 +990,7 @@ void spooler_get_message_finish_handler(channel_spooler_t *spl, void *pd) {
 
 static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
   static uint8_t channel_buffer_complete = 1;
+  spooler_fetching_strategy_t spooling_strategy;
   static channel_spooler_handlers_t handlers = {
     spooler_add_handler,
     spooler_dequeue_handler,
@@ -1000,7 +1001,14 @@ static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
   };
   nchan_loc_conf_t *lcf = head->redis.nodeset->first_loc_conf; //any loc_conf that refers to this nodeset will work. 
   //the spooler needs it to pass to get_message calls, which in rdstore's case only cares about the nodeset referenced in the loc_conf
-  start_spooler(&head->spooler, &head->id, &head->status, &channel_buffer_complete, &nchan_store_redis, lcf, FETCH, &handlers, head);
+  if(head->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED_NOSTORE) {
+    spooling_strategy = NCHAN_SPOOL_PASSTHROUGH;
+  }
+  else {
+    spooling_strategy = NCHAN_SPOOL_FETCH;
+  }
+  
+  start_spooler(&head->spooler, &head->id, &head->status, &channel_buffer_complete, &nchan_store_redis, lcf, spooling_strategy, &handlers, head);
   return NGX_OK;
 }
 
@@ -1273,7 +1281,7 @@ ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch
   redis_node_t       *pubsub_node;
   ngx_str_t          *namespace;
   if( ch->pubsub_status != REDIS_PUBSUB_SUBSCRIBED && ch->pubsub_status != REDIS_PUBSUB_SUBSCRIBING
-   && ch->redis.nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED
+   && ch->redis.nodeset->settings.storage_mode >= REDIS_MODE_DISTRIBUTED
    && nodeset_ready(ch->redis.nodeset)
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
@@ -2093,6 +2101,7 @@ typedef struct {
 } redis_publish_callback_data_t;
 
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
+static void redisPublishNostoreCallback(redisAsyncContext *, void *, void *);
 static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd);
 
 static ngx_int_t redis_publish_message_nodeset_maybe_retry(redis_nodeset_t *ns, redis_publish_callback_data_t *d) {
@@ -2143,22 +2152,70 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
   }
   d->msglen = msgstr.len;
   
-  
-  
-  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
-  //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
-  nchan_redis_script(publish, node, &redisPublishCallback, d, d->channel_id, 
-                     "%i %b %b %b %i %i %i %i %i", 
-                     msg->id.time, 
-                     STR(&msgstr), 
-                     STR((msg->content_type ? msg->content_type : &empty)), 
-                     STR((msg->eventsource_event ? msg->eventsource_event : &empty)), 
-                     d->compression,
-                     d->message_timeout, 
-                     d->max_messages, 
-                     redis_publish_message_msgkey_size,
-                     nodeset->settings.optimize_target
-                    );
+  if(nodeset->settings.storage_mode == REDIS_MODE_DISTRIBUTED_NOSTORE) {
+    //hand-roll the msgpacked message
+    /*
+    9A A3"msg" CE<ttl> CE<time> 00 00 00 DB<len><str> D9<len><str> D9<len><str> 0X
+    |  |       |       |        |  |  |  |            |            |            |
+    |  |       |       |        |  |  |  |            |            |    fixint0/1 compression
+    |  |       |       |        |  |  |  |            |    bin8 <uint8 len> eventsource-event
+    |  |       |       |        |  |  |  |     bin8 <uint8 len> content type
+    |  |       |       |        |  |  |  bin32 <uint32 BE len> msg data
+    |  |       |       |      fixint=0 tag=0, prev_time=0, prev_tag=0
+    |  |       |    uint32 (BE) message time
+    |  |     uint32 (BE) message ttl
+    |  fixstr[3]
+    fixarray[10]
+    */
+    
+    uint32_t ttl, time;
+    uint32_t msglen;
+    uint8_t  content_type_len, eventsource_event_len, compression;
+    char     zero='\0';
+    
+    ttl = htonl(d->message_timeout);
+    time = htonl(msg->id.time);
+    msglen = htonl(d->msglen);
+    content_type_len = msg->content_type ? (msg->content_type->len > 255 ? 255 : msg->content_type->len) : 0;
+    eventsource_event_len = msg->eventsource_event ? (msg->eventsource_event->len > 255 ? 255 : msg->eventsource_event->len) : 0;
+    compression = d->compression;
+    
+    redis_command(node, &redisPublishNostoreCallback, d, "PUBLISH %b{channel:%b}:pubsub "
+      "\x9A\xA3msg\xCE%b\xCE%b%b%b%b\xDB%b%b\xD9%b%b\xD9%b%b%b",
+      
+      STR(nodeset->settings.namespace),
+      STR(d->channel_id),
+      
+      (char *)&ttl, (size_t )4,
+      (char *)&time, (size_t )4,
+      (char *)&zero, (size_t )1,
+      (char *)&zero, (size_t )1,
+      (char *)&zero, (size_t )1,
+      (char *)&msglen, (size_t )4,
+      STR(&msgstr),
+      (char *)&content_type_len, (size_t )1,
+      STR((msg->content_type ? msg->content_type : &empty)),
+      (char *)&eventsource_event_len, (size_t )1,
+      STR((msg->eventsource_event ? msg->eventsource_event : &empty)),
+      (char *)&compression, (size_t )1
+    );
+  }
+  else {  
+    //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+    //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
+    nchan_redis_script(publish, node, &redisPublishCallback, d, d->channel_id, 
+                      "%i %b %b %b %i %i %i %i %i", 
+                      msg->id.time, 
+                      STR(&msgstr), 
+                      STR((msg->content_type ? msg->content_type : &empty)), 
+                      STR((msg->eventsource_event ? msg->eventsource_event : &empty)), 
+                      d->compression,
+                      d->message_timeout, 
+                      d->max_messages, 
+                      redis_publish_message_msgkey_size,
+                      nodeset->settings.optimize_target
+                      );
+  }
   if(mmapped && munmap(msgstr.data, msgstr.len) == -1) {
     ERR("munmap was a problem");
     return NGX_ERROR;
@@ -2192,6 +2249,27 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   redis_publish_message_send(ns, d);
   
   return NGX_OK;
+}
+
+static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *privdata) {
+  redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
+  redisReply                    *reply=r;
+  redisReply                    *cur;
+  nchan_channel_t                ch;
+  
+  redis_node_t                 *node = c->data;
+  node->pending_commands--;
+  nchan_update_stub_status(redis_pending_commands, -1);
+  
+  if(d->shared_msg) {
+    msg_release(d->msg, "redis publish");
+  }
+  
+  ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
+  
+  d->callback(NCHAN_MESSAGE_RECEIVED, &ch, d->privdata);
+  
+  ngx_free(d);
 }
 
 static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) {

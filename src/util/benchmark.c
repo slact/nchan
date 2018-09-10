@@ -28,6 +28,9 @@ unsigned             bench_base_msg_period = 0;
 
 unsigned bench_msg_period_jittered(void) {
   int max_diff = bench_base_msg_period * ((float )bench.cf->benchmark.msg_rate_jitter_percent/100);
+  if(max_diff == 0) {
+    return bench_base_msg_period;
+  }
   int range = max_diff * 2;
   int jitter = (rand() / (RAND_MAX / range + 1)) - max_diff;
   int jittered_msg_period = bench_base_msg_period + jitter;
@@ -274,7 +277,7 @@ static void benchmark_finish_phase1(void *pd) {
   bench.time_end = ngx_time();
   memstore_ipc_broadcast_benchmark_stop(&bench);
   nchan_benchmark_stop();
-  nchan_add_oneshot_timer(benchmark_finish_phase2, NULL, 4000);
+  nchan_add_oneshot_timer(benchmark_finish_phase2, NULL, 3000);
 }
 static int waiting_for_data = 0;
 static void benchmark_finish_phase2(void *pd) {

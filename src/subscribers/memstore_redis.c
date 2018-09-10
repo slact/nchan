@@ -63,6 +63,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_loc_conf_t   cf;
   nchan_msg_id_t    *lastid;
   ngx_pool_t        *deflate_pool = NULL;
+  int                nostore_mode = d->chanhead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED_NOSTORE;
   DBG("%p memstore-redis subscriber respond with message", d->sub);
 
   cf.max_messages = d->chanhead->max_messages;
@@ -87,7 +88,7 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   lastid = &d->chanhead->latest_msgid;
   
   assert(lastid->tagcount == 1 && msg->id.tagcount == 1);
-  if(lastid->time < msg->id.time || 
+  if(nostore_mode || lastid->time < msg->id.time || 
     (lastid->time == msg->id.time && lastid->tag.fixed[0] < msg->id.tag.fixed[0])) {
     memstore_ensure_chanhead_is_ready(d->chanhead, 1);
     nchan_store_chanhead_publish_message_generic(d->chanhead, msg, 0, &cf, NULL, NULL);

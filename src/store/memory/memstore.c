@@ -623,7 +623,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     ch->spooler.fn->broadcast_status(&ch->spooler, NGX_HTTP_GONE, &NCHAN_HTTP_STATUS_410);
   }
   stop_spooler(&ch->spooler, 0);
-  if(ch->cf && ch->cf->redis.enabled && ch->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !ch->multi) {
+  if(ch->cf && ch->cf->redis.enabled && ch->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED && !ch->multi) {
     send_redis_fakesub_delta(ch);
     if(ch->delta_fakesubs_timer_ev.timer_set) {
       ngx_del_timer(&ch->delta_fakesubs_timer_ev);
@@ -735,7 +735,7 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
 #define CHANHEAD_SHARED_OKAY(head) head->status == READY || head->status == STUBBED || (!head->stub && head->cf->redis.enabled == 1 && head->status == WAITING && head->owner == head->slot)
 
 void memstore_fakesub_add(memstore_channel_head_t *head, ngx_int_t n) {
-  assert(head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED);
+  assert(head->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED);
   if(redis_fakesub_timer_interval == 0) {
     nchan_store_redis_fakesub_add(&head->id, head->cf, n, head->shutting_down);
   }
@@ -774,7 +774,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
       assert(CHANHEAD_SHARED_OKAY(head));
       ngx_atomic_fetch_add(&head->shared->sub_count, 1);
     }
-    if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !head->multi) {
+    if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED && !head->multi) {
       memstore_fakesub_add(head, 1);
     }
     nchan_update_stub_status(subscribers, 1);
@@ -814,7 +814,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       assert(head->shutting_down == 1);
     }
     */
-    if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED && !head->multi) {
+    if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED && !head->multi) {
       memstore_fakesub_add(head, -count);
     }
     
@@ -857,7 +857,7 @@ static ngx_int_t start_chanhead_spooler(memstore_channel_head_t *head) {
     NULL
   };
   
-  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, FETCH, &handlers, head);
+  start_spooler(&head->spooler, &head->id, &head->status, &head->msg_buffer_complete, &nchan_store_memory, head->cf, NCHAN_SPOOL_FETCH, &handlers, head);
   if(head->meta) {
     head->spooler.publish_events = 0;
   }
@@ -1482,7 +1482,7 @@ static ngx_int_t nchan_store_delete_single_channel_id(ngx_str_t *channel_id, nch
   owner = memstore_channel_owner(channel_id);
   
   if(cf->redis.enabled) {
-    if(cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+    if(cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED) {
       return nchan_store_redis.delete_channel(channel_id, cf, callback, privdata);
     }
     else {
@@ -1582,9 +1582,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   memstore_channel_head_t     *ch;
   nchan_channel_t              chaninfo;
   
-  //TODO: WORK IN PROGRESS
-  
-  if(cf->redis.enabled && cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+  if(cf->redis.enabled && cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED) {
     return nchan_store_redis.find_channel(channel_id, cf, callback, privdata);
   }
   else if(memstore_slot() == owner) {
@@ -2815,7 +2813,7 @@ static ngx_int_t chanhead_push_message(memstore_channel_head_t *ch, store_messag
   if(ch->msg_last && ch->msg_last->msg->id.time == msg->msg->id.time) {
     msg->msg->id.tag.fixed[0] = ch->msg_last->msg->id.tag.fixed[0] + 1;
   }
-  else if(!ch->cf->redis.enabled || ch->cf->redis.storage_mode == REDIS_MODE_BACKUP) { //TODO: check this logic
+  else if(!ch->cf->redis.enabled || ch->cf->redis.storage_mode < REDIS_MODE_DISTRIBUTED) { //TODO: check this logic
     msg->msg->id.tag.fixed[0] = 0;
   }
 
@@ -3197,7 +3195,7 @@ static ngx_int_t nchan_store_publish_message_to_single_channel_id(ngx_str_t *cha
   if(cf->redis.enabled) {
     fill_message_timedata(msg, nchan_loc_conf_message_timeout(cf));
     
-    if(cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED) {
+    if(cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED) {
       assert(!msg_in_shm);
       return nchan_store_redis.publish(channel_id, msg, cf, callback, privdata);
     }

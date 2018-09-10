@@ -27,13 +27,17 @@ static nchan_msg_id_t     oldest_msg_id = NCHAN_OLDEST_MSGID;
 static subscriber_pool_t *find_spool(channel_spooler_t *spl, nchan_msg_id_t *id) {
   rbtree_seed_t      *seed = &spl->spoolseed;
   ngx_rbtree_node_t  *node;
+  subscriber_pool_t  *spool = NULL;
   
-  if((node = rbtree_find_node(seed, id)) != NULL) {
-    return (subscriber_pool_t *)rbtree_data_from_node(node);
+  if(id->time == NCHAN_NEWEST_MSGID_TIME || spl->fetching_strategy == NCHAN_SPOOL_PASSTHROUGH) {
+    spool = &spl->current_msg_spool;
+    spool->msg_status = MSG_EXPECTED;
   }
-  else {
-    return NULL;
+  else if((node = rbtree_find_node(seed, id)) != NULL) {
+    spool = rbtree_data_from_node(node);
   }
+  
+  return spool;
 }
 /*
 typedef struct {
@@ -182,7 +186,8 @@ static subscriber_pool_t *get_spool(channel_spooler_t *spl, nchan_msg_id_t *id) 
   ngx_rbtree_node_t  *node;
   subscriber_pool_t *spool;
   
-  if(id->time == NCHAN_NEWEST_MSGID_TIME) {
+  
+  if(id->time == NCHAN_NEWEST_MSGID_TIME || spl->fetching_strategy == NCHAN_SPOOL_PASSTHROUGH) {
     spool = &spl->current_msg_spool;
     spool->msg_status = MSG_EXPECTED;
     return &spl->current_msg_spool;
@@ -221,6 +226,15 @@ static ngx_int_t spool_nextmsg(subscriber_pool_t *spool, nchan_msg_id_t *new_las
   ngx_int_t               immortal_spool = spool->id.time == NCHAN_NEWEST_MSGID_TIME;
   int16_t                 largetags[NCHAN_MULTITAG_MAX];
   nchan_msg_id_t          new_id = NCHAN_ZERO_MSGID;
+  
+  if(spl->fetching_strategy == NCHAN_SPOOL_PASSTHROUGH) {
+    if(immortal_spool) {
+      return NGX_OK; //nothing to do, already on the newest spool
+    }
+    else {
+      new_last_id = &latest_msg_id;
+    }
+  }
   
   nchan_copy_msg_id(&new_id, &spool->id, largetags);
   nchan_update_multi_msgid(&new_id, new_last_id, largetags);
@@ -294,6 +308,8 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
   channel_spooler_t    *spl = data->spooler;
   int                   free_msg_id = 1;
   
+  assert(spl->fetching_strategy != NCHAN_SPOOL_PASSTHROUGH);
+  
   if(spl && data == spl->fetchmsg_cb_data_list) {
     spl->fetchmsg_cb_data_list = data->next;
   }
@@ -338,8 +354,7 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
       // ♫ It's gonna be the future soon ♫
       if(spool->id.time == NCHAN_NTH_MSGID_TIME) {
         //wait for message in the NEWEST_ID spool
-        nchan_msg_id_t  newest_id = NCHAN_NEWEST_MSGID;
-        spool_nextmsg(spool, &newest_id); 
+        spool_nextmsg(spool, &latest_msg_id); 
       }
       else {
         spool->msg_status = findmsg_status;
@@ -357,7 +372,7 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
       break;
       
     case MSG_NOTFOUND:
-      if(spl->fetching_strategy == FETCH_IGNORE_MSG_NOTFOUND) {
+      if(spl->fetching_strategy == NCHAN_SPOOL_FETCH_IGNORE_MSG_NOTFOUND) {
         spool->msg_status = prev_status;
         break;
       }
@@ -466,12 +481,12 @@ static ngx_int_t spool_fetch_msg(subscriber_pool_t *spool) {
     spl->handlers->get_message_start(spl, spl->handlers_privdata);
   }
   switch(spl->fetching_strategy) {
-    case FETCH:
-    case FETCH_IGNORE_MSG_NOTFOUND:
+    case NCHAN_SPOOL_FETCH:
+    case NCHAN_SPOOL_FETCH_IGNORE_MSG_NOTFOUND:
       spool->spooler->store->get_message(spool->spooler->chid, &spool->id, spool->spooler->cf, (callback_pt )spool_fetch_msg_callback, data);
       break;
-    case NO_FETCH:
-      //do nothing
+    case NCHAN_SPOOL_PASSTHROUGH:
+      spool_fetch_msg_callback(MSG_EXPECTED, NULL, data);
       break;
   }
   return NGX_OK;
@@ -677,8 +692,9 @@ static ngx_int_t spooler_add_subscriber(channel_spooler_t *self, subscriber_t *s
   
   spool = get_spool(self, msgid);
   
-  assert(spool->id.time == msgid->time);
-  
+  if(self->fetching_strategy == NCHAN_SPOOL_PASSTHROUGH) {
+    assert(spool->id.time == NCHAN_NEWEST_MSGID_TIME);
+  }
   
   if(spool == NULL) {
     return NGX_ERROR;
@@ -922,35 +938,37 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   subscriber_pool_t         *spool;
   ngx_int_t                  responded_subs = 0;
   
-  srdata.min = msg->prev_id;
-  srdata.max = msg->id;
-  srdata.multi = msg->id.tagcount;
-  srdata.overflow = NULL;
-  srdata.msg = msg;
-  srdata.n = 0;
   
-  //spooler_print_contents(self);
-  
-  //find all spools between msg->prev_id and msg->id
-  rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range_callback, &srdata);
-  /*
-  if(srdata.n == 0) {
-    DBG("no spools in range %V -- ", msgid_to_str(&msg->prev_id));
-    DBG(" -- %V", msgid_to_str(&msg->id));
-  }
-  */
-  while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
-    responded_subs += spool->sub_count;
-    if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
-      assert(spool->id.tag.allocd != msg->id.tag.allocd);
+  if(self->fetching_strategy != NCHAN_SPOOL_PASSTHROUGH) {
+    srdata.min = msg->prev_id;
+    srdata.max = msg->id;
+    srdata.multi = msg->id.tagcount;
+    srdata.overflow = NULL;
+    srdata.msg = msg;
+    srdata.n = 0;
+    
+    //spooler_print_contents(self);
+    
+    //find all spools between msg->prev_id and msg->id
+    rbtree_conditional_walk(&self->spoolseed, (rbtree_walk_conditional_callback_pt )collect_spool_range_callback, &srdata);
+    /*
+    if(srdata.n == 0) {
+      DBG("no spools in range %V -- ", msgid_to_str(&msg->prev_id));
+      DBG(" -- %V", msgid_to_str(&msg->id));
     }
-    spool_respond_general(spool, msg, 0, NULL, 0);
-    if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
-      assert(spool->id.tag.allocd != msg->id.tag.allocd);
+    */
+    while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
+      responded_subs += spool->sub_count;
+      if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
+        assert(spool->id.tag.allocd != msg->id.tag.allocd);
+      }
+      spool_respond_general(spool, msg, 0, NULL, 0);
+      if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
+        assert(spool->id.tag.allocd != msg->id.tag.allocd);
+      }
+      spool_nextmsg(spool, &msg->id);
     }
-    spool_nextmsg(spool, &msg->id);
   }
-  
   spool = get_spool(self, &latest_msg_id);
   if(spool->sub_count > 0 && *self->channel_buffer_complete) {
 #if NCHAN_BENCHMARK

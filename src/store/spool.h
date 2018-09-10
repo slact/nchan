@@ -52,7 +52,7 @@ typedef struct {
   ngx_int_t            (*prepare_to_stop)(channel_spooler_t *self);
 } channel_spooler_fn_t;
 
-typedef enum {FETCH, FETCH_IGNORE_MSG_NOTFOUND, NO_FETCH} spooler_fetching_strategy_t;
+typedef enum {NCHAN_SPOOL_FETCH, NCHAN_SPOOL_FETCH_IGNORE_MSG_NOTFOUND, NCHAN_SPOOL_PASSTHROUGH} spooler_fetching_strategy_t;
 
 
 typedef struct fetchmsg_data_s fetchmsg_data_t;
