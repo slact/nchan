@@ -90,6 +90,11 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   assert(lastid->tagcount == 1 && msg->id.tagcount == 1);
   if(nostore_mode || lastid->time < msg->id.time || 
     (lastid->time == msg->id.time && lastid->tag.fixed[0] < msg->id.tag.fixed[0])) {
+    if(nostore_mode) {
+      //out of order messages are ok, we don't care. publish them like they just got here. we can't lose messages due to network lag
+      msg->expires = 0;
+      msg->id.time = 0;
+    }
     memstore_ensure_chanhead_is_ready(d->chanhead, 1);
     nchan_store_chanhead_publish_message_generic(d->chanhead, msg, 0, &cf, NULL, NULL);
   }
