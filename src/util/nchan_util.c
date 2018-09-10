@@ -1139,6 +1139,17 @@ ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf
 #endif
 }
 
+uint64_t nchan_htonll(uint64_t value) {
+  int num = 42;
+  if (*(char *)&num == 42) {
+    uint32_t high_part = htonl((uint32_t)(value >> 32));
+    uint32_t low_part = htonl((uint32_t)(value & 0xFFFFFFFFLL));
+    return (((uint64_t)low_part) << 32) | high_part;
+  } else {
+    return value;
+  }
+}
+
 #if (NGX_DEBUG_POOL)
 //Copyright (C) 2015 Alibaba Group Holding Limited
 static ngx_str_t            debug_pool_str;

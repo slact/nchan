@@ -254,7 +254,8 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
   
   nodeset_dissociate_chanhead(ch);
   rdstore_channel_head_t *cur;
-  
+
+/*  
   for(cur = nchan_slist_first(&ns->channels.all); cur != NULL; cur = nchan_slist_next(&ns->channels.all, cur)) {
     assert(cur != ch);
   }
@@ -280,7 +281,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
       assert(cur != ch);
     }
   }
-  
+*/  
   
   
   DBG("chanhead %p (%V) is empty and expired. delete.", ch, &ch->id);

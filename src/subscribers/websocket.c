@@ -2,6 +2,7 @@
 #include <subscribers/common.h>
 #include <util/nchan_subrequest.h>
 #include <util/nchan_fake_request.h>
+#include <util/nchan_util.h>
 #if nginx_version >= 1000003
 #include <ngx_crypt.h>
 #endif
@@ -1604,17 +1605,6 @@ static ngx_flag_t is_utf8(ngx_buf_t *buf) {
   return 1;
 }
 
-uint64_t ws_htonll(uint64_t value) {
-  int num = 42;
-  if (*(char *)&num == 42) {
-    uint32_t high_part = htonl((uint32_t)(value >> 32));
-    uint32_t low_part = htonl((uint32_t)(value & 0xFFFFFFFFLL));
-    return (((uint64_t)low_part) << 32) | high_part;
-  } else {
-    return value;
-  }
-}
-
 static void init_buf(ngx_buf_t *buf, int8_t last){
   ngx_memzero(buf, sizeof(*buf));
   buf->memory = 1;
@@ -1654,7 +1644,7 @@ static ngx_int_t websocket_frame_header(full_subscriber_t *fsub, ngx_buf_t *buf,
   }
   else {
     last = ngx_copy(last, &WEBSOCKET_PAYLOAD_LEN_64_BYTE, sizeof(WEBSOCKET_PAYLOAD_LEN_64_BYTE));
-    len_net = ws_htonll(len);
+    len_net = nchan_htonll(len);
     last = ngx_copy(last, &len_net, 8);
   }
   buf->end=last;
