@@ -13,6 +13,7 @@
 #include <subscribers/http-multipart-mixed.h>
 #include <subscribers/http-raw-stream.h>
 #include <subscribers/websocket.h>
+#include <subscribers/benchmark.h>
 #include <store/memory/store.h>
 #include <store/redis/store.h>
 
@@ -1094,6 +1095,10 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
     sr->args = r->args;
     sr->header_only = 1;
   }
+}
+
+ngx_int_t nchan_benchmark_handler(ngx_http_request_t *r) {
+  return nchan_benchmark_initialize(r);
 }
 
 #if NCHAN_BENCHMARK

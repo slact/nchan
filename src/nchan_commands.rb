@@ -691,6 +691,44 @@ CfCmd.new do
       default: "memory",
       info: "Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer."
   
+  nchan_benchmark [:loc],
+      :nchan_benchmark_directive,
+      [:loc_conf],
+      group: "development",
+      undocumented: true,
+      args: 0
+  nchan_benchmark_time [:loc],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, "benchmark.time"],
+      group: "development",
+      undocumented: true
+  nchan_benchmark_message_per_channel_per_minute [:loc],
+      :ngx_conf_set_num_slot,
+      [:loc_conf, "benchmark.msgs_per_minute"],
+      group: "development",
+      undocumented: true
+  nchan_benchmark_message_rate_jitter_percent [:loc],
+      :ngx_conf_set_num_slot,
+      [:loc_conf, "benchmark.msg_rate_jitter_percent"],
+      group: "development",
+      undocumented: true
+  nchan_benchmark_message_padding_bytes [:loc],
+      :ngx_conf_set_num_slot,
+      [:loc_conf, "benchmark.msg_padding"],
+      group: "development",
+      undocumented: true
+  nchan_benchmark_channels [:loc],
+      :ngx_conf_set_num_slot,
+      [:loc_conf, "benchmark.channels"],
+      group: "development",
+      undocumented: true
+  nchan_benchmark_subscribers_per_channel [:loc],
+      :ngx_conf_set_num_slot,
+      [:loc_conf, "benchmark.subscribers_per_channel"],
+      group: "development",
+      undocumented: true
+
+  
   push_min_message_buffer_length [:srv, :loc, :if],
       :nchan_ignore_obsolete_setting,
       :loc_conf,

@@ -10,6 +10,7 @@
 #include <subscribers/getmsg_proxy.h>
 #include <subscribers/memstore_redis.h>
 #include <util/nchan_msg.h>
+#include <util/benchmark.h>
 
 
 //macro black magic, AKA X-Macros
@@ -36,7 +37,11 @@
   L(get_group) \
   L(group) \
   L(group_delete) \
-  L(flood_test)
+  L(flood_test) \
+  L(benchmark_start) \
+  L(benchmark_stop) \
+  L(benchmark_finish) \
+  L(benchmark_finish_reply) \
 
 
 
@@ -1047,6 +1052,65 @@ static void receive_flood_test(ngx_int_t sender, flood_data_t *d) {
   tv.tv_nsec=8000000;
   ERR("      received FLOOD TEST from %i seq %l", sender, d->n);
   nanosleep(&tv, NULL);
+}
+
+////////// BENCHMARK START //////////////
+typedef struct {
+  nchan_loc_conf_t *cf;
+  time_t        start;
+  nchan_benchmark_shared_t shared;
+} benchmark_start_data_t;
+
+ngx_int_t memstore_ipc_broadcast_benchmark_start(void *bench_pd) {
+  nchan_benchmark_t            *bench = bench_pd;
+  benchmark_start_data_t        data;
+  DEBUG_MEMZERO(&data);
+  data.cf = bench->cf;
+  data.start = bench->time_start;
+  data.shared = bench->shared_data;
+  
+  return ipc_broadcast_cmd(benchmark_start, &data);
+}
+static void receive_benchmark_start(ngx_int_t sender, benchmark_start_data_t *d) {
+  nchan_benchmark_initialize_from_ipc(sender, d->cf, d->start, &d->shared);
+}
+
+////////// BENCHMARK STOP ////////////////
+typedef struct {
+  nchan_loc_conf_t *cf;
+} benchmark_stop_data_t;
+
+ngx_int_t memstore_ipc_broadcast_benchmark_stop(void *bench_pd) {
+  benchmark_stop_data_t        data;
+  DEBUG_MEMZERO(&data);
+  return ipc_broadcast_cmd(benchmark_stop, &data);
+}
+static void receive_benchmark_stop(ngx_int_t sender, benchmark_stop_data_t *d) {
+  nchan_benchmark_stop();
+}
+
+////////// BENCHMARK FINISH ////////////////
+typedef struct {
+  nchan_benchmark_data_t data;
+} benchmark_finish_data_t;
+
+ngx_int_t memstore_ipc_broadcast_benchmark_finish(void *bench_pd) {
+  benchmark_finish_data_t        data;
+  DEBUG_MEMZERO(&data);
+  return ipc_broadcast_cmd(benchmark_finish, &data);
+}
+static void receive_benchmark_finish(ngx_int_t sender, benchmark_finish_data_t *d) {
+  nchan_benchmark_t        *bench = nchan_benchmark_get_active();
+  benchmark_finish_data_t   data;
+  DEBUG_MEMZERO(&data);
+  nchan_benchmark_dequeue_subscribers();
+  data.data = bench->data;
+  ipc_cmd(benchmark_finish_reply, sender, &data);
+  nchan_benchmark_cleanup();
+}
+
+static void receive_benchmark_finish_reply(ngx_int_t sender, benchmark_finish_data_t *d) {
+  nchan_benchmark_receive_finished_data(&d->data);
 }
 
 #define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,

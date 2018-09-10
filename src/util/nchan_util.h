@@ -34,7 +34,8 @@ ngx_int_t nchan_init_timer(ngx_event_t *ev, void (*cb)(ngx_event_t *), void *pd)
 void *nchan_add_oneshot_timer(void (*cb)(void *), void *pd, ngx_msec_t delay);
 void nchan_abort_oneshot_timer(void *timer);
 
-ngx_int_t nchan_add_interval_timer(int (*cb)(void *), void *pd, ngx_msec_t interval);
+void *nchan_add_interval_timer(ngx_int_t (*cb)(void *), void *pd, ngx_msec_t interval);
+void nchan_abort_interval_timer(void *t);
 ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last);
 
 char *nchan_conf_set_size_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);

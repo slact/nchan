@@ -181,7 +181,7 @@ ngx_int_t nchan_subscriber_subscribe_request(subscriber_t *sub) {
 
 ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   ngx_int_t             ret;
-  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+  nchan_request_ctx_t  *ctx;
   nchan_loc_conf_t     *cf = sub->cf;
   int                   enable_sub_unsub_callbacks = sub->enable_sub_unsub_callbacks;
   
@@ -189,8 +189,11 @@ ngx_int_t nchan_subscriber_subscribe(subscriber_t *sub, ngx_str_t *ch_id) {
   
   ret = sub->cf->storage_engine->subscribe(ch_id, sub);
   //don't access sub directly, it might have already been freed
-  if(ret == NGX_OK && enable_sub_unsub_callbacks && cf->subscribe_request_url && ctx->sub == sub) {
-    nchan_subscriber_subscribe_request(sub);
+  if(sub->request) {
+    ctx = ngx_http_get_module_ctx(sub->request, ngx_nchan_module);
+    if(ret == NGX_OK && enable_sub_unsub_callbacks && cf->subscribe_request_url && ctx->sub == sub) {
+      nchan_subscriber_subscribe_request(sub);
+    }
   }
   return ret;
 }

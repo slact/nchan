@@ -46,6 +46,7 @@ extern int nchan_stub_status_enabled;
 ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r);
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r);
 ngx_int_t nchan_group_handler(ngx_http_request_t *r);
+ngx_int_t nchan_benchmark_handler(ngx_http_request_t *r);
 
 time_t nchan_loc_conf_message_timeout(nchan_loc_conf_t *cf);
 ngx_int_t nchan_loc_conf_max_messages(nchan_loc_conf_t *cf);

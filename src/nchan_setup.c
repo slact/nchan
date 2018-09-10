@@ -13,6 +13,7 @@ static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 ngx_flag_t       global_redis_enabled = 0;
 ngx_flag_t       global_zstream_needed = 0;
+ngx_flag_t       global_benchmark_enabled = 0;
 
 #define MERGE_UNSET_CONF(conf, prev, unset, default)         \
 if (conf == unset) {                                         \
@@ -27,6 +28,9 @@ static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
   
   //initialize storage engines
   nchan_store_memory.init_module(cycle);
+  if(global_benchmark_enabled) {
+    nchan_benchmark_init_module(cycle);
+  }
   if(global_redis_enabled) {
     nchan_store_redis.init_module(cycle);
   }
@@ -41,6 +45,9 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
   
   if(nchan_store_memory.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
+  }
+  if(global_benchmark_enabled) {
+    nchan_benchmark_init_worker(cycle);
   }
   
   if(global_redis_enabled && nchan_store_redis.init_worker(cycle)!=NGX_OK) {
@@ -189,6 +196,13 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.nodeset = NULL;
   
   lcf->request_handler = NULL;
+  
+  lcf->benchmark.time = NGX_CONF_UNSET;
+  lcf->benchmark.msgs_per_minute = NGX_CONF_UNSET;
+  lcf->benchmark.msg_rate_jitter_percent = NGX_CONF_UNSET;
+  lcf->benchmark.msg_padding = NGX_CONF_UNSET;
+  lcf->benchmark.channels = NGX_CONF_UNSET;
+  lcf->benchmark.subscribers_per_channel = NGX_CONF_UNSET;
   return lcf;
 }
 
@@ -414,6 +428,13 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     nchan_setup_handler(cf, conf->request_handler);
   }
   
+  ngx_conf_merge_value(conf->benchmark.time, prev->benchmark.time, 10);
+  ngx_conf_merge_value(conf->benchmark.msgs_per_minute, prev->benchmark.msgs_per_minute, 120);
+  ngx_conf_merge_value(conf->benchmark.msg_rate_jitter_percent, prev->benchmark.msg_rate_jitter_percent, 50);
+  ngx_conf_merge_value(conf->benchmark.msg_padding, prev->benchmark.msg_padding, 0);
+  ngx_conf_merge_value(conf->benchmark.channels, prev->benchmark.channels, 1000);
+  ngx_conf_merge_value(conf->benchmark.subscribers_per_channel, prev->benchmark.subscribers_per_channel, 100);
+  
   return NGX_CONF_OK;
 }
 
@@ -634,6 +655,13 @@ static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   return NGX_CONF_OK;
 }
 
+static char *nchan_benchmark_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t     *lcf = conf;
+  global_benchmark_enabled = 1;
+  lcf->request_handler = &nchan_benchmark_handler;
+  return NGX_CONF_OK;
+}
+
 static char *nchan_subscriber_first_message_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t   *lcf = (nchan_loc_conf_t *)conf;
   ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
@@ -790,6 +818,9 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
 }
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {
+  if(global_benchmark_enabled) {
+    nchan_benchmark_exit_master(cycle);
+  }
   nchan_store_memory.exit_master(cycle);
   if(global_redis_enabled) {
     nchan_store_redis.exit_master(cycle);

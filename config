@@ -1,5 +1,6 @@
 ngx_addon_name=ngx_nchan_module
 
+nchan_libs=""
 #do we have hiredis on the platform?
 # it's currently no longer possible to link the platform's hiredis lib, 
 # because we now use a hacked connect function
@@ -29,7 +30,20 @@ if [ $ngx_found = no ]; then
   "
   ngx_feature_libs=""
 else
+  nchan_libs="$nchan_libs $ngx_feature_libs"
   _NCHAN_HIREDIS_SRCS=""
+fi
+
+ngx_feature="math lib"
+ngx_feature_name="NCHAN_HAVE_MATH"
+ngx_feature_run=yes
+ngx_feature_path=
+ngx_feature_incs="#include <math.h>"
+ngx_feature_libs="-lm"
+ngx_feature_test="sqrt(20);"
+. auto/feature
+if [ $ngx_found = yes ]; then
+  nchan_libs="$nchan_libs $ngx_feature_libs"
 fi
 
 #do we have memrchr() on the platform?
@@ -65,6 +79,7 @@ _NCHAN_SUBSCRIBERS_SRCS="\
   ${ngx_addon_dir}/src/subscribers/memstore_multi.c \
   ${ngx_addon_dir}/src/subscribers/memstore_redis.c \
   ${ngx_addon_dir}/src/subscribers/getmsg_proxy.c \
+  ${ngx_addon_dir}/src/subscribers/benchmark.c \
 "
 
 _NCHAN_REDIS_STORE_SRCS="\
@@ -102,6 +117,8 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_thingcache.c \
   $_nchan_util_dir/nchan_reaper.c \
   $_nchan_util_dir/nchan_subrequest.c \
+  $_nchan_util_dir/benchmark.c \
+  $_nchan_util_dir/hdr_histogram.c \
 "
 
 _NCHAN_STORE_SRCS="\
@@ -129,11 +146,11 @@ if test -n "$ngx_module_link"; then
   ngx_module_type=HTTP
   ngx_module_name=$ngx_addon_name
   ngx_module_srcs="$_NCHAN_SRCS"
-  ngx_module_libs=$ngx_feature_libs
+  ngx_module_libs=$nchan_libs
   . auto/module
 else
   NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_NCHAN_SRCS"
-  CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+  CORE_LIBS="$CORE_LIBS $nchan_libs"
   CORE_INCS="$CORE_INCS $ngx_module_incs"
   HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"
 fi

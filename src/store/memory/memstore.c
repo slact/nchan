@@ -420,6 +420,13 @@ ngx_int_t memstore_str_owner(ngx_str_t *str) {
 #endif
 }
 
+ngx_int_t nchan_nginx_worker_procslot(ngx_int_t worker_number) {
+  if( worker_number < 0 || worker_number > shdata->max_workers) {
+    return NGX_ERROR;
+  }
+  return shdata->procslot[worker_number + memstore_procslot_offset];
+}
+
 ngx_int_t memstore_channel_owner(ngx_str_t *id) {
   return nchan_channel_id_is_multi(id) ? memstore_slot() : memstore_str_owner(id);
 }
@@ -2273,7 +2280,7 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
   ngx_int_t                      check_redis = d->sub->cf->redis.enabled; // for BACKUP and DISTRIBUTED mode
   nchan_loc_conf_t              *cf = d->sub->cf;
   ngx_int_t                      rc = NGX_OK;
-  nchan_request_ctx_t           *ctx;
+  nchan_request_ctx_t           *ctx = NULL;
   
   if(d->sub->status == DEAD) {
     if(d->reserved) {
@@ -2284,7 +2291,9 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
     return rc;
   }
   
-  ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  if(d->sub->request) {
+    ctx = ngx_http_get_module_ctx(d->sub->request, ngx_nchan_module);
+  }
   
   switch(channel_status) {
     case SUB_CHANNEL_AUTHORIZED:
@@ -2304,11 +2313,18 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         else {
           //can't find the channel. gotta check if it really does exist
           DBG("can't find the channel. gotta check if it really does exist");
-          if(!d->reserved) {
-            d->sub->fn->reserve(d->sub);
-            d->reserved = 1;
+          if(ctx) {
+            if(!d->reserved) {
+              d->sub->fn->reserve(d->sub);
+              d->reserved = 1;
+            }
+            return memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_channel_limit_check, d);
           }
-          return memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_channel_limit_check, d);
+          else {
+            retry_null_chanhead = 0;
+            rc = NGX_ERROR;
+            chanhead = NULL;
+          }
         }
       }
       else {
@@ -2393,10 +2409,17 @@ static ngx_int_t nchan_store_subscribe_continued(ngx_int_t channel_status, void*
         memstore_group_find_from_groupnode(groups, chanhead->groupnode, (callback_pt )group_subscribe_accounting_check, d);
       }
       else {
-        // this means group accounting was disabled when the channel was created.
-        // that's okay though, we should check it anyway.
-        DBG("memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d); sub: %p", d->sub);
-        memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d);
+        if(ctx) {
+          // this means group accounting was disabled when the channel was created.
+          // that's okay though, we should check it anyway.
+          DBG("memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d); sub: %p", d->sub);
+          memstore_group_find(groups, nchan_get_group_name(d->sub->request, cf, ctx), (callback_pt )group_subscribe_accounting_check, d);
+        }
+        else {
+          d->sub->fn->respond_status(d->sub, NGX_HTTP_BAD_REQUEST, NULL, NULL);
+          subscribe_data_free(d);
+          return NGX_ERROR;
+        }
       }
       return rc;
     }
