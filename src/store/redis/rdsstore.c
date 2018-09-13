@@ -459,7 +459,7 @@ static ngx_int_t log_redis_reply(char *name, ngx_msec_t t) {
   return NGX_OK;
 }
 
-static ngx_int_t redisReply_to_int(redisReply *el, ngx_int_t *integer) {
+static ngx_int_t redisReply_to_ngx_int(redisReply *el, ngx_int_t *integer) {
   if(CHECK_REPLY_INT(el)) {
     *integer=el->integer;
   }
@@ -1685,7 +1685,7 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
     msg->buf.last_buf = 1;
     msg->buf.last_in_chain = 1;
     
-    if(redisReply_to_int(els[offset], &ttl) != NGX_OK) {
+    if(redisReply_to_ngx_int(els[offset], &ttl) != NGX_OK) {
       ERR("invalid ttl integer value in msg response from redis");
       return NGX_ERROR;
     }
@@ -1697,7 +1697,7 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
     
     msg->compressed = NULL;
     if(r->elements >= (uint16_t )(offset + 8)) {
-      if(!CHECK_REPLY_INT_OR_STR(els[offset+8]) || redisReply_to_int(els[offset+8], &compression) != NGX_OK) {
+      if(!CHECK_REPLY_INT_OR_STR(els[offset+8]) || redisReply_to_ngx_int(els[offset+8], &compression) != NGX_OK) {
         ERR("invalid compression type integer value in msg response from redis");
         return NGX_ERROR;
       }
@@ -1726,7 +1726,7 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
       msg->eventsource_event = NULL;
     }
     
-    if(redisReply_to_int(els[offset+1], &time_int) == NGX_OK) {
+    if(redisReply_to_ngx_int(els[offset+1], &time_int) == NGX_OK) {
       msg->id.time = time_int;
     }
     else {
@@ -1734,13 +1734,13 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
       ERR("invalid msg time from redis");
     }
     
-    redisReply_to_int(els[offset+2], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
+    redisReply_to_ngx_int(els[offset+2], (ngx_int_t *)&msg->id.tag.fixed[0]); // tag is a uint, meh.
     msg->id.tagcount = 1;
     msg->id.tagactive = 0;
     
-    redisReply_to_int(els[offset+3], &time_int);
+    redisReply_to_ngx_int(els[offset+3], &time_int);
     msg->prev_id.time = time_int;
-    redisReply_to_int(els[offset+4], (ngx_int_t *)&msg->prev_id.tag.fixed[0]);
+    redisReply_to_ngx_int(els[offset+4], (ngx_int_t *)&msg->prev_id.tag.fixed[0]);
     msg->prev_id.tagcount = 1;
     msg->prev_id.tagactive = 0;
     
@@ -2185,7 +2185,8 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     eventsource_event_len = msg->eventsource_event ? (msg->eventsource_event->len > 255 ? 255 : msg->eventsource_event->len) : 0;
     compression = d->compression;
     
-    redis_command(node, &redisPublishNostoreCallback, d, "PUBLISH %b{channel:%b}:pubsub "
+    redis_command(node, NULL, NULL, "MULTI");
+    redis_command(node, NULL, NULL, "PUBLISH %b{channel:%b}:pubsub "
       "\x9A\xA3msg\xCE%b\xCE%b%b%b%b\xDB%b%b\xD9%b%b\xD9%b%b%b",
       
       STR(nodeset->settings.namespace),
@@ -2204,6 +2205,12 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
       STR((msg->eventsource_event ? msg->eventsource_event : &empty)),
       (char *)&compression, (size_t )1
     );
+    redis_command(node, NULL, NULL, "HMGET %b{channel:%b} last_seen_fake_subscriber fake_subscribers", 
+      STR(nodeset->settings.namespace),
+      STR(d->channel_id)
+    );
+    redis_command(node, &redisPublishNostoreCallback, d, "EXEC");
+    
   }
   else {  
     //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
@@ -2256,11 +2263,26 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   return NGX_OK;
 }
 
+static int64_t redisReply_to_int(redisReply *reply, int nil_value, int wrong_datatype_value) {
+  switch(reply->type) {
+    case REDIS_REPLY_INTEGER:
+      return reply->integer;
+    case REDIS_REPLY_STRING:
+      return atol(reply->str);
+    case REDIS_REPLY_NIL:
+      return nil_value;
+    default:
+      return wrong_datatype_value;
+  }
+}
+
 static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *privdata) {
   redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
   redisReply                    *reply=r;
-  redisReply                    *cur;
+  redisReply                   **els;
   nchan_channel_t                ch;
+  
+  
   
   redis_node_t                 *node = c->data;
   node->pending_commands--;
@@ -2272,7 +2294,16 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   
   ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
   
-  d->callback(NCHAN_MESSAGE_RECEIVED, &ch, d->privdata);
+  if(reply->type == REDIS_REPLY_ARRAY && reply->elements == 2 && reply->element[1]->type == REDIS_REPLY_ARRAY && reply->element[1]->elements == 2) {
+    els = reply->element[1]->element;
+    ch.last_seen = redisReply_to_int(els[0], -1, -1);
+    ch.subscribers = redisReply_to_int(els[1], 0, 0);
+  }
+  else {
+    DBG("nonsense nostore-publish reply");
+  }
+  
+  d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
   
   ngx_free(d);
 }
