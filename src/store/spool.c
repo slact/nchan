@@ -953,18 +953,12 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
   
   spool = get_spool(self, &latest_msg_id);
   if(spool->sub_count > 0 && *self->channel_buffer_complete) {
-#if NCHAN_BENCHMARK
-    responded_subs += spool->sub_count;
-#endif
     spool_respond_general(spool, msg, 0, NULL, 0);
     spool_nextmsg(spool, &msg->id);
   }
 
   nchan_copy_msg_id(&self->prev_msg_id, &msg->id, NULL);
   
-#if NCHAN_BENCHMARK
-  self->last_responded_subscriber_count = responded_subs;
-#endif
   return NGX_OK;
 }
 

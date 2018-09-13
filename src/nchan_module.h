@@ -3,7 +3,6 @@
 //#define NCHAN_SUBSCRIBER_LEAK_DEBUG 1
 //#define NCHAN_MSG_RESERVE_DEBUG 1
 //#define NCHAN_MSG_LEAK_DEBUG 1
-//#define NCHAN_BENCHMARK 1
 
 //debugging config
 //#define FAKESHARD 1
@@ -57,10 +56,6 @@ ngx_int_t nchan_maybe_send_channel_event_message(ngx_http_request_t *, channel_e
 void __memstore_update_stub_status(off_t offset, int count);
 nchan_stub_status_t *nchan_get_stub_status_stats(void);
 size_t nchan_get_used_shmem(void);
-
-#if NCHAN_BENCHMARK
-int nchan_timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
-#endif
 
 #define nchan_log(level, log, errno, fmt, args...) ngx_log_error(level, log, errno, "nchan: " fmt, ##args)
 #define nchan_log_notice(fmt, args...) nchan_log(NGX_LOG_NOTICE, ngx_cycle->log, 0, fmt, ##args)
