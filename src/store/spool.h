@@ -88,9 +88,6 @@ struct channel_spooler_s {
   void                       *handlers_privdata;
   fetchmsg_data_t            *fetchmsg_cb_data_list;
   spooler_event_ll_t         *spooler_dependent_events;
-#if NCHAN_BENCHMARK
-  ngx_int_t                   last_responded_subscriber_count;
-#endif  
   spooler_fetching_strategy_t fetching_strategy;
   unsigned                    publish_events:1;
   unsigned                    running:1;

@@ -135,9 +135,6 @@ struct nchan_msg_s {
   struct nchan_msg_s             *dbg_prev;
   struct nchan_msg_s             *dbg_next;
 #endif
-#if NCHAN_BENCHMARK
-  struct timeval                  start_tv;
-#endif
 }; // nchan_msg_t
 
 typedef struct {
@@ -435,9 +432,6 @@ typedef struct {
   
   unsigned                       sent_unsubscribe_request:1;
   unsigned                       request_ran_content_handler:1;
-#if NCHAN_BENCHMARK
-  struct timeval                 start_tv;
-#endif
   
 } nchan_request_ctx_t;
 
