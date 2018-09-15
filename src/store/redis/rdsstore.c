@@ -1660,7 +1660,7 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
   
   redisReply         **els = r->element;
   size_t               content_type_len = 0, es_event_len = 0;
-  ngx_int_t            time_int, ttl;
+  ngx_int_t            time_int = 0, ttl;
   ngx_int_t            compression;
   
   if(CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 8)
