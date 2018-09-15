@@ -1942,6 +1942,9 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
       rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
     }
+    if(rcf->nostore_fastpublish == NGX_CONF_UNSET) {
+      rcf->nostore_fastpublish = 0;
+    }
     
     if((nodeset = nodeset_find(rcf)) == NULL) {
       nodeset = nodeset_create(lcf);
@@ -2177,6 +2180,10 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     uint32_t msglen;
     uint8_t  content_type_len, eventsource_event_len, compression;
     char     zero='\0';
+    int      fastpublish = nodeset->settings.nostore_fastpublish;
+    void   (*publish_callback)(redisAsyncContext *, void *, void *) = NULL;
+    void    *publish_pd = NULL;
+    
     
     ttl = htonl(d->message_timeout);
     time = htonl(msg->id.time);
@@ -2185,8 +2192,15 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     eventsource_event_len = msg->eventsource_event ? (msg->eventsource_event->len > 255 ? 255 : msg->eventsource_event->len) : 0;
     compression = d->compression;
     
-    redis_command(node, NULL, NULL, "MULTI");
-    redis_command(node, NULL, NULL, "PUBLISH %b{channel:%b}:pubsub "
+    if(!fastpublish) {
+      redis_command(node, NULL, NULL, "MULTI");
+    }
+    else {
+      publish_callback = redisPublishNostoreCallback;
+      publish_pd = d;
+    }
+    redis_command(node, publish_callback, publish_pd,
+      "PUBLISH %b{channel:%b}:pubsub "
       "\x9A\xA3msg\xCE%b\xCE%b%b%b%b\xDB%b%b\xD9%b%b\xD9%b%b%b",
       
       STR(nodeset->settings.namespace),
@@ -2205,11 +2219,13 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
       STR((msg->eventsource_event ? msg->eventsource_event : &empty)),
       (char *)&compression, (size_t )1
     );
-    redis_command(node, NULL, NULL, "HMGET %b{channel:%b} last_seen_fake_subscriber fake_subscribers", 
-      STR(nodeset->settings.namespace),
-      STR(d->channel_id)
-    );
-    redis_command(node, &redisPublishNostoreCallback, d, "EXEC");
+    if(!fastpublish) {
+      redis_command(node, NULL, NULL, "HMGET %b{channel:%b} last_seen_fake_subscriber fake_subscribers", 
+        STR(nodeset->settings.namespace),
+        STR(d->channel_id)
+      );
+      redis_command(node, &redisPublishNostoreCallback, d, "EXEC");
+    }
     
   }
   else {  
@@ -2296,8 +2312,12 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   
   if(reply->type == REDIS_REPLY_ARRAY && reply->elements == 2 && reply->element[1]->type == REDIS_REPLY_ARRAY && reply->element[1]->elements == 2) {
     els = reply->element[1]->element;
-    ch.last_seen = redisReply_to_int(els[0], -1, -1);
+    ch.last_seen = redisReply_to_int(els[0], 0, 0);
     ch.subscribers = redisReply_to_int(els[1], 0, 0);
+  }
+  else if(reply->type == REDIS_REPLY_INTEGER) {
+    ch.last_seen = 0;
+    ch.subscribers = redisReply_to_int(reply, 0, 0);
   }
   else {
     DBG("nonsense nostore-publish reply");

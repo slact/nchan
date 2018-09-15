@@ -207,6 +207,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   ns->generation = 0;
   ns->settings.namespace = &rcf->namespace;
   ns->settings.storage_mode = rcf->storage_mode;
+  ns->settings.nostore_fastpublish = rcf->nostore_fastpublish;
   
   ns->settings.ping_interval = rcf->ping_interval;
   

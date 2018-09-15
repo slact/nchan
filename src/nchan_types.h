@@ -41,6 +41,7 @@ typedef struct {
   time_t                        ping_interval;
   ngx_str_t                     namespace;
   nchan_redis_storage_mode_t    storage_mode;
+  ngx_int_t                     nostore_fastpublish;
   ngx_str_t                     upstream_url;
   ngx_http_upstream_srv_conf_t *upstream;
   ngx_flag_t                    upstream_inheritable;

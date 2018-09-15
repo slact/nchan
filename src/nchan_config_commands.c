@@ -317,6 +317,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.storage_mode),
     NULL } ,
 
+  { ngx_string("nchan_redis_nostore_fastpublish"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, redis.nostore_fastpublish),
+    NULL } ,
+
   { ngx_string("nchan_use_redis"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_enable_redis,

@@ -398,8 +398,19 @@ CfCmd.new do
         
         In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.
         
-        In `nostore` mode, messages are published as in `distributed` mode, but are not stored. Thus Redis is used to broadcast messages to many Nchan instances with no delivery guarantees during connection failure, and only local in-memory storage. This means that there are also no message delivery guarantees for subscribers switching from one Nchan instance to another connected to the same Redis server or cluster.
+        In `nostore` mode, messages are published as in `distributed` mode, but are not stored. Thus Redis is used to broadcast messages to many Nchan instances with no delivery guarantees during connection failure, and only local in-memory storage. This means that there are also no message delivery guarantees for subscribers switching from one Nchan instance to another connected to the same Redis server or cluster. Nostore mode increases Redis publishing capacity by an order of magnitude.
       EOS
+  
+  nchan_redis_nostore_fastpublish [:main, :srv, :upstream],
+      :ngx_conf_set_flag_slot,
+      [:loc_conf, :"redis.nostore_fastpublish"],
+      
+      group: "storage",
+      tags: ['redis', 'publisher'],
+      value: [:on, :off],
+      default: :off,
+      info: "Increases publishing capacity by 2-3x for Redis nostore mode at the expense of inaccurate subscriber counts in the publisher response."
+  
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,

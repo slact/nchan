@@ -1208,6 +1208,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, upstream  
   > Prefix all Redis keys with this string. All Nchan-related keys in redis will be of the form "nchan_redis_namespace:*" . Default is empty.    
 
+- **nchan_redis_nostore_fastpublish** `[ on | off ]`  
+  arguments: 1  
+  default: `off`  
+  context: http, server, upstream  
+  > Increases publishing capacity by 2-3x for Redis nostore mode at the expense of inaccurate subscriber counts in the publisher response.    
+
 - **nchan_redis_optimize_target** `[ cpu | bandwidth ]`  
   arguments: 1  
   default: `cpu`  
@@ -1240,7 +1246,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   >   
   > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.  
   >   
-  > In `nostore` mode, messages are published as in `distributed` mode, but are not stored. Thus Redis is used to broadcast messages to many Nchan instances with no delivery guarantees during connection failure, and only local in-memory storage. This means that there are also no message delivery guarantees for subscribers switching from one Nchan instance to another connected to the same Redis server or cluster.    
+  > In `nostore` mode, messages are published as in `distributed` mode, but are not stored. Thus Redis is used to broadcast messages to many Nchan instances with no delivery guarantees during connection failure, and only local in-memory storage. This means that there are also no message delivery guarantees for subscribers switching from one Nchan instance to another connected to the same Redis server or cluster. Nostore mode increases Redis publishing capacity by an order of magnitude.    
 
 - **nchan_redis_subscribe_weights** `master=<integer> slave=<integer>`  
   arguments: 1 - 2  

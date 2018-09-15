@@ -192,6 +192,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->redis.ping_interval = NGX_CONF_UNSET;
   lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
   lcf->redis.storage_mode = REDIS_MODE_CONF_UNSET;
+  lcf->redis.nostore_fastpublish = NGX_CONF_UNSET;
   lcf->redis.privdata = NULL;
   lcf->redis.nodeset = NULL;
   
@@ -409,6 +410,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
   ngx_conf_merge_str_value(conf->redis.namespace, prev->redis.namespace, "");
   ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
+  ngx_conf_merge_value(conf->redis.nostore_fastpublish, prev->redis.nostore_fastpublish, 0);
   
   if(conf->redis.url_enabled) {
     conf->redis.enabled = 1;

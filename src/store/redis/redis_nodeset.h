@@ -125,6 +125,7 @@ struct redis_nodeset_s {
   redis_nodeset_cluster_t     cluster;
   struct {                    //settings
     nchan_redis_storage_mode_t  storage_mode;
+    ngx_int_t                   nostore_fastpublish;
     struct {                    //pubsub_subscribe_weight
       ngx_int_t                   master;
       ngx_int_t                   slave;
