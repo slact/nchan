@@ -244,7 +244,7 @@ class Order
     end
   end
   def [](val)
-    @ord[val] || Float::INFINITY
+    @ord[val.group.to_sym] || Float::INFINITY
   end
 end
 
@@ -261,12 +261,7 @@ cmds = cf.cmds
 group_order=Order.new(:channel, :publish, :subscribe, :pubsub, :hook, :security, :storage, :meta, :none, :development)
 
 cmds.sort! do |c1, c2|
-  if c1.group != c2.group
-    group_order[c1] - group_order[c2]
-  else
-    c1.name < c2.name ? -1 : 1
-    #(c1.declaration_order < c2.declaration_order) ? -1 : 1
-  end
+  [group_order[c1], c1.name] <=> [group_order[c2], c2.name]
 end
 
 

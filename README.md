@@ -1064,6 +1064,30 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > when set to 'on', enable sending multiple messages in a single longpoll response, separated using the multipart/mixed content-type scheme. If there is only one available message in response to a long-poll request, it is sent unmodified. This is useful for high-latency long-polling connections as a way to minimize round-trips to the server. When set to 'raw', sends multiple messages using the http-raw-stream message separator.    
 
+- **nchan_permessage_deflate_compression_level** `[ 0-9 ]`  
+  arguments: 1  
+  default: `6`  
+  context: http  
+  > Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best    
+
+- **nchan_permessage_deflate_compression_memlevel** `[ 1-9 ]`  
+  arguments: 1  
+  default: `8`  
+  context: http  
+  > Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed    
+
+- **nchan_permessage_deflate_compression_strategy** `[ default | filtered | huffman-only | rle | fixed ]`  
+  arguments: 1  
+  default: `default`  
+  context: http  
+  > Compression strategy for the `deflate` algorithm used in websocket's permessage-deflate extension. Use 'default' for normal data, For details see [zlib's section on copression strategies](http://zlib.net/manual.html#Advanced)    
+
+- **nchan_permessage_deflate_compression_window** `[ 9-15 ]`  
+  arguments: 1  
+  default: `10`  
+  context: http  
+  > Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor.    
+
 - **nchan_publisher** `[ http | websocket ]`  
   arguments: 0 - 2  
   default: `http websocket`  
@@ -1153,6 +1177,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_subscriber_timeout  
   > Maximum time a subscriber may wait for a message before being disconnected. If you don't want a subscriber's connection to timeout, set this to 0. When possible, the subscriber will get a response with a `408 Request Timeout` status; otherwise the subscriber will simply be disconnected.    
 
+- **nchan_unsubscribe_request** `<url>`  
+  arguments: 1  
+  context: server, location, if  
+  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
+  [more details](#subscriber-presence)  
+
 - **nchan_websocket_client_heartbeat** `<heartbeat_in> <heartbeat_out>`  
   arguments: 2  
   default: `none (disabled)`  
@@ -1165,17 +1195,93 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Interval for sending websocket ping frames. Disabled by default.    
 
+- **nchan_access_control_allow_credentials**  
+  arguments: 1  
+  default: `on`  
+  context: http, server, location, if  
+  > When enabled, sets the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Credentials` header to `true`.    
+
+- **nchan_access_control_allow_origin** `<string>`  
+  arguments: 1  
+  default: `$http_origin`  
+  context: http, server, location, if  
+  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the incoming request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
+
 - **nchan_authorize_request** `<url>`  
   arguments: 1  
   context: server, location, if  
   > Send GET request to internal location (which may proxy to an upstream server) for authorization of a publisher or subscriber request. A 200 response authorizes the request, a 403 response forbids it.    
   [more details](#request-authorization)  
 
-- **nchan_unsubscribe_request** `<url>`  
+- **nchan_channel_group** `<string>`  
   arguments: 1  
+  default: `(none)`  
   context: server, location, if  
-  > Send GET request to internal location (which may proxy to an upstream server) after unsubscribing. Disabled for longpoll and interval-polling subscribers.    
-  [more details](#subscriber-presence)  
+  legacy name: push_channel_group  
+  > The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables.    
+
+- **nchan_channel_group_accounting**  
+  arguments: 1  
+  default: `off`  
+  context: server, location  
+  > Enable tracking channel, subscriber, and message information on a per-channel-group basis. Can be used to place upper limits on channel groups.    
+
+- **nchan_group_location** `[ get | set | delete | off ]`  
+  arguments: 0 - 3  
+  default: `get set delete`  
+  context: location  
+  > Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group.    
+
+- **nchan_group_max_channels** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum number of channels allowed in the group.    
+
+- **nchan_group_max_messages** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum number of messages allowed for all the channels in the group.    
+
+- **nchan_group_max_messages_disk** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum amount of disk space allowed for the messages of all the channels in the group.    
+
+- **nchan_group_max_messages_memory** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum amount of shared memory allowed for the messages of all the channels in the group.    
+
+- **nchan_group_max_subscribers** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: location  
+  > Maximum number of subscribers allowed for the messages of all the channels in the group.    
+
+- **nchan_max_channel_id_length** `<number>`  
+  arguments: 1  
+  default: `512`  
+  context: http, server, location  
+  legacy name: push_max_channel_id_length  
+  > Maximum permissible channel id length (number of characters). Longer ids will be truncated.    
+
+- **nchan_max_channel_subscribers** `<number>`  
+  arguments: 1  
+  default: `0 (unlimited)`  
+  context: http, server, location  
+  legacy name: push_max_channel_subscribers  
+  > Maximum concurrent subscribers to the channel on this Nchan server. Does not include subscribers on other Nchan instances when using a shared Redis server.    
+
+- **nchan_subscribe_existing_channels_only** `[ on | off ]`  
+  arguments: 1  
+  default: `off`  
+  context: http, server, location  
+  legacy name: push_authorized_channels_only  
+  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
 
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
@@ -1196,6 +1302,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   legacy name: push_message_timeout  
   > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Note that messages always expire from oldest to newest, so an older message may prevent a newer one with a shorter timeout from expiring. An Nginx variable can also be used to set the timeout dynamically.    
+
+- **nchan_redis_connect_timeout**  
+  arguments: 1  
+  default: `600ms`  
+  context: upstream  
+  > Redis server connection timeout.    
 
 - **nchan_redis_idle_channel_cache_timeout** `<time>`  
   arguments: 1  
@@ -1254,6 +1366,13 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Determines how subscriptions to Redis PUBSUB channels are distributed between master and slave nodes. The higher the number, the more likely that each node of that type will be chosen for each new channel. The weights for slave nodes are cumulative, so an equal 1:1 master:slave weight ratio with two slaves would have a 1/3 chance of picking a master, and 2/3 chance of picking one of the slaves. The weight must be a non-negative integer.    
 
+- **nchan_redis_url** `<redis-url>`  
+  arguments: 1  
+  default: `127.0.0.1:6379`  
+  context: http, server, location  
+  > Use of this command is discouraged in favor of upstreams blocks with (`nchan_redis_server`)[#nchan_redis_server]. The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
+  [more details](#connecting-to-a-redis-server)  
+
 - **nchan_shared_memory_size** `<size>`  
   arguments: 1  
   default: `128M`  
@@ -1269,121 +1388,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_store_messages  
   > Publisher configuration. "`off`" is equivalent to setting `nchan_message_buffer_length 0`, which disables the buffering of old messages. Using this setting is not recommended when publishing very quickly, as it may result in missed messages.    
 
-- **nchan_permessage_deflate_compression_level** `[ 0-9 ]`  
-  arguments: 1  
-  default: `6`  
-  context: http  
-  > Compression level for the `deflate` algorithm used in websocket's permessage-deflate extension. 0: no compression, 1: fastest, worst, 9: slowest, best    
-
-- **nchan_permessage_deflate_compression_memlevel** `[ 1-9 ]`  
-  arguments: 1  
-  default: `8`  
-  context: http  
-  > Memory level for the `deflate` algorithm used in websocket's permessage-deflate extension. How much memory should be allocated for the internal compression state. 1 - minimum memory, slow and reduces compression ratio; 9 - maximum memory for optimal speed    
-
-- **nchan_permessage_deflate_compression_strategy** `[ default | filtered | huffman-only | rle | fixed ]`  
-  arguments: 1  
-  default: `default`  
-  context: http  
-  > Compression strategy for the `deflate` algorithm used in websocket's permessage-deflate extension. Use 'default' for normal data, For details see [zlib's section on copression strategies](http://zlib.net/manual.html#Advanced)    
-
-- **nchan_permessage_deflate_compression_window** `[ 9-15 ]`  
-  arguments: 1  
-  default: `10`  
-  context: http  
-  > Compression window for the `deflate` algorithm used in websocket's permessage-deflate extension. The base two logarithm of the window size (the size of the history buffer). The bigger the window, the better the compression, but the more memory used by the compressor.    
-
-- **nchan_redis_url** `<redis-url>`  
-  arguments: 1  
-  default: `127.0.0.1:6379`  
-  context: http, server, location  
-  > Use of this command is discouraged in favor of upstreams blocks with (`nchan_redis_server`)[#nchan_redis_server]. The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
-  [more details](#connecting-to-a-redis-server)  
-
 - **nchan_use_redis** `[ on | off ]`  
   arguments: 1  
   default: `off`  
   context: http, server, location  
   > Use of this command is discouraged in favor of (`nchan_redis_pass`)[#nchan_redis_pass]. Use Redis for message storage at this location.    
   [more details](#connecting-to-a-redis-server)  
-
-- **nchan_redis_wait_after_connecting**  
-  arguments: 1  
-  context: http, server, location  
-
-- **nchan_redis_connect_timeout**  
-  arguments: 1  
-  default: `600ms`  
-  context: upstream  
-  > Redis server connection timeout.    
-
-- **nchan_access_control_allow_credentials**  
-  arguments: 1  
-  default: `on`  
-  context: http, server, location, if  
-  > When enabled, sets the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Credentials` header to `true`.    
-
-- **nchan_access_control_allow_origin** `<string>`  
-  arguments: 1  
-  default: `$http_origin`  
-  context: http, server, location, if  
-  > Set the [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS) `Access-Control-Allow-Origin` header to this value. If the incoming request's `Origin` header does not match this value, respond with a `403 Forbidden`.    
-
-- **nchan_channel_group** `<string>`  
-  arguments: 1  
-  default: `(none)`  
-  context: server, location, if  
-  legacy name: push_channel_group  
-  > The accounting and security group a channel belongs to. Works like a prefix string to the channel id. Can be set with nginx variables.    
-
-- **nchan_channel_group_accounting**  
-  arguments: 1  
-  default: `off`  
-  context: server, location  
-  > Enable tracking channel, subscriber, and message information on a per-channel-group basis. Can be used to place upper limits on channel groups.    
-
-- **nchan_group_location** `[ get | set | delete | off ]`  
-  arguments: 0 - 3  
-  default: `get set delete`  
-  context: location  
-  > Group information and configuration location. GET request for group info, POST to set limits, DELETE to delete all channels in group.    
-
-- **nchan_group_max_channels** `<number>`  
-  arguments: 1  
-  default: `0 (unlimited)`  
-  context: location  
-  > Maximum number of channels allowed in the group.    
-
-- **nchan_group_max_messages** `<number>`  
-  arguments: 1  
-  default: `0 (unlimited)`  
-  context: location  
-  > Maximum number of messages allowed for all the channels in the group.    
-
-- **nchan_group_max_messages_disk** `<number>`  
-  arguments: 1  
-  default: `0 (unlimited)`  
-  context: location  
-  > Maximum amount of disk space allowed for the messages of all the channels in the group.    
-
-- **nchan_group_max_messages_memory** `<number>`  
-  arguments: 1  
-  default: `0 (unlimited)`  
-  context: location  
-  > Maximum amount of shared memory allowed for the messages of all the channels in the group.    
-
-- **nchan_group_max_subscribers** `<number>`  
-  arguments: 1  
-  default: `0 (unlimited)`  
-  context: location  
-  > Maximum number of subscribers allowed for the messages of all the channels in the group.    
-
-- **nchan_subscribe_existing_channels_only** `[ on | off ]`  
-  arguments: 1  
-  default: `off`  
-  context: http, server, location  
-  legacy name: push_authorized_channels_only  
-  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
 
 - **nchan_channel_event_string** `<string>`  
   arguments: 1  
@@ -1403,20 +1413,6 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Similar to Nginx's stub_status directive, requests to an `nchan_stub_status` location get a response with some vital Nchan statistics. This data does not account for information from other Nchan instances, and monitors only local connections, published messages, etc.    
   [more details](#nchan_stub_status)  
 
-- **nchan_max_channel_id_length** `<number>`  
-  arguments: 1  
-  default: `512`  
-  context: http, server, location  
-  legacy name: push_max_channel_id_length  
-  > Maximum permissible channel id length (number of characters). Longer ids will be truncated.    
-
-- **nchan_max_channel_subscribers** `<number>`  
-  arguments: 1  
-  default: `0 (unlimited)`  
-  context: http, server, location  
-  legacy name: push_max_channel_subscribers  
-  > Maximum concurrent subscribers to the channel on this Nchan server. Does not include subscribers on other Nchan instances when using a shared Redis server.    
-
 - **nchan_channel_timeout**  
   arguments: 1  
   context: http, server, location  
@@ -1428,6 +1424,10 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `memory`  
   context: http, server, location  
   > Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer.    
+
+- **nchan_redis_wait_after_connecting**  
+  arguments: 1  
+  context: http, server, location  
 
 ## Contribute
 Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 15dLBzRS4HLRwCCVjx4emYkxXcyAPmGxM3 . Other donation methods can be found at https://nchan.io
