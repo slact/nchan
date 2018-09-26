@@ -25,7 +25,7 @@ gem 'celluloid-io'
 gem 'websocket-driver'
 gem 'websocket-extensions'
 gem "permessage_deflate"
-
+gem "HDRHistogram"
 gem 'http_parser.rb'
 
 if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.2')

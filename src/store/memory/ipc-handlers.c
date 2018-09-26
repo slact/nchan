@@ -38,8 +38,10 @@
   L(group) \
   L(group_delete) \
   L(flood_test) \
+  L(benchmark_initialize) \
   L(benchmark_start) \
   L(benchmark_stop) \
+  L(benchmark_abort) \
   L(benchmark_finish) \
   L(benchmark_finish_reply) \
 
@@ -1054,25 +1056,39 @@ static void receive_flood_test(ngx_int_t sender, flood_data_t *d) {
   nanosleep(&tv, NULL);
 }
 
-////////// BENCHMARK START //////////////
+////////// BENCHMARK INITIALIZE //////////////
 typedef struct {
   nchan_loc_conf_t *cf;
-  time_t        start;
+  time_t        time;
   nchan_benchmark_shared_t shared;
-} benchmark_start_data_t;
+} benchmark_initialize_data_t;
 
-ngx_int_t memstore_ipc_broadcast_benchmark_start(void *bench_pd) {
+ngx_int_t memstore_ipc_broadcast_benchmark_initialize(void *bench_pd) {
   nchan_benchmark_t            *bench = bench_pd;
-  benchmark_start_data_t        data;
+  benchmark_initialize_data_t   data;
   DEBUG_MEMZERO(&data);
   data.cf = bench->cf;
-  data.start = bench->time_start;
-  data.shared = bench->shared_data;
+  data.time = bench->time.init;
+  data.shared = bench->shared;
   
+  return ipc_broadcast_cmd(benchmark_initialize, &data);
+}
+static void receive_benchmark_initialize(ngx_int_t sender, benchmark_initialize_data_t *d) {
+  nchan_benchmark_initialize_from_ipc(sender, d->cf, d->time, &d->shared);
+}
+
+////////// BENCHMARK RUN ////////////////
+typedef struct {
+  nchan_loc_conf_t *cf;
+} benchmark_run_data_t;
+
+ngx_int_t memstore_ipc_broadcast_benchmark_run(void) {
+  benchmark_run_data_t        data;
+  DEBUG_MEMZERO(&data);
   return ipc_broadcast_cmd(benchmark_start, &data);
 }
-static void receive_benchmark_start(ngx_int_t sender, benchmark_start_data_t *d) {
-  nchan_benchmark_initialize_from_ipc(sender, d->cf, d->start, &d->shared);
+static void receive_benchmark_start(ngx_int_t sender, benchmark_run_data_t *d) {
+  nchan_benchmark_run();
 }
 
 ////////// BENCHMARK STOP ////////////////
@@ -1080,7 +1096,7 @@ typedef struct {
   nchan_loc_conf_t *cf;
 } benchmark_stop_data_t;
 
-ngx_int_t memstore_ipc_broadcast_benchmark_stop(void *bench_pd) {
+ngx_int_t memstore_ipc_broadcast_benchmark_stop(void) {
   benchmark_stop_data_t        data;
   DEBUG_MEMZERO(&data);
   return ipc_broadcast_cmd(benchmark_stop, &data);
@@ -1094,7 +1110,7 @@ typedef struct {
   nchan_benchmark_data_t data;
 } benchmark_finish_data_t;
 
-ngx_int_t memstore_ipc_broadcast_benchmark_finish(void *bench_pd) {
+ngx_int_t memstore_ipc_broadcast_benchmark_finish(void) {
   benchmark_finish_data_t        data;
   DEBUG_MEMZERO(&data);
   return ipc_broadcast_cmd(benchmark_finish, &data);
@@ -1111,6 +1127,20 @@ static void receive_benchmark_finish(ngx_int_t sender, benchmark_finish_data_t *
 
 static void receive_benchmark_finish_reply(ngx_int_t sender, benchmark_finish_data_t *d) {
   nchan_benchmark_receive_finished_data(&d->data);
+}
+
+////////// BENCHMARK ABORT ////////////////
+typedef struct {
+  nchan_benchmark_data_t data;
+} benchmark_abort_data_t;
+
+ngx_int_t memstore_ipc_broadcast_benchmark_abort(void) {
+  benchmark_abort_data_t        data;
+  DEBUG_MEMZERO(&data);
+  return ipc_broadcast_cmd(benchmark_abort, &data);
+}
+static void receive_benchmark_abort(ngx_int_t sender, benchmark_abort_data_t *d) {
+  nchan_benchmark_abort();
 }
 
 #define MAKE_ipc_cmd_handler(val) [offsetof(ipc_handlers_t, val)/sizeof(ipc_handler_pt)] = (ipc_handler_pt )receive_ ## val,

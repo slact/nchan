@@ -14,32 +14,28 @@
 typedef struct {
   subscriber_t        *sub;
   nchan_benchmark_t   *bench;
-  uint64_t             time_start;
 } sub_data_t;
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
-  struct timeval tv;
-  uint64_t t1;
-  ngx_gettimeofday(&tv);
-  if(nchan_benchmark_running()) {
-    t1 = (tv.tv_sec - d->bench->time_start) * (uint64_t)1000000 + tv.tv_usec;
-    hdr_record_value(d->bench->data.subscriber_readiness_latency, t1 - d->time_start);
-    ngx_atomic_fetch_add(d->bench->shared_data.subscribers_enqueued, 1);
+  if(nchan_benchmark_active()) {
+    ngx_atomic_fetch_add(d->bench->shared.subscribers_enqueued, 1);
   }
+  nchan_update_stub_status(subscribers, 1); //needs to be done manually for INTERNAL subs
   return NGX_OK;
 }
 
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
-  if(nchan_benchmark_running()) {
-    ngx_atomic_fetch_add(d->bench->shared_data.subscribers_dequeued, 1);
+  if(nchan_benchmark_active()) {
+    ngx_atomic_fetch_add(d->bench->shared.subscribers_dequeued, 1);
   }
+  nchan_update_stub_status(subscribers, -1); //needs to be done manually for INTERNAL subs
   return NGX_OK;
 }
 
 static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d) {
   nchan_msg_t *msg = ptr;
   uint64_t msec = nchan_benchmark_message_delivery_msec(msg);
-  if(nchan_benchmark_running()) {
+  if(nchan_benchmark_active()) {
     hdr_record_value(d->bench->data.msg_delivery_latency, msec);
     d->bench->data.msg_received++;
   }
@@ -71,7 +67,6 @@ subscriber_t *benchmark_subscriber_create(nchan_benchmark_t *bench) {
   d->bench = bench;
   ngx_gettimeofday(&tv);
   
-  d->time_start = (tv.tv_sec - d->bench->time_start) * (uint64_t)1000000 + tv.tv_usec;
   
   DBG("%p benchmark subscriber created with privdata %p", sub, d);
   return sub;

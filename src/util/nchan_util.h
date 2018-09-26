@@ -73,4 +73,5 @@ ngx_int_t nchan_common_simple_deflate(ngx_str_t *in, ngx_str_t *out);
 ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool);
 
 uint64_t nchan_htonll(uint64_t value);
+uint64_t nchan_ntohll(uint64_t value);
 #endif
