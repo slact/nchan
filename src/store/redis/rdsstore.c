@@ -2310,20 +2310,26 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   
   ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
   
-  if(reply->type == REDIS_REPLY_ARRAY && reply->elements == 2 && reply->element[1]->type == REDIS_REPLY_ARRAY && reply->element[1]->elements == 2) {
-    els = reply->element[1]->element;
-    ch.last_seen = redisReply_to_int(els[0], 0, 0);
-    ch.subscribers = redisReply_to_int(els[1], 0, 0);
-  }
-  else if(reply->type == REDIS_REPLY_INTEGER) {
-    ch.last_seen = 0;
-    ch.subscribers = redisReply_to_int(reply, 0, 0);
+  if(reply) {
+    if(reply->type == REDIS_REPLY_ARRAY && reply->elements == 2 && reply->element[1]->type == REDIS_REPLY_ARRAY && reply->element[1]->elements == 2) {
+      els = reply->element[1]->element;
+      ch.last_seen = redisReply_to_int(els[0], 0, 0);
+      ch.subscribers = redisReply_to_int(els[1], 0, 0);
+    }
+    else if(reply->type == REDIS_REPLY_INTEGER) {
+      ch.last_seen = 0;
+      ch.subscribers = redisReply_to_int(reply, 0, 0);
+    }
+    else {
+      DBG("nonsense nostore-publish reply");
+    }
+    
+    d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
   }
   else {
-    DBG("nonsense nostore-publish reply");
+    redisEchoCallback(c, r, privdata);
+    d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
   }
-  
-  d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
   
   ngx_free(d);
 }
