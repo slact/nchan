@@ -1850,6 +1850,7 @@ class PubSubTest <  Minitest::Test
     sub.run
     sub.wait
     verify pub, sub
+    sub.terminate
   end
   
   def test_channel_events
