@@ -48,6 +48,7 @@ class Benchan
   end
   
   def run
+    puts "connecting to #{@n} Nchan server#{@n > 1 ? "s" : ""}..."
     @urls.each do |url|
       sub = Subscriber.new(url, 1, client: :websocket, timeout: 900000, extra_headers: {"Accept" => "text/x-json-hdrhistogram"})
       sub.on_failure do |err|
@@ -82,7 +83,6 @@ class Benchan
         end
       end
       @subs << sub
-      puts "connecting to #{@n} Nchan server#{@n > 1 ? "s" : ""}..."
       sub.run
       sub.wait :ready, 1
       if @failed[sub]
