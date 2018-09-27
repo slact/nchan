@@ -16,13 +16,13 @@ require 'uri'
 require "http/parser"
 
 
-
 begin
   require "http/2"
 rescue Exception => e
   HTTP2_MISSING=true
+else
+  HTTP2_MISSING=false
 end
-  
 
 
 PUBLISH_TIMEOUT=3 #seconds

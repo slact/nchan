@@ -1,6 +1,5 @@
 #!/usr/bin/ruby
 source 'https://rubygems.org'
-gem 'typhoeus'
 gem 'json'
 gem 'oga'
 
@@ -22,19 +21,15 @@ if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('2.2.2')
 end
 gem 'celluloid-io'
 
-gem 'websocket-driver'
-gem 'websocket-extensions'
-gem "permessage_deflate"
+gem 'nchan_tools', :path => "./nchan_tools-gem"
+#gem "memory_profiler", :git => "https://github.com/slact/memory_profiler.git"
 
-gem 'http_parser.rb'
-
-if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.2')
-  gem 'http-2', :git => "https://github.com/slact/http-2.git"
-  gem 'rack'
-  gem "memory_profiler", :git => "https://github.com/slact/memory_profiler.git"
-else
-  gem 'rack', '~> 1.6.4'
-end
+#if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.2')
+#  gem 'http-2', :git => "https://github.com/slact/http-2.git"
+#  gem 'rack'
+#else
+#  gem 'rack', '~> 1.6.4'
+#end
 
 gem 'reel', :git => "https://github.com/celluloid/reel.git"
 gem 'reel-rack', :git => "https://github.com/slact/reel-rack.git"
