@@ -121,7 +121,7 @@ static ngx_int_t benchmark_publish_message(void *pd) {
   ngx_gettimeofday(&tv);
   now = (tv.tv_sec - bench.time.init) * (uint64_t)1000000 + tv.tv_usec;
   
-  last = ngx_snprintf(bench.msgbuf, 64, "%D %D ", now, msgnum);
+  last = ngx_snprintf(bench.msgbuf, 64, "%D %D zzzzzzzz", now, msgnum);
   
   //DBG("publish to channel %V msg #%D (t: %D)", &channel_id, msgnum, now);
   
