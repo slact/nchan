@@ -1,0 +1,139 @@
+#!/usr/bin/env ruby
+
+require 'securerandom'
+require 'nchan_tools/pubsub'
+require "optparse"
+require 'timers'
+
+server= "localhost:8082"
+par=1
+
+opt = {
+  timeout:      60,
+  quit_message: 'FIN',
+  client:       :longpoll,
+  extra_headers: nil,
+  nostore:       true,
+  http2:         false
+}
+
+no_message=false
+print_content_type = false
+show_id=false
+origin = nil
+
+permessage_deflate = false
+ws_meta_subprotocol = false
+
+url = nil
+sub = nil
+
+opt_parser=OptionParser.new do |opts|
+  opts.on("-s", "--server SERVER (#{server})", "server and port."){|v| server=v}
+  opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
+  opts.on("-t", "--timeout SEC (#{opt[:timeout]})", "Long-poll timeout"){|v| opt[:timeout] = v}
+  opts.on("-q", "--quit STRING (#{opt[:quit_message]})", "Quit message"){|v| opt[:quit_message] = v}
+  opts.on("-c", "--client STRING (#{opt[:client]})", "sub client (one of #{Subscriber::Client.unique_aliases.join ', '})") do |v|
+    opt[:client] = v.to_sym
+  end
+  opts.on("--content-type", "show received content-type"){|v| print_content_type = true}
+  opts.on("-i", "--id", "Print message id (last-modified and etag headers)."){|v| show_id = true}
+  opts.on("-n", "--no-message", "Don't output retrieved message."){|v| no_message = true}
+  opts.on("--origin STR", "Set Origin header if appplicable."){|v| origin = v}
+  opts.on("--url URL", "full subscriber url") do |v|
+    url = v
+  end
+  opts.on("--http2", "use HTTP/2"){opt[:http2] = true}
+  
+  opts.on("--websocket-permessage-deflate", "Try to use the websocket permessage-deflate extension."){opt[:permessage_deflate]=true}
+  opts.on("--websocket-permessage-deflate-max-window-bits NUM", "max-window-bits permessage-deflate setting") {|n|opt[:permessage_deflate_max_window_bits]=n.to_i}
+  opts.on("--websocket-permessage-deflate-server-max-window-bits NUM", "server-max-window-bits permessage-deflate setting") {|n|opt[:permessage_deflate_server_max_window_bits]=n.to_i}
+  opts.on("--websocket-meta-subprotocol", "Use the ws+meta.nchan websocket subprotocol"){opt[:subprotocol]="ws+meta.nchan"}
+  
+  opts.on("-v", "--verbose", "somewhat rather extraneously wordful output") do
+    opt[:verbose] = true
+    Typhoeus::Config.verbose=true
+  end
+end
+opt_parser.banner="Usage: sub.rb [options] url"
+opt_parser.parse!
+
+url ||= "#{opt[:http2] ? 'h2' : 'http'}://#{server}#{ARGV.last}"
+
+puts "Subscribing #{par} #{opt[:client]} client#{par!=1 ? "s":""} to #{url}."
+puts "Timeout: #{opt[:timeout]}sec, quit msg: #{opt[:quit_message]}"
+
+if origin
+  opt[:extra_headers] ||= {}
+  opt[:extra_headers]['Origin'] = origin
+end
+
+sub = Subscriber.new url, par, opt
+
+
+NOMSGF="\r"*30 + "Received message %i, len:%i"
+if no_message
+  class OutputTimer
+    include Celluloid
+    attr_reader :fired, :timer
+
+    def initialize(interval = 0.5)
+      @count = 0
+      @last_msg_length = 0 
+      @timer = every(interval) do
+        printf NOMSGF, @count, @last_msg_length
+      end
+    end
+    
+    def incoming(msg)
+      @count += 1
+      @last_msg_length = msg.message.length
+    end
+  end
+  
+  output_timer = OutputTimer.new
+end
+
+sub.on_message do |msg|
+  if no_message
+    output_timer.incoming(msg)
+  else
+    if msg.content_type
+      out = "(#{msg.content_type}) #{msg}"
+    else
+      out = msg.to_s
+    end
+    if show_id
+      out = "<#{msg.id}> #{out}"
+    end
+    puts out
+  end
+end
+
+sub.on_failure do |err_msg|
+  if Subscriber::IntervalPollClient === sub.client
+    unless err_msg.match(/\(code 304\)/)
+      false
+    end 
+  else
+    false
+  end
+end
+
+sub.run
+begin
+  sub.wait
+rescue Interrupt => e
+  #do nothing
+end
+
+output_timer.terminate if output_timer
+
+
+if sub.errors.count > 0
+  puts "Errors:"
+  sub.errors.each do |err|
+    puts err
+  end
+  exit 1
+end

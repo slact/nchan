@@ -7,7 +7,7 @@ require 'minitest/reporters'
 require "minitest/autorun"
 Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
 require 'securerandom'
-require_relative 'pubsub.rb'
+require 'nchan_tools/pubsub'
 require_relative 'authserver.rb'
 require "optparse"
 require 'digest/sha1'
