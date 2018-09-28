@@ -99,9 +99,8 @@ static ngx_int_t benchmark_publish_message(void *pd) {
   time_t      time_start = (time_t)(uintptr_t )pd;
   struct      timeval tv;
   uint64_t    now;
-  u_char     *msgbuf, *last;
+  u_char     *last;
   uint64_t    msgnum;
-  size_t      maxlen;
   int         channel_n;
   nchan_msg_t msg;
   ngx_str_t   channel_id;
@@ -119,14 +118,10 @@ static ngx_int_t benchmark_publish_message(void *pd) {
   
   msgnum = ngx_atomic_fetch_add(&chan->msg_count, 1);
   
-  maxlen = bench.cf->benchmark.msg_padding + 64;
-  msgbuf = ngx_alloc(maxlen, ngx_cycle->log);
-  ngx_memset(msgbuf, 'z', maxlen);
-  
   ngx_gettimeofday(&tv);
   now = (tv.tv_sec - bench.time.init) * (uint64_t)1000000 + tv.tv_usec;
   
-  last = ngx_snprintf(msgbuf, 64, "%D %D ", now, msgnum);
+  last = ngx_snprintf(bench.msgbuf, 64, "%D %D ", now, msgnum);
   
   //DBG("publish to channel %V msg #%D (t: %D)", &channel_id, msgnum, now);
   
@@ -134,7 +129,7 @@ static ngx_int_t benchmark_publish_message(void *pd) {
   msg.buf.temporary = 1;
   msg.buf.memory = 1;
   msg.buf.last_buf = 1;
-  msg.buf.pos = msg.buf.start = msgbuf;
+  msg.buf.pos = msg.buf.start = bench.msgbuf;
   msg.buf.last = msg.buf.end = &last[bench.cf->benchmark.msg_padding];
   msg.id.time = 0;
   msg.id.tag.fixed[0] = 0;
@@ -192,6 +187,10 @@ ngx_int_t nchan_benchmark_run(void) {
   uint64_t required_subs = bench.cf->benchmark.subscribers_per_channel * bench.cf->benchmark.channels;
   assert(*bench.shared.subscribers_enqueued == required_subs);
   int       i;
+  size_t msgbuf_maxlen = bench.cf->benchmark.msg_padding + 64;
+  bench.msgbuf = ngx_alloc(msgbuf_maxlen, ngx_cycle->log);
+  ngx_memset(bench.msgbuf, 'z', msgbuf_maxlen);
+  
   bench.base_msg_period = 1000.0/((double)bench.cf->benchmark.msgs_per_minute / 60.0);
   bench.base_msg_period *= nchan_worker_processes;
   DBG("ready to begin benchmark, msg period: %d msec", bench.base_msg_period);
@@ -407,6 +406,11 @@ ngx_int_t nchan_benchmark_cleanup(void) {
   assert(bench.subs.array == NULL);
   assert(bench.subs.n == 0);
   
+  if(bench.msgbuf) {
+    ngx_free(bench.msgbuf);
+    bench.msgbuf = NULL;
+  }
+  
   ngx_memzero(&bench.time, sizeof(bench.time));
   *bench.state = NCHAN_BENCHMARK_INACTIVE;
   bench.waiting_for_results = 0;
@@ -613,11 +617,12 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     hdr_init_nchan_shm(1, 10000000, 3, &bench.data.msg_publishing_latency);
     hdr_init_nchan_shm(1, 10000000, 3, &bench.data.subscriber_readiness_latency);
     
-    
     for(i=0; i<cf->benchmark.channels; i++) {
       bench.shared.channels[i].n=i;
       bench.shared.channels[i].msg_count=0;
     }
+    
+    bench.msgbuf = NULL;
     
     //broadcast workload to other workers
     memstore_ipc_broadcast_benchmark_initialize(&bench);

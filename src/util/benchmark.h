@@ -16,6 +16,7 @@ typedef struct {
 typedef struct {
   uint64_t              n;
   ngx_atomic_t          msg_count;
+  u_char               *msgbuf;
 } nchan_benchmark_channel_t;
 
 typedef struct {
@@ -46,6 +47,7 @@ struct nchan_benchmark_s {
     void             *finishing;
     void            **publishers;
   }                   timer;
+  u_char             *msgbuf;
   ngx_atomic_int_t   *state;
   struct {
     size_t              n;
