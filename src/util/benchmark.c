@@ -420,7 +420,7 @@ ngx_int_t nchan_benchmark_cleanup(void) {
     bench.timer.ready = NULL;
   }
   if(bench.timer.running) {
-    nchan_abort_oneshot_timer(bench.timer.ready);
+    nchan_abort_oneshot_timer(bench.timer.running);
     bench.timer.running = NULL;
   }
   if(bench.timer.finishing) {
