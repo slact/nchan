@@ -624,6 +624,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     bench.time.init = ngx_time();
     bench.id = rand();
     bench.client = sub;
+    ngx_memzero(&bench.data, sizeof(bench.data));
     
     bench.shared.subscribers_enqueued = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_t), "hdrhistogram subscribers_enqueued count");
     bench.shared.subscribers_dequeued = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_t), "hdrhistogram subscribers_dequeued count");
