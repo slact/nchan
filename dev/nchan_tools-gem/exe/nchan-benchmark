@@ -133,6 +133,8 @@ class Benchan
     subscribers = 0
     message_length = []
     messages_sent = 0
+    messages_send_confirmed = 0
+    messages_send_unconfirmed = 0
     messages_send_failed = 0
     messages_received = 0
     messages_unreceived = 0
@@ -144,6 +146,8 @@ class Benchan
       subscribers += data["subscribers"]
       message_length << data["message_length"]
       messages_sent += data["messages"]["sent"]
+      messages_send_confirmed += data["messages"]["send_confirmed"]
+      messages_send_unconfirmed += data["messages"]["send_unconfirmed"]
       messages_send_failed += data["messages"]["send_failed"]
       messages_received += data["messages"]["received"]
       messages_unreceived += data["messages"]["unreceived"]
@@ -178,6 +182,8 @@ class Benchan
       messages:
         length:                      %s
         sent:                        %d
+        send_confirmed:              %d
+        send_unconfirmed:            %d
         send_failed:                 %d
         received:                    %d
         unreceived:                  %d
@@ -188,7 +194,7 @@ class Benchan
     END
     out = fmt % [
       @n, runtime.join(","), channels, subscribers, subscribers.to_f/channels,
-      message_length.join(","), messages_sent, messages_send_failed, 
+      message_length.join(","), messages_sent, messages_send_confirmed, messages_send_unconfirmed, messages_send_failed, 
       messages_received, messages_unreceived,
       messages_sent.to_f/runtime.max,
       messages_received.to_f/runtime.max,

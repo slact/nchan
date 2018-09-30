@@ -85,7 +85,7 @@ static ngx_int_t benchmark_publish_callback(ngx_int_t status, void *data, void *
     switch(status) {
       case NCHAN_MESSAGE_QUEUED:
       case NCHAN_MESSAGE_RECEIVED:
-        bench.data.msg_sent++;
+        bench.data.msg_send_confirmed++;
         break;
       default:
         bench.data.msg_send_failed++;
@@ -140,6 +140,7 @@ static ngx_int_t benchmark_publish_message(void *pd) {
   msg.content_type = (ngx_str_t *)&NCHAN_CONTENT_TYPE_TEXT_PLAIN;
   
   bench.cf->storage_engine->publish(&channel_id, &msg, bench.cf, (callback_pt )benchmark_publish_callback, (void *)(uintptr_t)now);
+  bench.data.msg_sent++;
   
   return bench_msg_period_jittered();
 }
@@ -239,6 +240,7 @@ ngx_int_t nchan_benchmark_receive_finished_data(nchan_benchmark_data_t *data) {
   assert(bench.waiting_for_results > 0);
   bench.waiting_for_results  --;
   bench.data.msg_sent += data->msg_sent;
+  bench.data.msg_send_confirmed += data->msg_send_confirmed;
   bench.data.msg_send_failed += data->msg_send_failed;
   bench.data.msg_received += data->msg_received;
   hdr_add(bench.data.msg_delivery_latency, data->msg_delivery_latency);
@@ -269,6 +271,8 @@ ngx_int_t nchan_benchmark_finish_response(void) {
     "  \"message_length\":       %d,\n"
     "  \"messages\": {\n"
     "    \"sent\":               %d,\n"
+    "    \"send_confirmed\":     %d,\n"
+    "    \"send_unconfirmed\":   %d,\n"
     "    \"send_failed\":        %d,\n"
     "    \"received\":           %d,\n"
     "    \"unreceived\":         %d\n"
@@ -297,6 +301,8 @@ ngx_int_t nchan_benchmark_finish_response(void) {
     *bench.shared.subscribers_enqueued,
     bench.cf->benchmark.msg_padding + 5,
     bench.data.msg_sent,
+    bench.data.msg_send_confirmed,
+    bench.data.msg_sent - bench.data.msg_send_confirmed,
     bench.data.msg_send_failed,
     bench.data.msg_received,
     bench.data.msg_sent * bench.cf->benchmark.subscribers_per_channel - bench.data.msg_received,
@@ -314,7 +320,7 @@ ngx_int_t nchan_benchmark_finish_response(void) {
     (double )hdr_stddev(bench.data.msg_delivery_latency)/1000.0,
     bench.data.msg_delivery_latency->total_count
   );
-  if(ngx_strnstr(accept_header->data, "text/x-json-hdrhistogram", accept_header->len)) {
+  if(accept_header && ngx_strnstr(accept_header->data, "text/x-json-hdrhistogram", accept_header->len)) {
     ngx_str_t *serialized_publishing_histogram, *serialized_delivery_histogram;
     size_t sz;
     fmt = 

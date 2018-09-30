@@ -9,6 +9,7 @@ typedef struct {
   struct hdr_histogram* msg_delivery_latency;
   struct hdr_histogram* subscriber_readiness_latency;
   uint64_t              msg_sent;
+  uint64_t              msg_send_confirmed;
   uint64_t              msg_send_failed;
   uint64_t              msg_received;
 } nchan_benchmark_data_t;
