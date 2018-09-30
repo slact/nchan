@@ -485,14 +485,16 @@ static void serialize_double(int write, char **cur, double val) {
   buf = write ? *cur : throwaway_buf;
   *cur += sprintf(buf, "%lf ", val);
 }
-static void serialize_zerorun(int write, char **cur, int zerorun) {
+static void serialize_numrun(int write, char **cur, int num, int runcount) {
+  char  *numrun="~!@#$%^&*";
   char  *buf;
+  assert(num < strlen(numrun));
   buf = write ? *cur : throwaway_buf;
-  if(zerorun == 1) {
-    *cur += sprintf(buf, "0 ");
+  if(runcount == 0) {
+    *cur += sprintf(buf, "%i ", num);
   }
   else {
-    *cur += sprintf(buf, "~%i ", zerorun);
+    *cur += sprintf(buf, "%c%i ", numrun[num], runcount);
   }
 }
 
@@ -527,26 +529,31 @@ size_t hdrhistogram_serialize(int write, char *start, const struct hdr_histogram
   }
   (*cur)++;
   
-  int zerorun=0;
-  int64_t c;
-  for(i=0; i<hdr->counts_len; i++) {
-    c = hdr->counts[i];
-    if(c==0) {
-      zerorun++;
+  int runcount=0;
+  int64_t ncur, nprev;
+  for(i=1, nprev=hdr->counts[0]; i<hdr->counts_len; i++) {
+    ncur = hdr->counts[i];
+    nprev = hdr->counts[i-1];
+    if(ncur <= 8 && ncur == nprev) {
+      runcount++;
     }
     else {
-      if(zerorun > 0) {
-        serialize_zerorun(write, cur, zerorun);
-        zerorun = 0;
+      if(runcount > 0) {
+        serialize_numrun(write, cur, nprev, runcount+1);
+        runcount = 0;
       }
-      serialize_int64_t(write, cur, hdr->counts[i]);
+      else {
+        serialize_int64_t(write, cur, nprev);
+      }
     }
-    
   }
-  if(zerorun > 0) {
-    serialize_zerorun(write, cur, zerorun);
-    zerorun = 0;
+  if(runcount > 0) {
+    serialize_numrun(write, cur, ncur, runcount+1);
   }
+  else {
+    serialize_int64_t(write, cur, ncur);
+  }
+  
   if(write) {
     **cur=']';
   }

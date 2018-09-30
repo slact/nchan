@@ -74,6 +74,7 @@ class Benchan
           msg = msg[8..-1]
           parsed = JSON.parse msg
           @results[sub.url] = parsed
+          @results[sub.url]["raw"] = msg if @results[sub.url]
           1+1
         else
           binding.pry
