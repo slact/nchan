@@ -36,6 +36,7 @@ typedef struct nchan_benchmark_s nchan_benchmark_t;
 struct nchan_benchmark_s {
   subscriber_t       *client;
   nchan_loc_conf_t   *cf;
+  uint32_t            id;
   struct {
     time_t              init;
     time_t              start;
@@ -67,7 +68,7 @@ ngx_int_t nchan_benchmark_init_worker(ngx_cycle_t *cycle);
 ngx_int_t nchan_benchmark_exit_master(ngx_cycle_t *cycle);
 
 ngx_int_t nchan_benchmark_initialize(void);
-ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, nchan_loc_conf_t *cf, time_t time_start, nchan_benchmark_shared_t *shared_data);
+ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, nchan_loc_conf_t *cf, time_t time_start, uint32_t id, nchan_benchmark_shared_t *shared_data);
 ngx_int_t nchan_benchmark_run(void);
 
 ngx_int_t nchan_benchmark_stop(void);

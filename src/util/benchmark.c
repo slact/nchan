@@ -405,7 +405,7 @@ ngx_int_t nchan_benchmark_cleanup(void) {
   assert(bench.timer.publishers == NULL);
   assert(bench.subs.array == NULL);
   assert(bench.subs.n == 0);
-  
+  bench.id = 0;
   if(bench.msgbuf) {
     ngx_free(bench.msgbuf);
     bench.msgbuf = NULL;
@@ -435,7 +435,7 @@ ngx_int_t nchan_benchmark_channel_id(int n, ngx_str_t *chid) {
   static u_char  id[255];
   u_char        *last;
   chid->data = id;
-  last = ngx_snprintf(id, 255, "/benchmark.%d.%d", bench.time.init, n);
+  last = ngx_snprintf(id, 255, "/benchmark.%T-%D.%D", bench.time.init, bench.id, n);
   chid->len = last - id;
   return NGX_OK;
 }
@@ -575,10 +575,11 @@ static ngx_int_t benchmark_timer_ready_check(void *pd) {
   }
 }
 
-ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, nchan_loc_conf_t *cf, time_t init_time, nchan_benchmark_shared_t *shared_data) {
+ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, nchan_loc_conf_t *cf, time_t init_time, uint32_t id, nchan_benchmark_shared_t *shared_data) {
   DBG("init benchmark via IPC (time %d src %d)", init_time, initiating_worker_slot);
   bench.cf = cf;
   bench.time.init = init_time;
+  bench.id = id;
   bench.shared = *shared_data;
   ngx_memzero(&bench.data, sizeof(bench.data));
   hdr_init_nchan_shm(1, 10000000, 3, &bench.data.msg_delivery_latency);
@@ -608,6 +609,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     bench.cf = cf;
     
     bench.time.init = ngx_time();
+    bench.id = rand();
     bench.client = sub;
     
     bench.shared.subscribers_enqueued = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_t), "hdrhistogram subscribers_enqueued count");

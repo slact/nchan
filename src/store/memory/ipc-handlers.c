@@ -1060,6 +1060,7 @@ static void receive_flood_test(ngx_int_t sender, flood_data_t *d) {
 typedef struct {
   nchan_loc_conf_t *cf;
   time_t        time;
+  uint32_t      id;
   nchan_benchmark_shared_t shared;
 } benchmark_initialize_data_t;
 
@@ -1068,13 +1069,14 @@ ngx_int_t memstore_ipc_broadcast_benchmark_initialize(void *bench_pd) {
   benchmark_initialize_data_t   data;
   DEBUG_MEMZERO(&data);
   data.cf = bench->cf;
+  data.id = bench->id;
   data.time = bench->time.init;
   data.shared = bench->shared;
   
   return ipc_broadcast_cmd(benchmark_initialize, &data);
 }
 static void receive_benchmark_initialize(ngx_int_t sender, benchmark_initialize_data_t *d) {
-  nchan_benchmark_initialize_from_ipc(sender, d->cf, d->time, &d->shared);
+  nchan_benchmark_initialize_from_ipc(sender, d->cf, d->time, d->id, &d->shared);
 }
 
 ////////// BENCHMARK RUN ////////////////
