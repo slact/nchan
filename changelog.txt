@@ -1,3 +1,12 @@
+ fix (security): subscriber may erroneously receive a 400 Bad Request or crash a worker 
+      based on data from a previous subscriber
+ feature: built-in backend benchmark
+ feature: add optimized fastpublish option to Redis nostore mode for maximum
+      message publishing thoroughput via Redis
+ feature: add no-store Redis mode that uses Redis for broadcasting messages, not storage
+ fix: connecting to load-balancing Redis proxy resulted in crash
+ fix: using longpoll-multipart in "raw" mode cound result in worker crash
+ fix: channel events used with Redis resulted in segfault
 1.2.1 (Aug. 2 2018)
  fix: channel last_requested was set to 0 instead of -1 on channel creation
  fix: authentication failure body not forwarded for Nginx > 1.13.10
