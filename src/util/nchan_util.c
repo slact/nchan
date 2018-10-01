@@ -965,7 +965,7 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
 }
 
 ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool) {
-  ngx_str_t           mm_instr;
+  ngx_str_t           mm_instr = {0, NULL};
   int                 mmapped = 0;
   ngx_temp_file_t    *tf = NULL;
   
