@@ -32,6 +32,8 @@ for opt in $*; do
       ;;
     sanitize-address)
       export CC="$_clang $clang_sanitize_addres";;
+    gcc)
+      export CC="gcc";;
     gcc6)
       export CC="ccache gcc-6";;
     gcc5)
@@ -104,6 +106,9 @@ for opt in $*; do
       export DEFAULT_PREFIX=1;;
     prefix=*)
       export CUSTOM_PREFIX="${opt:7}";;
+    explicit_cflags)
+      export EXPLICIT_CFLAGS=1
+      ;;
     openresty)
       export EXPLICIT_CFLAGS=1
       export WITH_LUA_MODULE=""
