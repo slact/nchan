@@ -488,7 +488,7 @@ static void serialize_double(int write, char **cur, double val) {
 static void serialize_numrun(int write, char **cur, int num, int runcount) {
   char  *numrun="~!@#$%^&*";
   char  *buf;
-  assert(num < strlen(numrun));
+  assert((size_t)num < strlen(numrun));
   buf = write ? *cur : throwaway_buf;
   if(runcount == 0) {
     *cur += sprintf(buf, "%i ", num);
@@ -530,7 +530,7 @@ size_t hdrhistogram_serialize(int write, char *start, const struct hdr_histogram
   (*cur)++;
   
   int runcount=0;
-  int64_t ncur, nprev;
+  int64_t ncur=0, nprev=0;
   for(i=1, nprev=hdr->counts[0]; i<hdr->counts_len; i++) {
     ncur = hdr->counts[i];
     nprev = hdr->counts[i-1];
