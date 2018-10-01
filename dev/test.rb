@@ -642,7 +642,6 @@ class PubSubTest <  Minitest::Test
     sleep 0.5
     sub.run
     sleep 0.5
-    puts 3
     pub.post "FIN"
     sub.wait
     
