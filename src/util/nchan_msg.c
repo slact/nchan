@@ -407,6 +407,7 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
   static int16_t    tags[NCHAN_MULTITAG_MAX];
   int brace_open_total = 0;
   int brace_close_total = 0;
+  int tagactive = NGX_ERROR;
   
   while(first != NULL && last != NULL && cur <= last && i < NCHAN_MULTITAG_MAX) {
     if(cur == last) {
@@ -426,7 +427,7 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
       if(++brace_open_total > 1) {
         return NGX_ERROR;
       }
-      mid->tagactive = i;
+      tagactive = i;
     }
     else if (c == ']') {
       if(++brace_close_total > 1 || brace_open_total - brace_close_total != 0) {
@@ -442,13 +443,29 @@ static ngx_int_t nchan_parse_msg_tag(u_char *first, u_char *last, nchan_msg_id_t
     cur++;
   }
   
-  // We fulfill the rest of the tag needed with value '-1'
+  if (i == 0) {
+    mid->tagactive = -1; // No tags, so no active tag
+  }
+  if(tagactive == NGX_ERROR) {
+    if(i==1) {
+      //single message tag, so it's active by defaiult
+      mid->tagactive = 0;
+    }
+    else {
+      //got a multitag with no tag braced as [active]. That's invalid.
+      return NGX_ERROR;
+    }
+  }
+  else {
+    mid->tagactive = tagactive;
+  }
+  
+  // We fill the rest of the tag needed with value '-1'
   while (i < expected_tag_count) {
-    if (i == 0) mid->tagactive = -1; // No tag is in active
     tags[i] = -1;
     i++;
   }
-
+  
   mid->tagcount = i;
   
   if(i <= NCHAN_FIXED_MULTITAG_MAX) {
