@@ -2,7 +2,6 @@
 #include <subscribers/common.h>
 #include "internal.h"
 #include "benchmark.h"
-#include <util/benchmark.h>
 #include <assert.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN

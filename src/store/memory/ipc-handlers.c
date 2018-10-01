@@ -10,7 +10,7 @@
 #include <subscribers/getmsg_proxy.h>
 #include <subscribers/memstore_redis.h>
 #include <util/nchan_msg.h>
-#include <util/benchmark.h>
+#include <util/nchan_benchmark.h>
 
 
 //macro black magic, AKA X-Macros

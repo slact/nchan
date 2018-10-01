@@ -1,4 +1,4 @@
-#include "benchmark.h"
+#include "nchan_benchmark.h"
 #include <subscribers/benchmark.h>
 #include <subscribers/websocket.h>
 #include <util/shmem.h>
