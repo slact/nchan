@@ -1,5 +1,6 @@
 #!/usr/bin/ruby
 source 'https://rubygems.org'
+gem 'typhoeus'
 gem 'json'
 gem 'oga'
 
@@ -20,7 +21,6 @@ if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('2.2.2')
   gem 'nio4r', '~>1.2.1'
 end
 gem 'celluloid-io'
-
 gem 'nchan_tools', :path => "./nchan_tools-gem"
 #gem "memory_profiler", :git => "https://github.com/slact/memory_profiler.git"
 

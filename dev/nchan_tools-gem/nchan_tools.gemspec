@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.summary       = %q{Development and testing utilities for Nchan}
   spec.description   = %q{publishing, subscribing, testing, and benchmarking utilities for Nchan.}
   spec.homepage      = "https://nchan.io"
-  spec.license       = "MIT"
+  spec.license       = "WTFPL"
 
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
@@ -26,7 +26,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'typhoeus'
   spec.add_dependency 'json'
   spec.add_dependency 'oga'
+  spec.add_dependency "celluloid"
   spec.add_dependency "celluloid-io"
+  spec.add_dependency "HDRHistogram"
   
   spec.add_dependency "websocket-driver"
   spec.add_dependency 'websocket-extensions'

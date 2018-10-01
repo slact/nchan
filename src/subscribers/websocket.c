@@ -198,6 +198,7 @@ struct full_subscriber_s {
     ngx_str_t               *channel_id;
     ngx_str_t               *upstream_request_url;
     ngx_pool_t              *msg_pool;
+    void                   (*intercept)(subscriber_t *, nchan_msg_t *);
   }                       publisher;
   
   unsigned                awaiting_pong:1;
@@ -529,9 +530,15 @@ static void websocket_publish_continue(ws_publish_data_t *d) {
     nchan_deflate_message_if_needed(msg, fsub->sub.cf, r, d->pool);
   }
   
-  websocket_reserve(&fsub->sub);
-  fsub->sub.cf->storage_engine->publish(fsub->publisher.channel_id, msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, d); 
-  nchan_update_stub_status(total_published_messages, 1);
+  if(fsub->publisher.intercept) {
+    fsub->publisher.intercept(&fsub->sub, msg);
+    ngx_destroy_pool(d->pool);
+  }
+  else {
+    websocket_reserve(&fsub->sub);
+    fsub->sub.cf->storage_engine->publish(fsub->publisher.channel_id, msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, d); 
+    nchan_update_stub_status(total_published_messages, 1);
+  }
   
 }
 
@@ -658,7 +665,7 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
   d->msgbuf = buf;
   fsub->publisher.msg_pool = NULL;
   
-  if(fsub->publisher.upstream_request_url == NULL) { // don't need to send request upstream
+  if(fsub->publisher.intercept || fsub->publisher.upstream_request_url == NULL) { // don't need to send request upstream
     d->subrequest = NULL;
     websocket_publish_continue(d);
   }
@@ -747,6 +754,7 @@ subscriber_t *websocket_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t 
   */
   
   ngx_memzero(&fsub->publisher, sizeof(fsub->publisher));
+  
   
   if(fsub->sub.cf->pub.websocket) {
     fsub->publisher.channel_id = nchan_get_channel_id(r, PUB, 0);
@@ -1254,17 +1262,6 @@ static ngx_int_t ws_recv(ngx_connection_t *c, ngx_event_t *rev, ngx_buf_t *buf, 
   return NGX_OK;
 }
 
-static uint64_t ws_ntohll(uint64_t value) {
-  int num = 42;
-  if (*(char *)&num == 42) {
-    uint32_t high_part = ntohl((uint32_t)(value >> 32));
-    uint32_t low_part = ntohl((uint32_t)(value & 0xFFFFFFFFLL));
-    return (((uint64_t)low_part) << 32) | high_part;
-  } else {
-    return value;
-  }
-}
-
 static void set_buffer(ngx_buf_t *buf, u_char *start, u_char *last, ssize_t len) {
   ngx_memzero(buf, sizeof(*buf));
   buf->start = start;
@@ -1359,7 +1356,7 @@ static void websocket_reading(ngx_http_request_t *r) {
               goto exit;
             }
             ngx_memcpy(&len, frame->header, 8);
-            frame->payload_len = ws_ntohll(len);
+            frame->payload_len = nchan_ntohll(len);
             break;
         }
         
@@ -1632,7 +1629,6 @@ static ngx_int_t websocket_frame_header(full_subscriber_t *fsub, ngx_buf_t *buf,
   buf->start = last;
   *last = opcode;
   last++;
-  
   if (len <= 125) {
     last = ngx_copy(last, &len, 1);
     buf->end++;
@@ -1987,6 +1983,12 @@ ngx_int_t nchan_detect_websocket_request(ngx_http_request_t *r) {
   else return 0;
 
   return 1;
+}
+
+ngx_int_t websocket_intercept_published_message(subscriber_t *sub, void (*interceptor)(subscriber_t *, nchan_msg_t *)) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)sub;
+  fsub->publisher.intercept = interceptor;
+  return NGX_OK;
 }
 
 static const subscriber_fn_t websocket_fn = {

@@ -1139,8 +1139,8 @@ ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf
 #endif
 }
 
-uint64_t nchan_htonll(uint64_t value) {
-  int num = 42;
+static uint64_t flip_uint64_if_little_endian(uint64_t value) {
+int num = 42;
   if (*(char *)&num == 42) {
     uint32_t high_part = htonl((uint32_t)(value >> 32));
     uint32_t low_part = htonl((uint32_t)(value & 0xFFFFFFFFLL));
@@ -1148,6 +1148,13 @@ uint64_t nchan_htonll(uint64_t value) {
   } else {
     return value;
   }
+}
+
+uint64_t nchan_htonll(uint64_t value) {
+  return flip_uint64_if_little_endian(value); 
+}
+uint64_t nchan_ntohll(uint64_t value) {
+  return flip_uint64_if_little_endian(value);
 }
 
 #if (NGX_DEBUG_POOL)

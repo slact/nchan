@@ -657,10 +657,55 @@ static char *nchan_group_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *con
   return NGX_CONF_OK;
 }
 
+static ngx_int_t set_complex_value(ngx_conf_t *cf, ngx_http_complex_value_t **cv, char *val) {
+  ngx_http_compile_complex_value_t    ccv;
+  ngx_str_t                          *value = ngx_palloc(cf->pool, sizeof(ngx_str_t));;
+  if(value == NULL) {
+    return NGX_ERROR;
+  }
+  value->data = (u_char *)val;
+  value->len = strlen(val);
+  *cv = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
+  if (*cv == NULL) {
+    return NGX_ERROR;
+  } 
+  ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+  ccv.cf = cf;
+  ccv.value = value;
+  ccv.complex_value = *cv;
+  if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+    return NGX_ERROR;
+  }
+  
+  return NGX_OK;
+}
+
+static ngx_int_t set_complex_value_array_size1(ngx_conf_t *cf, nchan_complex_value_arr_t *chid, char *val) {
+  chid->n = 1;
+  return set_complex_value(cf, &chid->cv[0], val);
+}
+
 static char *nchan_benchmark_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
   nchan_loc_conf_t     *lcf = conf;
   global_benchmark_enabled = 1;
   lcf->request_handler = &nchan_benchmark_handler;
+  
+  
+  //set group
+  if(set_complex_value(cf, &lcf->channel_group, "benchmark") != NGX_OK) {
+    return "error setting benchmark channel group";
+  }
+  //set pub and sub channel ids
+  if(set_complex_value_array_size1(cf, &lcf->pub_chid, "control") != NGX_OK) {
+    return "error setting benchmark control channel";
+  }
+  if(set_complex_value_array_size1(cf, &lcf->sub_chid, "data") != NGX_OK) {
+    return "error setting benchmark data channel";
+  }
+  
+  lcf->sub.websocket = 1;
+  lcf->pub.websocket = 1;
+  
   return NGX_CONF_OK;
 }
 

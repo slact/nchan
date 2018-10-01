@@ -1085,5 +1085,21 @@ static void nchan_publisher_body_handler(ngx_http_request_t *r) {
 }
 
 ngx_int_t nchan_benchmark_handler(ngx_http_request_t *r) {
+  nchan_request_ctx_t    *ctx;
+  
+  if(r->connection && (r->connection->read->eof || r->connection->read->pending_eof)) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  ngx_http_set_ctx(r, ctx, ngx_nchan_module);
+  
+  return nchan_benchmark_ws_initialize(r);
+  
+  /*
+  ctx->bcp = ngx_palloc(r->pool, sizeof(nchan_bufchain_pool_t));
+  nchan_bufchain_pool_init(ctx->bcp, r->pool);
   return nchan_benchmark_initialize(r);
+  */
 }

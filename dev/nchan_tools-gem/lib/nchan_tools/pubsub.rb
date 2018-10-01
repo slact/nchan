@@ -380,11 +380,15 @@ class Subscriber
       close bundle
     end
     
-    def poke(what=nil)
-      if what == :ready
-        (@notready.nil? || @notready > 0) && @cooked_ready.wait
-      else
-        @connected > 0 && @cooked.wait
+    def poke(what=nil, timeout = nil)
+      begin
+        if what == :ready
+          (@notready.nil? || @notready > 0) && @cooked_ready.wait(timeout)
+        else
+          @connected > 0 && @cooked.wait(timeout)
+        end
+      rescue Celluloid::ConditionError => e
+        #just ignore it
       end
     end
     
@@ -454,6 +458,9 @@ class Subscriber
             @ws.add_extension PermessageDeflate
           end
         end
+        if opt[:extra_headers]
+          opt[:extra_headers].each {|k, v| @ws.set_header(k, v)}
+        end
         
         @sock = sock
         @id = opt[:id] || :"~"
@@ -520,6 +527,7 @@ class Subscriber
       @connected=0
       @nomsg = opt[:nomsg]
       @http2 = opt[:http2]
+      @extra_headers = opt[:extra_headers]
     end
     
     def stop(msg = "Stopped", src_bundle = nil)
@@ -565,7 +573,7 @@ class Subscriber
           hs_url=@url
         end        
         
-        bundle = WebSocketBundle.new hs_url, sock, id: i, permessage_deflate: @permessage_deflate, subprotocol: @subprotocol, logger: @logger, permessage_deflate_max_window_bits: @permessage_deflate_max_window_bits, permessage_deflate_server_max_window_bits: @permessage_deflate_server_max_window_bits
+        bundle = WebSocketBundle.new hs_url, sock, id: i, permessage_deflate: @permessage_deflate, subprotocol: @subprotocol, logger: @logger, permessage_deflate_max_window_bits: @permessage_deflate_max_window_bits, permessage_deflate_server_max_window_bits: @permessage_deflate_server_max_window_bits, extra_headers: @extra_headers
         
         bundle.ws.on :open do |ev|
           bundle.connected = true
@@ -1603,8 +1611,8 @@ class Subscriber
     end
     false
   end
-  def wait(until_what=nil)
-    @client.poke until_what
+  def wait(until_what=nil, timeout = nil)
+    @client.poke until_what, timeout
   end
 
   def on_message(msg=nil, bundle=nil, &block)
