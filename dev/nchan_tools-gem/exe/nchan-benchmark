@@ -9,11 +9,16 @@ require "pry"
 require "HDRHistogram"
 
 verbose = false
+save_csv = false
 
 opt_parser=OptionParser.new do |opts|
   opts.on("-v", "--verbose", "somewhat rather extraneously wordful output") do
     verbose = true
   end
+  opts.on("--csv FILENAME", "Append results to file in CSV format") do |f|
+    save_csv = f
+  end
+  
 end
 opt_parser.banner="Usage: benchan.rb [options] url1 url2 url3..."
 opt_parser.parse!
@@ -129,59 +134,59 @@ class Benchan
   end
   
   def results
-    channels = 0
-    runtime = []
-    subscribers = 0
-    message_length = []
-    messages_sent = 0
-    messages_send_confirmed = 0
-    messages_send_unconfirmed = 0
-    messages_send_failed = 0
-    messages_received = 0
-    messages_unreceived = 0
-    hdrh_publish = nil
-    hdrh_receive = nil
+    @channels = 0
+    @runtime = []
+    @subscribers = 0
+    @message_length = []
+    @messages_sent = 0
+    @messages_send_confirmed = 0
+    @messages_send_unconfirmed = 0
+    @messages_send_failed = 0
+    @messages_received = 0
+    @messages_unreceived = 0
+    @hdrh_publish = nil
+    @hdrh_receive = nil
     @results.each do |url, data|
-      channels += data["channels"]
-      runtime << data["run_time_sec"]
-      subscribers += data["subscribers"]
-      message_length << data["message_length"]
-      messages_sent += data["messages"]["sent"]
-      messages_send_confirmed += data["messages"]["send_confirmed"]
-      messages_send_unconfirmed += data["messages"]["send_unconfirmed"]
-      messages_send_failed += data["messages"]["send_failed"]
-      messages_received += data["messages"]["received"]
-      messages_unreceived += data["messages"]["unreceived"]
+      @channels += data["channels"]
+      @runtime << data["run_time_sec"]
+      @subscribers += data["subscribers"]
+      @message_length << data["message_length"]
+      @messages_sent += data["messages"]["sent"]
+      @messages_send_confirmed += data["messages"]["send_confirmed"]
+      @messages_send_unconfirmed += data["messages"]["send_unconfirmed"]
+      @messages_send_failed += data["messages"]["send_failed"]
+      @messages_received += data["messages"]["received"]
+      @messages_unreceived += data["messages"]["unreceived"]
       
       if data["message_publishing_histogram"]
         hdrh = HDRHistogram.unserialize(data["message_publishing_histogram"], unit: :ms, multiplier: 0.001)
-        if hdrh_publish
-          hdrh_publish.merge! hdrh
+        if @hdrh_publish
+          @hdrh_publish.merge! hdrh
         else
-          hdrh_publish = hdrh
+          @hdrh_publish = hdrh
         end
       end
       if data["message_delivery_histogram"]
         hdrh = HDRHistogram.unserialize(data["message_delivery_histogram"], unit: :ms, multiplier: 0.001)
-        if hdrh_receive
-          hdrh_receive.merge! hdrh
+        if @hdrh_receive
+          @hdrh_receive.merge! hdrh
         else
-          hdrh_receive = hdrh
+          @hdrh_receive = hdrh
         end
       end
     end
     
-    message_length.uniq!
-    runtime.uniq!
+    @message_length = @message_length.sum.to_f / @message_length.size
+    @runtime = @runtime.sum.to_f / @runtime.size
     
     fmt = <<-END.gsub(/^ {6}/, '')
       Nchan servers:                 %d
-      runtime:                       %s
+      runtime:                       %d
       channels:                      %d
       subscribers:                   %d
       subscribers per channel:       %.1f
       messages:
-        length:                      %s
+        length:                      %d
         sent:                        %d
         send_confirmed:              %d
         send_unconfirmed:            %d
@@ -194,22 +199,46 @@ class Benchan
         receive rate per subscriber: %.3f/min
     END
     out = fmt % [
-      @n, runtime.join(","), channels, subscribers, subscribers.to_f/channels,
-      message_length.join(","), messages_sent, messages_send_confirmed, messages_send_unconfirmed, messages_send_failed, 
-      messages_received, messages_unreceived,
-      messages_sent.to_f/runtime.max,
-      messages_received.to_f/runtime.max,
-      (messages_sent.to_f* 60)/(runtime.max*channels),
-      (messages_received.to_f * 60)/(runtime.max * subscribers)
+      @n, @runtime, @channels, @subscribers, @subscribers.to_f/@channels,
+      @message_length, @messages_sent, @messages_send_confirmed, @messages_send_unconfirmed, @messages_send_failed, 
+      @messages_received, @messages_unreceived,
+      @messages_sent.to_f/@runtime,
+      @messages_received.to_f/@runtime,
+      (@messages_sent.to_f* 60)/(@runtime * @channels),
+      (@messages_received.to_f * 60)/(@runtime * @subscribers)
     ]
     
-    out << hdrhistogram_stats("message publishing latency", hdrh_publish) if hdrh_publish
-    out << hdrhistogram_stats("message delivery latency", hdrh_receive) if hdrh_receive
+    out << hdrhistogram_stats("message publishing latency", @hdrh_publish) if @hdrh_publish
+    out << hdrhistogram_stats("message delivery latency", @hdrh_receive) if @hdrh_receive
     
     puts out
+  end
+  
+  def append_csv_file(file)
+    require "csv"
+    write_headers = File.zero?(file)
+    headers = %i[servers runtime channels subscribers 
+      message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed
+      messages_send_received messages_send_unreceived 
+      messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber
+      message_publishing_response_avg message_publishing_response_99percentile message_publishing_response_stddev message_publishing_response_count
+      message_delivery_avg message_delivery_99percentile message_delivery_stddev message_delivery_count]
+    csv = CSV.open(file, "a", {headers: headers, write_headers: write_headers})
+    csv << [@n, @runtime, @channels, @subscribers, 
+      @message_length, @messages_sent, @messages_send_confirmed, @messages_send_unconfirmed, @messages_send_failed, 
+      @messages_received, @messages_unreceived,
+      @messages_sent.to_f/@runtime, @messages_received.to_f/@runtime,
+      (@messages_sent.to_f* 60)/(@runtime * @channels), (@messages_received.to_f * 60)/(@runtime * @subscribers),
+      @hdrh_publish.mean, @hdrh_publish.percentile(99.0), @hdrh_publish.max, @hdrh_publish.stddev, @hdrh_publish.count,
+      @hdrh_receive.mean, @hdrh_receive.percentile(99.0), @hdrh_receive.max, @hdrh_receive.stddev, @hdrh_receive.count
+    ]
+    csv.flush
+    csv.close
   end
 end
 
 benchan = Benchan.new urls
 benchan.run
 benchan.results
+benchan.append_csv_file(save_csv) if save_csv
+
