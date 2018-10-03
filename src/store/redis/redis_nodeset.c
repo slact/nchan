@@ -676,12 +676,42 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
   }
 }
 
-static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
+static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
+  redis_connect_params_t   rcp;
+  char                    *reason = "";
+  
+  rcp.hostname = l->hostname;
+  rcp.port = l->port;
+  rcp.peername.len = 0;
+  rcp.db = node->connect_params.db;
+  rcp.password = node->connect_params.password;
+  
+  if(l->failed) {
+    reason = "failed ";
+  }
+  else if(!l->connected) {
+    reason = "disconnected ";
+  }
+  else if(l->noaddr) {
+    reason = "no-address ";
+  }
+  else if(l->self) {
+    reason = "self ";
+  }
+  else {
+    return 0;
+  }
+  
+  node_log_notice(node, "Ignoring %scluster %s %s", reason, (l->master ? "master" : "slave"), rcp_cstr(&rcp));
+  return 1;
+}
+
+static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
   redis_connect_params_t   rcp;
   redis_node_t            *peer;
   assert(!l->self);
-  if(l->failed) {
-    return;
+  if(l->failed || !l->connected || l->noaddr || l->self) {
+    return 0;
   }
   rcp.hostname = l->hostname;
   rcp.port = l->port;
@@ -693,7 +723,7 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
    || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
   ) {
     //node_log_notice(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
-    return; //we already know this one.
+    return 0; //we already know this one.
   }
   node_log_notice(node, "Discovering cluster %s %s", (l->master ? "master" : "slave"), rcp_cstr(&rcp));
   peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
@@ -702,6 +732,7 @@ static void node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t 
   node_set_role(peer, l->master ? REDIS_NODE_ROLE_MASTER : REDIS_NODE_ROLE_SLAVE);
   //ignore all the other things for now
   node_connect(peer);
+  return 1;
 }
 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
@@ -1340,7 +1371,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
               }
             }
           }
-          else if(!l[i].failed) {
+          else if(!node_skip_cluster_peer(node, &l[i])) {
             node_discover_cluster_peer(node, &l[i]);
           }
         }

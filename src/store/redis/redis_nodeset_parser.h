@@ -26,6 +26,7 @@ typedef struct {
   
   unsigned       connected:1;
   unsigned       master:1;
+  unsigned       noaddr:1;
   unsigned       failed:1;
   unsigned       self:1;
 } cluster_nodes_line_t;

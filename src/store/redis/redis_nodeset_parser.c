@@ -133,7 +133,8 @@ static char *nodeset_parser_scan_cluster_nodes_line(const char *line, cluster_no
     l->master = 0;
   }
   l->failed = nchan_ngx_str_substr((&l->flags), "fail");
-  l->self = nchan_ngx_str_substr((&l->flags), "myself") ? 1 : 0;
+  l->self = nchan_ngx_str_substr((&l->flags), "myself");
+  l->noaddr = nchan_ngx_str_substr((&l->flags), "noaddr");
   
   l->connected = l->link_state.data[0]=='c' ? 1 : 0; //[c]onnected
   
