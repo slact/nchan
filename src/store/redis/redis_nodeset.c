@@ -686,14 +686,15 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
   rcp.db = node->connect_params.db;
   rcp.password = node->connect_params.password;
   
-  if(l->failed) {
+  if(l->noaddr) {
+    node_log_notice(node, "Skipping no-address cluster node for keyslots %V", &l->slots);
+    return 1;
+  }
+  else if(l->failed) {
     reason = "failed ";
   }
   else if(!l->connected) {
     reason = "disconnected ";
-  }
-  else if(l->noaddr) {
-    reason = "no-address ";
   }
   else if(l->self) {
     reason = "self ";
@@ -702,7 +703,7 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
     return 0;
   }
   
-  node_log_notice(node, "Ignoring %scluster %s %s", reason, (l->master ? "master" : "slave"), rcp_cstr(&rcp));
+  node_log_notice(node, "Skipping %scluster %s %s", reason, (l->master ? "master" : "slave"), rcp_cstr(&rcp));
   return 1;
 }
 
