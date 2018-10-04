@@ -1290,12 +1290,14 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       break;
     
     case REDIS_NODE_SUBSCRIBING_WORKER:  
+      if(!reply) {
+        return node_connector_fail(node, "disconnected while subscribing to worker PUBSUB channel");
+      }
       if( reply->type != REDIS_REPLY_ARRAY || reply->elements != 3 
        || reply->element[0]->type != REDIS_REPLY_STRING || reply->element[1]->type != REDIS_REPLY_STRING
        || strcmp(reply->element[0]->str, "subscribe") != 0
        || strcmp(reply->element[1]->str, redis_worker_id) != 0
       ) {
-        raise(SIGSTOP);
         return node_connector_fail(node, "failed to subscribe to worker PUBSUB channel");
       }
       nchan_update_stub_status(redis_connected_servers, 1);

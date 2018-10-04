@@ -1089,6 +1089,13 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
     return; 
   }
   
+  if (!redisReplyOk(c, reply)) {
+    //TODO: fail less silently, maybe retry subscriber registration?
+    sdata->sub->fn->release(sdata->sub, 0);
+    ngx_free(sdata);
+    return;
+  }
+  
   if(  CHECK_REPLY_ARRAY_MIN_SIZE(reply, 4)
     && CHECK_REPLY_INT(reply->element[3])
   ) {
@@ -1098,14 +1105,11 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   
   sdata->sub->fn->release(sdata->sub, 0);
   
-  if (!redisReplyOk(c, reply)) {
-    ngx_free(sdata);
-    return;
-  }
-  
   if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3) || !CHECK_REPLY_INT(reply->element[1]) || !CHECK_REPLY_INT(reply->element[2])) {
     //no good
+    //TODO: fail less silently, maybe retry subscriber registration?
     redisEchoCallback(c,reply,privdata);
+    ngx_free(sdata);
     return;
   }
   if(sdata->generation == sdata->chanhead->generation) {
