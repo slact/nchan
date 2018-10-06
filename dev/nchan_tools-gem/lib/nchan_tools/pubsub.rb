@@ -248,7 +248,7 @@ class Subscriber
     end
   end
   
-  class SubscriberError < Exception
+  class SubscriberError < StandardError
   end
   class Client
     attr_accessor :concurrency
@@ -1646,7 +1646,7 @@ end
 class Publisher
   #include Celluloid
   
-  class PublisherError < Exception
+  class PublisherError < StandardError
   end
   
   attr_accessor :messages, :response, :response_code, :response_body, :nofail, :accept, :url, :extra_headers, :verbose, :ws, :channel_info, :channel_info_type
