@@ -36,7 +36,8 @@ typedef struct {
 typedef struct nchan_benchmark_s nchan_benchmark_t;
 struct nchan_benchmark_s {
   subscriber_t       *client;
-  nchan_loc_conf_t   *cf;
+  nchan_benchmark_conf_t   *config;
+  nchan_loc_conf_t   *loc_conf;
   uint32_t            id;
   struct {
     time_t              init;
