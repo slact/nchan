@@ -283,7 +283,6 @@ typedef struct {
 typedef struct {
   time_t                          time;
   ngx_int_t                       msgs_per_minute;
-  ngx_int_t                       msg_rate_jitter_percent;
   ngx_int_t                       msg_padding;
   ngx_int_t                       channels;
   ngx_int_t                       subscribers_per_channel;

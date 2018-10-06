@@ -200,7 +200,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   
   lcf->benchmark.time = NGX_CONF_UNSET;
   lcf->benchmark.msgs_per_minute = NGX_CONF_UNSET;
-  lcf->benchmark.msg_rate_jitter_percent = NGX_CONF_UNSET;
   lcf->benchmark.msg_padding = NGX_CONF_UNSET;
   lcf->benchmark.channels = NGX_CONF_UNSET;
   lcf->benchmark.subscribers_per_channel = NGX_CONF_UNSET;
@@ -432,7 +431,6 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_value(conf->benchmark.time, prev->benchmark.time, 10);
   ngx_conf_merge_value(conf->benchmark.msgs_per_minute, prev->benchmark.msgs_per_minute, 120);
-  ngx_conf_merge_value(conf->benchmark.msg_rate_jitter_percent, prev->benchmark.msg_rate_jitter_percent, 50);
   ngx_conf_merge_value(conf->benchmark.msg_padding, prev->benchmark.msg_padding, 0);
   ngx_conf_merge_value(conf->benchmark.channels, prev->benchmark.channels, 1000);
   ngx_conf_merge_value(conf->benchmark.subscribers_per_channel, prev->benchmark.subscribers_per_channel, 100);

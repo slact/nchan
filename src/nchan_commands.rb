@@ -720,11 +720,6 @@ CfCmd.new do
       [:loc_conf, "benchmark.msgs_per_minute"],
       group: "development",
       undocumented: true
-  nchan_benchmark_message_rate_jitter_percent [:loc],
-      :ngx_conf_set_num_slot,
-      [:loc_conf, "benchmark.msg_rate_jitter_percent"],
-      group: "development",
-      undocumented: true
   nchan_benchmark_message_padding_bytes [:loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, "benchmark.msg_padding"],
