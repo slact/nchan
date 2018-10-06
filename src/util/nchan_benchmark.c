@@ -577,7 +577,7 @@ static ngx_int_t benchmark_timer_ready_check(void *pd) {
       "{\n"
       "  \"init_time\":                        %T,\n"
       "  \"time\":                             %T,\n"
-      "  \"message_per_channel_per_minute\":   %d,\n"
+      "  \"messages_per_channel_per_minute\":  %d,\n"
       "  \"message_padding_bytes\":            %d,\n"
       "  \"channels\":                         %d,\n"
       "  \"subscribers_per_channel\":          %d\n"
@@ -656,7 +656,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     if(init_command_get_config_value(" time=", &cmd, &val)) {
       bench.config->time = val;
     }
-    if(init_command_get_config_value(" message_per_channel_per_minute=", &cmd, &val)) {
+    if(init_command_get_config_value(" messages_per_channel_per_minute=", &cmd, &val)) {
       bench.config->msgs_per_minute = val;
     }
     if(init_command_get_config_value(" message_padding_bytes=", &cmd, &val)) {

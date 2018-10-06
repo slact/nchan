@@ -715,7 +715,7 @@ CfCmd.new do
       [:loc_conf, "benchmark.time"],
       group: "development",
       undocumented: true
-  nchan_benchmark_message_per_channel_per_minute [:loc],
+  nchan_benchmark_messages_per_channel_per_minute [:loc],
       :ngx_conf_set_num_slot,
       [:loc_conf, "benchmark.msgs_per_minute"],
       group: "development",
