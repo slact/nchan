@@ -5,7 +5,6 @@ require 'nchan_tools/pubsub'
 require "optparse"
 require 'timers'
 require 'json'
-require "pry"
 require "HDRHistogram"
 
 verbose = false
