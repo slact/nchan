@@ -1303,6 +1303,8 @@ static void websocket_reading(ngx_http_request_t *r) {
 
   c = r->connection;
   rev = c->read;
+
+websocket_reading_repeat:
   
   if(!fsub) {
     nchan_http_finalize_request(r, NGX_OK);
@@ -1525,7 +1527,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         frame->step = WEBSOCKET_READ_START_STEP; //restart loop
         frame->last = NULL;
         frame->payload = NULL;
-        return websocket_reading(r);
+        goto websocket_reading_repeat; //goto to avoid a stack overflow. fuck off dijkstra.
         break;
         
       default:
