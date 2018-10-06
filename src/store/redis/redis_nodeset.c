@@ -145,11 +145,18 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
 }
 #endif
 
+static const char *__rcp_cstr(redis_connect_params_t *rcp, char *buf) {
+  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
+  return buf;
+}
+
+static const char *__node_cstr(redis_node_t *node, char *buf) {
+  return __rcp_cstr(&node->connect_params, buf);
+}
 
 static const char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
-  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
-    return buf;
+  return __rcp_cstr(rcp, buf);
 }
 static const char *node_cstr(redis_node_t *node) {
   return rcp_cstr(&node->connect_params);
@@ -1562,8 +1569,10 @@ const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
 }
 
 const char *__node_nickname_cstr(redis_node_t *node) {
+  static char buf[512];
   if(node) {
-    return node_cstr(node);
+    __node_cstr(node, buf);
+    return buf;
   }
   else {
     return "???";
