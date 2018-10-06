@@ -42,6 +42,7 @@ static ngx_int_t benchmark_client_respond(char *cstr) {
 ngx_int_t nchan_benchmark_init_module(ngx_cycle_t *cycle) {
   bench.state = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_int_t), "benchmark state");
   worker_counter = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_int_t), "benchmark worker counter");
+  bench.config = shm_calloc(nchan_store_memory_shmem, sizeof(*bench.config), "benchmark config (shared)");
   
   return NGX_OK;
 }
@@ -55,7 +56,9 @@ ngx_int_t nchan_benchmark_init_worker(ngx_cycle_t *cycle) {
 ngx_int_t nchan_benchmark_exit_master(ngx_cycle_t *cycle) {
   shm_free(nchan_store_memory_shmem, bench.state);
   shm_free(nchan_store_memory_shmem, worker_counter);
+  shm_free(nchan_store_memory_shmem, bench.config);
   bench.state = NULL;
+  bench.config = NULL;
   worker_counter = NULL;
   return NGX_OK;
 }
@@ -104,7 +107,7 @@ static void benchmark_publish_message(nchan_benchmark_channel_t *chan) {
   msg.buf.memory = 1;
   msg.buf.last_buf = 1;
   msg.buf.pos = msg.buf.start = bench.msgbuf;
-  msg.buf.last = msg.buf.end = &last[bench.cf->benchmark.msg_padding];
+  msg.buf.last = msg.buf.end = &last[bench.config->msg_padding];
   msg.id.time = 0;
   msg.id.tag.fixed[0] = 0;
   msg.id.tagactive = 0;
@@ -113,7 +116,7 @@ static void benchmark_publish_message(nchan_benchmark_channel_t *chan) {
   
   msg.content_type = (ngx_str_t *)&NCHAN_CONTENT_TYPE_TEXT_PLAIN;
   
-  bench.cf->storage_engine->publish(&channel_id, &msg, bench.cf, (callback_pt )benchmark_publish_callback, (void *)(uintptr_t)now);
+  bench.loc_conf->storage_engine->publish(&channel_id, &msg, bench.loc_conf, (callback_pt )benchmark_publish_callback, (void *)(uintptr_t)now);
   bench.data.msg_sent++;
 }
 
@@ -137,13 +140,13 @@ ngx_int_t nchan_benchmark_initialize(void) {
   int           c, i;
   subscriber_t **sub;
   ngx_str_t     channel_id;
-  ngx_int_t divided_subs = bench.cf->benchmark.subscribers_per_channel / nchan_worker_processes;
-  ngx_int_t leftover_subs = bench.cf->benchmark.subscribers_per_channel % nchan_worker_processes;
+  ngx_int_t divided_subs = bench.config->subscribers_per_channel / nchan_worker_processes;
+  ngx_int_t leftover_subs = bench.config->subscribers_per_channel % nchan_worker_processes;
   ngx_int_t subs_per_channel;
   
   assert(bench.subs.array == NULL);
   assert(bench.subs.n == 0);
-  for(c=0; c<bench.cf->benchmark.channels; c++) {
+  for(c=0; c<bench.config->channels; c++) {
     bench.subs.n += divided_subs;
     if (c%nchan_worker_processes == bench_worker_number) {
       bench.subs.n += leftover_subs;
@@ -153,7 +156,7 @@ ngx_int_t nchan_benchmark_initialize(void) {
   bench.subs.array = ngx_alloc(sizeof(subscriber_t *) * bench.subs.n, ngx_cycle->log);
   sub = &bench.subs.array[0];
   
-  for(c=0; c<bench.cf->benchmark.channels; c++) {
+  for(c=0; c<bench.config->channels; c++) {
     subs_per_channel = divided_subs + (((c % nchan_worker_processes) == bench_worker_number) ? leftover_subs : 0);
     //DBG("worker number %d channel %d subs %d", bench_worker_number, c, subs_per_channel);
     for(i=0; i<subs_per_channel; i++) {
@@ -170,21 +173,21 @@ ngx_int_t nchan_benchmark_initialize(void) {
 }
 
 ngx_int_t nchan_benchmark_run(void) {
-  uint64_t required_subs = bench.cf->benchmark.subscribers_per_channel * bench.cf->benchmark.channels;
+  uint64_t required_subs = bench.config->subscribers_per_channel * bench.config->channels;
   assert(*bench.shared.subscribers_enqueued == required_subs);
   int       i;
-  size_t msgbuf_maxlen = bench.cf->benchmark.msg_padding + 64;
+  size_t msgbuf_maxlen = bench.config->msg_padding + 64;
   unsigned pubstart;
   int64_t total_offset = 0;
   bench.msgbuf = ngx_alloc(msgbuf_maxlen, ngx_cycle->log);
   ngx_memset(bench.msgbuf, 'z', msgbuf_maxlen);
   
-  bench.base_msg_period = 1000.0/((double)bench.cf->benchmark.msgs_per_minute / 60.0);
+  bench.base_msg_period = 1000.0/((double)bench.config->msgs_per_minute / 60.0);
   bench.base_msg_period *= nchan_worker_processes;
   DBG("ready to begin benchmark, msg period: %d msec", bench.base_msg_period);
   assert(bench.timer.publishers == NULL);
-  bench.timer.publishers = ngx_alloc(sizeof(void *) * bench.cf->benchmark.channels, ngx_cycle->log);
-  for(i=0; i < bench.cf->benchmark.channels; i++) {
+  bench.timer.publishers = ngx_alloc(sizeof(void *) * bench.config->channels, ngx_cycle->log);
+  for(i=0; i < bench.config->channels; i++) {
     pubstart = (rand() / (RAND_MAX / bench.base_msg_period));
     total_offset += pubstart;
     bench.timer.publishers[i] = nchan_add_interval_timer(benchmark_publish_message_interval_timer, &bench.shared.channels[i], pubstart);
@@ -287,15 +290,15 @@ ngx_int_t nchan_benchmark_finish_response(void) {
   ngx_snprintf((u_char *)stats, 2048, fmt, 
     bench.time.start,
     bench.time.end - bench.time.start,
-    bench.cf->benchmark.channels,
+    bench.config->channels,
     *bench.shared.subscribers_enqueued,
-    bench.cf->benchmark.msg_padding + 5,
+    bench.config->msg_padding + 5,
     bench.data.msg_sent,
     bench.data.msg_send_confirmed,
     bench.data.msg_sent - bench.data.msg_send_confirmed,
     bench.data.msg_send_failed,
     bench.data.msg_received,
-    bench.data.msg_sent * bench.cf->benchmark.subscribers_per_channel - bench.data.msg_received,
+    bench.data.msg_sent * bench.config->subscribers_per_channel - bench.data.msg_received,
     (double )hdr_min(bench.data.msg_publishing_latency)/1000.0,
     (double )hdr_mean(bench.data.msg_publishing_latency)/1000.0,
     (double )hdr_value_at_percentile(bench.data.msg_publishing_latency, 99.0)/1000.0,
@@ -370,7 +373,7 @@ ngx_int_t nchan_benchmark_stop(void) {
   int i;
   DBG("stop benchmark");
   if(bench.timer.publishers) {
-    for(i=0; i< bench.cf->benchmark.channels; i++) {
+    for(i=0; i< bench.config->channels; i++) {
       if(bench.timer.publishers[i]) {
         nchan_abort_interval_timer(bench.timer.publishers[i]);
       }
@@ -565,11 +568,28 @@ ngx_str_t *nchan_hdrhistogram_serialize(const struct hdr_histogram* hdr, ngx_poo
 }
 
 static ngx_int_t benchmark_timer_ready_check(void *pd) {
-  uint64_t required_subs = bench.cf->benchmark.subscribers_per_channel * bench.cf->benchmark.channels;
+  uint64_t required_subs = bench.config->subscribers_per_channel * bench.config->channels;
   if(*bench.shared.subscribers_enqueued == required_subs) {
+    char     ready_reply[512];
     assert(*bench.state == NCHAN_BENCHMARK_INITIALIZING);
     *bench.state = NCHAN_BENCHMARK_READY;
-    benchmark_client_respond("READY");
+    ngx_snprintf((u_char *)ready_reply, 512, "READY\n"
+      "{\n"
+      "  \"init_time\":                        %T,\n"
+      "  \"time\":                             %T,\n"
+      "  \"messages_per_channel_per_minute\":  %d,\n"
+      "  \"message_padding_bytes\":            %d,\n"
+      "  \"channels\":                         %d,\n"
+      "  \"subscribers_per_channel\":          %d\n"
+      "}\n%Z",
+      bench.time.init,
+      bench.config->time,
+      bench.config->msgs_per_minute,
+      bench.config->msg_padding,
+      bench.config->channels,
+      bench.config->subscribers_per_channel);
+    
+    benchmark_client_respond(ready_reply);
     bench.timer.ready = NULL;
     return NGX_DONE;
   }
@@ -580,7 +600,7 @@ static ngx_int_t benchmark_timer_ready_check(void *pd) {
 
 ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, nchan_loc_conf_t *cf, time_t init_time, uint32_t id, nchan_benchmark_shared_t *shared_data) {
   DBG("init benchmark via IPC (time %d src %d)", init_time, initiating_worker_slot);
-  bench.cf = cf;
+  bench.loc_conf = cf;
   bench.time.init = init_time;
   bench.id = id;
   bench.shared = *shared_data;
@@ -594,13 +614,33 @@ ngx_int_t nchan_benchmark_initialize_from_ipc(ngx_int_t initiating_worker_slot, 
   return NGX_OK;
 }
 
+static ngx_int_t init_command_get_config_value(const char *config, ngx_str_t *cmd, ngx_int_t *val) {
+  ngx_str_t find;
+  u_char   *cur = cmd->data, *end = cmd->data + cmd->len, *vend;
+  find.data = (u_char *)config;
+  find.len = strlen(config);
+  if(nchan_strscanstr(&cur, &find, end)) {
+    if((vend = memchr(cur, ' ', end - cur)) == NULL) {
+      vend = end;
+    }
+    if((*val = ngx_atoi(cur, vend - cur)) == NGX_ERROR) {
+      return 0;
+    }
+    else {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
   ngx_str_t            cmd = {msg->buf.last - msg->buf.pos, msg->buf.pos};
   ngx_http_request_t  *r = sub->request;
   nchan_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   
-  if(nchan_strmatch(&cmd, 2, "init", "initialize")) {
-    int   i;
+  if(nchan_str_startswith(&cmd, "init")) {
+    int       i;
+    ngx_int_t val;
     
     if(!ngx_atomic_cmp_set(bench.state, NCHAN_BENCHMARK_INACTIVE, NCHAN_BENCHMARK_INITIALIZING)) {
       benchmark_client_respond("ERROR: a benchmark is already initialized");
@@ -608,8 +648,26 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     }
     
     DBG("init benchmark");
+    benchmark_client_respond("INITIALIZING");
     
-    bench.cf = cf;
+    bench.loc_conf = cf;
+    *bench.config = cf->benchmark;
+    
+    if(init_command_get_config_value(" time=", &cmd, &val)) {
+      bench.config->time = val;
+    }
+    if(init_command_get_config_value(" messages_per_channel_per_minute=", &cmd, &val)) {
+      bench.config->msgs_per_minute = val;
+    }
+    if(init_command_get_config_value(" message_padding_bytes=", &cmd, &val)) {
+      bench.config->msg_padding = val;
+    }
+    if(init_command_get_config_value(" channels=", &cmd, &val)) {
+      bench.config->channels = val;
+    }
+    if(init_command_get_config_value(" subscribers_per_channel=", &cmd, &val)) {
+      bench.config->subscribers_per_channel = val;
+    }
     
     bench.time.init = ngx_time();
     bench.id = rand();
@@ -618,12 +676,12 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     
     bench.shared.subscribers_enqueued = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_t), "hdrhistogram subscribers_enqueued count");
     bench.shared.subscribers_dequeued = shm_calloc(nchan_store_memory_shmem, sizeof(ngx_atomic_t), "hdrhistogram subscribers_dequeued count");
-    bench.shared.channels = shm_calloc(nchan_store_memory_shmem, sizeof(nchan_benchmark_channel_t) * cf->benchmark.channels, "benchmark channel states");
+    bench.shared.channels = shm_calloc(nchan_store_memory_shmem, sizeof(nchan_benchmark_channel_t) * bench.config->channels, "benchmark channel states");
     hdr_init_nchan_shm(1, 10000000, 3, &bench.data.msg_delivery_latency);
     hdr_init_nchan_shm(1, 10000000, 3, &bench.data.msg_publishing_latency);
     hdr_init_nchan_shm(1, 10000000, 3, &bench.data.subscriber_readiness_latency);
     
-    for(i=0; i<cf->benchmark.channels; i++) {
+    for(i=0; i<bench.config->channels; i++) {
       bench.shared.channels[i].n=i;
       bench.shared.channels[i].msg_count=0;
     }
@@ -649,7 +707,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     memstore_ipc_broadcast_benchmark_run();
     nchan_benchmark_run();
     
-    bench.timer.running = nchan_add_oneshot_timer(benchmark_timer_running_stop, NULL, bench.cf->benchmark.time * 1000);
+    bench.timer.running = nchan_add_oneshot_timer(benchmark_timer_running_stop, NULL, bench.config->time * 1000);
   }
   else if(nchan_strmatch(&cmd, 2, "finish", "end")) {
     //benchmark_finish();
@@ -657,6 +715,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
   else if(nchan_strmatch(&cmd, 1, "abort"))  {
     if(nchan_benchmark_abort() == NGX_OK) {
       memstore_ipc_broadcast_benchmark_abort();
+      benchmark_client_respond("ABORTED");
     }
     else {
       benchmark_client_respond("ERROR: no active benchmark to abort");

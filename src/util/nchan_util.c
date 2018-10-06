@@ -41,7 +41,7 @@ int nchan_ngx_str_nonzero_match(ngx_str_t *str1, ngx_str_t *str2) {
   }
 }
 
-ngx_int_t nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last) {
+int nchan_strscanstr(u_char **cur, ngx_str_t *find, u_char *last) {
   //inspired by ngx_strnstr
   char   *s2 = (char *)find->data;
   u_char *s1 = *cur;

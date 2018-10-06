@@ -55,7 +55,7 @@ subscriber_t *benchmark_subscriber_create(nchan_benchmark_t *bench) {
   static  nchan_msg_id_t      newest_msgid = NCHAN_NEWEST_MSGID;
   sub_data_t                 *d;
   subscriber_t               *sub;
-  nchan_loc_conf_t           *cf = bench->cf;
+  nchan_loc_conf_t           *cf = bench->loc_conf;
   struct timeval tv;
   
   sub = internal_subscriber_create_init(&sub_name, cf, sizeof(*d), (void **)&d, (callback_pt )sub_enqueue, (callback_pt )sub_dequeue, (callback_pt )sub_respond_message, (callback_pt )sub_respond_status, (callback_pt )sub_respond_notice, NULL);
