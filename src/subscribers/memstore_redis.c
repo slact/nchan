@@ -41,15 +41,18 @@ static ngx_int_t empty_callback(){
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p memstore-redis subsriber enqueued ok", d->sub);
-  
-  d->chanhead->status = READY;
-  d->chanhead->spooler.fn->handle_channel_status_change(&d->chanhead->spooler);
+  if(d->chanhead) {
+    d->chanhead->status = READY;
+    d->chanhead->spooler.fn->handle_channel_status_change(&d->chanhead->spooler);
+  }
   
   return NGX_OK;
 }
 
 ngx_int_t memstore_redis_subscriber_destroy(subscriber_t *sub) {
   DBG("%p destroy", sub);
+  sub_data_t  *d = internal_subscriber_get_privdata(sub);
+  d->chanhead = NULL; //memstore chanhead should be presumed missing
   return internal_subscriber_destroy(sub);
 }
 
@@ -63,7 +66,12 @@ static ngx_int_t sub_respond_message(ngx_int_t status, void *ptr, sub_data_t* d)
   nchan_loc_conf_t   cf;
   nchan_msg_id_t    *lastid;
   ngx_pool_t        *deflate_pool = NULL;
-  int                nostore_mode = d->chanhead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED_NOSTORE;
+  int                nostore_mode;
+  if(!d->chanhead) {
+    DBG("memstore chanhead gone");
+    return NGX_DECLINED;
+  }
+  nostore_mode = d->chanhead->cf->redis.storage_mode == REDIS_MODE_DISTRIBUTED_NOSTORE;
   DBG("%p memstore-redis subscriber respond with message", d->sub);
 
   cf.max_messages = d->chanhead->max_messages;
@@ -116,7 +124,7 @@ static ngx_int_t sub_destroy_handler(ngx_int_t status, void *d, sub_data_t *pd) 
 
 static ngx_int_t reconnect_callback(redis_nodeset_t *ns, void *pd) {
   sub_data_t *sd = *((sub_data_t **) pd);
-  if(!nodeset_ready(ns)) {
+  if(!sd->chanhead || !nodeset_ready(ns)) {
     return NGX_ERROR;
   }
   if(sd) {
@@ -138,6 +146,10 @@ static ngx_int_t reconnect_callback(redis_nodeset_t *ns, void *pd) {
 static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) {
   nchan_loc_conf_t  fake_cf;
   redis_nodeset_t   *nodeset;
+  if(!d->chanhead) {
+    return NGX_DECLINED;
+  }
+  
   DBG("%p memstore-redis subscriber respond with status %i", d->sub, status);
   switch(status) {
     case NGX_HTTP_GONE: //delete
@@ -177,10 +189,17 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
 }
 
 static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
-  if(code == NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE) {
-    intptr_t   max_messages = (intptr_t )data;
-    d->chanhead->max_messages = max_messages;
-    memstore_chanhead_messages_gc(d->chanhead);
+  intptr_t  max_messages;
+  if(!d->chanhead) {
+    ERR("ignored sub_notify_handler because chanhead is gone");
+    return NGX_DECLINED;
+  }
+  switch(code) {
+    case NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE:
+      max_messages = (intptr_t )data;
+      d->chanhead->max_messages = max_messages;
+      memstore_chanhead_messages_gc(d->chanhead);
+      break;
   }
   return NGX_OK;
 }

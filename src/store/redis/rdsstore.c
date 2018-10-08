@@ -1103,7 +1103,14 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
     sdata->sub->fn->notify(sdata->sub, NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE, (void *)(intptr_t )reply->element[3]->integer);
   }
   
+  if(sdata->generation == sdata->chanhead->generation) {
+    //is the subscriber     
+    //TODO: set subscriber id
+    //sdata->sub->id = reply->element[1]->integer;
+  }
+  
   sdata->sub->fn->release(sdata->sub, 0);
+  sdata->sub = NULL; //don't use it anymore, it might have been freed
   
   if ( !CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3) || !CHECK_REPLY_INT(reply->element[1]) || !CHECK_REPLY_INT(reply->element[2])) {
     //no good
@@ -1112,11 +1119,7 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
     ngx_free(sdata);
     return;
   }
-  if(sdata->generation == sdata->chanhead->generation) {
-    //is the subscriber     
-    //TODO: set subscriber id
-    //sdata->sub->id = reply->element[1]->integer;
-  }
+  
   keepalive_ttl = reply->element[2]->integer;
   if(keepalive_ttl > 0) {
     if(!sdata->chanhead->keepalive_timer.timer_set) {
