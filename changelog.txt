@@ -1,3 +1,7 @@
+ fix (security): using an unresponsive, overloaded Redis server may result in invalid memory access
+ fix: incorrect logging of discovered Redis cluster nodes
+ fix: better handling of connection loss when Redis server is unresponsive
+ fix: presence of Redis cluster nodes with no known address ("noaddr") nodes could result in worker crash
  fix (security): subscriber may erroneously receive a 400 Bad Request or crash a worker 
       based on data from a previous subscriber
  feature: built-in backend benchmark
