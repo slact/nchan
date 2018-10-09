@@ -1,3 +1,4 @@
+1.2.2 (Oct. 9 2018)
  fix (security): using an unresponsive, overloaded Redis server may result in invalid memory access
  fix: incorrect logging of discovered Redis cluster nodes
  fix: better handling of connection loss when Redis server is unresponsive
