@@ -191,7 +191,6 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
 static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
   intptr_t  max_messages;
   if(!d->chanhead) {
-    ERR("ignored sub_notify_handler because chanhead is gone");
     return NGX_DECLINED;
   }
   switch(code) {
