@@ -1156,6 +1156,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     case REDIS_NODE_CONNECTED:
       //now we need to authenticate maybe?
       if(cp->password.len > 0) {
+        if(!node->ctx.cmd) {
+          return node_connector_fail(node, "cmd connection missing, can't send AUTH command");
+        }
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "AUTH %b", STR(&cp->password));
         node->state++;
       }
@@ -1168,6 +1171,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     case REDIS_NODE_CMD_AUTHENTICATING:
       if(!node_connector_reply_status_ok(reply)) {
         return node_connector_fail(node, "AUTH command failed");
+      }
+      if(!node->ctx.pubsub) {
+        return node_connector_fail(node, "pubsub connection missing, can't send AUTH command");
       }
       //now authenticate pubsub ctx
       redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "AUTH %b", STR(&cp->password));
@@ -1182,6 +1188,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       /* fall through */
     case REDIS_NODE_SELECT_DB:
       if(cp->db > 0) {
+        if(!node->ctx.cmd) {
+          return node_connector_fail(node, "cmd connection missing, SELECT command");
+        }
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SELECT %d", cp->db);
         node->state++;
       }
@@ -1195,6 +1204,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
         return node_connector_fail(node, "Redis SELECT command failed,");
       }
+      if(!node->ctx.cmd) {
+        return node_connector_fail(node, "pubsub connection missing, can't send SELECT command");
+      }
       redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "SELECT %d", cp->db);
       node->state++;
       break;
@@ -1207,6 +1219,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       /* fall through */
     case REDIS_NODE_SCRIPTS_LOAD:
       node->scripts_loaded = 0;
+      if(!node->ctx.cmd) {
+        return node_connector_fail(node, "cmd connection missing, can't send SCRIPT LOAD command");
+      }
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
       node->state++;
       break;
@@ -1224,6 +1239,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       if(node->scripts_loaded < redis_lua_scripts_count) {
         //load next script
+        if(!node->ctx.cmd) {
+          return node_connector_fail(node, "cmd connection missing, can't send SCRIPT LOAD command");
+        }
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
         return;
       }
@@ -1232,6 +1250,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       /* fall through */
     case REDIS_NODE_GET_INFO:
       //getinfo time
+      if(!node->ctx.cmd) {
+        return node_connector_fail(node, "cmd connection missing, can't send INFO ALL command");
+      }
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "INFO ALL");
       node->state++;
       break;
@@ -1282,6 +1303,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       /* fall through */
     case REDIS_NODE_PUBSUB_GET_INFO:
+      if(!node->ctx.pubsub) {
+        return node_connector_fail(node, "cmd connection missing, can't send INFO SERVER command");
+      }
       redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "INFO SERVER");
       node->state++;
       break;
@@ -1302,7 +1326,10 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         node->state++;
       }
       /* fall through */
-      case REDIS_NODE_SUBSCRIBE_WORKER:
+    case REDIS_NODE_SUBSCRIBE_WORKER:
+      if(!node->ctx.pubsub) {
+        return node_connector_fail(node, "pubsub connection missing, can't send worker SUBSCRIBE command");
+      }
       redisAsyncCommand(node->ctx.pubsub, node_subscribe_callback, node, "SUBSCRIBE %s", redis_worker_id);
       node->state++;
       break;
@@ -1328,6 +1355,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_callback(NULL, NULL, node);
       }
       else {
+        if(!node->ctx.cmd) {
+          return node_connector_fail(node, "cmd connection missing, can't send CLUSTER INFO command");
+        }
         redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "CLUSTER INFO");
         node->state++;
       }
@@ -1345,6 +1375,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       /* fall through */
     case REDIS_NODE_GET_CLUSTER_NODES:
+      if(!node->ctx.cmd) {
+        return node_connector_fail(node, "cmd connection missing, can't send CLUSTER NODES command");
+      }
       redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "CLUSTER NODES");
       node->state++;
       break;
