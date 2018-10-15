@@ -616,13 +616,21 @@ static void node_remove_peer(redis_node_t *node, redis_node_t *peer) {
 }
 
 ngx_int_t nodeset_node_destroy(redis_node_t *node) {
+  redisAsyncContext *ac;
+  redisContext      *c;
   node_set_role(node, REDIS_NODE_ROLE_UNKNOWN); //removes from all peer lists, and clears own slave list
-  if(node->ctx.cmd)
-    redisAsyncFree(node->ctx.cmd);
-  if(node->ctx.pubsub)
-    redisAsyncFree(node->ctx.pubsub);
-  if(node->ctx.sync)
-    redisFree(node->ctx.sync);
+  if((ac = node->ctx.cmd) != NULL) {
+    node->ctx.cmd = NULL;
+    redisAsyncFree(ac);
+  }
+  if((ac = node->ctx.pubsub) != NULL) { 
+    node->ctx.pubsub = NULL;
+    redisAsyncFree(ac);
+  }
+  if((c = node->ctx.sync) != NULL) {
+    node->ctx.sync = NULL;
+    redisFree(c);
+  }
   if(node->connect_timeout) {
     nchan_abort_oneshot_timer(node->connect_timeout);
     node->connect_timeout = NULL;
@@ -777,28 +785,31 @@ int node_connect(redis_node_t *node) {
 int node_disconnect(redis_node_t *node, int disconnected_state) {
   ngx_int_t prev_state = node->state;
   node_log_debug(node, "disconnect");
-  if(node->ctx.cmd) {
+  redisAsyncContext *ac;
+  redisContext      *c;
+  if((ac = node->ctx.cmd) != NULL) {
     node->ctx.cmd->onDisconnect = NULL;
-    //redisAsyncSetDisconnectCallback(node->ctx.cmd, NULL); //this only sets the callback if it's currently null...
-    redisAsyncFree(node->ctx.cmd);
-    node_log_debug(node, "redisAsyncFree %p", node->ctx.cmd);
+    node->ctx.cmd = NULL;
+    //redisAsyncSetDisconnectCallback(ac, NULL); //this only sets the callback if it's currently null...
+    redisAsyncFree(ac);
+    node_log_debug(node, "redisAsyncFree %p", ac);
   }
-  if(node->ctx.pubsub) {
+  if((ac = node->ctx.pubsub) != NULL) {
     node->ctx.pubsub->onDisconnect = NULL;
-    //redisAsyncSetDisconnectCallback(node->ctx.pubsub, NULL);  //this only sets the callback if it's currently null...
-    redisAsyncFree(node->ctx.pubsub);
-    node_log_debug(node, "redisAsyncFree pubsub %p", node->ctx.pubsub);
+    node->ctx.pubsub = NULL;
+    //redisAsyncSetDisconnectCallback(ac, NULL);  //this only sets the callback if it's currently null...
+    redisAsyncFree(ac);
+    node_log_debug(node, "redisAsyncFree pubsub %p", ac);
   }
-  if(node->ctx.sync) {
-    redisFree(node->ctx.sync);
+  if((c = node->ctx.sync) != NULL) {
+    node->ctx.sync = NULL;
+    redisFree(c);
   }
   if(node->connect_timeout) {
     nchan_abort_oneshot_timer(node->connect_timeout);
     node->connect_timeout = NULL;
   }
-  node->ctx.cmd = NULL;
-  node->ctx.pubsub = NULL;
-  node->ctx.sync = NULL;
+
   node->state = disconnected_state;
   if(prev_state >= REDIS_NODE_READY) {
     nchan_update_stub_status(redis_connected_servers, -1);
