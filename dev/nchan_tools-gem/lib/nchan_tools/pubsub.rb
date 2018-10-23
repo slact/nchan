@@ -3,7 +3,7 @@ require 'typhoeus'
 require 'json'
 require 'oga'
 require 'yaml'
-require 'pry'
+
 require 'celluloid/current'
 require 'date'
 Typhoeus::Config.memoize = false
@@ -46,15 +46,12 @@ module URI
     u
   end
 end
-
-$seq = 0
+module NchanTools
 class Message
   attr_accessor :content_type, :message, :times_seen, :etag, :last_modified, :eventsource_event
   def initialize(msg, last_modified=nil, etag=nil)
     @times_seen=1
     @message, @last_modified, @etag = msg, last_modified, etag
-    $seq+=1
-    @seq = $seq
     @idhist = []
   end
   def serverside_id
@@ -703,7 +700,7 @@ class Subscriber
       end
       @connected -= 1
       if @connected <= 0
-        binding.pry unless @ws.count == 0
+        sleep 0.1 until @ws.count == 0
         @cooked.signal true
       end
     end
@@ -1894,4 +1891,5 @@ class Publisher
   end
 
   
+end
 end

@@ -1,56 +1,10 @@
-#!/usr/bin/env ruby
-
-require 'securerandom'
 require 'nchan_tools/pubsub'
-require "optparse"
+require 'securerandom'
 require 'timers'
 require 'json'
-require "HDRHistogram"
 
-verbose = false
-save_csv = false
-
-init_args = {}
-
-opt_parser=OptionParser.new do |opts|
-  opts.on("-v", "--verbose", "somewhat rather extraneously wordful output") do
-    verbose = true
-  end
-  opts.on("--csv FILENAME", "Append results to file in CSV format") do |f|
-    save_csv = f
-  end
-  opts.on("-t", "--time TIME", "Time to run benchmark") do |v|
-    init_args[:time] = v
-  end
-  opts.on("-r", "--msgrate NUMBER", "Message publishing rate per minute per channel") do |v|
-    init_args[:messages_per_channel_per_minute] = v
-  end
-  opts.on("-p", "--msgpadding NUMBER", "Message padding, in bytes") do |v|
-    init_args[:message_padding_bytes] = v
-  end
-  opts.on("-c", "--channels NUMBER", "Number of channels") do |v|
-    init_args[:channels] = v
-  end
-  opts.on("-s", "--subscribers NUMBER", "Subscribers per channel") do |v|
-    init_args[:subscribers_per_channel] = v
-  end
-end
-opt_parser.banner="Usage: nchan-benchmark [options] url1 url2 url3..."
-opt_parser.parse!
-
-urls = []
-urls += ARGV
-begin
-  urls += STDIN.read_nonblock(100000).split /\s*\n+\s*/
-rescue IO::WaitReadable
-end
-
-urls.uniq!
-
-class Benchan
-  class BenchmarkError < StandardError
-  end
-  def initialize(urls, init_args=nil)
+class Benchmark
+  def initialize(urls)
     @urls = urls
     @n = urls.count
     @initializing = 0
@@ -61,8 +15,6 @@ class Benchan
     @results = {}
     @failed = {}
     
-    @init_args = init_args
-    
     @hdrh_publish = nil
     @hdrh_receive = nil
     
@@ -72,7 +24,7 @@ class Benchan
   def run
     puts "connecting to #{@n} Nchan server#{@n > 1 ? "s" : ""}..."
     @urls.each do |url|
-      sub = NchanTools::Subscriber.new(url, 1, client: :websocket, timeout: 900000, extra_headers: {"Accept" => "text/x-json-hdrhistogram"})
+      sub = Subscriber.new(url, 1, client: :websocket, timeout: 900000, extra_headers: {"Accept" => "text/x-json-hdrhistogram"})
       sub.on_failure do |err|
         unless @results[sub]
           unless @results[sub.url]
@@ -85,14 +37,14 @@ class Benchan
       sub.on_message do |msg|
         msg = msg.to_s
         case msg
-        when /^READY/
+        when "READY"
           puts   "  #{sub.url} ok"
           @ready +=1
           if @ready == @n
             control :run
             puts "start benchmark..."
           end
-        when /^RUNNING/
+        when "RUNNING"
           puts   "  #{sub.url} running"
         when /^RESULTS\n/
           msg = msg[8..-1]
@@ -100,10 +52,9 @@ class Benchan
           @results[sub.url] = parsed
           @results[sub.url]["raw"] = msg if @results[sub.url]
           1+1
-        when /^INITIALIZING/
-          #do nothing
         else
-          raise BenchmarkError, "unexpected server response: #{msg}"
+          binding.pry
+          1+1
         end
       end
       @subs << sub
@@ -117,7 +68,7 @@ class Benchan
     end
     return if @failed.count > 0
     puts "initializing benchmark..."
-    control :init
+    control :initialize
     self.wait
     puts "finished."
     puts ""
@@ -128,9 +79,6 @@ class Benchan
   end
   
   def control(msg)
-    if @init_args && (msg.to_sym ==:init || msg.to_sym ==:initialize)
-      msg = "#{msg.to_s} #{@init_args.map{|k,v| "#{k}=#{v}"}.join(" ")}"
-    end
     @subs.each { |sub| sub.client.send_data msg.to_s }
   end
   
@@ -259,9 +207,3 @@ class Benchan
     csv.close
   end
 end
-
-benchan = Benchan.new urls, init_args
-benchan.run
-benchan.results
-benchan.append_csv_file(save_csv) if save_csv
-

@@ -45,40 +45,43 @@ end
 
 (orig_args & ( ARGV | extra_opts.flatten )).each { |arg| ARGV << arg }
 
-def short_id
-  SecureRandom.hex.to_i(16).to_s(36)[0..5]
-end
-
 def url(part="")
   part=part[1..-1] if part[0]=="/"
   "#{$server_url}/#{part}"
 end
-puts "Server at #{url}"
-def pubsub(concurrent_clients=1, opt={})
-  test_name = caller_locations(1,1)[0].label
-  urlpart=opt[:urlpart] || 'broadcast'
-  timeout = opt[:timeout]
-  sub_url=opt[:sub] || "sub/broadcast/"
-  pub_url=opt[:pub] || "pub/"
-  chan_id = opt[:channel] || short_id
-  sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol], log: opt[:log]
-  pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
-  return pub, sub
-end
-def verify(pub, sub, opt={})
-  assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"} (sub url #{sub.url})" unless opt[:check_errors]==false
-  if pub then
-    ret, err = sub.messages.matches?(pub.messages, opt)
-    assert ret, err ? "#{err} (sub url #{sub.url})" : "Messages don't match (sub url #{sub.url})"
-  end
-  i=0
-  sub.messages.each do |msg|
-    assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i} (sub url #{sub.url})"
-    i+=1
-  end
-end
 
+module NchanTools
 class PubSubTest <  Minitest::Test
+  def short_id
+    SecureRandom.hex.to_i(16).to_s(36)[0..5]
+  end
+
+
+
+  def pubsub(concurrent_clients=1, opt={})
+    test_name = caller_locations(1,1)[0].label
+    urlpart=opt[:urlpart] || 'broadcast'
+    timeout = opt[:timeout]
+    sub_url=opt[:sub] || "sub/broadcast/"
+    pub_url=opt[:pub] || "pub/"
+    chan_id = opt[:channel] || short_id
+    sub = Subscriber.new url("#{sub_url}#{chan_id}?test=#{test_name}#{opt[:sub_param] ? "&#{URI.encode_www_form(opt[:sub_param])}" : ""}"), concurrent_clients, timeout: timeout, use_message_id: opt[:use_message_id], quit_message: opt[:quit_message] || 'FIN', gzip: opt[:gzip], retry_delay: opt[:retry_delay], client: opt[:client] || $default_client, extra_headers: opt[:extra_headers], verbose: opt[:verbose] || $verbose, permessage_deflate: opt[:permessage_deflate], subprotocol: opt[:subprotocol], log: opt[:log]
+    pub = Publisher.new url("#{pub_url}#{chan_id}?test=#{test_name}#{opt[:pub_param] ? "&#{URI.encode_www_form(opt[:pub_param])}" : ""}"), timeout: timeout, websocket: opt[:websocket_publisher]
+    return pub, sub
+  end
+  def verify(pub, sub, opt={})
+    assert sub.errors.empty?, "There were subscriber errors: \r\n#{sub.errors.join "\r\n"} (sub url #{sub.url})" unless opt[:check_errors]==false
+    if pub then
+      ret, err = sub.messages.matches?(pub.messages, opt)
+      assert ret, err ? "#{err} (sub url #{sub.url})" : "Messages don't match (sub url #{sub.url})"
+    end
+    i=0
+    sub.messages.each do |msg|
+      assert_equal sub.concurrency, msg.times_seen, "Concurrent subscribers didn't all receive message #{i} (sub url #{sub.url})"
+      i+=1
+    end
+  end
+  
   def setup
     Celluloid.boot
   end
@@ -1878,5 +1881,4 @@ class PubSubTest <  Minitest::Test
   end
   
 end
-
-
+end
