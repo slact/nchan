@@ -84,8 +84,6 @@ static ipc_command_codes_t ipc_cmd = {
 //  return NGX_OK;
 //}
 
-static nchan_msg_id_t zero_msgid = NCHAN_ZERO_MSGID;
-
 static ngx_str_t *str_shm_copy(ngx_str_t *str){
   ngx_str_t *out;
   out = shm_copy_immutable_string(nchan_store_memory_shmem, str);
@@ -726,7 +724,7 @@ typedef struct {
   ngx_str_t                 *shm_chid;
   nchan_loc_conf_t          *cf;
   store_channel_head_shm_t  *channel_info;
-  nchan_msg_id_t             last_msgid;
+  nchan_msg_tiny_id_t        last_msgid;
   callback_pt                callback;
   void                      *privdata;
 } channel_info_data_t;
@@ -742,7 +740,8 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, nch
 
   data.sender_pid = ngx_pid;
   data.channel_info = NULL;
-  data.last_msgid = zero_msgid;
+  data.last_msgid.time = 0;
+  data.last_msgid.tag = 0;
   data.cf = cf;
   data.callback = callback;
   data.privdata = privdata;
@@ -764,7 +763,7 @@ static void receive_get_channel_info_continued(ngx_int_t sender, channel_info_da
   else {
     d->channel_info = head->shared;
     assert(head->latest_msgid.tagcount <= 1);
-    d->last_msgid = head->latest_msgid;
+    nchan_shrink_normal_msgid(&head->latest_msgid, &d->last_msgid);
   }
   ipc_cmd(get_channel_info_reply, sender, d);
 }
@@ -810,7 +809,7 @@ static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t
       chan.id.data = d->shm_chid->data;
       chan.id.len = d->shm_chid->len;
       chan.messages = chinfo->stored_message_count;
-      chan.last_published_msg_id = d->last_msgid;
+      nchan_expand_tiny_msgid(&d->last_msgid, &chan.last_published_msg_id);
       d->callback(NGX_OK, &chan, d->privdata);
     }
     else {
@@ -848,7 +847,6 @@ ngx_int_t memstore_ipc_send_channel_existence_check(ngx_int_t dst, ngx_str_t *ch
   data.max_subscribers = cf->max_channel_subscribers;
   data.callback = callback;
   data.privdata = privdata;
-  
   return ipc_cmd(channel_auth_check, dst, &data);
 }
 
@@ -937,7 +935,6 @@ ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str
   data.sender_pid = ngx_pid;
   data.ipc_sub = sub;
   data.originator = ch;
-  
   data.reply_action = KA_REPLY_NORENEW;
   
   sub->fn->reserve(sub);
