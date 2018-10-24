@@ -3,8 +3,11 @@ require 'securerandom'
 require 'timers'
 require 'json'
 
+module NchanTools
 class Benchmark
-  def initialize(urls)
+  class BenchmarkError < StandardError
+  end
+  def initialize(urls, init_args=nil)
     @urls = urls
     @n = urls.count
     @initializing = 0
@@ -15,6 +18,8 @@ class Benchmark
     @results = {}
     @failed = {}
     
+    @init_args = init_args
+    
     @hdrh_publish = nil
     @hdrh_receive = nil
     
@@ -24,7 +29,7 @@ class Benchmark
   def run
     puts "connecting to #{@n} Nchan server#{@n > 1 ? "s" : ""}..."
     @urls.each do |url|
-      sub = Subscriber.new(url, 1, client: :websocket, timeout: 900000, extra_headers: {"Accept" => "text/x-json-hdrhistogram"})
+      sub = NchanTools::Subscriber.new(url, 1, client: :websocket, timeout: 900000, extra_headers: {"Accept" => "text/x-json-hdrhistogram"})
       sub.on_failure do |err|
         unless @results[sub]
           unless @results[sub.url]
@@ -37,14 +42,14 @@ class Benchmark
       sub.on_message do |msg|
         msg = msg.to_s
         case msg
-        when "READY"
+        when /^READY/
           puts   "  #{sub.url} ok"
           @ready +=1
           if @ready == @n
             control :run
             puts "start benchmark..."
           end
-        when "RUNNING"
+        when /^RUNNING/
           puts   "  #{sub.url} running"
         when /^RESULTS\n/
           msg = msg[8..-1]
@@ -52,9 +57,10 @@ class Benchmark
           @results[sub.url] = parsed
           @results[sub.url]["raw"] = msg if @results[sub.url]
           1+1
+        when /^INITIALIZING/
+          #do nothing
         else
-          binding.pry
-          1+1
+          raise BenchmarkError, "unexpected server response: #{msg}"
         end
       end
       @subs << sub
@@ -68,7 +74,7 @@ class Benchmark
     end
     return if @failed.count > 0
     puts "initializing benchmark..."
-    control :initialize
+    control :init
     self.wait
     puts "finished."
     puts ""
@@ -79,6 +85,9 @@ class Benchmark
   end
   
   def control(msg)
+    if @init_args && (msg.to_sym ==:init || msg.to_sym ==:initialize)
+      msg = "#{msg.to_s} #{@init_args.map{|k,v| "#{k}=#{v}"}.join(" ")}"
+    end
     @subs.each { |sub| sub.client.send_data msg.to_s }
   end
   
@@ -188,12 +197,7 @@ class Benchmark
   def append_csv_file(file)
     require "csv"
     write_headers = File.zero?(file)
-    headers = %i[servers runtime channels subscribers 
-      message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed
-      messages_send_received messages_send_unreceived 
-      messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber
-      message_publishing_response_avg message_publishing_response_99percentile message_publishing_response_stddev message_publishing_response_count
-      message_delivery_avg message_delivery_99percentile message_delivery_stddev message_delivery_count]
+    headers = %i[servers runtime channels subscribers message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed messages_send_received messages_send_unreceived messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber message_publishing_response_avg message_publishing_response_99percentile message_publishing_response_max message_publishing_response_stddev message_publishing_response_count message_delivery_avg message_delivery_99percentile message_delivery_max message_delivery_stddev message_delivery_count]
     csv = CSV.open(file, "a", {headers: headers, write_headers: write_headers})
     csv << [@n, @runtime, @channels, @subscribers, 
       @message_length, @messages_sent, @messages_send_confirmed, @messages_send_unconfirmed, @messages_send_failed, 
@@ -206,4 +210,5 @@ class Benchmark
     csv.flush
     csv.close
   end
+end
 end
