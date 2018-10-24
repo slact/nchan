@@ -102,6 +102,7 @@ static void str_shm_free(ngx_str_t *str) {
 
 ////////// SUBSCRIBE ////////////////
 typedef struct {
+  ngx_pid_t                    sender_pid;
   ngx_str_t                   *shm_chid;
   store_channel_head_shm_t    *shared_channel_data;
   nchan_loc_conf_t            *cf;
@@ -124,6 +125,7 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_c
   data.shared_channel_data = NULL;
   data.origin_chanhead = origin_chanhead;
   data.owner_chanhead = NULL;
+  data.sender_pid = ngx_pid;
   data.cf = cf;
   
   assert(memstore_str_owner(data.shm_chid) == dst);
@@ -133,7 +135,6 @@ ngx_int_t memstore_ipc_send_subscribe(ngx_int_t dst, ngx_str_t *chid, memstore_c
 static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   memstore_channel_head_t    *head;
   subscriber_t               *ipc_sub = NULL;
-  ngx_int_t                   rc;
   
   DBG("received subscribe request for channel %V", d->shm_chid);
   head = nchan_memstore_get_chanhead(d->shm_chid, d->cf);
@@ -156,8 +157,7 @@ static void receive_subscribe(ngx_int_t sender, subscribe_data_t *d) {
   }
   
   if(ipc_sub) {
-    rc = head->spooler.fn->add(&head->spooler, ipc_sub);
-    d->rc = rc;
+    d->rc = head->spooler.fn->add(&head->spooler, ipc_sub);
   }
   else {
     d->rc = NGX_ERROR;
@@ -171,6 +171,11 @@ static void receive_subscribe_reply(ngx_int_t sender, subscribe_data_t *d) {
   store_channel_head_shm_t     *old_shared;
   DBG("received subscribe reply for channel %V", d->shm_chid);
   //we have the chanhead address, but are too afraid to use it.
+  
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: received get_message reply for nonexistent worker process %i", d->sender_pid);
+    return;
+  }
   
   if((head = nchan_memstore_get_chanhead_no_ipc_sub(d->shm_chid, d->cf)) == NULL) {
     ERR("Error regarding an aspect of life or maybe freshly fallen cookie crumbles");
@@ -371,6 +376,7 @@ static void receive_publish_notice(ngx_int_t sender, publish_code_data_t *d) {
 
 ////////// PUBLISH  ////////////////
 typedef struct {
+  ngx_pid_t                  sender_pid;
   ngx_str_t                 *shm_chid;
   nchan_msg_t               *shm_msg;
   nchan_loc_conf_t          *cf;
@@ -395,6 +401,7 @@ ngx_int_t memstore_ipc_send_publish_message(ngx_int_t dst, ngx_str_t *chid, ncha
   data.cf = cf;
   data.callback = callback;
   data.callback_privdata = privdata;
+  data.sender_pid = ngx_pid;
   
   assert(data.shm_chid->data != NULL);
   assert(msg_reserve(shm_msg, "publish_message") == NGX_OK);
@@ -455,6 +462,7 @@ static void receive_publish_message(ngx_int_t sender, publish_data_t *d) {
 }
 
 typedef struct {
+  ngx_pid_t       sender_pid;
   uint16_t        status;// NCHAN_MESSAGE_RECEIVED or NCHAN_MESSAGE_QUEUED;
   uint32_t        subscribers;
   uint16_t        messages;
@@ -475,6 +483,7 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
   rd.status = status;
   rd.callback = cd->d->callback;
   rd.callback_privdata = cd->d->callback_privdata;
+  rd.sender_pid = cd->d->sender_pid;
   if(ch != NULL) {
     rd.last_seen = ch->last_seen;
     rd.subscribers = ch->subscribers;
@@ -492,6 +501,10 @@ static ngx_int_t publish_message_generic_callback(ngx_int_t status, void *rptr, 
 static void receive_publish_message_reply(ngx_int_t sender, publish_response_data *d) {
   nchan_channel_t         ch;
   DBG("IPC: received publish reply");
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: received get_message reply for nonexistent worker process %i", d->sender_pid);
+    return;
+  }
   
   ch.last_seen = d->last_seen;
   ch.subscribers = d->subscribers;
@@ -518,19 +531,20 @@ union getmsg_u {
 
 typedef struct {
   ngx_str_t              *shm_chid;
+  ngx_pid_t               sender_pid;
   void                   *privdata;
   union getmsg_u          d;
 } getmessage_data_t;
 
 ngx_int_t memstore_ipc_send_get_message(ngx_int_t dst, ngx_str_t *chid, nchan_msg_id_t *msgid, void *privdata) {
   getmessage_data_t      data;
-  
   if((data.shm_chid = str_shm_copy(chid)) == NULL) {
     nchan_log_ooshm_error("sending IPC get-message alert for channel %V", chid);
     return NGX_DECLINED;
   }
   data.privdata = privdata;
   data.d.req.msgid = *msgid;
+  data.sender_pid = ngx_pid;
   
   DBG("IPC: send get message from %i ch %V", dst, chid);
   assert(data.shm_chid->len >= 1);
@@ -609,11 +623,15 @@ err:
 }
 
 static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
-  
-  assert(d->shm_chid->len >= 1);
-  assert(d->shm_chid->data!=NULL);
-  DBG("IPC: received get_message reply for channel %V msg %p privdata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
-  nchan_memstore_handle_get_message_reply(d->d.resp.shm_msg, d->d.resp.getmsg_code, d->privdata);
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: received get_message reply for nonexistent worker process %i", d->sender_pid);
+  }
+  else {
+    assert(d->shm_chid->len >= 1);
+    assert(d->shm_chid->data!=NULL);
+    DBG("IPC: received get_message reply for channel %V msg %p privdata %p", d->shm_chid, d->d.resp.shm_msg, d->privdata);
+    nchan_memstore_handle_get_message_reply(d->d.resp.shm_msg, d->d.resp.getmsg_code, d->privdata);
+  }
   if(d->d.resp.shm_msg) {
     msg_release(d->d.resp.shm_msg, "get_message_reply");
   }
@@ -625,6 +643,7 @@ static void receive_get_message_reply(ngx_int_t sender, getmessage_data_t *d) {
 
 ////////// DELETE ////////////////
 typedef struct {
+  ngx_pid_t            sender_pid;
   ngx_str_t           *shm_chid;
   ngx_int_t            sender;
   nchan_channel_t     *shm_channel_info;
@@ -634,7 +653,7 @@ typedef struct {
 } delete_data_t;
 
 ngx_int_t memstore_ipc_send_delete(ngx_int_t dst, ngx_str_t *chid, callback_pt callback,void *privdata) {
-  delete_data_t  data = {str_shm_copy(chid), 0, NULL, 0, callback, privdata};
+  delete_data_t  data = {ngx_pid, str_shm_copy(chid), 0, NULL, 0, callback, privdata};
   if(data.shm_chid == NULL) {
     nchan_log_ooshm_error("sending IPC send-delete alert for channel %V", chid);
     return NGX_DECLINED;
@@ -685,9 +704,13 @@ static ngx_int_t delete_callback_handler(ngx_int_t code, nchan_channel_t *chan, 
 }
 static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
   
-  DBG("IPC received delete reply for channel %V privdata %p", d->shm_chid, d->privdata);
-  d->callback(d->code, d->shm_channel_info, d->privdata);
-  
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: received delete reply for nonexistent worker process %i", d->sender_pid);
+  }
+  else {
+    DBG("IPC received delete reply for channel %V privdata %p", d->shm_chid, d->privdata);
+    d->callback(d->code, d->shm_channel_info, d->privdata);
+  }
   if(d->shm_channel_info != NULL) {
     shm_free(nchan_store_memory_shmem, d->shm_channel_info);
   }
@@ -699,6 +722,7 @@ static void receive_delete_reply(ngx_int_t sender, delete_data_t *d) {
 
 ////////// GET CHANNEL INFO ////////////////
 typedef struct {
+  ngx_pid_t                  sender_pid;
   ngx_str_t                 *shm_chid;
   nchan_loc_conf_t          *cf;
   store_channel_head_shm_t  *channel_info;
@@ -716,6 +740,7 @@ ngx_int_t memstore_ipc_send_get_channel_info(ngx_int_t dst, ngx_str_t *chid, nch
     return NGX_DECLINED;
   }
 
+  data.sender_pid = ngx_pid;
   data.channel_info = NULL;
   data.last_msgid = zero_msgid;
   data.cf = cf;
@@ -773,19 +798,24 @@ static void receive_get_channel_info(ngx_int_t sender, channel_info_data_t *d) {
 static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t *d) {
   nchan_channel_t            chan;
   store_channel_head_shm_t  *chinfo = d->channel_info;
-  
-  if(chinfo) {
-    //construct channel
-    chan.subscribers = chinfo->sub_count;
-    chan.last_seen = chinfo->last_seen;
-    chan.id.data = d->shm_chid->data;
-    chan.id.len = d->shm_chid->len;
-    chan.messages = chinfo->stored_message_count;
-    chan.last_published_msg_id = d->last_msgid;
-    d->callback(NGX_OK, &chan, d->privdata);
+
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: received delete reply for nonexistent worker process %i", d->sender_pid);
   }
   else {
-    d->callback(NGX_OK, NULL, d->privdata);
+    if(chinfo) {
+      //construct channel
+      chan.subscribers = chinfo->sub_count;
+      chan.last_seen = chinfo->last_seen;
+      chan.id.data = d->shm_chid->data;
+      chan.id.len = d->shm_chid->len;
+      chan.messages = chinfo->stored_message_count;
+      chan.last_published_msg_id = d->last_msgid;
+      d->callback(NGX_OK, &chan, d->privdata);
+    }
+    else {
+      d->callback(NGX_OK, NULL, d->privdata);
+    }
   }
   str_shm_free(d->shm_chid);
 }
@@ -793,6 +823,7 @@ static void receive_get_channel_info_reply(ngx_int_t sender, channel_info_data_t
 
 ////////// CHANNEL AUTHORIZATION DATA ////////////////
 typedef struct {
+  ngx_pid_t                sender_pid;
   ngx_str_t               *shm_chid;
   unsigned                 auth_ok:1;
   unsigned                 channel_must_exist:1;
@@ -810,6 +841,7 @@ ngx_int_t memstore_ipc_send_channel_existence_check(ngx_int_t dst, ngx_str_t *ch
     nchan_log_ooshm_error("sending IPC channel-existence-check alert for channel %V", chid);
     return NGX_DECLINED;
   }
+  data.sender_pid = ngx_pid;
   data.auth_ok = 0;
   data.channel_must_exist = cf->subscribe_only_existing_channel;
   data.cf = cf;
@@ -871,7 +903,12 @@ static void receive_channel_auth_check(ngx_int_t sender, channel_authcheck_data_
 }
 
 static void receive_channel_auth_check_reply(ngx_int_t sender, channel_authcheck_data_t *d) {
-  d->callback(d->auth_ok, NULL, d->privdata);
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: received channel_auth_check for nonexistent worker process %i", d->sender_pid);
+  }
+  else {
+    d->callback(d->auth_ok, NULL, d->privdata);
+  }
   str_shm_free(d->shm_chid);
 }
 
@@ -883,6 +920,7 @@ typedef enum {
 } keepalive_reply_action_t;
 
 typedef struct {
+  ngx_pid_t                    sender_pid;
   ngx_str_t                   *shm_chid;
   subscriber_t                *ipc_sub;
   memstore_channel_head_t     *originator;
@@ -896,6 +934,7 @@ ngx_int_t memstore_ipc_send_memstore_subscriber_keepalive(ngx_int_t dst, ngx_str
     nchan_log_ooshm_error("sending IPC keepalive alert for channel %V", chid);
     return NGX_DECLINED;
   }
+  data.sender_pid = ngx_pid;
   data.ipc_sub = sub;
   data.originator = ch;
   
@@ -963,7 +1002,11 @@ static void receive_subscriber_keepalive(ngx_int_t sender, sub_keepalive_data_t 
 }
 
 static void receive_subscriber_keepalive_reply(ngx_int_t sender, sub_keepalive_data_t *d) {
-  subscriber_t     *sub = d->ipc_sub;
+subscriber_t     *sub = d->ipc_sub;
+  if(d->sender_pid != ngx_pid) {
+    ERR("IPC: subscriber_keepalive reply for nonexistent worker process %i", d->sender_pid);
+    return;
+  }
   switch(d->reply_action) {
     case KA_REPLY_NORENEW:
       sub->fn->dequeue(sub);
