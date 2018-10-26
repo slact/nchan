@@ -140,32 +140,60 @@ ngx_int_t nchan_benchmark_initialize(void) {
   int           c, i;
   subscriber_t **sub;
   ngx_str_t     channel_id;
-  ngx_int_t divided_subs = bench.config->subscribers_per_channel / nchan_worker_processes;
-  ngx_int_t leftover_subs = bench.config->subscribers_per_channel % nchan_worker_processes;
-  ngx_int_t subs_per_channel;
-  
+  ngx_int_t     subs_per_channel;
+      
   assert(bench.subs.array == NULL);
   assert(bench.subs.n == 0);
-  for(c=0; c<bench.config->channels; c++) {
-    bench.subs.n += divided_subs;
-    if (c%nchan_worker_processes == bench_worker_number) {
-      bench.subs.n += leftover_subs;
+  
+  if(bench.config->subscriber_distribution == NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_RANDOM) {
+    ngx_int_t divided_subs = bench.config->subscribers_per_channel / nchan_worker_processes;
+    ngx_int_t leftover_subs = bench.config->subscribers_per_channel % nchan_worker_processes;
+    for(c=0; c<bench.config->channels; c++) {
+      bench.subs.n += divided_subs;
+      if (c%nchan_worker_processes == bench_worker_number) {
+        bench.subs.n += leftover_subs;
+      }
+    }
+    DBG("bench.subs.n = %d", bench.subs.n);
+    bench.subs.array = ngx_alloc(sizeof(subscriber_t *) * bench.subs.n, ngx_cycle->log);
+    sub = &bench.subs.array[0];
+    
+    for(c=0; c<bench.config->channels; c++) {
+      subs_per_channel = divided_subs + (((c % nchan_worker_processes) == bench_worker_number) ? leftover_subs : 0);
+      //DBG("worker number %d channel %d subs %d", bench_worker_number, c, subs_per_channel);
+      nchan_benchmark_channel_id(c, &channel_id);
+      for(i=0; i<subs_per_channel; i++) {
+        *sub = benchmark_subscriber_create(&bench);
+        if((*sub)->fn->subscribe(*sub, &channel_id) != NGX_OK) {
+          return NGX_ERROR;
+        }
+        sub++;
+      }
     }
   }
-  DBG("bench.subs.n = %d", bench.subs.n);
-  bench.subs.array = ngx_alloc(sizeof(subscriber_t *) * bench.subs.n, ngx_cycle->log);
-  sub = &bench.subs.array[0];
-  
-  for(c=0; c<bench.config->channels; c++) {
-    subs_per_channel = divided_subs + (((c % nchan_worker_processes) == bench_worker_number) ? leftover_subs : 0);
-    //DBG("worker number %d channel %d subs %d", bench_worker_number, c, subs_per_channel);
-    for(i=0; i<subs_per_channel; i++) {
+  else {
+    ERR("creating subs in-order");
+    subs_per_channel = bench.config->subscribers_per_channel;
+    for(c=0; c<bench.config->channels; c++) {
       nchan_benchmark_channel_id(c, &channel_id);
-      *sub = benchmark_subscriber_create(&bench);
-      if((*sub)->fn->subscribe(*sub, &channel_id) != NGX_OK) {
-        return NGX_ERROR;
+      if(memstore_channel_owner(&channel_id) == ngx_process_slot) {
+        bench.subs.n += subs_per_channel;
       }
-      sub++;
+    }
+    bench.subs.array = ngx_alloc(sizeof(subscriber_t *) * bench.subs.n, ngx_cycle->log);
+    sub = &bench.subs.array[0];
+    
+    for(c=0; c<bench.config->channels; c++) {
+      nchan_benchmark_channel_id(c, &channel_id);
+      if(memstore_channel_owner(&channel_id) == ngx_process_slot) {
+        for(i=0; i<subs_per_channel; i++) {
+          *sub = benchmark_subscriber_create(&bench);
+          if((*sub)->fn->subscribe(*sub, &channel_id) != NGX_OK) {
+            return NGX_ERROR;
+          }
+          sub++;
+        }
+      }
     }
   }
   

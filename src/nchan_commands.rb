@@ -735,6 +735,11 @@ CfCmd.new do
       [:loc_conf, "benchmark.subscribers_per_channel"],
       group: "development",
       undocumented: true
+    nchan_benchmark_subscriber_distribution [:loc],
+      :nchan_benchmark_subscriber_distribution_directive,
+      [:loc_conf, "benchmark.subscriber_distribution"],
+      group: "development",
+      undocumented: true
 
   
   push_min_message_buffer_length [:srv, :loc, :if],

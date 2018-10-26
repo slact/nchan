@@ -623,6 +623,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, benchmark.subscribers_per_channel),
     NULL } ,
 
+  { ngx_string("nchan_benchmark_subscriber_distribution"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    nchan_benchmark_subscriber_distribution_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, benchmark.subscriber_distribution),
+    NULL } ,
+
   { ngx_string("push_min_message_buffer_length"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_ignore_obsolete_setting,
