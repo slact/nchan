@@ -46,8 +46,8 @@ class Benchmark
           puts   "  #{sub.url} ok"
           @ready +=1
           if @ready == @n
-            control :run
             puts "start benchmark..."
+            control :run
           end
         when /^RUNNING/
           puts   "  #{sub.url} running"
