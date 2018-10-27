@@ -172,7 +172,6 @@ ngx_int_t nchan_benchmark_initialize(void) {
     }
   }
   else {
-    ERR("creating subs in-order");
     subs_per_channel = bench.config->subscribers_per_channel;
     for(c=0; c<bench.config->channels; c++) {
       nchan_benchmark_channel_id(c, &channel_id);
