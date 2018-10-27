@@ -291,6 +291,11 @@ typedef struct {
     NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_RANDOM = 1,
     NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_OPTIMAL = 2
   }                               subscriber_distribution;
+  enum {
+    NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_UNSET = -1,
+    NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_RANDOM = 1,
+    NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_OPTIMAL = 2
+  }                               publisher_distribution;
 } nchan_benchmark_conf_t;
 
 struct nchan_loc_conf_s { //nchan_loc_conf_t

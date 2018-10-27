@@ -740,6 +740,11 @@ CfCmd.new do
       [:loc_conf, "benchmark.subscriber_distribution"],
       group: "development",
       undocumented: true
+    nchan_benchmark_publisher_distribution [:loc],
+      :nchan_benchmark_publisher_distribution_directive,
+      [:loc_conf, "benchmark.publisher_distribution"],
+      group: "development",
+      undocumented: true
 
   
   push_min_message_buffer_length [:srv, :loc, :if],

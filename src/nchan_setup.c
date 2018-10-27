@@ -204,6 +204,7 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->benchmark.channels = NGX_CONF_UNSET;
   lcf->benchmark.subscribers_per_channel = NGX_CONF_UNSET;
   lcf->benchmark.subscriber_distribution = NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_UNSET;
+  lcf->benchmark.publisher_distribution = NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_UNSET;
   return lcf;
 }
 
@@ -436,6 +437,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_value(conf->benchmark.channels, prev->benchmark.channels, 1000);
   ngx_conf_merge_value(conf->benchmark.subscribers_per_channel, prev->benchmark.subscribers_per_channel, 100);
   MERGE_UNSET_CONF(conf->benchmark.subscriber_distribution, prev->benchmark.subscriber_distribution, NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_UNSET, NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_RANDOM);
+  MERGE_UNSET_CONF(conf->benchmark.publisher_distribution, prev->benchmark.publisher_distribution, NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_UNSET, NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_RANDOM);
   
   return NGX_CONF_OK;
 }
@@ -717,6 +719,20 @@ static char *nchan_benchmark_subscriber_distribution_directive(ngx_conf_t *cf, n
   }
   else if(nchan_strmatch(val, 2, "optimal", "best")) {
     lcf->benchmark.subscriber_distribution = NCHAN_BENCHMARK_SUBSCRIBER_DISTRIBUTION_OPTIMAL;
+  }
+  else {
+    return "invalid value, must be \"random\" or \"optimal\"";
+  }
+  return NGX_CONF_OK;
+}
+static char *nchan_benchmark_publisher_distribution_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_loc_conf_t   *lcf = conf;
+  if(nchan_strmatch(val, 1, "random")) {
+    lcf->benchmark.publisher_distribution = NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_RANDOM;
+  }
+  else if(nchan_strmatch(val, 2, "optimal", "best")) {
+    lcf->benchmark.publisher_distribution = NCHAN_BENCHMARK_PUBLISHER_DISTRIBUTION_OPTIMAL;
   }
   else {
     return "invalid value, must be \"random\" or \"optimal\"";
