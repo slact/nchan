@@ -156,8 +156,8 @@ class Benchmark
       end
     end
     
-    @message_length = @message_length.sum.to_f / @message_length.size
-    @runtime = @runtime.sum.to_f / @runtime.size
+    @message_length = @message_length.inject(0, :+).to_f / @message_length.size
+    @runtime = @runtime.inject(0, :+).to_f / @runtime.size
     
     fmt = <<-END.gsub(/^ {6}/, '')
       Nchan servers:                 %d
