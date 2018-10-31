@@ -43,6 +43,7 @@ urls += ARGV
 begin
   urls += STDIN.read_nonblock(100000).split /\s*\n+\s*/
 rescue IO::WaitReadable
+rescue EOFError
 end
 
 urls.uniq!
