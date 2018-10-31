@@ -49,7 +49,7 @@ ngx_int_t nchan_benchmark_init_module(ngx_cycle_t *cycle) {
 
 ngx_int_t nchan_benchmark_init_worker(ngx_cycle_t *cycle) {
   DBG("init worker");
-  bench_worker_number = ngx_atomic_fetch_add(worker_counter, 1);
+  bench_worker_number = ngx_atomic_fetch_add((ngx_atomic_uint_t *)worker_counter, 1);
   return NGX_OK;
 }
 
@@ -684,7 +684,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     int       i;
     ngx_int_t val;
     
-    if(!ngx_atomic_cmp_set(bench.state, NCHAN_BENCHMARK_INACTIVE, NCHAN_BENCHMARK_INITIALIZING)) {
+    if(!ngx_atomic_cmp_set((ngx_atomic_uint_t *)bench.state, NCHAN_BENCHMARK_INACTIVE, NCHAN_BENCHMARK_INITIALIZING)) {
       benchmark_client_respond("ERROR: a benchmark is already initialized");
       return;
     }
@@ -738,7 +738,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
     bench.timer.ready = nchan_add_interval_timer(benchmark_timer_ready_check, NULL, 250);
   }
   else if(nchan_strmatch(&cmd, 2, "run", "start")) {
-    if(!ngx_atomic_cmp_set(bench.state, NCHAN_BENCHMARK_READY, NCHAN_BENCHMARK_RUNNING)) {
+    if(!ngx_atomic_cmp_set((ngx_atomic_uint_t *)bench.state, NCHAN_BENCHMARK_READY, NCHAN_BENCHMARK_RUNNING)) {
       benchmark_client_respond(*bench.state < NCHAN_BENCHMARK_READY ? "ERROR: not ready" : "ERROR: already running");
       return;
     }
