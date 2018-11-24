@@ -152,7 +152,7 @@ _lua_upstream_nginx_module_url="https://github.com/openresty/lua-upstream-nginx-
 _ngx_debug_pool_url="https://github.com/chobits/ngx_debug_pool.git"
 _ngx_echo_module="https://github.com/openresty/echo-nginx-module/archive/v${_ngx_echo_module_ver}.tar.gz"
 
-_lua_stream_module_ver=0.0.1
+_lua_stream_module_ver=0.0.5
 _lua_stream_module_src="https://github.com/openresty/stream-lua-nginx-module/archive/v${_lua_stream_module_ver}.tar.gz"
 
 if [[ -n $USE_OPENRESTY ]]; then
