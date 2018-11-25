@@ -5,6 +5,8 @@ require 'json'
 
 module NchanTools
 class Benchmark
+  CSV_COLUMNS_ALL=%i[servers runtime channels channels_K channels_M subscribers message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed messages_received messages_unreceived messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber message_publishing_avg message_publishing_99th message_publishing_max message_publishing_stddev message_publishing_count message_delivery_avg message_delivery_99th message_delivery_max message_delivery_stddev message_delivery_count]
+  CSV_COLUMNS_DEFAULT=%i[servers runtime channels subscribers message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed messages_received messages_unreceived messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber message_publishing_avg message_publishing_99th message_publishing_max message_publishing_stddev message_publishing_count message_delivery_avg message_delivery_99th message_delivery_max message_delivery_stddev message_delivery_count]
   class BenchmarkError < StandardError
   end
   def initialize(urls, init_args=nil)
@@ -194,19 +196,44 @@ class Benchmark
     puts out
   end
   
-  def append_csv_file(file)
+  def append_csv_file(file, columns=Benchmark::CSV_COLUMNS_DEFAULT)
     require "csv"
-    write_headers = File.zero?(file) or !File.exists?(file)
-    headers = %i[servers runtime channels subscribers message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed messages_send_received messages_send_unreceived messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber message_publishing_response_avg message_publishing_response_99percentile message_publishing_response_max message_publishing_response_stddev message_publishing_response_count message_delivery_avg message_delivery_99percentile message_delivery_max message_delivery_stddev message_delivery_count]
+    write_headers = File.zero?(file) || !File.exists?(file)
+    headers = columns
+    vals = {
+      servers: @n,
+      runtime: @runtime,
+      channels: @channels,
+      channels_K: @channels/1000.0,
+      channels_M: @channels/1000000.0,
+      subscribers: @subscribers,
+      message_length: @message_length,
+      messages_sent: @messages_sent,
+      messages_send_confirmed: @messages_send_confirmed,
+      messages_send_unconfirmed: @messages_send_unconfirmed,
+      messages_send_failed: @messages_send_failed,
+      messages_received: @messages_received,
+      messages_unreceived: @messages_unreceived,
+      messages_send_rate: @messages_sent.to_f/@runtime,
+      messages_receive_rate: @messages_received.to_f/@runtime,
+      messages_send_rate_per_channel: (@messages_sent.to_f* 60)/(@runtime * @channels),
+      messages_receive_rate_per_subscriber: (@messages_received.to_f * 60)/(@runtime * @subscribers),
+      message_publishing_avg: @hdrh_publish.mean,
+      message_publishing_99th: @hdrh_publish.percentile(99.0),
+      message_publishing_max: @hdrh_publish.max,
+      message_publishing_stddev: @hdrh_publish.stddev,
+      message_publishing_count: @hdrh_publish.count,
+      message_delivery_avg: @hdrh_receive.mean,
+      message_delivery_99th: @hdrh_receive.percentile(99.0),
+      message_delivery_max: @hdrh_receive.max,
+      message_delivery_stddev: @hdrh_receive.stddev,
+      message_delivery_count: @hdrh_receive.count
+    }
+    
+    vals.select!{|k, v| headers.member? k}
+    
     csv = CSV.open(file, "a", {headers: headers, write_headers: write_headers})
-    csv << [@n, @runtime, @channels, @subscribers, 
-      @message_length, @messages_sent, @messages_send_confirmed, @messages_send_unconfirmed, @messages_send_failed, 
-      @messages_received, @messages_unreceived,
-      @messages_sent.to_f/@runtime, @messages_received.to_f/@runtime,
-      (@messages_sent.to_f* 60)/(@runtime * @channels), (@messages_received.to_f * 60)/(@runtime * @subscribers),
-      @hdrh_publish.mean, @hdrh_publish.percentile(99.0), @hdrh_publish.max, @hdrh_publish.stddev, @hdrh_publish.count,
-      @hdrh_receive.mean, @hdrh_receive.percentile(99.0), @hdrh_receive.max, @hdrh_receive.stddev, @hdrh_receive.count
-    ]
+    csv << vals.values
     csv.flush
     csv.close
   end
