@@ -56,7 +56,7 @@ class Benchmark
           parsed = JSON.parse msg
           @results[sub.url] = parsed
           @results[sub.url]["raw"] = msg if @results[sub.url]
-          1+1
+          sub.client.send_close
         when /^INITIALIZING/
           #do nothing
         else
@@ -196,7 +196,7 @@ class Benchmark
   
   def append_csv_file(file)
     require "csv"
-    write_headers = File.zero?(file)
+    write_headers = File.zero?(file) or !File.exists?(file)
     headers = %i[servers runtime channels subscribers message_length messages_sent messages_send_confirmed messages_send_unconfirmed messages_send_failed messages_send_received messages_send_unreceived messages_send_rate messages_receive_rate messages_send_rate_per_channel messages_receive_rate_per_subscriber message_publishing_response_avg message_publishing_response_99percentile message_publishing_response_max message_publishing_response_stddev message_publishing_response_count message_delivery_avg message_delivery_99percentile message_delivery_max message_delivery_stddev message_delivery_count]
     csv = CSV.open(file, "a", {headers: headers, write_headers: write_headers})
     csv << [@n, @runtime, @channels, @subscribers, 
