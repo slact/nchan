@@ -260,6 +260,14 @@ class PubSubTest <  Minitest::Test
     sub_long.terminate
   end
   
+  def test_websocket_send_close
+    sub=Subscriber.new(url("/pubsub/#{short_id}"), 1, client: :websocket, quit_message: 'FIN')
+    sub.run
+    sub.wait :ready
+    sub.client.send_close
+    sub.wait
+  end
+  
   def test_websocket_pubsub_echo
     sub=Subscriber.new(url("/pubsub/#{short_id}"), 1, client: :websocket, quit_message: 'FIN')
     

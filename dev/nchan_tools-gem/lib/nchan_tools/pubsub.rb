@@ -487,6 +487,14 @@ class Subscriber
         @ws.binary data
       end
       
+      def send_ping(msg=nil)
+        @ws.ping(msg)
+      end
+      
+      def send_close(reason=nil, code=1000)
+        @ws.close(reason, code)
+      end
+      
       def write(data)
         @sock.write data
       end
@@ -681,10 +689,10 @@ class Subscriber
     private :ws_client
     
     def send_ping(data=nil)
-      ws_client.ping data
+      ws_client.send_ping data
     end
-    def send_close(code=1000, reason=nil)
-      ws_client.send_close code, reason
+    def send_close(reason=nil, code=1000)
+      ws_client.send_close reason, code
     end
     def send_data(data)
       ws_client.send_data data
