@@ -229,10 +229,11 @@ class Benchmark
       vals["#{name}_count".to_sym]=histogram.count
     end
     
-    vals.select!{|k, v| headers.member? k}
+    row = []
+    headers.each { |header| row << (vals[header.to_sym] || "-")}
     
     csv = CSV.open(file, "a", {headers: headers, write_headers: write_headers})
-    csv << vals.values
+    csv << row
     csv.flush
     csv.close
   end
