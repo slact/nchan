@@ -21,9 +21,7 @@ class Benchmark
     @failed = {}
     
     @init_args = init_args
-    
-    @hdrh_publish = nil
-    @hdrh_receive = nil
+    @histograms = {}
     
     subs = []
   end
@@ -56,6 +54,16 @@ class Benchmark
         when /^RESULTS\n/
           msg = msg[8..-1]
           parsed = JSON.parse msg
+          
+          #backwards-compatible histogram fields
+          parsed["histograms"]||={}
+          if parsed[:message_publishing_histogram] then
+            parsed[:histograms]["message publishing"]=parsed[:message_publishing_histogram]
+          end
+          if parsed[:message_delivery_histogram] then
+            parsed[:histograms]["message delivery"]=parsed[:message_delivery_histogram]
+          end
+          
           @results[sub.url] = parsed
           @results[sub.url]["raw"] = msg if @results[sub.url]
           sub.client.send_close
@@ -126,8 +134,7 @@ class Benchmark
     @messages_send_failed = 0
     @messages_received = 0
     @messages_unreceived = 0
-    @hdrh_publish = nil
-    @hdrh_receive = nil
+    @histograms = {}
     @results.each do |url, data|
       @channels += data["channels"]
       @runtime << data["run_time_sec"]
@@ -139,21 +146,15 @@ class Benchmark
       @messages_send_failed += data["messages"]["send_failed"]
       @messages_received += data["messages"]["received"]
       @messages_unreceived += data["messages"]["unreceived"]
-      
-      if data["message_publishing_histogram"]
-        hdrh = HDRHistogram.unserialize(data["message_publishing_histogram"], unit: :ms, multiplier: 0.001)
-        if @hdrh_publish
-          @hdrh_publish.merge! hdrh
-        else
-          @hdrh_publish = hdrh
-        end
-      end
-      if data["message_delivery_histogram"]
-        hdrh = HDRHistogram.unserialize(data["message_delivery_histogram"], unit: :ms, multiplier: 0.001)
-        if @hdrh_receive
-          @hdrh_receive.merge! hdrh
-        else
-          @hdrh_receive = hdrh
+      if data["histograms"]
+        data["histograms"].each do |name, str|
+          name = name.to_sym
+          hdrh = HDRHistogram.unserialize(str, unit: :ms, multiplier: 0.001)
+          if @histograms[name]
+            @histograms[name].merge! hdrh
+          else
+            @histograms[name] = hdrh
+          end
         end
       end
     end
@@ -189,9 +190,9 @@ class Benchmark
       (@messages_sent.to_f* 60)/(@runtime * @channels),
       (@messages_received.to_f * 60)/(@runtime * @subscribers)
     ]
-    
-    out << hdrhistogram_stats("message publishing latency", @hdrh_publish) if @hdrh_publish
-    out << hdrhistogram_stats("message delivery latency", @hdrh_receive) if @hdrh_receive
+    @histograms.each do |name, histogram|
+      out << hdrhistogram_stats("#{name} latency:", histogram)
+    end
     
     puts out
   end
@@ -217,18 +218,16 @@ class Benchmark
       messages_send_rate: @messages_sent.to_f/@runtime,
       messages_receive_rate: @messages_received.to_f/@runtime,
       messages_send_rate_per_channel: (@messages_sent.to_f* 60)/(@runtime * @channels),
-      messages_receive_rate_per_subscriber: (@messages_received.to_f * 60)/(@runtime * @subscribers * @channels),
-      message_publishing_avg: @hdrh_publish.mean,
-      message_publishing_99th: @hdrh_publish.percentile(99.0),
-      message_publishing_max: @hdrh_publish.max,
-      message_publishing_stddev: @hdrh_publish.stddev,
-      message_publishing_count: @hdrh_publish.count,
-      message_delivery_avg: @hdrh_receive.mean,
-      message_delivery_99th: @hdrh_receive.percentile(99.0),
-      message_delivery_max: @hdrh_receive.max,
-      message_delivery_stddev: @hdrh_receive.stddev,
-      message_delivery_count: @hdrh_receive.count
+      messages_receive_rate_per_subscriber: (@messages_received.to_f * 60)/(@runtime * @subscribers * @channels)
     }
+    @histograms.each do |name, histogram|
+      vals["#{name}_avg".to_sym]=histogram.mean
+      vals["#{name}_95th".to_sym]=histogram.percentile(95.0)
+      vals["#{name}_99th".to_sym]=histogram.percentile(99.0)
+      vals["#{name}_max".to_sym]=histogram.max
+      vals["#{name}_stddev".to_sym]=histogram.stddev
+      vals["#{name}_count".to_sym]=histogram.count
+    end
     
     vals.select!{|k, v| headers.member? k}
     
