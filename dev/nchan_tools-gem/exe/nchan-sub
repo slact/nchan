@@ -33,7 +33,7 @@ opt_parser=OptionParser.new do |opts|
   opts.on("-p", "--parallel NUM (#{par})", "number of parallel clients"){|v| par = v.to_i}
   opts.on("-t", "--timeout SEC (#{opt[:timeout]})", "Long-poll timeout"){|v| opt[:timeout] = v}
   opts.on("-q", "--quit STRING (#{opt[:quit_message]})", "Quit message"){|v| opt[:quit_message] = v}
-  opts.on("-c", "--client STRING (#{opt[:client]})", "sub client (one of #{Subscriber::Client.unique_aliases.join ', '})") do |v|
+  opts.on("-c", "--client STRING (#{opt[:client]})", "sub client (one of #{NchanTools::Subscriber::Client.unique_aliases.join ', '})") do |v|
     opt[:client] = v.to_sym
   end
   opts.on("--content-type", "show received content-type"){|v| print_content_type = true}
@@ -68,7 +68,7 @@ if origin
   opt[:extra_headers]['Origin'] = origin
 end
 
-sub = Subscriber.new url, par, opt
+sub = NchanTools::Subscriber.new url, par, opt
 
 
 NOMSGF="\r"*30 + "Received message %i, len:%i"
@@ -111,7 +111,7 @@ sub.on_message do |msg|
 end
 
 sub.on_failure do |err_msg|
-  if Subscriber::IntervalPollClient === sub.client
+  if NchanTools::Subscriber::IntervalPollClient === sub.client
     unless err_msg.match(/\(code 304\)/)
       false
     end 

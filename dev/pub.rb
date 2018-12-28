@@ -1,2 +1,2 @@
 #!/bin/bash
-bundle exec nchan-sub "$@"
+bundle exec nchan-pub "$@"
