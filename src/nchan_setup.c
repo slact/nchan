@@ -1263,7 +1263,7 @@ static char *ngx_conf_set_redis_namespace_slot(ngx_conf_t *cf, ngx_command_t *cm
   
   if(arg->len > 0 && arg->data[arg->len-1] != ':') {
     u_char  *nns;
-    if((nns = ngx_palloc(cf->pool, sizeof(arg->len + 2))) == NULL) {
+    if((nns = ngx_palloc(cf->pool, arg->len + 2)) == NULL) {
       return "couldn't allocate redis namespace data";
     }
     ngx_memcpy(nns, arg->data, arg->len);
