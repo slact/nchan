@@ -1248,10 +1248,8 @@ static char *ngx_conf_set_redis_url(ngx_conf_t *cf, ngx_command_t *cmd, void *co
   return ngx_conf_set_str_slot(cf, cmd, conf);
 }
 
-static char *ngx_conf_set_redis_namespace_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  //raise(SIGSTOP);
-  ngx_str_t *val = cf->args->elts;
-  ngx_str_t *arg = &val[1];
+static char *ngx_conf_process_redis_namespace_slot(ngx_conf_t *cf, void *post, void *fld) {
+  ngx_str_t *arg = fld;
 
   if(memchr(arg->data, '{', arg->len)) {
     return "can't contain character '{'";
@@ -1273,7 +1271,7 @@ static char *ngx_conf_set_redis_namespace_slot(ngx_conf_t *cf, ngx_command_t *cm
     arg->data=nns;
   }
   
-  return ngx_conf_set_str_slot(cf, cmd, conf);
+  return NGX_CONF_OK;
 }
 
 static char *ngx_conf_set_redis_storage_mode_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

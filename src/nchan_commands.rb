@@ -471,9 +471,10 @@ CfCmd.new do
       info: "This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. Optimizing for CPU usage enables effect replication, costing additional bandwidth (between 1.2 and 2 times more) between all master->slave links. Optimizing for bandwidth increases CPU load on slaves, but keeps outgoing bandwidth used for replication the same as the incoming bandwidth on Master."
   
   nchan_redis_namespace [:main, :srv, :upstream], 
-      :ngx_conf_set_redis_namespace_slot,
+      :ngx_conf_set_str_slot,
       [:loc_conf, :"redis.namespace"],
       args: 1,
+      post_handler: "ngx_conf_process_redis_namespace_slot",
       
       group: "storage",
       value: "<string>",
