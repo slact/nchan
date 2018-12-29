@@ -536,6 +536,7 @@ static void websocket_publish_continue(ws_publish_data_t *d) {
   }
   else {
     websocket_reserve(&fsub->sub);
+    nchan_maybe_send_channel_event_message(fsub->sub.request, CHAN_PUBLISH);
     fsub->sub.cf->storage_engine->publish(fsub->publisher.channel_id, msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, d); 
     nchan_update_stub_status(total_published_messages, 1);
   }
