@@ -477,6 +477,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   switch(status) {
     case NCHAN_MESSAGE_QUEUED:
     case NCHAN_MESSAGE_RECEIVED:
+      nchan_maybe_send_channel_event_message(fsub->sub.request, CHAN_PUBLISH);
       if(fsub->sub.cf->sub.websocket) {
         //don't reply with status info, this websocket is used for subscribing too,
         //so it should only be receiving messages
@@ -536,7 +537,6 @@ static void websocket_publish_continue(ws_publish_data_t *d) {
   }
   else {
     websocket_reserve(&fsub->sub);
-    nchan_maybe_send_channel_event_message(fsub->sub.request, CHAN_PUBLISH);
     fsub->sub.cf->storage_engine->publish(fsub->publisher.channel_id, msg, fsub->sub.cf, (callback_pt )websocket_publish_callback, d); 
     nchan_update_stub_status(total_published_messages, 1);
   }
