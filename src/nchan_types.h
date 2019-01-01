@@ -278,6 +278,7 @@ typedef struct {
       ngx_int_t                     master_weight;
       ngx_int_t                     slave_weight;
   }                               redis;
+  nchan_loc_conf_t                *upstream_nchan_loc_conf;
 } nchan_srv_conf_t;
 
 typedef struct {

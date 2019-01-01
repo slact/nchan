@@ -1317,7 +1317,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_redis_namespace** `<string>`  
   arguments: 1  
-  context: http, server, upstream  
+  context: http, server, upstream, location  
   > Prefix all Redis keys with this string. All Nchan-related keys in redis will be of the form "nchan_redis_namespace:*" . Default is empty.    
 
 - **nchan_redis_nostore_fastpublish** `[ on | off ]`  
@@ -1341,7 +1341,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_redis_ping_interval**  
   arguments: 1  
   default: `4m`  
-  context: http, server, location  
+  context: http, server, upstream, location  
   > Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable.    
 
 - **nchan_redis_server** `<redis-url>`  

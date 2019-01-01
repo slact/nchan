@@ -423,7 +423,7 @@ CfCmd.new do
       info: "Use of this command is discouraged in favor of (`nchan_redis_pass`)[#nchan_redis_pass]. Use Redis for message storage at this location.",
       uri: "#connecting-to-a-redis-server"
   
-  nchan_redis_ping_interval [:main, :srv, :loc],
+  nchan_redis_ping_interval [:main, :srv, :upstream, :loc],
       :ngx_conf_set_sec_slot,
       [:loc_conf, :"redis.ping_interval"],
       
@@ -470,7 +470,7 @@ CfCmd.new do
       default: "cpu",
       info: "This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. Optimizing for CPU usage enables effect replication, costing additional bandwidth (between 1.2 and 2 times more) between all master->slave links. Optimizing for bandwidth increases CPU load on slaves, but keeps outgoing bandwidth used for replication the same as the incoming bandwidth on Master."
   
-  nchan_redis_namespace [:main, :srv, :upstream], 
+  nchan_redis_namespace [:main, :srv, :upstream, :loc], 
       :ngx_conf_set_str_slot,
       [:loc_conf, :"redis.namespace"],
       args: 1,

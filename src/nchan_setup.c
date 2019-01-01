@@ -110,6 +110,7 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
   scf->redis.slave_weight = NGX_CONF_UNSET;
+  scf->upstream_nchan_loc_conf = NULL;
   return scf;
 }
 
@@ -293,9 +294,29 @@ static char *nchan_setup_handler(ngx_conf_t *cf, ngx_int_t (*handler)(ngx_http_r
   return NGX_CONF_OK;
 }
 
+static nchan_loc_conf_t *nchan_loc_conf_get_upstream_lcf(nchan_loc_conf_t *conf, nchan_loc_conf_t *prev) {
+  nchan_redis_conf_t *rcf = &conf->redis, *prev_rcf = &prev->redis;
+  if(rcf->upstream == prev_rcf->upstream || rcf->upstream == NULL) {
+    //same or no upstream, so don't bother
+    return NULL;
+  }
+  else {
+    assert(rcf->upstream);
+    nchan_srv_conf_t      *upstream_scf = ngx_http_conf_upstream_srv_conf(rcf->upstream, ngx_nchan_module);
+    if(upstream_scf && upstream_scf->upstream_nchan_loc_conf) {
+      return upstream_scf->upstream_nchan_loc_conf;
+    }
+    else {
+      //ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "nchan upstream srv_conf loc_conf ptr is null");
+      return NULL;
+    }
+  }
+}
+
+
 static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_loc_conf_t       *prev = parent, *conf = child;
-  
+  nchan_loc_conf_t       *up = nchan_loc_conf_get_upstream_lcf(conf, prev);
   //publisher types
   ngx_conf_merge_bitmask_value(conf->pub.http, prev->pub.http, 0);
   ngx_conf_merge_bitmask_value(conf->pub.websocket, prev->pub.websocket, 0);
@@ -405,12 +426,25 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     }
     conf->last_message_id.n = 2;
   }
-  
+    
   ngx_conf_merge_value(conf->redis.url_enabled, prev->redis.url_enabled, 0);
+  
   ngx_conf_merge_value(conf->redis.upstream_inheritable, prev->redis.upstream_inheritable, 0);
   ngx_conf_merge_str_value(conf->redis.url, prev->redis.url, NCHAN_REDIS_DEFAULT_URL);
-  ngx_conf_merge_str_value(conf->redis.namespace, prev->redis.namespace, "");
+  
+  if(up && up->redis.namespace.len > 0) { //upstream has a namespace set
+    ngx_conf_merge_str_value(conf->redis.namespace, up->redis.namespace, ""); 
+  }
+  else {
+    ngx_conf_merge_str_value(conf->redis.namespace, prev->redis.namespace, "");
+  }
+  
+  if(up)
+    ngx_conf_merge_value(conf->redis.ping_interval, up->redis.ping_interval, NGX_CONF_UNSET);
   ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
+  
+  if(up)
+    ngx_conf_merge_value(conf->redis.nostore_fastpublish, up->redis.nostore_fastpublish, NGX_CONF_UNSET);
   ngx_conf_merge_value(conf->redis.nostore_fastpublish, prev->redis.nostore_fastpublish, 0);
   
   if(conf->redis.url_enabled) {
@@ -422,6 +456,8 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     ngx_conf_set_redis_upstream(cf, &conf->redis.upstream_url, conf);
   }
   
+  if(up)
+    MERGE_UNSET_CONF(conf->redis.storage_mode, up->redis.storage_mode, REDIS_MODE_CONF_UNSET, REDIS_MODE_CONF_UNSET);
   MERGE_UNSET_CONF(conf->redis.storage_mode, prev->redis.storage_mode, REDIS_MODE_CONF_UNSET, REDIS_MODE_DISTRIBUTED);
   
   if(prev->request_handler != NULL && conf->request_handler == NULL) {
@@ -1205,8 +1241,18 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   ngx_http_upstream_srv_conf_t        *uscf;
   ngx_str_t                           *value;
   ngx_http_upstream_server_t          *usrv;
-  
+  nchan_loc_conf_t                    *lcf = conf;
   uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);  
+  nchan_srv_conf_t                    *scf = NULL;
+  scf = ngx_http_conf_upstream_srv_conf(uscf, ngx_nchan_module);
+  if(scf->upstream_nchan_loc_conf) {
+    assert(scf->upstream_nchan_loc_conf == lcf);
+  }
+  else {
+    //is this even a safe technique? it might break in the future...
+    scf->upstream_nchan_loc_conf = lcf;
+  }
+  
   
   if(uscf->servers == NULL) {
         uscf->servers = ngx_array_create(cf->pool, 4, sizeof(ngx_http_upstream_server_t));
