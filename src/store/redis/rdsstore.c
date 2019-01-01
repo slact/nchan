@@ -1924,8 +1924,27 @@ ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name)
   return NGX_OK;
 }
 
+static ngx_int_t nchan_store_init_redis_loc_conf_postconfig(nchan_loc_conf_t *lcf) {
+  nchan_redis_conf_t    *rcf = &lcf->redis;
+  
+  assert(rcf->enabled);
+  
+  //server-scope loc_conf may have some undefined values (because it was never merged with a prev)
+  //thus we must reduntantly check for unser values
+  if(rcf->ping_interval == NGX_CONF_UNSET) {
+    rcf->ping_interval = NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME;
+  }
+  if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
+    rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
+  }
+  if(rcf->nostore_fastpublish == NGX_CONF_UNSET) {
+    rcf->nostore_fastpublish = 0;
+  }
+  
+  return NGX_OK;
+}
+
 static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
-  nchan_redis_conf_t    *rcf;
   nchan_loc_conf_t      *lcf;
   nchan_redis_conf_ll_t *cur;
   nchan_main_conf_t     *mcf = ngx_http_conf_get_module_main_conf(cf, ngx_nchan_module);
@@ -1938,22 +1957,9 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
   
   for(cur = redis_conf_head; cur != NULL; cur = cur->next) {
     lcf = cur->lcf;
-    rcf = &lcf->redis;
-    assert(rcf->enabled);
+    nchan_store_init_redis_loc_conf_postconfig(lcf);
     
-      //server-scope loc_conf may have some undefined values (because it was never merged with a prev)
-  //thus we must reduntantly check for unser values
-    if(rcf->ping_interval == NGX_CONF_UNSET) {
-      rcf->ping_interval = NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME;
-    }
-    if(rcf->storage_mode == REDIS_MODE_CONF_UNSET) {
-      rcf->storage_mode = REDIS_MODE_DISTRIBUTED;
-    }
-    if(rcf->nostore_fastpublish == NGX_CONF_UNSET) {
-      rcf->nostore_fastpublish = 0;
-    }
-    
-    if((nodeset = nodeset_find(rcf)) == NULL) {
+    if((nodeset = nodeset_find(&lcf->redis)) == NULL) {
       nodeset = nodeset_create(lcf);
       rdstore_initialize_chanhead_reaper(&nodeset->chanhead_reaper, "Redis channel reaper");
     }
