@@ -1,3 +1,6 @@
+ feature: nchan_redis_namespace and nchan_redis_ping_interval now work in upstream blocks
+ fix: websocket publisher did not publishing channel events
+ fix: Redis namespace was limited to 8 bytes
 1.2.3 (Oct. 15 2018)
  fix: possible invalid memory access when the initial connection to a Redis cluster node times out
 1.2.2 (Oct. 9 2018)
