@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env zsh
 MY_PATH="`dirname \"$0\"`"
 MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 pkg_path=$MY_PATH/nginx-pkg

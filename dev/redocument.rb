@@ -1,7 +1,6 @@
 #!/usr/bin/env ruby
 require "date"
 require "optparse"
-require "pry"
 
 opt = {
   out: :readme,
