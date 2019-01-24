@@ -2,8 +2,13 @@
 #define NCHAN_REDIS_NODESET_H
 
 #include <nchan_module.h>
-#include "hiredis/hiredis.h"
-#include "hiredis/async.h"
+#if NCHAN_HAVE_HIREDIS_WITH_SOCKADDR
+#include <hiredis/hiredis.h>
+#include <hiredis/async.h>
+#else
+#include <store/redis/hiredis/hiredis.h>
+#include <store/redis/hiredis/async.h>
+#endif
 #include <util/nchan_reaper.h>
 #include <util/nchan_rbtree.h>
 #include <util/nchan_list.h>
