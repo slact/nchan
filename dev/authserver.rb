@@ -102,6 +102,12 @@ class AuthServer
         code = 403
       when "/sub"
         resp << "subbed"
+      when "/500"
+        code = 500
+        resp << "Let's pretend there was a server error."
+      when "/404"
+        code = 500
+        resp << "Let's pretend there was 404."
       when "/pub"
         resp << publisher_upstream_transform_message(body)
       when "/pub_chunked"

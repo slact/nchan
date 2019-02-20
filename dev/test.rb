@@ -1803,9 +1803,23 @@ class PubSubTest <  Minitest::Test
       pub.messages.msgs.each {|m| m.message=""}
       verify pub, sub
       sub.terminate
+      
+      pub, sub = pubsub 1, pub: '/upstream_pubsub_500/'
+      assert_raises(Publisher::PublisherError) do
+        pub.post "FIN"
+      end
+      sub.terminate
+      
+      pub, sub = pubsub 1, pub: '/upstream_pubsub_404/'
+      assert_raises(Publisher::PublisherError) do
+        pub.post "FIN"
+      end
+      sub.terminate
+      
     ensure
       auth.stop
     end
+
   end
   
   def test_websocket_publisher_pubsub_upstream_request
