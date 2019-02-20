@@ -4,6 +4,7 @@ gem 'typhoeus'
 gem 'json'
 gem 'oga'
 
+gem 'irb'
 gem 'pry'
 gem 'pry-byebug' if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.0')
 gem 'pry-coolline'
