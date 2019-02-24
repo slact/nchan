@@ -693,8 +693,9 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
 
 static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
   redis_connect_params_t   rcp;
-  char                    *reason = "";
-  
+  char                    *description = "";
+  char                    *role = NULL;
+  ngx_int_t                loglevel = NGX_LOG_NOTICE;
   rcp.hostname = l->hostname;
   rcp.port = l->port;
   rcp.peername.len = 0;
@@ -702,23 +703,34 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
   rcp.password = node->connect_params.password;
   
   if(l->noaddr) {
-    node_log_notice(node, "Skipping no-address cluster node for keyslots %V", &l->slots);
+    role = "node";
+    description = "no-address";
     return 1;
   }
+  else if(l->handshake) {
+    role = "node";
+    description = "handshaking";
+    
+  }
+  else if(l->hostname.len == 0) {
+    role = "node";
+    description = "empty hostname";
+  }
   else if(l->failed) {
-    reason = "failed ";
+    description = "failed";
   }
   else if(!l->connected) {
-    reason = "disconnected ";
+    description = "disconnected";
   }
   else if(l->self) {
-    reason = "self ";
+    description = "self";
+    loglevel = NGX_LOG_INFO;
   }
   else {
     return 0;
   }
-  
-  node_log_notice(node, "Skipping %scluster %s %s", reason, (l->master ? "master" : "slave"), rcp_cstr(&rcp));
+  if(!role) role = l->master ? "master" : "slave";
+  node_log(node, loglevel, "Skipping %s cluster %s %s", description, role, rcp_cstr(&rcp));
   return 1;
 }
 
@@ -1681,6 +1693,10 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
 static void node_find_slaves_callback(redisAsyncContext *ac, void *rep, void *pd) {
   redis_node_t   *node = pd;
   redisReply     *reply = rep;
+  if(!reply) {
+    node_log_debug(node, "INFO REPLICATION aborted reply");
+    return;
+  }
   node_discover_slaves_from_info_reply(node, reply);
 }
 
