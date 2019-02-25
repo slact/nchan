@@ -1,3 +1,5 @@
+ fix: Redis cluster info with zero-length hostname may result in worker crash
+ fix: build problems with included hiredis lib in FreeBSD
  feature: nchan_redis_namespace and nchan_redis_ping_interval now work in upstream blocks
  fix: websocket publisher did not publishing channel events
  fix: Redis namespace was limited to 8 bytes
