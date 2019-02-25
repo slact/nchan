@@ -695,7 +695,7 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
   redis_connect_params_t   rcp;
   char                    *description = "";
   char                    *role = NULL;
-  ngx_int_t                loglevel = NGX_LOG_NOTICE;
+  ngx_uint_t               loglevel = NGX_LOG_NOTICE;
   rcp.hostname = l->hostname;
   rcp.port = l->port;
   rcp.peername.len = 0;
