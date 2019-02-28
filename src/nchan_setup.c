@@ -922,6 +922,9 @@ static char *nchan_conf_deflate_compression_memlevel_directive(ngx_conf_t *cf, n
 
 
 static void nchan_exit_worker(ngx_cycle_t *cycle) {
+  if(!global_nchan_enabled) {
+    return;
+  }
   if(global_redis_enabled) {
     redis_store_prepare_to_exit_worker();
   }
@@ -941,6 +944,9 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
 }
 
 static void nchan_exit_master(ngx_cycle_t *cycle) {
+  if(!global_nchan_enabled) {
+    return;
+  }
   if(global_benchmark_enabled) {
     nchan_benchmark_exit_master(cycle);
   }
