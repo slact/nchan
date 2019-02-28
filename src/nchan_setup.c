@@ -11,6 +11,7 @@
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
+ngx_flag_t       global_nchan_enabled = 0;
 ngx_flag_t       global_redis_enabled = 0;
 ngx_flag_t       global_zstream_needed = 0;
 ngx_flag_t       global_benchmark_enabled = 0;
@@ -23,6 +24,9 @@ if (conf == unset) {                                         \
 #define MERGE_CONF(cf, prev_cf, name) if((cf)->name == NULL) { (cf)->name = (prev_cf)->name; }
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
+  if(!global_nchan_enabled) {
+    return NGX_OK;
+  }
   ngx_core_conf_t         *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
   nchan_worker_processes = ccf->worker_processes;
   
@@ -38,6 +42,9 @@ static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
+  if(!global_nchan_enabled) {
+    return NGX_OK;
+  }
   if (ngx_process != NGX_PROCESS_WORKER && ngx_process != NGX_PROCESS_SINGLE) {
     //not a worker, stop initializing stuff.
     return NGX_OK;
@@ -74,6 +81,8 @@ static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
     nchan_common_deflate_init(mcf);
   }
 #endif
+  
+  global_nchan_enabled = 1;
   
   return NGX_OK;
 }
