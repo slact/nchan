@@ -67,6 +67,11 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
   return NGX_OK;
 }
 
+static ngx_int_t nchan_preconfig(ngx_conf_t *cf) {
+  global_nchan_enabled = 0;
+  return nchan_add_variables(cf);
+}
+
 static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
   if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
@@ -1376,7 +1381,7 @@ static char *ngx_conf_set_redis_upstream_pass(ngx_conf_t *cf, ngx_command_t *cmd
 #include "nchan_config_commands.c" //hideous but hey, it works
 
 static ngx_http_module_t  nchan_module_ctx = {
-    nchan_add_variables,           /* preconfiguration */
+    nchan_preconfig,               /* preconfiguration */
     nchan_postconfig,              /* postconfiguration */
     nchan_create_main_conf,        /* create main configuration */
     NULL,                          /* init main configuration */
