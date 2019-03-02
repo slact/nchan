@@ -15,6 +15,7 @@ ngx_flag_t       global_nchan_enabled = 0;
 ngx_flag_t       global_redis_enabled = 0;
 ngx_flag_t       global_zstream_needed = 0;
 ngx_flag_t       global_benchmark_enabled = 0;
+void            *global_owner_cycle = NULL;
 
 #define MERGE_UNSET_CONF(conf, prev, unset, default)         \
 if (conf == unset) {                                         \
@@ -24,6 +25,14 @@ if (conf == unset) {                                         \
 #define MERGE_CONF(cf, prev_cf, name) if((cf)->name == NULL) { (cf)->name = (prev_cf)->name; }
 
 static ngx_int_t nchan_init_module(ngx_cycle_t *cycle) {
+  if(global_owner_cycle && global_owner_cycle != ngx_cycle) {
+    global_nchan_enabled = 0;
+    global_redis_enabled = 0;
+    global_zstream_needed = 0;
+    global_benchmark_enabled = 0;
+  }
+  global_owner_cycle = (void *)ngx_cycle;
+  
   if(!global_nchan_enabled) {
     return NGX_OK;
   }
@@ -68,11 +77,13 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
 }
 
 static ngx_int_t nchan_preconfig(ngx_conf_t *cf) {
+  global_owner_cycle = (void *)ngx_cycle;
   global_nchan_enabled = 0;
   return nchan_add_variables(cf);
 }
 
 static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
+  global_owner_cycle = (void *)ngx_cycle;
   if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
