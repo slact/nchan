@@ -9,6 +9,8 @@ _ngx_echo_module_ver=0.60
 _lua_nginx_module_ver=0.10.13
 _lua_upstream_nginx_module_ver="0.06"
 _openresty_ver=1.13.6.2
+_pagespeed_ver=1.13.35.2-stable
+_psol_ver=1.13.35.2
 
 _target_module_name=nchan
 
@@ -168,6 +170,9 @@ else
   fi
 fi
 
+_ngx_pagespeed_source="https://github.com/apache/incubator-pagespeed-ngx/archive/v${_pagespeed_ver}.tar.gz"
+_psol_source="https://dl.google.com/dl/page-speed/psol/${_psol_ver}-x64.tar.gz"
+
 source=("$_source"
   "nginx.conf"
   "nginx.logrotate"
@@ -197,6 +202,11 @@ if [[ -n $WITH_LUA_MODULE ]]; then
   source+=( "$_lua_nginx_module_url" "$_lua_upstream_nginx_module_url" )
   md5sums+=( 'SKIP' 'SKIP' )
   
+fi
+
+if [[ -n $WITH_NGX_PAGESPEED_MODULE ]]; then
+  source+=( "$_ngx_pagespeed_source" "$_psol_source" )
+  md5sums+=( 'SKIP' 'SKIP' )
 fi
 
 if [[ $NO_POOL == 1 ]] && [[ -z $USE_OPENRESTY ]]; then
@@ -339,7 +349,10 @@ build() {
   if [[ $WITH_NGX_ECHO_MODULE == 1 ]]; then
     CONFIGURE+=( "--add-module=../echo-nginx-module-${_ngx_echo_module_ver}")
   fi
-  
+
+  if [[ $WITH_NGX_PAGESPEED_MODULE == 1 ]]; then
+    CONFIGURE+=( "--add-module=../incubator-pagespeed-ngx-${_pagespeed_ver}" )
+  fi
   if [[ -z $NGINX_VERYOLDVERSION ]]; then
     CONFIGURE+=( "--http-scgi-temp-path=${_tmp_path}/scgi_temp" )
   fi
@@ -358,6 +371,12 @@ build() {
     fi
   elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]] && [[ -z $NO_GCC_COLOR ]]; then
     CFLAGS="-fdiagnostics-color=always  -Wmaybe-uninitialized $CFLAGS"
+  fi
+  
+  if [[ -n $WITH_NGX_PAGESPEED_MODULE ]]; then
+    pushd $srcdir/incubator-pagespeed-ngx-${_pagespeed_ver}
+    ln -sf ../psol
+    popd
   fi
   
   echo $CFLAGS

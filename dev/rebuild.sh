@@ -61,6 +61,8 @@ for opt in $*; do
       export NO_DEBUG=1;;
     echo_module)
       export WITH_NGX_ECHO_MODULE=1;;
+    pagespeed)
+      export WITH_NGX_PAGESPEED_MODULE=1;;
     O0)
       optimize_level=0;;
     O1)
