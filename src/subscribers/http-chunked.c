@@ -37,6 +37,8 @@ static void chunked_ensure_headers_sent(full_subscriber_t *fsub) {
     nchan_cleverly_output_headers_only_for_later_response(r);
     
     fsub->data.shook_hands = 1; 
+    r->chunked = 0;
+    r->header_only = 0;
   }
 }
 

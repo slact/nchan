@@ -416,7 +416,11 @@ static ngx_int_t ws_output_filter(full_subscriber_t *fsub, ngx_chain_t *chain) {
   else {
     return nchan_output_filter(fsub->sub.request, chain);
   }*/
-  return nchan_output_filter(fsub->sub.request, chain);
+  //placate google's devious ngx_pagespeed by not using the header_only hack
+  ngx_http_request_t *r = fsub->sub.request;
+  r->header_only = 0;
+  r->chunked = 0;
+  return nchan_output_filter(r, chain);
 }
 
 static ngx_int_t ws_output_msg_filter(full_subscriber_t *fsub, nchan_msg_t *msg) {
@@ -920,10 +924,12 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
   ws_accept_key.data = buf;
   
   r->headers_out.content_length_n = 0;
-  r->header_only = 1;  
+  r->chunked = 0;
+  r->header_only = 1;
   
   if((tmp = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_VERSION)) == NULL) {
     fsub->sub.dequeue_after_response=1;
+    r->header_only = 0;
     nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No Sec-Websocket-Version header present", 1);
     return NGX_ERROR;
   }
@@ -932,6 +938,7 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
     if(ws_version != 13) {
       //only websocket version 13 (RFC 6455) is supported
       fsub->sub.dequeue_after_response=1;
+      r->header_only = 0;
       nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Unsupported websocket protocol version (only version 13 is supported)", 1);
       return NGX_ERROR;
     }
@@ -939,6 +946,7 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
   
   if((ws_key = nchan_get_header_value(r, NCHAN_HEADER_SEC_WEBSOCKET_KEY)) == NULL) {
     fsub->sub.dequeue_after_response=1;
+    r->header_only = 0;
     nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "No Sec-Websocket-Key header present", 1);
     return NGX_ERROR;
   }
@@ -1888,6 +1896,8 @@ static ngx_int_t websocket_respond_message(subscriber_t *self, nchan_msg_t *msg)
   if((rc = ensure_handshake(fsub)) != NGX_OK) {
     return rc;
   }
+  ngx_http_request_t *r = self->request;
+  r->header_only = 0;
   
   if(fsub->timeout_ev.timer_set) {
     ngx_del_timer(&fsub->timeout_ev);

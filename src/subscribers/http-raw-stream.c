@@ -18,6 +18,8 @@ static void rawstream_ensure_headers_sent(full_subscriber_t *fsub) {
   if(!fsub->data.shook_hands) {
     nchan_cleverly_output_headers_only_for_later_response(r);
     fsub->data.shook_hands = 1; 
+    r->header_only = 0;
+    r->chunked = 0;
   }
 }
 

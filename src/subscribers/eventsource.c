@@ -49,7 +49,10 @@ static void es_ensure_headers_sent(full_subscriber_t *fsub) {
     
     bc->buf.last_buf = 0;
     bc->buf.flush = 1;
-
+    
+    r->chunked = 0;
+    r->header_only = 0;
+    
     nchan_output_filter(fsub->sub.request, &bc->chain);
     
     fsub->data.shook_hands = 1; 

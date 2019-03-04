@@ -44,6 +44,9 @@ static void multipart_ensure_headers_sent(full_subscriber_t *fsub) {
     //set preamble in the request ctx. it would be nicer to store in in the subscriber data, 
     //but that would mean not reusing longpoll's fsub directly
     
+    r->header_only = 0;
+    r->chunked = 0;
+    
     if((bc = nchan_bufchain_pool_reserve(ctx->bcp, 1)) == NULL) {
       ERR("can't reserve bufchain for multipart headers");
       nchan_respond_status(fsub->sub.request, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 1);
