@@ -502,11 +502,6 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     goto forbidden;
   }
   
-  if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
-    //just get the subscriber_channel_id for now. the publisher one is handled elsewhere
-    return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  
   if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
     goto bad_msgid;
   }
@@ -552,6 +547,10 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
     //want websocket?
     if(cf->sub.websocket) {
       //we prefer to subscribe
+      if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
+        return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
+      }
+      
 #if FAKESHARD
       memstore_sub_debug_start();
 #endif
@@ -607,6 +606,9 @@ ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
         }
         
         if(sub_create) {
+          if((channel_id = nchan_get_channel_id(r, SUB, 1)) == NULL) {
+            return r->headers_out.status ? NGX_OK : NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
 #if FAKESHARD
           memstore_sub_debug_start();
 #endif
