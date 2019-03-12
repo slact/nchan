@@ -37,7 +37,7 @@ static void change_sub_count(memstore_channel_head_t *ch, ngx_int_t n) {
   if(ch->shared) {
     ngx_atomic_fetch_add(&ch->shared->sub_count, n);
   }
-  if(ch->cf->redis.enabled) {
+  if(ch->cf->redis.enabled && ch->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED) {
     memstore_fakesub_add(ch, n);
   }
 }
