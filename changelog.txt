@@ -1,3 +1,8 @@
+1.2.5 (Mar. 20 2019)
+ fix: using multiplexed channels with Redis in backup mode may result in worker crash
+ fix: nchan_publisher_channel_id could not be set exclusively in a publisher location
+ fix: Google pagespeed module compatibility
+ fix: nchan prevents nginx from starting if no http {} block is configured
 1.2.4 (Feb. 25 2019)
  fix: Redis cluster info with zero-length hostname may result in worker crash
  fix: build problems with included hiredis lib in FreeBSD
