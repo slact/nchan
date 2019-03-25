@@ -472,7 +472,7 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
   }
   d = NULL;
   
-  if(websocket_release(&fsub->sub, 0) == NGX_ABORT) {
+  if(websocket_release(&fsub->sub, 0) == NGX_ABORT || fsub->sub.status == DEAD) {
     //zombie publisher
     //nothing more to do, we're finished here
     return NGX_OK;
@@ -839,10 +839,6 @@ ngx_int_t websocket_subscriber_destroy(subscriber_t *sub) {
 
     websocket_delete_timers(fsub);
     nchan_free_msg_id(&sub->last_msgid);
-    //debug 
-    if(fsub->cln) {
-      fsub->cln->data = NULL;
-    }
     //ngx_memset(fsub, 0x13, sizeof(*fsub));
     ws_destroy_msgpool(fsub);
     if(fsub->deflate.zstream_in) {
