@@ -1103,6 +1103,11 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->oldest_msgid.time = 0;
     head->oldest_msgid.tagcount = n;
     
+    if((head->multi_waiting_debug = ngx_calloc(sizeof(*head->multi_waiting_debug) * (n + 1), ngx_cycle->log)) == NULL) {
+      ERR("can't allocate multi debug for multi-channel %p", head);
+      return NULL;
+    }
+    
     if(n <= NCHAN_FIXED_MULTITAG_MAX) {
       tags_latest = head->latest_msgid.tag.fixed;
       tags_oldest = head->oldest_msgid.tag.fixed;
@@ -1142,6 +1147,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->oldest_msgid.tagcount = 1;
     
     head->multi = NULL;
+    head->multi_waiting_debug = NULL;
   }
   
   if(head->cf && head->cf->redis.enabled && !head->multi) { // both DISTRIBUTED and BACKUP redis storage modes

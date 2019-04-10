@@ -45,6 +45,24 @@ static void change_sub_count(memstore_channel_head_t *ch, ngx_int_t n) {
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p enqueued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   assert(d->multi_chanhead->multi_waiting > 0);
+  
+  subscriber_t *sub = d->multi->sub;
+  int found_myself = 0;
+  multi_waiting_debug_t *mwd;
+  for(int i=0; i<d->multi_chanhead->multi_count; i++) {
+    mwd = &d->multi_chanhead->multi_waiting_debug[i];
+    if(mwd->sub == sub) {
+      assert(d->multi == mwd->multi);
+      mwd->sub = NULL;
+      mwd->multi_waiting_prev = 0;
+      mwd->multi = NULL;
+      mwd->n = 0;
+      found_myself = 1;
+      break;
+    }
+  }
+  assert(found_myself);
+  
   d->multi_chanhead->multi_waiting --;
   if(d->multi_chanhead->multi_waiting == 0) {
     memstore_ready_chanhead_unless_stub(d->multi_chanhead);
@@ -156,8 +174,25 @@ subscriber_t *memstore_multi_subscriber_create(memstore_channel_head_t *chanhead
   d->multi->sub = sub;
   d->multi_chanhead = chanhead;
   d->n = n;
+  
+  int prev_multi_waiting = chanhead->multi_waiting;
+  
   chanhead->multi_waiting++;  
-
+  assert(chanhead->multi_waiting != 0);
+  assert(chanhead->multi_waiting <= chanhead->multi_count);
+  
+  multi_waiting_debug_t *mwd;
+  for(int i=0; i<chanhead->multi_count; i++) {
+    mwd = &chanhead->multi_waiting_debug[i];
+    if(mwd->sub == NULL) {
+      mwd->sub = sub;
+      mwd->multi = d->multi;
+      mwd->n = d->n;
+      mwd->multi_waiting_prev = prev_multi_waiting;
+      break;
+    }
+  }
+  
   target_ch->spooler.fn->add(&target_ch->spooler, sub);
   
   multi_subs = chanhead->shared->sub_count;

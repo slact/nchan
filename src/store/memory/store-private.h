@@ -40,6 +40,13 @@ typedef struct {
   subscriber_t        *sub;
 } memstore_multi_t;
 
+typedef struct {
+  subscriber_t        *sub;
+  int                  multi_waiting_prev;
+  memstore_multi_t    *multi;
+  int                  n;
+} multi_waiting_debug_t;
+
 struct memstore_channel_head_s {
   ngx_str_t                       id; //channel id
   ngx_int_t                       owner;
@@ -60,6 +67,8 @@ struct memstore_channel_head_s {
   uint8_t                         multi_waiting;
   uint8_t                         multi_count;
   memstore_multi_t               *multi;
+  multi_waiting_debug_t          *multi_waiting_debug;
+  
   
   ngx_int_t                       gc_queued_times; // useful for debugging
   store_channel_head_shm_t       *shared;
