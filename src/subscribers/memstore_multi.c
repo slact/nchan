@@ -49,7 +49,8 @@ static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   subscriber_t *sub = d->multi->sub;
   int found_myself = 0;
   multi_waiting_debug_t *mwd;
-  for(int i=0; i<d->multi_chanhead->multi_count; i++) {
+  int i;
+  for(i=0; i<d->multi_chanhead->multi_count; i++) {
     mwd = &d->multi_chanhead->multi_waiting_debug[i];
     if(mwd->sub == sub) {
       assert(d->multi == mwd->multi);
@@ -182,7 +183,8 @@ subscriber_t *memstore_multi_subscriber_create(memstore_channel_head_t *chanhead
   assert(chanhead->multi_waiting <= chanhead->multi_count);
   
   multi_waiting_debug_t *mwd;
-  for(int i=0; i<chanhead->multi_count; i++) {
+  int i;
+  for(i=0; i<chanhead->multi_count; i++) {
     mwd = &chanhead->multi_waiting_debug[i];
     if(mwd->sub == NULL) {
       mwd->sub = sub;
