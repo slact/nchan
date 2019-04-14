@@ -44,9 +44,9 @@ static void change_sub_count(memstore_channel_head_t *ch, ngx_int_t n) {
 
 static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   DBG("%p enqueued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
-  assert(d->multi_chanhead->multi_waiting > 0);
-  d->multi_chanhead->multi_waiting --;
-  if(d->multi_chanhead->multi_waiting == 0) {
+  assert(d->multi_chanhead->multi_subscribers_pending > 0);
+  d->multi_chanhead->multi_subscribers_pending --;
+  if(d->multi_chanhead->multi_subscribers_pending == 0) {
     memstore_ready_chanhead_unless_stub(d->multi_chanhead);
   }
   
@@ -56,7 +56,7 @@ static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
 static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   DBG("%p dequeued (%p %V %i) %V", d->multi->sub, d->multi_chanhead, &d->multi_chanhead->id, d->n, &d->multi->id);
   d->multi_chanhead->status = WAITING;
-  d->multi_chanhead->multi_waiting++;
+  d->multi_chanhead->multi_subscribers_pending++;
   d->multi->sub = NULL;
   
   return NGX_OK;
@@ -152,18 +152,19 @@ subscriber_t *memstore_multi_subscriber_create(memstore_channel_head_t *chanhead
   sub->destroy_after_dequeue = 1;
   sub->dequeue_after_response = 0;
 
+  //DBG("create multi sub for %V (n=%i) pending=%i", &chanhead->multi[n].id, n, chanhead->multi_subscribers_pending);
   d->multi = &chanhead->multi[n];
   d->multi->sub = sub;
   d->multi_chanhead = chanhead;
   d->n = n;
-  chanhead->multi_waiting++;  
+  d->target_chanhead = target_ch;
+  
+  assert(chanhead->multi_subscribers_pending > 0);
 
   target_ch->spooler.fn->add(&target_ch->spooler, sub);
   
   multi_subs = chanhead->shared->sub_count;
-  
-  d->target_chanhead = target_ch;
-  
+
   change_sub_count(target_ch, multi_subs);
   
   DBG("%p created with privdata %p", d->multi->sub, d);

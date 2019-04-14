@@ -1069,7 +1069,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
 #endif
   head->multi=NULL;
   head->multi_count = 0;
-  head->multi_waiting = 0;
+  head->multi_subscribers_pending = 0;
   
   //set channel
   ngx_memcpy(&head->channel.id, &head->id, sizeof(ngx_str_t));
@@ -1088,7 +1088,6 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
   
   head->spooler.running=0;
   
-  head->multi_waiting = 0;
   if((n = parse_multi_id(&head->id, ids)) > 0) {
     memstore_multi_t          *multi;
     int16_t                   *tags_latest, *tags_oldest;
@@ -1127,11 +1126,13 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     }
     
     head->multi_count = n;
+    head->multi_subscribers_pending = n;
     head->multi = multi;
     head->owner = head->slot; //multis are always self-owned
   }
   else {
     head->multi_count = 0;
+    head->multi_subscribers_pending = n;
     
     head->latest_msgid.time = 0;
     head->latest_msgid.tag.fixed[0] = 0;
