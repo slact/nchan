@@ -53,7 +53,13 @@ end
 module NchanTools
 class PubSubTest <  Minitest::Test
   def short_id
-    SecureRandom.hex.to_i(16).to_s(36)[0..5]
+    #testinfo = caller_locations(1,1)[0]
+    #if testinfo.label == "pubsub"
+    #  testinfo = caller_locations(2,2)[0]
+    #end
+    #test_name = ("#{testinfo.label}_#{testinfo.lineno}").gsub(/\W/,"_")
+    #"#{test_name}_#{SecureRandom.hex.to_i(16).to_s(36)[0..5]}"
+    "#{SecureRandom.hex.to_i(16).to_s(36)[0..5]}"
   end
 
 
