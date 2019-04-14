@@ -395,17 +395,18 @@ class PubSubTest <  Minitest::Test
   def test_channel_multiplexing(n=2, delimited=false)
     
     pubs = []
+    shared_id = short_id
     n.times do |i|
-      pubs << MultiCheck.new(short_id)
+      pubs << MultiCheck.new("#{i}_#{shared_id}")
     end
     
-    sub_url=delimited ? multi_sub_url(pubs, '/sub/split/', '_') : multi_sub_url(pubs)
-    
-    n = 15
+    sub_url=delimited ? multi_sub_url(pubs, '/sub/split/', ',') : multi_sub_url(pubs)
+    n = n || 15
+    n_subs = 10
     scrambles = 5
     subs = []
     scrambles.times do |i|
-      sub = Subscriber.new(url("#{sub_url}?meh=#{short_id}"), n, quit_message: 'FIN', retry_delay: 1, timeout: 20)
+      sub = Subscriber.new(url("#{sub_url}?meh=#{short_id}"), n_subs, quit_message: 'FIN', retry_delay: 1, timeout: 20)
       sub.on_failure { false }
       subs << sub
     end
@@ -414,30 +415,29 @@ class PubSubTest <  Minitest::Test
     
     pubs.each {|p| p.pub.post "FIRST from #{p.id}" }
     
-    10.times do |i|
+    5.times do |i|
       pubs.each {|p| p.pub.post "hello #{i} from #{p.id}" }
     end
     
     sleep 1
     
-    5.times do |i|
+    3.times do |i|
       pubs.first.pub.post "yes #{i} from #{pubs.first.id}"
     end
-    
     pubs.each do |p| 
-      10.times do |i|
+      5.times do |i|
         p.pub.post "hello #{i} from #{p.id}"
       end
     end
     
-    latesubs = Subscriber.new(url("#{sub_url}?late&meh=#{short_id}"), n, quit_message: 'FIN')
-    latesubs.on_failure { false }
+    latesubs = Subscriber.new(url("#{sub_url}?late&meh=#{short_id}"), n_subs, quit_message: 'FIN')
+    latesubs.on_failure { puts "shmopp"; false }
     subs << latesubs
     latesubs.run
     
     sleep 1
     
-    10.times do |i|
+    5.times do |i|
       pubs.each {|p| p.pub.post "hello again #{i} from #{p.id}" }
     end
     
@@ -445,7 +445,6 @@ class PubSubTest <  Minitest::Test
     subs.each &:wait
     sleep 1
     subs.each_with_index do |sub, sub_i|
-      
       assert_equal 0, sub.errors.count, "Subscriber encountered #{sub.errors.count} errors: #{sub.errors.join ", "}"
       
       msgs=[]
@@ -472,7 +471,15 @@ class PubSubTest <  Minitest::Test
     test_channel_multiplexing 5
   end
   
+    def test_channel_multiplexing_3
+    test_channel_multiplexing 3
+  end
+  
   def test_channel_delimitered_multiplexing_15
+    test_channel_multiplexing 15, true
+  end
+  
+  def test_channel_delimitered_multiplexing_100
     test_channel_multiplexing 15, true
   end
   
