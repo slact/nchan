@@ -674,8 +674,8 @@ CfCmd.new do
       group: "security",
       tags: ['publisher', 'subscriber', 'channel-id' ],
       value: "<number>",
-      default: 512,
-      info: "Maximum permissible channel id length (number of characters). Longer ids will be truncated."
+      default: 1024,
+      info: "Maximum permissible channel id length (number of characters). This settings applies to ids before they may be split by the `nchan_channel_id_split_delimiter` Requests with a channel id that is too long will receive a `403 Forbidden` response."
   
   nchan_max_channel_subscribers [:main, :srv, :loc],
       :ngx_conf_set_num_slot,
