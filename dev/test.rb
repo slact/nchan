@@ -5,7 +5,20 @@ require 'bundler/setup'
 require 'minitest'
 require 'minitest/reporters'
 require "minitest/autorun"
-Minitest::Reporters.use! [Minitest::Reporters::SpecReporter.new(:color => true)]
+class BetterSpecReporter < Minitest::Reporters::SpecReporter
+  def before_test(test)
+    test_name = test.name.gsub(/^test_: /, 'test:')
+    print pad_test(test_name)
+    print yellow("...")
+  end
+  def record_print_status(test)
+    print ANSI::Code.left(4)
+    print_colored_status(test)
+    print(" (%.2fs)" % test.time) unless test.time.nil?
+    puts
+  end
+end
+Minitest::Reporters.use! BetterSpecReporter.new
 require 'securerandom'
 require 'nchan_tools/pubsub'
 require_relative 'authserver.rb'
