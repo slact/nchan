@@ -1264,10 +1264,10 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_max_channel_id_length** `<number>`  
   arguments: 1  
-  default: `512`  
+  default: `1024`  
   context: http, server, location  
   legacy name: push_max_channel_id_length  
-  > Maximum permissible channel id length (number of characters). Longer ids will be truncated.    
+  > Maximum permissible channel id length (number of characters). This settings applies to ids before they may be split by the `nchan_channel_id_split_delimiter` Requests with a channel id that is too long will receive a `403 Forbidden` response.    
 
 - **nchan_max_channel_subscribers** `<number>`  
   arguments: 1  
