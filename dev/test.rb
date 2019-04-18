@@ -1323,7 +1323,7 @@ class PubSubTest <  Minitest::Test
         end
         
         begin
-          chan = short_id
+          chan = "#{client_type}_#{with_auth ? "auth" : ""}_#{short_id}"
           
           #puts client_type
           
