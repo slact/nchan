@@ -1418,7 +1418,7 @@ static void websocket_reading(ngx_http_request_t *r) {
                   payload_str.data = frame->payload;
                   payload_str.len = frame->payload_len;
                   set_buf_to_str(&bc->buf, &payload_str);
-                  websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, frame->payload_len, bc);
+                  websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, frame->payload_len, &bc->chain);
                   break;
                 
                 case WEBSOCKET_OPCODE_PONG:
