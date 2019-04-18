@@ -587,11 +587,11 @@ class Subscriber
         end
         
         bundle.ws.on :ping do |ev|
-          @on_ping.call if @on_ping
+          @subscriber.on(:ping).call ev, bundle
         end
         
         bundle.ws.on :pong do |ev|
-          @on_pong.call if @on_pong
+          @subscriber.on(:pong).call ev, bundle
         end
         
         bundle.ws.on :error do |ev|
@@ -653,13 +653,6 @@ class Subscriber
       end
     end
     
-    def on_ping
-      @on_ping = Proc.new if block_given?
-    end
-    def on_pong
-      @on_pong = Proc.new if block_given?
-    end
-    
     def listen(bundle)
       while @ws[bundle]
         begin
@@ -702,17 +695,18 @@ class Subscriber
     end
     
     def close(bundle)
-      if bundle
+      if bundle then
         @ws.delete bundle
         bundle.sock.close unless bundle.sock.closed?
       end
       @connected -= 1
-      if @connected <= 0
-        sleep 0.1 until @ws.count == 0
+      if @connected <= 0 then
+        until @ws.count == 0 do
+          sleep 0.1
+        end
         @cooked.signal true
       end
     end
-    
   end
   
   class LongPollClient < Client
@@ -1526,6 +1520,8 @@ class Subscriber
 
   attr_accessor :url, :client, :messages, :max_round_trips, :quit_message, :errors, :concurrency, :waiting, :finished, :client_class, :log
   def initialize(url, concurrency=1, opt={})
+    @empty_block = Proc.new {}
+    @on={}
     @care_about_message_ids=opt[:use_message_id].nil? ? true : opt[:use_message_id]
     @url=url
     @quit_message = opt[:quit_message]
@@ -1620,6 +1616,14 @@ class Subscriber
     @client.poke until_what, timeout
   end
 
+  def on(evt_name = nil, &block)
+    if block_given?
+      @on[evt_name.to_sym] = block
+    else
+      @on[evt_name.to_sym] or @empty_block
+    end
+  end
+  
   def on_message(msg=nil, bundle=nil, &block)
     #puts "received message #{msg && msg.to_s[0..15]}"
     if block_given?
