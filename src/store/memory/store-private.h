@@ -57,7 +57,7 @@ struct memstore_channel_head_s {
   uint16_t                        reserved;
 #endif
   
-  uint8_t                         multi_waiting;
+  uint8_t                         multi_subscribers_pending;
   uint8_t                         multi_count;
   memstore_multi_t               *multi;
   

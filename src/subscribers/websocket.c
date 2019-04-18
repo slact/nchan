@@ -1151,9 +1151,9 @@ static ngx_int_t websocket_reserve(subscriber_t *self) {
 }
 static ngx_int_t websocket_release(subscriber_t *self, uint8_t nodestroy) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  //DBG("%p release for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   assert(self->reserved > 0);
   self->reserved--;
-  //DBG("%p release for req %p, reservations: %i", self, fsub->sub.request, self->reserved);
   if(nodestroy == 0 && fsub->awaiting_destruction == 1 && self->reserved == 0) {
     websocket_subscriber_destroy(self);
     return NGX_ABORT;
