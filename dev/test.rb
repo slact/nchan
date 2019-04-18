@@ -268,6 +268,27 @@ class PubSubTest <  Minitest::Test
     sub.wait
   end
   
+  def test_websocket_ping_frames
+    pub, sub = pubsub(1, client: :websocket)
+    sub.run
+    pings = ["", "hey", "pingme pls", "this pingis a littlelonger but that's okay it's still not too long"]
+    pongs = pings.dup
+    sub.on :pong do |ev|
+      assert_equal pongs.shift, ev.data, "unexpected pong data"
+      if pongs.length == 0
+        pub.post "FIN"
+      end
+    end
+    
+    sub.wait :ready
+    pings.each do |p|
+      sub.client.send_ping p
+    end
+    sub.wait
+    assert_equal 0, pongs.length, "remaining pongs"
+    sub.terminate
+  end
+  
   def test_websocket_pubsub_echo
     sub=Subscriber.new(url("/pubsub/#{short_id}"), 1, client: :websocket, quit_message: 'FIN')
     

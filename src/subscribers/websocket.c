@@ -1301,8 +1301,6 @@ static void websocket_reading(ngx_http_request_t *r) {
   ngx_connection_t           *c;
   ngx_buf_t                  *msgbuf, buf;
   //ngx_str_t                 msg_in_str;
-  int                         close_code;
-  ngx_str_t                   close_reason;
 
   c = r->connection;
   rev = c->read;
@@ -1385,66 +1383,75 @@ static void websocket_reading(ngx_http_request_t *r) {
           case WEBSOCKET_OPCODE_PING:
           case WEBSOCKET_OPCODE_PONG:
           case WEBSOCKET_OPCODE_CLOSE:
-            if (frame->payload_len == 0) {
-              frame->payload = NULL;
-            }
-            else if(frame->payload_len < 1024) {
-              u_char payloadbuf[1024];
-              frame->payload = payloadbuf;
-              frame->last = frame->payload;
-              set_buffer(&buf, frame->payload, frame->last, frame->payload_len);
-              if ((rc = ws_recv(c, rev, &buf, frame->payload_len)) != NGX_OK) {
-                ERR("ws_recv NOT OK when receiving payload");
-                goto exit;
-              }
-              if (frame->mask) {
-                websocket_unmask_frame(frame);
-              }
-            }
-            else {
-              //ERROR: frame too big
-              websocket_send_close_frame(fsub, CLOSE_MESSAGE_TOO_BIG, NULL);
-              return websocket_reading_finalize(r);
-            }
-            
-            switch(frame->opcode) {
-              case WEBSOCKET_OPCODE_PING:
-                DBG("%p got pinged", fsub);
-                websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, 0, NULL);
-                break;
+            { //block-scope these vars
+              u_char                  payloadbuf[1024];
+              int                     close_code;
+              ngx_str_t               payload_str;
+              nchan_buf_and_chain_t  *bc;
               
-              case WEBSOCKET_OPCODE_PONG:
-                DBG("%p Got ponged", fsub);
-                if(fsub->awaiting_pong) {
-                  fsub->awaiting_pong = 0;
+              if (frame->payload_len == 0) {
+                frame->payload = NULL;
+              }
+              else if(frame->payload_len < 1024) {
+                frame->payload = payloadbuf;
+                frame->last = frame->payload;
+                set_buffer(&buf, frame->payload, frame->last, frame->payload_len);
+                if ((rc = ws_recv(c, rev, &buf, frame->payload_len)) != NGX_OK) {
+                  ERR("ws_recv NOT OK when receiving payload");
+                  goto exit;
                 }
-                // unsolicited pongs are ok too as per 
-                // https://tools.ietf.org/html/rfc6455#page-37
-                break;
-              
-              case WEBSOCKET_OPCODE_CLOSE:
-                fsub->received_close_frame = 1;
-                if(frame->payload_len >= 2) {
-                  ngx_memcpy(&close_code, frame->payload, 2);
-                  close_code = ntohs(close_code);
-                  close_reason.data = frame->payload + 2;
-                  close_reason.len = frame->payload_len - 2;
+                if (frame->mask) {
+                  websocket_unmask_frame(frame);
                 }
-                else {
-                  close_code = 0;
-                  close_reason.data = (u_char *)"";
-                  close_reason.len = 0;
-                }
-                DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &close_reason);
-                if(!fsub->sent_close_frame) {
-                  websocket_send_close_frame(fsub, close_code, &close_reason);
-                }
+              }
+              else {
+                //ERROR: frame too big
+                websocket_send_close_frame(fsub, CLOSE_MESSAGE_TOO_BIG, NULL);
                 return websocket_reading_finalize(r);
-                break; //good practice?
+              }
+              
+              switch(frame->opcode) {
+                case WEBSOCKET_OPCODE_PING:
+                  bc = nchan_bufchain_pool_reserve(fsub->ctx->bcp, 1);
+                  DBG("%p got pinged", fsub);
+                  init_buf(&bc->buf, 1);
+                  payload_str.data = frame->payload;
+                  payload_str.len = frame->payload_len;
+                  set_buf_to_str(&bc->buf, &payload_str);
+                  websocket_send_frame(fsub, WEBSOCKET_PONG_LAST_FRAME_BYTE, frame->payload_len, bc);
+                  break;
+                
+                case WEBSOCKET_OPCODE_PONG:
+                  DBG("%p Got ponged", fsub);
+                  if(fsub->awaiting_pong) {
+                    fsub->awaiting_pong = 0;
+                  }
+                  // unsolicited pongs are ok too as per 
+                  // https://tools.ietf.org/html/rfc6455#page-37
+                  break;
+                
+                case WEBSOCKET_OPCODE_CLOSE:
+                  fsub->received_close_frame = 1;
+                  if(frame->payload_len >= 2) {
+                    ngx_memcpy(&close_code, frame->payload, 2);
+                    close_code = ntohs(close_code);
+                    payload_str.data = frame->payload + 2;
+                    payload_str.len = frame->payload_len - 2;
+                  }
+                  else {
+                    close_code = 0;
+                    payload_str.data = (u_char *)"";
+                    payload_str.len = 0;
+                  }
+                  DBG("%p wants to close (code %i reason \"%V\")", fsub, close_code, &payload_str);
+                  if(!fsub->sent_close_frame) {
+                    websocket_send_close_frame(fsub, close_code, &payload_str);
+                  }
+                  return websocket_reading_finalize(r);
+                  break; //good practice?
+              }
             }
-            
             break;
-          
           case WEBSOCKET_OPCODE_TEXT:
           case WEBSOCKET_OPCODE_BINARY:
             
