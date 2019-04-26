@@ -3,7 +3,7 @@
 -- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent
 -- create_channel_ttl - make new channel if it's absent, with ttl set to this. 0 to disable.
 -- result_code can be: 200 - ok, 404 - not found, 410 - gone, 418 - not yet available
-local ns, id, time, tag, subscribe_if_current = ARGV[1], ARGV[2], tonumber(ARGV[3]), tonumber(ARGV[4])
+local ns, id, time, tag = ARGV[1], ARGV[2], tonumber(ARGV[3]), tonumber(ARGV[4])
 local no_msgid_order=ARGV[5]
 local create_channel_ttl=tonumber(ARGV[6]) or 0
 local msg_id
@@ -15,10 +15,10 @@ if redis.replicate_commands then
   redis.replicate_commands()
 end
 
--- This script has gotten big and ugly, but there are a few good reasons 
--- to keep it big and ugly. It needs to do a lot of stuff atomically, and 
--- redis doesn't do includes. It could be generated pre-insertion into redis, 
--- but then error messages become less useful, complicating debugging. If you 
+-- This script has gotten big and ugly, but there are a few good reasons
+-- to keep it big and ugly. It needs to do a lot of stuff atomically, and
+-- redis doesn't do includes. It could be generated pre-insertion into redis,
+-- but then error messages become less useful, complicating debugging. If you
 -- have a solution to this, please help.
 local ch=('%s{channel:%s}'):format(ns, id)
 local msgkey_fmt=ch..':msg:%s'
@@ -48,11 +48,21 @@ local oldestmsg=function(list_key, old_fmt)
       else
         redis.call('rpop', list_key)
         del=del+1
-      end 
+      end
     else
       --dbg(list_key, " is empty")
       break
     end
+  end
+end
+
+local getmsg = function(msgkey)
+  local msg = {}
+  msg.time, msg.tag, msg.prev_time, msg.prev_tag, msg.data, msg.content_type, msg.eventsource_event, msg.compression = unpack(redis.call('HMGET', msgkey, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event', 'compression'))
+  if not msg.time and redis.call('EXISTS', msgkey) == 0 then --doesn't even exist
+    return nil
+  else
+    return msg
   end
 end
 
@@ -81,7 +91,7 @@ local channel = tohash(redis.call('HGETALL', key.channel))
 local new_channel = false
 if next(channel) == nil then
   if create_channel_ttl==0 then
-    return {404, nil}
+    return {404}
   end
   redis.call('HSET', key.channel, 'time', time)
   redis.call('EXPIRE', key.channel, create_channel_ttl)
@@ -91,11 +101,40 @@ end
 
 local subs_count = tonumber(channel.subscribers)
 
+local function verify_return_msg(msgkey, description)
+  description = description or "(?)"
+  local ttl = redis.call('TTL', msgkey)
+  local msg = getmsg(msgkey)
+  if not msg then
+    return {404}
+  end
+  local ret = {200,
+    ttl,
+    tonumber(msg.time) or "",
+    tonumber(msg.tag) or "",
+    tonumber(msg.prev_time) or "",
+    tonumber(msg.prev_tag) or "",
+    msg.data or "",
+    msg.content_type or "",
+    msg.eventsource_event or "",
+    tonumber(msg.compression or 0),
+    subs_count
+  }
+  if not ttl or not msg.time or not msg.tag then
+    if not ttl then
+      error(("no ttl for %s (%s)"):format(msgkey, description))
+    else
+      error(("missing msg.time or msg.tag (%s)"):format(description))
+    end
+  end
+  return ret
+end
+
 if msg_id==nil then
   local found_msg_key
   if new_channel then
     --dbg("new channel")
-    return {418, "", "", "", "", subs_count}
+    return {418}
   else
     --dbg("no msg id given, ord="..no_msgid_order)
     
@@ -109,47 +148,25 @@ if msg_id==nil then
     
     if found_msg_key == nil then
       --we await a message
-      return {418, "", "", "", "", subs_count}
+      return {418}
     else
-      local msg=tohash(redis.call('HGETALL', found_msg_key))
-      if not next(msg) then --empty
-        return {404, "", "", "", "", subs_count}
-      else
-        --dbg(("found msg %s:%s  after %s:%s"):format(tostring(msg.time), tostring(msg.tag), tostring(time), tostring(tag)))
-        local ttl = redis.call('TTL', found_msg_key)
-        return {200, ttl, tonumber(msg.time) or "", tonumber(msg.tag) or "", tonumber(msg.prev_time) or "", tonumber(msg.prev_tag) or "", msg.data or "", msg.content_type or "", msg.eventsource_event or "", tonumber(msg.compression or 0), subs_count}
-      end
+      return verify_return_msg(found_msg_key, no_msgid_order == 'FIFO' and "most recent message" or "oldest message")
     end
   end
 else
   if msg_id and channel.current_message == msg_id
    or not channel.current_message then
-    return {418, "", "", "", "", subs_count}
+    return {418}
   end
 
   key.message=key.message:format(msg_id)
-  local msg=tohash(redis.call('HGETALL', key.message))
+  local msg_next = redis.call('HGET', key.message, "next")
 
-  if next(msg) == nil then -- no such message. it might've expired, or maybe it was never there
+  if not msg_next then -- no such message. it might've expired, or maybe it was never there
     --dbg("MESSAGE NOT FOUND")
-    return {404, nil}
+    return {404}
   end
 
-  local next_msg, next_msgtime, next_msgtag
-  if not msg.next then --this should have been taken care of by the channel.current_message check
-    --dbg("NEXT MESSAGE KEY NOT PRESENT. ERROR, ERROR!")
-    return {404, nil}
-  else
-    --dbg("NEXT MESSAGE KEY PRESENT: " .. msg.next)
-    key.next_message=key.next_message:format(msg.next)
-    if redis.call('EXISTS', key.next_message)~=0 then
-      local ntime, ntag, prev_time, prev_tag, ndata, ncontenttype, neventsource_event, ncompression=unpack(redis.call('HMGET', key.next_message, 'time', 'tag', 'prev_time', 'prev_tag', 'data', 'content_type', 'eventsource_event', 'compression'))
-      local ttl = redis.call('TTL', key.next_message)
-      --dbg(("found msg2 %i:%i  after %i:%i"):format(ntime, ntag, time, tag))
-      return {200, ttl, tonumber(ntime) or "", tonumber(ntag) or "", tonumber(prev_time) or "", tonumber(prev_tag) or "", ndata or "", ncontenttype or "", neventsource_event or "", ncompression or 0, subs_count}
-    else
-      --dbg("NEXT MESSAGE NOT FOUND")
-      return {404, nil}
-    end
-  end
+  key.next_message=key.next_message:format(msg_next)
+  return verify_return_msg(key.next_message, "next_message after " .. (msg_id or "(?)"))
 end
