@@ -447,7 +447,7 @@ static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
   //redis_subscriber_command(NULL, NULL, "UNSUBSCRIBE {channel:%b}:pubsub", str(&(channel->id)));
 }
 
-static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset);
+static ngx_int_t msg_from_redis_get_message_reply(redisAsyncContext *ac, nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset);
 
 #define SLOW_REDIS_REPLY 100 //ms
 
@@ -521,7 +521,7 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *ac, void *r, void *p
       ERR("get_msg_from_msgkey channel id is NULL");
       return;
     }
-    if(msg_from_redis_get_message_reply(&msg, &cmsg, &content_type, &eventsource_event, reply, 0) != NGX_OK) {
+    if(msg_from_redis_get_message_reply(ac, &msg, &cmsg, &content_type, &eventsource_event, reply, 0) != NGX_OK) {
       ERR("invalid message or message absent after get_msg_from_key");
       return;
     }
@@ -1663,7 +1663,7 @@ static ngx_int_t nchan_store_find_channel(ngx_str_t *channel_id, nchan_loc_conf_
   return NGX_OK;
 }
 
-static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset) {
+static ngx_int_t msg_from_redis_get_message_reply(redisAsyncContext *ac, nchan_msg_t *msg, nchan_compressed_msg_t *cmsg, ngx_str_t *content_type, ngx_str_t *eventsource_event, redisReply *r, uint16_t offset) {
   
   redisReply         **els = r->element;
   size_t               content_type_len = 0, es_event_len = 0;
@@ -1755,6 +1755,35 @@ static ngx_int_t msg_from_redis_get_message_reply(nchan_msg_t *msg, nchan_compre
   }
   else {
     ERR("invalid message redis reply");
+    redisEchoCallback(ac, r, NULL);
+    if(! CHECK_REPLY_ARRAY_MIN_SIZE(r, offset + 8)) {
+      ERR("reply isn't an array or size < %i", offset + 8);
+    }
+    if(! CHECK_REPLY_INT(els[offset])) {            //msg TTL
+      ERR("reply TTL isn't an int");
+    }
+    if(! CHECK_REPLY_INT_OR_STR(els[offset+1])) {   //id - time
+      ERR("reply id(time) isn't an int or str");
+    }
+    if(! CHECK_REPLY_INT_OR_STR(els[offset+2])) {   //id - tag
+      ERR("reply id(tag) isn't an int or str");
+    }
+    if(! CHECK_REPLY_INT_OR_STR(els[offset+3])) {   //prev_id - time
+      ERR("reply prev_id(time) isn't an int or str");
+    }
+    if(! CHECK_REPLY_INT_OR_STR(els[offset+4])) {   //prev_id - tag
+      ERR("reply prev_id(tag) isn't an int or str");
+    }
+    if(! CHECK_REPLY_STR(els[offset+5])) {   //message
+      ERR("reply message isn't a str");
+    }
+    if(! CHECK_REPLY_STR(els[offset+6])) {   //content-type
+      ERR("reply content-type isn't a str");
+    }
+    if(! CHECK_REPLY_STR(els[offset+7])) {  //eventsource event
+      ERR("reply eventsource-event isn't a str");
+    }
+    
     return NGX_ERROR;
   }
 }
@@ -1826,7 +1855,7 @@ static void redis_get_message_callback(redisAsyncContext *ac, void *r, void *pri
   
     switch(reply->element[0]->integer) {
       case 200: //ok
-        if(msg_from_redis_get_message_reply(&msg, &cmsg, &content_type, &eventsource_event, reply, 1) == NGX_OK) {
+        if(msg_from_redis_get_message_reply(ac, &msg, &cmsg, &content_type, &eventsource_event, reply, 1) == NGX_OK) {
           d->callback(MSG_FOUND, &msg, d->privdata);
         }
         break;
