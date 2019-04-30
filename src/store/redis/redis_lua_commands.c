@@ -219,7 +219,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return nil\n"
    "end\n"},
 
-  {"get_message", "e7836db040571e1fd35e6018e908aca98d1c07ea",
+  {"get_message", "2dd54256db6a11ece078ebb92334d996d8caf9eb",
    "--input:  keys: [], values: [namespace, channel_id, msg_time, msg_tag, no_msgid_order, create_channel_ttl]\n"
    "--output: result_code, msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression_type, channel_subscriber_count\n"
    "-- no_msgid_order: 'FILO' for oldest message, 'FIFO' for most recent\n"
@@ -340,7 +340,9 @@ redis_lua_scripts_t redis_lua_scripts = {
    "    msg.content_type or \"\",\n"
    "    msg.eventsource_event or \"\",\n"
    "    tonumber(msg.compression or 0),\n"
-   "    subs_count\n"
+   "    subs_count,\n"
+   "    description or \"(?)\",\n"
+   "    redis.call(\"GET\", msgkey..\"::debug\") or \"(?)\"\n"
    "  }\n"
    "  if not ttl or not msg.time or not msg.tag then\n"
    "    if not ttl then\n"
@@ -403,7 +405,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\", tonumber(compression or 0)}\n"},
 
-  {"publish", "be28281114137d8e85a25a913c50bed2e93d0c7d",
+  {"publish", "71df1b4a8a206b16750604fcccc18f0392d3afe8",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]\n"
    "--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?\n"
    "\n"
@@ -689,6 +691,10 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  msg.time and msg.time and (\"%i:%i\"):format(msg.time, msg.tag) or \"\",\n"
    "  tonumber(num_messages)\n"
    "}\n"
+   "\n"
+   "--debug\n"
+   "redis.call(\"set\", key.message..\"::debug\", (\"ns:%s, chid:%s, time:%s, msg:[skip], compression_setting, %s, msg_ttl: %s, key_ttl: %s, max_msg_buf_size: %s\"):format(ns, id, msg.time, msg.compression, msg.ttl, redis.call('TTL',  key.message), store_at_most_n_messages))\n"
+   "redis.call('EXPIRE', key.message..\"::debug\", (msg.ttl or 0)+2600)\n"
    "\n"
    "return {ch, new_channel}\n"},
 

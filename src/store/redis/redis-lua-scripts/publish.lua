@@ -284,4 +284,8 @@ local ch = {
   tonumber(num_messages)
 }
 
+--debug
+redis.call("set", key.message.."::debug", ("ns:%s, chid:%s, time:%s, msg:[skip], compression_setting, %s, msg_ttl: %s, key_ttl: %s, max_msg_buf_size: %s"):format(ns, id, msg.time, msg.compression, msg.ttl, redis.call('TTL',  key.message), store_at_most_n_messages))
+redis.call('EXPIRE', key.message.."::debug", (msg.ttl or 0)+2600)
+
 return {ch, new_channel}

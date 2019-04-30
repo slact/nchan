@@ -118,7 +118,9 @@ local function verify_return_msg(msgkey, description)
     msg.content_type or "",
     msg.eventsource_event or "",
     tonumber(msg.compression or 0),
-    subs_count
+    subs_count,
+    description or "(?)",
+    redis.call("GET", msgkey.."::debug") or "(?)"
   }
   if not ttl or not msg.time or not msg.tag then
     if not ttl then
