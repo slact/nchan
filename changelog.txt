@@ -1,3 +1,4 @@
+1.2.6 (Jun. 18 2019)
  fix: when using Redis, a channel can stop receiving new messages if 
       they are published faster than they can be sent to subscribers and the 
       message buffer is sufficiently small
