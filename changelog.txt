@@ -1,3 +1,11 @@
+ fix: when using Redis, a channel can stop receiving new messages if 
+      they are published faster than they can be sent to subscribers and the 
+      message buffer is sufficiently small
+ fix: websocket PONG response did not contain PING frame data
+ fix: multiplexed channels may stop receiving messages
+ fix (security): specially crafted websocket publisher requests when using Redis
+      may result in use-after-free memory access
+ fix: Nginx config reload may result in crash when using Redis cluster
 1.2.5 (Mar. 20 2019)
  fix: using multiplexed channels with Redis in backup mode may result in worker crash
  fix: nchan_publisher_channel_id could not be set exclusively in a publisher location
