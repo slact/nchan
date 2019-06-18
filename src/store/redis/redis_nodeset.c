@@ -881,7 +881,6 @@ void node_set_role(redis_node_t *node, redis_node_role_t role) {
         node->peers.master = NULL;
       }
       for(cur = nchan_list_first(&node->peers.slaves); cur != NULL; cur = nchan_list_next(cur)) {
-        assert((*cur)->peers.master == node);
         node_remove_peer(*cur, node);
       }
       nchan_list_empty(&node->peers.slaves);
