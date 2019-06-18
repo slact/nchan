@@ -388,6 +388,7 @@ static ngx_int_t spool_fetch_msg_callback(ngx_int_t code, nchan_msg_t *msg, fetc
         if(spool->reserved == 0) {
           destroy_spool(spool);
         }
+        spool_fetch_msg(nuspool);
       }
       else if(spool->id.tagcount == 1 && nchan_compare_msgids(&spool->id, &oldest_msg_id) == 0) {
         // oldest msgid not found or expired. that means there are no messages in this channel, 
