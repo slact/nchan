@@ -700,7 +700,7 @@ http {
 <!-- commands: nchan_redis_server nchan_redis_pass -->
 
 ##### High Availability
-Redis Cluster connections are designed to be resilient and try to recover from errors. Interrupted connections will have their commands queued until reconnection, and Nchan will publish any messages it succesfully received while disconnected. Nchan is also adaptive to cluster modifications. It will add new nodes and remove them as needed.
+Redis Cluster connections are designed to be resilient and try to recover from errors. Interrupted connections will have their commands queued until reconnection, and Nchan will publish any messages it successfully received while disconnected. Nchan is also adaptive to cluster modifications. It will add new nodes and remove them as needed.
 
 All Nchan servers sharing a Redis server or cluster should have their times synchronized (via ntpd or your favorite ntp daemon). Failure to do so may result in missed or duplicate messages.
 
