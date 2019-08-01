@@ -1293,14 +1293,19 @@ static void websocket_reading_finalize(ngx_http_request_t *r) {
  * thanks, guys!
 */
 static void websocket_reading(ngx_http_request_t *r) {
-  nchan_request_ctx_t        *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
-  full_subscriber_t          *fsub = (full_subscriber_t *)ctx->sub;
-  ws_frame_t                 *frame = &fsub->frame;
-  ngx_int_t                   rc = NGX_OK;
+  nchan_request_ctx_t        *ctx;
+  full_subscriber_t          *fsub;
+  ws_frame_t                 *frame;
+  ngx_int_t                   rc;
   ngx_event_t                *rev;
   ngx_connection_t           *c;
   ngx_buf_t                  *msgbuf, buf;
   //ngx_str_t                 msg_in_str;
+retry:
+  ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  fsub = (full_subscriber_t *)ctx->sub;
+  frame = &fsub->frame;
+  rc = NGX_OK;
 
   c = r->connection;
   rev = c->read;
@@ -1535,7 +1540,7 @@ static void websocket_reading(ngx_http_request_t *r) {
         frame->step = WEBSOCKET_READ_START_STEP; //restart loop
         frame->last = NULL;
         frame->payload = NULL;
-        return websocket_reading(r);
+        goto retry; //I know, Dijkstra, I know.
         break;
         
       default:
