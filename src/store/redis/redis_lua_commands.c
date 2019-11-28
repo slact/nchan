@@ -74,7 +74,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return -1\n"
    "end\n"},
 
-  {"delete", "181906aceef3012cc1f94c272bd00d9050f2916f",
+  {"delete", "a6008241827ea3bdec215b4460e96ad498cad8cb",
    "--input: keys: [],  values: [ namespace, channel_id ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
    "-- delete this channel and all its messages\n"
@@ -130,10 +130,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "end\n"
    "\n"
    "redis.call('DEL', key_channel, messages, subscribers)\n"
-   "\n"
-   "if redis.call('PUBSUB','NUMSUB', pubsub)[2] > 0 then\n"
-   "  redis.call('PUBLISH', pubsub, del_msgpack)\n"
-   "end\n"
+   "redis.call('PUBLISH', pubsub, del_msgpack)\n"
    "\n"
    "if channel then\n"
    "  return {\n"

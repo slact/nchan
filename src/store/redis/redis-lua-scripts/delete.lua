@@ -53,10 +53,7 @@ if redis.call('EXISTS', key_channel) ~= 0 then
 end
 
 redis.call('DEL', key_channel, messages, subscribers)
-
-if redis.call('PUBSUB','NUMSUB', pubsub)[2] > 0 then
-  redis.call('PUBLISH', pubsub, del_msgpack)
-end
+redis.call('PUBLISH', pubsub, del_msgpack)
 
 if channel then
   return {
