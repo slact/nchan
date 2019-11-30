@@ -80,8 +80,11 @@ static size_t                     redis_publish_message_msgkey_size;
 #define redis_command(node, cb, pd, fmt, args...)                 \
   do {                                                               \
     if(node->state >= REDIS_NODE_READY) {                            \
-      node->pending_commands++;                                      \
-      nchan_update_stub_status(redis_pending_commands, 1);           \
+      if((cb) != NULL) {                                               \
+        /* a reply is expected, so track this command */             \
+        node->pending_commands++;                                    \
+        nchan_update_stub_status(redis_pending_commands, 1);         \
+      }                                                              \
       redisAsyncCommand((node)->ctx.cmd, cb, pd, fmt, ##args);       \
     } else {                                                         \
       node_log_error(node, "Can't run redis command: no connection to redis server.");\
