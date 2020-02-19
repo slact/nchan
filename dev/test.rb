@@ -1817,6 +1817,33 @@ class PubSubTest <  Minitest::Test
     verify pub, sub, eventsource_event: true, id: true
   end
   
+  def test_eventsource_ping
+    pub, sub = pubsub 1, client: :eventsource, sub: "/sub/eventsource_with_ping/"
+    sub.run
+    sub.wait :ready
+    sleep 1
+    pub.post "yes"
+    sleep 1
+    pub.post "no"
+    sleep 1.5
+    pub.post "FIN"
+    
+    sub.wait
+    sub.terminate
+    
+    
+    sub.messages.msgs.each do |id, msg|
+      if id == ""
+        assert msg.message == "go away now"
+        assert msg.eventsource_event == "yeap"
+        assert msg.times_seen == 3
+      end
+    end
+    sub.messages.msgs.delete ""
+    
+    verify pub, sub, eventsource_event: true, id: true
+  end
+  
   def test_publisher_pubsub_upstream_request(websocket=false)
     auth = start_authserver  quiet: true
     begin

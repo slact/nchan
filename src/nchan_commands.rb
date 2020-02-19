@@ -104,6 +104,35 @@ CfCmd.new do
       default: "(none)",
       info: "Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value."
       
+  nchan_eventsource_ping_event [:srv, :loc, :if],
+      :ngx_conf_set_str_slot_no_newlines,
+      [:loc_conf, :"eventsource_ping.event"],
+      args: 1,
+      
+      group: "pubsub",
+      tags: ['subscriber-eventsource'],
+      default: "ping",
+      info: "Set the EventSource `event:` line for periodic pings from server to client."
+  
+  nchan_eventsource_ping_data [:srv, :loc, :if],
+      :ngx_conf_set_str_slot_no_newlines,
+      [:loc_conf, :"eventsource_ping.data"],
+      args: 1,
+      
+      group: "pubsub",
+      tags: ['subscriber-eventsource'],
+      default: "",
+      info: "Set the EventSource `data:` line for periodic pings from server to client."
+  
+    nchan_eventsource_ping_interval [:srv, :loc, :if],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :"eventsource_ping.interval"],
+      
+      group: "pubsub",
+      tags: ['subscriber-eventsource'],
+      value: "<number> (seconds)",
+      default: "0 (none)",
+      info: "Interval for sending ping messages to EventSource subscribers. Disabled by default."
   
   nchan_subscriber [:srv, :loc, :if],
       :nchan_subscriber_directive,

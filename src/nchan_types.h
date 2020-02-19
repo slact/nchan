@@ -342,6 +342,11 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   ngx_str_t                       eventsource_event;
   
   time_t                          websocket_ping_interval;
+  struct {
+    time_t                          interval;
+    ngx_str_t                       event;
+    ngx_str_t                       data;
+  }                               eventsource_ping;
   
   struct {
     ngx_int_t   enabled;

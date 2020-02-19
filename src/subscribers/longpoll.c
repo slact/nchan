@@ -158,7 +158,7 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
   return NGX_OK;
 }
 
-static ngx_int_t longpoll_dequeue(subscriber_t *self) {
+ngx_int_t longpoll_dequeue(subscriber_t *self) {
   full_subscriber_t    *fsub = (full_subscriber_t  *)self;
   ngx_http_request_t   *r = fsub->sub.request;
   nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);

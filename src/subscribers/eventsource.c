@@ -284,15 +284,69 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
   return NGX_OK;
 }
 
+static void ping_ev_handler(ngx_event_t *ev) {
+  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  
+  if(!ev->timedout) {
+    return;
+  }
+  
+  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 5);
+  ngx_chain_t            *chain = &bc->chain;
+  nchan_loc_conf_t       *cf = fsub->sub.cf;
+  
+  //generate the ping message
+  ngx_init_set_membuf_char(chain->buf, "event: ");
+  chain = chain->next;
+  
+  if(cf->eventsource_ping.event.len > 0) {
+    ngx_init_set_membuf_str(chain->buf, &cf->eventsource_ping.event);
+    chain = chain->next;
+  }
+  
+  ngx_init_set_membuf_char(chain->buf, "\ndata: ");
+  chain = chain->next;
+  
+  if(cf->eventsource_ping.data.len > 0) {
+    ngx_init_set_membuf_str(chain->buf, &cf->eventsource_ping.data);
+    chain = chain->next;
+  }
+  
+  ngx_init_set_membuf_char(chain->buf, "\n\n");
+  chain->buf->last_in_chain = 1;
+  chain->buf->flush = 1;
+  chain->next = NULL;
+  
+  nchan_output_filter(fsub->sub.request, &bc->chain);
+  
+  ev->timedout=0;
+  ngx_add_timer(&fsub->data.ping_ev, fsub->sub.cf->eventsource_ping.interval * 1000);
+}
+
 static ngx_int_t es_enqueue(subscriber_t *sub) {
   ngx_int_t           rc;
   full_subscriber_t  *fsub = (full_subscriber_t *)sub;
   DBG("%p output status to subscriber", sub);
   rc = longpoll_enqueue(sub);
+  if(rc == NGX_OK) {
+    if(sub->cf->eventsource_ping.interval > 0) {
+      nchan_init_timer(&fsub->data.ping_ev, ping_ev_handler, fsub);
+      ngx_add_timer(&fsub->data.ping_ev, sub->cf->eventsource_ping.interval * 1000);
+    }
+  }
+  
   fsub->data.finalize_request = 0;
   es_ensure_headers_sent(fsub);
   sub->enqueued = 1;
   return rc;
+}
+
+static ngx_int_t es_dequeue(subscriber_t *sub) {
+  full_subscriber_t  *fsub = (full_subscriber_t *)sub;
+  if(fsub->data.ping_ev.timer_set) {
+    ngx_del_timer(&fsub->data.ping_ev);
+  }
+  return longpoll_dequeue(sub);
 }
 
 static       subscriber_fn_t  eventsource_fn_data;
@@ -310,9 +364,12 @@ subscriber_t *eventsource_subscriber_create(ngx_http_request_t *r, nchan_msg_id_
     eventsource_fn = &eventsource_fn_data;
     *eventsource_fn = *sub->fn;
     eventsource_fn->enqueue = es_enqueue;
+    eventsource_fn->dequeue = es_dequeue;
     eventsource_fn->respond_message= es_respond_message;
     eventsource_fn->respond_status = es_respond_status;
   }
+  
+  ngx_memzero(&fsub->data.ping_ev, sizeof(fsub->data.ping_ev));
   
   fsub->data.shook_hands = 0;
   
