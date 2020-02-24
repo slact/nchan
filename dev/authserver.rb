@@ -56,12 +56,12 @@ class AuthServer
     end
   end
   
-  def initialize(opt={})
+  def initialize(opt={}, &block)
     @opt = opt || {}
     @opt[:Port] ||= 8053
     
     if block_given?
-      opt[:callback]=Proc.new
+      opt[:callback] = block
     end
     
     @app = proc do |env|
