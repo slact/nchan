@@ -1060,15 +1060,15 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_eventsource_ping_data**  
   arguments: 1  
-  default: ``  
+  default: `(empty)`  
   context: server, location, if  
-  > Set the EventSource `data:` line for periodic pings from server to client.    
+  > Set the EventSource `data:` line for periodic pings from server to client. Newlines are not allowed.    
 
 - **nchan_eventsource_ping_event**  
   arguments: 1  
   default: `ping`  
   context: server, location, if  
-  > Set the EventSource `event:` line for periodic pings from server to client.    
+  > Set the EventSource `event:` line for periodic pings from server to client. Newlines are not allowed.    
 
 - **nchan_eventsource_ping_interval** `<number> (seconds)`  
   arguments: 1  

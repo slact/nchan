@@ -112,7 +112,7 @@ CfCmd.new do
       group: "pubsub",
       tags: ['subscriber-eventsource'],
       default: "ping",
-      info: "Set the EventSource `event:` line for periodic pings from server to client."
+      info: "Set the EventSource `event:` line for periodic pings from server to client. Newlines are not allowed."
   
   nchan_eventsource_ping_data [:srv, :loc, :if],
       :ngx_conf_set_str_slot_no_newlines,
@@ -121,8 +121,8 @@ CfCmd.new do
       
       group: "pubsub",
       tags: ['subscriber-eventsource'],
-      default: "",
-      info: "Set the EventSource `data:` line for periodic pings from server to client."
+      default: "(empty)",
+      info: "Set the EventSource `data:` line for periodic pings from server to client. Newlines are not allowed."
   
     nchan_eventsource_ping_interval [:srv, :loc, :if],
       :ngx_conf_set_sec_slot,
