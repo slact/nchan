@@ -110,11 +110,28 @@ ngx_int_t longpoll_subscriber_destroy(subscriber_t *sub) {
   return NGX_OK;
 }
 
+static void finalize_request_handler(ngx_http_request_t *r) {
+  nchan_request_ctx_t  *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  if(ctx->sub == NULL) {
+    ngx_http_test_reading(r);
+    return;
+  }
+  subscriber_t *sub = ctx->sub;
+  #if FAKESHARD
+    memstore_fakeprocess_push(sub->owner);
+  #endif
+    sub->dequeue_after_response = 1;
+    sub->fn->respond_status(sub, NGX_HTTP_BAD_REQUEST, &NCHAN_HTTP_STATUS_400, NULL);
+  #if FAKESHARD
+    memstore_fakeprocess_pop();
+  #endif
+}
+
 static void ensure_request_hold(full_subscriber_t *fsub) {
   if(fsub->data.holding == 0) {
     DBG("hodl request %p", fsub->sub.request);
     fsub->data.holding = 1;
-    fsub->sub.request->read_event_handler = ngx_http_test_reading;
+    fsub->sub.request->read_event_handler = finalize_request_handler;
     fsub->sub.request->write_event_handler = ngx_http_request_empty_handler;
     fsub->sub.request->main->count++; //this is the right way to hold and finalize the request... maybe
   }

@@ -82,6 +82,7 @@ extern const  ngx_str_t NCHAN_CACHE_CONTROL_VALUE;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_101;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_204;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_304;
+extern const  ngx_str_t NCHAN_HTTP_STATUS_400;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_408;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_409;
 extern const  ngx_str_t NCHAN_HTTP_STATUS_410;
