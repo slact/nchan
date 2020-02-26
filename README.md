@@ -1058,17 +1058,23 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value.    
 
+- **nchan_eventsource_ping_comment**  
+  arguments: 1  
+  default: `(empty)`  
+  context: server, location, if  
+  > Set the EventSource comment `: ...` line for periodic pings from server to client. Newlines are not allowed. If empty, no comment is sent with the ping.    
+
 - **nchan_eventsource_ping_data**  
   arguments: 1  
   default: `(empty)`  
   context: server, location, if  
-  > Set the EventSource `data:` line for periodic pings from server to client. Newlines are not allowed.    
+  > Set the EventSource `data:` line for periodic pings from server to client. Newlines are not allowed. If empty, no data is sent with the ping.    
 
 - **nchan_eventsource_ping_event**  
   arguments: 1  
   default: `ping`  
   context: server, location, if  
-  > Set the EventSource `event:` line for periodic pings from server to client. Newlines are not allowed.    
+  > Set the EventSource `event:` line for periodic pings from server to client. Newlines are not allowed. If empty, no event type is sent with the ping.    
 
 - **nchan_eventsource_ping_interval** `<number> (seconds)`  
   arguments: 1  

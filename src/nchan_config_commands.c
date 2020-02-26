@@ -91,6 +91,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, eventsource_event),
     NULL } ,
 
+  { ngx_string("nchan_eventsource_ping_comment"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot_no_newlines,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, eventsource_ping.comment),
+    NULL } ,
+
   { ngx_string("nchan_eventsource_ping_event"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot_no_newlines,

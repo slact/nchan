@@ -103,7 +103,17 @@ CfCmd.new do
       tags: ['subscriber-eventsource'],
       default: "(none)",
       info: "Set the EventSource `event:` line to this value. When used in a publisher location, overrides the published message's `X-EventSource-Event` header and associates the message with the given value. When used in a subscriber location, overrides all messages' associated `event:` string with the given value."
+  
+  nchan_eventsource_ping_comment [:srv, :loc, :if],
+      :ngx_conf_set_str_slot_no_newlines,
+      [:loc_conf, :"eventsource_ping.comment"],
+      args: 1,
       
+      group: "pubsub",
+      tags: ['subscriber-eventsource'],
+      default: "(empty)",
+      info: "Set the EventSource comment `: ...` line for periodic pings from server to client. Newlines are not allowed. If empty, no comment is sent with the ping."
+  
   nchan_eventsource_ping_event [:srv, :loc, :if],
       :ngx_conf_set_str_slot_no_newlines,
       [:loc_conf, :"eventsource_ping.event"],
@@ -112,7 +122,7 @@ CfCmd.new do
       group: "pubsub",
       tags: ['subscriber-eventsource'],
       default: "ping",
-      info: "Set the EventSource `event:` line for periodic pings from server to client. Newlines are not allowed."
+      info: "Set the EventSource `event:` line for periodic pings from server to client. Newlines are not allowed. If empty, no event type is sent with the ping."
   
   nchan_eventsource_ping_data [:srv, :loc, :if],
       :ngx_conf_set_str_slot_no_newlines,
@@ -122,7 +132,7 @@ CfCmd.new do
       group: "pubsub",
       tags: ['subscriber-eventsource'],
       default: "(empty)",
-      info: "Set the EventSource `data:` line for periodic pings from server to client. Newlines are not allowed."
+      info: "Set the EventSource `data:` line for periodic pings from server to client. Newlines are not allowed. If empty, no data is sent with the ping."
   
     nchan_eventsource_ping_interval [:srv, :loc, :if],
       :ngx_conf_set_sec_slot,

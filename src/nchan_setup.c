@@ -382,6 +382,7 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_SUBSCRIBER_PING_INTERVAL);
   
   ngx_conf_merge_sec_value(conf->eventsource_ping.interval, prev->eventsource_ping.interval, NCHAN_DEFAULT_SUBSCRIBER_PING_INTERVAL);
+  ngx_conf_merge_str_value(conf->eventsource_ping.data, prev->eventsource_ping.comment, "");
   ngx_conf_merge_str_value(conf->eventsource_ping.event, prev->eventsource_ping.event, "ping");
   ngx_conf_merge_str_value(conf->eventsource_ping.data, prev->eventsource_ping.data, "");
   

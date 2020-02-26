@@ -346,6 +346,7 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
     time_t                          interval;
     ngx_str_t                       event;
     ngx_str_t                       data;
+    ngx_str_t                       comment;
   }                               eventsource_ping;
   
   struct {

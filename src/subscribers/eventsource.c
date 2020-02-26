@@ -285,34 +285,44 @@ static ngx_int_t es_respond_status(subscriber_t *sub, ngx_int_t status_code, con
 }
 
 static void ping_ev_handler(ngx_event_t *ev) {
-  full_subscriber_t *fsub = (full_subscriber_t *)ev->data;
+  full_subscriber_t    *fsub = (full_subscriber_t *)ev->data;
+  nchan_loc_conf_t     *cf = fsub->sub.cf;
   
   if(!ev->timedout) {
     return;
   }
+
+  struct {
+    ngx_str_t   prefix;
+    ngx_str_t  *value;
+  } line[3] = {
+    {ngx_string(":"),         &cf->eventsource_ping.comment},
+    {ngx_string("event: "),   &cf->eventsource_ping.event},
+    {ngx_string("data: "),    &cf->eventsource_ping.data}
+  };
   
-  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), 5);
-  ngx_chain_t            *chain = &bc->chain;
-  nchan_loc_conf_t       *cf = fsub->sub.cf;
-  
-  //generate the ping message
-  ngx_init_set_membuf_char(chain->buf, "event: ");
-  chain = chain->next;
-  
-  if(cf->eventsource_ping.event.len > 0) {
-    ngx_init_set_membuf_str(chain->buf, &cf->eventsource_ping.event);
-    chain = chain->next;
+  int chaincount = 1;
+  for(int i=0; i<3; i++) {
+    chaincount += line[i].value->len > 0 ? 3 : 0;
   }
+
+  nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), chaincount);
+  ngx_chain_t            *chain = NULL;
   
-  ngx_init_set_membuf_char(chain->buf, "\ndata: ");
-  chain = chain->next;
-  
-  if(cf->eventsource_ping.data.len > 0) {
-    ngx_init_set_membuf_str(chain->buf, &cf->eventsource_ping.data);
-    chain = chain->next;
+  for(int i=0; i<3; i++) {
+    if(line[i].value->len > 0) {
+      chain = chain ? chain->next : &bc->chain;
+      ngx_init_set_membuf_str(chain->buf, &line[i].prefix);
+      
+      chain = chain->next;
+      ngx_init_set_membuf_str(chain->buf, line[i].value);
+      
+      chain = chain->next;
+      ngx_init_set_membuf_char(chain->buf, "\n");
+    }
   }
-  
-  ngx_init_set_membuf_char(chain->buf, "\n\n");
+  chain = chain ? chain->next : &bc->chain;
+  ngx_init_set_membuf_char(chain->buf, "\n");
   chain->buf->last_in_chain = 1;
   chain->buf->flush = 1;
   chain->next = NULL;
