@@ -308,7 +308,7 @@ static void ping_ev_handler(ngx_event_t *ev) {
 
   nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), chaincount);
   ngx_chain_t            *chain = NULL;
-  
+    
   for(int i=0; i<3; i++) {
     if(line[i].value->len > 0) {
       chain = chain ? chain->next : &bc->chain;
@@ -322,7 +322,15 @@ static void ping_ev_handler(ngx_event_t *ev) {
     }
   }
   chain = chain ? chain->next : &bc->chain;
-  ngx_init_set_membuf_char(chain->buf, "\n");
+  if(chaincount > 1) {
+    ngx_init_set_membuf_char(chain->buf, "\n");
+  }
+  else {
+    //everything's empty.
+    //rather than sending a single newline (which is probably a valid event-stream protocol token)
+    //send an empty comment (definitely valid)
+    ngx_init_set_membuf_char(chain->buf, ":\n\n");
+  }
   chain->buf->last_in_chain = 1;
   chain->buf->flush = 1;
   chain->next = NULL;
