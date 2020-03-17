@@ -302,14 +302,15 @@ static void ping_ev_handler(ngx_event_t *ev) {
   };
   
   int chaincount = 1;
-  for(int i=0; i<3; i++) {
+  int i;
+  for(i=0; i<3; i++) {
     chaincount += line[i].value->len > 0 ? 3 : 0;
   }
 
   nchan_buf_and_chain_t  *bc = nchan_bufchain_pool_reserve(fsub_bcp(fsub), chaincount);
   ngx_chain_t            *chain = NULL;
     
-  for(int i=0; i<3; i++) {
+  for(i=0; i<3; i++) {
     if(line[i].value->len > 0) {
       chain = chain ? chain->next : &bc->chain;
       ngx_init_set_membuf_str(chain->buf, &line[i].prefix);
