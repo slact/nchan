@@ -216,7 +216,7 @@ static ngx_int_t nchan_http_publisher_handler(ngx_http_request_t * r, void (*bod
   
   if(ctx) ctx->publisher_type = &publisher_name;
   
-  /* Instruct ngx_http_read_subscriber_request_body to store the request
+  /* Instruct ngx_http_read_client_request_body to store the request
      body entirely in a memory buffer or in a file */
   r->request_body_in_single_buf = 1;
   r->request_body_in_persistent_file = 1;
