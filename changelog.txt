@@ -1,3 +1,4 @@
+1.2.7 (Mar. 17 2020)
  fix: unidirectional subscribers have their connection terminated if they send any data to the server
       after the initial request handshake. This applies to all subscribers except Websocket
  feature: periodic pings for EventSource subscribers
