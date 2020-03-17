@@ -1,3 +1,9 @@
+ fix: unidirectional subscribers have their connection terminated if they send any data to the server
+      after the initial request handshake. This applies to all subscribers except Websocket
+ feature: periodic pings for EventSource subscribers
+ fix: Redis pending commands count may be incorrect in nchan's stub status page
+ fix: channel deletion fails to propagate to Redis slaves
+ fix: possible stack overflow when using websocket subscribers
 1.2.6 (Jun. 18 2019)
  fix: when using Redis, a channel can stop receiving new messages if 
       they are published faster than they can be sent to subscribers and the 
