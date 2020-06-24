@@ -244,6 +244,7 @@ if [[ -z $NO_MAKE ]]; then
   bundle exec hsss \
      --format whole \
      --header-only \
+     --header-guard NCHAN_REDIS_LUA_SCRIPTS_H \
      --no-static \
      ${rdstore_dir}/redis-lua-scripts/*.lua > ${rdstore_dir}/redis_lua_commands.h
   if ! [ $? -eq 0 ]; then;

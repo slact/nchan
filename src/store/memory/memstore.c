@@ -40,6 +40,8 @@ static ngx_int_t redis_fakesub_timer_interval;
 
 #endif
 
+uint16_t  memstore_worker_generation;
+
 
 typedef struct {
   //memstore_channel_head_t       unbuffered_dummy_chanhead;
