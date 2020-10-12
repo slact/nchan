@@ -116,6 +116,47 @@ static ngx_int_t nchan_prev_message_id_variable(ngx_http_request_t *r, ngx_http_
   return NGX_OK;
 }
 
+static ngx_int_t nchan_channel_subscriber_last_seen_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  static u_char         buf[NGX_INT_T_LEN + 4];
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
+  if(ctx == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  ngx_str_t             str;
+  str.data = &buf[0];
+  str.len = ngx_sprintf(str.data, "%l", (long)ctx->channel_subscriber_last_seen) - str.data;
+  set_varval(v, str.data, str.len);  
+  return NGX_OK;
+}
+static ngx_int_t nchan_channel_subscriber_count_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  static u_char         buf[NGX_INT_T_LEN + 4];
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
+  if(ctx == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  ngx_str_t             str;
+  str.data = &buf[0];
+  str.len = ngx_sprintf(str.data, "%i", (int)ctx->channel_subscriber_count) - str.data;
+  set_varval(v, str.data, str.len);
+  return NGX_OK;
+}
+static ngx_int_t nchan_channel_message_count_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+  static u_char         buf[NGX_INT_T_LEN + 4];
+  nchan_request_ctx_t        *ctx = get_main_request_ctx(r);
+  if(ctx == NULL) {
+    v->not_found = 1;
+    return NGX_OK;
+  }
+  ngx_str_t             str;
+  str.data = &buf[0];
+  str.len = ngx_sprintf(str.data, "%i", (int)ctx->channel_message_count) - str.data;
+  set_varval(v, str.data, str.len); 
+  return NGX_OK;
+}
+
+
 /*
 static ngx_int_t nchan_message_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
   
@@ -191,6 +232,9 @@ nchan_variable_t nchan_vars[] = {
   { ngx_string("nchan_channel_id2"),        nchan_channel_id_variable, 1},
   { ngx_string("nchan_channel_id3"),        nchan_channel_id_variable, 2},
   { ngx_string("nchan_channel_id4"),        nchan_channel_id_variable, 3},
+  { ngx_string("nchan_channel_subscriber_last_seen"), nchan_channel_subscriber_last_seen_variable, 0},
+  { ngx_string("nchan_channel_subscriber_count"),     nchan_channel_subscriber_count_variable, 0},
+  { ngx_string("nchan_channel_message_count"),        nchan_channel_message_count_variable, 0},
   { ngx_string("nchan_channel_event"),      nchan_channel_event, 0},
   { ngx_string("nchan_subscriber_type"),    nchan_subscriber_type_variable, 0},
   { ngx_string("nchan_publisher_type"),     nchan_publisher_type_variable, 0},

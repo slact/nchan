@@ -463,6 +463,9 @@ static ngx_int_t websocket_publish_callback(ngx_int_t status, nchan_channel_t *c
     last_seen = ch->last_seen;
     messages  = ch->messages;
     msgid = &ch->last_published_msg_id;
+    fsub->ctx->channel_subscriber_last_seen = last_seen;
+    fsub->ctx->channel_subscriber_count = subscribers;
+    fsub->ctx->channel_message_count = messages;
   }
   if(d->subrequest) {
     nchan_requestmachine_request_cleanup_manual(d->subrequest);

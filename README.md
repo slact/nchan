@@ -1003,16 +1003,25 @@ Nchan makes several variables usabled in the config file:
 - `$nchan_subscriber_type`  
   For subscriber locations, this variable is set to the subscriber type (websocket, longpoll, etc.).
 
+- `$nchan_channel_subscriber_last_seen`  
+  For publisher locations, this variable is set to the timestamp for the last connected subscriber.
+  
+- `$nchan_channel_subscriber_count`  
+  For publisher locations, this variable is set to the number of subscribers in the published channel.
+  
+- `$nchan_channel_message_count`  
+  For publisher locations, this variable is set to the number of messages buffered in the published channel.
+  
 - `$nchan_publisher_type`  
   For publisher locations, this variable is set to the subscriber type (http or websocket).
   
-- `$nchan_prev_message_id`, `$nchan_message_id`
+- `$nchan_prev_message_id`, `$nchan_message_id`  
   The current and previous (if applicable) message id for publisher request or subscriber response.
 
-- `$nchan_channel_event`
+- `$nchan_channel_event`  
   For channel events, this is the event name. Useful when configuring `nchan_channel_event_string`.
 
-- `$nchan_version`
+- `$nchan_version`  
   Current Nchan version. Available since 1.1.5.
   
 Additionally, `nchan_stub_status` data is also exposed as variables. These are available only when `nchan_stub_status` is enabled on at least one location:

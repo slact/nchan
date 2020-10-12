@@ -246,10 +246,12 @@ ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_req
   static const ngx_str_t CREATED_LINE = ngx_string("201 Created");
   static const ngx_str_t ACCEPTED_LINE = ngx_string("202 Accepted");
   
-  time_t             last_seen = 0;
-  ngx_uint_t         subscribers = 0;
-  ngx_uint_t         messages = 0;
-  nchan_msg_id_t    *msgid = NULL;
+  time_t                last_seen = 0;
+  ngx_uint_t            subscribers = 0;
+  ngx_uint_t            messages = 0;
+  nchan_msg_id_t       *msgid = NULL;
+  nchan_request_ctx_t  *ctx;
+  
   if(channel!=NULL) {
     subscribers = channel->subscribers;
     last_seen = channel->last_seen;
@@ -262,6 +264,17 @@ ngx_int_t nchan_response_channel_ptr_info(nchan_channel_t *channel, ngx_http_req
     else if (status_code == NGX_HTTP_ACCEPTED) {
       ngx_memcpy(&r->headers_out.status_line, &ACCEPTED_LINE, sizeof(ngx_str_t));
     }
+    
+    //set request context values for vars that could be used for logging
+    //does this really belong here? nope.
+    //it's getting refactored out soon though, so these noodles are, for now, acceptable
+    ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+    if(ctx) {
+      ctx->channel_subscriber_last_seen = last_seen;
+      ctx->channel_subscriber_count = subscribers;
+      ctx->channel_message_count = messages;
+    }
+    
     return nchan_channel_info(r, r->headers_out.status, messages, subscribers, last_seen, msgid);
   }
   else {
