@@ -1470,7 +1470,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: http, server, location  
   legacy name: push_channel_timeout  
-  > Amount of time an empty channel hangs around. Don't mess with this setting unless you know what you are doing!    
+  > Amount of time an empty channel hangs around. Don't mess with this setting unless you know what you are doing! (By default, channels stay alive as long as there is at least 1 subscriber or 1 message. With 0 subscribers and 0 messages, channels are subject to garbage collection.)
 
 - **nchan_storage_engine** `[ memory | redis ]`  
   arguments: 1  
