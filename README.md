@@ -1334,7 +1334,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `off`  
   context: http, server, location  
   legacy name: push_authorized_channels_only  
-  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
+  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response. (Note: be careful when using this with `nchan_message_timeout` because if messages are set to time out, subscribers will only be able to connect to the channel within the message timeout. Channels with no messages and no subscriber are automatically removed.)
 
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
