@@ -671,10 +671,10 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
   //move the msg pool
   d->pool = fsub->publisher.msg_pool;
   d->msgbuf = buf;
+  d->subrequest = NULL;
   fsub->publisher.msg_pool = NULL;
   
   if(fsub->publisher.intercept || fsub->publisher.upstream_request_url == NULL) { // don't need to send request upstream
-    d->subrequest = NULL;
     websocket_publish_continue(d);
   }
   else {
