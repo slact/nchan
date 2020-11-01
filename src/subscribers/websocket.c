@@ -662,8 +662,15 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
 #endif
   
   ngx_int_t          rc = NGX_OK;
+  ngx_http_core_loc_conf_t  *clcf;
+  clcf = ngx_http_get_module_loc_conf(fsub->sub.request, ngx_http_core_module);
   ws_publish_data_t *d = ngx_palloc(ws_get_msgpool(fsub), sizeof(*d));
+  int buflen = buf->end - buf->start;
   if(d == NULL) {
+    return NGX_ERROR;
+  }
+  if(buflen < 0 || (clcf->client_max_body_size && clcf->client_max_body_size < buflen)){
+    websocket_respond_status(&fsub->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
     return NGX_ERROR;
   }
   d->fsub = fsub;
