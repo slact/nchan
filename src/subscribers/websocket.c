@@ -1584,7 +1584,7 @@ exit:
 
 static ngx_flag_t is_utf8(ngx_buf_t *buf) {
   
-  u_char *p;
+  u_char *p, *op;
   size_t n;
   
   u_char  c, *last;
@@ -1606,6 +1606,7 @@ static ngx_flag_t is_utf8(ngx_buf_t *buf) {
   }
   
   last = p + n;
+  op = p;
   
   for (len = 0; p < last; len++) {
     c = *p;
@@ -1618,13 +1619,13 @@ static ngx_flag_t is_utf8(ngx_buf_t *buf) {
     if (ngx_utf8_decode(&p, last - p) > 0x10ffff) {
       /* invalid UTF-8 */
       if(mmapped) {
-        munmap(p, n);
+        munmap(op, n);
       }
       return 0;
     }
   }
   if(mmapped) {
-    munmap(p, n);
+    munmap(op, n);
   }
   return 1;
 }
