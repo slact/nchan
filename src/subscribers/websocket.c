@@ -662,15 +662,8 @@ static ngx_int_t websocket_publish(full_subscriber_t *fsub, ngx_buf_t *buf, int 
 #endif
   
   ngx_int_t          rc = NGX_OK;
-  ngx_http_core_loc_conf_t  *clcf;
-  clcf = ngx_http_get_module_loc_conf(fsub->sub.request, ngx_http_core_module);
   ws_publish_data_t *d = ngx_palloc(ws_get_msgpool(fsub), sizeof(*d));
-  int buflen = buf->end - buf->start;
   if(d == NULL) {
-    return NGX_ERROR;
-  }
-  if(buflen < 0 || (clcf->client_max_body_size && clcf->client_max_body_size < buflen)){
-    websocket_respond_status(&fsub->sub, NGX_HTTP_FORBIDDEN, NULL, NULL);
     return NGX_ERROR;
   }
   d->fsub = fsub;
@@ -1093,7 +1086,7 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
 
 static void websocket_reading(ngx_http_request_t *r);
 
-static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *msgbuf, ngx_pool_t *pool) {
+static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *msgbuf, ngx_pool_t *pool, uint64_t max, int *result) {
 #if (NGX_ZLIB)
   z_stream      *strm;
   int            rc;
@@ -1122,7 +1115,7 @@ static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *
   
   strm = fsub->deflate.zstream_in;
   
-  outbuf = nchan_inflate(strm, msgbuf, fsub->sub.request, pool);
+  outbuf = nchan_inflate(strm, msgbuf, fsub->sub.request, pool, max, result);
   return outbuf;
 #else
   return NULL;
@@ -1311,6 +1304,8 @@ static void websocket_reading(ngx_http_request_t *r) {
   ngx_connection_t           *c;
   ngx_buf_t                  *msgbuf, buf;
   //ngx_str_t                 msg_in_str;
+  ngx_http_core_loc_conf_t   *clcf;
+  int                         result;
 retry:
   ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
   fsub = (full_subscriber_t *)ctx->sub;
@@ -1475,8 +1470,15 @@ retry:
               return websocket_reading_finalize(r);
             }
             
-            //TODO: check max websocket message length
+            clcf = ngx_http_get_module_loc_conf(ctx->sub->request, ngx_http_core_module);
+
             if(frame->payload == NULL) {
+              if(clcf->client_max_body_size && (uint64_t)clcf->client_max_body_size < frame->payload_len) {
+                websocket_send_close_frame_cstr(fsub, CLOSE_POLICY_VIOLATION, "Message too large.");
+                ws_destroy_msgpool(fsub);
+                fsub->publisher.msg_pool = NULL;
+                return websocket_reading_finalize(r);
+              }
               if(ws_get_msgpool(fsub) == NULL) {
                 ERR("failed to get msgpool");
                 websocket_send_close_frame(fsub, CLOSE_INTERNAL_SERVER_ERROR, NULL);
@@ -1493,6 +1495,13 @@ retry:
             }
             
             set_buffer(&buf, frame->payload, frame->last, frame->payload_len);
+			      if(clcf->client_max_body_size && clcf->client_max_body_size < ngx_buf_size(&buf)) {
+              websocket_send_close_frame_cstr(fsub, CLOSE_POLICY_VIOLATION, "Message too large.");
+              ws_destroy_msgpool(fsub);
+              fsub->publisher.msg_pool = NULL;
+              return websocket_reading_finalize(r);
+            }            
+
             
             if (frame->payload_len > 0 && (rc = ws_recv(c, rev, &buf, frame->payload_len)) != NGX_OK) {
               DBG("ws_recv NOT OK when receiving payload, but that's ok");
@@ -1520,7 +1529,12 @@ retry:
             
             //inflate message if needed
             if(fsub->deflate.enabled && frame->rsv1) {
-              if((msgbuf = websocket_inflate_message(fsub, msgbuf, ws_get_msgpool(fsub))) == NULL) {
+              if((msgbuf = websocket_inflate_message(fsub, msgbuf, ws_get_msgpool(fsub), (uint64_t)clcf->client_max_body_size, &result)) == NULL) {
+                if(result == -1) {
+                  websocket_send_close_frame_cstr(fsub, CLOSE_POLICY_VIOLATION, "Message too large.");
+                  ws_destroy_msgpool(fsub);
+                  return websocket_reading_finalize(r);
+                }
                 websocket_send_close_frame_cstr(fsub, CLOSE_INVALID_PAYLOAD, "Invalid permessage-deflate data");
                 ws_destroy_msgpool(fsub);
                 return websocket_reading_finalize(r);
