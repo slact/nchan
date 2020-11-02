@@ -468,7 +468,7 @@ nchan_fakereq_subrequest_data_t *nchan_requestmachine_request(nchan_requestmachi
     fakebody_buf->last_buf = 1;
     fakebody_buf->last_in_chain = 1;
     fakebody_buf->flush = 1;
-    fakebody_buf->memory = 1;
+    //fakebody_buf->memory = 1;		//why were file-cached requests (over 16KB) disabled?
     
     nchan_adjust_subrequest(sr, NGX_HTTP_POST, &POST_REQUEST_STRING, sr_body, sz);
   }
