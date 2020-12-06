@@ -212,7 +212,7 @@ static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_co
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
   DBG("%p status %i", self, status_code);
   if(status_code == NGX_HTTP_GONE) {
-    self->dequeue_after_response = 1;
+    //self->dequeue_after_response = 1;   //see https://github.com/slact/nchan/pull/591
   }
   f->respond_status(status_code, (void *)status_line, f->privdata);
   reset_timer(f);
