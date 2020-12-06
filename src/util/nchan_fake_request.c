@@ -374,6 +374,14 @@ static void fakerequest_cleanup_timer_handler(ngx_event_t *ev) {
   nchan_finalize_fake_request(d->r, NGX_OK);
 }
 
+//see https://github.com/slact/nchan/pull/591
+typedef struct {
+  void *fsub;
+  ngx_pool_t        *pool;
+  ngx_buf_t         *msgbuf;
+  nchan_fakereq_subrequest_data_t *subrequest;
+} ws_publish_data_stub_t;
+
 nchan_fakereq_subrequest_data_t *nchan_requestmachine_request(nchan_requestmachine_t *rm, nchan_requestmachine_request_params_t *params) {
   nchan_fakereq_subrequest_data_t *d;
   ngx_pool_t *pool = params->pool;
@@ -482,6 +490,11 @@ nchan_fakereq_subrequest_data_t *nchan_requestmachine_request(nchan_requestmachi
   
   nchan_slist_append(&rm->request_queue, d);
   
+  //see https://github.com/slact/nchan/pull/591
+  ws_publish_data_stub_t *pd;
+  pd = (ws_publish_data_stub_t*)(params->pd);
+  if(pd) pd->subrequest = d;
+
   nchan_requestmachine_run(rm);
   return d;
 }
