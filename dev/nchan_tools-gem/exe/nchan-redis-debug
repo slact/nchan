@@ -47,7 +47,10 @@ EOB
 opt_parser.parse!
 
 rdsck = Rdsck.new $opt
-rdsck.connect
+if not rdsck.connect
+  STDERR.puts "failed to connect to #{$opt[:url]}"
+  exit 1
+end
 
 case $opt[:command]
 when :filter_channels
