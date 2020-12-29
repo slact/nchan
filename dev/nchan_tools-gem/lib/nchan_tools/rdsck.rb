@@ -90,7 +90,7 @@ class Rdsck
     EOF
     
     results = []
-    batch_size=2
+    batch_size=500
     masters.each do |m|
       hash = m.script "load", script
       cursor, pattern = "0", "{channel:*}"
