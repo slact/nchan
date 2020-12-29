@@ -1669,6 +1669,7 @@ class Publisher
     @accept = opt[:accept]
     @verbose = opt[:verbose]
     @on_response = opt[:on_response]
+    @http2 = opt[:http2]
     
     @ws_wait_until_response = true
     
@@ -1809,6 +1810,7 @@ class Publisher
     headers = {:'Content-Type' => content_type, :'Accept' => accept}
     headers[:'X-Eventsource-Event'] = eventsource_event if eventsource_event
     headers.merge! @extra_headers if @extra_headers
+    
     post = Typhoeus::Request.new(
       @url,
       headers: headers,
@@ -1816,7 +1818,8 @@ class Publisher
       body: body,
       timeout: @timeout || PUBLISH_TIMEOUT,
       connecttimeout: @timeout || PUBLISH_TIMEOUT,
-      verbose: @verbose
+      verbose: @verbose,
+      http_version: @http2 ? :httpv2_0 : :none
     )
     if body && @messages
       msg=Message.new body
