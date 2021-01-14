@@ -29,6 +29,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "celluloid"
   spec.add_dependency "celluloid-io"
   spec.add_dependency "HDRHistogram"
+  spec.add_dependency "redis"
   
   spec.add_dependency "websocket-driver"
   spec.add_dependency 'websocket-extensions'
@@ -38,6 +39,6 @@ Gem::Specification.new do |spec|
     spec.add_dependency 'http-2'
   end  
   spec.add_development_dependency "pry"
-  spec.add_development_dependency "bundler", "~> 1.16"
-  spec.add_development_dependency "rake", "~> 10.0"
+  spec.add_development_dependency "bundler"
+  spec.add_development_dependency "rake"
 end
