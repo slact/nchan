@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "celluloid"
   spec.add_dependency "celluloid-io"
   spec.add_dependency "HDRHistogram"
-  spec.add_dependency "redis"
+  spec.add_dependency "redis", "~>4.2.0"
   
   spec.add_dependency "websocket-driver"
   spec.add_dependency 'websocket-extensions'
