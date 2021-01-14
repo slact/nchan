@@ -10,13 +10,6 @@ $opt = {
   command: nil
 }
 
-def dbg(...)
-  if $opt[:verbose]
-    print("# ")
-    puts(...)
-  end
-end
-
 opt_parser=OptionParser.new do |opts|
   opts.on("--url", "--url REDIS_URL (#{$opt[:url]})", "Redis server and port..") do |v|
     $opt[:url]=v

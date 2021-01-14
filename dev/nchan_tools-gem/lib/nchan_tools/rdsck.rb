@@ -1,6 +1,14 @@
 class Rdsck
   attr_accessor :url, :verbose, :namespace
   attr_accessor :redis, :masters
+  
+  def dbg(*args)
+    if $opt[:verbose]
+      print("# ")
+      puts(*args)
+    end
+  end
+  
   def initialize(opt)
     @url=opt[:url]
     @verbose=opt[:verbose]
