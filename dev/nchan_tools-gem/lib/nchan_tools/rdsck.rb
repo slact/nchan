@@ -3,7 +3,7 @@ class Rdsck
   attr_accessor :redis, :masters
   
   def dbg(*args)
-    if $opt[:verbose]
+    if @verbose
       print("# ")
       puts(*args)
     end
@@ -13,6 +13,7 @@ class Rdsck
     @url=opt[:url]
     @verbose=opt[:verbose]
     @namespace=opt[:namespace]
+    @channel_id=opt[:channel_id]
   end
   
   def cluster?
@@ -21,7 +22,7 @@ class Rdsck
   
   def connect
     begin
-      @redis=Redis.new url: $opt[:url]
+      @redis=Redis.new url: @url
       mode = redis.info["redis_mode"]
     rescue StandardError => e
       STDERR.puts e.message
@@ -31,7 +32,7 @@ class Rdsck
     if mode == "cluster"
       @redis.close
       begin
-        @redis=Redis.new cluster: [$opt[:url]]
+        @redis=Redis.new cluster: [@url]
         @redis.ping
       rescue StandardError => e
         STDERR.puts e.message
@@ -57,7 +58,7 @@ class Rdsck
   end
   
   def key(subkey=nil)
-    k = "{channel:#{$opt[:namespace]}/#{$opt[:channel_id]}}"
+    k = "{channel:#{@namespace}/#{@channel_id}}"
     return subkey ? "#{k}:#{subkey}" : k
   end
   

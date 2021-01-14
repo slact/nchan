@@ -4,25 +4,26 @@ require "redis"
 require "optparse"
 require 'nchan_tools/rdsck'
 
-$opt = {
+opt = {
   url: "redis://127.0.0.1:6379/",
   verbose: false,
   command: nil
 }
 
 opt_parser=OptionParser.new do |opts|
-  opts.on("--url", "--url REDIS_URL (#{$opt[:url]})", "Redis server and port..") do |v|
-    $opt[:url]=v
+  opts.on("--url", "--url REDIS_URL (#{opt[:url]})", "Redis server and port..") do |v|
+    opt[:url]=v
   end
   opts.on("-q", "--quiet", "output only results without any other information") do
-    $opt[:quiet]=false
+    opt[:quiet]=false
+    opts[:verbose] = !opt[:quiet]
   end
   opts.on("--list-channels", "list all Nchan channels on Redis server or cluster") do |v|
-    $opt[:command]=:filter_channels
+    opt[:command]=:filter_channels
   end
   opts.on("--filter-channels-min-subscribers=[NUMBER]") do |v|
-    $opt[:command]=:filter_channels
-    $opt[:min_subscribers]=v.to_i
+    opt[:command]=:filter_channels
+    opt[:min_subscribers]=v.to_i
   end
 end
 opt_parser.banner= <<~EOB
@@ -39,16 +40,16 @@ opt_parser.banner= <<~EOB
 EOB
 opt_parser.parse!
 
-rdsck = Rdsck.new $opt
+rdsck = Rdsck.new opt
 if not rdsck.connect
-  STDERR.puts "failed to connect to #{$opt[:url]}"
+  STDERR.puts "failed to connect to #{opt[:url]}"
   exit 1
 end
 
-case $opt[:command]
+case opt[:command]
 when :filter_channels
-  puts "# scanning for channels #{$opt[:min_subscribers] && "with subscribers >= #{$opt[:min_subscribers]}"}"
-  chans = rdsck.filter_channels(min_subscribers: $opt[:min_subscribers])
+  puts "# scanning for channels #{opt[:min_subscribers] && "with subscribers >= #{opt[:min_subscribers]}"}"
+  chans = rdsck.filter_channels(min_subscribers: opt[:min_subscribers])
   puts "# found #{chans.count} channel#{chans.count != 1 && "s"}#{chans.count == 0 ? "." : ":"}"
   puts chans.join("\n")
 else
