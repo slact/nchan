@@ -1,4 +1,40 @@
 class Rdsck
+  require "async"
+  require "async/redis"
+  
+  #doesn't support psubscribe by default. can you believe it?!
+  class Async::Redis::Context::Psubscribe < Async::Redis::Context::Subscribe
+    MESSAGE = 'pmessage'
+  
+    def listen
+      while response = @connection.read_response
+        return response if response.first == MESSAGE
+      end
+    end
+    
+    def subscribe(channels)
+      @connection.write_request ['PSUBSCRIBE', *channels]
+      @connection.flush
+    end
+    
+    def unsubscribe(channels)
+      @connection.write_request ['PUNSUBSCRIBE', *channels]
+      @connection.flush
+    end
+  end
+  
+  class Async::Redis::Client
+    def psubscribe(*channels)                                                                                                                                             
+      context = Async::Redis::Context::Psubscribe.new(@pool, channels)                                                                                                            
+      return context unless block_given?                                                                                                                           
+      begin                                                                                                                                                        
+        yield context                                                                                                                                        
+      ensure                                                                                                                                                       
+        context.close                                                                                                                                        
+      end                                                                                                                                                          
+    end 
+  end
+  
   attr_accessor :url, :verbose, :namespace
   attr_accessor :redis, :masters
   
@@ -23,7 +59,9 @@ class Rdsck
   def connect
     begin
       @redis=Redis.new url: @url
+      
       mode = redis.info["redis_mode"]
+      
     rescue StandardError => e
       STDERR.puts e.message
       return false
@@ -69,6 +107,76 @@ class Rdsck
     #...
   end
   
+  class Watch
+    def initialize(node, filters, set_notify_config = nil)
+      @sync = node
+      @filters = filters
+      @set_notify_config = set_notify_config
+      @host, @port = @sync.connection[:host], @sync.connection[:port]
+      @async = Async::Redis::Client.new(Async::IO::Endpoint.tcp(@host, @port))
+      @prev_notify_keyspace_event_config = @sync.config("get", "notify-keyspace-events")
+      @sync.config("set", "notify-keyspace-events", "Kh")
+    end
+    
+    def watch(task)
+      task.async do
+        require "pry"
+        #puts "subscribeme"
+        while true do
+          @async.psubscribe "__keyspace*__:{channel:*}" do |ctx|
+            type, pattern, name, msg = ctx.listen
+            #puts "TYPE: #{type}, PAT:#{pattern}, NAME:#{name}, MSG:#{msg}"
+            m=name.match(/^__.*__:(\{.*\})/)
+            if m && m[1]
+              key = m[1]
+              
+              filtered = false
+              subs = nil
+              
+              if @filters[:min_subscribers]
+                subs = @sync.hget key, "fake_subscribers"
+                subs = subs.to_i
+                filtered = true if subs < @filters[:min_subscribers]
+              end
+              
+              if !filtered
+                if subs
+                  puts "#{key} subscribers: #{subs}"
+                else
+                  puts "#{key}"
+                end
+              end
+              
+            end
+          end
+        end
+      end
+    end
+    
+    def stop
+      puts "stop it. get some help"
+      @async.close
+      @sync.config "set", "notify-keyspace-events", @prev_notify_keyspace_event_config
+    end
+  end
+  
+  def watch_channels(filters={}, set_notify_keyspace_events=nil)
+    watchers = []
+    @masters.each do |m|
+      watchers << Watch.new(m, filters, set_notify_keyspace_events)
+    end
+    
+    Async do |task|
+      watchers.each do |watcher|
+        watcher.watch(task)
+      end
+    end
+    watchers.each do |watcher|
+      watcher.stop
+    end
+    
+  end
+  
   def filter_channels(filters={})
     script = <<~EOF
       local prev_cursor = ARGV[1]
@@ -100,7 +208,7 @@ class Rdsck
     
     results = []
     batch_size=500
-    masters.each do |m|
+    @masters.each do |m|
       hash = m.script "load", script
       cursor, pattern = "0", "{channel:*}"
       loop do

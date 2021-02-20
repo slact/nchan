@@ -15,14 +15,19 @@ opt_parser=OptionParser.new do |opts|
     opt[:url]=v
   end
   opts.on("-q", "--quiet", "output only results without any other information") do
-    opt[:quiet]=false
-    opts[:verbose] = !opt[:quiet]
+    opt[:quiet]=true
   end
   opts.on("--list-channels", "list all Nchan channels on Redis server or cluster") do |v|
     opt[:command]=:filter_channels
   end
+  opts.on("--watch-channels", "watch for changes in Nchan channels on Redis server or cluster") do |v|
+    opt[:command]=:watch_channels
+  end
+  opts.on("--set-notify-keyspace-events", "when using --watch-channels, sets the notify-keyspace-events Redis config before starting. May not be possible if the redis 'config' command is disabled") do
+    opt[:set_notify_keyspace_events] = true
+end
   opts.on("--filter-channels-min-subscribers=[NUMBER]") do |v|
-    opt[:command]=:filter_channels
+    opt[:command]||=:filter_channels
     opt[:min_subscribers]=v.to_i
   end
 end
@@ -40,6 +45,8 @@ opt_parser.banner= <<~EOB
 EOB
 opt_parser.parse!
 
+opt[:verbose] = !opt[:quiet]
+
 rdsck = Rdsck.new opt
 if not rdsck.connect
   STDERR.puts "failed to connect to #{opt[:url]}"
@@ -48,10 +55,13 @@ end
 
 case opt[:command]
 when :filter_channels
-  puts "# scanning for channels #{opt[:min_subscribers] && "with subscribers >= #{opt[:min_subscribers]}"}"
+  rdsck.dbg "scanning for channels #{opt[:min_subscribers] && "with subscribers >= #{opt[:min_subscribers]}"}"
   chans = rdsck.filter_channels(min_subscribers: opt[:min_subscribers])
-  puts "# found #{chans.count} channel#{chans.count != 1 && "s"}#{chans.count == 0 ? "." : ":"}"
+  rdsck.dbg "found #{chans.count} channel#{chans.count != 1 && "s"}#{chans.count == 0 ? "." : ":"}"
   puts chans.join("\n")
+when :watch_channels
+  rdsck.dbg "watching for channels #{opt[:min_subscribers] && "with subscribers >= #{opt[:min_subscribers]}"}"
+  rdsck.watch_channels({min_subscribers: opt[:min_subscribers]}, opt[:set_notify_keyspace_events])
 else
   puts "Nothing to do"
 end
