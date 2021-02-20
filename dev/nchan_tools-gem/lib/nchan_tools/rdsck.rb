@@ -108,19 +108,25 @@ class Rdsck
   end
   
   class Watch
-    def initialize(node, filters, set_notify_config = nil)
+    def initialize(rdsck, node, filters, set_notify_config = nil)
+      @rdsck = rdsck
       @sync = node
       @filters = filters
       @set_notify_config = set_notify_config
-      @host, @port = @sync.connection[:host], @sync.connection[:port]
+      @host, @port, @location = @sync.connection[:host], @sync.connection[:port]
+      @url = @sync.connection[:id]
       @async = Async::Redis::Client.new(Async::IO::Endpoint.tcp(@host, @port))
-      @prev_notify_keyspace_event_config = @sync.config("get", "notify-keyspace-events")
-      @sync.config("set", "notify-keyspace-events", "Kh")
+      if set_notify_config
+        @rdsck.dbg "set #{@url} notify-keyspace-events to \"Kh\""
+        @prev_notify_keyspace_event_config = @sync.config("get", "notify-keyspace-events")
+        @prev_notify_keyspace_event_config = @prev_notify_keyspace_event_config[1] if @prev_notify_keyspace_event_config
+        
+        @sync.config :set, "notify-keyspace-events", "Kh"
+      end
     end
     
     def watch(task)
       task.async do
-        require "pry"
         #puts "subscribeme"
         while true do
           @async.psubscribe "__keyspace*__:{channel:*}" do |ctx|
@@ -154,25 +160,33 @@ class Rdsck
     end
     
     def stop
-      puts "stop it. get some help"
       @async.close
-      @sync.config "set", "notify-keyspace-events", @prev_notify_keyspace_event_config
+      if @set_notify_config
+        @rdsck.dbg "set #{@url} notify-keyspace-events back to #{@prev_notify_keyspace_event_config}"
+        @sync.config(:set, "notify-keyspace-events", @prev_notify_keyspace_event_config)
+      end
     end
   end
   
   def watch_channels(filters={}, set_notify_keyspace_events=nil)
     watchers = []
     @masters.each do |m|
-      watchers << Watch.new(m, filters, set_notify_keyspace_events)
+      watchers << Watch.new(self, m, filters, set_notify_keyspace_events)
     end
-    
-    Async do |task|
-      watchers.each do |watcher|
-        watcher.watch(task)
+
+
+    begin
+      Async do |task|
+        watchers.each do |watcher|
+          watcher.watch(task)
+        end
       end
-    end
-    watchers.each do |watcher|
-      watcher.stop
+    rescue Interrupt => e
+      dbg "stopping watch"
+    ensure
+      watchers.each do |watcher|
+        watcher.stop
+      end
     end
     
   end
