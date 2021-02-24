@@ -1091,6 +1091,8 @@ static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *
   z_stream      *strm;
   int            rc;
   ngx_buf_t     *outbuf;
+	
+  *result = 0;
   
   if(fsub->deflate.zstream_in == NULL) {
     if((fsub->deflate.zstream_in = ngx_calloc(sizeof(*strm), ngx_cycle->log)) == NULL) {
