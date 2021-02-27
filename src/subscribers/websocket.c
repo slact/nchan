@@ -1087,12 +1087,13 @@ static ngx_int_t websocket_perform_handshake(full_subscriber_t *fsub) {
 static void websocket_reading(ngx_http_request_t *r);
 
 static ngx_buf_t *websocket_inflate_message(full_subscriber_t *fsub, ngx_buf_t *msgbuf, ngx_pool_t *pool, uint64_t max, int *result) {
+
+*result = 0;
+
 #if (NGX_ZLIB)
   z_stream      *strm;
   int            rc;
   ngx_buf_t     *outbuf;
-	
-  *result = 0;
   
   if(fsub->deflate.zstream_in == NULL) {
     if((fsub->deflate.zstream_in = ngx_calloc(sizeof(*strm), ngx_cycle->log)) == NULL) {
