@@ -120,6 +120,16 @@ static void finalize_request_handler(ngx_http_request_t *r) {
   #if FAKESHARD
     memstore_fakeprocess_push(sub->owner);
   #endif
+    
+    ngx_connection_t *c = r->connection;
+    ngx_event_t      *rev = c->read;
+  
+  
+    if (c->error || c->timedout || c->close || c->destroyed || rev->closed || rev->eof || rev->pending_eof) {
+      ngx_http_test_reading(r);
+      return;
+    }
+    
     sub->dequeue_after_response = 1;
     sub->fn->respond_status(sub, NGX_HTTP_BAD_REQUEST, &NCHAN_HTTP_STATUS_400, NULL);
   #if FAKESHARD
