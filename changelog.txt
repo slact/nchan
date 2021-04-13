@@ -1,3 +1,11 @@
+1.2.8 (Apr. 12 2021)
+ feature: nchan_subscriber_info locations for receiving customizable info from 
+      subscribers of a given channel.
+ fix: incorrect lgging of disconnected subscribers with 400 error instead of 499
+      (bug introduced in v1.2.7)
+ feature: add $nchan_channel_subscriber_last_seen, $nchan_channel_subscriber_count 
+      and $nchan_channel_message_count variables
+ fix: GCC 10 compatibility
 1.2.7 (Mar. 17 2020)
  fix: unidirectional subscribers have their connection terminated if they send any data to the server
       after the initial request handshake. This applies to all subscribers except Websocket

@@ -6,3 +6,7 @@ errors*.log
 vgcore.*
 captions.txt
 nginx
+.bundle
+.profdata
+nchan_tools-gem/*.gem
+bench/
