@@ -17,7 +17,7 @@ gem 'pry-state'
 gem 'pry-syntax-hacks'
 gem 'pry-theme'
 
-gem 'celluloid'
+gem 'celluloid', "~>0.17.4"
 if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('2.2.2')
   gem 'nio4r', '~>1.2.1'
 end
