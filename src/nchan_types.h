@@ -221,6 +221,10 @@ typedef struct{
   ngx_int_t (*set_group_limits)(ngx_str_t *name, nchan_loc_conf_t *, nchan_group_limits_t *limits, callback_pt, void *);
   ngx_int_t (*delete_group)(ngx_str_t *name, nchan_loc_conf_t *, callback_pt, void *);
 
+  //subscriber info stuff
+  ngx_int_t (*get_subscriber_info_id)(nchan_loc_conf_t *,  callback_pt, void *);
+  ngx_int_t (*request_subscriber_info)(ngx_str_t *channel_id, ngx_int_t request_id, nchan_loc_conf_t *, callback_pt, void *);
+  
 } nchan_store_t;
 
 #define NCHAN_MULTI_SEP_CHR '\0'
@@ -359,6 +363,9 @@ struct nchan_loc_conf_s { //nchan_loc_conf_t
   
   ngx_int_t                       subscriber_first_message;
   
+  ngx_http_complex_value_t       *subscriber_info_string;
+  ngx_int_t                       subscriber_info_location;
+  
   ngx_http_complex_value_t       *channel_events_channel_id;
   ngx_http_complex_value_t       *channel_event_string;
   
@@ -393,6 +400,7 @@ typedef struct {
   ngx_int_t              (*dequeue)(struct subscriber_s *);
   ngx_int_t              (*respond_message)(struct subscriber_s *, nchan_msg_t *);
   ngx_int_t              (*respond_status)(struct subscriber_s *, ngx_int_t, const ngx_str_t *, ngx_chain_t *);
+  ngx_int_t              (*set_enqueue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*set_dequeue_callback)(subscriber_t *self, subscriber_callback_pt cb, void *privdata);
   ngx_int_t              (*reserve)(struct subscriber_s *);
   ngx_int_t              (*release)(struct subscriber_s *, uint8_t nodestroy);
@@ -451,6 +459,9 @@ typedef struct {
   
   ngx_str_t                     *request_origin_header;
   ngx_str_t                     *allow_origin;
+  
+  ngx_int_t                      subscriber_info_response_id;
+  ngx_str_t                     *subscriber_info_response_channel_id;
   
   unsigned                       sent_unsubscribe_request:1;
   unsigned                       request_ran_content_handler:1;

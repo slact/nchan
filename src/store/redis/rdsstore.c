@@ -731,7 +731,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
   
   if(CHECK_REPLY_ARRAY_MIN_SIZE(reply, 3)
    && CHECK_REPLY_STR(reply->element[0])
-   && CHECK_REPLY_STR(reply->element[1])) {
+   && (CHECK_REPLY_STR(reply->element[1]) || CHECK_REPLY_INT(reply->element[1]))) {
     pubsub_channel.data = (u_char *)reply->element[1]->str;
     pubsub_channel.len = reply->element[1]->len;
     chid = get_channel_id_from_pubsub_channel(&pubsub_channel, namespace, &chid_str);
@@ -859,7 +859,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 //TODO
               }
               ERR("unsub one not yet implemented");
-              assert(0);
             }
             else if(ngx_strmatch(&alerttype, "unsub all") && array_sz > 1) {
               if(cmp_to_str(&cmp, &extracted_channel_id)) {
@@ -872,28 +871,36 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 //TODO
               }
               ERR("unsub all except not yet  implemented");
-              assert(0);
             }
+            else if(ngx_strmatch(&alerttype, "subscriber info")) {
+              uint64_t request_id;
+              cmp_read_uinteger(&cmp, &request_id);
+              
+              if((chanhead = nchan_store_get_chanhead(chid, nodeset)) == NULL) {
+                ERR("received invalid subscriber info notice with bad channel name");
+              }
+              else {
+                chanhead->spooler.fn->broadcast_notice(&chanhead->spooler, NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST, (void *)(intptr_t )request_id);
+              }
+            }
+            
             else {
               ERR("unexpected msgpack alert from redis");
-              assert(0);
             }
           }
           else {
             ERR("unexpected msgpack message from redis");
-            assert(0);
           }
         }
         else {
           ERR("unexpected msgpack object from redis");
-          assert(0);
         }
       }
       else {
         ERR("invalid msgpack message from redis: %s", cmp_strerror(&cmp));
-        assert(0);
       }
     }
+
     else { //not a string
       redisEchoCallback(c, el, NULL);
     }
@@ -2495,6 +2502,89 @@ int nchan_store_redis_ready(nchan_loc_conf_t *cf) {
   return nodeset && nodeset_ready(nodeset);
 }
 
+
+typedef struct {
+  callback_pt  cb;
+  void        *pd;
+} redis_subscriber_info_id_data_t;
+
+static void get_subscriber_info_id_callback(redisAsyncContext *c, void *r, void *privdata);
+
+static ngx_int_t nchan_store_get_subscriber_info_id(nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  redis_nodeset_t  *nodeset = nodeset_find(&cf->redis);
+  
+  if(!nodeset_ready(nodeset)) {
+    return NGX_ERROR;
+  }
+  
+  ngx_str_t request_id_key = ngx_string(NCHAN_REDIS_UNIQUE_REQUEST_ID_KEY);
+  redis_node_t  *node = nodeset_node_find_by_key(nodeset, &request_id_key);
+  if(!node) {
+    return NGX_ERROR;
+  }
+  
+  redis_subscriber_info_id_data_t *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  if(d == NULL) {
+    return NGX_ERROR;
+  }
+  
+  d->cb = cb;
+  d->pd = pd;
+  
+  redis_script(get_subscriber_info_id, node, &get_subscriber_info_id_callback, d, "1 %b", STR(&request_id_key));
+  
+  return NGX_DONE;
+}
+
+static void get_subscriber_info_id_callback(redisAsyncContext *c, void *r, void *privdata) {
+  redis_subscriber_info_id_data_t *d = privdata;
+  redisReply                    *reply = r;
+  
+  redis_node_t                 *node = c->data;
+  node->pending_commands--;
+  
+  callback_pt  cb = d->cb;
+  void        *cb_pd = d->pd;
+  
+  ngx_free(d);
+  
+  if (!redisReplyOk(c, reply)) {
+    cb(NGX_ERROR, NULL, cb_pd);
+    return;
+  }
+  
+  int64_t new_id = redisReply_to_int(reply, 0, 0);
+  cb(NGX_OK, (void *)(uintptr_t )new_id, cb_pd);
+}
+
+static ngx_int_t nchan_store_request_subscriber_info(ngx_str_t *channel_id, ngx_int_t request_id, nchan_loc_conf_t *cf, callback_pt cb, void *pd) {
+  if(nchan_channel_id_is_multi(channel_id)) {
+    ERR("redis nchan_store_request_subscriber_info can't handle multi-channel ids");
+    return NGX_ERROR;
+  }
+  
+  redis_nodeset_t               *nodeset = nodeset_find(&cf->redis);
+  if(!nodeset) {
+    ERR("redis nodeset not found for nchan_store_request_subscriber_info");
+    return NGX_ERROR;
+  }
+  
+  if(!nodeset_ready(nodeset)) {
+    ERR("redis nodeset not ready for nchan_store_request_subscriber_info");
+    return NGX_ERROR;
+  }
+  
+  redis_node_t *node = nodeset_node_find_by_channel_id(nodeset, channel_id);
+  if(!node) {
+    ERR("couldn't find Redis node for nchan_store_request_subscriber_info");
+    return NGX_ERROR;
+  }
+  
+  nchan_redis_script( request_subscriber_info, node, &redisCheckErrorCallback, NULL, channel_id, "%i", (int )request_id);
+  
+  return NGX_DONE;
+}
+
 nchan_store_t nchan_store_redis = {
   //init
   &nchan_store_init_module,
@@ -2515,7 +2605,11 @@ nchan_store_t nchan_store_redis = {
   &nchan_store_find_channel, //+callback
   
   NULL, //get_group
-  NULL,
-  NULL
+  NULL, //set group
+  NULL, //delete group
+  
+  &nchan_store_get_subscriber_info_id, //+callback
+  &nchan_store_request_subscriber_info //+callback
+  
 };
 

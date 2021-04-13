@@ -199,6 +199,10 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
       d->chanhead->max_messages = max_messages;
       memstore_chanhead_messages_gc(d->chanhead);
       break;
+      
+    case NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST:
+      nchan_memstore_publish_notice(d->chanhead, NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST, data);
+      break;
   }
   return NGX_OK;
 }

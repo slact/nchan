@@ -1191,6 +1191,17 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: server, location, if  
   > Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character.    
 
+- **nchan_subscriber_info**  
+  arguments: 0  
+  context: location  
+  > A subscriber location for debugging the state of subscribers on a given channel. The subscribers of the channel specified by `nchan_channel_id` evaluate `nchan_subscriber_info_string` and send it back to the requested on this location. This is useful to see where subscribers are in an Nchan cluster, as well as debugging subscriber connection issues.    
+
+- **nchan_subscriber_info_string**  
+  arguments: 1  
+  default: `$nchan_subscriber_type $remote_addr:$remote_port $http_user_agent $server_name $request_uri $pid`  
+  context: server, location  
+  > this string is evaluated by each subscriber on a given channel and sent to the requester of a `nchan_subscriber_info` location    
+
 - **nchan_subscriber_last_message_id**  
   arguments: 1 - 5  
   default: `$http_last_event_id $arg_last_event_id`  

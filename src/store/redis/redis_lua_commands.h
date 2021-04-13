@@ -40,6 +40,10 @@ typedef struct {
   //output: msg_ttl, msg_time, msg_tag, prev_msg_time, prev_msg_tag, message, content_type, eventsource_event, compression, channel_subscriber_count
   redis_lua_script_t get_message_from_key;
 
+  //input:  keys: [unique_request_id_key], values: []
+  //output: next_unique_request_id_integer
+  redis_lua_script_t get_subscriber_info_id;
+
   //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]
   //output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
   redis_lua_script_t publish;
@@ -47,6 +51,10 @@ typedef struct {
   //input:  keys: [], values: [namespace, channel_id, status_code]
   //output: current_subscribers
   redis_lua_script_t publish_status;
+
+  //input: keys: [],  values: [ namespace, channel_id, info_response_id ]
+  //output: -nothing-
+  redis_lua_script_t request_subscriber_info;
 
   //redis-store consistency check
   redis_lua_script_t rsck;

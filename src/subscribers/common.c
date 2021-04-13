@@ -370,7 +370,53 @@ void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ng
   }
 }
 
-ngx_int_t nchan_subscriber_empty_notify(subscriber_t *self, ngx_int_t code, void *data) {
+ngx_int_t nchan_subscriber_receive_notice(subscriber_t *self, ngx_int_t code, void *data) {
+  if(code == NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST) {
+    nchan_loc_conf_t     *cf = self->cf;
+    ngx_str_t             result;
+    int                   result_allocd = 0;
+    ngx_str_t             content_type = ngx_string("text/plain");
+    ngx_str_t             bad_info_string = ngx_string("bad subscriber info string");
+    intptr_t              response_id = (intptr_t )data;
+    if(!cf->subscriber_info_string) {
+      result = bad_info_string;
+    }
+    else {
+      if(ngx_http_complex_value_alloc(self->request, cf->subscriber_info_string, &result, 4096) == NGX_ERROR) {
+        result = bad_info_string;
+      }
+      else {
+        result_allocd = 1;
+      }
+    }
+    
+    ngx_str_t *response_channel_id = nchan_get_subscriber_info_response_channel_id(self->request, response_id);
+    
+    nchan_msg_t             msg;
+    ngx_memzero(&msg, sizeof(msg));
+    msg.id.time = 0;
+    msg.id.tag.fixed[0]=0;
+    msg.id.tagcount=1;
+    msg.id.tagactive=0;
+    
+    msg.content_type=&content_type;
+    
+    msg.storage = NCHAN_MSG_STACK;
+    
+    msg.buf.temporary = 1;
+    msg.buf.memory = 1;
+    msg.buf.last_buf = 1;
+    msg.buf.pos = result.data;
+    msg.buf.last = result.data + result.len;
+    msg.buf.start = msg.buf.pos;
+    msg.buf.end = msg.buf.last;
+    
+    cf->storage_engine->publish(response_channel_id, &msg, cf, NULL, NULL);
+    
+    if(result_allocd) {
+      ngx_http_complex_value_free(&result);
+    }
+  }
   return NGX_OK;
 }
 
@@ -403,4 +449,8 @@ ngx_str_t nchan_subscriber_set_recyclable_msgid_str(nchan_request_ctx_t *ctx, nc
   nchan_strcpy(&ret, msgid_to_str(msgid), MSGID_BUF_LEN);
   
   return ret;
+}
+
+ngx_int_t nchan_subscriber_publish_info(subscriber_t *sub, uintptr_t destination_channel_id_number) {
+  return NGX_OK;
 }

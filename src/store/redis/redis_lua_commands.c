@@ -383,6 +383,26 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ttl, time, tag, prev_time or 0, prev_tag or 0, data or \"\", content_type or \"\", es_event or \"\", tonumber(compression or 0)}\n"},
 
+  {"get_subscriber_info_id", "3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180",
+   "--input:  keys: [unique_request_id_key], values: []\n"
+   "--output: next_unique_request_id_integer\n"
+   "local key = KEYS[1]\n"
+   "\n"
+   "redis.call(\"ECHO\", \"###### GET SUBSCRIBER INFO ID ##########\")\n"
+   "\n"
+   "local resp = redis.pcall(\"INCR\", key)\n"
+   "local val\n"
+   "if type(resp) ~= \"number\" then\n"
+   "  redis.call(\"SET\", key, \"0\")\n"
+   "  val = redis.call(\"INCR\", key)\n"
+   "else\n"
+   "  val = resp\n"
+   "end\n"
+   "\n"
+   "redis.call(\"ECHO\", \"val: \" .. val)\n"
+   "\n"
+   "return val\n"},
+
   {"publish", "be28281114137d8e85a25a913c50bed2e93d0c7d",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]\n"
    "--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?\n"
@@ -699,6 +719,23 @@ redis_lua_scripts_t redis_lua_scripts = {
    "--now publish to the efficient channel\n"
    "--what?... redis.call('PUBLISH', channel_pubsub, pubmsg)\n"
    "return redis.call('HGET', chan_key, 'subscribers') or 0\n"},
+
+  {"request_subscriber_info", "93c500e094dfc5364251854eeac8d4331a0223c0",
+   "--input: keys: [],  values: [ namespace, channel_id, info_response_id ]\n"
+   "--output: -nothing-\n"
+   "\n"
+   "local ns = ARGV[1]\n"
+   "local channel_id = ARGV[2]\n"
+   "local response_id = tonumber(ARGV[3])\n"
+   "local pubsub = ('%s{channel:%s}:pubsub'):format(ns, channel_id)\n"
+   "\n"
+   "redis.call('echo', ' ####### REQUEST_SUBSCRIBER_INFO #######')\n"
+   "\n"
+   "local alert_msgpack =cmsgpack.pack({\"alert\", \"subscriber info\", response_id})\n"
+   "\n"
+   "redis.call('PUBLISH', pubsub, alert_msgpack)\n"
+   "\n"
+   "return true\n"},
 
   {"rsck", "2fca046fa783d6cc25e493c993c407e59998e6e8",
    "--redis-store consistency check\n"
@@ -1033,4 +1070,4 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_id, sub_count}\n"}
 };
-const int redis_lua_scripts_count=11;
+const int redis_lua_scripts_count=13;

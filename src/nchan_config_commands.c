@@ -77,6 +77,20 @@ static ngx_command_t  nchan_commands[] = {
     0,
     NULL } ,
 
+  { ngx_string("nchan_subscriber_info"),
+    NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS,
+    nchan_subscriber_info_directive,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL } ,
+
+  { ngx_string("nchan_subscriber_info_string"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_http_set_complex_value_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, subscriber_info_string),
+    NULL } ,
+
   { ngx_string("nchan_longpoll_multipart_response"),
     NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     nchan_set_longpoll_multipart,

@@ -559,6 +559,7 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     shdata->max_workers = NGX_CONF_UNSET;
     shdata->old_max_workers = NGX_CONF_UNSET;
     shdata->generation = 0;
+    shdata->subscriber_info_response_id = 1;
     shdata->total_active_workers = 0;
     shdata->current_active_workers = 0;
     shdata->reloading = 0;
@@ -3434,6 +3435,82 @@ static ngx_int_t nchan_store_delete_group(ngx_str_t *name, nchan_loc_conf_t *cf,
   return memstore_group_delete(groups, name, cb, pd);
 }
 
+typedef struct {
+  callback_pt       cb;
+  void             *pd;
+  nchan_loc_conf_t *lcf;
+} get_unique_request_id_data_t;
+
+static void get_unique_request_delay_callback(void *pd);
+static ngx_int_t nchan_store_get_subscriber_info_id(nchan_loc_conf_t *lcf, callback_pt cb, void *pd) {
+  
+  if(lcf->redis.enabled && lcf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED) {
+    return nchan_store_redis.get_subscriber_info_id(lcf, cb, pd);
+  }
+  
+  get_unique_request_id_data_t *d = ngx_alloc(sizeof(*d), ngx_cycle->log);
+  if(d == NULL) {
+    return NGX_ERROR;
+  }
+  
+  d->cb = cb;
+  d->pd = pd;
+  d->lcf = lcf;
+  
+  if(nchan_add_oneshot_timer(get_unique_request_delay_callback, d, 1) == NULL) {
+    return NGX_ERROR;
+  }
+  
+  return NGX_DONE;
+}
+
+static void get_unique_request_delay_callback(void *pd) {
+  get_unique_request_id_data_t *d = pd;
+  ngx_atomic_int_t id = ngx_atomic_fetch_add(&shdata->subscriber_info_response_id, 1);
+  
+  d->cb(NGX_OK, (void *)(uintptr_t )id, d->pd);
+  ngx_free(d);
+}
+
+static ngx_int_t nchan_store_request_subscriber_info_single_channel(ngx_str_t *channel_id, ngx_int_t request_id, nchan_loc_conf_t *lcf, callback_pt cb, void *pd) {
+  memstore_channel_head_t     *ch = nchan_memstore_get_chanhead(channel_id, lcf);
+  if(!ch || !ch->cf) {
+    return NGX_ERROR;
+  }
+  if(ch->cf->redis.enabled && ch->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED) {
+    return nchan_store_redis.request_subscriber_info(channel_id, request_id, ch->cf, cb, pd);
+  }
+  else {
+    if(ch->owner == memstore_slot()) {
+      return nchan_memstore_publish_notice(ch, NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST, (void *)(intptr_t )request_id);
+    }
+    else {
+      return memstore_ipc_send_publish_notice(ch->owner, channel_id, NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST, (void *)(intptr_t )request_id);
+    }
+  }
+}
+
+static ngx_int_t nchan_store_request_subscriber_info(ngx_str_t *channel_id, ngx_int_t request_id, nchan_loc_conf_t *lcf, callback_pt cb, void *pd) {
+  if(!nchan_channel_id_is_multi(channel_id)) {
+    return nchan_store_request_subscriber_info_single_channel(channel_id, request_id, lcf, cb, pd);
+  }
+  else {
+    //send the delete to all the individually multiplexed channels
+    ngx_int_t             i, n = 0;
+    ngx_str_t             ids[NCHAN_MULTITAG_MAX];
+    
+    n = parse_multi_id(channel_id, ids);
+
+    for(i=0; i<n; i++) {
+      ngx_int_t rc = nchan_store_request_subscriber_info_single_channel(channel_id, request_id, lcf, cb, pd);
+      if(rc != NGX_OK && rc != NGX_DONE) {
+        return rc;
+      }
+    }
+    return NGX_OK;
+  }
+}
+
 nchan_store_t  nchan_store_memory = {
    //init
   &nchan_store_init_module,
@@ -3456,6 +3533,8 @@ nchan_store_t  nchan_store_memory = {
   &nchan_store_get_group, //+callback
   &nchan_store_set_group_limits, //+callback
   &nchan_store_delete_group, //+callback
-    
+  
+  &nchan_store_get_subscriber_info_id, //+callback
+  &nchan_store_request_subscriber_info, //+callback
 };
 

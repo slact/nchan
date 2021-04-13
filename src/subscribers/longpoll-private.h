@@ -6,8 +6,10 @@ struct nchan_longpoll_multimsg_s {
 
 typedef struct {
   ngx_http_cleanup_t      *cln;
-  subscriber_callback_pt  dequeue_handler;
-  void                   *dequeue_handler_data;
+  subscriber_callback_pt  enqueue_callback;
+  void                   *enqueue_callback_data;
+  subscriber_callback_pt  dequeue_callback;
+  void                   *dequeue_callback_data;
   ngx_event_t             timeout_ev;
   ngx_event_t             ping_ev;
   

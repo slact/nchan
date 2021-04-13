@@ -82,6 +82,24 @@ CfCmd.new do
       info: "Defines a server or location as a pubsub endpoint. For long-polling, GETs subscribe. and POSTs publish. For Websockets, publishing data on a connection does not yield a channel metadata response. Without additional configuration, this turns a location into an echo server.",
       uri: '#pubsub-endpoint'
   
+  nchan_subscriber_info [:loc],
+      :nchan_subscriber_info_directive,
+      :loc_conf,
+      args: 0,
+      
+      group: "pubsub",
+      tags: ["subscriber", "debug"],
+      info: "A subscriber location for debugging the state of subscribers on a given channel. The subscribers of the channel specified by `nchan_channel_id` evaluate `nchan_subscriber_info_string` and send it back to the requested on this location. This is useful to see where subscribers are in an Nchan cluster, as well as debugging subscriber connection issues."
+  
+  nchan_subscriber_info_string [:srv, :loc],
+      :ngx_http_set_complex_value_slot,
+      [:loc_conf, :subscriber_info_string],
+      args: 1,
+      
+      group: "pubsub",
+      tags: ["subscriber", "debug"],
+      default: "$nchan_subscriber_type $remote_addr:$remote_port $http_user_agent $server_name $request_uri $pid",
+      info: "this string is evaluated by each subscriber on a given channel and sent to the requester of a `nchan_subscriber_info` location"
   
   nchan_longpoll_multipart_response [:srv, :loc, :if],
       :nchan_set_longpoll_multipart,
@@ -775,12 +793,12 @@ CfCmd.new do
       [:loc_conf, "benchmark.subscribers_per_channel"],
       group: "development",
       undocumented: true
-    nchan_benchmark_subscriber_distribution [:loc],
+  nchan_benchmark_subscriber_distribution [:loc],
       :nchan_benchmark_subscriber_distribution_directive,
       [:loc_conf, "benchmark.subscriber_distribution"],
       group: "development",
       undocumented: true
-    nchan_benchmark_publisher_distribution [:loc],
+  nchan_benchmark_publisher_distribution [:loc],
       :nchan_benchmark_publisher_distribution_directive,
       [:loc_conf, "benchmark.publisher_distribution"],
       group: "development",

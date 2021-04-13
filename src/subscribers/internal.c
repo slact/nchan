@@ -71,7 +71,11 @@ subscriber_t *internal_subscriber_create(ngx_str_t *name, nchan_loc_conf_t *cf, 
   fsub->already_dequeued = 0;
   fsub->awaiting_destruction = 0;
   
-  fsub->dequeue_handler_data = NULL;
+  fsub->enqueue_callback = NULL;
+  fsub->enqueue_callback_data = NULL;
+  
+  fsub->dequeue_callback = NULL;
+  fsub->dequeue_callback_data = NULL;
   
 #if NCHAN_SUBSCRIBER_LEAK_DEBUG
   subscriber_debug_add(&fsub->sub);
@@ -166,6 +170,9 @@ static ngx_int_t internal_enqueue(subscriber_t *self) {
     reset_timer(fsub);
   }
   fsub->enqueue(NGX_OK, NULL, fsub->privdata);
+  if(fsub->enqueue_callback) {
+    fsub->enqueue_callback(self, fsub->enqueue_callback_data);
+  }
   self->enqueued = 1;
   return NGX_OK;
 }
@@ -179,7 +186,9 @@ static ngx_int_t internal_dequeue(subscriber_t *self) {
   f->already_dequeued = 1;
   DBG("%p (%V) dequeue sub", self, f->sub.name);
   f->dequeue(NGX_OK, NULL, f->privdata);
-  f->dequeue_handler(self, f->dequeue_handler_data);
+  if(f->dequeue_callback) {
+    f->dequeue_callback(self, f->dequeue_callback_data);
+  }
   if(self->cf && self->cf->subscriber_timeout > 0 && f->timeout_ev.timer_set) {
     ngx_del_timer(&f->timeout_ev);
   }
@@ -219,18 +228,32 @@ static ngx_int_t internal_respond_status(subscriber_t *self, ngx_int_t status_co
   return dequeue_maybe(self);
 }
 
-static ngx_int_t internal_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+static ngx_int_t internal_set_enqueue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   internal_subscriber_t   *f = (internal_subscriber_t *)self;
   if(cb != NULL) {
-    DBG("%p set dequeue handler to %p", self, cb);
-    f->dequeue_handler = cb;
+    DBG("%p set enqueue callback to %p", self, cb);
+    f->dequeue_callback = cb;
   }
   if(privdata != NULL) {
-    DBG("%p set dequeue handler data to %p", self, cb);
-    f->dequeue_handler_data = privdata;
+    DBG("%p set enqueue callback data to %p", self, cb);
+    f->dequeue_callback_data = privdata;
   }
   return NGX_OK;
 }
+
+static ngx_int_t internal_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+  internal_subscriber_t   *f = (internal_subscriber_t *)self;
+  if(cb != NULL) {
+    DBG("%p set dequeue callback to %p", self, cb);
+    f->dequeue_callback = cb;
+  }
+  if(privdata != NULL) {
+    DBG("%p set dequeue callback data to %p", self, cb);
+    f->dequeue_callback_data = privdata;
+  }
+  return NGX_OK;
+}
+
 
 ngx_int_t internal_subscriber_set_name(subscriber_t *self, ngx_str_t *name) {
   self->name = name;
@@ -247,6 +270,7 @@ static const subscriber_fn_t internal_sub_fn = {
   &internal_dequeue,
   &internal_respond_message,
   &internal_respond_status,
+  &internal_set_enqueue_callback,
   &internal_set_dequeue_callback,
   &internal_reserve,
   &internal_release,

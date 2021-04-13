@@ -9,8 +9,10 @@ typedef struct {
   callback_pt             notify;
   callback_pt             destroy;
   ngx_event_t             timeout_ev;
-  subscriber_callback_pt  dequeue_handler;
-  void                   *dequeue_handler_data;
+  subscriber_callback_pt  enqueue_callback;
+  void                   *enqueue_callback_data;
+  subscriber_callback_pt  dequeue_callback;
+  void                   *dequeue_callback_data;
   void                   *privdata;
   unsigned                already_dequeued:1;
   unsigned                awaiting_destruction:1;

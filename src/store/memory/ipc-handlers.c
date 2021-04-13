@@ -350,7 +350,6 @@ ngx_int_t memstore_ipc_send_publish_notice(ngx_int_t dst, ngx_str_t *chid, ngx_i
 
 static void receive_publish_notice(ngx_int_t sender, publish_code_data_t *d) {
   memstore_channel_head_t       *chead;
-  
   if((chead = nchan_memstore_find_chanhead(d->shm_chid)) == NULL) {
     if(ngx_exiting || ngx_quit) {
       ERR("can't find chanhead for id %V, but it's okay.", d->shm_chid);

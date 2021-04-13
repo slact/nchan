@@ -55,8 +55,12 @@ subscriber_t *longpoll_subscriber_create(ngx_http_request_t *r, nchan_msg_id_t *
   
   nchan_subscriber_init_timeout_timer(&fsub->sub, &fsub->data.timeout_ev);
   
-  fsub->data.dequeue_handler = empty_handler;
-  fsub->data.dequeue_handler_data = NULL;
+  fsub->data.enqueue_callback = empty_handler;
+  fsub->data.enqueue_callback_data = NULL;
+  
+  fsub->data.dequeue_callback = empty_handler;
+  fsub->data.dequeue_callback_data = NULL;
+  
   fsub->data.already_responded = 0;
   fsub->data.awaiting_destruction = 0;
   
@@ -181,7 +185,11 @@ ngx_int_t longpoll_enqueue(subscriber_t *self) {
     //add timeout timer
     ngx_add_timer(&fsub->data.timeout_ev, self->cf->subscriber_timeout * 1000);
   }
-
+  
+  if(fsub->data.enqueue_callback) {
+    fsub->data.enqueue_callback(self, fsub->data.enqueue_callback_data);
+  }
+  
   return NGX_OK;
 }
 
@@ -194,7 +202,9 @@ ngx_int_t longpoll_dequeue(subscriber_t *self) {
     ngx_del_timer(&fsub->data.timeout_ev);
   }
   DBG("%p dequeue", self);
-  fsub->data.dequeue_handler(self, fsub->data.dequeue_handler_data);
+  if(fsub->data.dequeue_callback) {
+    fsub->data.dequeue_callback(self, fsub->data.dequeue_callback_data);
+  }
   
   if(self->enqueued && self->enable_sub_unsub_callbacks && self->cf->unsubscribe_request_url) {
     nchan_subscriber_unsubscribe_request(self);
@@ -485,6 +495,13 @@ static void request_cleanup_handler(subscriber_t *sub) {
 }
 
 
+static ngx_int_t longpoll_set_enqueue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
+  full_subscriber_t  *fsub = (full_subscriber_t  *)self;
+  fsub->data.enqueue_callback = cb;
+  fsub->data.enqueue_callback_data = privdata;
+  return NGX_OK;
+}
+
 static ngx_int_t longpoll_set_dequeue_callback(subscriber_t *self, subscriber_callback_pt cb, void *privdata) {
   full_subscriber_t  *fsub = (full_subscriber_t  *)self;
   if(fsub->data.cln == NULL) {
@@ -492,8 +509,8 @@ static ngx_int_t longpoll_set_dequeue_callback(subscriber_t *self, subscriber_ca
     fsub->data.cln->data = self;
     fsub->data.cln->handler = (ngx_http_cleanup_pt )request_cleanup_handler;
   }
-  fsub->data.dequeue_handler = cb;
-  fsub->data.dequeue_handler_data = privdata;
+  fsub->data.dequeue_callback = cb;
+  fsub->data.dequeue_callback_data = privdata;
   return NGX_OK;
 }
 
@@ -502,10 +519,11 @@ static const subscriber_fn_t longpoll_fn = {
   &longpoll_dequeue,
   &longpoll_respond_message,
   &longpoll_respond_status,
+  &longpoll_set_enqueue_callback,
   &longpoll_set_dequeue_callback,
   &longpoll_reserve,
   &longpoll_release,
-  &nchan_subscriber_empty_notify,
+  &nchan_subscriber_receive_notice,
   &nchan_subscriber_authorize_subscribe_request
 };
 

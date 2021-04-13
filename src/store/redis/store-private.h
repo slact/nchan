@@ -5,6 +5,8 @@
 #define NCHAN_CHANHEAD_CLUSTER_ORPHAN_EXPIRE_SEC 15
 #define NCHAN_NOTICE_REDIS_CHANNEL_MESSAGE_BUFFER_SIZE_CHANGE 0xB00F
 
+#define NCHAN_REDIS_UNIQUE_REQUEST_ID_KEY "nchan:unique_request_id"
+
 #include <nchan_module.h>
 #include "uthash.h"
 #if NCHAN_HAVE_HIREDIS_WITH_SOCKADDR

@@ -11,7 +11,7 @@ ngx_str_t *nchan_request_multipart_boundary(ngx_http_request_t *r, nchan_request
 
 ngx_int_t nchan_request_set_content_type_multipart_boundary_header(ngx_http_request_t *r, nchan_request_ctx_t *ctx);
 
-ngx_int_t nchan_subscriber_empty_notify(subscriber_t *, ngx_int_t code, void *data);
+ngx_int_t nchan_subscriber_receive_notice(subscriber_t *, ngx_int_t code, void *data);
 
 
 nchan_fakereq_subrequest_data_t *nchan_subscriber_subrequest(subscriber_t *sub, nchan_requestmachine_request_params_t *params);
@@ -24,3 +24,4 @@ void nchan_subscriber_common_setup(subscriber_t *sub, subscriber_type_t type, ng
 ngx_int_t nchan_subscriber_init_msgid_reusepool(nchan_request_ctx_t *ctx, ngx_pool_t *request_pool);
 ngx_str_t nchan_subscriber_set_recyclable_msgid_str(nchan_request_ctx_t *ctx, nchan_msg_id_t *msgid);
 
+ngx_int_t nchan_subscriber_publish_info(subscriber_t *sub, uintptr_t channel_id_number);

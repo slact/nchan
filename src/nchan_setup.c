@@ -8,7 +8,12 @@
 #include <zlib.h>
 #endif
 
+static char *nchan_set_complex_value_array(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, nchan_complex_value_arr_t *chid);
+static ngx_int_t set_complex_value_array_size1(ngx_conf_t *cf, nchan_complex_value_arr_t *chid, char *val);
+
 static ngx_str_t      DEFAULT_CHANNEL_EVENT_STRING = ngx_string("$nchan_channel_event $nchan_channel_id");
+
+static ngx_str_t      DEFAULT_SUBSCRIBER_INFO_STRING = ngx_string("$nchan_subscriber_type $remote_addr:$remote_port $http_user_agent $server_name $request_uri $pid");
 
 nchan_store_t   *default_storage_engine = &nchan_store_memory;
 ngx_flag_t       global_nchan_enabled = 0;
@@ -182,6 +187,9 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   lcf->complex_max_messages = NULL;
   
   lcf->subscriber_first_message=NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET;
+  
+  lcf->subscriber_info_string=NULL;
+  lcf->subscriber_info_location=NGX_CONF_UNSET;
   
   lcf->subscriber_timeout=NGX_CONF_UNSET;
   lcf->subscribe_only_existing_channel=NGX_CONF_UNSET;
@@ -378,6 +386,15 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   if (conf->subscriber_first_message == NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET) {
     conf->subscriber_first_message = (prev->subscriber_first_message == NCHAN_SUBSCRIBER_FIRST_MESSAGE_UNSET) ? NCHAN_SUBSCRIBER_DEFAULT_FIRST_MESSAGE : prev->subscriber_first_message;
   }
+  
+  MERGE_CONF(conf, prev, subscriber_info_string);
+  if(conf->subscriber_info_string == NULL) { //still null? use the default string
+    if(create_complex_value_from_ngx_str(cf, &conf->subscriber_info_string, &DEFAULT_SUBSCRIBER_INFO_STRING) == NGX_CONF_ERROR) {
+      return NGX_CONF_ERROR;
+    }
+  }
+  
+  ngx_conf_merge_value(conf->subscriber_info_location, prev->subscriber_info_location, 0);
   
   ngx_conf_merge_sec_value(conf->websocket_ping_interval, prev->websocket_ping_interval, NCHAN_DEFAULT_SUBSCRIBER_PING_INTERVAL);
   
@@ -682,6 +699,28 @@ static char *nchan_pubsub_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *co
     return NGX_CONF_ERROR;
   }
   
+  return NGX_CONF_OK;
+}
+
+static char *nchan_subscriber_info_directive(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_loc_conf_t     *lcf = conf;
+  nchan_conf_subscriber_types_t *subt = &lcf->sub;
+  
+  // doesn't make sense to have longpoll be the default HTTP subscriber, since channel info locations are likely to be curl'd by developers
+  subt->poll=0;
+  subt->http_raw_stream = 1;
+  subt->longpoll=0;
+  subt->websocket=1;
+  subt->eventsource=1;
+  subt->http_chunked=1;
+  subt->http_multipart=1;
+  
+  lcf->subscriber_info_location = 1;
+  
+  lcf->message_timeout=10;
+  lcf->complex_message_timeout = NULL;
+  
+  lcf->request_handler = &nchan_subscriber_info_handler;
   return NGX_CONF_OK;
 }
 
@@ -1018,11 +1057,13 @@ static char *nchan_set_pub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *
 }
 
 static char *nchan_set_sub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return nchan_set_complex_value_array(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->sub_chid);
+  nchan_loc_conf_t *lcf = conf;
+  return nchan_set_complex_value_array(cf, cmd, conf, &lcf->sub_chid);
 }
 
 static char *nchan_set_pubsub_channel_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  return nchan_set_complex_value_array(cf, cmd, conf, &((nchan_loc_conf_t *)conf)->pubsub_chid);
+  nchan_loc_conf_t *lcf = conf;
+  return nchan_set_complex_value_array(cf, cmd, conf, &lcf->pubsub_chid);
 }
 
 static char *nchan_subscriber_last_message_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {

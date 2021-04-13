@@ -473,6 +473,163 @@ ngx_int_t nchan_group_handler(ngx_http_request_t *r) {
   return rc;
 }
 
+static ngx_int_t nchan_subscriber_info_handler_continued(ngx_int_t, void *, void *);
+static void nchan_subscriber_info_publish_info_request_after_subscribing(subscriber_t *, void *);
+
+ngx_int_t nchan_subscriber_info_handler(ngx_http_request_t *r) {
+  if(r->connection && (r->connection->read->eof || r->connection->read->pending_eof)) {
+    ngx_http_finalize_request(r, NGX_HTTP_CLIENT_CLOSED_REQUEST);
+    return NGX_ERROR;
+  } 
+  
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  
+  nchan_request_ctx_t    *ctx;
+  if((ctx = ngx_pcalloc(r->pool, sizeof(nchan_request_ctx_t))) == NULL) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  ngx_http_set_ctx(r, ctx, ngx_nchan_module);
+  
+  
+  if(r->upstream && r->upstream->headers_in.x_accel_redirect) {
+    nchan_recover_x_accel_redirected_request_method(r);
+  }
+  
+  if(!nchan_match_origin_header(r, cf, ctx)) {
+    nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
+    ctx->request_ran_content_handler = 1;
+    return NGX_OK;
+  }
+  
+  if(cf->redis.enabled && !nchan_store_redis_ready(cf)) {
+    nchan_respond_status(r, NGX_HTTP_SERVICE_UNAVAILABLE, NULL, NULL, 0);
+    return NGX_OK;
+  }
+  
+  ngx_int_t rc = cf->storage_engine->get_subscriber_info_id(cf, nchan_subscriber_info_handler_continued, r);
+  //get_unique_request is expected to never complete in the current event loop cycle.
+  if(rc == NGX_ERROR) {
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  }
+  
+  r->main->count++; //hold that request!
+  ctx->request_ran_content_handler = 1;
+  return NGX_DONE;
+}
+
+static ngx_int_t nchan_subscriber_info_handler_continued(ngx_int_t rc, void *d, void *pd) {
+  ngx_http_request_t     *r = pd;
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  
+  uintptr_t               response_id = (uintptr_t )d;
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  ctx->subscriber_info_response_id = response_id;
+  
+  if(rc == NGX_ERROR) {
+    nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  
+  if(r->method == NGX_HTTP_OPTIONS) {
+    nchan_OPTIONS_respond(r, &NCHAN_ACCESS_CONTROL_ALLOWED_SUBSCRIBER_HEADERS, &NCHAN_ALLOW_GET);
+    return NGX_ERROR;
+  }
+  
+  ngx_str_t              *channel_id = nchan_get_subscriber_info_response_channel_id(r, response_id);
+  if(channel_id == NULL) {
+    nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  
+  subscriber_t *(*sub_create)(ngx_http_request_t *r, nchan_msg_id_t *msg_id) = NULL;
+  
+  if(nchan_detect_websocket_request(r)) {
+    if(!cf->sub.websocket) {
+      nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
+      return NGX_ERROR;
+    }
+    sub_create = websocket_subscriber_create;
+  }
+  else if(r->method != NGX_HTTP_GET) {
+    nchan_respond_status(r, NGX_HTTP_FORBIDDEN, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  else {
+    if(cf->sub.eventsource && nchan_detect_eventsource_request(r)) {
+      sub_create = eventsource_subscriber_create;
+    }
+    else if(cf->sub.http_chunked && nchan_detect_chunked_subscriber_request(r)) {
+      sub_create = http_chunked_subscriber_create;
+    }
+    else if(cf->sub.http_multipart && nchan_detect_multipart_subscriber_request(r)) {
+      sub_create = http_multipart_subscriber_create;
+    }
+    else if(cf->sub.poll) {
+      sub_create = intervalpoll_subscriber_create;
+    }
+    else if(cf->sub.http_raw_stream) {
+      sub_create = http_raw_stream_subscriber_create;
+    }
+    else if(cf->sub.longpoll) {
+      sub_create = longpoll_subscriber_create;
+    }
+  }
+  
+  if(!sub_create) {
+    nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  
+  nchan_msg_id_t *msg_id;
+  if((msg_id = nchan_subscriber_get_msg_id(r)) == NULL) {
+    nchan_respond_cstring(r, NGX_HTTP_BAD_REQUEST, &NCHAN_CONTENT_TYPE_TEXT_PLAIN, "Message ID invalid", 0);
+    return NGX_ERROR;
+  }
+  
+  subscriber_t *sub;
+  if((sub = sub_create(r, msg_id)) == NULL) {
+    nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  
+  if(sub->fn->set_enqueue_callback(sub, nchan_subscriber_info_publish_info_request_after_subscribing, r) != NGX_OK) {
+    nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  
+  if(sub->fn->subscribe(sub, channel_id) != NGX_OK) {
+    nchan_respond_status(r, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL, 0);
+    return NGX_ERROR;
+  }
+  
+  return NGX_OK;
+}
+
+static void info_request_publish_callback(ngx_int_t status, void *d, void *pd) {
+  //whatever
+}
+
+static void really_publish_info_request(void *pd) {
+  subscriber_t           *sub = pd;
+  ngx_http_request_t     *r = sub->request;
+  nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(r, ngx_nchan_module);
+  nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
+  ngx_str_t              *channel_id;
+  if((channel_id = nchan_get_channel_id(r, PUB, 1))==NULL) {
+    sub->fn->respond_status(sub, NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, NULL);
+    return;
+  }
+  
+  cf->storage_engine->request_subscriber_info(channel_id, ctx->subscriber_info_response_id, cf, (callback_pt) &info_request_publish_callback, r);
+  nchan_update_stub_status(total_published_messages, 1);
+}
+
+static void nchan_subscriber_info_publish_info_request_after_subscribing(subscriber_t *sub, void *pd) {
+  //publishing needs to happen AFTER this subscriber has enqueued, not during.
+  nchan_add_oneshot_timer(really_publish_info_request, sub, 0);
+}
+
+
 ngx_int_t nchan_pubsub_handler(ngx_http_request_t *r) {
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
   ngx_str_t              *channel_id;
