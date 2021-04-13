@@ -127,6 +127,9 @@ static ngx_int_t sub_notify_handler(ngx_int_t code, void *data, sub_data_t *d) {
   if(code == NCHAN_SUB_MULTI_NOTIFY_ADDSUB) {
     change_sub_count(d->target_chanhead, (ngx_int_t )data);
   }
+  else if(code == NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST) {
+    nchan_memstore_publish_notice(d->multi_chanhead, code, data);
+  }
   return NGX_OK;
 }
 
