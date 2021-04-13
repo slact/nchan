@@ -607,6 +607,7 @@ static ngx_int_t nchan_subscriber_info_handler_continued(ngx_int_t rc, void *d, 
 
 static ngx_int_t info_request_publish_callback(ngx_int_t status, void *d, void *pd) {
   //whatever
+  return NGX_OK;
 }
 
 static void really_publish_info_request(void *pd) {
