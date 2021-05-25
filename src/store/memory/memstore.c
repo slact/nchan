@@ -3027,15 +3027,17 @@ static ngx_int_t publish_multi_callback(ngx_int_t status, void *rptr, void *priv
     pd->rc = status;
   }
   
-  if(pd->ch.last_seen < ch->last_seen) {
-    pd->ch.last_seen = ch->last_seen;
+  if(ch) {
+    if(pd->ch.last_seen < ch->last_seen) {
+      pd->ch.last_seen = ch->last_seen;
+    }
+    
+    if(pd->ch.messages < ch->messages) {
+      pd->ch.messages = ch->messages;
+    }
+    
+    pd->ch.subscribers += ch->subscribers;
   }
-  
-  if(pd->ch.messages < ch->messages) {
-    pd->ch.messages = ch->messages;
-  }
-  
-  pd->ch.subscribers += ch->subscribers;
   
   pd->n--;
   
