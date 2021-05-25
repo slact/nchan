@@ -1021,7 +1021,7 @@ ngx_buf_t *nchan_common_deflate(ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t
   return out;
 }
 
-ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool) {
+ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r, ngx_pool_t *pool, uint64_t max, int *result) {
   ngx_str_t           mm_instr = {0, NULL};
   int                 mmapped = 0;
   ngx_temp_file_t    *tf = NULL;
@@ -1032,6 +1032,8 @@ ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r,
   unsigned            have = 0;
   off_t               written = 0;
   int                 trailer_appended = 0;
+    
+  *result = 0;
   
   //input
   if(ngx_buf_in_memory(in)) {
@@ -1075,6 +1077,7 @@ ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r,
     }
 
     have = ZLIB_CHUNK - stream->avail_out;
+    if((uint64_t)have + written > max) break;
     
     if(stream->avail_out == 0 && tf == NULL) {
       //if we filled up the buffer, let's start dumping to a file.
@@ -1090,6 +1093,11 @@ ngx_buf_t *nchan_inflate(z_stream *stream, ngx_buf_t *in, ngx_http_request_t *r,
     munmap(mm_instr.data, mm_instr.len);
   }
   
+  if((uint64_t)have + written > max) {
+    *result = -1;
+    deflateReset(deflate_zstream);
+    return NULL;
+  }
   if((out = ngx_palloc(pool, sizeof(*out))) == NULL) {
     nchan_log_request_error(r, "failed to allocate output buf for deflated message");
     deflateReset(deflate_zstream);
