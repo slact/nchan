@@ -101,6 +101,7 @@ static size_t                     redis_publish_message_msgkey_size;
 #define CHECK_REPLY_STR(reply) ((reply)->type == REDIS_REPLY_STRING)
 #define CHECK_REPLY_STRVAL(reply, v) ( CHECK_REPLY_STR(reply) && ngx_strcmp((reply)->str, v) == 0 )
 #define CHECK_REPLY_STRNVAL(reply, v, n) ( CHECK_REPLY_STR(reply) && ngx_strncmp((reply)->str, v, n) == 0 )
+#define CHECK_REPLY_STATUSVAL(reply, v) ( (reply)->type == REDIS_REPLY_STATUS && ngx_strcmp((reply)->str, v) == 0 )
 #define CHECK_REPLY_INT(reply) ((reply)->type == REDIS_REPLY_INTEGER)
 #define CHECK_REPLY_INTVAL(reply, v) ( CHECK_REPLY_INT(reply) && (reply)->integer == v )
 #define CHECK_REPLY_ARRAY_MIN_SIZE(reply, size) ( (reply)->type == REDIS_REPLY_ARRAY && (reply)->elements >= (unsigned )size )
@@ -2122,6 +2123,7 @@ typedef struct {
   time_t                msg_time;
   nchan_msg_t          *msg;
   unsigned              shared_msg:1;
+  unsigned              cluster_move_error:1;
   time_t                message_timeout;
   ngx_int_t             max_messages;
   nchan_msg_compression_type_t compression;
@@ -2133,6 +2135,7 @@ typedef struct {
 
 static void redisPublishCallback(redisAsyncContext *, void *, void *);
 static void redisPublishNostoreCallback(redisAsyncContext *, void *, void *);
+static void redisPublishNostoreQueuedCheckCallback(redisAsyncContext *, void *, void *);
 static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd);
 
 static ngx_int_t redis_publish_message_nodeset_maybe_retry(redis_nodeset_t *ns, redis_publish_callback_data_t *d) {
@@ -2205,7 +2208,6 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     char     zero='\0';
     int      fastpublish = nodeset->settings.nostore_fastpublish;
     void   (*publish_callback)(redisAsyncContext *, void *, void *) = NULL;
-    void    *publish_pd = NULL;
     
     
     ttl = htonl(d->message_timeout);
@@ -2216,13 +2218,13 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     compression = d->compression;
     
     if(!fastpublish) {
-      redis_command(node, NULL, NULL, "MULTI");
+      redis_command(node, NULL, d, "MULTI");
+      publish_callback = redisPublishNostoreQueuedCheckCallback;
     }
     else {
       publish_callback = redisPublishNostoreCallback;
-      publish_pd = d;
     }
-    redis_command(node, publish_callback, publish_pd,
+    redis_command(node, publish_callback, d,
       "PUBLISH %b{channel:%b}:pubsub "
       "\x9A\xA3msg\xCE%b\xCE%b%b%b%b\xDB%b%b\xD9%b%b\xD9%b%b%b",
       
@@ -2243,7 +2245,7 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
       (char *)&compression, (size_t )1
     );
     if(!fastpublish) {
-      redis_command(node, NULL, NULL, "HMGET %b{channel:%b} last_seen_fake_subscriber fake_subscribers", 
+      redis_command(node, publish_callback, d, "HMGET %b{channel:%b} last_seen_fake_subscriber fake_subscribers", 
         STR(nodeset->settings.namespace),
         STR(d->channel_id)
       );
@@ -2291,6 +2293,7 @@ static ngx_int_t nchan_store_publish_message(ngx_str_t *channel_id, nchan_msg_t 
   d->max_messages = nchan_loc_conf_max_messages(cf);
   d->compression = cf->message_compression;
   d->retry = 0;
+  d->cluster_move_error = 0;
   
   assert(msg->id.tagcount == 1);
   
@@ -2332,22 +2335,26 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   }
   
   ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
-  
-  if(reply) {
+  if(d->cluster_move_error) {
+    nodeset_node_keyslot_changed(node);
+    d->callback(NGX_HTTP_SERVICE_UNAVAILABLE, NULL, d->privdata);
+  }
+  else if(reply) {
     if(reply->type == REDIS_REPLY_ARRAY && reply->elements == 2 && reply->element[1]->type == REDIS_REPLY_ARRAY && reply->element[1]->elements == 2) {
       els = reply->element[1]->element;
       ch.last_seen = redisReply_to_int(els[0], 0, 0);
       ch.subscribers = redisReply_to_int(els[1], 0, 0);
+      d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
     }
     else if(reply->type == REDIS_REPLY_INTEGER) {
       ch.last_seen = 0;
       ch.subscribers = redisReply_to_int(reply, 0, 0);
+      d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
     }
     else {
-      DBG("nonsense nostore-publish reply");
+      redisEchoCallback(c, r, privdata);
+      d->callback(NGX_HTTP_INTERNAL_SERVER_ERROR, NULL, d->privdata);
     }
-    
-    d->callback(ch.subscribers > 0 ? NCHAN_MESSAGE_RECEIVED : NCHAN_MESSAGE_QUEUED, &ch, d->privdata);
   }
   else {
     redisEchoCallback(c, r, privdata);
@@ -2355,6 +2362,22 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   }
   
   ngx_free(d);
+}
+
+static void redisPublishNostoreQueuedCheckCallback(redisAsyncContext *c, void *r, void *privdata) {
+  redis_publish_callback_data_t *d=(redis_publish_callback_data_t *)privdata;
+  redisReply                    *reply=r;
+  
+  redis_node_t                 *node = c->data;
+  
+  if(!CHECK_REPLY_STATUSVAL(reply, "QUEUED")) {
+    if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+      d->cluster_move_error = 1;
+    }
+    else {
+      redisEchoCallback(c, r, privdata);
+    }
+  }
 }
 
 static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) {
