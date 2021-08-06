@@ -1,9 +1,5 @@
-/* Extracted from anet.c to work properly with Hiredis error reporting.
- *
- * Copyright (c) 2009-2011, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010-2014, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2015, Matt Stancliff <matt at genges dot com>,
- *                     Jan-Erik Rediger <janerik at fnordig dot com>
+/*
+ * Copyright (c) 2020, Michael Grunder <michael dot grunder at gmail dot com>
  *
  * All rights reserved.
  *
@@ -32,25 +28,64 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __NET_H
-#define __NET_H
+#ifndef HIREDIS_ALLOC_H
+#define HIREDIS_ALLOC_H
 
-#include "hiredis.h"
+#include <stddef.h> /* for size_t */
 
-void redisNetClose(redisContext *c);
-ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap);
-ssize_t redisNetWrite(redisContext *c);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-int redisCheckSocketError(redisContext *c);
-int redisContextSetTimeout(redisContext *c, const struct timeval tv);
-int redisContextConnectTcp(redisContext *c, const char *addr, int port, const struct timeval *timeout);
-int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
-                               const struct timeval *timeout,
-                               const char *source_addr);
-int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
-int redisKeepAlive(redisContext *c, int interval);
-int redisCheckConnectDone(redisContext *c, int *completed);
+/* Structure pointing to our actually configured allocators */
+typedef struct hiredisAllocFuncs {
+    void *(*mallocFn)(size_t);
+    void *(*callocFn)(size_t,size_t);
+    void *(*reallocFn)(void*,size_t);
+    char *(*strdupFn)(const char*);
+    void (*freeFn)(void*);
+} hiredisAllocFuncs;
 
-int redisSetTcpNoDelay(redisContext *c);
+hiredisAllocFuncs hiredisSetAllocators(hiredisAllocFuncs *ha);
+void hiredisResetAllocators(void);
+
+#ifndef _WIN32
+
+/* Hiredis' configured allocator function pointer struct */
+extern hiredisAllocFuncs hiredisAllocFns;
+
+static inline void *hi_malloc(size_t size) {
+    return hiredisAllocFns.mallocFn(size);
+}
+
+static inline void *hi_calloc(size_t nmemb, size_t size) {
+    return hiredisAllocFns.callocFn(nmemb, size);
+}
+
+static inline void *hi_realloc(void *ptr, size_t size) {
+    return hiredisAllocFns.reallocFn(ptr, size);
+}
+
+static inline char *hi_strdup(const char *str) {
+    return hiredisAllocFns.strdupFn(str);
+}
+
+static inline void hi_free(void *ptr) {
+    hiredisAllocFns.freeFn(ptr);
+}
+
+#else
+
+void *hi_malloc(size_t size);
+void *hi_calloc(size_t nmemb, size_t size);
+void *hi_realloc(void *ptr, size_t size);
+char *hi_strdup(const char *str);
+void hi_free(void *ptr);
 
 #endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* HIREDIS_ALLOC_H */

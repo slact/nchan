@@ -1,9 +1,5 @@
-/* Extracted from anet.c to work properly with Hiredis error reporting.
- *
- * Copyright (c) 2009-2011, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010-2014, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2015, Matt Stancliff <matt at genges dot com>,
- *                     Jan-Erik Rediger <janerik at fnordig dot com>
+/*
+ * Copyright (c) 2020, Michael Grunder <michael dot grunder at gmail dot com>
  *
  * All rights reserved.
  *
@@ -32,25 +28,59 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __NET_H
-#define __NET_H
+#include "fmacros.h"
+#include "alloc.h"
+#include <string.h>
+#include <stdlib.h>
 
-#include "hiredis.h"
+hiredisAllocFuncs hiredisAllocFns = {
+    .mallocFn = malloc,
+    .callocFn = calloc,
+    .reallocFn = realloc,
+    .strdupFn = strdup,
+    .freeFn = free,
+};
 
-void redisNetClose(redisContext *c);
-ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap);
-ssize_t redisNetWrite(redisContext *c);
+/* Override hiredis' allocators with ones supplied by the user */
+hiredisAllocFuncs hiredisSetAllocators(hiredisAllocFuncs *override) {
+    hiredisAllocFuncs orig = hiredisAllocFns;
 
-int redisCheckSocketError(redisContext *c);
-int redisContextSetTimeout(redisContext *c, const struct timeval tv);
-int redisContextConnectTcp(redisContext *c, const char *addr, int port, const struct timeval *timeout);
-int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
-                               const struct timeval *timeout,
-                               const char *source_addr);
-int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
-int redisKeepAlive(redisContext *c, int interval);
-int redisCheckConnectDone(redisContext *c, int *completed);
+    hiredisAllocFns = *override;
 
-int redisSetTcpNoDelay(redisContext *c);
+    return orig;
+}
+
+/* Reset allocators to use libc defaults */
+void hiredisResetAllocators(void) {
+    hiredisAllocFns = (hiredisAllocFuncs) {
+        .mallocFn = malloc,
+        .callocFn = calloc,
+        .reallocFn = realloc,
+        .strdupFn = strdup,
+        .freeFn = free,
+    };
+}
+
+#ifdef _WIN32
+
+void *hi_malloc(size_t size) {
+    return hiredisAllocFns.mallocFn(size);
+}
+
+void *hi_calloc(size_t nmemb, size_t size) {
+    return hiredisAllocFns.callocFn(nmemb, size);
+}
+
+void *hi_realloc(void *ptr, size_t size) {
+    return hiredisAllocFns.reallocFn(ptr, size);
+}
+
+char *hi_strdup(const char *str) {
+    return hiredisAllocFns.strdupFn(str);
+}
+
+void hi_free(void *ptr) {
+    hiredisAllocFns.freeFn(ptr);
+}
 
 #endif
