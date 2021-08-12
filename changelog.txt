@@ -1,3 +1,8 @@
+ feature: Redis cluster reconfiguration check timer,
+      nchan_redis_cluster_check_interval setting
+ fix: detect Redis cluster reconfiguration when publishing messages in "nostore" mode
+ update: hiredis updated to v1.0.0 
+ fix: segfault on out-of-shared-memory condition for multiplexed publishers
 1.2.8 (Apr. 12 2021)
  feature: nchan_subscriber_info locations for receiving customizable info from 
       subscribers of a given channel.
