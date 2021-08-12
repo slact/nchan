@@ -116,7 +116,6 @@ class NPipe
     @inflight = "#{@id} hey what is this? #{@n}"
     begin
       if @pub.post @inflight then
-        puts @pub.response_code
         @tracker.sent!
       else
         @tracker.error! "Failed to send msg \"#{@inflight}\""
