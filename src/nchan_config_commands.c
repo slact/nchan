@@ -384,6 +384,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.ping_interval),
     NULL } ,
 
+  { ngx_string("nchan_redis_cluster_check_interval"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_UPS_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_sec_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(nchan_loc_conf_t, redis.cluster_check_interval),
+    NULL } ,
+
   { ngx_string("nchan_redis_wait_after_connecting"),
     NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     nchan_ignore_obsolete_setting,

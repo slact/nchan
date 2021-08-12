@@ -489,6 +489,15 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
+  nchan_redis_cluster_check_interval [:main, :srv, :upstream, :loc],
+      :ngx_conf_set_sec_slot,
+      [:loc_conf, :"redis.cluster_check_interval"],
+      
+      group: "storage",
+      tags: ['redis'],
+      default: "5s",
+      info: "Send a CLUSTER INFO command to each connected Redis node to see if the cluster config epoch has changed. Sent only when in Cluster mode and if any other command that may result in a MOVE error has not been sent in the configured time."
+  
   nchan_redis_wait_after_connecting [:main, :srv, :loc],
       :nchan_ignore_obsolete_setting,
       :loc_conf,

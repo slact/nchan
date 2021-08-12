@@ -2370,7 +2370,7 @@ static void redisPublishNostoreQueuedCheckCallback(redisAsyncContext *c, void *r
   
   redis_node_t                 *node = c->data;
   
-  if(!CHECK_REPLY_STATUSVAL(reply, "QUEUED")) {
+  if(reply && !CHECK_REPLY_STATUSVAL(reply, "QUEUED")) {
     if(!nodeset_node_reply_keyslot_ok(node, reply)) {
       d->cluster_move_error = 1;
     }

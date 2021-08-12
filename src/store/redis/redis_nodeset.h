@@ -136,6 +136,7 @@ struct redis_nodeset_s {
       ngx_int_t                   slave;
     }                           node_weight;
     time_t                      ping_interval;
+    time_t                      cluster_check_interval;
     ngx_str_t                  *namespace;
     nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  connect_timeout;
@@ -176,6 +177,9 @@ struct redis_node_s {
     unsigned                  enabled:1;
     unsigned                  ok:1;
     ngx_str_t                 id;
+    ngx_event_t               check_timer;
+    time_t                    last_successful_check;
+    int                       current_epoch; //as reported on this node
     struct {
       redis_slot_range_t         *range;
       size_t                      n;
