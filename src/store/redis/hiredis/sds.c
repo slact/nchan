@@ -40,6 +40,9 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wshadow"
+
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -1287,3 +1290,5 @@ int main(void) {
     return sdsTest();
 }
 #endif
+
+#pragma GCC diagnostic pop

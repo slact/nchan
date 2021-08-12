@@ -40,6 +40,9 @@
 #include <limits.h>
 #include "dict.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *ht);
@@ -350,3 +353,5 @@ static int _dictKeyIndex(dict *ht, const void *key) {
     return h;
 }
 
+
+#pragma GCC diagnostic pop

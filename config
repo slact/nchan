@@ -22,11 +22,15 @@ ngx_feature_test=" \
 . auto/feature
 if [ $ngx_found = no ]; then
   _NCHAN_HIREDIS_SRCS="\
-    ${ngx_addon_dir}/src/store/redis/hiredis/hiredis.c \
-    ${ngx_addon_dir}/src/store/redis/hiredis/read.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/alloc.c \
     ${ngx_addon_dir}/src/store/redis/hiredis/async.c \
-    ${ngx_addon_dir}/src/store/redis/hiredis/sds.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/dict.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/hiredis.c \
     ${ngx_addon_dir}/src/store/redis/hiredis/net.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/read.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/sds.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/sockcompat.c \
+    ${ngx_addon_dir}/src/store/redis/hiredis/ssl.c \
   "
   ngx_feature_libs=""
 else
