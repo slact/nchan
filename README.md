@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.2.9 (August 23, 2021) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.2.10 (August 25, 2021) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -1189,7 +1189,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `\n`  
   context: server, location, if  
-  > Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character.    
+  > Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character if not explicitly set to an empty string.    
 
 - **nchan_subscriber_info**  
   arguments: 0  

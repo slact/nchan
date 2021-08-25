@@ -1,3 +1,7 @@
+1.2.10 (Aug. 25 2021)
+ fix: Nchan could not be built without openssl due to hiredis dependency
+      (introduced in v1.2.9)
+ feature: allow no separator for http-raw-stream (thanks @sclem)
 1.2.9 (Aug. 12 2021)
  feature: Redis cluster reconfiguration check timer,
       nchan_redis_cluster_check_interval setting
