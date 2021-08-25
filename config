@@ -30,8 +30,14 @@ if [ $ngx_found = no ]; then
     ${ngx_addon_dir}/src/store/redis/hiredis/read.c \
     ${ngx_addon_dir}/src/store/redis/hiredis/sds.c \
     ${ngx_addon_dir}/src/store/redis/hiredis/sockcompat.c \
-    ${ngx_addon_dir}/src/store/redis/hiredis/ssl.c \
   "
+  
+  if [ $USE_OPENSSL = YES ]; then
+    _NCHAN_HIREDIS_SRCS="$_NCHAN_HIREDIS_SRCS\
+      ${ngx_addon_dir}/src/store/redis/hiredis/ssl.c \
+    "
+  fi
+  
   ngx_feature_libs=""
 else
   nchan_libs="$nchan_libs $ngx_feature_libs"
