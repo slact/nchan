@@ -222,7 +222,7 @@ CfCmd.new do
       tags: ['subscriber-rawstream'],
       value: "<string>",
       default: "\\n",
-      info: "Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character."
+      info: "Message separator string for the http-raw-stream subscriber. Automatically terminated with a newline character if not explicitly set to an empty string."
   
   nchan_subscriber_first_message [:srv, :loc, :if],
       :nchan_subscriber_first_message_directive,

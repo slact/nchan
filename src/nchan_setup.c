@@ -1179,7 +1179,7 @@ static char *nchan_set_raw_subscriber_separator(ngx_conf_t *cf, ngx_command_t *c
   nchan_loc_conf_t   *lcf = conf;
   ngx_str_t          *cf_val = &lcf->subscriber_http_raw_stream_separator;
   
-  if( val->data[val->len - 1] != '\n' ) { //must end in a newline
+  if( val->len && val->data[val->len - 1] != '\n' ) { //must end in a newline if not empty
     u_char   *cur;
     if((cur = ngx_palloc(cf->pool, val->len + 1)) == NULL) {
       return NGX_CONF_ERROR;

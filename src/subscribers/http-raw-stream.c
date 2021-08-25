@@ -26,7 +26,7 @@ static void rawstream_ensure_headers_sent(full_subscriber_t *fsub) {
 static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg) {
   
   full_subscriber_t      *fsub = (full_subscriber_t  *)sub;
-  ngx_buf_t              *buf, *msg_buf = &msg->buf;
+  ngx_buf_t              *buf = NULL, *msg_buf = &msg->buf;
   ngx_int_t               rc;
   nchan_loc_conf_t       *cf = ngx_http_get_module_loc_conf(fsub->sub.request, ngx_nchan_module);
   nchan_request_ctx_t    *ctx = ngx_http_get_module_ctx(fsub->sub.request, ngx_nchan_module);
@@ -48,7 +48,7 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
     return NGX_OK;
   }
   
-  if((bc = nchan_bufchain_pool_reserve(ctx->bcp, (1 + (msg_len > 0 ? 1: 0)))) == NULL) {
+  if((bc = nchan_bufchain_pool_reserve(ctx->bcp, ((separator_len > 0 ? 1 : 0) + (msg_len > 0 ? 1: 0)))) == NULL) {
     ERR("can't allocate buf-and-chains for http-raw-stream client output");
     return NGX_ERROR;
   }
@@ -71,17 +71,21 @@ static ngx_int_t rawstream_respond_message(subscriber_t *sub,  nchan_msg_t *msg)
   }
   
   //separator 
-  buf = chain->buf;
-  ngx_memzero(buf, sizeof(ngx_buf_t));
-  buf->start = cf->subscriber_http_raw_stream_separator.data;
-  buf->pos = buf->start;
-  buf->end = buf->start + separator_len;
-  buf->last = buf->end;
-  buf->memory = 1;
-  
-  buf->last_buf = 0;
-  buf->last_in_chain = 1;
-  buf->flush = 1;
+  if(separator_len) {
+    buf = chain->buf;
+    ngx_memzero(buf, sizeof(ngx_buf_t));
+    buf->start = cf->subscriber_http_raw_stream_separator.data;
+    buf->pos = buf->start;
+    buf->end = buf->start + separator_len;
+    buf->last = buf->end;
+    buf->memory = 1;
+  }
+
+  if(buf) {
+    buf->last_buf = 0;
+    buf->last_in_chain = 1;
+    buf->flush = 1;
+  }
   
   rawstream_ensure_headers_sent(fsub);
   
