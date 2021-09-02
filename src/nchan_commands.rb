@@ -442,7 +442,7 @@ CfCmd.new do
       info: "Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.",
       uri: "#connecting-to-a-redis-server"
   
-  nchan_redis_storage_mode [:main, :srv, :upstream], 
+  nchan_redis_storage_mode [:main, :srv, :upstream, :loc], 
       :ngx_conf_set_redis_storage_mode_slot,
       [:loc_conf, :"redis.storage_mode"],
       

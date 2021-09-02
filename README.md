@@ -1403,7 +1403,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - **nchan_redis_storage_mode** `[ distributed | backup | nostore ]`  
   arguments: 1  
   default: `distributed`  
-  context: http, server, upstream  
+  context: http, server, upstream, location  
   > The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but suffers the latency penalty of all message publishing going through Redis first.  
   >   
   > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.  
