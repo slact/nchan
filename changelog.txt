@@ -1,3 +1,6 @@
+1.2.11 (Sep. 17 2021)
+ feature: nchan_redis_discovered_ip_range_blacklist for ignoring autotiscoreved nodes
+ feature: nchan_redis_storage_mode is now configurable in location contexts 
 1.2.10 (Aug. 25 2021)
  fix: Nchan could not be built without openssl due to hiredis dependency
       (introduced in v1.2.9)
