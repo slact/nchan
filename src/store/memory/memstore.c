@@ -32,11 +32,13 @@ static ngx_int_t redis_fakesub_timer_interval;
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
+#define WARN(fmt, args...) ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "MEMSTORE:(fake)%02i: " fmt, memstore_slot(), ##args)
 
 #else
 
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
+#define WARN(fmt, args...) ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "MEMSTORE:%02i: " fmt, memstore_slot(), ##args)
 
 #endif
 
@@ -2587,7 +2589,7 @@ static ngx_int_t nchan_store_async_get_multi_message_callback(ngx_int_t code, vo
 
 static void get_multimsg_timeout(ngx_event_t *ev) {
   get_multi_message_data_t    *d = (get_multi_message_data_t *)ev->data;
-  ERR("multimsg %p timeout!!", d);  
+  WARN("multimsg %p timeout!!", d);
   d->expired = ngx_time();
   
   memstore_chanhead_release(d->chanhead, "multimsg");
