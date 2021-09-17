@@ -140,6 +140,10 @@ struct redis_nodeset_s {
     ngx_str_t                  *namespace;
     nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  connect_timeout;
+    struct {
+      int                         count;
+      nchan_redis_ip_range_t     *list;
+    }                         blacklist;
   }                           settings;
   
   struct {

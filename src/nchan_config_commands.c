@@ -349,6 +349,13 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_main_conf_t, redis_publish_message_msgkey_size),
     NULL } ,
 
+  { ngx_string("nchan_redis_discovered_ip_range_blacklist"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5|NGX_CONF_TAKE6|NGX_CONF_TAKE7,
+    ngx_conf_set_redis_ip_blacklist,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    0,
+    NULL } ,
+
   { ngx_string("nchan_redis_server"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_upstream_redis_server,

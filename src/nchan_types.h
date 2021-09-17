@@ -277,11 +277,46 @@ typedef enum {
 } nchan_redis_optimize_t;
 
 typedef struct {
+  int family;
+  int prefix_size;
+  ngx_str_t str;
+  struct {
+    union {
+      struct in_addr ipv4;
+#ifdef AF_INET6
+      struct in6_addr ipv6;
+      char            str[16];
+#endif
+    };
+  } addr;
+  struct {
+    union {
+      struct in_addr ipv4;
+#ifdef AF_INET6
+      struct in6_addr ipv6;
+      char            str[16];
+#endif
+    };
+  } addr_block;
+  struct {
+    union {
+      struct in_addr ipv4;
+#ifdef AF_INET6
+      struct in6_addr ipv6;
+#endif
+      char            str[16];
+    };
+  } mask;
+} nchan_redis_ip_range_t;
+
+typedef struct {
   struct {
       ngx_msec_t                    connect_timeout;
       nchan_redis_optimize_t        optimize_target;
       ngx_int_t                     master_weight;
       ngx_int_t                     slave_weight;
+      ngx_int_t                     blacklist_count;
+      nchan_redis_ip_range_t       *blacklist;
   }                               redis;
   nchan_loc_conf_t                *upstream_nchan_loc_conf;
 } nchan_srv_conf_t;

@@ -1359,6 +1359,11 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Redis server connection timeout.    
 
+- **nchan_redis_discovered_ip_range_blacklist** `<CIDR range>`  
+  arguments: 1 - 7  
+  context: upstream  
+  > do not attempt to connect to **autodiscovered** nodes with IPs in the specified ranges. Useful for blacklisting private network ranges for clusters and Redis slaves. NOTE that this blacklist applies only to autodiscovered nodes, and not ones specified in the upstream block    
+
 - **nchan_redis_idle_channel_cache_timeout** `<time>`  
   arguments: 1  
   default: `30s`  

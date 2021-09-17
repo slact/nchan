@@ -31,6 +31,7 @@ static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns);
+static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
@@ -258,6 +259,9 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.optimize_target = scf->redis.optimize_target == NCHAN_REDIS_OPTIMIZE_UNSET ? NCHAN_REDIS_OPTIMIZE_CPU : scf->redis.optimize_target;
     
+    ns->settings.blacklist.count = scf->redis.blacklist_count;
+    ns->settings.blacklist.list = scf->redis.blacklist;
+    
     for(i=0; i < servers->nelts; i++) {
 #if nginx_version >= 1007002
       upstream_url = &usrv[i].name;
@@ -273,6 +277,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.connect_timeout = NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC;
     ns->settings.node_weight.master = 1;
     ns->settings.node_weight.slave = 1;
+    ns->settings.blacklist.count = 0;
+    ns->settings.blacklist.list = NULL;
     ngx_str_t **urlref = nchan_list_append(&ns->urls);
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
   }
@@ -753,6 +759,8 @@ static void node_discover_slave(redis_node_t *master, redis_connect_params_t *rc
     //assert(slave->peers.master == master);
   }
   else {
+    
+    
     slave = nodeset_node_create_with_connect_params(master->nodeset, rcp);
     slave->discovered = 1;
     node_set_role(slave, REDIS_NODE_ROLE_SLAVE);
@@ -795,8 +803,11 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
 static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
   redis_connect_params_t   rcp;
   char                    *description = "";
+  char                    *detail = "";
+  char                     detail_buf[64];
   char                    *role = NULL;
   ngx_uint_t               loglevel = NGX_LOG_NOTICE;
+  nchan_redis_ip_range_t  *matched;
   rcp.hostname = l->hostname;
   rcp.port = l->port;
   rcp.peername.len = 0;
@@ -827,11 +838,16 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
     description = "self";
     loglevel = NGX_LOG_INFO;
   }
+  else if((matched = node_ip_blacklisted(node->nodeset, &rcp)) != NULL) {
+    description = "blacklisted";
+    detail = detail_buf;
+    ngx_snprintf((u_char *)detail_buf, 64, " (matched blacklist entry %V)%Z", &matched->str);
+  }
   else {
     return 0;
   }
   if(!role) role = l->master ? "master" : "slave";
-  node_log(node, loglevel, "Skipping %s cluster %s %s", description, role, rcp_cstr(&rcp));
+  nodeset_log(node->nodeset, loglevel, "Skipping %s %s node %s%s", description, role, rcp_cstr(&rcp), detail);
   return 1;
 }
 
@@ -1126,6 +1142,65 @@ static redisAsyncContext *node_connect_context(redis_node_t *node, ngx_str_t *ho
   return ctx;
 }
 
+static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
+  struct addrinfo *res;
+  char hostname_buf[128];
+  ngx_memzero(hostname_buf, sizeof(hostname_buf));
+  ngx_memcpy(hostname_buf, rcp->hostname.data, rcp->hostname.len);
+  
+  if(getaddrinfo(hostname_buf, NULL, NULL, &res) != 0) {
+    nodeset_log_error(ns, "Failed to getaddrinfo for hostname %V while deciding if IP is blacklisted");
+    return NULL;
+  }
+  int fam = res->ai_family;
+  union {
+    struct in_addr  ipv4;
+#ifdef AF_INET6
+    struct in6_addr ipv6;
+#endif
+  } addr;
+  
+  if(res->ai_family == AF_INET) {
+    addr.ipv4 = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
+  }
+#ifdef AF_INET6
+  else if(res->ai_family == AF_INET6) {
+    addr.ipv6 = ((struct sockaddr_in6 *)res->ai_addr)->sin6_addr;
+  }
+#endif
+  freeaddrinfo(res);
+  int i;
+  for(i=0; i < ns->settings.blacklist.count; i++) {
+    nchan_redis_ip_range_t *entry = &ns->settings.blacklist.list[i];
+    if(entry->family != fam) {
+      continue;
+    }
+    if(fam == AF_INET) {
+      if(entry->addr_block.ipv4.s_addr == (addr.ipv4.s_addr & entry->mask.ipv4.s_addr)) {
+        return entry;
+      }
+    }
+#ifdef AF_INET6
+    else if(fam == AF_INET6) {
+      unsigned           j;
+      struct in6_addr    buf = addr.ipv6;
+      uint8_t           *masked_addr = entry->addr_block.ipv6.s6_addr;
+      uint8_t           *mask = entry->mask.ipv6.s6_addr;
+      
+      for(j=0; j<sizeof(entry->addr_block.ipv6.s6_addr); j++) {
+        masked_addr[j] &= mask[j];
+      }
+      
+      if(memcmp(entry->addr_block.ipv6.s6_addr, &buf, sizeof(buf)) == 0) {
+        return entry;
+      }
+    }
+#endif
+  }
+  
+  return NULL;
+}
+
 static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *reply) {
   redis_connect_params_t   *rcp;
   size_t                    i, n;
@@ -1133,7 +1208,13 @@ static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *
     return 0;
   }
   for(i=0; i<n; i++) {
-    node_discover_slave(node, &rcp[i]);
+    nchan_redis_ip_range_t *matched = node_ip_blacklisted(node->nodeset, &rcp[i]);
+    if(matched) {
+      nodeset_log_notice(node->nodeset, "Skipping slave node %V blacklisted by %V", &rcp->hostname, &matched->str);
+    }
+    else {
+      node_discover_slave(node, &rcp[i]);
+    }
   }
   return 1;
 }
@@ -2055,10 +2136,12 @@ static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *ds
       s4 = (struct sockaddr_in *)&ctx->c.sockaddr;
       inet_ntop(AF_INET, &s4->sin_addr, ipstr, INET6_ADDRSTRLEN);
       break;
+#ifdef AF_INET6
     case AF_INET6:
       s6 = (struct sockaddr_in6 *)&ctx->c.sockaddr;
       inet_ntop(AF_INET6, &s6->sin6_addr, ipstr, INET6_ADDRSTRLEN);
       break;
+#endif
     case AF_UNSPEC:
     default:
       DBG("couldn't get sockaddr");

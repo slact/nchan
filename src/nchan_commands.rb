@@ -433,6 +433,15 @@ CfCmd.new do
       undocumented: true,
       group: "storage"
   
+  nchan_redis_discovered_ip_range_blacklist [:upstream],
+      :ngx_conf_set_redis_ip_blacklist,
+      :srv_conf,
+      args: 1..7,
+      group: "storage",
+      tags: ['redis'],
+      value: "<CIDR range>",
+      info: "do not attempt to connect to **autodiscovered** nodes with IPs in the specified ranges. Useful for blacklisting private network ranges for clusters and Redis slaves. NOTE that this blacklist applies only to autodiscovered nodes, and not ones specified in the upstream block"
+  
   nchan_redis_server [:upstream],
       :ngx_conf_upstream_redis_server,
       :loc_conf,

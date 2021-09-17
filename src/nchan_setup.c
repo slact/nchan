@@ -140,6 +140,8 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
   scf->redis.slave_weight = NGX_CONF_UNSET;
+  scf->redis.blacklist_count = NGX_CONF_UNSET;
+  scf->redis.blacklist = NULL;
   scf->upstream_nchan_loc_conf = NULL;
   return scf;
 }
@@ -150,6 +152,10 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   MERGE_UNSET_CONF(conf->redis.optimize_target, prev->redis.optimize_target, NCHAN_REDIS_OPTIMIZE_UNSET, NCHAN_REDIS_OPTIMIZE_CPU);
   ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
   ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);
+  ngx_conf_merge_value(conf->redis.blacklist_count, prev->redis.blacklist_count, 0);
+  if(conf->redis.blacklist == NULL) {
+    conf->redis.blacklist = prev->redis.blacklist;
+  }
   return NGX_CONF_OK;
 }
 
@@ -1359,6 +1365,119 @@ static char *ngx_conf_upstream_redis_server(ngx_conf_t *cf, ngx_command_t *cmd, 
   
   uscf->peer.init_upstream = nchan_upstream_dummy_roundrobin_init;
   return NGX_CONF_OK;
+}
+
+static void ipv6_prefix_size_to_mask(int prefix_size, struct in6_addr *mask) {
+  ngx_memzero(mask, sizeof(*mask));
+  int i;
+  for(i=0; prefix_size > 0; prefix_size-=8, i++) {
+    mask->s6_addr[i]= (prefix_size >= 8) ? 0xFF : (unsigned long)(0xFFU << (8 - prefix_size));
+  }
+}
+
+static void ipv4_prefix_size_to_mask(int prefix_size, struct in_addr *mask) {
+  mask->s_addr= (in_addr_t )(prefix_size > 0 ? htonl(~((1 << (32 - prefix_size)) - 1)) : 0);
+}
+
+static char *ngx_conf_set_redis_ip_blacklist(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  nchan_srv_conf_t    *scf = conf;
+  ngx_str_t           *cur;
+  ngx_str_t           *val = cf->args->elts;
+  int                  i;
+  nchan_redis_ip_range_t *blacklist = ngx_palloc(cf->pool, sizeof(*blacklist) * (cf->args->nelts - 1));
+  if(blacklist == NULL) {
+    return "couldn't allocate Redis server blacklist";
+  }
+  
+  scf->redis.blacklist = blacklist;
+  scf->redis.blacklist_count = cf->args->nelts - 1;
+  
+  for(i=1; i <= scf->redis.blacklist_count; i++) {
+    cur = &val[i];
+    nchan_redis_ip_range_t *entry = &blacklist[i-1];
+    entry->str = *cur;
+    int                     prefix_size;
+    u_char                 *slash = memchr(cur->data, '/', cur->len);
+    if(slash) {
+      prefix_size = ngx_atoi(slash+1, cur->len - (slash + 1 - cur->data));
+      if(prefix_size == NGX_ERROR) {
+        return "invalid CIDR range prefix size";
+      }
+    }
+    else {
+      prefix_size = -1;
+      slash = &cur->data[cur->len];
+    }
+    
+    char buf[64];
+    ngx_memzero(buf, sizeof(buf));
+    memcpy(buf, cur->data, (slash - cur->data));
+    
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags    = AI_PASSIVE;
+    
+    struct addrinfo *res;
+    if(getaddrinfo(buf, NULL, &hints, &res) != 0) {
+      return "unable to parse IP address";
+    }
+    entry->family = res->ai_family;
+    if(entry->family == AF_INET) {
+      struct sockaddr_in *sa = (struct sockaddr_in *)res->ai_addr;
+      entry->addr.ipv4 = sa->sin_addr;
+      entry->addr_block.ipv4 = sa->sin_addr;
+    }
+#ifdef AF_INET6
+    else if(entry->family == AF_INET6) {
+      struct sockaddr_in6 *sa = (struct sockaddr_in6 *)res->ai_addr;
+      entry->addr.ipv6 = sa->sin6_addr;
+      entry->addr_block.ipv6 = sa->sin6_addr;
+    }
+#endif
+    else {
+      return "invalid address family";
+    }
+    
+    if(prefix_size == 0) {
+      return "netmask size of 0 would block everything";
+    }
+    
+    if(prefix_size == -1) {
+      //no prefix size given, assume we're blacklisting single ip.
+      //prefix size depends on ipv4 or ipv6
+      prefix_size = entry->family == AF_INET ? 32 : 128;
+    }
+    entry->prefix_size = prefix_size;
+    
+    if(entry->family == AF_INET) {
+      if(prefix_size > 32) {
+        return "netmask size cannot exceed 32 for IPv4";
+      }
+      ipv4_prefix_size_to_mask(prefix_size, &entry->mask.ipv4);
+      entry->addr_block.ipv4.s_addr &= entry->mask.ipv4.s_addr;
+      
+    }
+#ifdef AF_INET6
+    else if(entry->family == AF_INET6) {
+      if(prefix_size > 128) {
+        return "netmask size cannot exceed 128 for IPv4";
+      }
+      ipv6_prefix_size_to_mask(prefix_size, &entry->mask.ipv6);
+      unsigned j;
+      uint8_t *addr = entry->addr_block.ipv6.s6_addr;
+      uint8_t *mask = entry->mask.ipv6.s6_addr;
+      for(j=0; j<sizeof(entry->addr_block.ipv6.s6_addr); j++) {
+        addr[j] &= mask[j];
+      }
+    }
+#endif
+    else {
+      return "invalid address family";
+    }
+    freeaddrinfo(res);
+  }
+  return NGX_OK;
 }
 
 static char *ngx_conf_set_str_slot_no_newlines(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
