@@ -1465,9 +1465,13 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "is busy loading data...");
       }
       
+      if(nchan_cstr_match_line(reply->str, "cluster_enabled:1")) {
+        node->cluster.enabled = 1;
+      }
+      
       if(nchan_cstr_match_line(reply->str, "role:master")) {
         node_set_role(node, REDIS_NODE_ROLE_MASTER);
-        if(!node_discover_slaves_from_info_reply(node, reply)) {
+        if(!node->cluster.enabled && !node_discover_slaves_from_info_reply(node, reply)) {
           return node_connector_fail(node, "failed parsing slaves from INFO");
         }
       }
@@ -1477,15 +1481,12 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         if(!(rcp = parse_info_master(node, reply->str))) {
           return node_connector_fail(node, "failed parsing master from INFO");
         }
-        node_discover_master(node, rcp);
+        if(!node->cluster.enabled) {
+          node_discover_master(node, rcp);
+        }
       }
       else {
         return node_connector_fail(node, "can't tell if node is master or slave");
-      }
-      
-      //what's next?
-      if(nchan_cstr_match_line(reply->str, "cluster_enabled:1")) {
-        node->cluster.enabled = 1;
       }
       node->state++;
       /* fall through */
