@@ -27,7 +27,7 @@
 #define node_log_debug(node, fmt, args...)    node_log((node), NGX_LOG_DEBUG, fmt, ##args)
   
 #define nodeset_log(nodeset, lvl, fmt, args...) \
-  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s: " fmt, __nodeset_nickname_cstr(nodeset), ##args)
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis %s: " fmt, (nodeset)->name, ##args)
 #define nodeset_log_error(nodeset, fmt, args...)    nodeset_log((nodeset), NGX_LOG_ERR, fmt, ##args)
 #define nodeset_log_warning(nodeset, fmt, args...)  nodeset_log((nodeset), NGX_LOG_WARN, fmt, ##args)
 #define nodeset_log_notice(nodeset, fmt, args...)   nodeset_log((nodeset), NGX_LOG_NOTICE, fmt, ##args)
@@ -116,7 +116,7 @@ struct redis_nodeset_s {
   //  maybe a master and its slaves
   //  maybe a cluster of masters and their slaves
   //slaves of slaves not included
-  
+  char                       *name;
   redis_nodeset_status_t      status;
   ngx_event_t                 status_check_ev;
   const char                 *status_msg;
@@ -278,7 +278,6 @@ redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *r
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
 
-const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset);
 const char *__node_nickname_cstr(redis_node_t *node);
   
 #endif /* NCHAN_REDIS_NODESET_H */

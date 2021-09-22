@@ -17,6 +17,7 @@
 static redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
 static int              redis_nodeset_count = 0;
 static char            *redis_worker_id = NULL;
+static char            *nchan_redis_blankname = "";
 static redisCallbackFn *redis_subscribe_callback = NULL;
 
 typedef struct {
@@ -32,6 +33,7 @@ static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns);
 static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp);
+static char *nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen);
 
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
@@ -283,6 +285,16 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
   }
   DBG("nodeset created");
+  
+  char buf[1024];
+  nodeset_name_cstr(ns, buf, 1024);
+  if(strlen(buf)>0) {
+    ns->name = ngx_alloc(strlen(buf)+1, ngx_cycle->log);
+    strcpy(ns->name, buf);
+  }
+  else {
+    ns->name = nchan_redis_blankname;
+  }
   redis_nodeset_count++;
   rcf->nodeset = ns;
   return ns;
@@ -870,7 +882,7 @@ static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *
     //node_log_notice(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
     return 0; //we already know this one.
   }
-  node_log_notice(node, "Discovering cluster %s %s", (l->master ? "master" : "slave"), rcp_cstr(&rcp));
+  nodeset_log_notice(node->nodeset, "Discovering cluster %s %s", (l->master ? "master" : "slave"), rcp_cstr(&rcp));
   peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
   peer->discovered = 1;
   nchan_strcpy(&peer->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
@@ -1788,12 +1800,11 @@ ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   return NGX_OK;
 }
 
-const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
-  static char str[1024];
+static char* nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen) {
   const char *what = NULL;
   ngx_str_t  *name = NULL;
-  what = nodeset->cluster.enabled ? "cluster" : "server";
   if(nodeset->upstream) {
+    what = "upstream";
     name = &nodeset->upstream->host;
   }
   else {
@@ -1801,20 +1812,22 @@ const char *__nodeset_nickname_cstr(redis_nodeset_t *nodeset) {
     if(url && *url) {
       name = *url;
     }
+    what = "host";
   }
+  
   if(what && name) {
-    ngx_snprintf((u_char *)str, 1024, "%s %V%Z", what, name);
+    ngx_snprintf((u_char *)buf, maxlen, "%s %V%Z", what, name);
   }
   else if(what) {
-    ngx_snprintf((u_char *)str, 1024, "%s%Z", what);
+    ngx_snprintf((u_char *)buf, maxlen, "%s%Z", what);
   }
   else if(name) {
-    ngx_snprintf((u_char *)str, 1024, "%V%Z", name);
+    ngx_snprintf((u_char *)buf, maxlen, "%V%Z", name);
   }
   else {
-    ngx_snprintf((u_char *)str, 1024, "node set%Z");
+    ngx_snprintf((u_char *)buf, maxlen, "node set%Z");
   }
-  return str;
+  return buf;
 }
 
 const char *__node_nickname_cstr(redis_node_t *node) {
@@ -2103,6 +2116,9 @@ ngx_int_t nodeset_destroy_all(void) {
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
     nodeset_disconnect(ns);
+    if(ns->name && ns->name != nchan_redis_blankname) {
+      ngx_free(ns->name);
+    }
     nchan_list_empty(&ns->urls);
   }
   redis_nodeset_count = 0;
