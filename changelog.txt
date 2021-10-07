@@ -1,3 +1,6 @@
+1.2.12 (Sep. 22 2021)
+ fix: better Redis cluster connection logging
+ fix: redundant method to discover Redis slave nodes in cluster mode could result in receiving unreachable IPs
 1.2.11 (Sep. 17 2021)
  feature: nchan_redis_discovered_ip_range_blacklist for ignoring autotiscoreved nodes
  feature: nchan_redis_storage_mode is now configurable in location contexts 
