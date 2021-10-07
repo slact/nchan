@@ -2369,6 +2369,8 @@ static void redisPublishNostoreQueuedCheckCallback(redisAsyncContext *c, void *r
   redisReply                    *reply=r;
   
   redis_node_t                 *node = c->data;
+  node->pending_commands--;
+  nchan_update_stub_status(redis_pending_commands, -1);
   
   if(reply && !CHECK_REPLY_STATUSVAL(reply, "QUEUED")) {
     if(!nodeset_node_reply_keyslot_ok(node, reply)) {
@@ -2565,6 +2567,7 @@ static void get_subscriber_info_id_callback(redisAsyncContext *c, void *r, void 
   
   redis_node_t                 *node = c->data;
   node->pending_commands--;
+  nchan_update_stub_status(redis_pending_commands, -1);
   
   callback_pt  cb = d->cb;
   void        *cb_pd = d->pd;
