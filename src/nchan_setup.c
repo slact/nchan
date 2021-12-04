@@ -142,6 +142,11 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.slave_weight = NGX_CONF_UNSET;
   scf->redis.blacklist_count = NGX_CONF_UNSET;
   scf->redis.blacklist = NULL;
+  scf->redis.tls.enabled = NGX_CONF_UNSET;
+  scf->redis.tls.trusted_certificate = NULL;
+  scf->redis.tls.client_certificate = NULL;
+  scf->redis.tls.client_certificate_key = NULL;
+  scf->redis.tls.server_name = NULL;
   scf->upstream_nchan_loc_conf = NULL;
   return scf;
 }
