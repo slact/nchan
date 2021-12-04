@@ -315,8 +315,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
 #if (NGX_OPENSSL)
   if(ns->settings.tls.enabled) {
-    redisSSLContextError      ssl_error;
-    redisSSLContext          *ssl_ctx;
+    redisSSLContextError      ssl_error = 0;
+    redisSSLContext          *ssl_ctx = NULL;
     ssl_ctx = redisCreateSSLContext(
       ns->settings.tls.trusted_certificate ? (char *)ns->settings.tls.trusted_certificate->data : NULL,
       NULL,
