@@ -1405,6 +1405,27 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Used in upstream { } blocks to set redis servers. Redis url is in the form 'redis://:password@hostname:6379/0'. Shorthands 'host:port' or 'host' are permitted.    
   [more details](#connecting-to-a-redis-server)  
 
+- **nchan_redis_ssl** `[ on | off ]`  
+  arguments: 1  
+  default: `off`  
+  context: upstream  
+  > Enables SSL/TLS for all connections to Redis servers in this upstream block. When enabled, no unsecured connections are permitted    
+
+- **nchan_redis_ssl_client_certificate**  
+  arguments: 1  
+  context: upstream  
+  > Path to client certificate when using TLS for Redis connections    
+
+- **nchan_redis_ssl_client_certificate_key**  
+  arguments: 1  
+  context: upstream  
+  > Path to client certificate key when using TLS for Redis connections    
+
+- **nchan_redis_ssl_client_server_name**  
+  arguments: 1  
+  context: upstream  
+  > Server name to verify (CN) when using TLS for Redis connections    
+
 - **nchan_redis_storage_mode** `[ distributed | backup | nostore ]`  
   arguments: 1  
   default: `distributed`  

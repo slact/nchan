@@ -477,6 +477,39 @@ CfCmd.new do
       default: :off,
       info: "Increases publishing capacity by 2-3x for Redis nostore mode at the expense of inaccurate subscriber counts in the publisher response."
   
+  nchan_redis_ssl [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, :"redis.tls.enabled"],
+      
+      group: "storage",
+      tags: ['redis', 'ssl'],
+      value: [:on, :off],
+      default: :off,
+      info: "Enables SSL/TLS for all connections to Redis servers in this upstream block. When enabled, no unsecured connections are permitted"
+  
+  nchan_redis_ssl_client_certificate [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.tls.client_certificate"],
+      
+      group: "storage",
+      tags: ['redis', 'ssl'],
+      info: "Path to client certificate when using TLS for Redis connections"
+  
+  nchan_redis_ssl_client_certificate_key [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.tls.client_certificate_key"],
+      
+      group: "storage",
+      tags: ['redis', 'ssl'],
+      info: "Path to client certificate key when using TLS for Redis connections"
+  
+  nchan_redis_ssl_client_server_name [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.tls.server_name"],
+      
+      group: "storage",
+      tags: ['redis', 'ssl'],
+      info: "Server name to verify (CN) when using TLS for Redis connections"
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,

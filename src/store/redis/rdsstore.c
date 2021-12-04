@@ -60,10 +60,10 @@ static size_t                     redis_publish_message_msgkey_size;
 #define redis_sync_command(node, fmt, args...)                       \
   do {                                                               \
     if((node)->ctx.sync == NULL) {                                   \
-      redis_nginx_open_sync_context(((node)->connect_params.peername.len > 0 ? &(node)->connect_params.peername : &(node)->connect_params.hostname), (node)->connect_params.port, (node)->connect_params.db, &(node)->connect_params.password, &(node)->ctx.sync); \
+      (node)->ctx.sync = node_connect_sync_context(node);            \
     }                                                                \
-    if((node)->ctx.sync) {                                          \
-      redisCommand((node)->ctx.sync, fmt, ##args);                  \
+    if((node)->ctx.sync) {                                           \
+      redisCommand((node)->ctx.sync, fmt, ##args);                   \
     } else {                                                         \
       ERR("Can't run redis command: no connection to redis server.");\
     }                                                                \
@@ -176,8 +176,13 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
   
   
   //ignore redis://
+  rcp->use_tls = 0;
   if(ngx_strnstr(cur, "redis://", 8) != NULL) {
     cur += 8;
+  }
+  else if(ngx_strnstr(cur, "rediss://", 9) != NULL) {
+    cur += 9;
+    rcp->use_tls = 1;
   }
   
   if(cur[0] == ':') {

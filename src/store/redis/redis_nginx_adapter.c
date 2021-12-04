@@ -1,6 +1,6 @@
 //Copyright (c) 2014 Wandenberg Peixoto under the MIT Licence'
 //additional code from Alexander Lyalin's redis_nginx_module (New BSD licence)
-//edited by slact 2015-2016
+//edited by slact 2015-2021
 
 #include <ngx_event.h>
 #include <ngx_connection.h>
@@ -21,7 +21,6 @@
 //NGX_CLEAR_EVENT for kqueue, epoll
 //NGX_LEVEL_EVENT for select, poll, /dev/poll
 
-int redis_nginx_event_attach(redisAsyncContext *ac);
 void redis_nginx_cleanup(void *privdata);
 void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata);
 
@@ -29,93 +28,6 @@ void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata)
 void redis_nginx_init(void) {
   signal(SIGPIPE, SIG_IGN);
 }
-
-
-redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, void *privdata) {
-  redisAsyncContext *ac = NULL;
-  u_char             hostchr[1024] = {0};
-  if(host->len >= 1023) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
-    return NULL;
-  }
-  ngx_memcpy(hostchr, host->data, host->len);
-  ac = redisAsyncConnect((const char *)hostchr, port);
-  if (ac == NULL) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis context for %V:%d", host, port);
-    return NULL;
-  }
-  
-  if (ac->err) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis context for %V:%d - %s", host, port, ac->errstr);
-    redisAsyncFree(ac);
-    return NULL;
-  }
-  
-  if(redis_nginx_event_attach(ac) == REDIS_OK) {
-    ac->data = privdata;
-  }
-  else {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not attach nginx events %V:%d", host, port);
-    redisAsyncFree(ac);
-    return NULL;
-  }
-
-  return ac;
-}
-
-
-redisContext *redis_nginx_open_sync_context(ngx_str_t *host, int port, int database, ngx_str_t *password, redisContext **context) {
-  redisContext  *c = NULL;
-  redisReply    *reply;
-  
-  u_char        hostchr[1024] = {0};
-  if(host->len >= 1023) {
-    ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: hostname is too long");
-    return NULL;
-  }
-  ngx_memcpy(hostchr, host->data, host->len);
-  
-  if ((context == NULL) || (*context == NULL) || (*context)->err) {
-    c = redisConnect((const char *)hostchr, port);
-    if (c == NULL) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not allocate the redis sync context for %s:%d", host, port);
-      return NULL;
-    }
-    
-    if (c->err) {
-      ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "redis_nginx_adapter: could not create the redis sync context for %s:%d - %s", host, port, c->errstr);
-      goto fail;
-    }
-    
-    if (context != NULL) {
-      *context = c;
-    }
-    if(password->len > 0) {
-      reply = redisCommand(c, "AUTH %b", password->data, password->len);
-      if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
-        goto fail;
-      }
-    }
-    if(database != -1) {
-      reply = redisCommand(c, "SELECT %d", database);
-      if ((reply == NULL) || (reply->type == REDIS_REPLY_ERROR)) {
-        goto fail;
-      }
-    }
-  }
-  else {
-    c = *context;
-  }
-
-  return c;
-fail:
-  if (context != NULL) {
-    *context = NULL;
-  }
-  redisFree(c);
-  return NULL;
-}
-
 
 void redis_nginx_force_close_context(redisAsyncContext **context) {
   if ((context != NULL) && (*context != NULL)) {

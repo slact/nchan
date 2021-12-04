@@ -264,6 +264,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.blacklist.count = scf->redis.blacklist_count;
     ns->settings.blacklist.list = scf->redis.blacklist;
     
+    ns->settings.tls = scf->redis.tls;
+    
     for(i=0; i < servers->nelts; i++) {
 #if nginx_version >= 1007002
       upstream_url = &usrv[i].name;
@@ -295,8 +297,51 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   else {
     ns->name = nchan_redis_blankname;
   }
+  
+  if(!ns->settings.tls.enabled) {
+    //if all the URLs are rediss://, then turn on SSL for the nodeset
+    redis_connect_params_t    rcp;
+    int                       use_tls = 1;
+    ngx_str_t               **url;
+    
+    for(url = nchan_list_first(&ns->urls); url != NULL; url = nchan_list_next(url)) {
+      parse_redis_url(*url, &rcp);
+      use_tls &= rcp.use_tls;
+    }
+    if(use_tls) {
+      ns->settings.tls.enabled = 1;
+    }
+  }
+  
+#if (NGX_OPENSSL)
+  if(ns->settings.tls.enabled) {
+    redisSSLContextError      ssl_error;
+    redisSSLContext          *ssl_ctx;
+    ssl_ctx = redisCreateSSLContext(
+      ns->settings.tls.trusted_certificate ? (char *)ns->settings.tls.trusted_certificate->data : NULL,
+      NULL,
+      ns->settings.tls.client_certificate ? (char *)ns->settings.tls.client_certificate->data : NULL,
+      ns->settings.tls.client_certificate_key ? (char *)ns->settings.tls.client_certificate_key->data : NULL,
+      ns->settings.tls.server_name ? (char *)ns->settings.tls.server_name->data : NULL,
+      &ssl_error
+    );
+    if(ssl_ctx == NULL || ssl_error != 0) {
+      nodeset_log_error(ns, "Error creating Redis SSL context: %s", ((ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error"));
+      return NULL;
+    }
+    ns->ssl_context = ssl_ctx;
+  }
+#else
+  if(ns->settings.tls.enabled) {
+    nodeset_log_error(ns, "Can't create Redis SSL context: Nginx was built without SSL support");
+    return NULL;
+  }
+#endif
   redis_nodeset_count++;
   rcf->nodeset = ns;
+  
+
+  
   return ns;
 }
 
@@ -1145,13 +1190,99 @@ static void redis_nginx_connect_event_handler(const redisAsyncContext *ac, int s
   node_connector_callback((redisAsyncContext *)ac, NULL, ac->data);
 }
 
-static redisAsyncContext *node_connect_context(redis_node_t *node, ngx_str_t *host, ngx_int_t port) {
-  redisAsyncContext *ctx = redis_nginx_open_context(host, port, node);
-  if(ctx) {
-    redisAsyncSetConnectCallback(ctx, redis_nginx_connect_event_handler);
-    redisAsyncSetDisconnectCallback(ctx, redis_nginx_unexpected_disconnect_event_handler);
+static redisAsyncContext *node_connect_context(redis_node_t *node) {
+  redisAsyncContext       *ac = NULL;
+  redis_connect_params_t  *rcp = &node->connect_params;
+  u_char                   hostchr[1024] = {0};
+    if(rcp->hostname.len >= 1023) {
+    node_log_error(node, "redis hostname is too long");
+    return NULL;
   }
-  return ctx;
+  ngx_memcpy(hostchr, rcp->hostname.data, rcp->hostname.len);
+  ac = redisAsyncConnect((const char *)hostchr, rcp->port);
+  if (ac == NULL) {
+    node_log_error(node, "count not allocate Redis context");
+    return NULL;
+  }
+  if(ac->err) {
+    node_log_error(node, "could not create Redis context: %s", ac->errstr);
+    redisAsyncFree(ac);
+    return NULL;
+  }
+  
+#if (NGX_OPENSSL)
+  if(node->nodeset->settings.tls.enabled) {
+    if(redisInitiateSSLWithContext(&ac->c, node->nodeset->ssl_context) != REDIS_OK) {
+      node_log_error(node, "could not initialize Redis SSL context: %s", (ac->errstr ? ac->errstr : "unknown error"));
+      redisAsyncFree(ac);
+      return NULL;
+    }
+  }
+#endif
+  
+  if(redis_nginx_event_attach(ac) != REDIS_OK) {
+    node_log_error(node, "could not attach Nginx events");
+    redisAsyncFree(ac);
+    return NULL;
+  }
+    
+  ac->data = node;
+  
+  redisAsyncSetConnectCallback(ac, redis_nginx_connect_event_handler);
+  redisAsyncSetDisconnectCallback(ac, redis_nginx_unexpected_disconnect_event_handler);
+  return ac;
+}
+
+redisContext *node_connect_sync_context(redis_node_t *node) {
+  redisReply              *reply;
+  redisContext            *c;
+  redis_connect_params_t  *rcp = &node->connect_params;
+  u_char                   hostchr[1024] = {0};
+    if(rcp->hostname.len >= 1023) {
+    node_log_error(node, "redis hostname is too long");
+    return NULL;
+  }
+  ngx_memcpy(hostchr, rcp->hostname.data, rcp->hostname.len);
+  
+  c = redisConnect((const char *)hostchr, rcp->port);
+  if(c == NULL) {
+    node_log_error(node, "could not connect synchronously to Redis");
+    return NULL;
+  }
+  else if(c->err) {
+    node_log_error(node, "could not connect synchronously to Redis: %s", c->errstr);
+    redisFree(c);
+    return NULL;
+  }
+  
+#if (NGX_OPENSSL)
+  if(node->nodeset->settings.tls.enabled) {
+    if(redisInitiateSSLWithContext(c, node->nodeset->ssl_context) != REDIS_OK) {
+      node_log_error(node, "could not initialize Redis SSL context: %s", c->errstr);
+      redisFree(c);
+      return NULL;
+    }
+  }
+#endif
+
+  if(rcp->password.len > 0) {
+    reply = redisCommand(c, "AUTH %b", rcp->password.data, rcp->password.len);
+    if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+      node_log_error(node, "could not connect synchronously to Redis: bad password");
+      redisFree(c);
+      return NULL;
+    }
+  }
+  if(rcp->db != -1) {
+    reply = redisCommand(c, "SELECT %d", rcp->db);
+    if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+      node_log_error(node, "could not connect synchronously to Redis: bad database number");
+      redisFree(c);
+      return NULL;
+    }
+  }
+  
+  return c;
 }
 
 static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
@@ -1320,7 +1451,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
     case REDIS_NODE_FAILED:
     case REDIS_NODE_DISCONNECTED:
       assert(!node->connect_timeout);
-      if((node->ctx.cmd = node_connect_context(node, &cp->hostname, cp->port)) == NULL) { //always connect the cmd ctx to the hostname
+      if((node->ctx.cmd = node_connect_context(node)) == NULL) { //always connect the cmd ctx to the hostname
         return node_connector_fail(node, "failed to open redis async context for cmd");
       }
       else if(cp->peername.len == 0) { //don't know peername yet
@@ -1336,7 +1467,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         //(it will be called automatically when this function returns control back to hiredis
         return node_connector_fail(node, ac->errstr);
       }
-      if((node->ctx.pubsub = node_connect_context(node, &cp->peername, cp->port)) == NULL) {
+      if((node->ctx.pubsub = node_connect_context(node)) == NULL) {
         return node_connector_fail(node, "failed to open redis async context for pubsub");
       }
       node->state++;
@@ -1353,6 +1484,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       /* fall through */
     case REDIS_NODE_CONNECTED:
+      
       //now we need to authenticate maybe?
       if(cp->password.len > 0) {
         if(!node->ctx.cmd) {
@@ -1366,7 +1498,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_callback(NULL, NULL, node); //continue as if authenticated
       }
       break;
-    
+      
     case REDIS_NODE_CMD_AUTHENTICATING:
       if(!reply_status_ok(reply)) {
         return node_connector_fail(node, "AUTH command failed");

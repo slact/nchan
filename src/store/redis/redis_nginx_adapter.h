@@ -1,4 +1,5 @@
 //Copyright (c) 2014 Wandenberg Peixoto under the MIT Licence
+//Coptright (c) 2015-2021 slact
 #ifndef __REDIS_NGINX_ADAPTER_H
 #define __REDIS_NGINX_ADAPTER_H
 
@@ -10,9 +11,11 @@
 #include <store/redis/hiredis/async.h>
 #endif
 
+#include <nchan_module.h>
+#include <store/redis/redis_nodeset.h>
+
 void redis_nginx_init(void);
-redisAsyncContext *redis_nginx_open_context(ngx_str_t *host, int port, void *privdata);
-redisContext *redis_nginx_open_sync_context(ngx_str_t *host, int port, int database, ngx_str_t *password, redisContext **context);
+int redis_nginx_event_attach(redisAsyncContext *ac);
 void redis_nginx_force_close_context(redisAsyncContext **context);
 void redis_nginx_close_context(redisAsyncContext **context);
 void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata);

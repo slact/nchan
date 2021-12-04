@@ -5,9 +5,15 @@
 #if NCHAN_HAVE_HIREDIS_WITH_SOCKADDR
 #include <hiredis/hiredis.h>
 #include <hiredis/async.h>
+#if (NGX_OPENSSL)
+#include <hiredis/hiredis_ssl.h>
+#endif
 #else
 #include <store/redis/hiredis/hiredis.h>
 #include <store/redis/hiredis/async.h>
+#if (NGX_OPENSSL)
+#include <store/redis/hiredis/hiredis_ssl.h>
+#endif
 #endif
 #include <util/nchan_reaper.h>
 #include <util/nchan_rbtree.h>
@@ -143,8 +149,13 @@ struct redis_nodeset_s {
     struct {
       int                         count;
       nchan_redis_ip_range_t     *list;
-    }                         blacklist;
+    }                           blacklist;
+    nchan_redis_tls_settings_t  tls;
   }                           settings;
+  
+  #if (NGX_OPENSSL)
+  redisSSLContext           *ssl_context;
+  #endif
   
   struct {
     nchan_slist_t               all;
@@ -224,6 +235,7 @@ ngx_int_t nodeset_node_destroy(redis_node_t *node);
 
 int node_disconnect(redis_node_t *node, int disconnected_state);
 int node_connect(redis_node_t *node);
+redisContext *node_connect_sync_context(redis_node_t *node);
 void node_set_role(redis_node_t *node, redis_node_role_t role);
 int node_set_master_node(redis_node_t *node, redis_node_t *master);
 redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave);

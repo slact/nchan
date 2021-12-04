@@ -310,6 +310,14 @@ typedef struct {
 } nchan_redis_ip_range_t;
 
 typedef struct {
+  ngx_int_t         enabled;
+  ngx_str_t        *trusted_certificate;
+  ngx_str_t        *client_certificate;
+  ngx_str_t        *client_certificate_key;
+  ngx_str_t        *server_name;
+} nchan_redis_tls_settings_t;
+
+typedef struct {
   struct {
       ngx_msec_t                    connect_timeout;
       nchan_redis_optimize_t        optimize_target;
@@ -317,6 +325,7 @@ typedef struct {
       ngx_int_t                     slave_weight;
       ngx_int_t                     blacklist_count;
       nchan_redis_ip_range_t       *blacklist;
+      nchan_redis_tls_settings_t    tls;
   }                               redis;
   nchan_loc_conf_t                *upstream_nchan_loc_conf;
 } nchan_srv_conf_t;
@@ -511,6 +520,7 @@ typedef struct {
   ngx_int_t     port;
   ngx_str_t     password;
   ngx_int_t     db;
+  ngx_int_t     use_tls;
 } redis_connect_params_t;
 
 #endif  /* NCHAN_TYPES_H */
