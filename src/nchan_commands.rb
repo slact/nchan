@@ -503,13 +503,21 @@ CfCmd.new do
       tags: ['redis', 'ssl'],
       info: "Path to client certificate key when using TLS for Redis connections"
   
-  nchan_redis_ssl_client_server_name [:upstream],
+  nchan_redis_ssl_server_name [:upstream],
       :ngx_conf_set_str_slot,
       [:srv_conf, :"redis.tls.server_name"],
       
       group: "storage",
       tags: ['redis', 'ssl'],
       info: "Server name to verify (CN) when using TLS for Redis connections"
+  
+  nchan_redis_ssl_trusted_certificate [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.tls.trusted_certificate"],
+      
+      group: "storage",
+      tags: ['redis', 'ssl'],
+      info: "Trusted certificate (CA) when using TLS for Redis connections"
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,

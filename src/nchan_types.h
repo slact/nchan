@@ -311,10 +311,10 @@ typedef struct {
 
 typedef struct {
   ngx_int_t         enabled;
-  ngx_str_t        *trusted_certificate;
-  ngx_str_t        *client_certificate;
-  ngx_str_t        *client_certificate_key;
-  ngx_str_t        *server_name;
+  ngx_str_t         trusted_certificate;
+  ngx_str_t         client_certificate;
+  ngx_str_t         client_certificate_key;
+  ngx_str_t         server_name;
 } nchan_redis_tls_settings_t;
 
 typedef struct {

@@ -22,12 +22,11 @@
 //NGX_LEVEL_EVENT for select, poll, /dev/poll
 
 void redis_nginx_cleanup(void *privdata);
-void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata);
-
 
 void redis_nginx_init(void) {
   signal(SIGPIPE, SIG_IGN);
 }
+
 
 void redis_nginx_force_close_context(redisAsyncContext **context) {
   if ((context != NULL) && (*context != NULL)) {
@@ -36,15 +35,6 @@ void redis_nginx_force_close_context(redisAsyncContext **context) {
       redisAsyncDisconnect(ac);
     }
     *context = NULL;
-  }
-}
-
-void redis_nginx_ping_callback(redisAsyncContext *ac, void *rep, void *privdata) {
-  void *data = ac->data;
-  void (*callback) (void *) = privdata;
-  redisAsyncDisconnect(ac);
-  if (callback != NULL) {
-    callback(data);
   }
 }
 

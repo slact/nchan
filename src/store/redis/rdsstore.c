@@ -1977,12 +1977,11 @@ static ngx_int_t nchan_store_init_postconfig(ngx_conf_t *cf) {
     
     if((nodeset = nodeset_find(&lcf->redis)) == NULL) {
       nodeset = nodeset_create(lcf);
-      rdstore_initialize_chanhead_reaper(&nodeset->chanhead_reaper, "Redis channel reaper");
     }
     if(!nodeset) {
-      ERR("Unable to create Redis nodeset.");
-      continue;
+      return NGX_ERROR;
     }
+    rdstore_initialize_chanhead_reaper(&nodeset->chanhead_reaper, "Redis channel reaper");
   }
   
   return NGX_OK;

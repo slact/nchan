@@ -143,10 +143,6 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.blacklist_count = NGX_CONF_UNSET;
   scf->redis.blacklist = NULL;
   scf->redis.tls.enabled = NGX_CONF_UNSET;
-  scf->redis.tls.trusted_certificate = NULL;
-  scf->redis.tls.client_certificate = NULL;
-  scf->redis.tls.client_certificate_key = NULL;
-  scf->redis.tls.server_name = NULL;
   scf->upstream_nchan_loc_conf = NULL;
   return scf;
 }
@@ -161,6 +157,12 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   if(conf->redis.blacklist == NULL) {
     conf->redis.blacklist = prev->redis.blacklist;
   }
+  ngx_conf_merge_value(conf->redis.tls.enabled, prev->redis.tls.enabled, 0);
+  ngx_conf_merge_str_value(conf->redis.tls.trusted_certificate, prev->redis.tls.trusted_certificate, "");
+  ngx_conf_merge_str_value(conf->redis.tls.client_certificate, prev->redis.tls.client_certificate, "");
+  ngx_conf_merge_str_value(conf->redis.tls.client_certificate_key, prev->redis.tls.client_certificate_key, "");
+  ngx_conf_merge_str_value(conf->redis.tls.server_name, prev->redis.tls.server_name, "");
+  
   return NGX_CONF_OK;
 }
 

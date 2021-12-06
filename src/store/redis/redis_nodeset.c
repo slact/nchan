@@ -265,6 +265,11 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.blacklist.list = scf->redis.blacklist;
     
     ns->settings.tls = scf->redis.tls;
+    //clean up unset values
+    if(ns->settings.tls.enabled == NGX_CONF_UNSET) {
+      ns->settings.tls.enabled = 0;
+    }
+      
     
     for(i=0; i < servers->nelts; i++) {
 #if nginx_version >= 1007002
@@ -298,7 +303,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->name = nchan_redis_blankname;
   }
   
-  if(!ns->settings.tls.enabled) {
+  if(ns->settings.tls.enabled) {
     //if all the URLs are rediss://, then turn on SSL for the nodeset
     redis_connect_params_t    rcp;
     int                       use_tls = 1;
@@ -318,11 +323,11 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     redisSSLContextError      ssl_error = 0;
     redisSSLContext          *ssl_ctx = NULL;
     ssl_ctx = redisCreateSSLContext(
-      ns->settings.tls.trusted_certificate ? (char *)ns->settings.tls.trusted_certificate->data : NULL,
+      ns->settings.tls.trusted_certificate.len > 0 ? (char *)ns->settings.tls.trusted_certificate.data : NULL,
       NULL,
-      ns->settings.tls.client_certificate ? (char *)ns->settings.tls.client_certificate->data : NULL,
-      ns->settings.tls.client_certificate_key ? (char *)ns->settings.tls.client_certificate_key->data : NULL,
-      ns->settings.tls.server_name ? (char *)ns->settings.tls.server_name->data : NULL,
+      ns->settings.tls.client_certificate.len > 0 ? (char *)ns->settings.tls.client_certificate.data : NULL,
+      ns->settings.tls.client_certificate_key.len > 0 ? (char *)ns->settings.tls.client_certificate_key.data : NULL,
+      ns->settings.tls.server_name.len > 0 ? (char *)ns->settings.tls.server_name.data : NULL,
       &ssl_error
     );
     if(ssl_ctx == NULL || ssl_error != 0) {
@@ -339,9 +344,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
 #endif
   redis_nodeset_count++;
   rcf->nodeset = ns;
-  
 
-  
   return ns;
 }
 
@@ -2251,6 +2254,12 @@ ngx_int_t nodeset_destroy_all(void) {
     if(ns->name && ns->name != nchan_redis_blankname) {
       ngx_free(ns->name);
     }
+#if (NGX_OPENSSL)
+    if(ns->ssl_context) {
+      redisFreeSSLContext(ns->ssl_context);
+      ns->ssl_context = NULL;
+    }
+#endif
     nchan_list_empty(&ns->urls);
   }
   redis_nodeset_count = 0;

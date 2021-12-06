@@ -1421,10 +1421,15 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Path to client certificate key when using TLS for Redis connections    
 
-- **nchan_redis_ssl_client_server_name**  
+- **nchan_redis_ssl_server_name**  
   arguments: 1  
   context: upstream  
   > Server name to verify (CN) when using TLS for Redis connections    
+
+- **nchan_redis_ssl_trusted_certificate**  
+  arguments: 1  
+  context: upstream  
+  > Trusted certificate (CA) when using TLS for Redis connections    
 
 - **nchan_redis_storage_mode** `[ distributed | backup | nostore ]`  
   arguments: 1  

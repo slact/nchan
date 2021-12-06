@@ -39,6 +39,7 @@ DEBUGGER_CMD="dbus-run-session kdbg -p %s $SRCDIR/nginx"
 
 REDIS_CONF="$DEVDIR/redis.conf"
 REDIS_PORT=8537
+REDIS_OPT=(--port $REDIS_PORT)
 
 pushd "${DEVDIR}"/nginx-pkg/pkg/nginx-* >/dev/null
 _pkgdir=`pwd`
@@ -62,6 +63,10 @@ for opt in $*; do
       no_redis=1;;
     redis-persist)
       persist_redis=1;;
+    redis-tls)
+      redis_tls=1
+      REDIS_OPT=(--port 0 --tls-port $REDIS_PORT --tls-cert-file redis-tls/redis.crt --tls-key-file redis-tls/redis.key --tls-ca-cert-file redis-tls/ca.crt)
+      ;;
     leak|leakcheck|valgrind|memcheck)
       valgrind=1
       VALGRIND_OPT+=($VG_MEMCHECK_OPT);;
@@ -216,10 +221,10 @@ fi
 if [[ -z $no_redis ]]; then
   if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
     if [[ -z $persist_redis ]]; then
-      redis-server $REDIS_CONF --port $REDIS_PORT &
+      redis-server $REDIS_CONF $REDIS_OPT &
       redis_pid=$!
     else
-      redis-server $REDIS_CONF --port $REDIS_PORT --daemonize yes
+      redis-server $REDIS_CONF $REDIS_OPT --daemonize yes
       sleep 1
       redis_pid=$(cat /tmp/redis-pushmodule.pid)
     fi

@@ -398,11 +398,18 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_srv_conf_t, redis.tls.client_certificate_key),
     NULL } ,
 
-  { ngx_string("nchan_redis_ssl_client_server_name"),
+  { ngx_string("nchan_redis_ssl_server_name"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_SRV_CONF_OFFSET,
     offsetof(nchan_srv_conf_t, redis.tls.server_name),
+    NULL } ,
+
+  { ngx_string("nchan_redis_ssl_trusted_certificate"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.tls.trusted_certificate),
     NULL } ,
 
   { ngx_string("nchan_use_redis"),
