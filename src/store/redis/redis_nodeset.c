@@ -820,6 +820,13 @@ redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis
   nchan_strcpy(&node->connect_params.hostname, &rcp->hostname, 0);
   node->connect_params.password.data = &space[rcp->hostname.len];
   nchan_strcpy(&node->connect_params.password, &rcp->password, 0);
+  if(rcp->password.len == 0 && ns->settings.password.len > 0) {
+    node->connect_params.password = ns->settings.password;
+  }
+  if(rcp->username.len == 0 && ns->settings.username.len > 0) {
+    node->connect_params.username = ns->settings.username;
+  }
+  
   return node;
 }
 
@@ -1354,7 +1361,12 @@ redisContext *node_connect_sync_context(redis_node_t *node) {
 #endif
 
   if(rcp->password.len > 0) {
-    reply = redisCommand(c, "AUTH %b", rcp->password.data, rcp->password.len);
+    if(rcp->username.len > 0) {
+      reply = redisCommand(c, "AUTH %b %b", rcp->username.data, rcp->username.len, rcp->password.data, rcp->password.len);
+    }
+    else {
+      reply = redisCommand(c, "AUTH %b", rcp->password.data, rcp->password.len);
+    }
     if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
       node_log_error(node, "could not connect synchronously to Redis: bad password");
       redisFree(c);
@@ -1578,7 +1590,12 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         if(!node->ctx.cmd) {
           return node_connector_fail(node, "cmd connection missing, can't send AUTH command");
         }
-        redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "AUTH %b", STR(&cp->password));
+        if(cp->username.len > 0) {
+          redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "AUTH %b %b", STR(&cp->username), STR(&cp->password));
+        }
+        else {
+          redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "AUTH %b", STR(&cp->password));
+        }
         node->state++;
       }
       else {

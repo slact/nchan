@@ -599,6 +599,32 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_loc_conf_t, redis.nostore_fastpublish),
     NULL } ,
 
+  { ngx_string("nchan_redis_username"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.username),
+    NULL } ,
+  { ngx_string("nchan_redis_username"), //alt for nchan_redis_username
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.username),
+    NULL } ,
+
+  { ngx_string("nchan_redis_password"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.password),
+    NULL } ,
+  { ngx_string("nchan_redis_password"), //alt for nchan_redis_password
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.password),
+    NULL } ,
+
   { ngx_string("nchan_redis_ssl"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_flag_slot,

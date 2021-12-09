@@ -477,6 +477,24 @@ CfCmd.new do
       default: :off,
       info: "Increases publishing capacity by 2-3x for Redis nostore mode at the expense of inaccurate subscriber counts in the publisher response."
   
+  nchan_redis_username [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.username"],
+      
+      group: "storage",
+      tags: ['redis'],
+      default: "<none>",
+      info: "Set Redis username for AUTH command (available when using ACLs on the Redis server). All servers in the upstream block will use this username _unless_ a different username is specified by a server URL."
+  
+  nchan_redis_password [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.password"],
+      
+      group: "storage",
+      tags: ['redis'],
+      default: "<none>",
+      info: "Set Redis password for AUTH command. All servers in the upstream block will use this password _unless_ a different password is specified by a server URL."
+  
   nchan_redis_ssl [:upstream],
       :ngx_conf_set_flag_slot,
       [:srv_conf, :"redis.tls.enabled"],

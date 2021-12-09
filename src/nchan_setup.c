@@ -167,6 +167,9 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_str_value(conf->redis.tls.server_name, prev->redis.tls.server_name, "");
   ngx_conf_merge_str_value(conf->redis.tls.ciphers, prev->redis.tls.ciphers, "");
   
+  ngx_conf_merge_str_value(conf->redis.username, prev->redis.username, "");
+  ngx_conf_merge_str_value(conf->redis.password, prev->redis.password, "");
+  
   return NGX_CONF_OK;
 }
 

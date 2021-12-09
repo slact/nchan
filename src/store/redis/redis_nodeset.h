@@ -155,6 +155,8 @@ struct redis_nodeset_s {
       nchan_redis_ip_range_t     *list;
     }                           blacklist;
     nchan_redis_tls_settings_t  tls;
+    ngx_str_t                   username;
+    ngx_str_t                   password;
   }                           settings;
   
   #if (NGX_OPENSSL)

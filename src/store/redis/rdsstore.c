@@ -185,22 +185,25 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
     rcp->use_tls = 1;
   }
   
-  if(cur[0] == ':') {
-    cur++;
-    if((ret = ngx_strlchr(cur, last, '@')) == NULL) {
-      rcp->password.data = NULL;
-      rcp->password.len = 0;
+  //username:password@
+  if((ret = ngx_strlchr(cur, last, '@')) != NULL) {
+    u_char *split = ngx_strlchr(cur, ret, ':');
+    if(!split) {
       return NGX_ERROR;
     }
-    else {
-      rcp->password.data = cur;
-      rcp->password.len = ret - cur;
-      cur = ret + 1;
-    }
+    rcp->username.len = (split - cur);
+    rcp->username.data = rcp->username.len == 0 ? NULL : cur;
+    
+    rcp->password.len = (ret - split - 1);
+    rcp->password.data = rcp->password.len == 0 ? NULL : &split[1];
+    
+    cur = ret + 1;
   }
   else {
-    rcp->password.data = NULL;
+    rcp->username.len = 0;
+    rcp->username.data = NULL;
     rcp->password.len = 0;
+    rcp->password.data = NULL;
   }
   
   ///port:host
@@ -239,7 +242,7 @@ ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp) {
   else {
     rcp->db = 0;
   }
-  
+
   return NGX_OK;
 }
 

@@ -1393,6 +1393,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   > Use an upstream config block for Redis servers.    
   [more details](#connecting-to-a-redis-server)  
 
+- **nchan_redis_password**  
+  arguments: 1  
+  default: `<none>`  
+  context: upstream  
+  > Set Redis password for AUTH command. All servers in the upstream block will use this password _unless_ a different password is specified by a server URL.    
+
 - **nchan_redis_ping_interval**  
   arguments: 1  
   default: `4m`  
@@ -1471,6 +1477,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   > Use of this command is discouraged in favor of upstreams blocks with (`nchan_redis_server`)[#nchan_redis_server]. The path to a redis server, of the form 'redis://:password@hostname:6379/0'. Shorthand of the form 'host:port' or just 'host' is also accepted.    
   [more details](#connecting-to-a-redis-server)  
+
+- **nchan_redis_username**  
+  arguments: 1  
+  default: `<none>`  
+  context: upstream  
+  > Set Redis username for AUTH command (available when using ACLs on the Redis server). All servers in the upstream block will use this username _unless_ a different username is specified by a server URL.    
 
 - **nchan_shared_memory_size** `<size>`  
   arguments: 1  

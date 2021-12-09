@@ -523,6 +523,7 @@ typedef struct {
   ngx_str_t     hostname;
   ngx_str_t     peername; // resolved hostname (ip address)
   ngx_int_t     port;
+  ngx_str_t     username;
   ngx_str_t     password;
   ngx_int_t     db;
   ngx_int_t     use_tls;
