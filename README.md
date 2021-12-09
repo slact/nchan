@@ -1411,6 +1411,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Enables SSL/TLS for all connections to Redis servers in this upstream block. When enabled, no unsecured connections are permitted    
 
+- **nchan_redis_ssl_ciphers**  
+  arguments: 1  
+  default: `<system default>`  
+  context: upstream  
+  > Acceptable cipers when using TLS for Redis connections    
+
 - **nchan_redis_ssl_client_certificate**  
   arguments: 1  
   context: upstream  
@@ -1430,6 +1436,18 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: upstream  
   > Trusted certificate (CA) when using TLS for Redis connections    
+
+- **nchan_redis_ssl_trusted_certificate_path**  
+  arguments: 1  
+  default: `<system default>`  
+  context: upstream  
+  > Trusted certificate (CA) when using TLS for Redis connections. Defaults tothe system's SSL cert path unless nchan_redis_ssl_trusted_certificate is set    
+
+- **nchan_redis_ssl_verify_certificate** `[ on | off ]`  
+  arguments: 1  
+  default: `on`  
+  context: upstream  
+  > Should the server certificate be verified when using TLS for Redis connections? Useful to disable when testing with a self-signed server certificate.    
 
 - **nchan_redis_storage_mode** `[ distributed | backup | nostore ]`  
   arguments: 1  

@@ -6,12 +6,16 @@
 #include <hiredis/hiredis.h>
 #include <hiredis/async.h>
 #if (NGX_OPENSSL)
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <hiredis/hiredis_ssl.h>
 #endif
 #else
 #include <store/redis/hiredis/hiredis.h>
 #include <store/redis/hiredis/async.h>
 #if (NGX_OPENSSL)
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <store/redis/hiredis/hiredis_ssl.h>
 #endif
 #endif
@@ -154,7 +158,7 @@ struct redis_nodeset_s {
   }                           settings;
   
   #if (NGX_OPENSSL)
-  redisSSLContext           *ssl_context;
+  SSL_CTX                    *ssl_context;
   #endif
   
   struct {

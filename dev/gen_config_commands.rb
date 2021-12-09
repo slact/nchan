@@ -113,7 +113,7 @@ class CfCmd #let's make a DSL!
       cmd.conf=conf
     end
     cmd.legacy=opt[:legacy]
-    cmd.alt=opt[:alt]
+    cmd.alt = Array === opt[:alt] ? opt[:alt] : [ opt[:alt] ]
     cmd.disabled=opt[:disabled]
     cmd.post_handler=opt[:post_handler]
     @cmds[cmd.name]= cmd

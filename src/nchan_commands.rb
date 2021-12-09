@@ -62,7 +62,7 @@ CfCmd.new do
       :nchan_set_sub_channel_id,
       :loc_conf,
       args: 1..7,
-      alt: [ :nchan_sub_channel_id ],
+      alt: :nchan_sub_channel_id,
       group: "pubsub",
       tags: ["pubsub", 'channel-id'],
       
@@ -73,7 +73,7 @@ CfCmd.new do
       :nchan_pubsub_directive,
       :loc_conf,
       args: 0..6,
-      alt: ["nchan_pubsub_location"],
+      alt: :nchan_pubsub_location,
       
       group: "pubsub",
       tags: [ 'publisher', 'subscriber', 'pubsub' ],
@@ -167,7 +167,7 @@ CfCmd.new do
       :loc_conf,
       args: 0..5,
       legacy: "push_subscriber",
-      alt: ["nchan_subscriber_location"],
+      alt: :nchan_subscriber_location,
       
       group: "pubsub",
       tags: ['subscriber'],
@@ -274,7 +274,7 @@ CfCmd.new do
       :loc_conf,
       args: 0..2,
       legacy: "push_publisher",
-      alt: ["nchan_publisher_location"],
+      alt: :nchan_publisher_location,
       
       group: "pubsub",
       tags: ['publisher'],
@@ -480,6 +480,7 @@ CfCmd.new do
   nchan_redis_ssl [:upstream],
       :ngx_conf_set_flag_slot,
       [:srv_conf, :"redis.tls.enabled"],
+      alt: :nchan_redis_tls,
       
       group: "storage",
       tags: ['redis', 'ssl'],
@@ -490,6 +491,7 @@ CfCmd.new do
   nchan_redis_ssl_client_certificate [:upstream],
       :ngx_conf_set_str_slot,
       [:srv_conf, :"redis.tls.client_certificate"],
+      alt: :nchan_redis_tls_client_certificate,
       
       group: "storage",
       tags: ['redis', 'ssl'],
@@ -498,6 +500,7 @@ CfCmd.new do
   nchan_redis_ssl_client_certificate_key [:upstream],
       :ngx_conf_set_str_slot,
       [:srv_conf, :"redis.tls.client_certificate_key"],
+      alt: :nchan_redis_tls_client_certificate,
       
       group: "storage",
       tags: ['redis', 'ssl'],
@@ -506,6 +509,7 @@ CfCmd.new do
   nchan_redis_ssl_server_name [:upstream],
       :ngx_conf_set_str_slot,
       [:srv_conf, :"redis.tls.server_name"],
+      alt: :nchan_redis_tls_server_name,
       
       group: "storage",
       tags: ['redis', 'ssl'],
@@ -514,10 +518,42 @@ CfCmd.new do
   nchan_redis_ssl_trusted_certificate [:upstream],
       :ngx_conf_set_str_slot,
       [:srv_conf, :"redis.tls.trusted_certificate"],
+      alt: :nchan_redis_tls_trusted_certificate,
       
       group: "storage",
       tags: ['redis', 'ssl'],
       info: "Trusted certificate (CA) when using TLS for Redis connections"
+      
+  nchan_redis_ssl_trusted_certificate_path [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.tls.trusted_certificate_path"],
+      alt: :nchan_redis_tls_trusted_certificate_path,
+      
+      group: "storage",
+      default: "<system default>",
+      tags: ['redis', 'ssl'],
+      info: "Trusted certificate (CA) when using TLS for Redis connections. Defaults tothe system's SSL cert path unless nchan_redis_ssl_trusted_certificate is set"
+  
+  nchan_redis_ssl_ciphers [:upstream],
+      :ngx_conf_set_str_slot,
+      [:srv_conf, :"redis.tls.ciphers"],
+      alt: :nchan_redis_tls_ciphers,
+      
+      group: "storage",
+      default: "<system default>",
+      tags: ['redis', 'ssl'],
+      info: "Acceptable cipers when using TLS for Redis connections"
+  
+  nchan_redis_ssl_verify_certificate [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, :"redis.tls.ciphers"],
+      alt: :nchan_redis_tls_verify_certificate,
+      
+      group: "storage",
+      value: [:on, :off],
+      default: :on,
+      tags: ['redis', 'ssl'],
+      info: "Should the server certificate be verified when using TLS for Redis connections? Useful to disable when testing with a self-signed server certificate."
   
   nchan_use_redis [:main, :srv, :loc],
       :ngx_conf_enable_redis,
@@ -630,7 +666,7 @@ CfCmd.new do
       :nchan_set_message_buffer_length,
       [:loc_conf, :max_messages],
       legacy: [ "push_max_message_buffer_length", "push_message_buffer_length" ],
-      alt: ["nchan_message_max_buffer_length"],
+      alt: :nchan_message_max_buffer_length,
       
       group: "storage",
       tags: ['publisher'],

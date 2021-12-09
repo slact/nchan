@@ -312,9 +312,12 @@ typedef struct {
 typedef struct {
   ngx_int_t         enabled;
   ngx_str_t         trusted_certificate;
+  ngx_str_t         trusted_certificate_path;
   ngx_str_t         client_certificate;
   ngx_str_t         client_certificate_key;
   ngx_str_t         server_name;
+  ngx_str_t         ciphers;
+  ngx_int_t         verify_certificate;
 } nchan_redis_tls_settings_t;
 
 typedef struct {
@@ -325,6 +328,8 @@ typedef struct {
       ngx_int_t                     slave_weight;
       ngx_int_t                     blacklist_count;
       nchan_redis_ip_range_t       *blacklist;
+      ngx_str_t                     username;
+      ngx_str_t                     password;
       nchan_redis_tls_settings_t    tls;
   }                               redis;
   nchan_loc_conf_t                *upstream_nchan_loc_conf;

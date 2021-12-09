@@ -201,6 +201,78 @@ ngx_int_t nodeset_initialize(char *worker_id, redisCallbackFn *subscribe_handler
   return NGX_OK;
 }
 
+
+#if (NGX_OPENSSL)
+static ngx_int_t nodeset_create_ssl_ctx(redis_nodeset_t *ns, char **err) {
+  char        *ca_cert =  ns->settings.tls.trusted_certificate.len > 0 ? 
+                            (char *)ns->settings.tls.trusted_certificate.data
+                            : NULL;
+  char        *ca_path = ns->settings.tls.trusted_certificate_path.len > 0 ?
+                            (char *)ns->settings.tls.trusted_certificate_path.data
+                            : NULL;
+  char        *client_cert_filename = ns->settings.tls.client_certificate.len > 0 ?
+                            (char *)ns->settings.tls.client_certificate.data
+                            : NULL;
+  char        *client_cert_key_filename = ns->settings.tls.client_certificate_key.len > 0 ?
+                            (char *)ns->settings.tls.client_certificate_key.data
+                            : NULL;
+  char        *ciphers = ns->settings.tls.ciphers.len > 0 ?
+                            (char *)ns->settings.tls.ciphers.data
+                            : NULL;
+  int          verify_cert = ns->settings.tls.verify_certificate;
+  
+  SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+  if(!ssl_ctx) {
+    *err = "failed to create SSL_CTX";
+    return 0;
+  }
+  SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+  SSL_CTX_set_verify(ssl_ctx, verify_cert ? SSL_VERIFY_NONE : SSL_VERIFY_PEER, NULL);
+  
+  if(ca_cert || ca_path) {
+    if (!SSL_CTX_load_verify_locations(ssl_ctx, ca_cert, ca_path)) {
+      *err = "Invalid CA Certificate File/Directory";
+      SSL_CTX_free(ssl_ctx);
+      return 0;
+    }
+  }
+  else {
+    if (!SSL_CTX_set_default_verify_paths(ssl_ctx)) {
+      *err = "Failed to use default CA paths";
+      SSL_CTX_free(ssl_ctx);
+      return 0;
+    }
+  }
+  
+  if (client_cert_filename && !SSL_CTX_use_certificate_chain_file(ssl_ctx, client_cert_filename)) {
+    *err = "Invalid client certificate";
+    SSL_CTX_free(ssl_ctx);
+    return 0;
+  }
+  
+  if (client_cert_key_filename && !SSL_CTX_use_PrivateKey_file(ssl_ctx, client_cert_key_filename, SSL_FILETYPE_PEM)) {
+    *err = "Invalid private key";
+    SSL_CTX_free(ssl_ctx);
+    return 0;
+  }
+#ifdef TLS1_3_VERSION
+  if (ciphers && !SSL_CTX_set_cipher_list(ssl_ctx, ciphers)) {
+    *err = "Error while configuring ciphers";
+    SSL_CTX_free(ssl_ctx);
+    return 0;
+  }
+#endif
+
+  ns->ssl_context = ssl_ctx;
+  return 1;
+}
+#else
+static ngx_int_t nodeset_create_ssl_ctx(redis_nodeset_t *ns, char **err) {
+  *err = "Can't create Redis SSL context: Nginx was built without SSL support");
+  return 0;
+}
+#endif
+
 redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   nchan_redis_conf_t  *rcf = &lcf->redis;
   redis_nodeset_t     *ns = &redis_nodeset[redis_nodeset_count]; //incremented once everything is ok
@@ -269,7 +341,9 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     if(ns->settings.tls.enabled == NGX_CONF_UNSET) {
       ns->settings.tls.enabled = 0;
     }
-      
+    if(ns->settings.tls.verify_certificate == NGX_CONF_UNSET) {
+      ns->settings.tls.enabled = 1;
+    }
     
     for(i=0; i < servers->nelts; i++) {
 #if nginx_version >= 1007002
@@ -316,32 +390,13 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     if(use_tls) {
       ns->settings.tls.enabled = 1;
     }
-  }
-  
-#if (NGX_OPENSSL)
-  if(ns->settings.tls.enabled) {
-    redisSSLContextError      ssl_error = 0;
-    redisSSLContext          *ssl_ctx = NULL;
-    ssl_ctx = redisCreateSSLContext(
-      ns->settings.tls.trusted_certificate.len > 0 ? (char *)ns->settings.tls.trusted_certificate.data : NULL,
-      NULL,
-      ns->settings.tls.client_certificate.len > 0 ? (char *)ns->settings.tls.client_certificate.data : NULL,
-      ns->settings.tls.client_certificate_key.len > 0 ? (char *)ns->settings.tls.client_certificate_key.data : NULL,
-      ns->settings.tls.server_name.len > 0 ? (char *)ns->settings.tls.server_name.data : NULL,
-      &ssl_error
-    );
-    if(ssl_ctx == NULL || ssl_error != 0) {
-      nodeset_log_error(ns, "Error creating Redis SSL context: %s", ((ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error"));
+    
+    char *err = NULL;
+    if(!nodeset_create_ssl_ctx(ns, &err)) {
+      nodeset_log_error(ns, "Error creating Redis SSL context: %s", err ? err : "unknown error");
       return NULL;
     }
-    ns->ssl_context = ssl_ctx;
   }
-#else
-  if(ns->settings.tls.enabled) {
-    nodeset_log_error(ns, "Can't create Redis SSL context: Nginx was built without SSL support");
-    return NULL;
-  }
-#endif
   redis_nodeset_count++;
   rcf->nodeset = ns;
 
@@ -1215,7 +1270,21 @@ static redisAsyncContext *node_connect_context(redis_node_t *node) {
   
 #if (NGX_OPENSSL)
   if(node->nodeset->settings.tls.enabled) {
-    if(redisInitiateSSLWithContext(&ac->c, node->nodeset->ssl_context) != REDIS_OK) {
+    SSL *ssl = SSL_new(node->nodeset->ssl_context);
+    if (!ssl) {
+      redisAsyncFree(ac);
+      node_log_error(node, "Failed to create SSL object");
+      return NULL;
+    }
+    
+    if (node->nodeset->settings.tls.server_name.len > 0 && !SSL_set_tlsext_host_name(ssl, (char *)node->nodeset->settings.tls.server_name.data)) {
+        node_log_error(node, "Failed to configure SSL server name");
+        SSL_free(ssl);
+        redisAsyncFree(ac);
+        return NULL;
+    }
+    
+    if(redisInitiateSSL(&ac->c, ssl) != REDIS_OK) {
       node_log_error(node, "could not initialize Redis SSL context: %s", (ac->errstr ? ac->errstr : "unknown error"));
       redisAsyncFree(ac);
       return NULL;
@@ -1260,8 +1329,24 @@ redisContext *node_connect_sync_context(redis_node_t *node) {
   
 #if (NGX_OPENSSL)
   if(node->nodeset->settings.tls.enabled) {
-    if(redisInitiateSSLWithContext(c, node->nodeset->ssl_context) != REDIS_OK) {
+    
+    SSL *ssl = SSL_new(node->nodeset->ssl_context);
+    if (!ssl) {
+      redisFree(c);
+      node_log_error(node, "could not connect synchronously to Redis: Failed to create SSL object");
+      return NULL;
+    }
+    
+    if (node->nodeset->settings.tls.server_name.len > 0 && !SSL_set_tlsext_host_name(ssl, (char *)node->nodeset->settings.tls.server_name.data)) {
+      node_log_error(node, "could not connect synchronously to Redis: Failed to configure SSL server name");
+      SSL_free(ssl);
+      redisFree(c);
+      return NULL;
+    }
+    
+    if(redisInitiateSSL(c, ssl) != REDIS_OK) {
       node_log_error(node, "could not initialize Redis SSL context: %s", c->errstr);
+      SSL_free(ssl);
       redisFree(c);
       return NULL;
     }
@@ -2256,7 +2341,7 @@ ngx_int_t nodeset_destroy_all(void) {
     }
 #if (NGX_OPENSSL)
     if(ns->ssl_context) {
-      redisFreeSSLContext(ns->ssl_context);
+      SSL_CTX_free(ns->ssl_context);
       ns->ssl_context = NULL;
     }
 #endif
