@@ -342,7 +342,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
       ns->settings.tls.enabled = 0;
     }
     if(ns->settings.tls.verify_certificate == NGX_CONF_UNSET) {
-      ns->settings.tls.enabled = 1;
+      ns->settings.tls.verify_certificate = 1;
     }
     
     for(i=0; i < servers->nelts; i++) {
