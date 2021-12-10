@@ -704,6 +704,14 @@ Redis Cluster connections are designed to be resilient and try to recover from e
 
 All Nchan servers sharing a Redis server or cluster should have their times synchronized (via ntpd or your favorite ntp daemon). Failure to do so may result in missed or duplicate messages.
 
+#### Using Redis securely
+
+Redis servers can be connected to via TLS by using the [nchan_redis_ssl](#nchan_redis_ssl) config setting in an `upstream` block, or by using the `rediss://`  schema for the server URLs.
+
+A password and optional username for the `AUTH` command can be set by the [nchan_redis_username](#nchan_redis_username) and [nchan_redis_password](#nchan_redis_password) config settings in an `upstream` block, or by using the `redis://<username>:<password>@hostname` server URL schema.
+
+Note that autodiscovered Redis nodes inherit their parent's SSL, username, and password settings.
+
 #### Tweaks and Optimizations
 
 As of version 1.2.0, Nchan uses Redis slaves to load-balance PUBSUB traffic. By default, there is an equal chance that a channel's PUBSUB subscription will go to any master or slave. The [`nchan_redis_subscribe_weights`](#nchan_redis_subscribe_weights) setting is available to fine-tune this load-balancing.
