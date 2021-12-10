@@ -336,6 +336,9 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.blacklist.count = scf->redis.blacklist_count;
     ns->settings.blacklist.list = scf->redis.blacklist;
     
+    ns->settings.username = scf->redis.username;
+    ns->settings.password = scf->redis.password;
+    
     ns->settings.tls = scf->redis.tls;
     //clean up unset values
     if(ns->settings.tls.enabled == NGX_CONF_UNSET) {
@@ -788,6 +791,13 @@ redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_
   node->nodeset = ns;
   node->generation = 0;
   
+  if(rcp->password.len == 0 && ns->settings.password.len > 0) {
+    node->connect_params.password = ns->settings.password;
+  }
+  if(rcp->username.len == 0 && ns->settings.username.len > 0) {
+    node->connect_params.username = ns->settings.username;
+  }
+  
   nchan_slist_init(&node->channels.cmd, rdstore_channel_head_t, redis.slist.node_cmd.prev, redis.slist.node_cmd.next);
   nchan_slist_init(&node->channels.pubsub, rdstore_channel_head_t, redis.slist.node_pubsub.prev, redis.slist.node_pubsub.next);
   
@@ -820,12 +830,6 @@ redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis
   nchan_strcpy(&node->connect_params.hostname, &rcp->hostname, 0);
   node->connect_params.password.data = &space[rcp->hostname.len];
   nchan_strcpy(&node->connect_params.password, &rcp->password, 0);
-  if(rcp->password.len == 0 && ns->settings.password.len > 0) {
-    node->connect_params.password = ns->settings.password;
-  }
-  if(rcp->username.len == 0 && ns->settings.username.len > 0) {
-    node->connect_params.username = ns->settings.username;
-  }
   
   return node;
 }
@@ -1019,7 +1023,12 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
     node_log_error(node, "connection failed: %s", err);
   }
   else if(ctxerr) {
-    node_log_error(node, "connection failed: %s (%s)", err, ctxerr);
+    if(err) {
+      node_log_error(node, "connection failed: %s (%s)", err, ctxerr);
+    }
+    else {
+      node_log_error(node, "connection failed: %s", ctxerr);
+    }
   }
   else {
     node_log_error(node, "connection failed: %s", err);
@@ -1583,8 +1592,39 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //connection established. move on...   
       node->state++;
       /* fall through */
-    case REDIS_NODE_CONNECTED:
       
+    case REDIS_NODE_CMD_CHECKING_CONNECTION:
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "PING");
+      node->state++;
+      break;
+      
+    case REDIS_NODE_CMD_CHECKED_CONNECTION:
+      //Was the ping ok? it's alright if there was an AUTH error, as long as we have a response
+      if(!reply || ac->err) {
+        return node_connector_fail(node, NULL);
+      }
+      if(reply->type == REDIS_REPLY_ERROR && nchan_cstr_startswith(reply->str, "NOAUTH")  && cp->password.len == 0) {
+        return node_connector_fail(node, "server expects a password, but none was configured");
+      }
+      node->state++;
+      /* fall through */
+      
+    case REDIS_NODE_PUBSUB_CHECKING_CONNECTION:
+      redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "PING");
+      node->state++;
+      break;
+      
+    case REDIS_NODE_PUBSUB_CHECKED_CONNECTION:
+      if(!reply || ac->err) {
+        return node_connector_fail(node, NULL);
+      }
+      if(reply->type == REDIS_REPLY_ERROR && nchan_cstr_startswith(reply->str, "NOAUTH")  && cp->password.len == 0) {
+        return node_connector_fail(node, "server expects a password, but none was configured");
+      }
+      node->state++;
+      /* fall through */
+      
+    case REDIS_NODE_CONNECTED:
       //now we need to authenticate maybe?
       if(cp->password.len > 0) {
         if(!node->ctx.cmd) {
