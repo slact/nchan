@@ -47,7 +47,11 @@ static ngx_connection_t *nchan_create_fake_connection(ngx_pool_t *pool) {
   if(c->log->data == NULL) {
     goto failed;
   }
-
+  c->read->log = log;
+  c->write->log = log;
+#if nginx_version >= 1019009
+  c->read->active = 1;
+#endif  
   c->log_error = NGX_ERROR_INFO;
 
   c->error = 0;
