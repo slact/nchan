@@ -1,3 +1,9 @@
+1.2.14 (Dec. 20 2021)
+ fix: compiler warnings from the use of the 'typeof' macro
+ fix: Nchan can't be built without the Nginx SSL module (bug introduced in 1.2.13)
+ update: hiredis updated to 1.0.2
+ fix: some Redis connection failures could result in a crash (bug introduced in 1.2.13)
+ fix: upstream subrequests crashed with Nginx >= 1.19.9
 1.2.13 (Dec. 13 2021)
  feature: Redis ACL support with username and passwword
  feature: Redis TLS support
