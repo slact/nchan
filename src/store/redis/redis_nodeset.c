@@ -1020,7 +1020,7 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
     ctxerr = node->ctx.sync->errstr;
   }
   if(node->state == REDIS_NODE_CONNECTION_TIMED_OUT) {
-    node_log_error(node, "connection failed: %s", err);
+    node_log_error(node, "connection failed: %s", err == NULL ? "timeout" : err);
   }
   else if(ctxerr) {
     if(err) {
@@ -1030,8 +1030,11 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
       node_log_error(node, "connection failed: %s", ctxerr);
     }
   }
-  else {
+  else if(err) {
     node_log_error(node, "connection failed: %s", err);
+  }
+  else {
+    node_log_error(node, "connection failed");
   }
   node_disconnect(node, REDIS_NODE_FAILED);
 }
