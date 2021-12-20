@@ -87,6 +87,9 @@ for opt in $*; do
       export NGINX_VERYOLDVERSION=1;;
     version=*)
       export NGINX_CUSTOM_VERSION="${opt:8}";;
+    nginx_commit=*)
+      export NGINX_CUSTOM_COMMIT="${opt:13}"
+      ;;
     release=*)
       RELEASE="${opt:8}";;
     slabpatch|slab)

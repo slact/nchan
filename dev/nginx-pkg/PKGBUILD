@@ -1,8 +1,8 @@
 #!/bin/zsh
-_nginx_ver_latest=1.15.7
-_nginx_ver_stable=1.14.2
-_nginx_ver_nopool=1.15.6
-_nginx_ver_legacy=1.8.1
+_nginx_ver_latest=1.21.4
+_nginx_ver_stable=1.20.2
+_nginx_ver_nopool=1.21.4
+_nginx_ver_legacy=1.16.0
 _nginx_ver_old=1.6.3
 _nginx_ver_very_old=0.8.55
 _ngx_echo_module_ver=0.60
@@ -53,7 +53,11 @@ else
   _nginx_ver=$_nginx_ver_latest
 fi
 
-if [[ -n $_nginx_ver ]]; then
+
+if [[ -n $NGINX_CUSTOM_COMMIT ]]; then
+  _nginx_git_source_fragment="#commit=${NGINX_CUSTOM_COMMIT}"
+  _include_http2=1
+elif [[ -n $_nginx_ver ]]; then
   if (_semver_gteq $_nginx_ver 1.9.5); then
     _include_http2=1
   elif (_semver_gteq $_nginx_ver 1.3.15); then
