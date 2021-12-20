@@ -268,7 +268,7 @@ static ngx_int_t nodeset_create_ssl_ctx(redis_nodeset_t *ns, char **err) {
 }
 #else
 static ngx_int_t nodeset_create_ssl_ctx(redis_nodeset_t *ns, char **err) {
-  *err = "Can't create Redis SSL context: Nginx was built without SSL support");
+  *err = "Can't create Redis SSL context: Nginx was built without SSL support";
   return 0;
 }
 #endif
