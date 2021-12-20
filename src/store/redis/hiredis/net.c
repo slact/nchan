@@ -412,7 +412,7 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
         c->tcp.source_addr = hi_strdup(source_addr);
     }
     c->sockaddr.sa_family = AF_UNSPEC;
-    
+
     snprintf(_port, 6, "%d", port);
     memset(&hints,0,sizeof(hints));
     hints.ai_family = AF_INET;
