@@ -989,6 +989,7 @@ static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *
   rcp.peername.len = 0;
   rcp.db = node->connect_params.db;
   rcp.password = node->connect_params.password;
+  rcp.username = node->connect_params.username;
   
   if( ((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL)
    || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
