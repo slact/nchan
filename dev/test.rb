@@ -733,7 +733,7 @@ class PubSubTest <  Minitest::Test
     end
   end
   
-    def test_longpoll_multipart_keepup(range=150..155)
+  def test_longpoll_multipart_keepup(range=150..155)
     range.each do |i|
       pub, sub = pubsub 1, sub: 'sub/multipart/', use_message_id: false, timeout: 20
       pub.post ["foo", "bar","baz", "bax"]
@@ -958,8 +958,30 @@ class PubSubTest <  Minitest::Test
       sub.terminate
     end
   end
+
+  def test_publish_multi_split_255
+    chans = []
+    255.times do
+      chans << short_id
+      pub = Publisher.new url("pub_multi_split/#{chans.join ','}")
+      pub.post ["hey"]
+    end
+  end
   
-    def test_delete_multi
+  def test_publish_multi_split_256
+    chans = []
+    256.times { |i| chans << short_id }
+    pub = Publisher.new url("pub_multi_split/#{chans.join ','}")
+    
+    begin
+      pub.post ["hey"]
+      raise "that should have failed"
+    rescue NchanTools::Publisher::PublisherError => e
+      raise e unless e.message.match /request\ failed.*403/
+    end
+  end
+  
+  def test_delete_multi
     chans= [short_id, short_id, short_id]
     keeper = short_id
     subs= chans.map do |id|

@@ -45,6 +45,11 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
       
       u_char     *cur_first = cur;
       while ((cur_last = nchan_strsplit(&cur, delim, last)) != NULL) {
+        if(n_out >= NCHAN_MULTITAG_MAX) {
+          nchan_log_warning("can't exceed %d channels on a single multiplexed location", NCHAN_MULTITAG_MAX);
+          *ret_id = NULL;
+          return NGX_DECLINED;
+        }
         id[n_out].data = cur_first;
         id[n_out].len = cur_last - cur_first;
         cur_first = cur;
@@ -57,6 +62,11 @@ static ngx_int_t nchan_process_multi_channel_id(ngx_http_request_t *r, nchan_com
       
     }
     else {
+      if(n_out >= NCHAN_MULTITAG_MAX) {
+        nchan_log_warning("can't exceed %d channels on a single multiplexed location", NCHAN_MULTITAG_MAX);
+        *ret_id = NULL;
+        return NGX_DECLINED;
+      }
       sz += id[n_out].len + 1 + grouplen; // "group/<channel-id>"
       if(n_out < NCHAN_MULTITAG_REQUEST_CTX_MAX) {
         ctx->channel_id[n_out] = id[n_out];
