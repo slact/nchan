@@ -1,5 +1,6 @@
 #include <nchan_module.h>
 #include "subscribers/websocket.h"
+#include <nchan_websocket_publisher.h>
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG

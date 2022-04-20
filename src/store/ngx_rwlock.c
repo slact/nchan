@@ -106,7 +106,7 @@ void ngx_rwlock_release_read(ngx_rwlock_t *lock) {
   #endif
 }
 
-int ngx_rwlock_write_check(ngx_rwlock_t *lock) {
+static int ngx_rwlock_write_check(ngx_rwlock_t *lock) {
   if(lock->lock==0) {
     rwl_lock_mutex(lock);
     if(lock->lock==0) {

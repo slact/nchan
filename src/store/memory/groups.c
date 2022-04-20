@@ -40,7 +40,7 @@ ngx_int_t memstore_groups_init(memstore_groups_t *gp) {
   return rbtree_init(&gp->tree, "memstore groups", group_id, NULL, NULL);
 }
 
-ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) {
+static ngx_int_t shutdown_walker(rbtree_seed_t *seed, void *node_data, void *privdata) {
   group_tree_node_t *gtn = (group_tree_node_t *)node_data;
   shmem_t *          shm = nchan_store_memory_shmem;
   ngx_int_t          myslot = memstore_slot();

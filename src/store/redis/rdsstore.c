@@ -1,9 +1,8 @@
 #include <nchan_module.h>
-
+#include <store/redis/store.h>
 #include <assert.h>
 #include <netinet/ip.h>
 #include "store-private.h"
-#include "store.h"
 
 #include "redis_nginx_adapter.h"
 
@@ -1003,11 +1002,11 @@ static void spooler_use_handler(channel_spooler_t *spl, void *d) {
   //nothing. 
 }
 
-void spooler_get_message_start_handler(channel_spooler_t *spl, void *pd) {
+static void spooler_get_message_start_handler(channel_spooler_t *spl, void *pd) {
   ((rdstore_channel_head_t *)pd)->fetching_message_count++;
 }
 
-void spooler_get_message_finish_handler(channel_spooler_t *spl, void *pd) {
+static void spooler_get_message_finish_handler(channel_spooler_t *spl, void *pd) {
   ((rdstore_channel_head_t *)pd)->fetching_message_count--;
   assert(((rdstore_channel_head_t *)pd)->fetching_message_count >= 0);
 }
@@ -2005,16 +2004,16 @@ void redis_store_prepare_to_exit_worker() {
   }
 }
 
-void nodeset_exiter_stage1(redis_nodeset_t *ns, void *pd) {
+static void nodeset_exiter_stage1(redis_nodeset_t *ns, void *pd) {
   nodeset_abort_on_ready_callbacks(ns);
 }
-void nodeset_exiter_stage2(redis_nodeset_t *ns, void *pd) {
+static void nodeset_exiter_stage2(redis_nodeset_t *ns, void *pd) {
   unsigned *chanheads = pd;
   *chanheads += ns->chanhead_reaper.count;
   nchan_reaper_stop(&ns->chanhead_reaper);
 }
 
-void nodeset_exiter_stage3(redis_nodeset_t *ns, void *pd) {
+static void nodeset_exiter_stage3(redis_nodeset_t *ns, void *pd) {
   nodeset_disconnect(ns);
 }
 

@@ -2,6 +2,7 @@
 #include <subscribers/common.h>
 #include "longpoll.h"
 #include "longpoll-private.h"
+#include "intervalpoll.h"
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG

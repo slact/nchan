@@ -1,4 +1,5 @@
 #include <nchan_module.h>
+#include <util/nchan_thingcache.h>
 #include <uthash.h>
 #define THING_HASH_FIND(tc, id_str, p)    HASH_FIND( hh, tc->things, (id_str)->data, (id_str)->len, p)
 #define THING_HASH_ADD(tc, thing)      HASH_ADD_KEYPTR( hh, tc->things, (thing->id).data, (thing->id).len, thing)

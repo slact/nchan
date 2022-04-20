@@ -2,6 +2,7 @@
 #include <subscribers/common.h>
 #include "longpoll.h"
 #include "longpoll-private.h"
+#include "http-chunked.h"
 
 //#define DEBUG_LEVEL NGX_LOG_WARN
 #define DEBUG_LEVEL NGX_LOG_DEBUG
@@ -151,7 +152,7 @@ static ngx_int_t chunked_respond_status(subscriber_t *sub, ngx_int_t status_code
   return NGX_OK;
 }
 
-void *chunksizebuf_alloc(void *pd) {
+static void *chunksizebuf_alloc(void *pd) {
   return ngx_palloc((ngx_pool_t *)pd, sizeof(chunksizebuf_t));
 }
 

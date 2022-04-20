@@ -1534,7 +1534,7 @@ static void node_subscribe_callback(redisAsyncContext *ac, void *rep, void *priv
   }
 }
 
-void node_connector_connect_timeout(void *pd) {
+static void node_connector_connect_timeout(void *pd) {
   redis_node_t  *node = pd;
   node->connect_timeout = NULL;
   if(node->state == REDIS_NODE_CMD_CONNECTING || node->state == REDIS_NODE_PUBSUB_CONNECTING) {
@@ -1993,7 +1993,7 @@ static int nodeset_status_timer_interval(redis_nodeset_status_t status) {
   return 500; //default?
 }
 
-void nodeset_onready_expire_event(ngx_event_t *ev) {
+static void nodeset_onready_expire_event(ngx_event_t *ev) {
   nodeset_onready_callback_t *rcb = ev->data;
   rcb->cb(rcb->ns, rcb->pd);
   nchan_list_remove(&rcb->ns->onready_callbacks, rcb);
@@ -2056,7 +2056,7 @@ static ngx_int_t update_chanhead_status_on_reconnect(rdstore_channel_head_t *ch)
   return NGX_OK;
 }
 
-ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
+static ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   rdstore_channel_head_t *cur;
   nchan_slist_t *disconnected_cmd = &ns->channels.disconnected_cmd;
   nchan_slist_t *disconnected_pubsub = &ns->channels.disconnected_pubsub;

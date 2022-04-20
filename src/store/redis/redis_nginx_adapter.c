@@ -38,7 +38,7 @@ void redis_nginx_force_close_context(redisAsyncContext **context) {
   }
 }
 
-void redis_nginx_read_event(ngx_event_t *ev) {
+static void redis_nginx_read_event(ngx_event_t *ev) {
   redisAsyncContext *ac = ((ngx_connection_t *)ev->data)->data;
   int                fd = ac->c.fd; //because redisAsyncHandleRead might free the redisAsyncContext
   int                bytes_left = 0;
@@ -56,17 +56,17 @@ void redis_nginx_read_event(ngx_event_t *ev) {
   }
 }
 
-void redis_nginx_write_event(ngx_event_t *ev) {
+static void redis_nginx_write_event(ngx_event_t *ev) {
   ngx_connection_t *connection = (ngx_connection_t *) ev->data;
   redisAsyncHandleWrite(connection->data);
 }
 
 
-int redis_nginx_fd_is_valid(int fd) {
+static int redis_nginx_fd_is_valid(int fd) {
   return (fd > 0) && ((fcntl(fd, F_GETFL) != -1) || (errno != EBADF));
 }
 
-void redis_nginx_add_read(void *privdata) {
+static void redis_nginx_add_read(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
   ngx_int_t         flags = EVENT_FLAGS;
   if (!connection->read->active && redis_nginx_fd_is_valid(connection->fd)) {
@@ -78,7 +78,7 @@ void redis_nginx_add_read(void *privdata) {
   }
 }
 
-void redis_nginx_del_read(void *privdata) {
+static void redis_nginx_del_read(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
   ngx_int_t         flags = EVENT_FLAGS;
   if (connection->read->active && redis_nginx_fd_is_valid(connection->fd)) {
@@ -91,7 +91,7 @@ void redis_nginx_del_read(void *privdata) {
   }
 }
 
-void redis_nginx_add_write(void *privdata) {
+static void redis_nginx_add_write(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
   ngx_int_t         flags = EVENT_FLAGS;
   if (!connection->write->active && redis_nginx_fd_is_valid(connection->fd)) {
@@ -103,7 +103,7 @@ void redis_nginx_add_write(void *privdata) {
   }
 }
 
-void redis_nginx_del_write(void *privdata) {
+static void redis_nginx_del_write(void *privdata) {
   ngx_connection_t *connection = (ngx_connection_t *) privdata;
   ngx_int_t         flags = EVENT_FLAGS;
   if (connection->write->active && redis_nginx_fd_is_valid(connection->fd)) {

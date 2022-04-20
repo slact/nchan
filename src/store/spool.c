@@ -646,15 +646,6 @@ static ngx_int_t spool_respond_general(subscriber_pool_t *self, nchan_msg_t *msg
 
 /////////// SPOOLER - container of several spools //////////
 
-channel_spooler_t *create_spooler() {
-  channel_spooler_t  *spooler;
-  if((spooler = ngx_alloc(sizeof(*spooler), ngx_cycle->log))==NULL) {
-    ERR("Can't allocate spooler");
-    return NULL;
-  }
-  return spooler;
-}
-
 static void spool_bubbleup_dequeue_handler(subscriber_pool_t *spool, subscriber_t *sub, channel_spooler_t *spl) {
   //bubble on up, yeah
   channel_spooler_handlers_t *h = spl->handlers;

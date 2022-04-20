@@ -5,7 +5,7 @@ typedef struct {
   nchan_content_type_t ct;
 } nchan_content_subtype_t;
 
-nchan_content_type_t nchan_output_info_type(ngx_str_t *accept) {
+static nchan_content_type_t nchan_output_info_type(ngx_str_t *accept) {
   nchan_content_subtype_t subtypes[] = {
     { ngx_string("plain"),    NCHAN_CONTENT_TYPE_PLAIN },
     { ngx_string("json"),     NCHAN_CONTENT_TYPE_JSON },

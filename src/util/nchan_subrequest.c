@@ -30,6 +30,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <nchan_module.h>
+#include <util/nchan_subrequest.h>
 
 ngx_str_t  nchan_content_length_header_key = ngx_string("Content-Length");
 

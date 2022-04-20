@@ -8,7 +8,7 @@
 #endif
 #include <ngx_sha1.h>
 #include <nginx.h>
-
+#include "websocket.h"
 
 #if (NGX_ZLIB)
 #include <zlib.h>
@@ -260,13 +260,13 @@ ngx_int_t ws_release_tmp_pool(full_subscriber_t *fsub) {
 }
 */
 
-ngx_pool_t *ws_get_msgpool(full_subscriber_t *fsub) {
+static ngx_pool_t *ws_get_msgpool(full_subscriber_t *fsub) {
   if(!fsub->publisher.msg_pool) {
     fsub->publisher.msg_pool = ngx_create_pool(NCHAN_WS_TMP_POOL_SIZE, fsub->sub.request->connection->log);
   }
   return fsub->publisher.msg_pool;
 }
-ngx_int_t ws_destroy_msgpool(full_subscriber_t *fsub) {
+static ngx_int_t ws_destroy_msgpool(full_subscriber_t *fsub) {
   if(fsub->publisher.msg_pool) {
     ngx_destroy_pool(fsub->publisher.msg_pool);
     fsub->publisher.msg_pool = NULL;
@@ -573,7 +573,7 @@ static ngx_int_t websocket_heartbeat(full_subscriber_t *fsub, ngx_buf_t *buf) {
   }
 }
 
-ngx_int_t websocket_publish_upstream_handler(ngx_int_t rc, ngx_http_request_t *sr, void *pd) {
+static ngx_int_t websocket_publish_upstream_handler(ngx_int_t rc, ngx_http_request_t *sr, void *pd) {
   ws_publish_data_t       *d = pd;
   full_subscriber_t       *fsub = d->fsub;
   

@@ -533,7 +533,7 @@ static void serialize_numrun(int write, char **cur, int num, int runcount) {
   }
 }
 
-size_t hdrhistogram_serialize(int write, char *start, const struct hdr_histogram* hdr) {
+static size_t hdrhistogram_serialize(int write, char *start, const struct hdr_histogram* hdr) {
   int    i;
   char  *fakestart = NULL;
   char **cur;
@@ -675,7 +675,7 @@ static ngx_int_t init_command_get_config_value(const char *config, ngx_str_t *cm
   return 0;
 }
 
-void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
+static void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
   ngx_str_t            cmd = {msg->buf.last - msg->buf.pos, msg->buf.pos};
   ngx_http_request_t  *r = sub->request;
   nchan_loc_conf_t   *cf = ngx_http_get_module_loc_conf(r, ngx_nchan_module);
@@ -768,7 +768,7 @@ void benchmark_controller(subscriber_t *sub, nchan_msg_t *msg) {
   }
 }
 
-void benchmark_request_cleanup_handler(void *pd) {
+static void benchmark_request_cleanup_handler(void *pd) {
   if(nchan_benchmark_abort() == NGX_OK) {
     memstore_ipc_broadcast_benchmark_abort();
   }

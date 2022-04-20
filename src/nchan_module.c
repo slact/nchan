@@ -289,7 +289,7 @@ ngx_int_t nchan_stub_status_handler(ngx_http_request_t *r) {
   return ngx_http_output_filter(r, &out);
 }
 
-int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {
+static int nchan_parse_message_buffer_config(ngx_http_request_t *r, nchan_loc_conf_t *cf, char **err) {
   ngx_str_t                      val;
   nchan_loc_conf_shared_data_t  *shcf;
   

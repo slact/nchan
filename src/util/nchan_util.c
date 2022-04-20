@@ -538,7 +538,7 @@ typedef struct {
   void          (*cb)(void *pd);
 } oneshot_timer_t;
 
-void oneshot_timer_callback(ngx_event_t *ev) {
+static void oneshot_timer_callback(ngx_event_t *ev) {
   oneshot_timer_t  *timer = container_of(ev, oneshot_timer_t, ev);
   timer->cb(ev->data);
   ngx_free(timer);
@@ -567,7 +567,7 @@ typedef struct {
   ngx_int_t    (*cb)(void *pd);
 } interval_timer_t;
 
-void interval_timer_callback(ngx_event_t *ev) {
+static void interval_timer_callback(ngx_event_t *ev) {
   interval_timer_t  *timer = container_of(ev, interval_timer_t, ev);
   ngx_int_t rc = timer->cb(ev->data);
   if((rc == NGX_OK || rc == NGX_AGAIN) && ev->timedout) {

@@ -188,7 +188,7 @@ static ngx_int_t nchan_initialize_fake_request(ngx_http_request_t *r, ngx_connec
   return NGX_OK;
 }
 */
-void empty_handler(ngx_http_request_t *r) {
+static void empty_handler(ngx_http_request_t *r) {
   //do nothing
 }
 
