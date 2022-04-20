@@ -75,6 +75,8 @@ typedef struct {
 } redis_lua_scripts_t;
 extern redis_lua_scripts_t redis_lua_scripts;
 extern const int redis_lua_scripts_count;
+#define REDIS_LUA_SCRIPTS_ALL_HASHES "fd2ee193a2518982e607f99623c8200849b21098 7e213d514486887425875dc9835564edfe14e677 a6008241827ea3bdec215b4460e96ad498cad8cb d027f1bc80eb1afc33f909759dfb7428cf1f9063 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 be28281114137d8e85a25a913c50bed2e93d0c7d 2f2ce1443b22c8c9cf069d5588bad4bab58d70aa 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 0418d941e41ce9d8cb938860fd340d85c121d4cc a98e07b21485951a7d34cf80736e53db1b6e87a6"
+#define REDIS_LUA_SCRIPTS_COUNT 13
 #define REDIS_LUA_SCRIPTS_EACH(script) \
 for((script)=(redis_lua_script_t *)&redis_lua_scripts; (script) < (redis_lua_script_t *)(&redis_lua_scripts + 1); (script)++) 
 #endif //NCHAN_REDIS_LUA_SCRIPTS_H

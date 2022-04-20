@@ -23,7 +23,7 @@
 #include <util/nchan_rbtree.h>
 #include <util/nchan_list.h>
 #include <util/nchan_slist.h>
-
+#include "redis_lua_commands.h"
 //#include "store-private.h"
 
 //#define REDIS_NODESET_DBG 1
@@ -67,17 +67,18 @@
 #define REDIS_NODE_CMD_SELECTING_DB       11
 #define REDIS_NODE_PUBSUB_SELECTING_DB    12
 #define REDIS_NODE_SCRIPTS_LOAD           13
-#define REDIS_NODE_SCRIPTS_LOADING        14
-#define REDIS_NODE_GET_INFO               15
-#define REDIS_NODE_GETTING_INFO           16
-#define REDIS_NODE_PUBSUB_GET_INFO        17
-#define REDIS_NODE_PUBSUB_GETTING_INFO    18
-#define REDIS_NODE_SUBSCRIBE_WORKER       19
-#define REDIS_NODE_SUBSCRIBING_WORKER     20
-#define REDIS_NODE_GET_CLUSTERINFO        21
-#define REDIS_NODE_GETTING_CLUSTERINFO    22
-#define REDIS_NODE_GET_CLUSTER_NODES      23
-#define REDIS_NODE_GETTING_CLUSTER_NODES  24
+#define REDIS_NODE_SCRIPTS_LOADED_CHECK   14  
+#define REDIS_NODE_SCRIPTS_LOADING        15
+#define REDIS_NODE_GET_INFO               16
+#define REDIS_NODE_GETTING_INFO           17
+#define REDIS_NODE_PUBSUB_GET_INFO        18
+#define REDIS_NODE_PUBSUB_GETTING_INFO    19
+#define REDIS_NODE_SUBSCRIBE_WORKER       20
+#define REDIS_NODE_SUBSCRIBING_WORKER     21
+#define REDIS_NODE_GET_CLUSTERINFO        22
+#define REDIS_NODE_GETTING_CLUSTERINFO    23
+#define REDIS_NODE_GET_CLUSTER_NODES      24
+#define REDIS_NODE_GETTING_CLUSTER_NODES  25
 #define REDIS_NODE_READY                  100
   
 typedef struct redis_nodeset_s redis_nodeset_t;
@@ -195,7 +196,6 @@ struct redis_node_s {
   redis_nodeset_t          *nodeset;
   ngx_str_t                 run_id;
   ngx_str_t                 version;
-  int                       scripts_loaded;
   int                       generation;
   ngx_event_t               ping_timer;
   struct {
@@ -226,6 +226,11 @@ struct redis_node_s {
   nchan_slist_t               cmd;
   nchan_slist_t               pubsub;
   }                         channels;
+  struct {
+    uint8_t                   loaded[REDIS_LUA_SCRIPTS_COUNT];
+    uint8_t                   current;
+    unsigned                  loading:1;
+  }                         scripts_load_state;
 }; //redis_node_t
 
 typedef struct {

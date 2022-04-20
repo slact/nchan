@@ -56,6 +56,12 @@ static ngx_int_t rbtree_cluster_keyslots_compare(void *v1, void *v2) {
 static int reply_str_ok(redisReply *reply) {
   return (reply != NULL && reply->type != REDIS_REPLY_ERROR && reply->type == REDIS_REPLY_STRING);
 }
+static int reply_array_ok(redisReply *reply) {
+  return (reply != NULL && reply->type == REDIS_REPLY_ARRAY);
+}
+static int reply_integer_ok(redisReply *reply) {
+  return (reply != NULL && reply->type == REDIS_REPLY_INTEGER);
+}
 static int reply_status_ok(redisReply *reply) {
   return (
     reply != NULL 
@@ -749,7 +755,7 @@ static void node_cluster_check_event(ngx_event_t *ev) {
   redisAsyncCommand(node->ctx.cmd, node_cluster_check_event_callback, node, "CLUSTER INFO");
 }
 
-redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
+static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
   assert(!nodeset_node_find_by_connect_params(ns, rcp));
   node_blob_t      *node_blob;
   if(extra_space == 0) {
@@ -819,7 +825,7 @@ redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *r
   return nodeset_node_create_with_space(ns, rcp, 0, NULL);
 }
 
-redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
+static redis_node_t *nodeset_node_create_with_connect_params(redis_nodeset_t *ns, redis_connect_params_t *rcp) {
   redis_node_t  *node;
   u_char        *space;
   size_t         sz = rcp->hostname.len + rcp->password.len;
@@ -1091,6 +1097,13 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   }
   if(node->cluster.check_timer.timer_set) {
     ngx_del_timer(&node->cluster.check_timer);
+  }
+  
+  node->scripts_load_state.loading = 0;
+  node->scripts_load_state.current = 0;
+  int i;
+  for(i=0; i<REDIS_LUA_SCRIPTS_COUNT; i++) {
+    node->scripts_load_state.loaded[i]=0;
   }
   
   rdstore_channel_head_t *cur;
@@ -1553,9 +1566,9 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
   redis_nodeset_t            *nodeset = node->nodeset;
   char                        errstr[1024];
   redis_connect_params_t     *cp = &node->connect_params;
-  redis_lua_script_t         *next_script = (redis_lua_script_t *)&redis_lua_scripts;
   node_log_debug(node, "node_connector_callback state %d", node->state);
   ngx_str_t                   rest;
+  redis_lua_script_t         *scripts = (redis_lua_script_t *)&redis_lua_scripts;
   
   switch(node->state) {
     case REDIS_NODE_CONNECTION_TIMED_OUT:
@@ -1698,36 +1711,69 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++; // fallthru
       /* fall through */
     case REDIS_NODE_SCRIPTS_LOAD:
-      node->scripts_loaded = 0;
       if(!node->ctx.cmd) {
-        return node_connector_fail(node, "cmd connection missing, can't send SCRIPT LOAD command");
+        return node_connector_fail(node, "cmd connection missing, can't send SCRIPT EXISTS command");
       }
-      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT EXISTS " REDIS_LUA_SCRIPTS_ALL_HASHES);
       node->state++;
       break;
     
-    case REDIS_NODE_SCRIPTS_LOADING:
-      next_script = &next_script[node->scripts_loaded];
+    case REDIS_NODE_SCRIPTS_LOADED_CHECK: {
+      int   i;
+      if(!reply_array_ok(reply)) {
+        return node_connector_fail(node, "SCRIPT EXISTS failed,");
+      }
+      if(reply->elements != REDIS_LUA_SCRIPTS_COUNT) {
+        return node_connector_fail(node, "SCRIPT EXISTS returned wrong number of elements");
+      }
+      for(i=0; i<REDIS_LUA_SCRIPTS_COUNT; i++) {
+        if(!reply_integer_ok(reply->element[i])) {
+          return node_connector_fail(node, "SCRIPT EXISTS returned non-integer element type");
+        }
+        node->scripts_load_state.loaded[i]=reply->element[i]->integer;
+      }
+      node->scripts_load_state.loading = 0;
+      node->scripts_load_state.current = 0;
+      node->state++;//fallthru
+    }
+    /* fall through */
+    case REDIS_NODE_SCRIPTS_LOADING: {
+      uint8_t             *current = &node->scripts_load_state.current;
+      if(node->scripts_load_state.loading) {
+        //already loading. check response from previous load
+        if(!node_connector_loadscript_reply_ok(node, &scripts[*current], reply)) {
+          return node_connector_fail(node, "SCRIPT LOAD failed,");
+        }
+        assert(node->scripts_load_state.loaded[*current] == 0);
+        node->scripts_load_state.loaded[*current] = 1;
+        (*current)++;
+      }
       
-      if(!node_connector_loadscript_reply_ok(node, next_script, reply)) {
-        return node_connector_fail(node, "SCRIPT LOAD failed,");
+      node->scripts_load_state.loading = 1;
+      
+      //skip to next non-loaded script
+      while(*current < REDIS_LUA_SCRIPTS_COUNT) {
+        if(!node->scripts_load_state.loaded[*current]) {
+          break;
+        }
+        (*current)++;
       }
-      else {
-        //node_log_debug(node, "loaded script %s", next_script->name);
-        node->scripts_loaded++;
-        next_script++;
-      }
-      if(node->scripts_loaded < redis_lua_scripts_count) {
-        //load next script
+      
+      if(*current < REDIS_LUA_SCRIPTS_COUNT) {
         if(!node->ctx.cmd) {
           return node_connector_fail(node, "cmd connection missing, can't send SCRIPT LOAD command");
         }
-        redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", next_script->script);
-        return;
+        redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "SCRIPT LOAD %s", scripts[*current].script);
+        break;
       }
-      node_log_debug(node, "all scripts loaded");
-      node->state++;
-      /* fall through */
+      else {
+        //we're done here
+        node->scripts_load_state.loading = 0;
+        node_log_debug(node, "all scripts loaded");
+        node->state++;
+      }
+    }
+    /* fall through */
     case REDIS_NODE_GET_INFO:
       //getinfo time
       if(!node->ctx.cmd) {

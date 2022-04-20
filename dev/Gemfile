@@ -41,4 +41,4 @@ gem 'minitest-reporters'
 
 gem 'fpm', :git => "https://github.com/slact/fpm.git"
 
-gem 'hsss', "~> 0.1.20"
+gem 'hsss', "~> 0.1.23"
