@@ -2013,10 +2013,6 @@ static void nodeset_exiter_stage2(redis_nodeset_t *ns, void *pd) {
   nchan_reaper_stop(&ns->chanhead_reaper);
 }
 
-static void nodeset_exiter_stage3(redis_nodeset_t *ns, void *pd) {
-  nodeset_disconnect(ns);
-}
-
 static void nchan_store_exit_worker(ngx_cycle_t *cycle) {
   rdstore_channel_head_t     *cur, *tmp;
   unsigned                    chanheads = 0;
