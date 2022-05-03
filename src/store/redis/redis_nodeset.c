@@ -1054,9 +1054,15 @@ int node_connect(redis_node_t *node) {
 
 int node_disconnect(redis_node_t *node, int disconnected_state) {
   ngx_int_t prev_state = node->state;
+  node->state = disconnected_state;
   node_log_debug(node, "disconnect");
   redisAsyncContext *ac;
   redisContext      *c;
+  if(node->connect_timeout) {
+    nchan_abort_oneshot_timer(node->connect_timeout);
+    node->connect_timeout = NULL;
+  }
+  
   if((ac = node->ctx.cmd) != NULL) {
     node->ctx.cmd->onDisconnect = NULL;
     node->ctx.cmd = NULL;
@@ -1075,12 +1081,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     node->ctx.sync = NULL;
     redisFree(c);
   }
-  if(node->connect_timeout) {
-    nchan_abort_oneshot_timer(node->connect_timeout);
-    node->connect_timeout = NULL;
-  }
 
-  node->state = disconnected_state;
   if(prev_state >= REDIS_NODE_READY) {
     nchan_update_stub_status(redis_connected_servers, -1);
   }
