@@ -325,6 +325,7 @@ typedef struct {
       ngx_msec_t                    node_connect_timeout;  
       ngx_msec_t                    cluster_connect_timeout;
       ngx_msec_t                    cluster_max_failing_msec;
+      ngx_int_t                     load_scripts_unconditionally;
       ngx_msec_t                    reconnect_delay_msec;
       nchan_redis_optimize_t        optimize_target;
       ngx_int_t                     master_weight;

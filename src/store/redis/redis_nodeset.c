@@ -336,6 +336,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.cluster_connect_timeout = scf->redis.cluster_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC : scf->redis.cluster_connect_timeout;
     ns->settings.reconnect_delay_msec = scf->redis.reconnect_delay_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC : scf->redis.reconnect_delay_msec;
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
+    ns->settings.load_scripts_unconditionally = scf->redis.load_scripts_unconditionally == NGX_CONF_UNSET ? 0 : scf->redis.load_scripts_unconditionally;
     
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
@@ -1736,7 +1737,12 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         if(!reply_integer_ok(reply->element[i])) {
           return node_connector_fail(node, "SCRIPT EXISTS returned non-integer element type");
         }
-        node->scripts_load_state.loaded[i]=reply->element[i]->integer;
+        if(nodeset->settings.load_scripts_unconditionally) {
+          node->scripts_load_state.loaded[i]=0;
+        }
+        else {
+          node->scripts_load_state.loaded[i]=reply->element[i]->integer;
+        }
       }
       node->scripts_load_state.loading = 0;
       node->scripts_load_state.current = 0;

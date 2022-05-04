@@ -155,6 +155,7 @@ struct redis_nodeset_s {
     ngx_msec_t                  cluster_connect_timeout;
     ngx_msec_t                  reconnect_delay_msec;
     ngx_msec_t                  cluster_max_failing_msec;
+    ngx_int_t                   load_scripts_unconditionally;
     struct {
       int                         count;
       nchan_redis_ip_range_t     *list;

@@ -602,6 +602,13 @@ CfCmd.new do
       default: "5s",
       info: "Send a CLUSTER INFO command to each connected Redis node to see if the cluster config epoch has changed. Sent only when in Cluster mode and if any other command that may result in a MOVE error has not been sent in the configured time."
   
+    nchan_redis_load_scripts_unconditionally [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, "redis.load_scripts_unconditionally"],
+      default: "no",
+      group: "development",
+      undocumented: true
+  
   nchan_redis_wait_after_connecting [:main, :srv, :loc],
       :nchan_ignore_obsolete_setting,
       :loc_conf,
