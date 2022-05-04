@@ -26,7 +26,7 @@ if [[ -z $NO_DEBUG ]]; then
   CFLAGS=" -ggdb -fvar-tracking-assignments -O$OPTIMIZE_LEVEL"
 fi
 
-CFLAGS="$CFLAGS -Wno-error -Wall -Wextra -Wno-unused-parameter -Wpointer-sign -Wpointer-arith -Wshadow -Wnested-externs -Wsign-compare"
+CFLAGS="$CFLAGS -Wno-error -Wall -Wextra -Wno-unused-parameter -Wpointer-sign -Wpointer-arith -Wshadow -Wnested-externs -Wsign-compare -Wwrite-strings -Wno-discarded-qualifiers"
 if [[ $SANITIZE_UNDEFINED == 1 ]]; then
     CFLAGS="$CFLAGS -fsanitize=undefined -fsanitize=shift -fsanitize=integer-divide-by-zero -fsanitize=unreachable -fsanitize=vla-bound -fsanitize=null -fsanitize=return -fsanitize=bounds -fsanitize=alignment -fsanitize=object-size -fsanitize=float-divide-by-zero -fsanitize=float-cast-overflow -fsanitize=nonnull-attribute -fsanitize=returns-nonnull-attribute -fsanitize=enum -lubsan"
 fi
@@ -373,8 +373,18 @@ build() {
     if [[ -z $CLANG_ANALYZER ]]; then
       CFLAGS="-ferror-limit=5 $CFLAGS -Wconditional-uninitialized"
     fi
-  elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]] && [[ -z $NO_GCC_COLOR ]]; then
-    CFLAGS="-fdiagnostics-color=always  -Wmaybe-uninitialized $CFLAGS"
+    if [[ -z $NOCOLOR ]]; then
+      CFLAGS="${CFLAGS} -fcolor-diagnostics"
+    else
+      CFLAGS="${CFLAGS} -fno-color-diagnostics"
+    fi
+  elif [[ $CC == "cc" ]] || [[ $CC == "gcc" ]] || [[ -z $CC ]]; then
+    if [[ -z $NOCOLOR ]]; then
+      CFLAGS="${CFLAGS} -fdiagnostics-color=always"
+    else
+      CFLAGS="${CFLAGS} -fdiagnostics-color=never"
+    fi
+    CFLAGS="-Wmaybe-uninitialized $CFLAGS"
   fi
   
   if [[ -n $WITH_NGX_PAGESPEED_MODULE ]]; then
@@ -401,6 +411,11 @@ build() {
       CFLAGS="-I/usr/include/openssl-1.0/ $CFLAGS"
       LDFLAGS="-L/usr/lib/openssl-1.0/ $LDFLAGS"
     fi
+    
+    if which ccache > /dev/null; then
+      export CC="ccache ${CC:-cc}"
+    fi
+    
     
     if [[ -n $EXPLICIT_CFLAGS ]]; then
       echo "./configure ${CONFIGURE[@]} --with-cc-opt=${CFLAGS} --with-ld-opt=${LDFLAGS}"
