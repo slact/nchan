@@ -5,7 +5,7 @@ pkg_path=$MY_PATH/nginx-pkg
 _src_dir=${MY_PATH}/../src
   
 
-_clang="ccache clang -Qunused-arguments -fcolor-diagnostics"
+_clang="clang -Qunused-arguments"
 
 #clang_memcheck="-fsanitize=address,undefined -fno-omit-frame-pointer"
 clang_sanitize_memory="-use-gold-plugins -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer -fsanitize-blacklist=bl.txt"
@@ -35,11 +35,11 @@ for opt in $*; do
     gcc)
       export CC="gcc";;
     gcc6)
-      export CC="ccache gcc-6";;
+      export CC="gcc-6";;
     gcc5)
-      export CC="ccache gcc-5";;
+      export CC="gcc-5";;
     gcc4|gcc47|gcc4.7)
-      export CC="ccache gcc-4.7";;
+      export CC="gcc-4.7";;
     nopool|no-pool|nop) 
       export NO_POOL=1;;
     trackpool|track-pool) 
@@ -48,6 +48,8 @@ for opt in $*; do
       export NGX_DEBUG_POOL=1;;
     dynamic)
       export DYNAMIC=1;;
+    nocolor)
+      export NOCOLOR=1;;
     re|remake)
       export REMAKE="-B"
       export CONTINUE=1;;
