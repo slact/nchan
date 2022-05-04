@@ -1361,9 +1361,21 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, upstream, location  
   > Send a CLUSTER INFO command to each connected Redis node to see if the cluster config epoch has changed. Sent only when in Cluster mode and if any other command that may result in a MOVE error has not been sent in the configured time.    
 
+- **nchan_redis_cluster_connect_timeout**  
+  arguments: 1  
+  default: `15s`  
+  context: upstream  
+  > Redis cluster connection timeout.    
+
+- **nchan_redis_cluster_max_failing_time**  
+  arguments: 1  
+  default: `2s`  
+  context: upstream  
+  > Maximum time a Redis cluster can be in a failing state before Nchan disconnects from it. This is useful because short-term netsplits a cluster may recover without failing over any nodes when connectivity is restored.    
+
 - **nchan_redis_connect_timeout**  
   arguments: 1  
-  default: `600ms`  
+  default: `2s`  
   context: upstream  
   > Redis server connection timeout.    
 
@@ -1412,6 +1424,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `4m`  
   context: http, server, upstream, location  
   > Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable.    
+
+- **nchan_redis_reconnect_delay**  
+  arguments: 1  
+  default: `5s`  
+  context: upstream  
+  > After a connection failure, wait this long before trying to reconnect to Redis.    
 
 - **nchan_redis_server** `<redis-url>`  
   arguments: 1  

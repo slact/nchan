@@ -302,7 +302,6 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   nchan_slist_init(&ns->channels.disconnected_cmd, rdstore_channel_head_t, redis.slist.node_cmd.prev, redis.slist.node_cmd.next);
   nchan_slist_init(&ns->channels.disconnected_pubsub, rdstore_channel_head_t, redis.slist.node_pubsub.prev, redis.slist.node_pubsub.next);
   
-  ns->reconnect_delay_sec = 5;
   ns->current_status_times_checked = 0;
   ns->current_status_start = 0;
   ns->generation = 0;
@@ -333,9 +332,14 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ngx_str_t                   *upstream_url, **urlref;
     ns->upstream = rcf->upstream;
     
-    ns->settings.connect_timeout = scf->redis.connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.connect_timeout;
+    ns->settings.node_connect_timeout = scf->redis.node_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.node_connect_timeout;
+    ns->settings.cluster_connect_timeout = scf->redis.cluster_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC : scf->redis.cluster_connect_timeout;
+    ns->settings.reconnect_delay_msec = scf->redis.reconnect_delay_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC : scf->redis.reconnect_delay_msec;
+    ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
+    
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
+    
     
     ns->settings.optimize_target = scf->redis.optimize_target == NCHAN_REDIS_OPTIMIZE_UNSET ? NCHAN_REDIS_OPTIMIZE_CPU : scf->redis.optimize_target;
     
@@ -366,7 +370,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   }
   else {
     ns->upstream = NULL;
-    ns->settings.connect_timeout = NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC;
+    ns->settings.node_connect_timeout = NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC;
+    ns->settings.cluster_connect_timeout = NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC;
     ns->settings.node_weight.master = 1;
     ns->settings.node_weight.slave = 1;
     ns->settings.blacklist.count = 0;
@@ -1584,7 +1589,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       else if(cp->peername.len == 0) { //don't know peername yet
         set_preallocated_peername(node->ctx.cmd, &cp->peername);
       }
-      node->connect_timeout = nchan_add_oneshot_timer(node_connector_connect_timeout, node, nodeset->settings.connect_timeout);
+      node->connect_timeout = nchan_add_oneshot_timer(node_connector_connect_timeout, node, nodeset->settings.node_connect_timeout);
       node->state = REDIS_NODE_CMD_CONNECTING;
       break; //wait until the onConnect callback brings us back
       
@@ -2337,6 +2342,10 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
   return NGX_OK;
 }
 
+static int nodeset_status_time_exceeded(redis_nodeset_t *ns, ngx_msec_t msec_time) {
+  return (ngx_msec_t )(ngx_time() - ns->current_status_start)*1000 > msec_time;
+}
+
 static void nodeset_check_status_event(ngx_event_t *ev) {
   redis_nodeset_t *ns = ev->data;
   
@@ -2348,12 +2357,12 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
   
   switch(ns->status) {
     case REDIS_NODESET_FAILED:
-      //fall-through rather intentionally
-      if(ngx_time() - ns->current_status_start > REDIS_NODESET_RECONNECT_WAIT_TIME_SEC) {
+      if(nodeset_status_time_exceeded(ns, ns->settings.reconnect_delay_msec)) {
         nodeset_log_notice(ns, "reconnecting...");
         nodeset_connect(ns);
       }
       break;
+    
     case REDIS_NODESET_INVALID:
     case REDIS_NODESET_DISCONNECTED:
       //connect whatever needs to be connected
@@ -2362,16 +2371,17 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
     
     case REDIS_NODESET_CONNECTING:
       //wait it out
-      if(ngx_time() - ns->current_status_start > REDIS_NODESET_MAX_CONNECTING_TIME_SEC) {
+      if(nodeset_status_time_exceeded(ns, ns->settings.cluster_connect_timeout)) {
         nodeset_set_status(ns, REDIS_NODESET_DISCONNECTED, "Redis node set took too long to connect");
       }
       else {
         nodeset_examine(ns); // full status check
       }
       break;
+    
     case REDIS_NODESET_CLUSTER_FAILING:
     case REDIS_NODESET_FAILING:
-      if(ngx_time() - ns->current_status_start > REDIS_NODESET_MAX_FAILING_TIME_SEC) {
+      if(nodeset_status_time_exceeded(ns, ns->settings.cluster_max_failing_msec)) {
         nodeset_set_status(ns, REDIS_NODESET_FAILED, "Redis node set has failed");
       }
       break;

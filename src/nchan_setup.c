@@ -136,7 +136,10 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   if(scf == NULL) {
     return NGX_CONF_ERROR;
   }
-  scf->redis.connect_timeout = NGX_CONF_UNSET_MSEC;
+  scf->redis.node_connect_timeout = NGX_CONF_UNSET_MSEC;
+  scf->redis.cluster_connect_timeout = NGX_CONF_UNSET_MSEC;
+  scf->redis.reconnect_delay_msec = NGX_CONF_UNSET_MSEC;
+  scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
   scf->redis.slave_weight = NGX_CONF_UNSET;
@@ -150,7 +153,11 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
 
 static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_srv_conf_t       *prev = parent, *conf = child;
-  ngx_conf_merge_msec_value(conf->redis.connect_timeout, prev->redis.connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
+  ngx_conf_merge_msec_value(conf->redis.node_connect_timeout, prev->redis.node_connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
+  ngx_conf_merge_msec_value(conf->redis.cluster_connect_timeout, prev->redis.cluster_connect_timeout, NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC);
+  ngx_conf_merge_msec_value(conf->redis.reconnect_delay_msec, prev->redis.reconnect_delay_msec, NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC);
+  ngx_conf_merge_msec_value(conf->redis.cluster_max_failing_msec, prev->redis.cluster_max_failing_msec, NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC);
+  
   MERGE_UNSET_CONF(conf->redis.optimize_target, prev->redis.optimize_target, NCHAN_REDIS_OPTIMIZE_UNSET, NCHAN_REDIS_OPTIMIZE_CPU);
   ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
   ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);

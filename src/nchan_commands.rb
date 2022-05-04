@@ -612,12 +612,42 @@ CfCmd.new do
   
   nchan_redis_connect_timeout [:upstream],
       :ngx_conf_set_msec_slot,
-      [:srv_conf, :"redis.connect_timeout"],
-      
+      [:srv_conf, :"redis.node_connect_timeout"],
+  
+      alt: :nchan_redis_node_connect_timeout,
       group: "storage",
       tags: ['redis'],
-      default: "600ms",
+      default: "2s",
       info: "Redis server connection timeout."
+  
+  nchan_redis_cluster_connect_timeout [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.cluster_connect_timeout"],
+  
+      alt: :nchan_redis_node_connect_timeout,
+      group: "storage",
+      tags: ['redis'],
+      default: "15s",
+      info: "Redis cluster connection timeout."
+  
+  nchan_redis_cluster_max_failing_time [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.cluster_max_failing_msec"],
+  
+      alt: :nchan_redis_node_connect_timeout,
+      group: "storage",
+      tags: ['redis'],
+      default: "2s",
+      info: "Maximum time a Redis cluster can be in a failing state before Nchan disconnects from it. This is useful because short-term netsplits a cluster may recover without failing over any nodes when connectivity is restored."
+  
+  nchan_redis_reconnect_delay [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.reconnect_delay_msec"],
+  
+      group: "storage",
+      tags: ['redis'],
+      default: "5s",
+      info: "After a connection failure, wait this long before trying to reconnect to Redis."
   
   nchan_redis_subscribe_weights [:upstream],
       :ngx_conf_set_redis_subscribe_weights,

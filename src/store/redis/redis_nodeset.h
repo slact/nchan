@@ -46,9 +46,6 @@
 
 #define NCHAN_MAX_NODESETS 128
 #define REDIS_NODESET_STATUS_CHECK_TIME_MSEC 4000
-#define REDIS_NODESET_MAX_CONNECTING_TIME_SEC 5
-#define REDIS_NODESET_RECONNECT_WAIT_TIME_SEC 5
-#define REDIS_NODESET_MAX_FAILING_TIME_SEC 2
 
 #define REDIS_NODE_DEDUPLICATED         -100
 #define REDIS_NODE_CONNECTION_TIMED_OUT   -2
@@ -154,7 +151,10 @@ struct redis_nodeset_s {
     time_t                      cluster_check_interval;
     ngx_str_t                  *namespace;
     nchan_redis_optimize_t      optimize_target;
-    ngx_msec_t                  connect_timeout;
+    ngx_msec_t                  node_connect_timeout;
+    ngx_msec_t                  cluster_connect_timeout;
+    ngx_msec_t                  reconnect_delay_msec;
+    ngx_msec_t                  cluster_max_failing_msec;
     struct {
       int                         count;
       nchan_redis_ip_range_t     *list;
@@ -175,7 +175,6 @@ struct redis_nodeset_s {
   }                           channels;
   
   nchan_reaper_t              chanhead_reaper;
-  time_t                      reconnect_delay_sec;
   nchan_list_t                onready_callbacks;
 #if REDIS_NODESET_DBG
   struct {

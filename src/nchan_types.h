@@ -322,7 +322,10 @@ typedef struct {
 
 typedef struct {
   struct {
-      ngx_msec_t                    connect_timeout;
+      ngx_msec_t                    node_connect_timeout;  
+      ngx_msec_t                    cluster_connect_timeout;
+      ngx_msec_t                    cluster_max_failing_msec;
+      ngx_msec_t                    reconnect_delay_msec;
       nchan_redis_optimize_t        optimize_target;
       ngx_int_t                     master_weight;
       ngx_int_t                     slave_weight;
