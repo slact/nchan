@@ -676,7 +676,7 @@ int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx
 }
 
 //converts string to positive double float
-static double nchan_atof(u_char *line, ssize_t n) {
+double nchan_atof(u_char *line, ssize_t n) {
   ssize_t cutoff, cutlim;
   double  value = 0;
   

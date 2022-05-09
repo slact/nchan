@@ -334,13 +334,19 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.node_connect_timeout = scf->redis.node_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.node_connect_timeout;
     ns->settings.cluster_connect_timeout = scf->redis.cluster_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC : scf->redis.cluster_connect_timeout;
-    ns->settings.reconnect_delay_msec = scf->redis.reconnect_delay_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC : scf->redis.reconnect_delay_msec;
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
     ns->settings.load_scripts_unconditionally = scf->redis.load_scripts_unconditionally == NGX_CONF_UNSET ? 0 : scf->redis.load_scripts_unconditionally;
     
+    ns->settings.reconnect_delay_msec = scf->redis.reconnect_delay_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC : scf->redis.reconnect_delay_msec;
+    
+    ns->settings.reconnect_delay_jitter_multiplier = scf->redis.reconnect_delay_jitter_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_JITTER_MULTIPLIER : scf->redis.reconnect_delay_jitter_multiplier;
+    
+    ns->settings.reconnect_delay_backoff_multiplier = scf->redis.reconnect_delay_backoff_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_BACKOFF_MULTIPLIER : scf->redis.reconnect_delay_backoff_multiplier;
+    
+    ns->settings.reconnect_delay_max = scf->redis.reconnect_delay_max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MAX : scf->redis.reconnect_delay_max;
+    
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
-    
     
     ns->settings.optimize_target = scf->redis.optimize_target == NCHAN_REDIS_OPTIMIZE_UNSET ? NCHAN_REDIS_OPTIMIZE_CPU : scf->redis.optimize_target;
     
@@ -380,6 +386,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ngx_str_t **urlref = nchan_list_append(&ns->urls);
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
   }
+  ns->current_reconnect_delay = 0;
   DBG("nodeset created");
   
   char buf[1024];
@@ -1137,7 +1144,6 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     if(cur->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && cur->status == READY) {
       cur->status = NOTREADY;
     }
-
   }
   return 1;
 }
@@ -2223,6 +2229,7 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
         //no special actions
         break;
       case REDIS_NODESET_READY:
+        nodeset->current_reconnect_delay = 0;
         nodeset_reconnect_disconnected_channels(nodeset);
         nodeset_run_on_ready_callbacks(nodeset);
         break;
@@ -2352,6 +2359,31 @@ static int nodeset_status_time_exceeded(redis_nodeset_t *ns, ngx_msec_t msec_tim
   return (ngx_msec_t )(ngx_time() - ns->current_status_start)*1000 > msec_time;
 }
 
+static void nodeset_adjust_next_reconnect(redis_nodeset_t *ns) {
+  double reconnect_delay = ns->current_reconnect_delay;
+  if(reconnect_delay == 0 || ns->settings.reconnect_delay_backoff_multiplier == 0) {
+    reconnect_delay = ns->settings.reconnect_delay_msec;
+  }
+  else if(ns->settings.reconnect_delay_backoff_multiplier > 0) {
+    reconnect_delay *= (ns->settings.reconnect_delay_backoff_multiplier + 1.0);
+  }
+  if(ns->settings.reconnect_delay_max > 0 && reconnect_delay > ns->settings.reconnect_delay_max) {
+    reconnect_delay = ns->settings.reconnect_delay_max;
+  }
+  
+  if(ns->settings.reconnect_delay_jitter_multiplier > 0) {
+    double max_jitter = (double )reconnect_delay * ns->settings.reconnect_delay_jitter_multiplier;
+    reconnect_delay = reconnect_delay - (ngx_msec_t)(max_jitter/2.0) + (ngx_random() % (ngx_msec_t )(max_jitter));
+  }
+  if(ns->settings.reconnect_delay_max > 0 && reconnect_delay > ns->settings.reconnect_delay_max) {
+    reconnect_delay = ns->settings.reconnect_delay_max;
+  }
+  if(reconnect_delay <= 0) { //maybe as the result of large jitter and floating point precision error?
+    reconnect_delay = 1; //1ms pls
+  }
+  ns->current_reconnect_delay = reconnect_delay;
+}
+
 static void nodeset_check_status_event(ngx_event_t *ev) {
   redis_nodeset_t *ns = ev->data;
   
@@ -2363,7 +2395,8 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
   
   switch(ns->status) {
     case REDIS_NODESET_FAILED:
-      if(nodeset_status_time_exceeded(ns, ns->settings.reconnect_delay_msec)) {
+      if(nodeset_status_time_exceeded(ns, ns->current_reconnect_delay)) {
+        nodeset_adjust_next_reconnect(ns);
         nodeset_log_notice(ns, "reconnecting...");
         nodeset_connect(ns);
       }
@@ -2371,8 +2404,11 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
     
     case REDIS_NODESET_INVALID:
     case REDIS_NODESET_DISCONNECTED:
-      //connect whatever needs to be connected
-      nodeset_connect(ns);
+      if(nodeset_status_time_exceeded(ns, ns->current_reconnect_delay)) {
+        nodeset_log_notice(ns, "connecting...");
+        //connect whatever needs to be connected
+        nodeset_connect(ns);
+      }
       break;
     
     case REDIS_NODESET_CONNECTING:
@@ -2382,6 +2418,10 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
       }
       else {
         nodeset_examine(ns); // full status check
+        if(ns->status == REDIS_NODESET_FAILED || ns->status == REDIS_NODESET_DISCONNECTED || ns->status == REDIS_NODESET_INVALID) {
+          nodeset_adjust_next_reconnect(ns);
+          nodeset_log_notice(ns, "will reconnect in %.3f sec", (ns->current_reconnect_delay/1000.0));
+        }
       }
       break;
     

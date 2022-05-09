@@ -139,6 +139,9 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.node_connect_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.cluster_connect_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.reconnect_delay_msec = NGX_CONF_UNSET_MSEC;
+  scf->redis.reconnect_delay_jitter_multiplier = NGX_CONF_UNSET;
+  scf->redis.reconnect_delay_backoff_multiplier = NGX_CONF_UNSET;
+  scf->redis.reconnect_delay_max = NGX_CONF_UNSET_MSEC;
   scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
@@ -158,6 +161,22 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_msec_value(conf->redis.cluster_connect_timeout, prev->redis.cluster_connect_timeout, NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC);
   ngx_conf_merge_msec_value(conf->redis.reconnect_delay_msec, prev->redis.reconnect_delay_msec, NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC);
   ngx_conf_merge_msec_value(conf->redis.cluster_max_failing_msec, prev->redis.cluster_max_failing_msec, NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC);
+  
+  if(prev->redis.reconnect_delay_jitter_multiplier == NGX_CONF_UNSET) {
+    conf->redis.reconnect_delay_jitter_multiplier = NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_JITTER_MULTIPLIER;
+  }
+  else {
+    conf->redis.reconnect_delay_jitter_multiplier = prev->redis.reconnect_delay_jitter_multiplier;
+  }
+  
+  if(prev->redis.reconnect_delay_backoff_multiplier == NGX_CONF_UNSET) {
+    conf->redis.reconnect_delay_backoff_multiplier = NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_BACKOFF_MULTIPLIER;
+  }
+  else {
+    conf->redis.reconnect_delay_backoff_multiplier = prev->redis.reconnect_delay_backoff_multiplier;
+  }
+  
+  ngx_conf_merge_msec_value(conf->redis.reconnect_delay_max, prev->redis.reconnect_delay_max, NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MAX);
   
   ngx_conf_merge_value(conf->redis.load_scripts_unconditionally, prev->redis.load_scripts_unconditionally, 0);
   
@@ -1293,6 +1312,44 @@ static char *ngx_conf_set_redis_subscribe_weights(ngx_conf_t *cf, ngx_command_t 
     scf->redis.slave_weight = slave;
   }
   
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_reconnect_delay_jitter(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_srv_conf_t   *scf = conf;
+  
+  double              fp;
+  
+  if((fp = nchan_atof(val->data, val->len)) == NGX_ERROR) {
+    return "invalid value, must be a non-negative floating-point number";
+  }
+
+  if(fp >= 1) {
+    return "jitter multiplier cannot exceed 1";
+  }
+  if(fp < 0) {
+    return "jitter multiplier cannot be less than 0";
+  }
+  scf->redis.reconnect_delay_jitter_multiplier = fp;
+  return NGX_CONF_OK;
+}
+
+static char *ngx_conf_set_redis_reconnect_delay_backoff(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
+  nchan_srv_conf_t   *scf = conf;
+  
+  double              fp;
+  
+  if((fp = nchan_atof(val->data, val->len)) == NGX_ERROR) {
+    return "invalid value, must be a non-negative floating-point number";
+  }
+
+  if(fp < 0) {
+    return "multiplier cannot be less than 0";
+  }
+  
+  scf->redis.reconnect_delay_backoff_multiplier = fp;
   return NGX_CONF_OK;
 }
 

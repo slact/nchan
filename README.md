@@ -1431,6 +1431,24 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > After a connection failure, wait this long before trying to reconnect to Redis.    
 
+- **nchan_redis_reconnect_delay_backoff** `>= 0, (floating point), ratio of current delay`  
+  arguments: 1  
+  default: `0 (off)`  
+  context: upstream  
+  > Add an exponentially increasing delay to Redis connection retries. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_reconnect_backoff + 1)    
+
+- **nchan_redis_reconnect_delay_jitter** `>= 0, (floating point), ratio of current delay`  
+  arguments: 1  
+  default: `0 (none)`  
+  context: upstream  
+  > Introduce random jitter to Redis reconnection time, where the range is `reconnect_delay += reconnect_delay * nchan_redis_reconnect_delay_jitter`.    
+
+- **nchan_redis_reconnect_delay_max**  
+  arguments: 1  
+  default: `0 (msec), no limit`  
+  context: upstream  
+  > When using nchan_redis_reconnect_delay_backoff, the delay will not increase beyond this value. Set to 0 to disable max limit.    
+
 - **nchan_redis_server** `<redis-url>`  
   arguments: 1  
   context: upstream  

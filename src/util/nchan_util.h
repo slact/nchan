@@ -24,6 +24,8 @@ int nchan_cstr_startswith(char *cstr, char *match);
 int nchan_str_startswith(ngx_str_t *str, const char *match);
 int nchan_str_after(ngx_str_t **str, const char *match);
 
+double nchan_atof(u_char *line, ssize_t n);
+
 void nchan_scan_split_by_chr(u_char **cur, size_t max_len, ngx_str_t *str, u_char chr);
 void nchan_scan_until_chr_on_line(ngx_str_t *line, ngx_str_t *str, u_char chr);
 int nchan_get_rest_of_line_in_cstr(const char *cstr, const char *line_start, ngx_str_t *rest);

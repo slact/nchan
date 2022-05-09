@@ -134,6 +134,7 @@ struct redis_nodeset_s {
   const char                 *status_msg;
   time_t                      current_status_start;
   ngx_int_t                   current_status_times_checked;
+  ngx_msec_t                  current_reconnect_delay;
   ngx_int_t                   generation;
   nchan_list_t                urls;
   nchan_loc_conf_t           *first_loc_conf;
@@ -154,6 +155,9 @@ struct redis_nodeset_s {
     ngx_msec_t                  node_connect_timeout;
     ngx_msec_t                  cluster_connect_timeout;
     ngx_msec_t                  reconnect_delay_msec;
+    double                      reconnect_delay_jitter_multiplier;
+    double                      reconnect_delay_backoff_multiplier;
+    ngx_msec_t                  reconnect_delay_max;
     ngx_msec_t                  cluster_max_failing_msec;
     ngx_int_t                   load_scripts_unconditionally;
     struct {

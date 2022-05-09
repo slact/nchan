@@ -656,6 +656,35 @@ CfCmd.new do
       default: "5s",
       info: "After a connection failure, wait this long before trying to reconnect to Redis."
   
+  nchan_redis_reconnect_delay_jitter [:upstream],
+      :ngx_conf_set_redis_reconnect_delay_jitter,
+      [:srv_conf, :"redis.reconnect_delay_jitter_multiplier"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: ">= 0, (floating point), ratio of current delay",
+      default: "0 (none)",
+      info: "Introduce random jitter to Redis reconnection time, where the range is `reconnect_delay += reconnect_delay * nchan_redis_reconnect_delay_jitter`."
+    
+  nchan_redis_reconnect_delay_backoff [:upstream],
+      :ngx_conf_set_redis_reconnect_delay_backoff,
+      [:srv_conf, :"redis.reconnect_delay_backoff_multiplier"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: ">= 0, (floating point), ratio of current delay",
+      default: "0 (off)",
+      info: "Add an exponentially increasing delay to Redis connection retries. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_reconnect_backoff + 1)"
+      
+    nchan_redis_reconnect_delay_max [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.reconnect_delay_max"],
+  
+      group: "storage",
+      tags: ['redis'],
+      default: "0 (msec), no limit",
+      info: "When using nchan_redis_reconnect_delay_backoff, the delay will not increase beyond this value. Set to 0 to disable max limit."
+  
   nchan_redis_subscribe_weights [:upstream],
       :ngx_conf_set_redis_subscribe_weights,
       :srv_conf,
