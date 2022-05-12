@@ -928,7 +928,7 @@ static ngx_int_t spooler_respond_status(channel_spooler_t *self, nchan_msg_id_t 
 static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *msg) {
   spooler_respond_data_t     srdata;
   subscriber_pool_t         *spool;
-  ngx_int_t                  responded_subs = 0;
+  //ngx_int_t                  responded_subs = 0;
   
   
   if(self->fetching_strategy != NCHAN_SPOOL_PASSTHROUGH) {
@@ -950,7 +950,7 @@ static ngx_int_t spooler_respond_message(channel_spooler_t *self, nchan_msg_t *m
     }
     */
     while((spool = spoolcollector_unwind_nextspool(&srdata)) != NULL) {
-      responded_subs += spool->sub_count;
+      //responded_subs += spool->sub_count;
       if(msg->id.tagcount > NCHAN_FIXED_MULTITAG_MAX) {
         assert(spool->id.tag.allocd != msg->id.tag.allocd);
       }

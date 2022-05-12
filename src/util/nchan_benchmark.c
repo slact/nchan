@@ -205,7 +205,7 @@ ngx_int_t nchan_benchmark_run(void) {
   int       i;
   size_t msgbuf_maxlen = bench.config->msg_padding + 64;
   unsigned pubstart;
-  int64_t total_offset = 0;
+  //int64_t total_offset = 0;
   bench.msgbuf = ngx_alloc(msgbuf_maxlen, ngx_cycle->log);
   ngx_memset(bench.msgbuf, 'z', msgbuf_maxlen);
   
@@ -216,7 +216,7 @@ ngx_int_t nchan_benchmark_run(void) {
     bench.base_msg_period *= nchan_worker_processes;
     for(i=0; i < bench.config->channels; i++) {
       pubstart = (rand() / (RAND_MAX / bench.base_msg_period));
-      total_offset += pubstart;
+      //total_offset += pubstart;
       bench.timer.publishers[i] = nchan_add_interval_timer(benchmark_publish_message_interval_timer, &bench.shared.channels[i], pubstart);
     }
   }
@@ -226,7 +226,7 @@ ngx_int_t nchan_benchmark_run(void) {
       nchan_benchmark_channel_id(i, &channel_id);
       if(memstore_channel_owner(&channel_id) == ngx_process_slot) {
         pubstart = (rand() / (RAND_MAX / bench.base_msg_period));
-        total_offset += pubstart;
+        //total_offset += pubstart;
         bench.timer.publishers[i] = nchan_add_interval_timer(benchmark_publish_message_interval_timer, &bench.shared.channels[i], pubstart);
       }
       else {
