@@ -4,8 +4,7 @@ MY_PATH="`( cd \"$MY_PATH\" && pwd )`"
 pkg_path=$MY_PATH/nginx-pkg
 _src_dir=${MY_PATH}/../src
   
-
-_clang="clang -Qunused-arguments"
+_clang="clang"
 
 #clang_memcheck="-fsanitize=address,undefined -fno-omit-frame-pointer"
 clang_sanitize_memory="-use-gold-plugins -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer -fsanitize-blacklist=bl.txt"
@@ -276,8 +275,8 @@ fi
 if ! [[ -z $CLANG_ANALYZER ]]; then
   pushd $CLANG_ANALYZER >/dev/null
   latest_scan=`ls -c |head -n1`
-  echo "run 'scan-view ${CLANG_ANALYZER}/${latest_scan}' for static analysis."
-  scan-view $latest_scan 2>/dev/null
+  echo "run 'scan-view --allow-all-hosts ${CLANG_ANALYZER}/${latest_scan}' for static analysis."
+  scan-view --allow-all-hosts --host "0.0.0.0" $latest_scan 2>/dev/null
   popd >/dev/null
 fi
 

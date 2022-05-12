@@ -370,12 +370,12 @@ build() {
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     CFLAGS="${CFLAGS/-fvar-tracking-assignments/}"
     if [[ -z $CLANG_ANALYZER ]]; then
-      CFLAGS="-ferror-limit=5 $CFLAGS -Wconditional-uninitialized"
-    fi
-    if [[ -z $NOCOLOR ]]; then
-      CFLAGS="${CFLAGS} -fcolor-diagnostics"
-    else
-      CFLAGS="${CFLAGS} -fno-color-diagnostics"
+      CFLAGS="-ferror-limit=5 $CFLAGS -Wconditional-uninitialized -Qunused-arguments"
+      if [[ -z $NOCOLOR ]]; then
+        CFLAGS="${CFLAGS} -fcolor-diagnostics"
+      else
+        CFLAGS="${CFLAGS} -fno-color-diagnostics"
+      fi
     fi
     CFLAGS="${CFLAGS} -Wno-incompatible-pointer-types-discards-qualifiers"
     
@@ -394,13 +394,15 @@ build() {
     popd
   fi
   
+  echo $CC
   echo $CFLAGS
+  
   export CCACHE_CPP2=yes
   if ! [[ -z $CLANG_ANALYZER ]]; then
     scan-build -o "$CLANG_ANALYZER" ./configure ${CONFIGURE[@]}
-    scan-build -o "$CLANG_ANALYZER" make -j4
+    scan-build -o "$CLANG_ANALYZER" make -j $(nproc)
   elif ! [[ -z $CONTINUE ]]; then
-    make $REMAKE
+    make -j $(nproc) $REMAKE
   else
     ln -svf $srcdir/bl.txt
     
@@ -429,7 +431,7 @@ build() {
     #ln -sf ${srcdir}/lua-nginx-module-${_lua_nginx_module_ver}/src ../ngx_lua_ipc/src/lua-nginx-module-source > /dev/null
     
     if [[ $? == 0 ]]; then
-      make
+      make -j $(nproc)
     else
       exit 1
     fi
