@@ -1,3 +1,7 @@
+ feature: configurable Redis cluster recovery time, backoff, and jitter
+ feature: Redis cluster failure recovery without disconnection
+ feature: configurable Redis reconnection time, backoff, and jitter
+ fix: Redis scripts are now loaded only when missing
 1.2.15 (Dec. 27 2021)
  fix: publishing to >255 string-delimitered channels could result in a crash
  fix: Redis connection failures (since 1 2.14)

@@ -34,6 +34,12 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns);
 static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 static char *nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen);
+static int nodeset_recover_cluster(redis_nodeset_t *ns);
+static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
+static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
+static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action);
+static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len);
+static void node_ready(redis_node_t *node);
 
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
@@ -73,7 +79,7 @@ static int reply_status_ok(redisReply *reply) {
 }
 
 static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
-  unsigned                         i;
+  unsigned                         i, j;
   ngx_rbtree_node_t               *rbtree_node;
   redis_nodeset_slot_range_node_t *keyslot_tree_node;
   rbtree_seed_t                   *tree = &node->nodeset->cluster.keyslots;
@@ -94,12 +100,20 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
     keyslot_tree_node->range = node->cluster.slot_range.range[i];
     keyslot_tree_node->node = node;
     if(rbtree_insert_node(tree, rbtree_node) != NGX_OK) {
+      for(j=0; j<i; j++) {
+        //undo insertion so far
+        rbtree_node = rbtree_find_node(tree, &node->cluster.slot_range.range[i]);
+        if(rbtree_node) {
+          rbtree_remove_node(tree, rbtree_node);
+          rbtree_destroy_node(tree, rbtree_node);
+        }
+      }
       node_log_error(node, "couldn't insert keyslot node range %d-%d", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
       rbtree_destroy_node(tree, rbtree_node);
       return 0;
     }
     else {
-      node_log_info(node, "inserted keyslot node range %d-%d", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
+      node_log_debug(node, "inserted keyslot node range %d-%d", keyslot_tree_node->range.min, keyslot_tree_node->range.max);
     }
   }
   node->cluster.slot_range.indexed = 1;
@@ -167,18 +181,10 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
 }
 #endif
 
-static const char *__rcp_cstr(redis_connect_params_t *rcp, char *buf) {
-  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
-  return buf;
-}
-
-static const char *__node_cstr(redis_node_t *node, char *buf) {
-  return __rcp_cstr(&node->connect_params, buf);
-}
-
 static const char *rcp_cstr(redis_connect_params_t *rcp) {
   static char    buf[512];
-  return __rcp_cstr(rcp, buf);
+  ngx_snprintf((u_char *)buf, 512, "%V:%d%Z", &rcp->hostname, rcp->port, &rcp->peername);
+  return buf;
 }
 static const char *node_cstr(redis_node_t *node) {
   return rcp_cstr(&node->connect_params);
@@ -192,6 +198,7 @@ typedef struct {
   u_char          peername[INET6_ADDRSTRLEN + 2];
   u_char          run_id[MAX_RUN_ID_LENGTH];
   u_char          cluster_id[MAX_CLUSTER_ID_LENGTH];
+  u_char          cluster_master_id[MAX_CLUSTER_ID_LENGTH];
   u_char          version[MAX_VERSION_LENGTH];
 } node_blob_t;
 
@@ -303,7 +310,12 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   nchan_slist_init(&ns->channels.disconnected_pubsub, rdstore_channel_head_t, redis.slist.node_pubsub.prev, redis.slist.node_pubsub.next);
   
   ns->current_status_times_checked = 0;
-  ns->current_status_start = 0;
+  ns->current_status_start.sec = 0;
+  ns->current_status_start.msec = 0;
+  ns->current_status_start.gmtoff = 0;
+  ns->last_cluster_recovery_check_time.sec=0;
+  ns->last_cluster_recovery_check_time.msec=0;
+  ns->last_cluster_recovery_check_time.gmtoff=0;
   ns->generation = 0;
   ns->settings.namespace = &rcf->namespace;
   ns->settings.storage_mode = rcf->storage_mode;
@@ -319,6 +331,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   //init cluster stuff
   ns->cluster.enabled = 0;
+  ns->cluster.recovering_on_node = NULL;
   rbtree_init(&ns->cluster.keyslots, "redis cluster node (by keyslot) data", rbtree_cluster_keyslots_node_id, rbtree_cluster_keyslots_bucketer, rbtree_cluster_keyslots_compare);
   
   //urls
@@ -337,13 +350,15 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
     ns->settings.load_scripts_unconditionally = scf->redis.load_scripts_unconditionally == NGX_CONF_UNSET ? 0 : scf->redis.load_scripts_unconditionally;
     
-    ns->settings.reconnect_delay_msec = scf->redis.reconnect_delay_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MSEC : scf->redis.reconnect_delay_msec;
+    ns->settings.reconnect_delay.min = scf->redis.reconnect_delay.min == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MIN_MSEC : scf->redis.reconnect_delay.min;
+    ns->settings.reconnect_delay.jitter_multiplier = scf->redis.reconnect_delay.jitter_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_JITTER_MULTIPLIER : scf->redis.reconnect_delay.jitter_multiplier;
+    ns->settings.reconnect_delay.backoff_multiplier = scf->redis.reconnect_delay.backoff_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_BACKOFF_MULTIPLIER : scf->redis.reconnect_delay.backoff_multiplier;
+    ns->settings.reconnect_delay.max = scf->redis.reconnect_delay.max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MAX_MSEC : scf->redis.reconnect_delay.max;
     
-    ns->settings.reconnect_delay_jitter_multiplier = scf->redis.reconnect_delay_jitter_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_JITTER_MULTIPLIER : scf->redis.reconnect_delay_jitter_multiplier;
-    
-    ns->settings.reconnect_delay_backoff_multiplier = scf->redis.reconnect_delay_backoff_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_BACKOFF_MULTIPLIER : scf->redis.reconnect_delay_backoff_multiplier;
-    
-    ns->settings.reconnect_delay_max = scf->redis.reconnect_delay_max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MAX : scf->redis.reconnect_delay_max;
+    ns->settings.cluster_recovery_delay.min = scf->redis.cluster_recovery_delay.min == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MIN_MSEC : scf->redis.cluster_recovery_delay.min;
+    ns->settings.cluster_recovery_delay.jitter_multiplier = scf->redis.cluster_recovery_delay.jitter_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_JITTER_MULTIPLIER : scf->redis.cluster_recovery_delay.jitter_multiplier;
+    ns->settings.cluster_recovery_delay.backoff_multiplier = scf->redis.cluster_recovery_delay.backoff_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_BACKOFF_MULTIPLIER : scf->redis.cluster_recovery_delay.backoff_multiplier;
+    ns->settings.cluster_recovery_delay.max = scf->redis.cluster_recovery_delay.max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MAX_MSEC : scf->redis.cluster_recovery_delay.max;
     
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
@@ -387,6 +402,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     *urlref = rcf->url.len > 0 ? &rcf->url : &default_redis_url;
   }
   ns->current_reconnect_delay = 0;
+  ns->current_cluster_recovery_delay = 0;
   DBG("nodeset created");
   
   char buf[1024];
@@ -663,7 +679,7 @@ static void node_ping_event(ngx_event_t *ev) {
   if(!ev->timedout || ngx_exiting || ngx_quit)
     return;
   
-  node_log_debug(node, "node ping event");
+  node_log_notice(node, "node ping event");
   
   ev->timedout = 0;
   if(node->state == REDIS_NODE_READY) {
@@ -737,9 +753,8 @@ static void node_cluster_check_event_callback(redisAsyncContext *ac, void *rep, 
   }
   
   if(node->cluster.current_epoch < epoch) {
-    node_disconnect(node, REDIS_NODE_FAILED);
     char errstr[512];
-    ngx_snprintf((u_char *)errstr, 512, "config epoch has changed on node %V:%d. Disconnecting to reconfigure.%Z", &(node)->connect_params.hostname, node->connect_params.port);
+    ngx_snprintf((u_char *)errstr, 512, "config epoch has changed on node %V:%d. Rechecking cluster state.%Z", &(node)->connect_params.hostname, node->connect_params.port);
     nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errstr);
   }
   else {
@@ -757,6 +772,8 @@ static void node_cluster_check_event(ngx_event_t *ev) {
   time_t              interval_since_last_check = ngx_time() - node->cluster.last_successful_check;
   ev->timedout = 0;
   
+  node_log_notice(node, "node cluster_check event");
+  
   if(node->state != REDIS_NODE_READY || !node->cluster.ok) {
     rearm_cluster_check_event(ev, node);
     return;
@@ -766,6 +783,219 @@ static void node_cluster_check_event(ngx_event_t *ev) {
     return;
   }
   redisAsyncCommand(node->ctx.cmd, node_cluster_check_event_callback, node, "CLUSTER INFO");
+}
+
+static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns) {
+  redis_node_t   *node;
+  for(node = nchan_list_first(&ns->nodes); node != NULL; node = nchan_list_next(node)) {
+    node->recovering = 0;
+    if(node->cluster.enabled) {
+      node->cluster.ok = 0;
+      node->cluster.master_id.len = 0;
+      
+      //don't clear the cluster node id though, that's not supposed to change.
+      //we'll use it to find known nodes
+      
+      nodeset_cluster_node_unindex_keyslot_ranges(node);
+      if(node->cluster.slot_range.range) {
+        ngx_free(node->cluster.slot_range.range);
+        node->cluster.slot_range.n=0;
+        node->cluster.slot_range.range = NULL;
+      }
+      
+      node_set_role(node, REDIS_NODE_ROLE_UNKNOWN);
+      if(node->state > REDIS_NODE_GET_CLUSTERINFO) {
+        node->state = REDIS_NODE_GET_CLUSTERINFO;
+      }
+    }
+  }
+  return 1;
+}
+
+static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, void *privdata);
+static int nodeset_recover_cluster(redis_nodeset_t *ns) {
+  if(ns->cluster.recovering_on_node) {
+    nodeset_log_error(ns, "already recoving cluster state");
+    return 0;
+  }
+  ns->last_cluster_recovery_check_time = *ngx_timeofday();
+  nodeset_reset_cluster_node_info(ns);
+  
+  //pick a random node
+  redis_node_t  **nodes = ngx_alloc(sizeof(nodes)*ns->nodes.n, ngx_cycle->log);
+  int             nodes_count = 0;
+  redis_node_t   *cur;
+  
+  if(nodes == NULL) {
+    nodeset_log_error(ns, "cluster unrecoverable: out of memory. you've got bigger problems than cluster failures.");
+    return 0;
+  }
+  
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    if(cur->state >= REDIS_NODE_GET_CLUSTERINFO && cur->ctx.cmd) {
+      nodes[nodes_count]=cur;
+      nodes_count++;
+    }
+  }
+  
+  if(nodes_count == 0) {
+    nodeset_log_error(ns, "cluster unrecoverable: no connected nodes");
+    return 0;
+  }
+  
+  redis_node_t *node = nodes[ngx_random() % nodes_count];
+  
+  int i;
+  for(i=0; i<nodes_count; i++) {
+    nodes[i]->recovering=1;
+  }
+  ngx_free(nodes);
+  ns->cluster.recovering_on_node = node;
+  nodeset_log_notice(ns, "Recovering cluster though node %s", node_nickname_cstr(node));
+  
+  redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
+  redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER INFO");
+  redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER NODES");
+  redisAsyncCommand(node->ctx.cmd, nodeset_recover_cluster_handler, node, "EXEC");
+
+  return 1;
+}
+
+static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, void *privdata) {
+  redisReply                 *reply = rep;
+  redis_node_t               *node = privdata;
+  redis_nodeset_t            *ns = node->nodeset;
+  int                         current_epoch;
+  u_char                      errbuf[1024];
+  
+  if(ns->cluster.recovering_on_node != node) {
+    ngx_snprintf(errbuf, 1024, "got a response from a different node than where recovery was attempted%Z");
+    goto fail;
+  }
+  ns->cluster.recovering_on_node = NULL;
+  
+  if(!redisReplyOk(ac, reply)) {
+    ngx_snprintf(errbuf, 1024, "reply not ok%Z");
+    goto fail;
+  }
+  if(reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
+    ngx_snprintf(errbuf, 1024, "got something other than an array of size 2%Z");
+    goto fail;
+  }
+  
+  //parse CLUSTER INFO reply
+  redisReply        *cluster_info_reply = reply->element[0];
+  ngx_str_t          rest;
+  if(cluster_info_reply->type != REDIS_REPLY_STRING) {
+    ngx_snprintf(errbuf, 1024, "CLUSTER INFO reply is not a string%Z");
+    goto fail;
+  }
+  if(!nchan_cstr_match_line(cluster_info_reply->str, "cluster_state:ok")) {
+    node->cluster.ok=0;
+    ngx_snprintf(errbuf, 1024, "cluster_state not ok on node %s.%Z", node_nickname_cstr(node));
+    goto fail;
+  }
+  if(!nchan_get_rest_of_line_in_cstr(cluster_info_reply->str, "cluster_current_epoch:", &rest)) {
+    ngx_snprintf(errbuf, 1024, "CLUSTER INFO failed to get current epoch%Z");
+    goto fail;
+  }
+  if((current_epoch = ngx_atoi(rest.data, rest.len)) == NGX_ERROR) {
+    ngx_snprintf(errbuf, 1024, "CLUSTER INFO command failed to parse current epoch number%Z");
+    goto fail;
+  }
+  
+  redisReply        *cluster_nodes_reply = reply->element[1];
+  if(cluster_info_reply->type != REDIS_REPLY_STRING) {
+    ngx_snprintf(errbuf, 1024, "CLUSTER INFO reply is not a string%Z");
+    goto fail;
+  }
+  //parse CLUSTER NODES
+  size_t                  i, n;
+  int                     discovered = 0;
+  cluster_nodes_line_t   *lines;
+  cluster_nodes_line_t   *l;
+  redis_node_t           *peer;
+  
+  if(!(lines = parse_cluster_nodes(node, cluster_nodes_reply->str, &n))) {
+    ngx_snprintf(errbuf, 1024, "parsing CLUSTER NODES command failed%Z");
+    goto fail;
+  }
+  for(i=0; i<n; i++) {
+    l = &lines[i];
+    if(node_skip_cluster_peer(node, l, 0)) {
+      continue;
+    }
+    if(node_discover_cluster_peer(node, l, &peer)) {
+      discovered++;
+      continue;
+    }
+    
+    if(!peer) {
+      ngx_snprintf(errbuf, 1024, "did not discover a peer, and didn't match existing node%Z");
+      goto fail;
+    }
+    
+    //found existing peer. update it
+    
+    if(l->master) {
+      node_set_role(peer, REDIS_NODE_ROLE_MASTER);
+      
+      if(l->slot_ranges_count > 0 && !node_set_cluster_slots(peer, l, (char *)errbuf, sizeof(errbuf))) {
+        ngx_snprintf(errbuf, 1024, "couldn't set cluster slots for node %s: %s%Z", node_nickname_cstr(peer), errbuf);
+        goto fail;
+      }
+    }
+    else {
+      node_set_role(peer, REDIS_NODE_ROLE_SLAVE);
+      nchan_strcpy(&peer->cluster.master_id, &l->master_id, MAX_CLUSTER_ID_LENGTH);
+    }
+    //we will set actual master-slave associations later.
+  }
+  
+  //check 'em over
+  redis_node_t      *cur, *master;
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    if(cur->connecting) {
+      continue;
+    }
+    if(cur->role == REDIS_NODE_ROLE_SLAVE) {
+      if(cur->cluster.master_id.len == 0 || cur->cluster.master_id.data == NULL) {
+        ngx_snprintf(errbuf, 1024, "master node id is missing for slave %s%Z", node_nickname_cstr(cur));
+        goto fail;
+      }
+      
+      if((master = nodeset_node_find_by_cluster_id(ns, &cur->cluster.master_id)) == NULL) {
+        ngx_snprintf(errbuf, 1024, "couldn't find master node %V for slave %s%Z", &cur->cluster.master_id, node_nickname_cstr(cur));
+        goto fail;
+      }
+      
+      node_set_master_node(cur, master); //this is idempotent
+      node_add_slave_node(master, cur);  //so is this
+    }
+    
+    cur->cluster.current_epoch = current_epoch;
+    cur->cluster.ok = 1;
+    cur->state = REDIS_NODE_READY;
+    node_ready(cur);
+    cur->recovering = 0;
+  }
+  
+  //success?...
+  nodeset_examine(ns);
+  if(ns->status != REDIS_NODESET_READY) {
+    ngx_snprintf(errbuf, 1024, "%s%Z", ns->status_msg == NULL ? "(unknown reason)" : ns->status_msg);
+    goto fail;
+  }
+  ns->last_cluster_recovery_check_time.sec = 0;
+  ns->last_cluster_recovery_check_time.msec = 0;
+  
+  return;
+  
+fail:
+  nchan_set_next_backoff(&ns->current_cluster_recovery_delay, &ns->settings.cluster_recovery_delay);
+  nodeset_reset_cluster_node_info(ns);
+  ns->last_cluster_recovery_check_time = *ngx_timeofday();
+  nodeset_log_warning(ns, "Cluster recovery failed: %s. Will retry in %.3f sec", (char *)errbuf, ns->current_cluster_recovery_delay/1000.0);
 }
 
 static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_connect_params_t *rcp, size_t extra_space, void **extraspace_ptr) {
@@ -789,12 +1019,15 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   node->role = REDIS_NODE_ROLE_UNKNOWN,
   node->state = REDIS_NODE_DISCONNECTED;
   node->discovered = 0;
+  node->connecting = 0;
   node->connect_timeout = NULL;
   node->connect_params = *rcp;
   node->connect_params.peername.data = node_blob->peername;
   node->connect_params.peername.len = 0;
   node->cluster.id.len = 0;
   node->cluster.id.data = node_blob->cluster_id;
+  node->cluster.master_id.len = 0;
+  node->cluster.master_id.data = node_blob->cluster_master_id;
   node->cluster.enabled = 0;
   node->cluster.ok = 0;
   node->cluster.slot_range.indexed = 0;
@@ -945,7 +1178,7 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
   }
 }
 
-static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
+static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action) {
   redis_connect_params_t   rcp;
   char                    *description = "";
   char                    *detail = "";
@@ -992,15 +1225,20 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
     return 0;
   }
   if(!role) role = l->master ? "master" : "slave";
-  nodeset_log(node->nodeset, loglevel, "Skipping %s %s node %s%s", description, role, rcp_cstr(&rcp), detail);
+  if(log_action) {
+    nodeset_log(node->nodeset, loglevel, "Skipping %s %s node %s%s", description, role, rcp_cstr(&rcp), detail);
+  }
   return 1;
 }
 
-static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l) {
+static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node) {
   redis_connect_params_t   rcp;
   redis_node_t            *peer;
   assert(!l->self);
   if(l->failed || !l->connected || l->noaddr || l->self) {
+    if(known_node && l->self) {
+      *known_node = node;
+    }
     return 0;
   }
   rcp.hostname = l->hostname;
@@ -1014,6 +1252,9 @@ static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *
    || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
   ) {
     //node_log_notice(node, "Discovering cluster node %s... already known", rcp_cstr(&rcp));
+    if(known_node) {
+      *known_node = peer;
+    }
     return 0; //we already know this one.
   }
   nodeset_log_notice(node->nodeset, "Discovering cluster %s %s", (l->master ? "master" : "slave"), rcp_cstr(&rcp));
@@ -1030,6 +1271,7 @@ static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *ds
 
 static void node_connector_fail(redis_node_t *node, const char *err) {
   const char  *ctxerr = NULL;
+  node->connecting = 0;
   if(node->ctx.cmd && node->ctx.cmd->err) {
     ctxerr = node->ctx.cmd->errstr;
   }
@@ -1061,6 +1303,7 @@ static void node_connector_fail(redis_node_t *node, const char *err) {
 
 int node_connect(redis_node_t *node) {
   assert(node->state <= REDIS_NODE_DISCONNECTED);
+  node->connecting = 1;
   node_connector_callback(NULL, NULL, node);
   return 1;
 }
@@ -1068,7 +1311,7 @@ int node_connect(redis_node_t *node) {
 int node_disconnect(redis_node_t *node, int disconnected_state) {
   ngx_int_t prev_state = node->state;
   node->state = disconnected_state;
-  node_log_debug(node, "disconnect");
+  node->connecting = 0;
   redisAsyncContext *ac;
   redisContext      *c;
   if(node->connect_timeout) {
@@ -1082,6 +1325,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     //redisAsyncSetDisconnectCallback(ac, NULL); //this only sets the callback if it's currently null...
     redisAsyncFree(ac);
     node_log_debug(node, "redisAsyncFree %p", ac);
+    node_log_notice(node, "disconnected");
   }
   if((ac = node->ctx.pubsub) != NULL) {
     node->ctx.pubsub->onDisconnect = NULL;
@@ -1502,9 +1746,6 @@ static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *
 }
 
 int nodeset_node_keyslot_changed(redis_node_t *node) {
-  if(node->state >= REDIS_NODE_READY) {
-    node_disconnect(node, REDIS_NODE_FAILED);
-  }
   
   char errstr[512];
   ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d%Z", &(node)->connect_params.hostname, node->connect_params.port);
@@ -1559,6 +1800,50 @@ static void node_subscribe_callback(redisAsyncContext *ac, void *rep, void *priv
     redis_subscribe_callback(ac, rep, privdata);
   }
 }
+
+static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len) {
+  redis_node_t       *conflict_node;
+  node->cluster.slot_range.n = l->slot_ranges_count;
+  size_t                 j;
+  if(l->slot_ranges_count == 0) {
+    ngx_snprintf((u_char *)errbuf, max_err_len, "Tried to set cluster slots with 0 slots assigned for node %s%Z", node_cstr(node));
+    goto fail;
+  }
+  if(node->cluster.slot_range.range) {
+    ngx_free(node->cluster.slot_range.range);
+  }
+  node->cluster.slot_range.range = ngx_alloc(sizeof(redis_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
+  if(!node->cluster.slot_range.range) {
+    ngx_snprintf((u_char *)errbuf, max_err_len, "failed allocating cluster slots range%Z");
+    goto fail;
+  }
+  if(!parse_cluster_node_slots(l, node->cluster.slot_range.range)) {
+    ngx_snprintf((u_char *)errbuf, max_err_len, "failed parsing cluster slots range");
+    goto fail;
+  }
+  
+  for(j = 0; j<node->cluster.slot_range.n; j++) {
+    if((conflict_node = nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[j]))!=NULL) {
+      ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range conflict with node %s. These nodes are probably from different clusters.%Z", node_cstr(conflict_node));
+      goto fail;
+    }
+  }
+  
+  if(!nodeset_cluster_node_index_keyslot_ranges(node)) {
+    ngx_snprintf((u_char *)errbuf, max_err_len, "indexing keyslot ranges failed");
+    goto fail;
+  }
+  
+  return 1;
+  
+fail:
+  if(node->cluster.slot_range.range) {
+    ngx_free(node->cluster.slot_range.range);
+    node->cluster.slot_range.range = NULL;
+  }
+  return 0;
+}
+
 
 static void node_connector_connect_timeout(void *pd) {
   redis_node_t  *node = pd;
@@ -1948,38 +2233,20 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         for(i=0; i<n; i++) {
           if(l[i].self) {
             nchan_strcpy(&node->cluster.id, &l[i].id, MAX_CLUSTER_ID_LENGTH);
-            if(l[i].slot_ranges_count == 0 && l[i].master) {
-              node_log_notice(node, "is a master cluster node with no keyslots");
+            if(l[i].master) {
+              if(l[i].slot_ranges_count == 0) {
+                node_log_notice(node, "is a master cluster node with no keyslots");
+              }
+              else if(!node_set_cluster_slots(node, &l[i], errstr, sizeof(errstr))) {
+                return node_connector_fail(node, errstr);
+              }
             }
             else {
-              redis_node_t       *conflict_node;
-              node->cluster.slot_range.n = l[i].slot_ranges_count;
-              size_t                 j;
-              if(node->cluster.slot_range.range) {
-                ngx_free(node->cluster.slot_range.range);
-              }
-              node->cluster.slot_range.range = ngx_alloc(sizeof(redis_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
-              if(!node->cluster.slot_range.range) {
-                return node_connector_fail(node, "failed allocating cluster slots range");
-              }
-              if(!parse_cluster_node_slots(&l[i], node->cluster.slot_range.range)) {
-                return node_connector_fail(node, "failed parsing cluster slots range");
-              }
-              for(j = 0; j<node->cluster.slot_range.n; j++) {
-                if((conflict_node = nodeset_node_find_by_range(nodeset, &node->cluster.slot_range.range[j]))!=NULL) {
-                  u_char buf[1024];
-                  ngx_snprintf(buf, 1024, "keyslot range conflict with node %s. These nodes are probably from different clusters.%Z", node_cstr(conflict_node));
-                  return node_connector_fail(node, (char *)buf);
-                }
-              }
-              
-              if(!nodeset_cluster_node_index_keyslot_ranges(node)) {
-                return node_connector_fail(node, "indexing keyslot ranges failed");
-              }
+              nchan_strcpy(&node->cluster.master_id, &l->master_id, MAX_CLUSTER_ID_LENGTH);
             }
           }
-          else if(!node_skip_cluster_peer(node, &l[i])) {
-            node_discover_cluster_peer(node, &l[i]);
+          else if(!node_skip_cluster_peer(node, &l[i], 1)) {
+            node_discover_cluster_peer(node, &l[i], NULL);
           }
         }
       }
@@ -1991,24 +2258,37 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //NOTE: consent required each time a fallthrough is imposed
       /* fall through */
     case REDIS_NODE_READY:
-      if(node->connect_timeout) {
-        nchan_abort_oneshot_timer(node->connect_timeout);
-        node->connect_timeout = NULL;
-      }
-      if(!node->ping_timer.timer_set && nodeset->settings.ping_interval > 0) {
-        ngx_add_timer(&node->ping_timer, nodeset->settings.ping_interval * 1000);
-      }
-      if(node->cluster.enabled) {
-        if(!node->cluster.check_timer.timer_set && nodeset->settings.cluster_check_interval > 0) {
-          ngx_add_timer(&node->cluster.check_timer, nodeset->settings.cluster_check_interval * 1000);
-        }
-        node->cluster.last_successful_check = ngx_time();
-      }
-      node_log_notice(node, "%s", node->generation == 0 ? "connected" : "reconnected");
-      node->generation++;
+      node_ready(node);
+      node->connecting = 0;
       nodeset_examine(nodeset);
       break;
   }
+}
+
+static void node_ready(redis_node_t *node) {
+  if(node->connect_timeout) {
+    nchan_abort_oneshot_timer(node->connect_timeout);
+    node->connect_timeout = NULL;
+  }
+  if(!node->ping_timer.timer_set && node->nodeset->settings.ping_interval > 0) {
+    ngx_add_timer(&node->ping_timer, node->nodeset->settings.ping_interval * 1000);
+  }
+  if(node->cluster.enabled) {
+    if(!node->cluster.check_timer.timer_set && node->nodeset->settings.cluster_check_interval > 0) {
+      ngx_add_timer(&node->cluster.check_timer, node->nodeset->settings.cluster_check_interval * 1000);
+    }
+    node->cluster.last_successful_check = ngx_time();
+  }
+  
+  if(node->recovering) {
+    node_log_notice(node, "recovered");
+  }
+  else {
+    node_log_notice(node, "%s", node->generation == 0 ? "connected" : "reconnected");
+  }
+  node->generation++;
+  node->connecting=0;
+  node->recovering=0;
 }
 
 static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
@@ -2045,7 +2325,7 @@ static int nodeset_status_timer_interval(redis_nodeset_status_t status) {
     case REDIS_NODESET_FAILED:
     case REDIS_NODESET_INVALID:
     case REDIS_NODESET_DISCONNECTED:
-      return 2000;
+      return 500;
     case REDIS_NODESET_FAILING:
     case REDIS_NODESET_CLUSTER_FAILING:
       return 300;
@@ -2175,11 +2455,9 @@ static char* nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxle
   return buf;
 }
 
-const char *__node_nickname_cstr(redis_node_t *node) {
-  static char buf[512];
+const char *node_nickname_cstr(redis_node_t *node) {
   if(node) {
-    __node_cstr(node, buf);
-    return buf;
+    return node_cstr(node);
   }
   else {
     return "???";
@@ -2205,7 +2483,7 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
       }
       nodeset_log(nodeset, lvl, "%s", msg);
     }
-    nodeset->current_status_start = ngx_time();
+    nodeset->current_status_start = *ngx_timeofday();
     nodeset->current_status_times_checked = 0;
     nodeset->status = status;
     
@@ -2220,8 +2498,12 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
         nodeset_disconnect(nodeset);
         break;
       case REDIS_NODESET_CLUSTER_FAILING:
-        
-        //very intentional fallthrough
+        nodeset_reset_cluster_node_info(nodeset);
+        //but don't disconnect! we don't want to start a connection storm just because a single node got replaced
+        if(!nodeset_recover_cluster(nodeset)) {
+          nodeset_set_status(nodeset, REDIS_NODESET_FAILED, "failed to recover cluster");
+        }
+        break;
       case REDIS_NODESET_FAILING:
         nodeset_connect(nodeset);
         break;
@@ -2325,11 +2607,18 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
     nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "invalid config, cluster and non-cluster servers present");
   }
   else if(connecting > 0) {
-    nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, NULL);
+    if(current_status != REDIS_NODESET_CLUSTER_FAILING) {
+      nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, NULL);
+    }
   }
   else if(failed_masters > 0) {
     if(current_status == REDIS_NODESET_READY) {
-      nodeset_set_status(nodeset, REDIS_NODESET_FAILING, NULL);
+      if(nodeset->cluster.enabled) {
+        nodeset_set_status(nodeset, REDIS_NODESET_CLUSTER_FAILING, "a master node has disconnected");
+      }
+      else {
+        nodeset_set_status(nodeset, REDIS_NODESET_FAILING, NULL);
+      }
     }
     else {
       nodeset_set_status(nodeset, REDIS_NODESET_FAILED, NULL);
@@ -2340,7 +2629,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
     nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable masters");
   }
   else if(cluster > 0 && !nodeset_cluster_keyslot_space_complete(nodeset)) {
-      nodeset_set_status(nodeset, REDIS_NODESET_CONNECTING, "keyslot space incomplete");
+      nodeset_set_status(nodeset, current_status, "keyslot space incomplete");
   }
   else if(current_status == REDIS_NODESET_READY && (ready == 0 || ready < total)) {
     nodeset_set_status(nodeset, REDIS_NODESET_FAILING, NULL);
@@ -2355,33 +2644,12 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
   return NGX_OK;
 }
 
-static int nodeset_status_time_exceeded(redis_nodeset_t *ns, ngx_msec_t msec_time) {
-  return (ngx_msec_t )(ngx_time() - ns->current_status_start)*1000 > msec_time;
-}
-
-static void nodeset_adjust_next_reconnect(redis_nodeset_t *ns) {
-  double reconnect_delay = ns->current_reconnect_delay;
-  if(reconnect_delay == 0 || ns->settings.reconnect_delay_backoff_multiplier == 0) {
-    reconnect_delay = ns->settings.reconnect_delay_msec;
+static int nodeset_time_exceeded(ngx_time_t *t, ngx_msec_t msec_time) {
+  if(t->sec == 0) {
+    return 1;
   }
-  else if(ns->settings.reconnect_delay_backoff_multiplier > 0) {
-    reconnect_delay *= (ns->settings.reconnect_delay_backoff_multiplier + 1.0);
-  }
-  if(ns->settings.reconnect_delay_max > 0 && reconnect_delay > ns->settings.reconnect_delay_max) {
-    reconnect_delay = ns->settings.reconnect_delay_max;
-  }
-  
-  if(ns->settings.reconnect_delay_jitter_multiplier > 0) {
-    double max_jitter = (double )reconnect_delay * ns->settings.reconnect_delay_jitter_multiplier;
-    reconnect_delay = reconnect_delay - (ngx_msec_t)(max_jitter/2.0) + (ngx_random() % (ngx_msec_t )(max_jitter));
-  }
-  if(ns->settings.reconnect_delay_max > 0 && reconnect_delay > ns->settings.reconnect_delay_max) {
-    reconnect_delay = ns->settings.reconnect_delay_max;
-  }
-  if(reconnect_delay <= 0) { //maybe as the result of large jitter and floating point precision error?
-    reconnect_delay = 1; //1ms pls
-  }
-  ns->current_reconnect_delay = reconnect_delay;
+  ngx_time_t *now = ngx_timeofday();
+  return (now->sec - t->sec) * 1000 + (now->msec - t->msec) > msec_time;
 }
 
 static void nodeset_check_status_event(ngx_event_t *ev) {
@@ -2395,8 +2663,8 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
   
   switch(ns->status) {
     case REDIS_NODESET_FAILED:
-      if(nodeset_status_time_exceeded(ns, ns->current_reconnect_delay)) {
-        nodeset_adjust_next_reconnect(ns);
+      if(nodeset_time_exceeded(&ns->current_status_start, ns->current_reconnect_delay)) {
+        nchan_set_next_backoff(&ns->current_reconnect_delay, &ns->settings.reconnect_delay);
         nodeset_log_notice(ns, "reconnecting...");
         nodeset_connect(ns);
       }
@@ -2404,7 +2672,7 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
     
     case REDIS_NODESET_INVALID:
     case REDIS_NODESET_DISCONNECTED:
-      if(nodeset_status_time_exceeded(ns, ns->current_reconnect_delay)) {
+      if(nodeset_time_exceeded(&ns->current_status_start, ns->current_reconnect_delay)) {
         nodeset_log_notice(ns, "connecting...");
         //connect whatever needs to be connected
         nodeset_connect(ns);
@@ -2413,21 +2681,36 @@ static void nodeset_check_status_event(ngx_event_t *ev) {
     
     case REDIS_NODESET_CONNECTING:
       //wait it out
-      if(nodeset_status_time_exceeded(ns, ns->settings.cluster_connect_timeout)) {
+      if(nodeset_time_exceeded(&ns->current_status_start, ns->settings.cluster_connect_timeout)) {
         nodeset_set_status(ns, REDIS_NODESET_DISCONNECTED, "Redis node set took too long to connect");
       }
       else {
         nodeset_examine(ns); // full status check
         if(ns->status == REDIS_NODESET_FAILED || ns->status == REDIS_NODESET_DISCONNECTED || ns->status == REDIS_NODESET_INVALID) {
-          nodeset_adjust_next_reconnect(ns);
+          nchan_set_next_backoff(&ns->current_reconnect_delay, &ns->settings.reconnect_delay);
           nodeset_log_notice(ns, "will reconnect in %.3f sec", (ns->current_reconnect_delay/1000.0));
         }
       }
       break;
     
     case REDIS_NODESET_CLUSTER_FAILING:
+      if(!ns->cluster.enabled) {
+        nodeset_log_error(ns, "this is not a cluster, but it's been marked as a failing cluster. that's really weird");
+      }
+      else if(nodeset_time_exceeded(&ns->current_status_start, ns->settings.cluster_max_failing_msec)) {
+        nodeset_set_status(ns, REDIS_NODESET_FAILED, "Cluster could not be recovered in time. Disconnecting.");
+      }
+      else if(!ns->cluster.recovering_on_node) {
+        if(nodeset_time_exceeded(&ns->last_cluster_recovery_check_time, ns->current_cluster_recovery_delay)) {
+          if(!nodeset_recover_cluster(ns)) {
+            nodeset_set_status(ns, REDIS_NODESET_CLUSTER_FAILING, "failed to recover cluster");
+          }
+        }
+      }
+      break;
+    
     case REDIS_NODESET_FAILING:
-      if(nodeset_status_time_exceeded(ns, ns->settings.cluster_max_failing_msec)) {
+      if(nodeset_time_exceeded(&ns->current_status_start, ns->settings.cluster_max_failing_msec)) {
         nodeset_set_status(ns, REDIS_NODESET_FAILED, "Redis node set has failed");
       }
       break;

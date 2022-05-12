@@ -641,50 +641,93 @@ CfCmd.new do
       :ngx_conf_set_msec_slot,
       [:srv_conf, :"redis.cluster_max_failing_msec"],
   
-      alt: :nchan_redis_node_connect_timeout,
       group: "storage",
       tags: ['redis'],
-      default: "2s",
-      info: "Maximum time a Redis cluster can be in a failing state before Nchan disconnects from it. This is useful because short-term netsplits a cluster may recover without failing over any nodes when connectivity is restored."
+      default: "30s",
+      info: "Maximum time a Redis cluster can be in a failing state before Nchan disconnects from it. During this time, Nchan will try to recover from a cluster or node failure without disconnecting the entire cluster."
   
   nchan_redis_reconnect_delay [:upstream],
       :ngx_conf_set_msec_slot,
-      [:srv_conf, :"redis.reconnect_delay_msec"],
+      [:srv_conf, :"redis.reconnect_delay.min"],
   
+      alt: :nchan_redis_reconnect_delay_min,
       group: "storage",
       tags: ['redis'],
-      default: "5s",
+      value: "<time>",
+      default: "500ms",
       info: "After a connection failure, wait this long before trying to reconnect to Redis."
   
   nchan_redis_reconnect_delay_jitter [:upstream],
-      :ngx_conf_set_redis_reconnect_delay_jitter,
-      [:srv_conf, :"redis.reconnect_delay_jitter_multiplier"],
+      :ngx_conf_set_jitter,
+      [:srv_conf, :"redis.reconnect_delay.jitter_multiplier"],
   
       group: "storage",
       tags: ['redis'],
-      value: ">= 0, (floating point), ratio of current delay",
-      default: "0 (none)",
-      info: "Introduce random jitter to Redis reconnection time, where the range is `reconnect_delay += reconnect_delay * nchan_redis_reconnect_delay_jitter`."
+      value: "<floating point> >= 0 (0 to disable)",
+      default: "0.1 (10% of delay value)",
+      info: "Introduce random jitter to Redis reconnection time, where the range is `±(reconnect_delay * nchan_redis_reconnect_delay_jitter) / 2`."
     
   nchan_redis_reconnect_delay_backoff [:upstream],
-      :ngx_conf_set_redis_reconnect_delay_backoff,
-      [:srv_conf, :"redis.reconnect_delay_backoff_multiplier"],
+      :ngx_conf_set_exponential_backoff,
+      [:srv_conf, :"redis.reconnect_delay.backoff_multiplier"],
   
       group: "storage",
       tags: ['redis'],
-      value: ">= 0, (floating point), ratio of current delay",
-      default: "0 (off)",
-      info: "Add an exponentially increasing delay to Redis connection retries. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_reconnect_backoff + 1)"
+      value: "<floating point> >= 0 (0 to disable)",
+      default: "0.5 (increase delay by 50% each try)",
+      info: "Add an exponentially increasing delay to Redis connection retries. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_reconnect_delay_backoff + 1)`."
       
     nchan_redis_reconnect_delay_max [:upstream],
       :ngx_conf_set_msec_slot,
-      [:srv_conf, :"redis.reconnect_delay_max"],
+      [:srv_conf, :"redis.reconnect_delay.max"],
   
       group: "storage",
       tags: ['redis'],
-      default: "0 (msec), no limit",
-      info: "When using nchan_redis_reconnect_delay_backoff, the delay will not increase beyond this value. Set to 0 to disable max limit."
+      default: "10s",
+      value: "<time> (0 to disable)",
+      info: "Maximum Redis reconnection delay after backoff and jitter."
+
+  nchan_redis_cluster_recovery_delay [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.cluster_recovery_delay.min"],
   
+      alt: :nchan_redis_cluster_recovery_delay_min,
+      group: "storage",
+      tags: ['redis'],
+      value: "<time>",
+      default: "100ms",
+      info: "After a cluster recovery failure, wait this long to try again."
+  
+  nchan_redis_cluster_recovery_delay_jitter [:upstream],
+      :ngx_conf_set_jitter,
+      [:srv_conf, :"redis.cluster_recovery_delay.jitter_multiplier"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<floating point> >= 0, (0 to disable)",
+      default: "0.5 (50% of delay value)",
+      info: "Introduce random jitter to Redis cluster recovery retry time, where the range is `±(recovery_delay * nchan_redis_cluster_recovery_delay_jitter) / 2`."
+  
+  nchan_redis_cluster_recovery_delay_backoff [:upstream],
+      :ngx_conf_set_exponential_backoff,
+      [:srv_conf, :"redis.cluster_recovery_delay.backoff_multiplier"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<floating point> >= 0, ratio of current delay",
+      default: "0.5 (increase delay by 50% each try)",
+      info: "Add an exponentially increasing delay to Redis cluster recovery retries. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_cluster_recovery_delay_backoff + 1)`."
+      
+  nchan_redis_cluster_recovery_delay_max [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.cluster_recovery_delay.max"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<time> (0 to disable)",
+      default: "2s",
+      info: "Maximum Redis cluster recovery delay after backoff and jitter."
+    
   nchan_redis_subscribe_weights [:upstream],
       :ngx_conf_set_redis_subscribe_weights,
       :srv_conf,

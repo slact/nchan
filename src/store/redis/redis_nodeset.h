@@ -29,7 +29,7 @@
 //#define REDIS_NODESET_DBG 1
 
 #define node_log(node, lvl, fmt, args...) \
-  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %s " fmt, __node_nickname_cstr(node), ##args)
+  ngx_log_error(lvl, ngx_cycle->log, 0, "nchan: Redis node %s " fmt, node_nickname_cstr(node), ##args)
 #define node_log_error(node, fmt, args...)    node_log((node), NGX_LOG_ERR, fmt, ##args)
 #define node_log_warning(node, fmt, args...)  node_log((node), NGX_LOG_WARN, fmt, ##args)
 #define node_log_notice(node, fmt, args...)   node_log((node), NGX_LOG_NOTICE, fmt, ##args)
@@ -84,6 +84,7 @@ typedef struct redis_node_s redis_node_t;
 typedef struct { //redis_nodeset_cluster_t
   unsigned                    enabled:1;
   rbtree_seed_t               keyslots; //cluster rbtree seed
+  redis_node_t               *recovering_on_node;
 } redis_nodeset_cluster_t;
 
 typedef struct {
@@ -132,9 +133,11 @@ struct redis_nodeset_s {
   redis_nodeset_status_t      status;
   ngx_event_t                 status_check_ev;
   const char                 *status_msg;
-  time_t                      current_status_start;
+  ngx_time_t                  current_status_start;
   ngx_int_t                   current_status_times_checked;
   ngx_msec_t                  current_reconnect_delay;
+  ngx_time_t                  last_cluster_recovery_check_time;
+  ngx_msec_t                  current_cluster_recovery_delay;
   ngx_int_t                   generation;
   nchan_list_t                urls;
   nchan_loc_conf_t           *first_loc_conf;
@@ -154,10 +157,10 @@ struct redis_nodeset_s {
     nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  node_connect_timeout;
     ngx_msec_t                  cluster_connect_timeout;
-    ngx_msec_t                  reconnect_delay_msec;
-    double                      reconnect_delay_jitter_multiplier;
-    double                      reconnect_delay_backoff_multiplier;
-    ngx_msec_t                  reconnect_delay_max;
+    
+    nchan_backoff_settings_t    reconnect_delay;
+    nchan_backoff_settings_t    cluster_recovery_delay;
+    
     ngx_msec_t                  cluster_max_failing_msec;
     ngx_int_t                   load_scripts_unconditionally;
     struct {
@@ -193,6 +196,8 @@ struct redis_nodeset_s {
 
 struct redis_node_s {
   int8_t                    state;
+  unsigned                  connecting:1;
+  unsigned                  recovering:1;
   unsigned                  discovered:1;
   redis_node_role_t         role;
   redis_connect_params_t    connect_params;
@@ -206,6 +211,7 @@ struct redis_node_s {
     unsigned                  enabled:1;
     unsigned                  ok:1;
     ngx_str_t                 id;
+    ngx_str_t                 master_id;
     ngx_event_t               check_timer;
     time_t                    last_successful_check;
     int                       current_epoch; //as reported on this node
@@ -309,6 +315,6 @@ redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *r
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 
 
-const char *__node_nickname_cstr(redis_node_t *node);
+const char *node_nickname_cstr(redis_node_t *node);
   
 #endif /* NCHAN_REDIS_NODESET_H */
