@@ -85,6 +85,9 @@ typedef struct { //redis_nodeset_cluster_t
   unsigned                    enabled:1;
   rbtree_seed_t               keyslots; //cluster rbtree seed
   redis_node_t               *recovering_on_node;
+  int                         current_epoch;
+  ngx_event_t                 check_ev;
+  time_t                      last_successful_check;
 } redis_nodeset_cluster_t;
 
 typedef struct {
@@ -93,7 +96,10 @@ typedef struct {
 } redis_slot_range_t;
 
 typedef enum {
-  REDIS_NODE_ROLE_UNKNOWN = 0, REDIS_NODE_ROLE_MASTER, REDIS_NODE_ROLE_SLAVE
+  REDIS_NODE_ROLE_ANY=-1,
+  REDIS_NODE_ROLE_UNKNOWN = 0,
+  REDIS_NODE_ROLE_MASTER,
+  REDIS_NODE_ROLE_SLAVE
 } redis_node_role_t;
 
 typedef enum {
@@ -212,8 +218,6 @@ struct redis_node_s {
     unsigned                  ok:1;
     ngx_str_t                 id;
     ngx_str_t                 master_id;
-    ngx_event_t               check_timer;
-    time_t                    last_successful_check;
     int                       current_epoch; //as reported on this node
     struct {
       redis_slot_range_t         *range;
@@ -256,7 +260,7 @@ redis_nodeset_t *nodeset_find(nchan_redis_conf_t *rcf);
 ngx_int_t nodeset_examine(redis_nodeset_t *nodeset);
 
 ngx_int_t nodeset_node_destroy(redis_node_t *node);
-
+redis_node_t *nodeset_random_node(redis_nodeset_t *ns, int min_state, redis_node_role_t role);
 
 int node_disconnect(redis_node_t *node, int disconnected_state);
 int node_connect(redis_node_t *node);
