@@ -321,6 +321,13 @@ typedef struct {
 } nchan_redis_tls_settings_t;
 
 typedef struct {
+    ngx_msec_t      min;
+    ngx_msec_t      max;
+    double          jitter_multiplier;
+    double          backoff_multiplier;
+} nchan_backoff_settings_t;
+
+typedef struct {
   struct {
       ngx_msec_t                    node_connect_timeout;  
       ngx_msec_t                    cluster_connect_timeout;
