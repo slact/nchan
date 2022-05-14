@@ -853,7 +853,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               nchan_store_publish_generic(chid, chanhead ? chanhead->redis.nodeset : nodeset, &msg, 0, NULL);
             }
             else {
-              ERR("thought there'd be a channel for msg");
+              node_log_debug(node, "thought there'd be a channel (%V) for msg", chid);
             }
           }
           else if(ngx_strmatch(&msg_type, "msgkey")) {
@@ -882,7 +882,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
               }
             }
             else {
-              ERR("thought there'd be a channel id around for msgkey");
+              node_log_error(node, "thought there'd be a channel id around for msgkey");
             }
           }
           else if(ngx_strmatch(&msg_type, "alert") && array_sz > 1) {
@@ -900,7 +900,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 redis_chanhead_gc_add(doomed_channel, 0, "channel deleted");
               }
               else {
-                ERR("unexpected \"delete channel\" msgpack message from redis");
+                node_log_error(node, "unexpected \"delete channel\" msgpack message from redis");
               }
             }
             else if(ngx_strmatch(&alerttype, "unsub one") && array_sz > 3) {
@@ -909,7 +909,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
-              ERR("unsub one not yet implemented");
+              node_log_error(node, "unsub one not yet implemented");
             }
             else if(ngx_strmatch(&alerttype, "unsub all") && array_sz > 1) {
               if(cmp_to_str(&cmp, &extracted_channel_id)) {
@@ -921,14 +921,14 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
-              ERR("unsub all except not yet  implemented");
+              node_log_error(node, "unsub all except not yet  implemented");
             }
             else if(ngx_strmatch(&alerttype, "subscriber info")) {
               uint64_t request_id;
               cmp_read_uinteger(&cmp, &request_id);
               
               if((chanhead = nchan_store_get_chanhead(chid, nodeset)) == NULL) {
-                ERR("received invalid subscriber info notice with bad channel name");
+                node_log_error(node, "received invalid subscriber info notice with bad channel name");
               }
               else {
                 chanhead->spooler.fn->broadcast_notice(&chanhead->spooler, NCHAN_NOTICE_SUBSCRIBER_INFO_REQUEST, (void *)(intptr_t )request_id);
@@ -936,19 +936,19 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             }
             
             else {
-              ERR("unexpected msgpack alert from redis");
+              node_log_error(node, "unexpected msgpack alert from redis");
             }
           }
           else {
-            ERR("unexpected msgpack message from redis");
+            node_log_error(node, "unexpected msgpack message from redis");
           }
         }
         else {
-          ERR("unexpected msgpack object from redis");
+          node_log_error(node, "unexpected msgpack object from redis");
         }
       }
       else {
-        ERR("invalid msgpack message from redis: %s", cmp_strerror(&cmp));
+        node_log_error(node, "invalid msgpack message from redis: %s", cmp_strerror(&cmp));
       }
     }
 
@@ -963,7 +963,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
       chanhead = find_chanhead_for_pubsub_callback(chid);
       if(chanhead != NULL) {
         if(chanhead->pubsub_status != REDIS_PUBSUB_SUBSCRIBING) {
-          ERR("expected previous pubsub_status for channel %p (id: %V) to be REDIS_PUBSUB_SUBSCRIBING (%i), was %i", chanhead, &chanhead->id, REDIS_PUBSUB_SUBSCRIBING, chanhead->pubsub_status);
+          node_log_error(node, "expected previous pubsub_status for channel %p (id: %V) to be REDIS_PUBSUB_SUBSCRIBING (%i), was %i", chanhead, &chanhead->id, REDIS_PUBSUB_SUBSCRIBING, chanhead->pubsub_status);
         }
         chanhead->pubsub_status = REDIS_PUBSUB_SUBSCRIBED;
         
@@ -974,20 +974,21 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             //ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "REDIS: PUB/SUB subscribed to %s, chanhead %p now READY.", reply->element[1]->str, chanhead);
             break;
           case READY:
-            ERR("REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
+            node_log_error(node, "REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
+            raise(SIGSTOP);
             break;
           case INACTIVE:
             // this is fine, inactive channels can be pubsubbed, they will be garbage collected
             // later if needed
             break;
           default:
-            ERR("REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
+            node_log_error(node, "REDIS: PUB/SUB really unexpected chanhead status %i", chanhead->status);
             assert(0);
             //not sposed to happen
         }
       }
       else {
-        ERR("received SUBSCRIBE acknowledgement for unknown channel %V", chid);
+        node_log_error(node, "received SUBSCRIBE acknowledgement for unknown channel %V", chid);
       }
     }
     else {
