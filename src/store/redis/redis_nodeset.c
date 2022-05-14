@@ -41,7 +41,7 @@ static void nodeset_check_status_event(ngx_event_t *ev);
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
 static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action);
 static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len);
-static void node_ready(redis_node_t *node);
+static void node_make_ready(redis_node_t *node);
 
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
@@ -1040,8 +1040,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     ns->cluster.current_epoch = current_epoch;
     cur->cluster.current_epoch = current_epoch;
     cur->cluster.ok = 1;
-    cur->state = REDIS_NODE_READY;
-    node_ready(cur);
+    node_make_ready(cur);
     cur->recovering = 0;
   }
   
@@ -1825,11 +1824,13 @@ int nodeset_node_keyslot_changed(redis_node_t *node, const char *reason) {
 int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
   if(reply && reply->type == REDIS_REPLY_ERROR) {
     char    *script_nonlocal_key_error = "Lua script attempted to access a non local key in a cluster node";
+    char    *script_nonlocal_key_error_redis_7 = "ERR Script attempted to access a non local key in a cluster node";
     char    *script_error_start = "ERR Error running script";
     char    *command_move_error = "MOVED ";
     char    *command_ask_error = "ASK ";
     
     if((nchan_cstr_startswith(reply->str, script_error_start) && nchan_strstrn(reply->str, script_nonlocal_key_error))
+     || nchan_cstr_startswith(reply->str, script_nonlocal_key_error_redis_7)
      || nchan_cstr_startswith(reply->str, command_move_error)
      || nchan_cstr_startswith(reply->str, command_ask_error)) {
       if(!node->cluster.enabled) {
@@ -2330,7 +2331,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       //NOTE: consent required each time a fallthrough is imposed
       /* fall through */
     case REDIS_NODE_READY:
-      node_ready(node);
+      node_make_ready(node);
       node->connecting = 0;
       nodeset_examine(nodeset);
       break;
@@ -2381,7 +2382,8 @@ int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t 
   return 0;
 }
 
-static void node_ready(redis_node_t *node) {
+static void node_make_ready(redis_node_t *node) {
+  node->state = REDIS_NODE_READY;
   if(node->connect_timeout) {
     nchan_abort_oneshot_timer(node->connect_timeout);
     node->connect_timeout = NULL;

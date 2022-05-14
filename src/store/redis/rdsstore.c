@@ -372,7 +372,8 @@ void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata) {
   redisReplyOk(c, r);
 }
 int redisReplyOk(redisAsyncContext *ac, void *r) {
-  static const ngx_str_t script_error_start= ngx_string("ERR Error running script (call to f_");
+  const char* script_error_start= "ERR Error running script (call to f_";
+  const char *script_error_start_redis7= "ERR user_script:";
   redis_node_t         *node = ac->data;
   redisReply *reply = (redisReply *)r;
   if(reply == NULL) { //redis disconnected?...
@@ -385,15 +386,57 @@ int redisReplyOk(redisAsyncContext *ac, void *r) {
     return 0;
   }
   else if(reply->type == REDIS_REPLY_ERROR) {
-    if(ngx_strncmp(reply->str, script_error_start.data, script_error_start.len) == 0 && (unsigned ) reply->len > script_error_start.len + REDIS_LUA_HASH_LENGTH) {
-      char *hash = &reply->str[script_error_start.len];
+    const char *str = reply->str;
+    if(nchan_cstr_startswith(str, script_error_start)) {
+      unsigned i = strlen(script_error_start);
+      ngx_str_t hash;
+      hash.len = REDIS_LUA_HASH_LENGTH;
+      hash.data = &str[i];
+      i+=REDIS_LUA_HASH_LENGTH + 2;
+      
+      if(i>reply->len) {
+        node_log_error(node, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
+        return 0;
+      }
       redis_lua_script_t  *script;
       REDIS_LUA_SCRIPTS_EACH(script) {
-        if (ngx_strncmp(script->hash, hash, REDIS_LUA_HASH_LENGTH)==0) {
-          node_log_error(node, "REDIS SCRIPT ERROR: %s :%s", script->name, &reply->str[script_error_start.len + REDIS_LUA_HASH_LENGTH + 2]);
+        if (ngx_strncmp(script->hash, hash.data, REDIS_LUA_HASH_LENGTH)==0) {
+          node_log_error(node, "REDIS SCRIPT ERROR: %s :%s", script->name, &str[i]);
           return 0;
         }
       }
+      node_log_error(node, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
+    }
+    
+    else if(nchan_cstr_startswith(str, script_error_start_redis7)) {
+      //redis >=7
+      //"ERR user_script:<line>: <errmsg> script: <hash>, on @user_script:<line>."
+      //find last occurence of " script: "
+      char *cur = str, *prev=NULL;
+      while((cur=strstr(cur," script: "))) {
+        prev=cur++;
+      }
+      ngx_str_t hash;
+      hash.len = REDIS_LUA_HASH_LENGTH;
+      hash.data = (u_char *)prev+strlen(" script: "); 
+      
+      if((size_t )((char *)&hash.data[hash.len] - str) > reply->len) {
+        node_log_error(node, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
+        return 0;
+      }
+        
+      ngx_str_t errmsg;
+      errmsg.data = &str[16];
+      errmsg.len = prev - (char *)errmsg.data;
+    
+      redis_lua_script_t  *script;
+      REDIS_LUA_SCRIPTS_EACH(script) {
+        if (ngx_strncmp(script->hash, hash.data, REDIS_LUA_HASH_LENGTH)==0) {
+          node_log_error(node, "REDIS SCRIPT ERROR: %s:%V", script->name, &errmsg);
+          return 0;
+        }
+      }
+      
       node_log_error(node, "REDIS SCRIPT ERROR: (unknown): %s", reply->str);
     }
     else {
