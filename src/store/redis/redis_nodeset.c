@@ -31,7 +31,7 @@ typedef struct {
 static ngx_str_t       default_redis_url = ngx_string(NCHAN_REDIS_DEFAULT_URL);
 
 static void node_connector_callback(redisAsyncContext *ac, void *rep, void *privdata);
-static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns);
+static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns, int min_node_state);
 static nchan_redis_ip_range_t *node_ip_blacklisted(redis_nodeset_t *ns, redis_connect_params_t *rcp);
 static char *nodeset_name_cstr(redis_nodeset_t *nodeset, char *buf, size_t maxlen);
 static int nodeset_recover_cluster(redis_nodeset_t *ns);
@@ -177,7 +177,7 @@ static redis_node_dbg_list_t *nodeset_update_debuginfo(redis_nodeset_t *nodeset)
   for(cur = nchan_list_first(&nodeset->nodes); cur != NULL; cur = nchan_list_next(cur)) {
     node_dbg->node[node_dbg->n++]=cur;
   }
-  nodeset->dbg.keyspace_complete = nodeset_cluster_keyslot_space_complete(nodeset);
+  nodeset->dbg.keyspace_complete = nodeset_cluster_keyslot_space_complete(nodeset, REDIS_NODE_READY);
   rbtree_walk_incr(tree, nodeset_debug_rangetree_collector, &nodeset->dbg.ranges);
   return NGX_OK;
 }
@@ -609,21 +609,39 @@ redis_node_t *nodeset_node_find_any_ready_master(redis_nodeset_t *ns) {
   return NULL;
 }
 
+int node_channel_in_keyspace(redis_node_t *node, void *chanhead) {
+  rdstore_channel_head_t *ch = chanhead;  
+  if(!node->cluster.enabled) {
+    return 1;
+  }
+  uint16_t slot = redis_keyslot_from_channel_id(&ch->id);
+  redis_slot_range_t  slot_as_range = {slot, slot};
+  size_t              i;
+  for(i=0; i<node->cluster.slot_range.n; i++) {
+    if(keyslot_ranges_overlap(&node->cluster.slot_range.range[i], &slot_as_range)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+uint16_t redis_keyslot_from_channel_id(ngx_str_t *chid) {
+  static uint16_t    prefix_crc = 0;
+  if(prefix_crc == 0) {
+    prefix_crc = redis_crc16(0, "channel:", 8);
+  }
+  return redis_crc16(prefix_crc, (const char *)chid->data, chid->len) % 16384;
+}
+
 redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *channel_id) {
   redis_node_t      *node;
-  static uint16_t    prefix_crc = 0;
   uint16_t           slot;
   
   if(!ns->cluster.enabled) {
     node = nodeset_node_find_any_ready_master(ns);
   }
   else {
-    if(prefix_crc == 0) {
-      prefix_crc = redis_crc16(0, "channel:", 8);
-    }
-    slot = redis_crc16(prefix_crc, (const char *)channel_id->data, channel_id->len) % 16384;
-    //DBG("channel id %V (key {channel:%V}) slot %i", str, str, slot);
-    
+    slot = redis_keyslot_from_channel_id(channel_id);
     node = nodeset_node_find_by_slot(ns, slot);
   }
   
@@ -940,6 +958,15 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   }
   for(i=0; i<n; i++) {
     l = &lines[i];
+    if(l->failed) {
+      redis_node_t *failed_node = nodeset_node_find_by_cluster_id(ns, &l->id);
+      if(failed_node) {
+        nodeset_log_notice(ns, "removed failed node %s", node_nickname_cstr(failed_node));
+        node_disconnect(failed_node, REDIS_NODE_FAILED);
+        nodeset_node_destroy(failed_node);
+      }
+    }
+    
     if(node_skip_cluster_peer(node, l, 0)) {
       continue;
     }
@@ -970,14 +997,26 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     //we will set actual master-slave associations later.
   }
   
+  //connect the disconnected
+  redis_node_t      *cur;
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    if(cur->state <= REDIS_NODE_DISCONNECTED && !cur->connecting) {
+      node_connect(cur);
+    }
+  }
+  /* proceed if we have the whole keyspace -- Even though a cluster 
+     might be healthy, when failing over Redis may not report some 
+     assigned keyslots for some masters until consensus is reached
+   */
+  if(!nodeset_cluster_keyslot_space_complete(ns, REDIS_NODE_GET_CLUSTERINFO)) {
+    ngx_snprintf(errbuf, 1024, "incomplete keyslot information%Z");
+    goto fail;
+  }
+  
   //check 'em over
-  redis_node_t      *cur, *master;
+  redis_node_t      *master;
   for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
     if(cur->connecting) {
-      continue;
-    }
-    if(cur->state <= REDIS_NODE_DISCONNECTED) {
-      node_connect(cur);
       continue;
     }
     
@@ -995,7 +1034,6 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
       node_set_master_node(cur, master); //this is idempotent
       node_add_slave_node(master, cur);  //so is this
     }
-
     
     assert(cur->ctx.cmd);
     assert(cur->ctx.pubsub);
@@ -1771,10 +1809,15 @@ static int node_discover_slaves_from_info_reply(redis_node_t *node, redisReply *
   return 1;
 }
 
-int nodeset_node_keyslot_changed(redis_node_t *node) {
+int nodeset_node_keyslot_changed(redis_node_t *node, const char *reason) {
   
   char errstr[512];
-  ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d%Z", &(node)->connect_params.hostname, node->connect_params.port);
+  if(reason) {
+    ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d (%s)%Z", &(node)->connect_params.hostname, node->connect_params.port, reason);
+  }
+  else {
+    ngx_snprintf((u_char *)errstr, 512, "cluster keyspace needs to be updated as reported by node %V:%d%Z", &(node)->connect_params.hostname, node->connect_params.port);
+  }
   nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errstr);
   return 1;
 }
@@ -1795,7 +1838,7 @@ int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
         nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Strange response from node");
       }
       else {
-        nodeset_node_keyslot_changed(node);
+        nodeset_node_keyslot_changed(node, "keyslot error in response");
       }
       return 0;
     }
@@ -2294,6 +2337,50 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
   }
 }
 
+
+void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redisCallbackFn *fn, void *privdata, unsigned cmdc, ...) {
+  batch->node = node;
+  batch->callback = fn;
+  batch->privdata = privdata;
+  batch->cmdc = cmdc;
+  batch->argc = cmdc;
+  
+  va_list argp;
+  va_start(argp, cmdc);
+  
+  unsigned i;
+  for(i=0; i<cmdc; i++) {
+    batch->argv[i]=va_arg(argp, const char *);
+    batch->argvlen[i]=strlen(batch->argv[i]);
+  }
+  
+  va_end(argp);
+}
+
+void node_batch_command_send(node_batch_command_t *batch) {
+  if(batch->argc <= batch->cmdc) {
+    return;
+  }
+  redisAsyncCommandArgv(batch->node->ctx.pubsub, batch->callback, batch->privdata, batch->argc, batch->argv, batch->argvlen);
+  batch->argc=batch->cmdc;
+}
+
+int node_batch_command_add_ngx_str(node_batch_command_t *batch, const ngx_str_t *arg) {
+  return node_batch_command_add(batch, (char *)arg->data, arg->len);
+}
+
+int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t arglen) {
+  unsigned c = batch->argc++;
+  batch->argv[c]=arg;
+  batch->argvlen[c]=arglen;
+  
+  if(c+1==REDIS_NODE_BATCH_COMMAND_MAX_ARGS) {
+    node_batch_command_send(batch);
+    return 1;
+  }
+  return 0;
+}
+
 static void node_ready(redis_node_t *node) {
   if(node->connect_timeout) {
     nchan_abort_oneshot_timer(node->connect_timeout);
@@ -2301,6 +2388,90 @@ static void node_ready(redis_node_t *node) {
   }
   if(!node->ping_timer.timer_set && node->nodeset->settings.ping_interval > 0) {
     ngx_add_timer(&node->ping_timer, node->nodeset->settings.ping_interval * 1000);
+  }
+  
+  //do we have any channels that don't belong here?
+  if(node->cluster.enabled) {
+    
+    rdstore_channel_head_t *cur, *next;
+    nchan_slist_t *cmd = &node->channels.cmd;
+    nchan_slist_t *pubsub = &node->channels.pubsub;
+    
+    nchan_slist_t *disconnected_cmd = &node->nodeset->channels.disconnected_cmd;
+    nchan_slist_t *disconnected_pubsub = &node->nodeset->channels.disconnected_pubsub;
+    int uncommanded_count = 0;
+    for(cur = nchan_slist_first(cmd); cur != NULL; cur = next) {
+      next = nchan_slist_next(cmd, cur);
+      if(node_channel_in_keyspace(node, cur)) {
+        //all good
+        continue;
+      }
+      
+      nodeset_node_dissociate_chanhead(cur);
+      nchan_slist_append(disconnected_cmd, cur);
+      cur->redis.slist.in_disconnected_cmd_list = 1;
+      if(cur->status && cur->status == READY) {
+        cur->status = NOTREADY;
+      }
+      uncommanded_count++;
+    }
+    
+    node_batch_command_t unsub;
+    /* we don't actually care about the response. if it succeeds, good. if not, it means
+      that the node had already disconnected or the subscription had become
+      invalid on the server for unknown reasons.
+      So, the response handler is NULL
+    */
+    node_batch_command_init(&unsub, node, NULL, NULL, 1, "UNSUBSCRIBE");
+    
+    int unsubbed_count = 0;
+    for(cur = nchan_slist_first(pubsub); cur != NULL; cur = next) {
+      next = nchan_slist_next(pubsub, cur);
+      if(node_channel_in_keyspace(node, cur)) {
+        //all good
+        continue;
+      }
+      if(cur->pubsub_status == REDIS_PUBSUB_UNSUBSCRIBED) {
+        continue;
+      }
+      if(cur->pubsub_status == REDIS_PUBSUB_SUBSCRIBING) {
+        node_log_notice(node, "channel %V is REDIS_PUBSUB_SUBSCRIBING", &cur->id);
+      }
+      
+      unsubbed_count++;
+
+      node_batch_command_add_ngx_str(&unsub, &cur->redis.pubsub_id);
+      cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
+      
+      nodeset_node_dissociate_pubsub_chanhead(cur);
+      nchan_slist_append(disconnected_pubsub, cur);
+      cur->redis.slist.in_disconnected_pubsub_list = 1;
+      
+      cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
+      
+      if(cur->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && cur->status == READY) {
+        cur->status = NOTREADY;
+      }
+    }
+    if(unsubbed_count > 0) {
+      node_batch_command_send(&unsub);
+    }
+    
+    if(unsubbed_count + uncommanded_count > 0) {
+      const char *reason = "";
+      if(node->role == REDIS_NODE_ROLE_SLAVE) {
+        reason = " (the node is now a slave)";
+      }
+      else if(node->role == REDIS_NODE_ROLE_MASTER) {
+        if(node->cluster.slot_range.n == 0) {
+          reason = " (slotless master, probably on its way to becoming a slave)";
+        }
+        else {
+          reason = " (no longer in this node's keyspace)";
+        }
+      }
+      node_log_notice(node, "paused subscription on %d and publication on %d channels%s.", unsubbed_count, uncommanded_count, reason);
+    }
   }
   
   if(node->recovering) {
@@ -2314,7 +2485,7 @@ static void node_ready(redis_node_t *node) {
   node->recovering=0;
 }
 
-static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
+static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns, int min_node_state) {
   ngx_rbtree_node_t                  *node;
   redis_slot_range_t                  range = {0, 0};
   redis_nodeset_slot_range_node_t    *rangenode;
@@ -2326,7 +2497,7 @@ static int nodeset_cluster_keyslot_space_complete(redis_nodeset_t *ns) {
     }
     rangenode = rbtree_data_from_node(node);
     
-    if(rangenode->node->state < REDIS_NODE_READY) {
+    if(rangenode->node->state < min_node_state) {
       node_log_notice(rangenode->node, "cluster node for range %d - %d not connected", rangenode->range.min, rangenode->range.max);
       return 0;
     }
@@ -2428,8 +2599,9 @@ static ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   nchan_slist_t *disconnected_cmd = &ns->channels.disconnected_cmd;
   nchan_slist_t *disconnected_pubsub = &ns->channels.disconnected_pubsub;
   assert(nodeset_ready(ns));
-
+  int cmd_count=0, pubsub_count=0;
   while((cur = nchan_slist_pop(disconnected_cmd)) != NULL) {
+    cmd_count++;
     assert(cur->redis.node.cmd == NULL);
     cur->redis.slist.in_disconnected_cmd_list = 0;
     assert(nodeset_node_find_by_chanhead(cur)); // this reuses the linked-list fields
@@ -2437,6 +2609,7 @@ static ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
   }
   
   while((cur = nchan_slist_pop(disconnected_pubsub)) != NULL) {
+    pubsub_count++;
     assert(cur->redis.node.pubsub == NULL);
     cur->redis.slist.in_disconnected_pubsub_list = 0;
     assert(nodeset_node_pubsub_find_by_chanhead(cur)); // this reuses the linked-list fields
@@ -2445,6 +2618,9 @@ static ngx_int_t nodeset_reconnect_disconnected_channels(redis_nodeset_t *ns) {
     update_chanhead_status_on_reconnect(cur);
   }
   
+  if(cmd_count + pubsub_count > 0) {
+    nodeset_log_notice(ns, "resume subscription on %d and publication on %d channels", pubsub_count, cmd_count);
+  }
   return NGX_OK;
 }
 
@@ -2657,7 +2833,7 @@ ngx_int_t nodeset_examine(redis_nodeset_t *nodeset) {
     //this prevents slave-of-slave-of-master lookups
     nodeset_set_status(nodeset, REDIS_NODESET_INVALID, "no reachable masters");
   }
-  else if(cluster > 0 && !nodeset_cluster_keyslot_space_complete(nodeset)) {
+  else if(cluster > 0 && !nodeset_cluster_keyslot_space_complete(nodeset, REDIS_NODE_READY)) {
       nodeset_set_status(nodeset, current_status, "keyslot space incomplete");
   }
   else if(current_status == REDIS_NODESET_READY && (ready == 0 || ready < total)) {

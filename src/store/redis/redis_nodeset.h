@@ -273,7 +273,7 @@ int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);
-int nodeset_node_keyslot_changed(redis_node_t *node);
+int nodeset_node_keyslot_changed(redis_node_t *node, const char *reason);
 int nodeset_disconnect(redis_nodeset_t *ns);
 ngx_int_t nodeset_destroy_all(void);
 ngx_int_t nodeset_each(void (*)(redis_nodeset_t *, void *), void *privdata);
@@ -311,10 +311,30 @@ ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chanhead);
 
 redis_node_t *nodeset_node_find_by_chanhead(void *chanhead);
 redis_node_t *nodeset_node_pubsub_find_by_chanhead(void *chanhead);
+int node_channel_in_keyspace(redis_node_t *node, void *chanhead);
+
+
+#define REDIS_NODE_BATCH_COMMAND_MAX_ARGS 256
+typedef struct {
+  redis_node_t    *node;
+  redisCallbackFn *callback;
+  void            *privdata;
+  size_t           cmdc;
+  size_t           argc;
+  const char      *argv[REDIS_NODE_BATCH_COMMAND_MAX_ARGS];
+  size_t           argvlen[REDIS_NODE_BATCH_COMMAND_MAX_ARGS];
+} node_batch_command_t;
+
+void node_batch_command_init(node_batch_command_t *batch, redis_node_t *node, redisCallbackFn *fn, void *privdata, unsigned cmd_count, ...);
+void node_batch_command_send(node_batch_command_t *batch);
+int node_batch_command_add_ngx_str(node_batch_command_t *batch, const ngx_str_t *arg);
+int node_batch_command_add(node_batch_command_t *batch, const char *arg, size_t arglen);
 
 
 
 redis_node_t *nodeset_node_create(redis_nodeset_t *ns, redis_connect_params_t *rcp);
+
+uint16_t redis_keyslot_from_channel_id(ngx_str_t *chid);
 
 uint16_t redis_crc16(uint16_t crc, const char *buf, int len);
 

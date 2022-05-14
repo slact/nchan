@@ -256,7 +256,7 @@ static void redis_store_reap_chanhead(rdstore_channel_head_t *ch) {
     assert(ch->redis.nodeset->settings.storage_mode >= REDIS_MODE_DISTRIBUTED);
     assert(ch->redis.node.pubsub);
     ch->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
-    redis_subscriber_command(ch->redis.node.pubsub, NULL, NULL, "UNSUBSCRIBE %b{channel:%b}:pubsub", STR(ch->redis.nodeset->settings.namespace), STR(&ch->id));
+    redis_subscriber_command(ch->redis.node.pubsub, NULL, NULL, "UNSUBSCRIBE %b", STR(&ch->redis.pubsub_id));
   }
 
   /*
@@ -406,7 +406,7 @@ int redisReplyOk(redisAsyncContext *ac, void *r) {
   }
 }
 
-static void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
+void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata) {
   redisReply      *reply = r;
   redis_node_t    *node = NULL;
   unsigned    i;
@@ -1192,7 +1192,7 @@ static void redis_subscriber_unregister_cb(redisAsyncContext *c, void *r, void *
     errstr.len = strlen(reply->str);
     
     if(ngx_str_chop_if_startswith(&errstr, "CLUSTER KEYSLOT ERROR. ")) {
-      nodeset_node_keyslot_changed(node);
+      nodeset_node_keyslot_changed(node, "CLUSTER KEYSLOT error");
       nchan_scan_until_chr_on_line(&errstr, &countstr, ' ');
       channel_timeout = ngx_atoi(countstr.data, countstr.len);
       channel_id = errstr;
@@ -1309,16 +1309,14 @@ static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
 
 ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch) {
   redis_node_t       *pubsub_node;
-  ngx_str_t          *namespace;
   if( ch->pubsub_status != REDIS_PUBSUB_SUBSCRIBED && ch->pubsub_status != REDIS_PUBSUB_SUBSCRIBING
    && ch->redis.nodeset->settings.storage_mode >= REDIS_MODE_DISTRIBUTED
    && nodeset_ready(ch->redis.nodeset)
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
-    namespace = ch->redis.nodeset->settings.namespace;
     DBG("SUBSCRIBING to %V{channel:%V}:pubsub", namespace, &ch->id);
     ch->pubsub_status = REDIS_PUBSUB_SUBSCRIBING;
-    redis_subscriber_command(pubsub_node, redis_subscriber_callback, NULL, "SUBSCRIBE %b{channel:%b}:pubsub", STR(namespace), STR(&ch->id));
+    redis_subscriber_command(pubsub_node, redis_subscriber_callback, pubsub_node, "SUBSCRIBE %b", STR(&ch->redis.pubsub_id));
   }
   return NGX_OK;
 }
@@ -1330,7 +1328,9 @@ ngx_int_t redis_chanhead_catch_up_after_reconnect(rdstore_channel_head_t *ch) {
 static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, redis_nodeset_t *ns) {
   rdstore_channel_head_t   *head;
   
-  head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len), ngx_cycle->log);
+  size_t pubsub_id_len = strlen("{channel:}:pubsub") + channel_id->len + ns->settings.namespace->len + 1;
+  
+  head=ngx_calloc(sizeof(*head) + sizeof(u_char)*(channel_id->len) + pubsub_id_len, ngx_cycle->log);
   if(head==NULL) {
     ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0, "can't allocate memory for (new) channel subscriber head");
     return NULL;
@@ -1338,6 +1338,9 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, redis_node
   head->id.len = channel_id->len;
   head->id.data = (u_char *)&head[1];
   ngx_memcpy(head->id.data, channel_id->data, channel_id->len);
+  head->redis.pubsub_id.data = &head->id.data[head->id.len];
+  ngx_sprintf(head->redis.pubsub_id.data, "%V{channel:%V}:pubsub%Z", ns->settings.namespace, channel_id);
+  head->redis.pubsub_id.len=pubsub_id_len-1; //sans null
   head->sub_count=0;
   head->fetching_message_count=0;
   head->redis_subscriber_privdata = NULL;
@@ -2227,6 +2230,7 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
       publish_callback = redisPublishNostoreCallback;
     }
     redis_command(node, publish_callback, d,
+      //can't use the prebaked pubsub channel id because we don't have the chanhead here, just its id
       "PUBLISH %b{channel:%b}:pubsub "
       "\x9A\xA3msg\xCE%b\xCE%b%b%b%b\xDB%b%b\xD9%b%b\xD9%b%b%b",
       
@@ -2338,7 +2342,7 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   
   ngx_memzero(&ch, sizeof(ch)); //for debugging basically. should be removed in the future and zeroed as-needed
   if(d->cluster_move_error) {
-    nodeset_node_keyslot_changed(node);
+    nodeset_node_keyslot_changed(node, "CLUSTER MOVE error");
     d->callback(NGX_HTTP_SERVICE_UNAVAILABLE, NULL, d->privdata);
   }
   else if(reply) {
@@ -2485,7 +2489,7 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
     errstr.len = strlen(reply->str);
     
     if(ngx_str_chop_if_startswith(&errstr, "CLUSTER KEYSLOT ERROR. ")) {
-      nodeset_node_keyslot_changed(node);
+      nodeset_node_keyslot_changed(node, "CLUSTER KEYSLOT error");
       nchan_scan_until_chr_on_line(&errstr, &countstr, ' ');
       count = ngx_atoi(countstr.data, countstr.len);
       channel_id = errstr;

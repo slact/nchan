@@ -55,6 +55,7 @@ struct rdstore_channel_head_s {
   
   struct {                   //redis
     int                          generation;
+    ngx_str_t                    pubsub_id; //NULL-terminated, btw
     redis_nodeset_t             *nodeset;
     struct {                   //node
       redis_node_t                *cmd;
@@ -96,7 +97,8 @@ struct rdstore_channel_head_s {
 };
 
 
-void redisCheckErrorCallback(redisAsyncContext *c, void *r, void *privdata);
+void redisCheckErrorCallback(redisAsyncContext *ac, void *r, void *privdata);
+void redisEchoCallback(redisAsyncContext *ac, void *r, void *privdata);
 int redisReplyOk(redisAsyncContext *c, void *r);
 ngx_int_t parse_redis_url(ngx_str_t *url, redis_connect_params_t *rcp);
 ngx_int_t rdstore_initialize_chanhead_reaper(nchan_reaper_t *reaper, char *name);
