@@ -243,8 +243,9 @@ if [[ -z $NO_MAKE ]]; then
     echo "failed generating documentation"; 
     exit 1
   fi
-
-  rdstore_dir=${MY_PATH}/../src/store/redis
+  
+  pushd "${MY_PATH}" >/dev/null
+  rdstore_dir=../src/store/redis
   bundle exec hsss \
      --format whole \
      --header-only \
@@ -261,6 +262,7 @@ if [[ -z $NO_MAKE ]]; then
      --data-only \
      --no-static \
      ${rdstore_dir}/redis-lua-scripts/*.lua >> ${rdstore_dir}/redis_lua_commands.c
+  popd >/dev/null
   
   pushd $pkg_path >/dev/null
   
