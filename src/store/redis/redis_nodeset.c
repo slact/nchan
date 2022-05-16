@@ -1443,7 +1443,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     
     cur->pubsub_status = REDIS_PUBSUB_UNSUBSCRIBED;
     
-    if(cur->redis.nodeset->settings.storage_mode == REDIS_MODE_BACKUP && cur->status == READY) {
+    if(cur->status == READY) {
       cur->status = NOTREADY;
     }
   }
