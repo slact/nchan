@@ -1432,7 +1432,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     nodeset_node_dissociate_chanhead(cur);
     nchan_slist_append(disconnected_cmd, cur);
     cur->redis.slist.in_disconnected_cmd_list = 1;
-    if(cur->status && cur->status == READY) {
+    if(cur->status == READY) {
       cur->status = NOTREADY;
     }
   }
