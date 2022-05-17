@@ -74,8 +74,10 @@
 #define REDIS_NODE_SUBSCRIBING_WORKER     21
 #define REDIS_NODE_GET_CLUSTERINFO        22
 #define REDIS_NODE_GETTING_CLUSTERINFO    23
-#define REDIS_NODE_GET_CLUSTER_NODES      24
-#define REDIS_NODE_GETTING_CLUSTER_NODES  25
+#define REDIS_NODE_GET_SHARDED_PUBSUB_SUPPORT 24
+#define REDIS_NODE_GETTING_SHARDED_PUBSUB_SUPPORT 25
+#define REDIS_NODE_GET_CLUSTER_NODES      26
+#define REDIS_NODE_GETTING_CLUSTER_NODES  27
 #define REDIS_NODE_READY                  100
   
 typedef struct redis_nodeset_s redis_nodeset_t;
@@ -150,6 +152,7 @@ struct redis_nodeset_s {
   ngx_http_upstream_srv_conf_t *upstream;
   nchan_list_t                nodes;
   redis_nodeset_cluster_t     cluster;
+  unsigned                    use_spublish:1;
   struct {                    //settings
     nchan_redis_storage_mode_t  storage_mode;
     ngx_int_t                   nostore_fastpublish;
@@ -205,6 +208,7 @@ struct redis_node_s {
   unsigned                  connecting:1;
   unsigned                  recovering:1;
   unsigned                  discovered:1;
+  unsigned                  have_spublish:1;
   redis_node_role_t         role;
   redis_connect_params_t    connect_params;
   void                     *connect_timeout;

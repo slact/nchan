@@ -74,12 +74,13 @@ redis_lua_scripts_t redis_lua_scripts = {
    "  return -1\n"
    "end\n"},
 
-  {"delete", "a6008241827ea3bdec215b4460e96ad498cad8cb",
-   "--input: keys: [],  values: [ namespace, channel_id ]\n"
+  {"delete", "121cb1d32fb1b52c3f32cc8b8a3384e99fa10358",
+   "--input: keys: [],  values: [ namespace, channel_id, publish_command ]\n"
    "--output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil\n"
    "-- delete this channel and all its messages\n"
    "local ns = ARGV[1]\n"
    "local id = ARGV[2]\n"
+   "local publish_command = ARGV[3]\n"
    "local ch = ('%s{channel:%s}'):format(ns, id)\n"
    "local key_msg=    ch..':msg:%s' --not finished yet\n"
    "local key_channel=ch\n"
@@ -403,8 +404,8 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return val\n"},
 
-  {"publish", "be28281114137d8e85a25a913c50bed2e93d0c7d",
-   "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]\n"
+  {"publish", "6b7588a37712d713cee194f947b375403e58a21d",
+   "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, use_spublish]\n"
    "--output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?\n"
    "\n"
    "local ns, id=ARGV[1], ARGV[2]\n"
@@ -422,6 +423,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "local msgpacked_pubsub_cutoff = tonumber(ARGV[10])\n"
    "\n"
    "local optimize_target = tonumber(ARGV[11]) == 2 and \"bandwidth\" or \"cpu\"\n"
+   "local publish_command = ARGV[12]\n"
    "\n"
    "local time\n"
    "if optimize_target == \"cpu\" and redis.replicate_commands then\n"
@@ -677,7 +679,8 @@ redis_lua_scripts_t redis_lua_scripts = {
    "--but now that we're subscribing to slaves this is not possible\n"
    "--so just PUBLISH always.\n"
    "msgpacked = cmsgpack.pack(unpacked)\n"
-   "redis.call('PUBLISH', channel_pubsub, msgpacked)\n"
+   "\n"
+   "redis.call(publish_command, channel_pubsub, msgpacked)\n"
    "\n"
    "local num_messages = redis.call('llen', key.messages)\n"
    "\n"
@@ -692,8 +695,8 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {ch, new_channel}\n"},
 
-  {"publish_status", "2f2ce1443b22c8c9cf069d5588bad4bab58d70aa",
-   "--input:  keys: [], values: [namespace, channel_id, status_code]\n"
+  {"publish_status", "868da11fde87043c24d82285d0b31adbbdcef406",
+   "--input:  keys: [], values: [namespace, channel_id, status_code, publish_command]\n"
    "--output: current_subscribers\n"
    "\n"
    "redis.call('echo', ' ####### PUBLISH STATUS ####### ')\n"
@@ -712,7 +715,7 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "for k,channel_key in pairs(redis.call('SMEMBERS', subs_key)) do\n"
    "  --not efficient, but useful for a few short-term subscriptions\n"
-   "  redis.call('PUBLISH', channel_key, pubmsg)\n"
+   "  redis.call(publish_command, channel_key, pubmsg)\n"
    "end\n"
    "--clear short-term subscriber list\n"
    "redis.call('DEL', subs_key)\n"

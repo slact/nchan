@@ -38,6 +38,7 @@ static int nodeset_recover_cluster(redis_nodeset_t *ns);
 static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
 static void nodeset_cluster_check_event(ngx_event_t *ev);
 static void nodeset_check_status_event(ngx_event_t *ev);
+static void nodeset_check_spublish_availability(redis_nodeset_t *ns);
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
 static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action);
 static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len);
@@ -337,6 +338,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   nchan_init_timer(&ns->cluster.check_ev, nodeset_cluster_check_event, ns);
   ns->cluster.current_epoch = 0;
   rbtree_init(&ns->cluster.keyslots, "redis cluster node (by keyslot) data", rbtree_cluster_keyslots_node_id, rbtree_cluster_keyslots_bucketer, rbtree_cluster_keyslots_compare);
+  
+  ns->use_spublish = 0;
   
   //urls
   if(rcf->upstream) {
@@ -707,9 +710,7 @@ static void node_ping_event(ngx_event_t *ev) {
   if(node->state == REDIS_NODE_READY) {
     assert(node->ctx.cmd);
     
-    //we used to PUBLISH to the correct keyslot-mapped cluster node
-    //but Redis clusters don't shard the PUBSUB keyspace, so this discrimination isn't necessary
-    //just publish the damn thing if this is a master node, and just a PING for slaves
+    //we want to do this on EVERY node to anounce our presence. definitely don't use SPUBLISH here
     if(node->role == REDIS_NODE_ROLE_MASTER) {
       redisAsyncCommand(node->ctx.cmd, ping_command_callback, node, "PUBLISH %s ping", redis_worker_id);
     }
@@ -892,6 +893,7 @@ static int nodeset_recover_cluster(redis_nodeset_t *ns) {
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "MULTI");
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER INFO");
   redisAsyncCommand(node->ctx.cmd, NULL, NULL, "CLUSTER NODES");
+  redisAsyncCommand(node->ctx.cmd, NULL, NULL, "COMMAND INFO SPUBLISH");
   redisAsyncCommand(node->ctx.cmd, nodeset_recover_cluster_handler, node, "EXEC");
 
   return 1;
@@ -914,7 +916,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     ngx_snprintf(errbuf, 1024, "reply not ok%Z");
     goto fail;
   }
-  if(reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
+  if(reply->type != REDIS_REPLY_ARRAY || reply->elements != 3) {
     ngx_snprintf(errbuf, 1024, "got something other than an array of size 2%Z");
     goto fail;
   }
@@ -970,6 +972,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     if(node_skip_cluster_peer(node, l, 0)) {
       continue;
     }
+    
     if(node_discover_cluster_peer(node, l, &peer)) {
       discovered++;
       continue;
@@ -996,6 +999,9 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     }
     //we will set actual master-slave associations later.
   }
+  
+  //does this node have SPUBLISH support?
+  node->have_spublish = reply->element[2]->type == REDIS_REPLY_ARRAY;
   
   //connect the disconnected
   redis_node_t      *cur;
@@ -1085,6 +1091,7 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   node->discovered = 0;
   node->connecting = 0;
   node->recovering = 0;
+  node->have_spublish = 0;
   node->connect_timeout = NULL;
   node->connect_params = *rcp;
   node->connect_params.peername.data = node_blob->peername;
@@ -2209,6 +2216,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       redisAsyncCommand(node->ctx.pubsub, node_connector_callback, node, "INFO SERVER");
       node->state++;
       break;
+      
     case REDIS_NODE_PUBSUB_GETTING_INFO:
       if(reply && reply->type == REDIS_REPLY_ERROR && nchan_cstr_startswith(reply->str, "NOAUTH")) {
         return node_connector_fail(node, "authentication required");
@@ -2234,7 +2242,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->state++;
       break;
     
-    case REDIS_NODE_SUBSCRIBING_WORKER:  
+    case REDIS_NODE_SUBSCRIBING_WORKER: 
       if(!reply) {
         return node_connector_fail(node, "disconnected while subscribing to worker PUBSUB channel");
       }
@@ -2285,6 +2293,20 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       node->cluster.ok=1;
       node->state++;
       /* fall through */
+      
+    case REDIS_NODE_GET_SHARDED_PUBSUB_SUPPORT:
+      redisAsyncCommand(node->ctx.cmd, node_connector_callback, node, "COMMAND INFO SPUBLISH");
+      node->state++;
+      break;
+      
+    case REDIS_NODE_GETTING_SHARDED_PUBSUB_SUPPORT:
+      if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        return node_connector_fail(node, "COMMAND INFO reply not ok");
+      }
+      node->have_spublish = reply->element[0]->type == REDIS_REPLY_ARRAY;
+      node->state++;
+      /* fall through */
+      
     case REDIS_NODE_GET_CLUSTER_NODES:
       if(!node->ctx.cmd) {
         return node_connector_fail(node, "cmd connection missing, can't send CLUSTER NODES command");
@@ -2424,7 +2446,7 @@ static void node_make_ready(redis_node_t *node) {
       invalid on the server for unknown reasons.
       So, the response handler is NULL
     */
-    node_batch_command_init(&unsub, node, NULL, NULL, 1, "UNSUBSCRIBE");
+    node_batch_command_init(&unsub, node, NULL, NULL, 1, node->nodeset->use_spublish ? "SUNSUBSCRIBE" : "UNSUBSCRIBE");
     
     int unsubbed_count = 0;
     for(cur = nchan_slist_first(pubsub); cur != NULL; cur = next) {
@@ -2718,6 +2740,7 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
         if(nodeset->cluster.enabled) {
           nodeset_start_cluster_check_timer(nodeset);
         }
+        nodeset_check_spublish_availability(nodeset);
         nodeset->current_reconnect_delay = 0;
         nodeset_reconnect_disconnected_channels(nodeset);
         nodeset_run_on_ready_callbacks(nodeset);
@@ -2729,6 +2752,28 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
     ngx_add_timer(&nodeset->status_check_ev, nodeset_status_timer_interval(status));
   }
   return NGX_OK;
+}
+
+static void nodeset_check_spublish_availability(redis_nodeset_t *ns) {
+  if(!ns->cluster.enabled) {
+    //no cluster? we don't care.
+    return;
+  }
+  
+  redis_node_t *cur;
+  
+  int no_spublish = 0;
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    if(cur->state == REDIS_NODE_READY && !cur->have_spublish) {
+      no_spublish ++;
+    }
+  }
+  ns->use_spublish = no_spublish == 0;
+  
+  if(no_spublish) {
+    nodeset_log_warning(ns, "This cluster has nodes running Redis version < 7. Nchan is forced to use non-sharded pubsub commands that scale inversely to the cluster size. Upgrade to Redis >= 7 for much better scalability.");
+  }
+  
 }
 
 static void node_find_slaves_callback(redisAsyncContext *ac, void *rep, void *pd) {

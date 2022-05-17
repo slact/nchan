@@ -1,4 +1,4 @@
---input:  keys: [], values: [namespace, channel_id, status_code]
+--input:  keys: [], values: [namespace, channel_id, status_code, publish_command]
 --output: current_subscribers
 
 redis.call('echo', ' ####### PUBLISH STATUS ####### ')
@@ -17,7 +17,7 @@ local chan_key = ch
 
 for k,channel_key in pairs(redis.call('SMEMBERS', subs_key)) do
   --not efficient, but useful for a few short-term subscriptions
-  redis.call('PUBLISH', channel_key, pubmsg)
+  redis.call(publish_command, channel_key, pubmsg)
 end
 --clear short-term subscriber list
 redis.call('DEL', subs_key)

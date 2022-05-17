@@ -1,4 +1,4 @@
---input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target]
+--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, use_spublish]
 --output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
 
 local ns, id=ARGV[1], ARGV[2]
@@ -16,6 +16,7 @@ end
 local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
 
 local optimize_target = tonumber(ARGV[11]) == 2 and "bandwidth" or "cpu"
+local publish_command = ARGV[12]
 
 local time
 if optimize_target == "cpu" and redis.replicate_commands then
@@ -271,7 +272,8 @@ local msgpacked
 --but now that we're subscribing to slaves this is not possible
 --so just PUBLISH always.
 msgpacked = cmsgpack.pack(unpacked)
-redis.call('PUBLISH', channel_pubsub, msgpacked)
+
+redis.call(publish_command, channel_pubsub, msgpacked)
 
 local num_messages = redis.call('llen', key.messages)
 

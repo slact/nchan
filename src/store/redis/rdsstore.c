@@ -957,8 +957,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     }
   }
 
-  else if(CHECK_REPLY_STRVAL(reply->element[0], "subscribe") && CHECK_REPLY_INT(reply->element[2])) {
-    
+  else if((CHECK_REPLY_STRVAL(reply->element[0], "subscribe") || CHECK_REPLY_STRVAL(reply->element[0], "ssubscribe")) && CHECK_REPLY_INT(reply->element[2])) {
     if(chid) {
       chanhead = find_chanhead_for_pubsub_callback(chid);
       if(chanhead != NULL) {
@@ -997,7 +996,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     
     DBG("REDIS: PUB/SUB subscribed to %s (%i total)", reply->element[1]->str, reply->element[2]->integer);
   }
-  else if(CHECK_REPLY_STRVAL(reply->element[0], "unsubscribe") && CHECK_REPLY_INT(reply->element[2])) {
+  else if((CHECK_REPLY_STRVAL(reply->element[0], "unsubscribe") || CHECK_REPLY_STRVAL(reply->element[0], "sunsubscribe")) && CHECK_REPLY_INT(reply->element[2])) {
     
     if(chid) {
       DBG("received UNSUBSCRIBE acknowledgement for channel %V", chid);
@@ -1358,9 +1357,8 @@ ngx_int_t ensure_chanhead_pubsub_subscribed_if_needed(rdstore_channel_head_t *ch
    && nodeset_ready(ch->redis.nodeset)
   ) {
     pubsub_node = nodeset_node_pubsub_find_by_chanhead(ch);
-    DBG("SUBSCRIBING to %V{channel:%V}:pubsub", namespace, &ch->id);
     ch->pubsub_status = REDIS_PUBSUB_SUBSCRIBING;
-    redis_subscriber_command(pubsub_node, redis_subscriber_callback, pubsub_node, "SUBSCRIBE %b", STR(&ch->redis.pubsub_id));
+    redis_subscriber_command(pubsub_node, redis_subscriber_callback, pubsub_node, "%s %b", pubsub_node->nodeset->use_spublish ? "SSUBSCRIBE" : "SUBSCRIBE", STR(&ch->redis.pubsub_id));
   }
   return NGX_OK;
 }
@@ -1651,7 +1649,7 @@ static ngx_int_t nchan_store_delete_channel_send(redis_nodeset_t *ns, void *pd) 
   redis_channel_callback_data_t *d = pd;
   if(nodeset_ready(ns)) {
     redis_node_t *node = nodeset_node_find_by_channel_id(ns, d->channel_id);
-    nchan_redis_script(delete, node, &redisChannelDeleteCallback, d, d->channel_id, "");
+    nchan_redis_script(delete, node, &redisChannelDeleteCallback, d, d->channel_id, "%s",ns->use_spublish ? "SPUBLISH" : "PUBLISH");
     return NGX_OK;
   }
   else {
@@ -2275,9 +2273,10 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     }
     redis_command(node, publish_callback, d,
       //can't use the prebaked pubsub channel id because we don't have the chanhead here, just its id
-      "PUBLISH %b{channel:%b}:pubsub "
+      "%s %b{channel:%b}:pubsub "
       "\x9A\xA3msg\xCE%b\xCE%b%b%b%b\xDB%b%b\xD9%b%b\xD9%b%b%b",
       
+      nodeset->use_spublish ? "SPUBLISH" : "PUBLISH",
       STR(nodeset->settings.namespace),
       STR(d->channel_id),
       
@@ -2304,10 +2303,10 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     
   }
   else {  
-    //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff]
+    //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, , optimize_target, use_spublish]
     //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
     nchan_redis_script(publish, node, &redisPublishCallback, d, d->channel_id, 
-                      "%i %b %b %b %i %i %i %i %i", 
+                      "%i %b %b %b %i %i %i %i %i %s", 
                       msg->id.time, 
                       STR(&msgstr), 
                       STR((msg->content_type ? msg->content_type : &empty)), 
@@ -2316,7 +2315,8 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
                       d->message_timeout, 
                       d->max_messages, 
                       redis_publish_message_msgkey_size,
-                      nodeset->settings.optimize_target
+                      nodeset->settings.optimize_target,
+                      nodeset->use_spublish ? "SPUBLISH" : "PUBLISH"
                       );
   }
   if(mmapped && munmap(msgstr.data, msgstr.len) == -1) {
