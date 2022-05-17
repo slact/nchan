@@ -100,12 +100,11 @@ static dictType callbackDict = {
 
 static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
     redisAsyncContext *ac;
-    dict *channels = NULL, *patterns = NULL;
+    dict *channels = NULL, *patterns = NULL, *sharded_channels = NULL;
 
     channels = dictCreate(&callbackDict,NULL);
     if (channels == NULL)
         goto oom;
-
     patterns = dictCreate(&callbackDict,NULL);
     if (patterns == NULL)
         goto oom;
@@ -147,6 +146,7 @@ static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
     return ac;
 oom:
     if (channels) dictRelease(channels);
+    if (sharded_channels) dictRelease(sharded_channels);
     if (patterns) dictRelease(patterns);
     return NULL;
 }
@@ -323,7 +323,7 @@ static void __redisAsyncFree(redisAsyncContext *ac) {
 
         dictRelease(ac->sub.channels);
     }
-
+    
     if (ac->sub.patterns) {
         it = dictGetIterator(ac->sub.patterns);
         if (it != NULL) {
@@ -416,7 +416,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
     dict *callbacks;
     redisCallback *cb;
     dictEntry *de;
-    int pvariant;
+    int pvariant, svariant;
     char *stype;
     sds sname;
 
@@ -427,7 +427,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
         assert(reply->element[0]->type == REDIS_REPLY_STRING);
         stype = reply->element[0]->str;
         pvariant = (tolower(stype[0]) == 'p') ? 1 : 0;
-
+        svariant = (reply->element[0]->len > 3 && (strncasecmp(stype, "ssu"/*bscrscribe*/, 3) == 0 || strncasecmp(stype, "sun"/*subscribe*/, 3) == 0)) ? 1 : 0;
         if (pvariant)
             callbacks = ac->sub.patterns;
         else
@@ -444,14 +444,15 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
             cb = dictGetEntryVal(de);
 
             /* If this is an subscribe reply decrease pending counter. */
-            if (strcasecmp(stype+pvariant,"subscribe") == 0) {
+            if (strcasecmp(stype+pvariant+svariant,"subscribe") == 0) {
                 cb->pending_subs -= 1;
             }
+        
 
             memcpy(dstcb,cb,sizeof(*dstcb));
 
             /* If this is an unsubscribe message, remove it. */
-            if (strcasecmp(stype+pvariant,"unsubscribe") == 0) {
+            if (strcasecmp(stype+pvariant+svariant,"unsubscribe") == 0) {
                 if (cb->pending_subs == 0)
                     dictDelete(callbacks,sname);
 
@@ -497,6 +498,7 @@ static int redisIsSubscribeReply(redisReply *reply) {
     len = reply->element[0]->len - off;
 
     return !strncasecmp(str, "subscribe", len) ||
+           !strncasecmp(str, "ssubscribe", len) ||
            !strncasecmp(str, "message", len);
 
 }
@@ -740,7 +742,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     struct dict *cbdict;
     dictEntry *de;
     redisCallback *existcb;
-    int pvariant, hasnext;
+    int pvariant, svariant, hasnext;
     const char *cstr, *astr;
     size_t clen, alen;
     const char *p;
@@ -760,8 +762,9 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     assert(p != NULL);
     hasnext = (p[0] == '$');
     pvariant = (tolower(cstr[0]) == 'p') ? 1 : 0;
-    cstr += pvariant;
-    clen -= pvariant;
+    svariant = clen > 3 && (strncasecmp(cstr, "ssu"/*bscribe*/, 3) == 0 || strncasecmp(cstr, "sun"/*subscribe*/, 3) == 0);
+    cstr += pvariant + svariant;
+    clen -= pvariant + svariant;
 
     if (hasnext && strncasecmp(cstr,"subscribe\r\n",11) == 0) {
         c->flags |= REDIS_SUBSCRIBED;
@@ -789,11 +792,11 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
             if (ret == 0) sdsfree(sname);
         }
     } else if (strncasecmp(cstr,"unsubscribe\r\n",13) == 0) {
-        /* It is only useful to call (P)UNSUBSCRIBE when the context is
+        /* It is only useful to call (P|S)UNSUBSCRIBE when the context is
          * subscribed to one or more channels or patterns. */
         if (!(c->flags & REDIS_SUBSCRIBED)) return REDIS_ERR;
 
-        /* (P)UNSUBSCRIBE does not have its own response: every channel or
+        /* (P|S)UNSUBSCRIBE does not have its own response: every channel or
          * pattern that is unsubscribed will receive a message. This means we
          * should not append a callback function for this command. */
      } else if(strncasecmp(cstr,"monitor\r\n",9) == 0) {
