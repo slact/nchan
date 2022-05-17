@@ -146,6 +146,10 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.cluster_recovery_delay.jitter_multiplier = NGX_CONF_UNSET;
   scf->redis.cluster_recovery_delay.backoff_multiplier = NGX_CONF_UNSET;
   scf->redis.cluster_recovery_delay.max = NGX_CONF_UNSET_MSEC;
+  scf->redis.cluster_check_interval.min = NGX_CONF_UNSET_MSEC;
+  scf->redis.cluster_check_interval.jitter_multiplier = NGX_CONF_UNSET;
+  scf->redis.cluster_check_interval.backoff_multiplier = NGX_CONF_UNSET;
+  scf->redis.cluster_check_interval.max = NGX_CONF_UNSET_MSEC;
   scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
@@ -196,6 +200,22 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
     conf->redis.cluster_recovery_delay.backoff_multiplier = prev->redis.cluster_recovery_delay.backoff_multiplier;
   }
   ngx_conf_merge_msec_value(conf->redis.cluster_recovery_delay.max, prev->redis.cluster_recovery_delay.max, NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MAX_MSEC);
+  
+  
+  ngx_conf_merge_msec_value(conf->redis.cluster_check_interval.min, prev->redis.cluster_check_interval.min, NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MIN_MSEC);
+  if(prev->redis.cluster_check_interval.jitter_multiplier == NGX_CONF_UNSET) {
+    conf->redis.cluster_check_interval.jitter_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_JITTER_MULTIPLIER;
+  }
+  else {
+    conf->redis.cluster_check_interval.jitter_multiplier = prev->redis.cluster_check_interval.jitter_multiplier;
+  }
+  if(prev->redis.cluster_check_interval.backoff_multiplier == NGX_CONF_UNSET) {
+    conf->redis.cluster_check_interval.backoff_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_BACKOFF_MULTIPLIER;
+  }
+  else {
+    conf->redis.cluster_check_interval.backoff_multiplier = prev->redis.cluster_check_interval.backoff_multiplier;
+  }
+  ngx_conf_merge_msec_value(conf->redis.cluster_check_interval.max, prev->redis.cluster_check_interval.max, NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MAX_MSEC);
   
   ngx_conf_merge_value(conf->redis.load_scripts_unconditionally, prev->redis.load_scripts_unconditionally, 0);
   
@@ -294,7 +314,6 @@ static void *nchan_create_loc_conf(ngx_conf_t *cf) {
   ngx_memzero(&lcf->redis, sizeof(lcf->redis));
   lcf->redis.url_enabled=NGX_CONF_UNSET;
   lcf->redis.ping_interval = NGX_CONF_UNSET;
-  lcf->redis.cluster_check_interval=NGX_CONF_UNSET;
   lcf->redis.upstream_inheritable=NGX_CONF_UNSET;
   lcf->redis.storage_mode = REDIS_MODE_CONF_UNSET;
   lcf->redis.nostore_fastpublish = NGX_CONF_UNSET;
@@ -560,10 +579,6 @@ static char * nchan_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
   if(up)
     ngx_conf_merge_value(conf->redis.ping_interval, up->redis.ping_interval, NGX_CONF_UNSET);
   ngx_conf_merge_value(conf->redis.ping_interval, prev->redis.ping_interval, NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME);
-  
-  if(up)
-    ngx_conf_merge_value(conf->redis.cluster_check_interval, up->redis.cluster_check_interval, NGX_CONF_UNSET);
-  ngx_conf_merge_value(conf->redis.cluster_check_interval, prev->redis.cluster_check_interval, NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_TIME);
   
   if(up)
     ngx_conf_merge_value(conf->redis.nostore_fastpublish, up->redis.nostore_fastpublish, NGX_CONF_UNSET);

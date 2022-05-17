@@ -39,7 +39,6 @@ typedef struct {
   ngx_str_t                     url;
   ngx_flag_t                    url_enabled;
   time_t                        ping_interval;
-  time_t                        cluster_check_interval;
   ngx_str_t                     namespace;
   nchan_redis_storage_mode_t    storage_mode;
   ngx_int_t                     nostore_fastpublish;
@@ -335,6 +334,7 @@ typedef struct {
       ngx_int_t                     load_scripts_unconditionally;
       nchan_backoff_settings_t      reconnect_delay;
       nchan_backoff_settings_t      cluster_recovery_delay;
+      nchan_backoff_settings_t      cluster_check_interval;
       nchan_redis_optimize_t        optimize_target;
       ngx_int_t                     master_weight;
       ngx_int_t                     slave_weight;

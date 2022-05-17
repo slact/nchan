@@ -88,8 +88,8 @@ typedef struct { //redis_nodeset_cluster_t
   rbtree_seed_t               keyslots; //cluster rbtree seed
   redis_node_t               *recovering_on_node;
   int                         current_epoch;
+  ngx_msec_t                  current_check_interval;
   ngx_event_t                 check_ev;
-  time_t                      last_successful_check;
 } redis_nodeset_cluster_t;
 
 typedef struct {
@@ -161,7 +161,6 @@ struct redis_nodeset_s {
       ngx_int_t                   slave;
     }                           node_weight;
     time_t                      ping_interval;
-    time_t                      cluster_check_interval;
     ngx_str_t                  *namespace;
     nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  node_connect_timeout;
@@ -169,6 +168,7 @@ struct redis_nodeset_s {
     
     nchan_backoff_settings_t    reconnect_delay;
     nchan_backoff_settings_t    cluster_recovery_delay;
+    nchan_backoff_settings_t    cluster_check_interval;
     
     ngx_msec_t                  cluster_max_failing_msec;
     ngx_int_t                   load_scripts_unconditionally;

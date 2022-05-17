@@ -1358,11 +1358,29 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_message_timeout  
   > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Note that messages always expire from oldest to newest, so an older message may prevent a newer one with a shorter timeout from expiring. An Nginx variable can also be used to set the timeout dynamically.    
 
-- **nchan_redis_cluster_check_interval**  
+- **nchan_redis_cluster_check_interval_backoff** `<floating point> >= 0, ratio of current delay`  
   arguments: 1  
-  default: `5s`  
-  context: http, server, upstream, location  
-  > Send a CLUSTER INFO command to each connected Redis node to see if the cluster config epoch has changed. Sent only when in Cluster mode and if any other command that may result in a MOVE error has not been sent in the configured time.    
+  default: `2 (increase delay by 200% each try)`  
+  context: upstream  
+  > Add an exponentially increasing delay to the Redis cluster check interval. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_cluster_check_interval_backoff + 1)`.    
+
+- **nchan_redis_cluster_check_interval_jitter** `<floating point> >= 0, (0 to disable)`  
+  arguments: 1  
+  default: `0.2 (20% of inverval value)`  
+  context: upstream  
+  > Introduce random jitter to Redis cluster chck interval, where the range is `±(cluster_check_interval * nchan_redis_cluster_check_interval_jitter) / 2`.    
+
+- **nchan_redis_cluster_check_interval_max** `<time> (0 to disable)`  
+  arguments: 1  
+  default: `30s`  
+  context: upstream  
+  > Maximum Redis cluster check interval after backoff and jitter.    
+
+- **nchan_redis_cluster_check_interval_min** `<time>`  
+  arguments: 1  
+  default: `1s (0 to disable)`  
+  context: upstream  
+  > When connected to a cluster, periodically check the cluster state and layout via a random master node.    
 
 - **nchan_redis_cluster_connect_timeout**  
   arguments: 1  

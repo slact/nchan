@@ -593,15 +593,6 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
-  nchan_redis_cluster_check_interval [:main, :srv, :upstream, :loc],
-      :ngx_conf_set_sec_slot,
-      [:loc_conf, :"redis.cluster_check_interval"],
-      
-      group: "storage",
-      tags: ['redis'],
-      default: "5s",
-      info: "Send a CLUSTER INFO command to each connected Redis node to see if the cluster config epoch has changed. Sent only when in Cluster mode and if any other command that may result in a MOVE error has not been sent in the configured time."
-  
     nchan_redis_load_scripts_unconditionally [:upstream],
       :ngx_conf_set_flag_slot,
       [:srv_conf, "redis.load_scripts_unconditionally"],
@@ -677,7 +668,7 @@ CfCmd.new do
       default: "0.5 (increase delay by 50% each try)",
       info: "Add an exponentially increasing delay to Redis connection retries. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_reconnect_delay_backoff + 1)`."
       
-    nchan_redis_reconnect_delay_max [:upstream],
+  nchan_redis_reconnect_delay_max [:upstream],
       :ngx_conf_set_msec_slot,
       [:srv_conf, :"redis.reconnect_delay.max"],
   
@@ -686,6 +677,48 @@ CfCmd.new do
       default: "10s",
       value: "<time> (0 to disable)",
       info: "Maximum Redis reconnection delay after backoff and jitter."
+
+  nchan_redis_cluster_check_interval_min [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.cluster_check_interval.min"],
+  
+      alt: :nchan_redis_cluster_check_interval,
+      group: "storage",
+      tags: ['redis'],
+      value: "<time>",
+      default: "1s (0 to disable)",
+      info: "When connected to a cluster, periodically check the cluster state and layout via a random master node."
+  
+  nchan_redis_cluster_check_interval_jitter [:upstream],
+      :ngx_conf_set_jitter,
+      [:srv_conf, :"redis.cluster_check_interval.jitter_multiplier"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<floating point> >= 0, (0 to disable)",
+      default: "0.2 (20% of inverval value)",
+      info: "Introduce random jitter to Redis cluster chck interval, where the range is `±(cluster_check_interval * nchan_redis_cluster_check_interval_jitter) / 2`."
+  
+  nchan_redis_cluster_check_interval_backoff [:upstream],
+      :ngx_conf_set_exponential_backoff,
+      [:srv_conf, :"redis.cluster_check_interval.backoff_multiplier"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<floating point> >= 0, ratio of current delay",
+      default: "2 (increase delay by 200% each try)",
+      info: "Add an exponentially increasing delay to the Redis cluster check interval. `Delay[n] = (Delay[n-1] + jitter) * (nchan_redis_cluster_check_interval_backoff + 1)`."
+      
+  nchan_redis_cluster_check_interval_max [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.cluster_check_interval.max"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<time> (0 to disable)",
+      default: "30s",
+      info: "Maximum Redis cluster check interval after backoff and jitter."
+    
 
   nchan_redis_cluster_recovery_delay [:upstream],
       :ngx_conf_set_msec_slot,
