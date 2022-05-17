@@ -329,7 +329,7 @@ int nchan_cstrmatch(char *cstr, ngx_int_t n, ...) {
   return rc;
 }
 
-int nchan_cstr_startswith(char *cstr, char *match) {
+int nchan_cstr_startswith(const char *cstr, const char *match) {
   for(/*void*/; *match != '\0'; cstr++, match++) {
     if(*cstr == '\0' || *cstr != *match)
       return 0;
