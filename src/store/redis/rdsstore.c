@@ -386,12 +386,12 @@ int redisReplyOk(redisAsyncContext *ac, void *r) {
     return 0;
   }
   else if(reply->type == REDIS_REPLY_ERROR) {
-    const char *str = reply->str;
+    char *str = reply->str;
     if(nchan_cstr_startswith(str, script_error_start)) {
       unsigned i = strlen(script_error_start);
       ngx_str_t hash;
       hash.len = REDIS_LUA_HASH_LENGTH;
-      hash.data = &str[i];
+      hash.data = (u_char *)&str[i];
       i+=REDIS_LUA_HASH_LENGTH + 2;
       
       if(i>reply->len) {
@@ -426,7 +426,7 @@ int redisReplyOk(redisAsyncContext *ac, void *r) {
       }
         
       ngx_str_t errmsg;
-      errmsg.data = &str[16];
+      errmsg.data = (u_char *)&str[16];
       errmsg.len = prev - (char *)errmsg.data;
     
       redis_lua_script_t  *script;
