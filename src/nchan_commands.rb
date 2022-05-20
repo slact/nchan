@@ -760,7 +760,16 @@ CfCmd.new do
       value: "<time> (0 to disable)",
       default: "2s",
       info: "Maximum Redis cluster recovery delay after backoff and jitter."
-    
+  
+  nchan_redis_command_timeout [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.command_timeout"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<time> (0 to leave unlimited)",
+      default: "5s",
+      info: "If a Redis server exceeds this time to produce a command reply, it is considered unhealthy and is disconnected."
   
   nchan_redis_retry_commands [:upstream],
       :ngx_conf_set_flag_slot,

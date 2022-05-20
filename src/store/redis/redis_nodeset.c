@@ -355,6 +355,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.retry_commands_max_wait = scf->redis.retry_commands_max_wait == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RETRY_COMMANDS_MAX_WAIT_MSEC : scf->redis.retry_commands_max_wait;
     
+    ns->settings.command_timeout = scf->redis.command_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_COMMAND_TIMEOUT_MSEC : scf->redis.command_timeout;
     ns->settings.node_connect_timeout = scf->redis.node_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.node_connect_timeout;
     ns->settings.cluster_connect_timeout = scf->redis.cluster_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC : scf->redis.cluster_connect_timeout;
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
@@ -731,6 +732,38 @@ static void node_ping_event(ngx_event_t *ev) {
       ngx_add_timer(ev, ns->settings.ping_interval * 1000);
     }
   }
+}
+
+static void node_command_timeout_check_event(ngx_event_t *ev) {
+  redis_node_t       *node = ev->data;
+  redis_nodeset_t    *ns = node->nodeset;
+  if(!ev->timedout || ngx_exiting || ngx_quit)
+    return;
+  
+  long long prev_sent = node->timeout.prev_sent;
+  long long cur_received = node->timeout.received;
+  node->timeout.prev_sent = node->timeout.sent;
+  
+  if(cur_received < prev_sent) {
+    //TIMED OUT!
+    node_log_debug(node, "TIMED OUT!. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
+    node_log_warning(node, "%d commands took longer than the timeout limit. Marking node as failed", prev_sent - cur_received);
+    node_disconnect(node, REDIS_NODE_FAILED);
+    nodeset_examine(node->nodeset);
+    return;
+  }
+  
+  if(node->timeout.sent == node->timeout.received) {
+    node_log_debug(node, "NO timeout. RESETTING. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
+    node->timeout.sent = 0;
+    node->timeout.received = 0;
+    node->timeout.prev_sent = 0;
+  }
+  else {
+    node_log_debug(node, "NO timeout. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
+  }
+  
+  ngx_add_timer(ev, ns->settings.command_timeout);
 }
 
 static void nodeset_stop_cluster_check_timer(redis_nodeset_t *ns) {
@@ -1152,6 +1185,12 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   ngx_memzero(&node->ping_timer, sizeof(node->ping_timer));
   nchan_init_timer(&node->ping_timer, node_ping_event, node);
   
+  node->timeout.sent = 0;
+  node->timeout.received = 0;
+  node->timeout.prev_sent = 0;
+  ngx_memzero(&node->timeout.ev, sizeof(node->timeout.ev));
+  nchan_init_timer(&node->timeout.ev, node_command_timeout_check_event, node);
+  
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
   node->ctx.sync = NULL;
@@ -1448,6 +1487,10 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   }
   if(node->ping_timer.timer_set) {
     ngx_del_timer(&node->ping_timer);
+  }
+  
+  if(node->timeout.ev.timer_set) {
+    ngx_del_timer(&node->timeout.ev);
   }
   
   node->scripts_load_state.loading = 0;
@@ -2450,6 +2493,10 @@ static void node_make_ready(redis_node_t *node) {
     ngx_add_timer(&node->ping_timer, node->nodeset->settings.ping_interval * 1000);
   }
   
+  if(!node->timeout.ev.timer_set && node->nodeset->settings.command_timeout > 0) {
+    ngx_add_timer(&node->timeout.ev, node->nodeset->settings.command_timeout);
+  }
+  
   //do we have any channels that don't belong here?
   if(node->cluster.enabled) {
     
@@ -3240,6 +3287,21 @@ ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
   }
   ch->redis.node.pubsub = NULL; 
   return NGX_OK;
+}
+
+void node_command_sent(redis_node_t *node) {
+  if(node) {
+    node->timeout.sent++;
+    node->pending_commands++;
+  }
+  nchan_update_stub_status(redis_pending_commands, 1); 
+}
+void node_command_received(redis_node_t *node) {
+  if(node) {
+    node->timeout.received++;
+    node->pending_commands--;
+  }
+  nchan_update_stub_status(redis_pending_commands, -1); 
 }
 
 static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {

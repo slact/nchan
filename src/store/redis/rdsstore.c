@@ -79,10 +79,9 @@ static size_t                     redis_publish_message_msgkey_size;
 #define redis_command(node, cb, pd, fmt, args...)                 \
   do {                                                               \
     if(node->state >= REDIS_NODE_READY) {                            \
-      if((cb) != NULL) {                                               \
+      if((cb) != NULL) {                                             \
         /* a reply is expected, so track this command */             \
-        node->pending_commands++;                                    \
-        nchan_update_stub_status(redis_pending_commands, 1);         \
+        node_command_sent(node);                                     \
       }                                                              \
       redisAsyncCommand((node)->ctx.cmd, cb, pd, fmt, ##args);       \
     } else {                                                         \
@@ -558,8 +557,7 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *ac, void *r, void *p
   ngx_str_t            *chid = &d->channel_id;
   redis_node_t         *node = ac->data;
   
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  node_command_received(node);
   
   DBG("get_msg_from_msgkey_callback");
   
@@ -1139,8 +1137,7 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   redis_node_t                *node = c->data;
   int                          keepalive_ttl;
   
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  node_command_received(node);
   
   sdata->chanhead->reserved--;
   
@@ -1222,8 +1219,7 @@ static void redis_subscriber_unregister_cb(redisAsyncContext *c, void *r, void *
   redisReply      *reply = r;
   redis_node_t    *node = c->data;
   
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  node_command_received(node);
   
   if(reply && reply->type == REDIS_REPLY_ERROR) {
     ngx_str_t    errstr;
@@ -1311,10 +1307,8 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
   redis_node_t             *node = c->data;
   
   head->reserved--;
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
   
-  if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+  node_command_received(node);
   
   if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
     head->reserved++;
@@ -1661,13 +1655,11 @@ static ngx_int_t nchan_store_delete_channel_send(redis_nodeset_t *ns, void *pd) 
 }
 
 static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *privdata) {
-  redis_node_t  *node;
+  redis_node_t  *node = ac ? ac->data : NULL;
   
-  nchan_update_stub_status(redis_pending_commands, -1);
+  node_command_received(node);
+  
   if(ac) {
-    node = ac->data;
-    node->pending_commands--;
-    
     if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r) && nodeset_node_can_retry_commands(node)) {
       nodeset_callback_on_ready(node->nodeset, nchan_store_delete_channel_send, privdata);
       return;
@@ -1701,12 +1693,12 @@ static ngx_int_t nchan_store_find_channel_send(redis_nodeset_t *ns, void *pd) {
 }
 
 static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privdata) {
-  redis_node_t                 *node = NULL;
+  redis_node_t                 *node = ac ? ac->data : NULL;
+  
+  node_command_received(node);
   
   if(ac) {
     node = ac->data;
-    node->pending_commands--;
-    nchan_update_stub_status(redis_pending_commands, -1);
     
     if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r) && nodeset_node_can_retry_commands(node)) {
       nodeset_callback_on_ready(node->nodeset, nchan_store_find_channel_send, privdata);
@@ -1860,19 +1852,16 @@ static void redis_get_message_callback(redisAsyncContext *ac, void *r, void *pri
   nchan_compressed_msg_t     cmsg;
   ngx_str_t                  content_type;
   ngx_str_t                  eventsource_event;
-  redis_node_t              *node;
+  redis_node_t              *node = ac ? ac->data : NULL;
 
+  node_command_received(node);
+  
   if(d == NULL) {
     ERR("redis_get_mesage_callback has NULL userdata");
     return;
   }
   
   if(ac) {
-    node = ac->data;
-    
-    node->pending_commands--;
-    nchan_update_stub_status(redis_pending_commands, -1);
-    
     if(!nodeset_ready(node->nodeset) || (!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node))) {
       nodeset_callback_on_ready(node->nodeset, nchan_store_async_get_message_send, privdata);
       return;
@@ -2379,8 +2368,8 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   
   
   redis_node_t                 *node = c->data;
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  
+  node_command_received(node);
   
   if(d->shared_msg) {
     msg_release(d->msg, "redis publish");
@@ -2421,8 +2410,7 @@ static void redisPublishNostoreQueuedCheckCallback(redisAsyncContext *c, void *r
   redisReply                    *reply=r;
   
   redis_node_t                 *node = c->data;
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  node_command_received(node);
   
   if(reply && !CHECK_REPLY_STATUSVAL(reply, "QUEUED")) {
     if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
@@ -2441,9 +2429,6 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   nchan_channel_t                ch;
   
   redis_node_t                 *node = c->data;
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
-  
   node_command_received(node);
   if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
     if(d->shared_msg) {
@@ -2523,8 +2508,7 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
   redisReply      *reply = r;
   redis_node_t    *node = c->data;
   
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  node_command_received(node);
   
   if(reply && reply->type == REDIS_REPLY_ERROR) {
     ngx_str_t    errstr;
@@ -2619,8 +2603,8 @@ static void get_subscriber_info_id_callback(redisAsyncContext *c, void *r, void 
   redisReply                    *reply = r;
   
   redis_node_t                 *node = c->data;
-  node->pending_commands--;
-  nchan_update_stub_status(redis_pending_commands, -1);
+  
+  node_command_received(node);
   
   callback_pt  cb = d->cb;
   void        *cb_pd = d->pd;

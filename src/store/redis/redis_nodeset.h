@@ -167,6 +167,7 @@ struct redis_nodeset_s {
     nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  node_connect_timeout;
     ngx_msec_t                  cluster_connect_timeout;
+    ngx_msec_t                  command_timeout;
     
     nchan_backoff_settings_t    reconnect_delay;
     nchan_backoff_settings_t    cluster_recovery_delay;
@@ -243,6 +244,12 @@ struct redis_node_s {
   }                         ctx;
   int                       pending_commands;
   struct {
+    long long                 sent;
+    long long                 received;
+    long long                 prev_sent;
+    ngx_event_t               ev;
+  }                         timeout;
+  struct {
   nchan_slist_t               cmd;
   nchan_slist_t               pubsub;
   }                         channels;
@@ -276,6 +283,9 @@ int node_set_master_node(redis_node_t *node, redis_node_t *master);
 redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_add_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
+
+void node_command_sent(redis_node_t *node);
+void node_command_received(redis_node_t *node);
 
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);

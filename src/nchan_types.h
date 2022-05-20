@@ -328,6 +328,8 @@ typedef struct {
 
 typedef struct {
   struct {
+      ngx_int_t                     retry_commands;
+      ngx_msec_t                    retry_commands_max_wait;
       ngx_msec_t                    node_connect_timeout;  
       ngx_msec_t                    cluster_connect_timeout;
       ngx_msec_t                    cluster_max_failing_msec;
@@ -335,6 +337,7 @@ typedef struct {
       nchan_backoff_settings_t      reconnect_delay;
       nchan_backoff_settings_t      cluster_recovery_delay;
       nchan_backoff_settings_t      cluster_check_interval;
+      ngx_msec_t                    command_timeout;
       nchan_redis_optimize_t        optimize_target;
       ngx_int_t                     master_weight;
       ngx_int_t                     slave_weight;

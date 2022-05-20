@@ -976,6 +976,12 @@ static ngx_command_t  nchan_commands[] = {
     offsetof(nchan_srv_conf_t, redis.cluster_recovery_delay.max),
     NULL } ,
 
+  { ngx_string("nchan_redis_command_timeout"),
+    NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_msec_slot,
+    NGX_HTTP_SRV_CONF_OFFSET,
+    offsetof(nchan_srv_conf_t, redis.command_timeout),
+    NULL } ,
   { ngx_string("nchan_redis_retry_commands"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_flag_slot,

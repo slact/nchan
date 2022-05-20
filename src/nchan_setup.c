@@ -136,6 +136,8 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   if(scf == NULL) {
     return NGX_CONF_ERROR;
   }
+  scf->redis.retry_commands = NGX_CONF_UNSET;
+  scf->redis.retry_commands_max_wait = NGX_CONF_UNSET_MSEC;
   scf->redis.node_connect_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.cluster_connect_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.reconnect_delay.min = NGX_CONF_UNSET_MSEC;
@@ -151,6 +153,7 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.cluster_check_interval.backoff_multiplier = NGX_CONF_UNSET;
   scf->redis.cluster_check_interval.max = NGX_CONF_UNSET_MSEC;
   scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
+  scf->redis.command_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
@@ -166,10 +169,16 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
 static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   nchan_srv_conf_t       *prev = parent, *conf = child;
   
+  ngx_conf_merge_value(conf->redis.retry_commands, prev->redis.retry_commands, NCHAN_DEFAULT_REDIS_CAN_RETRY_COMMANDS);
+  
+  ngx_conf_merge_msec_value(conf->redis.retry_commands_max_wait, prev->redis.retry_commands_max_wait, NCHAN_DEFAULT_REDIS_RETRY_COMMANDS_MAX_WAIT_MSEC);
+  
   ngx_conf_merge_msec_value(conf->redis.node_connect_timeout, prev->redis.node_connect_timeout, NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC);
   ngx_conf_merge_msec_value(conf->redis.cluster_connect_timeout, prev->redis.cluster_connect_timeout, NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC);
   
   ngx_conf_merge_msec_value(conf->redis.cluster_max_failing_msec, prev->redis.cluster_max_failing_msec, NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC);
+  
+  ngx_conf_merge_msec_value(conf->redis.command_timeout, prev->redis.command_timeout, NCHAN_DEFAULT_REDIS_COMMAND_TIMEOUT_MSEC);
   
   ngx_conf_merge_msec_value(conf->redis.reconnect_delay.min, prev->redis.reconnect_delay.min, NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MIN_MSEC);
   if(prev->redis.reconnect_delay.jitter_multiplier == NGX_CONF_UNSET) {
