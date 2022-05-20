@@ -761,6 +761,26 @@ CfCmd.new do
       default: "2s",
       info: "Maximum Redis cluster recovery delay after backoff and jitter."
     
+  
+  nchan_redis_retry_commands [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, :"redis.retry_commands"],
+  
+      group: "storage",
+      tags: ['redis'],
+      default: "on",
+      info: "Allow Nchan to retry some Redis commands on keyslot errors and cluster unavailability. Queuing up a lot of commands while the cluster is unavailable may lead to excessive memory use, but it can also defer commands during transient failures."
+
+  nchan_redis_retry_commands_max_wait [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.retry_commands_max_wait"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<time> (0 to leave unlimited)",
+      default: "500ms",
+      info: "When `nchan_redis_retry_commands` is on, the maximum time a command will stayed queued to be retried."
+  
   nchan_redis_subscribe_weights [:upstream],
       :ngx_conf_set_redis_subscribe_weights,
       :srv_conf,

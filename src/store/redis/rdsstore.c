@@ -565,8 +565,8 @@ static void get_msg_from_msgkey_callback(redisAsyncContext *ac, void *r, void *p
   
   log_redis_reply(d->name, d->t);
   
-  if(!nodeset_node_reply_keyslot_ok(node, reply)) {
-    nodeset_callback_on_ready(node->nodeset, 1000, get_msg_from_msgkey_send, d);
+  if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
+    nodeset_callback_on_ready(node->nodeset, get_msg_from_msgkey_send, d);
     return;
   }
   
@@ -1144,9 +1144,9 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   
   sdata->chanhead->reserved--;
   
-  if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+  if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
     sdata->chanhead->reserved++;
-    nodeset_callback_on_ready(node->nodeset, 1000, redis_subscriber_register_send_retry_wrapper, sdata);
+    nodeset_callback_on_ready(node->nodeset, redis_subscriber_register_send_retry_wrapper, sdata);
     return; 
   }
   
@@ -1250,7 +1250,7 @@ static void redis_subscriber_unregister_cb(redisAsyncContext *c, void *r, void *
       d->channel_id->data = (u_char *)&d->channel_id[1];
       d->allocd = 1;
       nchan_strcpy(d->channel_id, &channel_id, 0);
-      nodeset_callback_on_ready(node->nodeset, 1000, redis_subscriber_unregister_send, d);
+      nodeset_callback_on_ready(node->nodeset, redis_subscriber_unregister_send, d);
       return;
     }
     
@@ -1315,8 +1315,10 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+  
+  if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
     head->reserved++;
-    nodeset_callback_on_ready(node->nodeset, 1000, redisChannelKeepaliveCallback_retry_wrapper, head);
+    nodeset_callback_on_ready(node->nodeset, redisChannelKeepaliveCallback_retry_wrapper, head);
     return;
   }
   else {
@@ -1666,8 +1668,8 @@ static void redisChannelDeleteCallback(redisAsyncContext *ac, void *r, void *pri
     node = ac->data;
     node->pending_commands--;
     
-    if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r)) {
-      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_delete_channel_send, privdata);
+    if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r) && nodeset_node_can_retry_commands(node)) {
+      nodeset_callback_on_ready(node->nodeset, nchan_store_delete_channel_send, privdata);
       return;
     }
   }
@@ -1706,8 +1708,8 @@ static void redisChannelFindCallback(redisAsyncContext *ac, void *r, void *privd
     node->pending_commands--;
     nchan_update_stub_status(redis_pending_commands, -1);
     
-    if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r)) {
-      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_find_channel_send, privdata);
+    if(!nodeset_node_reply_keyslot_ok(node, (redisReply *)r) && nodeset_node_can_retry_commands(node)) {
+      nodeset_callback_on_ready(node->nodeset, nchan_store_find_channel_send, privdata);
       return;
     }
   }
@@ -1871,8 +1873,8 @@ static void redis_get_message_callback(redisAsyncContext *ac, void *r, void *pri
     node->pending_commands--;
     nchan_update_stub_status(redis_pending_commands, -1);
     
-    if(!nodeset_ready(node->nodeset) || !nodeset_node_reply_keyslot_ok(node, reply)) {
-      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_async_get_message_send, privdata);
+    if(!nodeset_ready(node->nodeset) || (!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node))) {
+      nodeset_callback_on_ready(node->nodeset, nchan_store_async_get_message_send, privdata);
       return;
     }
   
@@ -2189,7 +2191,7 @@ static ngx_int_t redis_publish_message_nodeset_maybe_retry(redis_nodeset_t *ns, 
   //retry maybe
   if(d->retry < REDIS_NODESET_NOT_READY_MAX_RETRIES) {
     d->retry++;
-    nodeset_callback_on_ready(ns, 1000, redis_publish_message_send, d);
+    nodeset_callback_on_ready(ns, redis_publish_message_send, d);
   }
   else {
     d->callback(NGX_HTTP_SERVICE_UNAVAILABLE, NULL, d->privdata);
@@ -2423,7 +2425,7 @@ static void redisPublishNostoreQueuedCheckCallback(redisAsyncContext *c, void *r
   nchan_update_stub_status(redis_pending_commands, -1);
   
   if(reply && !CHECK_REPLY_STATUSVAL(reply, "QUEUED")) {
-    if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+    if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
       d->cluster_move_error = 1;
     }
     else {
@@ -2442,7 +2444,8 @@ static void redisPublishCallback(redisAsyncContext *c, void *r, void *privdata) 
   node->pending_commands--;
   nchan_update_stub_status(redis_pending_commands, -1);
   
-  if(!nodeset_node_reply_keyslot_ok(node, reply)) {
+  node_command_received(node);
+  if(!nodeset_node_reply_keyslot_ok(node, reply) && nodeset_node_can_retry_commands(node)) {
     if(d->shared_msg) {
       redis_publish_message_nodeset_maybe_retry(node->nodeset, d);
     }
@@ -2547,7 +2550,7 @@ static void nchan_store_redis_add_fakesub_callback(redisAsyncContext *c, void *r
       d->channel_id = (ngx_str_t *)&d[1];
       d->channel_id->data = (u_char *)&d->channel_id[1];
       nchan_strcpy(d->channel_id, &channel_id, 0);
-      nodeset_callback_on_ready(node->nodeset, 1000, nchan_store_redis_add_fakesub_send_retry_wrapper, d);
+      nodeset_callback_on_ready(node->nodeset, nchan_store_redis_add_fakesub_send_retry_wrapper, d);
       
       return;
     }

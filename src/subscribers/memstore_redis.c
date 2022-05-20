@@ -166,7 +166,7 @@ static ngx_int_t sub_respond_status(ngx_int_t status, void *ptr, sub_data_t *d) 
         sub_data_t **dd = ngx_alloc(sizeof(*d), ngx_cycle->log);
         *dd = d;
         d->onconnect_callback_pd = dd;
-        nodeset_callback_on_ready(nodeset, 0, reconnect_callback, dd);
+        nodeset_callback_on_ready(nodeset, reconnect_callback, dd);
       }
       break;
       

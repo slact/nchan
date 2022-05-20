@@ -351,6 +351,10 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ngx_str_t                   *upstream_url, **urlref;
     ns->upstream = rcf->upstream;
     
+    ns->settings.retry_commands = scf->redis.retry_commands == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CAN_RETRY_COMMANDS : scf->redis.retry_commands;
+    
+    ns->settings.retry_commands_max_wait = scf->redis.retry_commands_max_wait == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RETRY_COMMANDS_MAX_WAIT_MSEC : scf->redis.retry_commands_max_wait;
+    
     ns->settings.node_connect_timeout = scf->redis.node_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.node_connect_timeout;
     ns->settings.cluster_connect_timeout = scf->redis.cluster_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC : scf->redis.cluster_connect_timeout;
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
@@ -1864,7 +1868,10 @@ int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
      || nchan_cstr_startswith(reply->str, script_nonlocal_key_error_redis_7)
      || nchan_cstr_startswith(reply->str, command_move_error)
      || nchan_cstr_startswith(reply->str, command_ask_error)) {
-      if(!node->cluster.enabled) {
+      if(!node) {
+        nchan_log_error("Got a keyslot error from Redis on a NULL node");
+      }
+      else if(!node->cluster.enabled) {
         node_log_error(node, "got a cluster error on a non-cluster redis connection: %s", reply->str);
         node_disconnect(node, REDIS_NODE_FAILED);
         nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Strange response from node");
@@ -1876,6 +1883,14 @@ int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
     }
   }
   return 1;
+}
+
+int nodeset_node_can_retry_commands(redis_node_t *node) {
+  if(!node) {
+    return 0;
+  }
+  
+  return node->nodeset->settings.retry_commands;
 }
 
 static void node_subscribe_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -2582,8 +2597,10 @@ static void nodeset_onready_expire_event(ngx_event_t *ev) {
   nchan_list_remove(&rcb->ns->onready_callbacks, rcb);
 }
 
-ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd) {
+ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd) {
   nodeset_onready_callback_t *ncb;
+  
+  ngx_msec_t max_wait = ns->settings.retry_commands_max_wait;
   
   if(ns->status == REDIS_NODESET_READY) {
     cb(ns, pd);
