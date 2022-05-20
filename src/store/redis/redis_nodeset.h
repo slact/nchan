@@ -130,7 +130,7 @@ typedef struct {
 #endif
 
 
-
+#define NODESET_MAX_STATUS_MSG_LENGTH 512
 struct redis_nodeset_s {
   //a set of redis nodes
   //  maybe just 1 master
@@ -140,7 +140,6 @@ struct redis_nodeset_s {
   char                       *name;
   redis_nodeset_status_t      status;
   ngx_event_t                 status_check_ev;
-  const char                 *status_msg;
   ngx_time_t                  current_status_start;
   ngx_int_t                   current_status_times_checked;
   ngx_msec_t                  current_reconnect_delay;
@@ -196,6 +195,7 @@ struct redis_nodeset_s {
   
   nchan_reaper_t              chanhead_reaper;
   nchan_list_t                onready_callbacks;
+  char                        status_msg[NODESET_MAX_STATUS_MSG_LENGTH];
 #if REDIS_NODESET_DBG
   struct {
     redis_node_dbg_list_t       nodes;

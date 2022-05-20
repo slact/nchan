@@ -326,7 +326,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   ns->status = REDIS_NODESET_DISCONNECTED;
   ngx_memzero(&ns->status_check_ev, sizeof(ns->status_check_ev));
-  ns->status_msg = NULL;
+  ns->status_msg[0] = '\0';
   nchan_init_timer(&ns->status_check_ev, nodeset_check_status_event, ns);
   
   //init cluster stuff
@@ -340,7 +340,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   ns->use_spublish = 0;
   
-  //urls
+  //various upstream settings
   if(rcf->upstream) {
     nchan_srv_conf_t           *scf = NULL;
     scf = ngx_http_conf_upstream_srv_conf(rcf->upstream, ngx_nchan_module);
@@ -920,6 +920,7 @@ static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns) {
       }
     }
   }
+  
   return 1;
 }
 
@@ -963,6 +964,8 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   redis_nodeset_t            *ns = node->nodeset;
   int                         current_epoch;
   u_char                      errbuf[1024];
+  
+  ngx_snprintf(errbuf, 1024, "unknown reason%Z");
   
   if(ns->cluster.recovering_on_node != node) {
     ngx_snprintf(errbuf, 1024, "got a response from a different node than where recovery was attempted%Z");
@@ -1111,7 +1114,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   //success?...
   nodeset_examine(ns);
   if(ns->status != REDIS_NODESET_READY) {
-    ngx_snprintf(errbuf, 1024, "%s%Z", ns->status_msg == NULL ? "(unknown reason)" : ns->status_msg);
+    ngx_snprintf(errbuf, 1024, "%s%Z", ns->status_msg[0] == '\0' ? "(unknown reason)" : ns->status_msg);
     goto fail;
   }
   ns->last_cluster_recovery_check_time.sec = 0;
@@ -2773,7 +2776,7 @@ const char *node_nickname_cstr(redis_node_t *node) {
 }
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
-  nodeset->status_msg = msg;
+  ngx_snprintf((u_char *)nodeset->status_msg, NODESET_MAX_STATUS_MSG_LENGTH, "%s%Z", msg ? msg : "");
   if(nodeset->status != status) {
     if(msg) {
       ngx_uint_t  lvl;
