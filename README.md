@@ -1418,9 +1418,15 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Maximum Redis cluster recovery delay after backoff and jitter.    
 
+- **nchan_redis_command_timeout** `<time> (0 to leave unlimited)`  
+  arguments: 1  
+  default: `5s`  
+  context: upstream  
+  > If a Redis server exceeds this time to produce a command reply, it is considered unhealthy and is disconnected.    
+
 - **nchan_redis_connect_timeout**  
   arguments: 1  
-  default: `2s`  
+  default: `10s`  
   context: upstream  
   > Redis server connection timeout.    
 
