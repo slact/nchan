@@ -615,7 +615,7 @@ CfCmd.new do
       alt: :nchan_redis_node_connect_timeout,
       group: "storage",
       tags: ['redis'],
-      default: "2s",
+      default: "10s",
       info: "Redis server connection timeout."
   
   nchan_redis_cluster_connect_timeout [:upstream],
