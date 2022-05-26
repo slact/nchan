@@ -1,3 +1,8 @@
+ feature: configurable Redis command timeouts with nchan_redis_command_timeout
+ feature: configurable Redis command retries with nchan_redis_retry_commands and nchan_redis_retry_commands_max_wait
+ fix: Redis cluster status checks can now discover new slaves
+ fix: Redis 7 cluster keyslot errors not recognized on Redis 7
+ feature: Redis 7 sharded pubsub support
  feature: configurable Redis cluster recovery time, backoff, and jitter
  feature: Redis cluster failure recovery without disconnection
  feature: configurable Redis reconnection time, backoff, and jitter
