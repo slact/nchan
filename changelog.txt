@@ -1,3 +1,4 @@
+1.3.0 (May 26 2022)
  feature: configurable Redis command timeouts with nchan_redis_command_timeout
  feature: configurable Redis command retries with nchan_redis_retry_commands and nchan_redis_retry_commands_max_wait
  fix: Redis cluster status checks can now discover new slaves

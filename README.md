@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.2.15 (December 27, 2021) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.3.0 (May 26, 2022) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -705,7 +705,7 @@ Redis Cluster connections are designed to be resilient and try to recover from e
 All Nchan servers sharing a Redis server or cluster should have their times synchronized (via ntpd or your favorite ntp daemon). Failure to do so may result in missed or duplicate messages.
 
 ##### Failover Recovery
-Starting with version 1.2.16, Nchan will attempt to recover from cluster node failures, keyslot errors, and cluster epoch changes without disconnecting from the entire cluster. It will attempt to do this until [`nchan_redis_cluster_max_failing_time`](#nchan_redis_cluster_max_failing_time) is exceeded. Additionally, [recovery attempt delays](#nchan_redis_cluster_recovery_delay) have configurable [jitter](#nchan_redis_cluster_recovery_delay_jitter), [exponential backoff](#nchan_redis_cluster_recovery_delay_backoff), and [maximum](#nchan_redis_cluster_recovery_delay_max) values.
+Starting with version 1.3.0, Nchan will attempt to recover from cluster node failures, keyslot errors, and cluster epoch changes without disconnecting from the entire cluster. It will attempt to do this until [`nchan_redis_cluster_max_failing_time`](#nchan_redis_cluster_max_failing_time) is exceeded. Additionally, [recovery attempt delays](#nchan_redis_cluster_recovery_delay) have configurable [jitter](#nchan_redis_cluster_recovery_delay_jitter), [exponential backoff](#nchan_redis_cluster_recovery_delay_backoff), and [maximum](#nchan_redis_cluster_recovery_delay_max) values.
 
 #### Using Redis securely
 
