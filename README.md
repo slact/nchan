@@ -1418,9 +1418,15 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: upstream  
   > Maximum Redis cluster recovery delay after backoff and jitter.    
 
+- **nchan_redis_command_timeout** `<time> (0 to leave unlimited)`  
+  arguments: 1  
+  default: `5s`  
+  context: upstream  
+  > If a Redis server exceeds this time to produce a command reply, it is considered unhealthy and is disconnected.    
+
 - **nchan_redis_connect_timeout**  
   arguments: 1  
-  default: `2s`  
+  default: `10s`  
   context: upstream  
   > Redis server connection timeout.    
 
@@ -1493,6 +1499,18 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `10s`  
   context: upstream  
   > Maximum Redis reconnection delay after backoff and jitter.    
+
+- **nchan_redis_retry_commands**  
+  arguments: 1  
+  default: `on`  
+  context: upstream  
+  > Allow Nchan to retry some Redis commands on keyslot errors and cluster unavailability. Queuing up a lot of commands while the cluster is unavailable may lead to excessive memory use, but it can also defer commands during transient failures.    
+
+- **nchan_redis_retry_commands_max_wait** `<time> (0 to leave unlimited)`  
+  arguments: 1  
+  default: `500ms`  
+  context: upstream  
+  > When `nchan_redis_retry_commands` is on, the maximum time a command will stayed queued to be retried.    
 
 - **nchan_redis_server** `<redis-url>`  
   arguments: 1  

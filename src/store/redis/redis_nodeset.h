@@ -130,7 +130,7 @@ typedef struct {
 #endif
 
 
-
+#define NODESET_MAX_STATUS_MSG_LENGTH 512
 struct redis_nodeset_s {
   //a set of redis nodes
   //  maybe just 1 master
@@ -140,7 +140,6 @@ struct redis_nodeset_s {
   char                       *name;
   redis_nodeset_status_t      status;
   ngx_event_t                 status_check_ev;
-  const char                 *status_msg;
   ngx_time_t                  current_status_start;
   ngx_int_t                   current_status_times_checked;
   ngx_msec_t                  current_reconnect_delay;
@@ -160,11 +159,14 @@ struct redis_nodeset_s {
       ngx_int_t                   master;
       ngx_int_t                   slave;
     }                           node_weight;
+    unsigned                    retry_commands:1;
+    ngx_msec_t                  retry_commands_max_wait;
     time_t                      ping_interval;
     ngx_str_t                  *namespace;
     nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  node_connect_timeout;
     ngx_msec_t                  cluster_connect_timeout;
+    ngx_msec_t                  command_timeout;
     
     nchan_backoff_settings_t    reconnect_delay;
     nchan_backoff_settings_t    cluster_recovery_delay;
@@ -193,6 +195,7 @@ struct redis_nodeset_s {
   
   nchan_reaper_t              chanhead_reaper;
   nchan_list_t                onready_callbacks;
+  char                        status_msg[NODESET_MAX_STATUS_MSG_LENGTH];
 #if REDIS_NODESET_DBG
   struct {
     redis_node_dbg_list_t       nodes;
@@ -241,6 +244,12 @@ struct redis_node_s {
   }                         ctx;
   int                       pending_commands;
   struct {
+    long long                 sent;
+    long long                 received;
+    long long                 prev_sent;
+    ngx_event_t               ev;
+  }                         timeout;
+  struct {
   nchan_slist_t               cmd;
   nchan_slist_t               pubsub;
   }                         channels;
@@ -275,6 +284,9 @@ redis_node_t *node_find_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_add_slave_node(redis_node_t *node, redis_node_t *slave);
 int node_remove_slave_node(redis_node_t *node, redis_node_t *slave);
 
+void node_command_sent(redis_node_t *node);
+void node_command_received(redis_node_t *node);
+
 ngx_int_t nodeset_connect_all(void);
 int nodeset_connect(redis_nodeset_t *ns);
 int nodeset_node_keyslot_changed(redis_node_t *node, const char *reason);
@@ -282,7 +294,7 @@ int nodeset_disconnect(redis_nodeset_t *ns);
 ngx_int_t nodeset_destroy_all(void);
 ngx_int_t nodeset_each(void (*)(redis_nodeset_t *, void *), void *privdata);
 ngx_int_t nodeset_each_node(redis_nodeset_t *, void (*)(redis_node_t *, void *), void *privdata);
-ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd);
+ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns,  ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd);
 ngx_int_t nodeset_abort_on_ready_callbacks(redis_nodeset_t *ns);
 ngx_int_t nodeset_run_on_ready_callbacks(redis_nodeset_t *ns);
 
@@ -301,6 +313,7 @@ redis_node_t *nodeset_node_find_by_channel_id(redis_nodeset_t *ns, ngx_str_t *ch
 redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key);
 redis_node_t *nodeset_node_find_any_ready_master(redis_nodeset_t *ns);
 int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *r);
+int nodeset_node_can_retry_commands(redis_node_t *node);
 int nodeset_ready(redis_nodeset_t *nodeset);
 
 //chanheads are (void *) here to avoid circular typedef dependency with store-private.h

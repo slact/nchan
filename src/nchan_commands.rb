@@ -615,7 +615,7 @@ CfCmd.new do
       alt: :nchan_redis_node_connect_timeout,
       group: "storage",
       tags: ['redis'],
-      default: "2s",
+      default: "10s",
       info: "Redis server connection timeout."
   
   nchan_redis_cluster_connect_timeout [:upstream],
@@ -760,7 +760,36 @@ CfCmd.new do
       value: "<time> (0 to disable)",
       default: "2s",
       info: "Maximum Redis cluster recovery delay after backoff and jitter."
-    
+  
+  nchan_redis_command_timeout [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.command_timeout"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<time> (0 to leave unlimited)",
+      default: "5s",
+      info: "If a Redis server exceeds this time to produce a command reply, it is considered unhealthy and is disconnected."
+  
+  nchan_redis_retry_commands [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, :"redis.retry_commands"],
+  
+      group: "storage",
+      tags: ['redis'],
+      default: "on",
+      info: "Allow Nchan to retry some Redis commands on keyslot errors and cluster unavailability. Queuing up a lot of commands while the cluster is unavailable may lead to excessive memory use, but it can also defer commands during transient failures."
+
+  nchan_redis_retry_commands_max_wait [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.retry_commands_max_wait"],
+  
+      group: "storage",
+      tags: ['redis'],
+      value: "<time> (0 to leave unlimited)",
+      default: "500ms",
+      info: "When `nchan_redis_retry_commands` is on, the maximum time a command will stayed queued to be retried."
+  
   nchan_redis_subscribe_weights [:upstream],
       :ngx_conf_set_redis_subscribe_weights,
       :srv_conf,

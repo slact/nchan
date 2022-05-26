@@ -326,7 +326,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   ns->status = REDIS_NODESET_DISCONNECTED;
   ngx_memzero(&ns->status_check_ev, sizeof(ns->status_check_ev));
-  ns->status_msg = NULL;
+  ns->status_msg[0] = '\0';
   nchan_init_timer(&ns->status_check_ev, nodeset_check_status_event, ns);
   
   //init cluster stuff
@@ -340,7 +340,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
   
   ns->use_spublish = 0;
   
-  //urls
+  //various upstream settings
   if(rcf->upstream) {
     nchan_srv_conf_t           *scf = NULL;
     scf = ngx_http_conf_upstream_srv_conf(rcf->upstream, ngx_nchan_module);
@@ -351,6 +351,11 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ngx_str_t                   *upstream_url, **urlref;
     ns->upstream = rcf->upstream;
     
+    ns->settings.retry_commands = scf->redis.retry_commands == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CAN_RETRY_COMMANDS : scf->redis.retry_commands;
+    
+    ns->settings.retry_commands_max_wait = scf->redis.retry_commands_max_wait == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RETRY_COMMANDS_MAX_WAIT_MSEC : scf->redis.retry_commands_max_wait;
+    
+    ns->settings.command_timeout = scf->redis.command_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_COMMAND_TIMEOUT_MSEC : scf->redis.command_timeout;
     ns->settings.node_connect_timeout = scf->redis.node_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_NODE_CONNECT_TIMEOUT_MSEC : scf->redis.node_connect_timeout;
     ns->settings.cluster_connect_timeout = scf->redis.cluster_connect_timeout == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_CONNECT_TIMEOUT_MSEC : scf->redis.cluster_connect_timeout;
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
@@ -729,6 +734,38 @@ static void node_ping_event(ngx_event_t *ev) {
   }
 }
 
+static void node_command_timeout_check_event(ngx_event_t *ev) {
+  redis_node_t       *node = ev->data;
+  redis_nodeset_t    *ns = node->nodeset;
+  if(!ev->timedout || ngx_exiting || ngx_quit)
+    return;
+  
+  long long prev_sent = node->timeout.prev_sent;
+  long long cur_received = node->timeout.received;
+  node->timeout.prev_sent = node->timeout.sent;
+  
+  if(cur_received < prev_sent) {
+    //TIMED OUT!
+    node_log_debug(node, "TIMED OUT!. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
+    node_log_warning(node, "%d commands took longer than the timeout limit. Marking node as failed", prev_sent - cur_received);
+    node_disconnect(node, REDIS_NODE_FAILED);
+    nodeset_examine(node->nodeset);
+    return;
+  }
+  
+  if(node->timeout.sent == node->timeout.received) {
+    node_log_debug(node, "NO timeout. RESETTING. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
+    node->timeout.sent = 0;
+    node->timeout.received = 0;
+    node->timeout.prev_sent = 0;
+  }
+  else {
+    node_log_debug(node, "NO timeout. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
+  }
+  
+  ngx_add_timer(ev, ns->settings.command_timeout);
+}
+
 static void nodeset_stop_cluster_check_timer(redis_nodeset_t *ns) {
   ns->cluster.current_check_interval = 0;
   if(ns->cluster.check_ev.timer_set) {
@@ -883,6 +920,7 @@ static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns) {
       }
     }
   }
+  
   return 1;
 }
 
@@ -926,6 +964,8 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   redis_nodeset_t            *ns = node->nodeset;
   int                         current_epoch;
   u_char                      errbuf[1024];
+  
+  ngx_snprintf(errbuf, 1024, "unknown reason%Z");
   
   if(ns->cluster.recovering_on_node != node) {
     ngx_snprintf(errbuf, 1024, "got a response from a different node than where recovery was attempted%Z");
@@ -1074,7 +1114,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   //success?...
   nodeset_examine(ns);
   if(ns->status != REDIS_NODESET_READY) {
-    ngx_snprintf(errbuf, 1024, "%s%Z", ns->status_msg == NULL ? "(unknown reason)" : ns->status_msg);
+    ngx_snprintf(errbuf, 1024, "%s%Z", ns->status_msg[0] == '\0' ? "(unknown reason)" : ns->status_msg);
     goto fail;
   }
   ns->last_cluster_recovery_check_time.sec = 0;
@@ -1147,6 +1187,12 @@ static redis_node_t *nodeset_node_create_with_space(redis_nodeset_t *ns, redis_c
   
   ngx_memzero(&node->ping_timer, sizeof(node->ping_timer));
   nchan_init_timer(&node->ping_timer, node_ping_event, node);
+  
+  node->timeout.sent = 0;
+  node->timeout.received = 0;
+  node->timeout.prev_sent = 0;
+  ngx_memzero(&node->timeout.ev, sizeof(node->timeout.ev));
+  nchan_init_timer(&node->timeout.ev, node_command_timeout_check_event, node);
   
   node->ctx.cmd = NULL;
   node->ctx.pubsub = NULL;
@@ -1444,6 +1490,10 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   }
   if(node->ping_timer.timer_set) {
     ngx_del_timer(&node->ping_timer);
+  }
+  
+  if(node->timeout.ev.timer_set) {
+    ngx_del_timer(&node->timeout.ev);
   }
   
   node->scripts_load_state.loading = 0;
@@ -1864,7 +1914,10 @@ int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
      || nchan_cstr_startswith(reply->str, script_nonlocal_key_error_redis_7)
      || nchan_cstr_startswith(reply->str, command_move_error)
      || nchan_cstr_startswith(reply->str, command_ask_error)) {
-      if(!node->cluster.enabled) {
+      if(!node) {
+        nchan_log_error("Got a keyslot error from Redis on a NULL node");
+      }
+      else if(!node->cluster.enabled) {
         node_log_error(node, "got a cluster error on a non-cluster redis connection: %s", reply->str);
         node_disconnect(node, REDIS_NODE_FAILED);
         nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Strange response from node");
@@ -1876,6 +1929,14 @@ int nodeset_node_reply_keyslot_ok(redis_node_t *node, redisReply *reply) {
     }
   }
   return 1;
+}
+
+int nodeset_node_can_retry_commands(redis_node_t *node) {
+  if(!node) {
+    return 0;
+  }
+  
+  return node->nodeset->settings.retry_commands;
 }
 
 static void node_subscribe_callback(redisAsyncContext *ac, void *rep, void *privdata) {
@@ -2435,6 +2496,10 @@ static void node_make_ready(redis_node_t *node) {
     ngx_add_timer(&node->ping_timer, node->nodeset->settings.ping_interval * 1000);
   }
   
+  if(!node->timeout.ev.timer_set && node->nodeset->settings.command_timeout > 0) {
+    ngx_add_timer(&node->timeout.ev, node->nodeset->settings.command_timeout);
+  }
+  
   //do we have any channels that don't belong here?
   if(node->cluster.enabled) {
     
@@ -2582,8 +2647,10 @@ static void nodeset_onready_expire_event(ngx_event_t *ev) {
   nchan_list_remove(&rcb->ns->onready_callbacks, rcb);
 }
 
-ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_msec_t max_wait, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd) {
+ngx_int_t nodeset_callback_on_ready(redis_nodeset_t *ns, ngx_int_t (*cb)(redis_nodeset_t *, void *), void *pd) {
   nodeset_onready_callback_t *ncb;
+  
+  ngx_msec_t max_wait = ns->settings.retry_commands_max_wait;
   
   if(ns->status == REDIS_NODESET_READY) {
     cb(ns, pd);
@@ -2709,7 +2776,7 @@ const char *node_nickname_cstr(redis_node_t *node) {
 }
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg) {
-  nodeset->status_msg = msg;
+  ngx_snprintf((u_char *)nodeset->status_msg, NODESET_MAX_STATUS_MSG_LENGTH, "%s%Z", msg ? msg : "");
   if(nodeset->status != status) {
     if(msg) {
       ngx_uint_t  lvl;
@@ -3223,6 +3290,21 @@ ngx_int_t nodeset_node_dissociate_pubsub_chanhead(void *chan) {
   }
   ch->redis.node.pubsub = NULL; 
   return NGX_OK;
+}
+
+void node_command_sent(redis_node_t *node) {
+  if(node) {
+    node->timeout.sent++;
+    node->pending_commands++;
+  }
+  nchan_update_stub_status(redis_pending_commands, 1); 
+}
+void node_command_received(redis_node_t *node) {
+  if(node) {
+    node->timeout.received++;
+    node->pending_commands--;
+  }
+  nchan_update_stub_status(redis_pending_commands, -1); 
 }
 
 static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {
