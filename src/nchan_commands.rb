@@ -606,7 +606,7 @@ CfCmd.new do
       
       group: "obsolete",
       tags: ['redis'],
-      uncocumented: true
+      undocumented: true
   
   nchan_redis_connect_timeout [:upstream],
       :ngx_conf_set_msec_slot,

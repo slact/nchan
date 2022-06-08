@@ -32,6 +32,8 @@ cmds_file = "#{opt[:root]}/src/nchan_commands.rb"
 
 
 class CfCmd #let's make a DSL!
+  class CommandError < StandardError
+  end
   attr_accessor :cmds
   class OneOf
     def initialize(arg) 
@@ -42,7 +44,7 @@ class CfCmd #let's make a DSL!
     end
     def [](val)
       ret=@arg[val]
-      raise "Unknown value lookup #{val}" if ret.nil?
+      raise CommandError, "Unknown value lookup #{val}" if ret.nil?
       ret
     end
   end
@@ -54,6 +56,25 @@ class CfCmd #let's make a DSL!
     
     attr_accessor :declaration_order
     
+    
+    class ConsumableOptions
+      def initialize(opt)
+        @opt=opt.dup
+      end
+      def [](k)
+        @opt.delete k
+      end
+      def method_missing(method_name, *args, &block)
+        @opt.send(method_name, *args, &block)
+      end
+      def leftovers?
+        leftovers.length > 0
+      end
+      def leftovers
+        @opt.keys
+      end
+    end
+    
     def initialize(name, func)
       self.name=name.to_sym
       self.set=func
@@ -62,6 +83,29 @@ class CfCmd #let's make a DSL!
     
     def group
       @group || :none
+    end
+    
+    def set_options!(opt)
+      opt = ConsumableOptions.new(opt)
+      
+      @legacy = opt[:legacy]
+      @alt = opt[:alt]
+      @disabled = opt[:disabled]
+      @undocumented = opt[:undocumented]
+      
+      @args = opt.has_key?(:args) ? opt[:args] : 1
+      @group = opt[:group]
+      @value = opt[:value]
+      @default = opt[:default]
+      @info = opt[:info]
+      @tags = opt[:tags] || []
+      @uri = opt[:uri]
+      
+      opt[:post_handler] #use it up
+      
+      if opt.leftovers?
+        raise CommandError, "command '#{@name}' has invalid options: #{opt.leftovers.join ", "}"
+      end
     end
     
     def descr(str, opt)
@@ -97,7 +141,7 @@ class CfCmd #let's make a DSL!
       elsif Numeric === args
         lines << "  #{descr 'arguments', opt} #{args}"
       else
-        raise "invalid args: #{args}"
+        raise CommandError, "#{@name} command invalid args: #{args}"
       end
       
       if default
@@ -213,18 +257,8 @@ class CfCmd #let's make a DSL!
       cmd.conf=conf
     end
     
-    cmd.legacy = opt[:legacy]
-    cmd.alt = opt[:alt]
-    cmd.disabled = opt[:disabled]
-    cmd.undocumented = opt[:undocumented]
+    cmd.set_options!(opt)
     
-    cmd.args = opt.has_key?(:args) ? opt[:args] : 1
-    cmd.group = opt[:group]
-    cmd.value = opt[:value]
-    cmd.default = opt[:default]
-    cmd.info = opt[:info]
-    cmd.tags = opt[:tags] || []
-    cmd.uri = opt[:uri]
     cmd.declaration_order = @cmds.count
     @cmds_by_name[cmd.name] = cmd
     @cmds << cmd if !cmd.disabled && !cmd.undocumented

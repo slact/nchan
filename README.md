@@ -1643,9 +1643,5 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, location  
   > Development directive to completely replace default storage engine. Don't use unless you are an Nchan developer.    
 
-- **nchan_redis_wait_after_connecting**  
-  arguments: 1  
-  context: http, server, location  
-
 ## Contribute
 Please support this project with a donation to keep me warm through the winter. I accept bitcoin at 15dLBzRS4HLRwCCVjx4emYkxXcyAPmGxM3 . Other donation methods can be found at https://nchan.io
