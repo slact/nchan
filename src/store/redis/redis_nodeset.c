@@ -39,11 +39,25 @@ static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
 static void nodeset_cluster_check_event(ngx_event_t *ev);
 static void nodeset_check_status_event(ngx_event_t *ev);
 static void nodeset_check_spublish_availability(redis_nodeset_t *ns);
+static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_line_t *l);
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
-static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action);
+static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action, int skip_self);
 static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len);
 static void node_make_ready(redis_node_t *node);
 
+static char *node_role_cstr(redis_node_role_t role) {
+  switch(role) {
+    case REDIS_NODE_ROLE_ANY:
+      return "any_role";
+    case REDIS_NODE_ROLE_MASTER:
+      return "master";
+    case REDIS_NODE_ROLE_SLAVE:
+      return "slave";
+    case REDIS_NODE_ROLE_UNKNOWN:
+      return "unknown_role";
+  }
+  return "???";
+}
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
 }
@@ -782,6 +796,17 @@ static void nodeset_start_cluster_check_timer(redis_nodeset_t *ns) {
   }
 }
 
+static int nodeset_node_remove_failed(redis_nodeset_t *ns, ngx_str_t *cluster_node_id) {
+  redis_node_t *failed_node = nodeset_node_find_by_cluster_id(ns, cluster_node_id);
+  if(!failed_node) {
+    return 0;
+  }
+  nodeset_log_notice(ns, "removed failed node %s", node_nickname_cstr(failed_node));
+  node_disconnect(failed_node, REDIS_NODE_FAILED);
+  nodeset_node_destroy(failed_node);
+  return 1;
+}
+
 static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                 *reply = rep;
   redis_node_t               *node = privdata;
@@ -828,11 +853,12 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     //why would this happen? dunno, fail node just in case
     goto error;
   }
+  
+  int epoch_changed = 0;
   if(ns->cluster.current_epoch < epoch) {
-    char errstr[512];
-    ngx_snprintf((u_char *)errstr, 512, "config epoch has changed on node %s.%Z", node_nickname_cstr(node));
-    nodeset_set_status(ns, REDIS_NODESET_CLUSTER_FAILING, errstr);
-    return;
+    epoch_changed = 1;
+    node->cluster.current_epoch = epoch;
+    ns->cluster.current_epoch = epoch;
   }
   
   //parse CLUSTER NODES reply
@@ -845,21 +871,46 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   cluster_nodes_line_t   *l;
   redis_node_t           *peer;
   
+  //nodeset_log_notice(ns, "cluster check: epoch %d. \n%s", epoch, cluster_nodes->str);
+  
   if(!(lines = parse_cluster_nodes(node, cluster_nodes->str, &n))) {
     err = "parsing CLUSTER NODES reply failed";
     goto error;
   }
   
+  int outdated_nodes = 0;
+  
   for(i=0; i<n; i++) {
     l = &lines[i];
-    if(l->failed) {
+    if(l->failed && nodeset_node_remove_failed(ns, &l->id)) {
       continue;
     }
-    if(node_skip_cluster_peer(node, l, 0)) {
+    if(node_skip_cluster_peer(node, l, 0, 0)) {
       continue;
     }
     
     node_discover_cluster_peer(node, l, &peer);
+    
+    if(nodeset_cluster_node_is_outdated(ns, l)) {
+      outdated_nodes++;
+    }
+  }
+  
+  if(epoch_changed || outdated_nodes) {
+    if(outdated_nodes) {
+      char errbuf[512];
+      ngx_snprintf((u_char *)errbuf, 512, "%d node%s role or keyslot assignment has changed.%s%Z", outdated_nodes, outdated_nodes == 1 ? "" : "s", epoch_changed ? " Also, the config epoch has changed." : "");
+      nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errbuf);
+      return;
+    }
+    
+    if(nodeset_cluster_keyslot_space_complete(ns, REDIS_NODE_READY)) {
+      nodeset_log_warning(ns, "config epoch has changed from %d to %d on node %s. Node roles have been updated and the keyspace is complete", node_nickname_cstr(node), ns->cluster.current_epoch, epoch);
+    }
+    else {
+      nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Config epoch has changed and the keyslot space is incomplete");
+      return;
+    }
   }
   
   nodeset_start_cluster_check_timer(ns);
@@ -1015,22 +1066,19 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   cluster_nodes_line_t   *l;
   redis_node_t           *peer;
   
+  //nodeset_log_notice(ns, "CLUSTER NODES: \n%s", cluster_nodes_reply->str);
+  
   if(!(lines = parse_cluster_nodes(node, cluster_nodes_reply->str, &n))) {
     ngx_snprintf(errbuf, 1024, "parsing CLUSTER NODES command failed%Z");
     goto fail;
   }
   for(i=0; i<n; i++) {
     l = &lines[i];
-    if(l->failed) {
-      redis_node_t *failed_node = nodeset_node_find_by_cluster_id(ns, &l->id);
-      if(failed_node) {
-        nodeset_log_notice(ns, "removed failed node %s", node_nickname_cstr(failed_node));
-        node_disconnect(failed_node, REDIS_NODE_FAILED);
-        nodeset_node_destroy(failed_node);
-      }
+    if(l->failed && nodeset_node_remove_failed(ns, &l->id)) {
+      continue;
     }
     
-    if(node_skip_cluster_peer(node, l, 0)) {
+    if(node_skip_cluster_peer(node, l, 0, 0)) {
       continue;
     }
     
@@ -1313,7 +1361,7 @@ static void node_discover_master(redis_node_t  *slave, redis_connect_params_t *r
   }
 }
 
-static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action) {
+static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action, int skip_self) {
   redis_connect_params_t   rcp;
   char                    *description = "";
   char                    *detail = "";
@@ -1347,7 +1395,7 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, i
   else if(!l->connected) {
     description = "disconnected";
   }
-  else if(l->self) {
+  else if(l->self && skip_self) {
     description = "self";
     loglevel = NGX_LOG_INFO;
   }
@@ -1366,10 +1414,53 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, i
   return 1;
 }
 
+static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_line_t *l) {
+  redis_node_t *node = nodeset_node_find_by_cluster_id(ns, &l->id);
+  
+  if(!node) {
+    return 0;
+  }
+  
+  int role = l->master ? REDIS_NODE_ROLE_MASTER : REDIS_NODE_ROLE_SLAVE;
+  
+  if(node->role != role) {
+    nodeset_log_notice(ns, "Node %s has changed from %s to %s", node_nickname_cstr(node), node_role_cstr(node->role), node_role_cstr(role));
+    return 1;
+  }
+  
+  if(node->cluster.slot_range.n != (size_t )l->slot_ranges_count) {
+    nodeset_log_notice(ns, "Node %s slot range count has changed from %d to %d.", node_nickname_cstr(node), node->cluster.slot_range.n, l->slot_ranges_count);
+    return 1;
+  }
+  
+  redis_slot_range_t *range = ngx_alloc(sizeof(redis_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
+  if(range == NULL) {
+    nodeset_log_error(ns, "Out of memory: failed to allocate slot range during cluster check");
+    return 1;
+  }
+  if(!parse_cluster_node_slots(l, range)) {
+    ngx_free(range);
+    nodeset_log_error(ns, "failed parsing cluster slots range");
+    return 1;
+  }
+  
+  int i;
+  for(i=0; i<l->slot_ranges_count; i++) {
+    if((node->cluster.slot_range.range[i].min != range[i].min) 
+    || (node->cluster.slot_range.range[i].max != range[i].max)) {
+      nodeset_log_notice(ns, "Node %s slot range has changed", node_nickname_cstr(node));
+      ngx_free(range);
+      return 1;
+    }
+  }
+  
+  ngx_free(range);
+  return 0;
+}
+
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node) {
   redis_connect_params_t   rcp;
   redis_node_t            *peer;
-  assert(!l->self);
   if(l->failed || !l->connected || l->noaddr || l->self) {
     if(known_node && l->self) {
       *known_node = node;
@@ -2422,7 +2513,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
               nchan_strcpy(&node->cluster.master_id, &l->master_id, MAX_CLUSTER_ID_LENGTH);
             }
           }
-          else if(!node_skip_cluster_peer(node, &l[i], 1)) {
+          else if(!node_skip_cluster_peer(node, &l[i], 1, 1)) {
             node_discover_cluster_peer(node, &l[i], NULL);
           }
         }
