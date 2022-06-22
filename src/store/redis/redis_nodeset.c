@@ -39,6 +39,7 @@ static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns);
 static void nodeset_cluster_check_event(ngx_event_t *ev);
 static void nodeset_check_status_event(ngx_event_t *ev);
 static void nodeset_check_spublish_availability(redis_nodeset_t *ns);
+static int nodeset_link_cluster_node_roles(redis_nodeset_t *nodeset);
 static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_line_t *l);
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
 static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action, int skip_self);
@@ -712,6 +713,28 @@ redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key) {
   return nodeset_node_find_by_slot(ns, slot);
 }
 
+static int nodeset_link_cluster_node_roles(redis_nodeset_t *ns) {
+  redis_node_t   *cur, *master;
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    nodeset_log_notice(ns, "LINKNODES: %p %s %s %V", cur, node_nickname_cstr(cur), node_role_cstr(cur->role), &cur->cluster.master_id);
+    if(cur->role == REDIS_NODE_ROLE_SLAVE) {
+      if(cur->cluster.master_id.len == 0 || cur->cluster.master_id.data == NULL) {
+        nodeset_log_warning(ns, "cluster slave node %s has no master_id", node_nickname_cstr(cur));
+        return 0;
+      }
+      
+      if((master = nodeset_node_find_by_cluster_id(ns, &cur->cluster.master_id)) == NULL) {
+        nodeset_log_warning(ns, "no master node with cluster_id %V found for slave node %s", &cur->cluster.master_id, node_nickname_cstr(cur));
+        return 0;
+      }
+      
+      node_set_master_node(cur, master); //this is idempotent
+      node_add_slave_node(master, cur);  //so is this
+    }
+  }
+  return 1;
+}
+
 static void ping_command_callback(redisAsyncContext *ac, void *rep, void *privdata) {
   redisReply                 *reply = rep;
   redis_node_t               *node = privdata;
@@ -1128,26 +1151,16 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     goto fail;
   }
   
+  //set all masters and slaves
+  if(!nodeset_link_cluster_node_roles(ns)) {
+    ngx_snprintf(errbuf, 1024, "failed to link cluster node masters and slaved%Z");
+    goto fail;
+  }
+  
   //check 'em over
-  redis_node_t      *master;
   for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
     if(cur->connecting) {
       continue;
-    }
-    
-    if(cur->role == REDIS_NODE_ROLE_SLAVE) {
-      if(cur->cluster.master_id.len == 0 || cur->cluster.master_id.data == NULL) {
-        ngx_snprintf(errbuf, 1024, "master node id is missing for slave %s%Z", node_nickname_cstr(cur));
-        goto fail;
-      }
-      
-      if((master = nodeset_node_find_by_cluster_id(ns, &cur->cluster.master_id)) == NULL) {
-        ngx_snprintf(errbuf, 1024, "couldn't find master node %V for slave %s%Z", &cur->cluster.master_id, node_nickname_cstr(cur));
-        goto fail;
-      }
-      
-      node_set_master_node(cur, master); //this is idempotent
-      node_add_slave_node(master, cur);  //so is this
     }
     
     assert(cur->ctx.cmd);
@@ -2494,18 +2507,18 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       }
       else {
         size_t                  i, n;
-        cluster_nodes_line_t   *l;
-        if(!(l = parse_cluster_nodes(node, reply->str, &n))) {
+        cluster_nodes_line_t   *lines, *l;
+        if(!(lines = parse_cluster_nodes(node, reply->str, &n))) {
           return node_connector_fail(node, "parsing CLUSTER NODES command failed");
         }
-        for(i=0; i<n; i++) {
-          if(l[i].self) {
-            nchan_strcpy(&node->cluster.id, &l[i].id, MAX_CLUSTER_ID_LENGTH);
-            if(l[i].master) {
-              if(l[i].slot_ranges_count == 0) {
+        for(i=0, l = lines; i<n; i++, l++) {
+          if(l->self) {
+            nchan_strcpy(&node->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
+            if(l->master) {
+              if(l->slot_ranges_count == 0) {
                 node_log_notice(node, "is a master cluster node with no keyslots");
               }
-              else if(!node_set_cluster_slots(node, &l[i], errstr, sizeof(errstr))) {
+              else if(!node_set_cluster_slots(node, l, errstr, sizeof(errstr))) {
                 return node_connector_fail(node, errstr);
               }
             }
@@ -2513,10 +2526,13 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
               nchan_strcpy(&node->cluster.master_id, &l->master_id, MAX_CLUSTER_ID_LENGTH);
             }
           }
-          else if(!node_skip_cluster_peer(node, &l[i], 1, 1)) {
-            node_discover_cluster_peer(node, &l[i], NULL);
+          else if(!node_skip_cluster_peer(node, l, 1, 1)) {
+            node_discover_cluster_peer(node, l, NULL);
           }
         }
+      }
+      if(!nodeset_link_cluster_node_roles(nodeset)) {
+        return node_connector_fail(node, "failed to link all discovered cluster masters and slaves");
       }
       node->state = REDIS_NODE_READY;
       //intentional fall-through is affirmatively consensual
