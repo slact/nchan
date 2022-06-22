@@ -1096,9 +1096,9 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
     
     if(l->master) {
       node_set_role(peer, REDIS_NODE_ROLE_MASTER);
-      
-      if(l->slot_ranges_count > 0 && !node_set_cluster_slots(peer, l, (char *)errbuf, sizeof(errbuf))) {
-        ngx_snprintf(errbuf, 1024, "couldn't set cluster slots for node %s: %s%Z", node_nickname_cstr(peer), errbuf);
+      char sloterrbuf[256];
+      if(l->slot_ranges_count > 0 && !node_set_cluster_slots(peer, l, sloterrbuf, sizeof(sloterrbuf))) {
+        ngx_snprintf(errbuf, 1024, "couldn't set cluster slots for node %s: %s%Z", node_nickname_cstr(peer), sloterrbuf);
         goto fail;
       }
     }
