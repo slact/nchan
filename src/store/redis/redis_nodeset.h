@@ -231,7 +231,6 @@ struct redis_node_s {
       size_t                      n;
       unsigned                    indexed:1;
     }                         slot_range; 
-    char                     *cluster_nodes;
   }                         cluster;
   struct {
     redis_node_t              *master;
