@@ -137,6 +137,43 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   node->cluster.slot_range.indexed = 1;
   return 1;
 }
+
+static void nodeset_dbg_print_nodes(redis_nodeset_t *ns, unsigned loglevel) {
+  char           wholebuf[4096];
+  u_char        *buf= (u_char *)wholebuf;
+  char           slotsline[256];
+  char          *slots;
+  redis_node_t  *cur;
+
+  buf = ngx_sprintf(buf, "Cluster nodes:\n");
+  
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    slots = (char *)ngx_sprintf((u_char *)slotsline, "(%d)", cur->cluster.slot_range.n);
+    if(cur->cluster.slot_range.n) {
+      unsigned i;
+      for(i=0; i<cur->cluster.slot_range.n; i++) {
+        slots+= sprintf(slots, "%d-%d,", cur->cluster.slot_range.range[i].min, cur->cluster.slot_range.range[i].max);
+      }
+      slots--;
+      
+      sprintf(slots, " idx:%d", cur->cluster.slot_range.indexed);
+    }
+    else {
+      sprintf(slots, "-");
+    }
+    
+    char masterstr[256];
+    ngx_sprintf((u_char *)masterstr, "%s%Z", cur->peers.master ? node_nickname_cstr(cur->peers.master) : "-");
+    
+    buf = ngx_sprintf(buf, "%s %s m:[%V]%s s:[%s]\n", node_nickname_cstr(cur), node_role_cstr(cur->role), &cur->cluster.master_id, masterstr, slotsline);
+  }
+  ngx_sprintf(buf, "%Z");
+  
+  ngx_log_error(loglevel, ngx_cycle->log, 0, "%s", wholebuf);
+  
+}
+
+
 /*
 static ngx_int_t print_slot_range_node(rbtree_seed_t *tree, void *node_data, void *privdata) {
   redis_nodeset_slot_range_node_t        *rangenode = node_data;
@@ -894,7 +931,9 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   cluster_nodes_line_t   *l;
   redis_node_t           *peer;
   
-  //nodeset_log_notice(ns, "cluster check: epoch %d. \n%s", epoch, cluster_nodes->str);
+  nodeset_log_notice(ns, "cluster check: epoch %d. \n%s", epoch, cluster_nodes->str);
+  nodeset_dbg_print_nodes(ns, NGX_LOG_NOTICE);
+  
   
   if(!(lines = parse_cluster_nodes(node, cluster_nodes->str, &n))) {
     err = "parsing CLUSTER NODES reply failed";
@@ -1089,7 +1128,8 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   cluster_nodes_line_t   *l;
   redis_node_t           *peer;
   
-  //nodeset_log_notice(ns, "CLUSTER NODES: \n%s", cluster_nodes_reply->str);
+  nodeset_dbg_print_nodes(ns, NGX_LOG_NOTICE);
+  nodeset_log_notice(ns, "CLUSTER NODES (recover): \n%s", cluster_nodes_reply->str);
   
   if(!(lines = parse_cluster_nodes(node, cluster_nodes_reply->str, &n))) {
     ngx_snprintf(errbuf, 1024, "parsing CLUSTER NODES command failed%Z");
@@ -2506,6 +2546,8 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "CLUSTER NODES command failed");
       }
       else {
+        nodeset_dbg_print_nodes(nodeset, NGX_LOG_NOTICE);
+        nodeset_log_notice(nodeset, "CLUSTER NODES (CONNECT): \n %s", reply->str);
         size_t                  i, n;
         cluster_nodes_line_t   *lines, *l;
         if(!(lines = parse_cluster_nodes(node, reply->str, &n))) {
