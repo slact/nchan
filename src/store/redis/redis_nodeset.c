@@ -165,7 +165,7 @@ static void nodeset_dbg_print_nodes(redis_nodeset_t *ns, unsigned loglevel) {
     char masterstr[256];
     ngx_sprintf((u_char *)masterstr, "%s%Z", cur->peers.master ? node_nickname_cstr(cur->peers.master) : "-");
     
-    buf = ngx_sprintf(buf, "%s %s m:[%V]%s s:[%s]\n", node_nickname_cstr(cur), node_role_cstr(cur->role), &cur->cluster.master_id, masterstr, slotsline);
+    buf = ngx_sprintf(buf, "%s %s %V m:[%V]%s s:[%s]\n", node_nickname_cstr(cur), node_role_cstr(cur->role), &cur->cluster.id, &cur->cluster.master_id, masterstr, slotsline);
   }
   ngx_sprintf(buf, "%Z");
   
