@@ -44,6 +44,7 @@ static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_l
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node);
 static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, int log_action, int skip_self);
 static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len);
+static int node_unset_cluster_slots(redis_node_t *node);
 static void node_make_ready(redis_node_t *node);
 
 static char *node_role_cstr(redis_node_role_t role) {
@@ -1016,12 +1017,7 @@ static int nodeset_reset_cluster_node_info(redis_nodeset_t *ns) {
       //don't clear the cluster node id though, that's not supposed to change.
       //we'll use it to find known nodes
       
-      nodeset_cluster_node_unindex_keyslot_ranges(node);
-      if(node->cluster.slot_range.range) {
-        ngx_free(node->cluster.slot_range.range);
-        node->cluster.slot_range.n=0;
-        node->cluster.slot_range.range = NULL;
-      }
+      node_unset_cluster_slots(node);
       
       node_set_role(node, REDIS_NODE_ROLE_UNKNOWN);
       if(node->state > REDIS_NODE_GET_CLUSTERINFO) {
@@ -1618,13 +1614,9 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
     nchan_update_stub_status(redis_connected_servers, -1);
   }
   if(node->cluster.enabled) {
-    nodeset_cluster_node_unindex_keyslot_ranges(node);
+    node_unset_cluster_slots(node);
   }
-  if(node->cluster.slot_range.range) {
-    ngx_free(node->cluster.slot_range.range);
-    node->cluster.slot_range.n=0;
-    node->cluster.slot_range.range = NULL;
-  }
+  
   if(node->ping_timer.timer_set) {
     ngx_del_timer(&node->ping_timer);
   }
@@ -2097,17 +2089,31 @@ static void node_subscribe_callback(redisAsyncContext *ac, void *rep, void *priv
   }
 }
 
+static int node_unset_cluster_slots(redis_node_t *node) {
+  int success = 1;
+  if(node->cluster.slot_range.indexed) {
+    success &= nodeset_cluster_node_unindex_keyslot_ranges(node);
+  }
+  if(node->cluster.slot_range.range) {
+    ngx_free(node->cluster.slot_range.range);
+  }
+  node->cluster.slot_range.range = NULL;
+  node->cluster.slot_range.n = 0;
+  return success;
+}
+
 static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, char *errbuf, size_t max_err_len) {
   redis_node_t       *conflict_node;
-  node->cluster.slot_range.n = l->slot_ranges_count;
+  
+  node_unset_cluster_slots(node);
+  
   size_t                 j;
   if(l->slot_ranges_count == 0) {
     ngx_snprintf((u_char *)errbuf, max_err_len, "Tried to set cluster slots with 0 slots assigned for node %s%Z", node_cstr(node));
     goto fail;
   }
-  if(node->cluster.slot_range.range) {
-    ngx_free(node->cluster.slot_range.range);
-  }
+  
+  node->cluster.slot_range.n = l->slot_ranges_count;
   node->cluster.slot_range.range = ngx_alloc(sizeof(redis_slot_range_t) * node->cluster.slot_range.n, ngx_cycle->log);
   if(!node->cluster.slot_range.range) {
     ngx_snprintf((u_char *)errbuf, max_err_len, "failed allocating cluster slots range%Z");
@@ -2119,8 +2125,13 @@ static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, c
   }
   
   for(j = 0; j<node->cluster.slot_range.n; j++) {
-    if((conflict_node = nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[j]))!=NULL) {
-      ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range conflict with node %s. These nodes are probably from different clusters.%Z", node_cstr(conflict_node));
+    if((conflict_node = nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[j])) != NULL) {
+      if(node == conflict_node) {
+        ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range conflicts with itself. This is very strange indeed.");
+      }
+      else {
+        ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range conflict with node %s. These nodes are probably from different clusters.%Z", node_cstr(conflict_node));
+      }
       goto fail;
     }
   }
