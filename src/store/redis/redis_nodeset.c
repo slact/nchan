@@ -754,7 +754,6 @@ redis_node_t *nodeset_node_find_by_key(redis_nodeset_t *ns, ngx_str_t *key) {
 static int nodeset_link_cluster_node_roles(redis_nodeset_t *ns) {
   redis_node_t   *cur, *master;
   for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
-    nodeset_log_notice(ns, "LINKNODES: %p %s %s %V", cur, node_nickname_cstr(cur), node_role_cstr(cur->role), &cur->cluster.master_id);
     if(cur->role == REDIS_NODE_ROLE_SLAVE) {
       if(cur->cluster.master_id.len == 0 || cur->cluster.master_id.data == NULL) {
         nodeset_log_warning(ns, "cluster slave node %s has no master_id", node_nickname_cstr(cur));
