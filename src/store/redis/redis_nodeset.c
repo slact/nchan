@@ -931,10 +931,6 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
   cluster_nodes_line_t   *l;
   redis_node_t           *peer;
   
-  nodeset_log_notice(ns, "cluster check: epoch %d. \n%s", epoch, cluster_nodes->str);
-  nodeset_dbg_print_nodes(ns, NGX_LOG_NOTICE);
-  
-  
   if(!(lines = parse_cluster_nodes(node, cluster_nodes->str, &n))) {
     err = "parsing CLUSTER NODES reply failed";
     goto error;
@@ -1127,9 +1123,6 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
   cluster_nodes_line_t   *lines;
   cluster_nodes_line_t   *l;
   redis_node_t           *peer;
-  
-  nodeset_dbg_print_nodes(ns, NGX_LOG_NOTICE);
-  nodeset_log_notice(ns, "CLUSTER NODES (recover): \n%s", cluster_nodes_reply->str);
   
   if(!(lines = parse_cluster_nodes(node, cluster_nodes_reply->str, &n))) {
     ngx_snprintf(errbuf, 1024, "parsing CLUSTER NODES command failed%Z");
@@ -2546,8 +2539,6 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         return node_connector_fail(node, "CLUSTER NODES command failed");
       }
       else {
-        nodeset_dbg_print_nodes(nodeset, NGX_LOG_NOTICE);
-        nodeset_log_notice(nodeset, "CLUSTER NODES (CONNECT): \n %s", reply->str);
         size_t                  i, n;
         cluster_nodes_line_t   *lines, *l;
         if(!(lines = parse_cluster_nodes(node, reply->str, &n))) {
