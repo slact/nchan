@@ -139,6 +139,7 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   return 1;
 }
 
+/*
 static void nodeset_dbg_print_nodes(redis_nodeset_t *ns, unsigned loglevel) {
   char           wholebuf[4096];
   u_char        *buf= (u_char *)wholebuf;
@@ -173,7 +174,7 @@ static void nodeset_dbg_print_nodes(redis_nodeset_t *ns, unsigned loglevel) {
   ngx_log_error(loglevel, ngx_cycle->log, 0, "%s", wholebuf);
   
 }
-
+*/
 
 /*
 static ngx_int_t print_slot_range_node(rbtree_seed_t *tree, void *node_data, void *privdata) {
