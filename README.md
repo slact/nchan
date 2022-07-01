@@ -285,7 +285,9 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
 PubSub endpoints are Nginx config *locations* with the [*`nchan_pubsub`*](#nchan_pubsub) directive.
 
 A combination of *publisher* and *subscriber* endpoints, this location treats all HTTP `GET`
-requests as subscribers, and all HTTP `POST` as publishers. One simple use case is an echo server:
+requests as subscribers, and all HTTP `POST` as publishers. Channels cannot be deleted through a pubsub endpoing with an HTTP `DELETE` request.
+
+One simple use case is an echo server:
 
 ```nginx
   location = /pubsub {
@@ -307,27 +309,6 @@ A more interesting setup may set different publisher and subscriber channel ids:
 ```
 
 Here, subscribers will listen for messages on channel `foo`, and publishers will publish messages to channel `bar`. This can be useful when setting up websocket proxying between web clients and your application.
-
-### Deleting a PubSub Endpoint
-
-PubSub endpoints cannot be deleted with an HTTP DELETE call. Instead, set up a separate publisher endpoint that uses the same channel id can call DELETE on that. Doing so will disconnect all subscribers.
-
-For example:
-
-```nginx
-  # cannot call DELETE on this one
-  location = /pubsub {
-    nchan_pubsub;
-    nchan_channel_id foo;
-  }
-
-  # call DELETE on this one to remove the pubsub channel "foo"
-  location = /pub {
-    nchan_publisher;
-    nchan_channel_id foo;
-  }
-```
-
 <!-- tag:pubsub -->
 
 ## The Channel ID
