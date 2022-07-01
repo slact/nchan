@@ -791,7 +791,11 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
     return;
   }
   
-  if(CHECK_REPLY_STRVAL(reply->element[0], "message") && CHECK_REPLY_STR(reply->element[2])) {
+  if((
+      CHECK_REPLY_STRVAL(reply->element[0], "message")
+      || CHECK_REPLY_STRVAL(reply->element[0], "smessage")
+     )
+    && CHECK_REPLY_STR(reply->element[2])) {
     
     //reply->element[1] is the pubsub channel name
     el = reply->element[2];
