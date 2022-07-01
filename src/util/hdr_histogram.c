@@ -4,6 +4,10 @@
  * as explained at http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+#include <nchan_module.h>
+#include <util/shmem.h>
+#include <store/memory/store.h>
+
 #include <math.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -13,10 +17,6 @@
 #include <stdint.h>
 #include <errno.h>
 #include <inttypes.h>
-
-#include <nchan_module.h>
-#include <util/shmem.h>
-#include <store/memory/store.h>
 
 #include "hdr_histogram.h"
 
