@@ -1241,6 +1241,7 @@ static void nodeset_recover_cluster_handler(redisAsyncContext *ac, void *rep, vo
       char sloterrbuf[256];
       if(l->slot_ranges_count > 0 && !node_set_cluster_slots(peer, l, sloterrbuf, sizeof(sloterrbuf))) {
         ngx_snprintf(errbuf, 1024, "couldn't set cluster slots for node %s: %s%Z", node_nickname_cstr(peer), sloterrbuf);
+        nodeset_dbg_log_nodes_and_clusternodes_lines(ns, NGX_LOG_NOTICE, lines, n);
         goto fail;
       }
     }
@@ -2666,6 +2667,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
                 node_log_notice(node, "is a master cluster node with no keyslots");
               }
               else if(!node_set_cluster_slots(node, l, errstr, sizeof(errstr))) {
+                nodeset_dbg_log_nodes_and_clusternodes_lines(nodeset, NGX_LOG_NOTICE, lines, n);
                 return node_connector_fail(node, errstr);
               }
             }
