@@ -60,6 +60,76 @@ static char *node_role_cstr(redis_node_role_t role) {
   }
   return "???";
 }
+static char *node_state_cstr(int state) {
+  switch(state) {
+    case REDIS_NODE_DEDUPLICATED:
+      return "DEDUPLICATED";
+    case REDIS_NODE_CONNECTION_TIMED_OUT:
+      return "CONNECTION_TIMED_OUT";
+    case REDIS_NODE_FAILED:
+      return "FAILED";
+    case REDIS_NODE_DISCONNECTED:
+      return "DISCONNECTED";
+    case REDIS_NODE_CMD_CONNECTING:
+      return "CMD_CONNECTING";
+    case REDIS_NODE_PUBSUB_CONNECTING:
+      return "PUBSUB_CONNECTING";
+    case REDIS_NODE_CMD_CHECKING_CONNECTION:
+      return "CMD_CHECKING_CONNECTION";
+    case REDIS_NODE_CMD_CHECKED_CONNECTION:
+      return "CMD_CHECKED_CONNECTION";
+    case REDIS_NODE_PUBSUB_CHECKING_CONNECTION:
+      return "PUBSUB_CHECKING_CONNECTION";
+    case REDIS_NODE_PUBSUB_CHECKED_CONNECTION:
+      return "PUBSUB_CHECKED_CONNECTION";
+    case REDIS_NODE_CONNECTED:
+      return "CONNECTED";
+    case REDIS_NODE_CMD_AUTHENTICATING:
+      return "CMD_AUTHENTICATING";
+    case REDIS_NODE_PUBSUB_AUTHENTICATING:
+      return "PUBSUB_AUTHENTICATING";
+    case REDIS_NODE_SELECT_DB:
+      return "SELECT_DB";
+    case REDIS_NODE_CMD_SELECTING_DB:
+      return "CMD_SELECTING_DB";
+    case REDIS_NODE_PUBSUB_SELECTING_DB:
+      return "PUBSUB_SELECTING_DB";
+    case REDIS_NODE_SCRIPTS_LOAD:
+      return "SCRIPTS_LOAD";
+    case REDIS_NODE_SCRIPTS_LOADED_CHECK:
+      return "SCRIPTS_LOADED_CHECK";
+    case REDIS_NODE_SCRIPTS_LOADING:
+      return "SCRIPTS_LOADING";
+    case REDIS_NODE_GET_INFO:
+      return "GET_INFO";
+    case REDIS_NODE_GETTING_INFO:
+      return "GETTING_INFO";
+    case REDIS_NODE_PUBSUB_GET_INFO:
+      return "PUBSUB_GET_INFO";
+    case REDIS_NODE_PUBSUB_GETTING_INFO:
+      return "PUBSUB_GETTING_INFO";
+    case REDIS_NODE_SUBSCRIBE_WORKER:
+      return "SUBSCRIBE_WORKER";
+    case REDIS_NODE_SUBSCRIBING_WORKER:
+      return "SUBSCRIBING_WORKER";
+    case REDIS_NODE_GET_CLUSTERINFO:
+      return "GET_CLUSTERINFO";
+    case REDIS_NODE_GETTING_CLUSTERINFO:
+      return "GETTING_CLUSTERINFO";
+    case REDIS_NODE_GET_SHARDED_PUBSUB_SUPPORT:
+      return "GET_SHARDED_PUBSUB_SUPPORT";
+    case REDIS_NODE_GETTING_SHARDED_PUBSUB_SUPPORT:
+      return "GETTING_SHARDED_PUBSUB_SUPPORT";
+    case REDIS_NODE_GET_CLUSTER_NODES:
+      return "GET_CLUSTER_NODES";
+    case REDIS_NODE_GETTING_CLUSTER_NODES:
+      return "GETTING_CLUSTER_NODES";
+    case REDIS_NODE_READY:
+      return "READY";
+  }
+  return "(?)";
+}
+
 static void *rbtree_cluster_keyslots_node_id(void *data) {
   return &((redis_nodeset_slot_range_node_t *)data)->range;
 }
@@ -139,42 +209,62 @@ static int nodeset_cluster_node_index_keyslot_ranges(redis_node_t *node) {
   return 1;
 }
 
-/*
-static void nodeset_dbg_print_nodes(redis_nodeset_t *ns, unsigned loglevel) {
-  char           wholebuf[4096];
-  u_char        *buf= (u_char *)wholebuf;
+char *node_dbg_sprint(redis_node_t *node, char *buf, size_t maxlen) {
   char           slotsline[256];
   char          *slots;
-  redis_node_t  *cur;
+  slots = (char *)ngx_sprintf((u_char *)slotsline, "(%d)", node->cluster.slot_range.n);
+  if(node->cluster.slot_range.n) {
+    unsigned i;
+    for(i=0; i<node->cluster.slot_range.n; i++) {
+      slots+= sprintf(slots, "%d-%d,", node->cluster.slot_range.range[i].min, node->cluster.slot_range.range[i].max);
+    }
+    slots--;
+    
+    sprintf(slots, " idx:%d", node->cluster.slot_range.indexed);
+  }
+  else {
+    sprintf(slots, "-");
+  }
+  
+  char masterstr[256];
+  ngx_sprintf((u_char *)masterstr, "%s%Z", node->peers.master ? node_nickname_cstr(node->peers.master) : "-");
+  
+  if(node->cluster.enabled) {
+    ngx_snprintf((u_char *)buf, maxlen, "%p %s <%s> (cluster) r:%s id:%V m:[%V]%s s:[%s]%Z", node, node_nickname_cstr(node), node_state_cstr(node->state), node_role_cstr(node->role), &node->cluster.id, &node->cluster.master_id, masterstr, slotsline);
+  }
+  else {
+    ngx_snprintf((u_char *)buf, maxlen, "%p %s <%s> %s %V%Z", node, node_nickname_cstr(node), node_state_cstr(node->state), node_role_cstr(node->role), &node->run_id);
+  }
+  return buf;
+}
 
-  buf = ngx_sprintf(buf, "Cluster nodes:\n");
+void nodeset_dbg_log_nodes(redis_nodeset_t *ns, unsigned loglevel) {
+  int             n = 0;
+  redis_node_t   *cur;
+  char            nodestr[1024];
   
   for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
-    slots = (char *)ngx_sprintf((u_char *)slotsline, "(%d)", cur->cluster.slot_range.n);
-    if(cur->cluster.slot_range.n) {
-      unsigned i;
-      for(i=0; i<cur->cluster.slot_range.n; i++) {
-        slots+= sprintf(slots, "%d-%d,", cur->cluster.slot_range.range[i].min, cur->cluster.slot_range.range[i].max);
-      }
-      slots--;
-      
-      sprintf(slots, " idx:%d", cur->cluster.slot_range.indexed);
-    }
-    else {
-      sprintf(slots, "-");
-    }
-    
-    char masterstr[256];
-    ngx_sprintf((u_char *)masterstr, "%s%Z", cur->peers.master ? node_nickname_cstr(cur->peers.master) : "-");
-    
-    buf = ngx_sprintf(buf, "%s %s %V m:[%V]%s s:[%s]\n", node_nickname_cstr(cur), node_role_cstr(cur->role), &cur->cluster.id, &cur->cluster.master_id, masterstr, slotsline);
+    n++;
   }
-  ngx_sprintf(buf, "%Z");
   
-  ngx_log_error(loglevel, ngx_cycle->log, 0, "%s", wholebuf);
+  nodeset_log(ns, loglevel, "Redis upstream%s nodes (%d):", ns->cluster.enabled ? " cluster" : "", n); 
   
+  for(cur = nchan_list_first(&ns->nodes); cur != NULL; cur = nchan_list_next(cur)) {
+    ngx_log_error(loglevel, ngx_cycle->log, 0, "    %s", node_dbg_sprint(cur, nodestr, sizeof(nodestr)));
+  }
 }
-*/
+
+void nodeset_dbg_log_nodes_and_clusternodes_lines(redis_nodeset_t *ns, unsigned loglevel, void *l, size_t line_count) {
+  cluster_nodes_line_t *lines = l;
+  nodeset_dbg_log_nodes(ns, NGX_LOG_NOTICE);
+  if(lines && line_count > 0) {
+    unsigned i;
+    ngx_log_error(loglevel, ngx_cycle->log, 0, "CLUSTER NODES reply:");
+    for(i=0; i<line_count; i++) {
+      ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,   "%V", &lines[i].line);
+    }
+  }
+}
 
 /*
 static ngx_int_t print_slot_range_node(rbtree_seed_t *tree, void *node_data, void *privdata) {

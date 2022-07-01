@@ -299,6 +299,11 @@ ngx_int_t nodeset_run_on_ready_callbacks(redis_nodeset_t *ns);
 
 ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t status, const char *msg);
 
+
+char *node_dbg_sprint(redis_node_t *node, char *buf, size_t maxlen);
+void nodeset_dbg_log_nodes(redis_nodeset_t *ns, unsigned loglevel);
+void nodeset_dbg_log_nodes_and_clusternodes_lines(redis_nodeset_t *ns, unsigned loglevel, void *lines, size_t line_count);
+
 int nodeset_node_deduplicate_by_connect_params(redis_node_t *node);
 int nodeset_node_deduplicate_by_run_id(redis_node_t *node);
 int nodeset_node_deduplicate_by_cluster_id(redis_node_t *node);
