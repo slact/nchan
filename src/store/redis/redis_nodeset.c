@@ -1593,6 +1593,7 @@ static int nodeset_cluster_node_is_outdated(redis_nodeset_t *ns, cluster_nodes_l
 static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, redis_node_t **known_node) {
   redis_connect_params_t   rcp;
   redis_node_t            *peer;
+  int                      newly_discovered = 0;
   if(l->failed || !l->connected || l->noaddr || l->self) {
     if(known_node && l->self) {
       *known_node = node;
@@ -1605,6 +1606,7 @@ static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *
   rcp.db = node->connect_params.db;
   rcp.password = node->connect_params.password;
   rcp.username = node->connect_params.username;
+  rcp.use_tls = node->nodeset->settings.tls.enabled;
   
   if( ((peer = nodeset_node_find_by_connect_params(node->nodeset, &rcp)) != NULL)
    || ((peer = nodeset_node_find_by_cluster_id(node->nodeset, &l->id)) != NULL)
@@ -1613,19 +1615,28 @@ static int node_discover_cluster_peer(redis_node_t *node, cluster_nodes_line_t *
     if(known_node) {
       *known_node = peer;
     }
-    return 0; //we already know this one.
   }
-  nodeset_log_notice(node->nodeset, "Discovering cluster %s %s", (l->master ? "master" : "slave"), rcp_cstr(&rcp));
-  peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
-  peer->discovered = 1;
-  if(!l->master && l->master_id.len > 0) {
+  else {
+    newly_discovered=1;
+    nodeset_log_notice(node->nodeset, "Discovered cluster %s %s", (l->master ? "master" : "slave"), rcp_cstr(&rcp));
+    peer = nodeset_node_create_with_connect_params(node->nodeset, &rcp);
+    peer->discovered = 1;
+  }
+  
+  
+  peer->cluster.enabled = 1;
+  if(!l->master && l->master_id.len > 0 && peer->cluster.master_id.len == 0) {
     nchan_strcpy(&peer->cluster.master_id, &l->master_id, MAX_CLUSTER_ID_LENGTH);
   }
   nchan_strcpy(&peer->cluster.id, &l->id, MAX_CLUSTER_ID_LENGTH);
+  
   node_set_role(peer, l->master ? REDIS_NODE_ROLE_MASTER : REDIS_NODE_ROLE_SLAVE);
   //ignore all the other things for now
-  node_connect(peer);
-  return 1;
+  
+  if(newly_discovered) {
+    node_connect(peer);
+  }
+  return newly_discovered;
 }
 
 static ngx_int_t set_preallocated_peername(redisAsyncContext *ctx, ngx_str_t *dst);
@@ -2215,12 +2226,14 @@ static int node_set_cluster_slots(redis_node_t *node, cluster_nodes_line_t *l, c
   }
   
   for(j = 0; j<node->cluster.slot_range.n; j++) {
-    if((conflict_node = nodeset_node_find_by_range(node->nodeset, &node->cluster.slot_range.range[j])) != NULL) {
+    redis_slot_range_t r = node->cluster.slot_range.range[j];
+    if((conflict_node = nodeset_node_find_by_range(node->nodeset, &r)) != NULL) {
       if(node == conflict_node) {
         ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range conflicts with itself. This is very strange indeed.");
       }
       else {
-        ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range conflict with node %s. These nodes are probably from different clusters.%Z", node_cstr(conflict_node));
+        
+        ngx_snprintf((u_char *)errbuf, max_err_len, "keyslot range [%d-%d] conflict with node %s. These nodes are probably from different clusters.%Z", r.min, r.max, node_cstr(conflict_node));
       }
       goto fail;
     }
