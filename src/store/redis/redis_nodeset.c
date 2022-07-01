@@ -1516,7 +1516,6 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, i
   else if(l->handshake) {
     role = "node";
     description = "handshaking";
-    
   }
   else if(l->hostname.len == 0) {
     role = "node";
