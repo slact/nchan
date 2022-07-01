@@ -1541,7 +1541,7 @@ static int node_skip_cluster_peer(redis_node_t *node, cluster_nodes_line_t *l, i
   }
   if(!role) role = l->master ? "master" : "slave";
   if(log_action) {
-    nodeset_log(node->nodeset, loglevel, "Skipping %s %s node %s%s", description, role, rcp_cstr(&rcp), detail);
+    nodeset_log(node->nodeset, loglevel, "Skipping %s %s %s%s", description, role, rcp_cstr(&rcp), detail);
   }
   return 1;
 }
