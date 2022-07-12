@@ -282,6 +282,7 @@ nchan_variable_t nchan_vars[] = {
   STUB_STATUS_WORKER_NAMED_VARIABLE("stored_messages", messages),
   STUB_STATUS_WORKER_VARIABLE(redis_pending_commands),
   STUB_STATUS_WORKER_VARIABLE(redis_connected_servers),
+  STUB_STATUS_WORKER_VARIABLE(redis_unhealthy_upstreams),
   STUB_STATUS_WORKER_NAMED_VARIABLE("ipc_queued_alerts", ipc_queue_size),
   STUB_STATUS_GLOBAL_VARIABLE(total_published_messages),
   STUB_STATUS_GLOBAL_VARIABLE(total_ipc_alerts_sent),

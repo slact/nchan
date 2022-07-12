@@ -167,6 +167,7 @@ typedef struct {
   ngx_atomic_uint_t      messages;
   ngx_atomic_uint_t      redis_pending_commands;
   ngx_atomic_uint_t      redis_connected_servers;
+  ngx_atomic_uint_t      redis_unhealthy_upstreams;
   ngx_atomic_uint_t      ipc_total_alerts_sent;
   ngx_atomic_uint_t      ipc_total_alerts_received;
   ngx_atomic_uint_t      ipc_queue_size;

@@ -3049,6 +3049,14 @@ ngx_int_t nodeset_set_status(redis_nodeset_t *nodeset, redis_nodeset_status_t st
       }
       nodeset_log(nodeset, lvl, "%s", msg);
     }
+    
+    if(status == REDIS_NODESET_READY) {
+      nchan_stats_worker_incr(redis_unhealthy_upstreams, -1);
+    }
+    else if(nodeset->status == REDIS_NODESET_READY) {
+      nchan_stats_worker_incr(redis_unhealthy_upstreams, 1);
+    }
+    
     nodeset->current_status_start = *ngx_timeofday();
     nodeset->current_status_times_checked = 0;
     nodeset->status = status;
@@ -3366,6 +3374,7 @@ ngx_int_t nodeset_connect_all(void) {
   int                      i;
   redis_nodeset_t         *ns;
   DBG("connect all");
+  nchan_stats_worker_incr(redis_unhealthy_upstreams, redis_nodeset_count);
   for(i=0; i<redis_nodeset_count; i++) {
     ns = &redis_nodeset[i];
     nodeset_connect(ns);

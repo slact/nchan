@@ -798,6 +798,7 @@ channels: 80
 subscribers: 90
 redis pending commands: 0
 redis connected servers: 0
+redis unhealthy upstreams: 0
 total interprocess alerts received: 1059634
 interprocess alerts in transit: 0
 interprocess queued alerts: 0
@@ -814,6 +815,7 @@ Here's what each line means, and how to interpret it:
   - `subscribers`: Number of subscribers to all channels on this Nchan server.
   - `redis pending commands`: Number of commands sent to Redis that are awaiting a reply. May spike during high load, especially if the Redis server is overloaded. Should tend towards 0.
   - `redis connected servers`: Number of redis servers to which Nchan is currently connected.
+  - `redis unhealthy upstreams`: Number of redis upstreams (individual server or cluster mode) that are currently not usable for publishing and subscribing.
   - `total interprocess alerts received`: Number of interprocess communication packets transmitted between Nginx workers processes for Nchan. Can grow at 100-10000 per second at high load.
   - `interprocess alerts in transit`: Number of interprocess communication packets in transit between Nginx workers. May be nonzero during high load, but should always tend toward 0 over time.
   - `interprocess queued alerts`: Number of interprocess communication packets waiting to be sent. May be nonzero during high load, but should always tend toward 0 over time.
@@ -1045,6 +1047,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 - `$nchan_stub_status_subscribers`  
 - `$nchan_stub_status_redis_pending_commands`  
 - `$nchan_stub_status_redis_connected_servers`  
+- `$nchan_stub_status_redis_unhealthy_upstreams`  
 - `$nchan_stub_status_total_ipc_alerts_received`  
 - `$nchan_stub_status_ipc_queued_alerts`  
 - `$nchan_stub_status_total_ipc_send_delay`  
