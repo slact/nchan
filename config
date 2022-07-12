@@ -128,6 +128,7 @@ _NCHAN_UTIL_SRCS=" \
   $_nchan_util_dir/nchan_reaper.c \
   $_nchan_util_dir/nchan_subrequest.c \
   $_nchan_util_dir/nchan_benchmark.c \
+  $_nchan_util_dir/nchan_stats.c \
   $_nchan_util_dir/hdr_histogram.c \
 "
 

@@ -539,10 +539,6 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
       d->conf_data = NULL;
     }
     
-    // don't reinitialize stub stats, because this may happen before the
-    // old workers shut down. Rather than add a generational conditional
-    // to __memstore_update_stub_status, we just don't reset the stats.
-    //ngx_memzero(&d->stats, sizeof(d->stats));
 #if nginx_version <= 1011006
   shm_set_allocd_pages_tracker(shm, &d->shmem_pages_used);
 #endif
@@ -591,17 +587,6 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
   return NGX_OK;
 }
 
-
-void __memstore_update_stub_status(off_t offset, int count) {
-  if(nchan_stub_status_enabled) {
-    ngx_atomic_fetch_add((ngx_atomic_uint_t *)((char *)&shdata->stats + offset), count);
-  }
-}
-
-nchan_stub_status_t *nchan_get_stub_status_stats(void) {
-  return &shdata->stats;
-}
-
 size_t nchan_get_used_shmem(void) {
 #if nginx_version <= 1011006
   return shdata->shmem_pages_used * ngx_pagesize;
@@ -635,7 +620,7 @@ static void memstore_reap_chanhead(memstore_channel_head_t *ch) {
     }
   }
   if(ch->owner == memstore_slot()) {
-    nchan_update_stub_status(channels, -1);
+    nchan_stats_worker_incr(channels, -1);
     if(ch->shared)
       shm_free(shm, ch->shared);
   }
@@ -687,8 +672,6 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   for(i = 0; i < MAX_FAKE_WORKERS; i++) {
   memstore_fakeprocess_push(i);
 #endif
-  
-  
   init_mpt(mpt);
 
 #if FAKESHARD
@@ -782,7 +765,7 @@ static void memstore_spooler_add_handler(channel_spooler_t *spl, subscriber_t *s
     if(head->cf && head->cf->redis.enabled && head->cf->redis.storage_mode >= REDIS_MODE_DISTRIBUTED && !head->multi) {
       memstore_fakesub_add(head, 1);
     }
-    nchan_update_stub_status(subscribers, 1);
+    nchan_stats_worker_incr(subscribers, 1);
     if(head->groupnode) {
       memstore_group_add_subscribers(head->groupnode, 1);
     }
@@ -823,7 +806,7 @@ static void memstore_spooler_bulk_dequeue_handler(channel_spooler_t *spl, subscr
       memstore_fakesub_add(head, -count);
     }
     
-    nchan_update_stub_status(subscribers, -count);
+    nchan_stats_worker_incr(subscribers, -count);
     
     if(head->multi) {
       ngx_int_t     i, max = head->multi_count;
@@ -1049,7 +1032,7 @@ static memstore_channel_head_t *chanhead_memstore_create(ngx_str_t *channel_id, 
     head->shared->stored_message_count = 0;
     head->shared->last_seen = 0;
     head->shared->gc.outside_refcount=0;
-    nchan_update_stub_status(channels, 1);
+    nchan_stats_worker_incr(channels, 1);
   }
   else {
     head->shared = NULL;
@@ -1868,7 +1851,7 @@ static void memstore_reap_message( nchan_msg_t *msg ) {
   nchan_free_msg_id(&msg->prev_id);
   ngx_memset(msg, 0xFA, sizeof(*msg)); //debug stuff
   shm_free(shm, msg);
-  nchan_update_stub_status(messages, -1);
+  nchan_stats_worker_incr(messages, -1);
 }
 
 static void memstore_reap_store_message( store_message_t *smsg ) {
@@ -3345,7 +3328,7 @@ ngx_int_t nchan_store_chanhead_publish_message_generic(memstore_channel_head_t *
   //do the actual publishing
   assert(publish_msg->id.time != publish_msg->prev_id.time || ( publish_msg->id.time == publish_msg->prev_id.time && publish_msg->id.tag.fixed[0] != publish_msg->prev_id.tag.fixed[0]));
   
-  nchan_update_stub_status(messages, 1);
+  nchan_stats_worker_incr(messages, 1);
   
   rc = nchan_memstore_publish_generic(chead, publish_msg, 0, NULL);
   

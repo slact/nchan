@@ -64,6 +64,10 @@ static ngx_int_t nchan_init_worker(ngx_cycle_t *cycle) {
     return NGX_OK;
   }
   
+  if(nchan_stats_init_worker(cycle) != NGX_OK) {
+    return NGX_ERROR;
+  }
+  
   if(nchan_store_memory.init_worker(cycle)!=NGX_OK) {
     return NGX_ERROR;
   }
@@ -89,6 +93,10 @@ static ngx_int_t nchan_preconfig(ngx_conf_t *cf) {
 
 static ngx_int_t nchan_postconfig(ngx_conf_t *cf) {
   global_owner_cycle = (void *)ngx_cycle;
+  if(nchan_stats_init_postconfig(cf, nchan_stub_status_enabled) != NGX_OK) {
+    return NGX_ERROR;
+  }
+  
   if(nchan_store_memory.init_postconfig(cf)!=NGX_OK) {
     return NGX_ERROR;
   }
@@ -1084,6 +1092,9 @@ static void nchan_exit_worker(ngx_cycle_t *cycle) {
   if(!global_nchan_enabled) {
     return;
   }
+  
+  nchan_stats_exit_worker(cycle);
+  
   if(global_redis_enabled) {
     redis_store_prepare_to_exit_worker();
   }
@@ -1106,6 +1117,8 @@ static void nchan_exit_master(ngx_cycle_t *cycle) {
   if(!global_nchan_enabled) {
     return;
   }
+  nchan_stats_exit_master(cycle);
+  
   if(global_benchmark_enabled) {
     nchan_benchmark_exit_master(cycle);
   }

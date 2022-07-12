@@ -60,6 +60,11 @@ static void ipc_try_close_fd(ngx_socket_t *fd) {
   }
 }
 
+size_t ipc_worker_slots(const ipc_t *ipc, ngx_int_t **workerslots_array) {
+  *workerslots_array = ipc->worker_slots;
+  return ipc->workers;
+}
+
 ngx_int_t ipc_open(ipc_t *ipc, ngx_cycle_t *cycle, ngx_int_t workers, void (*slot_callback)(int slot, int worker)) {
 //initialize pipes for workers in advance.
   int                             i, j, s = 0;
@@ -175,7 +180,7 @@ static void send_alert_delay_log_timer_handler(ngx_event_t *ev) {
 static void ipc_record_alert_send_delay(ngx_uint_t delay) {
   delayed_sent_alerts_count ++;
   delayed_sent_alerts_delay += delay;
-  nchan_update_stub_status(ipc_total_send_delay, delay);
+  nchan_stats_global_incr(total_ipc_send_delay, delay);
   if(!send_alert_delay_log_timer.timer_set && !ngx_exiting && !ngx_quit) {
     ngx_add_timer(&send_alert_delay_log_timer, 1000);
   }
@@ -255,7 +260,7 @@ static void ipc_write_handler(ngx_event_t *ev) {
     //DBG("first now at %i, %i alerts remain", i, proc->wbuf.n);
   }
   
-  nchan_update_stub_status(ipc_queue_size, proc->wbuf.n - n);
+  nchan_stats_worker_incr(ipc_queue_size, proc->wbuf.n - n);
   
   if(proc->wbuf.overflow_n > 0 && i - first > 0) {
     ipc_writebuf_overflow_t  *of;
@@ -384,7 +389,7 @@ static void receive_alert_delay_log_timer_handler(ngx_event_t *ev) {
 static void ipc_record_alert_receive_delay(ngx_uint_t delay) {
   delayed_received_alerts_count ++;
   delayed_received_alerts_delay += delay;
-  nchan_update_stub_status(ipc_total_receive_delay, delay);
+  nchan_stats_global_incr(total_ipc_receive_delay, delay);
   if(!receive_alert_delay_log_timer.timer_set && !ngx_exiting && !ngx_quit) {
     ngx_add_timer(&receive_alert_delay_log_timer, 1000);
   }
@@ -453,7 +458,7 @@ static void ipc_read_handler(ngx_event_t *ev) {
       if(ngx_time() - alert.time_sent >= 2) {
         ipc_record_alert_receive_delay(ngx_time() - alert.time_sent);
       }
-      nchan_update_stub_status(ipc_total_alerts_received, 1);
+      nchan_stats_global_incr(total_ipc_alerts_received, 1);
       ((ipc_t *)c->data)->handler(alert.src_slot, alert.code, alert.data);
 #endif
     }
@@ -484,7 +489,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
     ERR("IPC_DATA_SIZE too small. wanted %i, have %i", data_size, IPC_DATA_SIZE);
     assert(0);
   }
-  nchan_update_stub_status(ipc_total_alerts_sent, 1);
+  nchan_stats_global_incr(total_ipc_alerts_sent, 1);
 #if (FAKESHARD)
   
   ipc_alert_t         alert = {0};
@@ -509,7 +514,7 @@ ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code, void *data, siz
   
   assert(proc->active);
   
-  nchan_update_stub_status(ipc_queue_size, 1);
+  nchan_stats_worker_incr(ipc_queue_size, 1);
   
   if(wb->n < IPC_WRITEBUF_SIZE) {
     alert = &wb->alerts[(wb->first + wb->n++) % IPC_WRITEBUF_SIZE];

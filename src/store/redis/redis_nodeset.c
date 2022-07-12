@@ -1712,7 +1712,7 @@ int node_disconnect(redis_node_t *node, int disconnected_state) {
   }
 
   if(prev_state >= REDIS_NODE_GET_CLUSTERINFO) {
-    nchan_update_stub_status(redis_connected_servers, -1);
+    nchan_stats_worker_incr(redis_connected_servers, -1);
   }
   if(node->cluster.enabled) {
     node_unset_cluster_slots(node);
@@ -2586,7 +2586,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
       ) {
         return node_connector_fail(node, "failed to subscribe to worker PUBSUB channel");
       }
-      nchan_update_stub_status(redis_connected_servers, 1);
+      nchan_stats_worker_incr(redis_connected_servers, 1);
       
       node->state++;
       /* fall through */
@@ -3552,14 +3552,14 @@ void node_command_sent(redis_node_t *node) {
     node->timeout.sent++;
     node->pending_commands++;
   }
-  nchan_update_stub_status(redis_pending_commands, 1); 
+  nchan_stats_worker_incr(redis_pending_commands, 1); 
 }
 void node_command_received(redis_node_t *node) {
   if(node) {
     node->timeout.received++;
     node->pending_commands--;
   }
-  nchan_update_stub_status(redis_pending_commands, -1); 
+  nchan_stats_worker_incr(redis_pending_commands, -1); 
 }
 
 static redis_node_t *nodeset_node_random_master_or_slave(redis_node_t *master) {

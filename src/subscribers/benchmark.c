@@ -19,7 +19,7 @@ static ngx_int_t sub_enqueue(ngx_int_t status, void *ptr, sub_data_t *d) {
   if(nchan_benchmark_active()) {
     ngx_atomic_fetch_add(d->bench->shared.subscribers_enqueued, 1);
   }
-  nchan_update_stub_status(subscribers, 1); //needs to be done manually for INTERNAL subs
+  nchan_stats_worker_incr(subscribers, 1); //needs to be done manually for INTERNAL subs
   return NGX_OK;
 }
 
@@ -27,7 +27,7 @@ static ngx_int_t sub_dequeue(ngx_int_t status, void *ptr, sub_data_t* d) {
   if(nchan_benchmark_active()) {
     ngx_atomic_fetch_add(d->bench->shared.subscribers_dequeued, 1);
   }
-  nchan_update_stub_status(subscribers, -1); //needs to be done manually for INTERNAL subs
+  nchan_stats_worker_incr(subscribers, -1); //needs to be done manually for INTERNAL subs
   return NGX_OK;
 }
 
