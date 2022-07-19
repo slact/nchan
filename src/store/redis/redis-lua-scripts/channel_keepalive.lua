@@ -16,6 +16,8 @@ local ch = ('%s{channel:%s}'):format(ns, id)
 local key={
   channel=   ch, --hash
   messages=  ch..':messages', --list
+  suscribers = ch..':subscribers', --list
+  subscriber_counts = ch..':subscriber_counts' --hash
 }
   
 local subs_count = tonumber(redis.call('HGET', key.channel, "subscribers")) or 0
@@ -29,6 +31,8 @@ if subs_count > 0 then
   --refresh ttl
   redis.call('expire', key.channel, ttl);
   redis.call('expire', key.messages, ttl);
+  redis.call('expire', key.subscribers, ttl);
+  redis.call('expire', key.subscriber_counts, ttl);
   return random_safe_next_ttl(ttl)
 else
   return -1

@@ -1,10 +1,13 @@
---input: keys: [],  values: [ namespace, channel_id ]
+--input: keys: [],  values: [ namespace, channel_id, use_accurate_subscriber_count ]
 --output: channel_hash {ttl, time_last_seen, subscribers, last_channel_id, messages} or nil
 -- finds and return the info hash of a channel, or nil of channel not found
 local ns = ARGV[1]
 local id = ARGV[2]
+local use_accurate_subscriber_count = tonumber(ARGV[3]) ~= 0
+
 local channel_key = ('%s{channel:%s}'):format(ns, id)
 local messages_key = channel_key..':messages'
+local subscriber_counts = channel_key..':subscriber_counts'
 
 redis.call('echo', ' #######  FIND_CHANNEL ######## ')
 
@@ -56,6 +59,23 @@ if redis.call('EXISTS', channel_key) ~= 0 then
     msgs_count = tonumber(redis.call('llen', messages_key))
   else
     msgs_count = 0
+  end
+  
+  local subscriber_count
+  if use_accurate_subscriber_count then
+    local sub_counts = tohash(redis.call("HGETALL", subscriber_counts))
+    subscriber_count = 0
+    for k, v in pairs(sub_counts) do
+      v = tonumber(v)
+      local res = redis.call("PUBSUB", "NUMSUB", k)
+      if tonumber(res[2]) >= 1 and v > 0 then
+        subscriber_count = subscriber_count + tonumber(v)
+      else
+        redis.call("HDEL", subscriber_counts, k)
+      end
+    end
+  else
+    subscriber_count = tonumber(channel.fake_subscribers) or tonumber(channel.subscribers)
   end
   
   return {

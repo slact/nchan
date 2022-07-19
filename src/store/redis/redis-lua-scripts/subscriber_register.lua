@@ -14,7 +14,8 @@ local ch=("%s{channel:%s}"):format(ns, id)
 local keys = {
   channel =     ch,
   messages =    ch..':messages',
-  subscribers = ch..':subscribers'
+  subscribers = ch..':subscribers',
+  subscriber_counts = ch..':subscriber_counts'
 }
 
 local setkeyttl=function(ttl)

@@ -36,5 +36,4 @@ redis_connect_params_t *parse_info_slaves(redis_node_t *node, const char *info, 
 redis_connect_params_t *parse_info_master(redis_node_t *node, const char *info);
 cluster_nodes_line_t *parse_cluster_nodes(redis_node_t *node, const char *clusternodes, size_t *count);
 int parse_cluster_node_slots(cluster_nodes_line_t *l, redis_slot_range_t *ranges);
-
 #endif /*REDIS_NODESET_PARSER_H */

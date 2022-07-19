@@ -525,6 +525,8 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.optimize_target = scf->redis.optimize_target == NCHAN_REDIS_OPTIMIZE_UNSET ? NCHAN_REDIS_OPTIMIZE_CPU : scf->redis.optimize_target;
     
+    ns->settings.accurate_subscriber_count = scf->redis.accurate_subscriber_count == NGX_CONF_UNSET ? 1 : scf->redis.accurate_subscriber_count;
+    
     ns->settings.blacklist.count = scf->redis.blacklist_count;
     ns->settings.blacklist.list = scf->redis.blacklist;
     
@@ -2603,7 +2605,7 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         node->state++;
       }
       break;
-    
+//     
     case REDIS_NODE_GETTING_CLUSTERINFO:
       if(reply == NULL || reply->type == REDIS_REPLY_ERROR) {
         return node_connector_fail(node, "CLUSTER INFO command failed");

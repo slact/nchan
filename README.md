@@ -1362,6 +1362,12 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   legacy name: push_message_timeout  
   > Publisher configuration setting the length of time a message may be queued before it is considered expired. If you do not want messages to expire, set this to 0. Note that messages always expire from oldest to newest, so an older message may prevent a newer one with a shorter timeout from expiring. An Nginx variable can also be used to set the timeout dynamically.    
 
+- **nchan_redis_accurate_subscriber_count**  
+  arguments: 1  
+  default: `off`  
+  context: upstream  
+  > When disabled, use fast but potentially inaccurate subscriber counts. These may become inaccurate if Nginx workers exit uncleanly or are terminated. When disabled, use a slightly slower but completely accurate subscriber count. Defaults to 'off' for legacy reasons, but will be enabled by default in the future.    
+
 - **nchan_redis_cluster_check_interval_backoff** `<floating point> >= 0, ratio of current delay`  
   arguments: 1  
   default: `2 (increase delay by 200% each try)`  

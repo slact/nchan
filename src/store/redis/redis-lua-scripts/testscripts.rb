@@ -122,7 +122,7 @@ class PubSubTest < Minitest::Test
     end
 
     msg.time= Time.now.utc.to_i unless msg.time
-    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [NAMESPACE, msg.chid, msg.time, msg.data, msg.content_type, msg.eventsource_event, msg.ttl, msg.max_buf_size]
+    msg_tag, channel_info=redis.evalsha hashes[:publish], [], [NAMESPACE, msg.chid, msg.time, msg.data, msg.content_type, msg.eventsource_event, msg.ttl, msg.max_buf_size, 'publish', 1]
     msg.tag=msg_tag
     msg.channel_info=channel_info
     return msg

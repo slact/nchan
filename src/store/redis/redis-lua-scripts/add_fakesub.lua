@@ -1,16 +1,19 @@
---input:  keys: [], values: [namespace, channel_id, number, time]
---output: current_fake_subscribers
+--input:  keys: [], values: [namespace, channel_id, number, time, nginx_worker_id]
+--output: -none-
   
 redis.call('echo', ' ####### FAKESUBS ####### ')
-local ns=ARGV[1]
-local id=ARGV[2]
-local num=tonumber(ARGV[3])
+local ns = ARGV[1]
+local id = ARGV[2]
+local num = tonumber(ARGV[3])
 local time = tonumber(ARGV[4])
+local ngx_worker_id = ARGV[5]
+
 if num==nil then
   return {err="fakesub number not given"}
 end
 
 local chan_key = ('%s{channel:%s}'):format(ns, id)
+local subs_key = ('%s{channel:%s}:subscriber_counts'):format(ns, id)
 
 local res = redis.pcall('EXISTS', chan_key)
 if type(res) == "table" and res["err"] then
@@ -19,10 +22,10 @@ end
 
 local exists = res == 1
 
-local cur = 0
+local old_current_count = 0
 
 if exists or (not exists and num > 0) then
-  cur = redis.call('HINCRBY', chan_key, 'fake_subscribers', num)
+  old_current_count = redis.call('HINCRBY', chan_key, 'fake_subscribers', num)
   if time then
     redis.call('HSET', chan_key, 'last_seen_fake_subscriber', time)
   end
@@ -31,4 +34,14 @@ if exists or (not exists and num > 0) then
   end
 end
 
-return cur
+local res = redis.pcall('EXISTS', subs_key)
+if type(res) == "table" and res["err"] then
+  return {err = ("CLUSTER KEYSLOT ERROR. %i %s"):format(num, id)}
+end
+redis.call('HINCRBY', subs_key, ngx_worker_id, num)
+local subs_key_ttl = tonumber(redis.call('TTL',  subs_key))
+if subs_key_ttl < 0 then
+  redis.call('EXPIRE', subs_key, 60) --60 seconds to get your shit together
+end
+
+return nil

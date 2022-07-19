@@ -10,8 +10,8 @@ typedef struct {
 } redis_lua_script_t;
 
 typedef struct {
-  //input:  keys: [], values: [namespace, channel_id, number, time]
-  //output: current_fake_subscribers
+  //input:  keys: [], values: [namespace, channel_id, number, time, nginx_worker_id]
+  //output: -none-
   redis_lua_script_t add_fakesub;
 
   //input:  keys: [], values: [namespace, channel_id, ttl]
@@ -19,12 +19,12 @@ typedef struct {
   //output: seconds until next keepalive is expected, or -1 for "let it disappear"
   redis_lua_script_t channel_keepalive;
 
-  //input: keys: [],  values: [ namespace, channel_id, publish_command ]
+  //input: keys: [],  values: [ namespace, channel_id, publish_command, use_accurate_subscriber_count ]
   //output: channel_hash {ttl, time_last_seen, subscribers, messages} or nil
   // delete this channel and all its messages
   redis_lua_script_t delete;
 
-  //input: keys: [],  values: [ namespace, channel_id ]
+  //input: keys: [],  values: [ namespace, channel_id, use_accurate_subscriber_count ]
   //output: channel_hash {ttl, time_last_seen, subscribers, last_channel_id, messages} or nil
   // finds and return the info hash of a channel, or nil of channel not found
   redis_lua_script_t find_channel;
@@ -44,7 +44,7 @@ typedef struct {
   //output: next_unique_request_id_integer
   redis_lua_script_t get_subscriber_info_id;
 
-  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, use_spublish]
+  //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, publish_command, use_accurate_subscriber_count]
   //output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
   redis_lua_script_t publish;
 
@@ -75,7 +75,7 @@ typedef struct {
 } redis_lua_scripts_t;
 extern redis_lua_scripts_t redis_lua_scripts;
 extern const int redis_lua_scripts_count;
-#define REDIS_LUA_SCRIPTS_ALL_HASHES "fd2ee193a2518982e607f99623c8200849b21098 7e213d514486887425875dc9835564edfe14e677 121cb1d32fb1b52c3f32cc8b8a3384e99fa10358 d027f1bc80eb1afc33f909759dfb7428cf1f9063 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 6b7588a37712d713cee194f947b375403e58a21d 868da11fde87043c24d82285d0b31adbbdcef406 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 0418d941e41ce9d8cb938860fd340d85c121d4cc a98e07b21485951a7d34cf80736e53db1b6e87a6"
+#define REDIS_LUA_SCRIPTS_ALL_HASHES "4b36c27da7255516cf90db8493e6f9bbc603bedf 84fa757e5402c1360df02663ecfa03efb0d9747e 8cd34ac87468ef61a4335ec5e15dadb9b48074da 61a1d3b4191923c76778aec8f8af218b2103c4c9 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 710c47cd43540d116fac9d8db50ab97c8edfb553 868da11fde87043c24d82285d0b31adbbdcef406 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 94fe1e76b0a6c9aed3d5f17e6a03e01d621b9cef 51f4b6919ec97d42f5a9a7a10ee7742579b6a8f4"
 #define REDIS_LUA_SCRIPTS_COUNT 13
 #define REDIS_LUA_SCRIPTS_EACH(script) \
 for((script)=(redis_lua_script_t *)&redis_lua_scripts; (script) < (redis_lua_script_t *)(&redis_lua_scripts + 1); (script)++) 

@@ -593,12 +593,20 @@ CfCmd.new do
       default: "4m",
       info: "Send a keepalive command to redis to keep the Nchan redis clients from disconnecting. Set to 0 to disable."
   
-    nchan_redis_load_scripts_unconditionally [:upstream],
+  nchan_redis_load_scripts_unconditionally [:upstream],
       :ngx_conf_set_flag_slot,
       [:srv_conf, "redis.load_scripts_unconditionally"],
       default: "no",
       group: "development",
       undocumented: true
+  
+  nchan_redis_accurate_subscriber_count [:upstream],
+      :ngx_conf_set_flag_slot,
+      [:srv_conf, "redis.accurate_subscriber_count"],
+      default: "off",
+      group: "storage",
+      tags: ['redis'],
+      info: "When disabled, use fast but potentially inaccurate subscriber counts. These may become inaccurate if Nginx workers exit uncleanly or are terminated. When disabled, use a slightly slower but completely accurate subscriber count. Defaults to 'off' for legacy reasons, but will be enabled by default in the future."
   
   nchan_redis_wait_after_connecting [:main, :srv, :loc],
       :nchan_ignore_obsolete_setting,

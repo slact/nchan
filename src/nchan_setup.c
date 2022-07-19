@@ -163,6 +163,7 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
   scf->redis.command_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
+  scf->redis.accurate_subscriber_count = NGX_CONF_UNSET;
   scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
   scf->redis.slave_weight = NGX_CONF_UNSET;
@@ -235,6 +236,8 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   ngx_conf_merge_msec_value(conf->redis.cluster_check_interval.max, prev->redis.cluster_check_interval.max, NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MAX_MSEC);
   
   ngx_conf_merge_value(conf->redis.load_scripts_unconditionally, prev->redis.load_scripts_unconditionally, 0);
+  
+  ngx_conf_merge_value(conf->redis.accurate_subscriber_count, prev->redis.accurate_subscriber_count, 0);
   
   MERGE_UNSET_CONF(conf->redis.optimize_target, prev->redis.optimize_target, NCHAN_REDIS_OPTIMIZE_UNSET, NCHAN_REDIS_OPTIMIZE_CPU);
   ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);

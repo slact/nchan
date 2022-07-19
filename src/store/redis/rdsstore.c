@@ -30,7 +30,7 @@
 
 #define REDIS_CONNECTION_FOR_PUBLISH_WAIT 5000
 
-u_char            redis_subscriber_id[255];
+u_char            redis_subscriber_id[512];
 size_t            redis_subscriber_id_len;
 
 static rdstore_channel_head_t    *chanhead_hash = NULL;
@@ -351,8 +351,24 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
 
 static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   ngx_int_t rc = NGX_OK;
+  
+  u_char randbytes[16];
+  u_char randstr[33];
+  int use_randbytes = 0;
+#if (NGX_OPENSSL)
+    if (RAND_bytes(randbytes, 16) == 1) {
+      use_randbytes = 1;
+    }
+#endif
+  if(use_randbytes) {
+    ngx_hex_dump(randstr, randbytes, 16);
+  }
+  else {
+    ngx_sprintf(randstr, "%xi%Z", ngx_random());
+  }
+  
   u_char *cur;
-  cur = ngx_snprintf(redis_subscriber_id, 512, "nchan_worker:{%i:time:%i}%Z", ngx_pid, ngx_time());
+  cur = ngx_snprintf(redis_subscriber_id, 512, "nchan_worker:{%i:time:%i:%s}%Z", ngx_pid, ngx_time(), randstr);
   redis_subscriber_id_len = cur - redis_subscriber_id;
   
   //DBG("worker id %s len %i", redis_subscriber_id, redis_subscriber_id_len);
@@ -1649,7 +1665,7 @@ static ngx_int_t nchan_store_delete_channel_send(redis_nodeset_t *ns, void *pd) 
   redis_channel_callback_data_t *d = pd;
   if(nodeset_ready(ns)) {
     redis_node_t *node = nodeset_node_find_by_channel_id(ns, d->channel_id);
-    nchan_redis_script(delete, node, &redisChannelDeleteCallback, d, d->channel_id, "%s",ns->use_spublish ? "SPUBLISH" : "PUBLISH");
+    nchan_redis_script(delete, node, &redisChannelDeleteCallback, d, d->channel_id, "%s %i",ns->use_spublish ? "SPUBLISH" : "PUBLISH", ns->settings.accurate_subscriber_count);
     return NGX_OK;
   }
   else {
@@ -1688,7 +1704,7 @@ static ngx_int_t nchan_store_find_channel_send(redis_nodeset_t *ns, void *pd) {
   redis_channel_callback_data_t *d = pd;
   if(nodeset_ready(ns)) {
     redis_node_t *node = nodeset_node_find_by_channel_id(ns, d->channel_id);
-    nchan_redis_script(find_channel, node, &redisChannelFindCallback, d, d->channel_id, "");
+    nchan_redis_script(find_channel, node, &redisChannelFindCallback, d, d->channel_id, "%i", ns->settings.accurate_subscriber_count);
   }
   else {
     redisChannelFindCallback(NULL, NULL, d);
@@ -2298,10 +2314,10 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     
   }
   else {  
-    //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, , optimize_target, use_spublish]
+    //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, , optimize_target, publish_command, use_accurate_subscriber_count]
     //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
     nchan_redis_script(publish, node, &redisPublishCallback, d, d->channel_id, 
-                      "%i %b %b %b %i %i %i %i %i %s", 
+                      "%i %b %b %b %i %i %i %i %i %s %i",
                       msg->id.time, 
                       STR(&msgstr), 
                       STR((msg->content_type ? msg->content_type : &empty)), 
@@ -2311,7 +2327,8 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
                       d->max_messages, 
                       redis_publish_message_msgkey_size,
                       nodeset->settings.optimize_target,
-                      nodeset->use_spublish ? "SPUBLISH" : "PUBLISH"
+                      nodeset->use_spublish ? "SPUBLISH" : "PUBLISH",
+                      nodeset->settings.accurate_subscriber_count
                       );
   }
   if(mmapped && munmap(msgstr.data, msgstr.len) == -1) {
@@ -2490,9 +2507,10 @@ static ngx_int_t nchan_store_redis_add_fakesub_send(redis_nodeset_t *nodeset, vo
     redis_node_t *node = nodeset_node_find_by_channel_id(nodeset, d->channel_id);
     nchan_redis_script(add_fakesub, node, &nchan_store_redis_add_fakesub_callback, NULL, 
                        d->channel_id,
-                       "%i %i",
+                       "%i %i %s",
                        d->count,
-                       ngx_time()
+                       ngx_time(),
+                       redis_subscriber_id
                       );
     return NGX_OK;
   }

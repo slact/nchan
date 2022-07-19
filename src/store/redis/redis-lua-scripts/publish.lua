@@ -1,4 +1,4 @@
---input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, use_spublish]
+--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, publish_command, use_accurate_subscriber_count]
 --output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
 
 local ns, id=ARGV[1], ARGV[2]
@@ -17,6 +17,7 @@ local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
 
 local optimize_target = tonumber(ARGV[11]) == 2 and "bandwidth" or "cpu"
 local publish_command = ARGV[12]
+local use_accurate_subscriber_count = tonumber(ARGV[13]) ~= 0
 
 local time
 if optimize_target == "cpu" and redis.replicate_commands then
@@ -92,7 +93,8 @@ local key={
   message=      msg_fmt, --not finished yet
   channel=      ch,
   messages=     ch..':messages',
-  subscribers=  ch..':subscribers'
+  subscribers=  ch..':subscribers',
+  subscriber_counts=  ch..':subscriber_counts'
 }
 local channel_pubsub = ch..':pubsub'
 
@@ -232,6 +234,7 @@ if msg.ttl + 1 > channel_ttl then -- a little extra time for failover weirdness 
   redis.call('EXPIRE', key.channel, msg.ttl + 1)
   redis.call('EXPIRE', key.messages, msg.ttl + 1)
   redis.call('EXPIRE', key.subscribers, msg.ttl + 1)
+  redis.call('EXPIRE', key.subscriber_counts, msg.ttl + 1)
 end
 
 --publish message
@@ -277,11 +280,29 @@ redis.call(publish_command, channel_pubsub, msgpacked)
 
 local num_messages = redis.call('llen', key.messages)
 
+local subscriber_count
+if use_accurate_subscriber_count then
+  local sub_counts = tohash(redis.call("HGETALL", key.subscriber_counts))
+  subscriber_count = 0
+  for k, v in pairs(sub_counts) do
+    v = tonumber(v)
+    local res = redis.call("PUBSUB", "NUMSUB", k)
+    if tonumber(res[2]) >= 1 and v > 0 then
+      subscriber_count = subscriber_count + tonumber(v)
+    else
+      redis.call("HDEL", key.subscriber_counts, k)
+    end
+  end
+else
+  subscriber_count = tonumber(channel.fake_subscribers) or tonumber(channel.subscribers)
+end
+
+
 --dbg("channel ", id, " ttl: ",channel.ttl, ", subscribers: ", channel.subscribers, "(fake: ", channel.fake_subscribers or "nil", "), messages: ", num_messages)
 local ch = {
   tonumber(channel.ttl or msg.ttl),
   tonumber(channel.last_seen_fake_subscriber) or 0,
-  tonumber(channel.fake_subscribers or channel.subscribers) or 0,
+  subscriber_count or 0,
   msg.time and msg.time and ("%i:%i"):format(msg.time, msg.tag) or "",
   tonumber(num_messages)
 }
