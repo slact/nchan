@@ -61,6 +61,6 @@ ngx_int_t ipc_close(ipc_t *ipc, ngx_cycle_t *cycle);
 ngx_int_t ipc_broadcast_alert(ipc_t *ipc, ngx_uint_t code, void *data, size_t data_size);
 ngx_int_t ipc_alert(ipc_t *ipc, ngx_int_t slot, ngx_uint_t code,  void *data, size_t data_size);
 
-size_t ipc_worker_slots(const ipc_t *ipc, ngx_int_t **workerslots_array);
+size_t ipc_worker_slots(const ipc_t *ipc, const ngx_int_t **workerslots_array);
 
 #endif //NCHAN_IPC_H

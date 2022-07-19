@@ -60,7 +60,7 @@ static void ipc_try_close_fd(ngx_socket_t *fd) {
   }
 }
 
-size_t ipc_worker_slots(const ipc_t *ipc, ngx_int_t **workerslots_array) {
+size_t ipc_worker_slots(const ipc_t *ipc, const ngx_int_t **workerslots_array) {
   *workerslots_array = ipc->worker_slots;
   return ipc->workers;
 }

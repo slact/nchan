@@ -83,7 +83,7 @@ ngx_int_t nchan_stats_get_all(nchan_stats_worker_t *worker, nchan_stats_global_t
     ngx_memzero(worker, sizeof(*worker));
     ngx_atomic_uint_t *worker_sum_stats_array = (ngx_atomic_uint_t *)worker;
     
-    ngx_int_t *slots;
+    const ngx_int_t *slots;
     size_t worker_count = ipc_worker_slots(ipc, &slots);
     unsigned i;
     for(i=0; i<worker_count; i++) {
