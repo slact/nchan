@@ -2260,13 +2260,9 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
       (char *)&compression, (size_t )1
     );
     if(!fastpublish) {
-      redis_command(node, publish_callback, d, "HMGET %b{channel:%b} last_seen_fake_subscriber fake_subscribers", 
-        STR(nodeset->settings.namespace),
-        STR(d->channel_id)
-      );
+      nchan_redis_script(nostore_publish_multiexec_channel_info, node, publish_callback, d, d->channel_id, "%i", nodeset->settings.accurate_subscriber_count);
       redis_command(node, &redisPublishNostoreCallback, d, "EXEC");
     }
-    
   }
   else {  
     //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, , optimize_target, publish_command, use_accurate_subscriber_count]
@@ -2340,8 +2336,6 @@ static void redisPublishNostoreCallback(redisAsyncContext *c, void *r, void *pri
   redisReply                    *reply=r;
   redisReply                   **els;
   nchan_channel_t                ch;
-  
-  
   
   redis_node_t                 *node = c->data;
   

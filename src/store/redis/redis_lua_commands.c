@@ -1,7 +1,7 @@
 #include "redis_lua_commands.h"
 
 redis_lua_scripts_t redis_lua_scripts = {
-  {"add_fakesub", "4b36c27da7255516cf90db8493e6f9bbc603bedf",
+  {"add_fakesub", "34fbc20c75d26c7d86121667599645cd915b64b7",
    "--input:  keys: [], values: [namespace, channel_id, number, time, nginx_worker_id]\n"
    "--output: -none-\n"
    "  \n"
@@ -45,12 +45,17 @@ redis_lua_scripts_t redis_lua_scripts = {
    "redis.call('HINCRBY', subs_key, ngx_worker_id, num)\n"
    "local subs_key_ttl = tonumber(redis.call('TTL',  subs_key))\n"
    "if subs_key_ttl < 0 then\n"
-   "  redis.call('EXPIRE', subs_key, 60) --60 seconds to get your shit together\n"
+   "  subs_key_ttl = redis.call('TTL', chan_key)\n"
+   "  if subs_key_ttl <= 0 then\n"
+   "    --60 seconds to get your shit together\n"
+   "    subs_key_ttl = 60\n"
+   "  end\n"
+   "  redis.call('EXPIRE', subs_key, subs_key_ttl)\n"
    "end\n"
    "\n"
    "return nil\n"},
 
-  {"channel_keepalive", "84fa757e5402c1360df02663ecfa03efb0d9747e",
+  {"channel_keepalive", "2886b4810f90546193d270f60df26c090486ec03",
    "--input:  keys: [], values: [namespace, channel_id, ttl]\n"
    "-- ttl is for when there are no messages but at least 1 subscriber.\n"
    "--output: seconds until next keepalive is expected, or -1 for \"let it disappear\"\n"
@@ -69,10 +74,10 @@ redis_lua_scripts_t redis_lua_scripts = {
    "local key={\n"
    "  channel=   ch, --hash\n"
    "  messages=  ch..':messages', --list\n"
-   "  suscribers = ch..':subscribers', --list\n"
+   "  subscribers = ch..':subscribers', --list\n"
    "  subscriber_counts = ch..':subscriber_counts' --hash\n"
    "}\n"
-   "  \n"
+   "\n"
    "local subs_count = tonumber(redis.call('HGET', key.channel, \"subscribers\")) or 0\n"
    "local msgs_count = tonumber(redis.call('LLEN', key.messages)) or 0\n"
    "local actual_ttl = tonumber(redis.call('TTL',  key.channel))\n"
@@ -460,6 +465,62 @@ redis_lua_scripts_t redis_lua_scripts = {
    "redis.call(\"ECHO\", \"val: \" .. val)\n"
    "\n"
    "return val\n"},
+
+  {"nostore_publish_multiexec_channel_info", "e9de52edcc2c5350d53fff2cab17709e29fce62b",
+   "--input: keys: [],  values: [ namespace, channel_id, use_accurate_subscriber_count ]\n"
+   "--output: {subscribers_count, last_subscriber_seed}, or nil of channel not found\n"
+   "\n"
+   "local ns = ARGV[1]\n"
+   "local id = ARGV[2]\n"
+   "local use_accurate_subscriber_count = tonumber(ARGV[3]) ~= 0\n"
+   "\n"
+   "local channel_key = ('%s{channel:%s}'):format(ns, id)\n"
+   "local subscriber_counts = channel_key..':subscriber_counts'\n"
+   "\n"
+   "redis.call('echo', ' #######  NOSTORE_PUBLISH_MULTIEXEC_CHANNEL_INFO ######## ')\n"
+   "\n"
+   "if redis.call('exists', channel_key) ~= 1 then\n"
+   "  return {0, 0}\n"
+   "end\n"
+   "\n"
+   "local tohash=function(arr)\n"
+   "  if type(arr)~=\"table\" then\n"
+   "    return nil\n"
+   "  end\n"
+   "  local h = {}\n"
+   "  local k=nil\n"
+   "  for i, v in ipairs(arr) do\n"
+   "    if k == nil then\n"
+   "      k=v\n"
+   "    else\n"
+   "      --dbg(k..\"=\"..v)\n"
+   "      h[k]=v; k=nil\n"
+   "    end\n"
+   "  end\n"
+   "  return h\n"
+   "end\n"
+   "\n"
+   "local last_seen = tonumber(redis.call('HGET', channel_key, 'last_seen_fake_subscriber'))\n"
+   "\n"
+   "local subscriber_count\n"
+   "if use_accurate_subscriber_count then\n"
+   "  local sub_counts = tohash(redis.call(\"HGETALL\", subscriber_counts))\n"
+   "  subscriber_count = 0\n"
+   "  for k, v in pairs(sub_counts) do\n"
+   "    v = tonumber(v)\n"
+   "    local res = redis.call(\"PUBSUB\", \"NUMSUB\", k)\n"
+   "    if tonumber(res[2]) >= 1 and v > 0 then\n"
+   "      subscriber_count = subscriber_count + tonumber(v)\n"
+   "    else\n"
+   "      redis.call(\"HDEL\", subscriber_counts, k)\n"
+   "    end\n"
+   "  end\n"
+   "else\n"
+   "  subscriber_count = tonumber(redis.call('HGET', channel_key, 'fake_subscribers'))\n"
+   "end\n"
+   "\n"
+   "\n"
+   "return {last_seen or 0, subscriber_count or 0}\n"},
 
   {"publish", "710c47cd43540d116fac9d8db50ab97c8edfb553",
    "--input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, publish_command, use_accurate_subscriber_count]\n"
@@ -1153,4 +1214,4 @@ redis_lua_scripts_t redis_lua_scripts = {
    "\n"
    "return {sub_id, sub_count}\n"}
 };
-const int redis_lua_scripts_count=13;
+const int redis_lua_scripts_count=14;

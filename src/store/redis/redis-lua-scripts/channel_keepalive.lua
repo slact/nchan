@@ -16,10 +16,10 @@ local ch = ('%s{channel:%s}'):format(ns, id)
 local key={
   channel=   ch, --hash
   messages=  ch..':messages', --list
-  suscribers = ch..':subscribers', --list
+  subscribers = ch..':subscribers', --list
   subscriber_counts = ch..':subscriber_counts' --hash
 }
-  
+
 local subs_count = tonumber(redis.call('HGET', key.channel, "subscribers")) or 0
 local msgs_count = tonumber(redis.call('LLEN', key.messages)) or 0
 local actual_ttl = tonumber(redis.call('TTL',  key.channel))

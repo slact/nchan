@@ -525,7 +525,7 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     
     ns->settings.optimize_target = scf->redis.optimize_target == NCHAN_REDIS_OPTIMIZE_UNSET ? NCHAN_REDIS_OPTIMIZE_CPU : scf->redis.optimize_target;
     
-    ns->settings.accurate_subscriber_count = scf->redis.accurate_subscriber_count == NGX_CONF_UNSET ? 1 : scf->redis.accurate_subscriber_count;
+    ns->settings.accurate_subscriber_count = scf->redis.accurate_subscriber_count == NGX_CONF_UNSET ? 0 : scf->redis.accurate_subscriber_count;
     
     ns->settings.blacklist.count = scf->redis.blacklist_count;
     ns->settings.blacklist.list = scf->redis.blacklist;

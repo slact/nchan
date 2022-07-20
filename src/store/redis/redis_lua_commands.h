@@ -44,6 +44,10 @@ typedef struct {
   //output: next_unique_request_id_integer
   redis_lua_script_t get_subscriber_info_id;
 
+  //input: keys: [],  values: [ namespace, channel_id, use_accurate_subscriber_count ]
+  //output: {subscribers_count, last_subscriber_seed}, or nil of channel not found
+  redis_lua_script_t nostore_publish_multiexec_channel_info;
+
   //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, publish_command, use_accurate_subscriber_count]
   //output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
   redis_lua_script_t publish;
@@ -75,8 +79,8 @@ typedef struct {
 } redis_lua_scripts_t;
 extern redis_lua_scripts_t redis_lua_scripts;
 extern const int redis_lua_scripts_count;
-#define REDIS_LUA_SCRIPTS_ALL_HASHES "4b36c27da7255516cf90db8493e6f9bbc603bedf 84fa757e5402c1360df02663ecfa03efb0d9747e 8cd34ac87468ef61a4335ec5e15dadb9b48074da 61a1d3b4191923c76778aec8f8af218b2103c4c9 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 710c47cd43540d116fac9d8db50ab97c8edfb553 868da11fde87043c24d82285d0b31adbbdcef406 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 94fe1e76b0a6c9aed3d5f17e6a03e01d621b9cef 51f4b6919ec97d42f5a9a7a10ee7742579b6a8f4"
-#define REDIS_LUA_SCRIPTS_COUNT 13
+#define REDIS_LUA_SCRIPTS_ALL_HASHES "34fbc20c75d26c7d86121667599645cd915b64b7 2886b4810f90546193d270f60df26c090486ec03 8cd34ac87468ef61a4335ec5e15dadb9b48074da 61a1d3b4191923c76778aec8f8af218b2103c4c9 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 e9de52edcc2c5350d53fff2cab17709e29fce62b 710c47cd43540d116fac9d8db50ab97c8edfb553 868da11fde87043c24d82285d0b31adbbdcef406 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 94fe1e76b0a6c9aed3d5f17e6a03e01d621b9cef 51f4b6919ec97d42f5a9a7a10ee7742579b6a8f4"
+#define REDIS_LUA_SCRIPTS_COUNT 14
 #define REDIS_LUA_SCRIPTS_EACH(script) \
 for((script)=(redis_lua_script_t *)&redis_lua_scripts; (script) < (redis_lua_script_t *)(&redis_lua_scripts + 1); (script)++) 
 #endif //NCHAN_REDIS_LUA_SCRIPTS_H

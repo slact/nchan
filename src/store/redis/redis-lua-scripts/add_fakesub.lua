@@ -41,7 +41,12 @@ end
 redis.call('HINCRBY', subs_key, ngx_worker_id, num)
 local subs_key_ttl = tonumber(redis.call('TTL',  subs_key))
 if subs_key_ttl < 0 then
-  redis.call('EXPIRE', subs_key, 60) --60 seconds to get your shit together
+  subs_key_ttl = redis.call('TTL', chan_key)
+  if subs_key_ttl <= 0 then
+    --60 seconds to get your shit together
+    subs_key_ttl = 60
+  end
+  redis.call('EXPIRE', subs_key, subs_key_ttl)
 end
 
 return nil
