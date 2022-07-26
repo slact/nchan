@@ -164,7 +164,6 @@ struct redis_nodeset_s {
     ngx_msec_t                  retry_commands_max_wait;
     time_t                      ping_interval;
     ngx_str_t                  *namespace;
-    nchan_redis_optimize_t      optimize_target;
     ngx_msec_t                  node_connect_timeout;
     ngx_msec_t                  cluster_connect_timeout;
     ngx_msec_t                  command_timeout;

@@ -9,6 +9,8 @@ local channel_key = ('%s{channel:%s}'):format(ns, id)
 local messages_key = channel_key..':messages'
 local subscriber_counts = channel_key..':subscriber_counts'
 
+redis.replicate_commands()
+
 redis.call('echo', ' #######  FIND_CHANNEL ######## ')
 
 --check old entries

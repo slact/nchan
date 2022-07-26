@@ -523,8 +523,6 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;
     
-    ns->settings.optimize_target = scf->redis.optimize_target == NCHAN_REDIS_OPTIMIZE_UNSET ? NCHAN_REDIS_OPTIMIZE_CPU : scf->redis.optimize_target;
-    
     ns->settings.accurate_subscriber_count = scf->redis.accurate_subscriber_count == NGX_CONF_UNSET ? 0 : scf->redis.accurate_subscriber_count;
     
     ns->settings.blacklist.count = scf->redis.blacklist_count;
@@ -2256,6 +2254,17 @@ fail:
   return 0;
 }
 
+static int node_redis_version_ok(char *info_reply, char *err, size_t maxerrlen) {
+  ngx_str_t versionstart = ngx_string("redis_version:");
+  char *cur = info_reply;
+  if(!nchan_strscanstr(&cur, &versionstart, strlen(cur))) {
+    ngx_snprintf(err, maxerrlen, "INFO reply missing redis_version");
+    return 0;
+  }
+  
+  
+  
+}
 
 static void node_connector_connect_timeout(void *pd) {
   redis_node_t  *node = pd;
@@ -2513,6 +2522,11 @@ static void node_connector_callback(redisAsyncContext *ac, void *rep, void *priv
         // the deduplication has deleted it; we're done here.
         // commence rejoicing.
         return;
+      }
+      
+      
+      if(!node_redis_version_ok(reply->str, errstr, sizeof(errstr))) {
+        return node_connector_fail(node, errstr);
       }
       
       if(nchan_cstr_match_line(reply->str, "loading:1")) {

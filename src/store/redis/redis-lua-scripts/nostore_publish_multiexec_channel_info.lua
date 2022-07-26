@@ -8,6 +8,8 @@ local use_accurate_subscriber_count = tonumber(ARGV[3]) ~= 0
 local channel_key = ('%s{channel:%s}'):format(ns, id)
 local subscriber_counts = channel_key..':subscriber_counts'
 
+redis.replicate_commands()
+
 redis.call('echo', ' #######  NOSTORE_PUBLISH_MULTIEXEC_CHANNEL_INFO ######## ')
 
 if redis.call('exists', channel_key) ~= 1 then

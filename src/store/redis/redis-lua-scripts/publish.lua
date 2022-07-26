@@ -1,11 +1,20 @@
---input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, optimize_target, publish_command, use_accurate_subscriber_count]
+--input:  keys: [], values: [namespace, channel_id, message, content_type, eventsource_event, compression_setting, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, publish_command, use_accurate_subscriber_count]
 --output: channel_hash {ttl, time_last_subscriber_seen, subscribers, last_message_id, messages}, channel_created_just_now?
+
+redis.replicate_commands()
 
 local ns, id=ARGV[1], ARGV[2]
 
-local msg = {}
-
-local store_at_most_n_messages = tonumber(ARGV[9])
+local msg = {
+  data =ARGV[3],
+  content_type = ARGV[4],
+  eventsource_event = ARGV[5],
+  compression = tonumber(ARGV[6]),
+  ttl= tonumber(ARGV[7]),
+  time = tonumber(redis.call('TIME')[1]),
+  tag = 0
+}
+local store_at_most_n_messages = tonumber(ARGV[8])
 if store_at_most_n_messages == nil or store_at_most_n_messages == "" then
   return {err="Argument 9, max_msg_buf_size, can't be empty"}
 end
@@ -13,33 +22,11 @@ if store_at_most_n_messages == 0 then
   msg.unbuffered = 1
 end
 
-local msgpacked_pubsub_cutoff = tonumber(ARGV[10])
+local msgpacked_pubsub_cutoff = tonumber(ARGV[9])
 
-local optimize_target = tonumber(ARGV[11]) == 2 and "bandwidth" or "cpu"
-local publish_command = ARGV[12]
-local use_accurate_subscriber_count = tonumber(ARGV[13]) ~= 0
+local publish_command = ARGV[10]
+local use_accurate_subscriber_count = tonumber(ARGV[11]) ~= 0
 
-local time
-if optimize_target == "cpu" and redis.replicate_commands then
-  -- we're on redis >= 3.2. We can use We can use 'script effects replication' to allow
-  -- writing nondeterministic command values like TIME.
-  -- That's exactly what we want to do, use Redis' TIME rather than the given time from Nginx
-  -- Also, it's more efficient to replicate just the commands in this case rather than run the whole script
-  redis.replicate_commands()
-  time = tonumber(redis.call('TIME')[1])
-else
-  --fallback to the provided time
-  time = tonumber(ARGV[3])
-end
-
-msg.id=nil
-msg.data= ARGV[4]
-msg.content_type=ARGV[5]
-msg.eventsource_event=ARGV[6]
-msg.compression=tonumber(ARGV[7])
-msg.ttl= tonumber(ARGV[8])
-msg.time= time
-msg.tag= 0
 
 if msg.ttl == 0 then
   msg.ttl = 126144000 --4 years
@@ -131,7 +118,6 @@ if key.last_message then
   if lasttime and tonumber(lasttime) > tonumber(msg.time) then
     redis.log(redis.LOG_WARNING, "Nchan: message for " .. id .. " arrived a little late and may be delivered out of order. Redis must be very busy, or the Nginx servers do not have their times synchronized.")
     msg.time = lasttime
-    time = lasttime
   end
   if lasttime and lasttime==msg.time then
     msg.tag=lasttag+1
@@ -155,7 +141,7 @@ if redis.call('EXISTS', key.message) ~= 0 then
   end
   local existing_msg = tohash(redis.call('HGETALL', key.message))
   local errmsg = "Message %s for channel %s id %s already exists. time: %s lasttime: %s lasttag: %s. dbg: channel: %s, messages_key: %s, msglist: %s, msg: %s, msg_expire: %s."
-  errmsg = errmsg:format(key.message, id, msg.id or "-", time or "-", lasttime or "-", lasttag or "-", hash_tostr(channel), key.messages, "["..table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ").."]", hash_tostr(existing_msg), redis.call('TTL', key.message))
+  errmsg = errmsg:format(key.message, id, msg.id or "-", msg.time or "-", lasttime or "-", lasttag or "-", hash_tostr(channel), key.messages, "["..table.concat(redis.call('LRANGE', key.messages, 0, -1), ", ").."]", hash_tostr(existing_msg), redis.call('TTL', key.message))
   return {err=errmsg}
 end
 
@@ -169,8 +155,8 @@ redis.call('HSET', key.channel, 'current_message', msg.id)
 if msg.prev then
   redis.call('HSET', key.channel, 'prev_message', msg.prev)
 end
-if time then
-  redis.call('HSET', key.channel, 'time', time)
+if msg.time then
+  redis.call('HSET', key.channel, 'time', msg.time)
 end
 
 local message_len_changed = false

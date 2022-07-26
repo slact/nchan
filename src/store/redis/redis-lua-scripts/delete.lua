@@ -13,6 +13,8 @@ local subscribers=ch..':subscribers'
 local pubsub=     ch..':pubsub'
 local subscriber_counts = ch..':subscriber_counts'
 
+redis.replicate_commands()
+
 redis.call('echo', ' ####### DELETE #######')
 local num_messages = 0
 --delete all the messages right now mister!

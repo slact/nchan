@@ -2268,8 +2268,7 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
     //input:  keys: [], values: [namespace, channel_id, time, message, content_type, eventsource_event, compression, msg_ttl, max_msg_buf_size, pubsub_msgpacked_size_cutoff, , optimize_target, publish_command, use_accurate_subscriber_count]
     //output: message_time, message_tag, channel_hash {ttl, time_last_seen, subscribers, messages}
     nchan_redis_script(publish, node, &redisPublishCallback, d, d->channel_id, 
-                      "%i %b %b %b %i %i %i %i %i %s %i",
-                      msg->id.time, 
+                      "%b %b %b %i %i %i %i %s %i",
                       STR(&msgstr), 
                       STR((msg->content_type ? msg->content_type : &empty)), 
                       STR((msg->eventsource_event ? msg->eventsource_event : &empty)), 
@@ -2277,7 +2276,6 @@ static ngx_int_t redis_publish_message_send(redis_nodeset_t *nodeset, void *pd) 
                       d->message_timeout, 
                       d->max_messages, 
                       redis_publish_message_msgkey_size,
-                      nodeset->settings.optimize_target,
                       nodeset->use_spublish ? "SPUBLISH" : "PUBLISH",
                       nodeset->settings.accurate_subscriber_count
                       );

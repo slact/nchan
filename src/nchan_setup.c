@@ -164,7 +164,6 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.command_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
   scf->redis.accurate_subscriber_count = NGX_CONF_UNSET;
-  scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_UNSET;
   scf->redis.master_weight = NGX_CONF_UNSET;
   scf->redis.slave_weight = NGX_CONF_UNSET;
   scf->redis.blacklist_count = NGX_CONF_UNSET;
@@ -239,7 +238,6 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_value(conf->redis.accurate_subscriber_count, prev->redis.accurate_subscriber_count, 0);
   
-  MERGE_UNSET_CONF(conf->redis.optimize_target, prev->redis.optimize_target, NCHAN_REDIS_OPTIMIZE_UNSET, NCHAN_REDIS_OPTIMIZE_CPU);
   ngx_conf_merge_value(conf->redis.master_weight, prev->redis.master_weight, 1);
   ngx_conf_merge_value(conf->redis.slave_weight, prev->redis.slave_weight, 1);
   ngx_conf_merge_value(conf->redis.blacklist_count, prev->redis.blacklist_count, 0);
@@ -1409,21 +1407,6 @@ static char *ngx_conf_set_exponential_backoff(ngx_conf_t *cf, ngx_command_t *cmd
   }
   
   *field = fp;
-  return NGX_CONF_OK;
-}
-
-static char *ngx_conf_set_redis_optimize_target(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-  ngx_str_t          *val = &((ngx_str_t *) cf->args->elts)[1];
-  nchan_srv_conf_t   *scf = conf;
-  if(nchan_strmatch(val, 2, "bandwidth", "bw")) {
-    scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_BANDWIDTH;
-  }
-  else if(nchan_strmatch(val, 2, "cpu", "CPU")) {
-    scf->redis.optimize_target = NCHAN_REDIS_OPTIMIZE_CPU;
-  }
-  else {
-    return "invalid value, must be \"bandwidth\" or \"cpu\"";
-  }
   return NGX_CONF_OK;
 }
 

@@ -270,12 +270,6 @@ typedef struct {
  ngx_atomic_uint_t               max_messages;
 } nchan_loc_conf_shared_data_t;
 
-typedef enum {
-  NCHAN_REDIS_OPTIMIZE_UNSET = -1,
-  NCHAN_REDIS_OPTIMIZE_CPU = 1,
-  NCHAN_REDIS_OPTIMIZE_BANDWIDTH = 2
-} nchan_redis_optimize_t;
-
 typedef struct {
   int family;
   int prefix_size;
@@ -340,7 +334,6 @@ typedef struct {
       nchan_backoff_settings_t      cluster_recovery_delay;
       nchan_backoff_settings_t      cluster_check_interval;
       ngx_msec_t                    command_timeout;
-      nchan_redis_optimize_t        optimize_target;
       ngx_int_t                     master_weight;
       ngx_int_t                     slave_weight;
       ngx_int_t                     blacklist_count;

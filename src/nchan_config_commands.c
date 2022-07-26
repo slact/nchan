@@ -695,7 +695,7 @@ static ngx_command_t  nchan_commands[] = {
 
   { ngx_string("nchan_redis_optimize_target"),
     NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_redis_optimize_target,
+    nchan_ignore_obsolete_setting,
     NGX_HTTP_SRV_CONF_OFFSET,
     0,
     NULL } ,

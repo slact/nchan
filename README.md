@@ -1464,9 +1464,9 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_redis_optimize_target** `[ cpu | bandwidth ]`  
   arguments: 1  
-  default: `cpu`  
+  default: `bandwidth`  
   context: upstream  
-  > This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. Optimizing for CPU usage enables effect replication, costing additional bandwidth (between 1.2 and 2 times more) between all master->slave links. Optimizing for bandwidth increases CPU load on slaves, but keeps outgoing bandwidth used for replication the same as the incoming bandwidth on Master.    
+  > This tweaks whether [effect replication](https://redis.io/commands/eval#replicating-commands-instead-of-scripts) is enabled. This setting is obsolete, as effect replication is now always enabled to support other features    
 
 - **nchan_redis_pass** `<upstream-name>`  
   arguments: 1  
