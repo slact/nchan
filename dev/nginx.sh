@@ -53,6 +53,7 @@ NGINX_CONF_FILE="nginx.conf"
 
 NGINX_VER=$($DEVDIR/nginx -v 2>&1)
 NGINX_VER=${NGINX_VER:15}
+redis_version=""
 
 for opt in $*; do
   if [[ "$opt" = <-> ]]; then
@@ -61,6 +62,9 @@ for opt in $*; do
   case $opt in
     noredis|no-redis)
       no_redis=1;;
+    redis=*)
+      redis_version="${opt:6}"
+      ;;
     redis-persist)
       persist_redis=1;;
     redis-tls)
@@ -211,7 +215,7 @@ if [[ -f "$_dynamic_module" ]]; then
 fi
 
 #shutdown old redis
-old_redis_pid=`pgrep -f "redis-server 127.0.0.1:$REDIS_PORT"`
+old_redis_pid=`pgrep -f "redis.*-server 127.0.0.1:$REDIS_PORT"`
 if [[ ! -z $old_redis_pid ]] && [[ -z $persist_redis ]]; then
   kill $old_redis_pid
   wait $old_redis_pid
@@ -221,10 +225,10 @@ fi
 if [[ -z $no_redis ]]; then
   if [[ -z $old_redis_pid ]] || [[ -z $persist_redis ]]; then
     if [[ -z $persist_redis ]]; then
-      redis-server $REDIS_CONF $REDIS_OPT &
+      redis${redis_version}-server $REDIS_CONF $REDIS_OPT &
       redis_pid=$!
     else
-      redis-server $REDIS_CONF $REDIS_OPT --daemonize yes
+      redis${redis_version}-server $REDIS_CONF $REDIS_OPT --daemonize yes
       sleep 1
       redis_pid=$(cat /tmp/redis-pushmodule.pid)
     fi
