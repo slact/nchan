@@ -2257,13 +2257,11 @@ fail:
 static int node_redis_version_ok(char *info_reply, char *err, size_t maxerrlen) {
   ngx_str_t versionstart = ngx_string("redis_version:");
   char *cur = info_reply;
-  if(!nchan_strscanstr(&cur, &versionstart, strlen(cur))) {
-    ngx_snprintf(err, maxerrlen, "INFO reply missing redis_version");
+  if(!nchan_strscanstr((u_char **)&cur, &versionstart, (u_char *)&cur[strlen(cur)])) {
+    ngx_snprintf((u_char *)err, maxerrlen, "INFO reply missing redis_version");
     return 0;
-  }
-  
-  
-  
+  }  
+  return 1;
 }
 
 static void node_connector_connect_timeout(void *pd) {
