@@ -22,7 +22,7 @@ In a web browser, you can use Websocket or EventSource natively, or the [NchanSu
 
 ## Status and History
 
-The latest Nchan release is 1.3.0 (May 26, 2022) ([changelog](https://nchan.io/changelog)).
+The latest Nchan release is 1.3.1 (August 1, 2022) ([changelog](https://nchan.io/changelog)).
 
 The first iteration of Nchan was written in 2009-2010 as the [Nginx HTTP Push Module](https://pushmodule.slact.net), and was vastly refactored into its present state in 2014-2016.
 
@@ -1340,7 +1340,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   default: `off`  
   context: http, server, location  
   legacy name: push_authorized_channels_only  
-  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response. (Note: be careful when using this with `nchan_message_timeout` because if messages are set to time out, subscribers will only be able to connect to the channel within the message timeout. Channels with no messages and no subscriber are automatically removed.)
+  > Whether or not a subscriber may create a channel by sending a request to a subscriber location. If set to on, a publisher must send a POST or PUT request before a subscriber can request messages on the channel. Otherwise, all subscriber requests to nonexistent channels will get a 403 Forbidden response.    
 
 - **nchan_message_buffer_length** `[ <number> | <variable> ]`  
   arguments: 1  
@@ -1645,7 +1645,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   context: http, server, location  
   legacy name: push_channel_timeout  
-  > Amount of time an empty channel hangs around. Don't mess with this setting unless you know what you are doing! (By default, channels stay alive as long as there is at least 1 subscriber or 1 message. With 0 subscribers and 0 messages, channels are subject to garbage collection.)
+  > Amount of time an empty channel hangs around. Don't mess with this setting unless you know what you are doing!    
 
 - **nchan_storage_engine** `[ memory | redis ]`  
   arguments: 1  
