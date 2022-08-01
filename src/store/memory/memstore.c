@@ -314,7 +314,7 @@ ngx_int_t memstore_slot(void) {
 }
 
 int memstore_ready(void) {
-  if(memstore_worker_generation == shdata->generation && shdata->max_workers == shdata->current_active_workers) {
+  if(memstore_worker_generation == shdata->generation && shdata->max_workers <= shdata->current_active_workers) {
     return 1;
   }
   else if(memstore_worker_generation < shdata->generation) {
