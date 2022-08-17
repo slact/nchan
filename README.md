@@ -277,7 +277,7 @@ Nchan supports several different kinds of subscribers for receiving messages: [*
   Initiated by explicitly including `chunked` in the [`TE` header](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.39):  
   `TE: chunked` (or `TE: chunked;q=??` where the qval > 0)  
   The response headers are sent right away, and each message will be sent as an individual chunk. Note that because a zero-length chunk terminates the transfer, **zero-length messages will not be sent** to the subscriber.  
-  Unlike the other subscriber types, the `chunked` subscriber cannot be used with http/2 because it dissallows chunked encoding.
+  Unlike the other subscriber types, the `chunked` subscriber cannot be used with http/2 because it disallows chunked encoding.
   <!-- tag:subscriber-chunked -->
 
 ## PubSub Endpoint  
@@ -547,7 +547,7 @@ Consider the configuration:
 ```
 
 Here, any request to the location `/pubsub/auth/<...>` will need to be authorized by your application (`my_app`). Nginx will generate a `GET /pubsub_authorize` request to the application, with additional headers set by the `proxy_set_header` directives. Note that Nchan-specific variables are available for this authorization request. Once your application receives this request, it should decide whether or not to authorize the subscriber. This can be done based on a forwarded session cookie, IP address, or any set of parameters of your choosing. If authorized, it should respond with an empty `200 OK` response.  
-All non-`2xx` response codes (such as `403 Forbidden`) are intepreted as authorization failures. In this case, the failing response is proxied to the client. 
+All non-`2xx` response codes (such as `403 Forbidden`) are interpreted as authorization failures. In this case, the failing response is proxied to the client. 
 
 Note that Websocket and EventSource clients will only try to authorize during the initial handshake request, whereas Long-Poll and Interval-Poll subscribers will need to be authorized each time they request the next message, which may flood your application with too many authorization requests.
 
@@ -670,7 +670,7 @@ Nchan can work with a single Redis master. It can also auto-discover and use Red
 <!-- commands: nchan_redis_server nchan_redis_pass -->
 
 #### Redis Cluster
-Nchan also supports using Redis Cluster, which adds scalability via sharding channels among cluster nodes. Redis cluster also provides **automatic failover**, **high availability**, and eliminates the single point of failure of one shared Redis server. It is configred and used like so:
+Nchan also supports using Redis Cluster, which adds scalability via sharding channels among cluster nodes. Redis cluster also provides **automatic failover**, **high availability**, and eliminates the single point of failure of one shared Redis server. It is configured and used like so:
 
 ```nginx
 http {
@@ -926,7 +926,7 @@ An ID that can be guessed is an ID that can be hijacked. If you are not authenti
 #### X-Accel-Redirect
 
 This feature uses the [X-Accel feature](https://www.nginx.com/resources/wiki/start/topics/examples/x-accel) of Nginx upstream proxies to perform an internal request to a subscriber endpoint.
-It allows a subscriber client to be authenticated by your application, and then redirected by nginx internally to a location chosen by your appplication (such as a publisher or subscriber endpoint). This makes it possible to have securely authenticated clients that are unaware of the channel id they are subscribed to.
+It allows a subscriber client to be authenticated by your application, and then redirected by nginx internally to a location chosen by your application (such as a publisher or subscriber endpoint). This makes it possible to have securely authenticated clients that are unaware of the channel id they are subscribed to.
 
 Consider the following configuration:
 ```nginx 
@@ -1376,9 +1376,9 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
 
 - **nchan_redis_cluster_check_interval_jitter** `<floating point> >= 0, (0 to disable)`  
   arguments: 1  
-  default: `0.2 (20% of inverval value)`  
+  default: `0.2 (20% of interval value)`  
   context: upstream  
-  > Introduce random jitter to Redis cluster chck interval, where the range is `±(cluster_check_interval * nchan_redis_cluster_check_interval_jitter) / 2`.    
+  > Introduce random jitter to Redis cluster check interval, where the range is `±(cluster_check_interval * nchan_redis_cluster_check_interval_jitter) / 2`.    
 
 - **nchan_redis_cluster_check_interval_max** `<time> (0 to disable)`  
   arguments: 1  
@@ -1538,7 +1538,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `<system default>`  
   context: upstream  
-  > Acceptable cipers when using TLS for Redis connections    
+  > Acceptable ciphers when using TLS for Redis connections    
 
 - **nchan_redis_ssl_client_certificate**  
   arguments: 1  
@@ -1564,7 +1564,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   arguments: 1  
   default: `<system default>`  
   context: upstream  
-  > Trusted certificate (CA) when using TLS for Redis connections. Defaults tothe system's SSL cert path unless nchan_redis_ssl_trusted_certificate is set    
+  > Trusted certificate (CA) when using TLS for Redis connections. Defaults to the system's SSL cert path unless nchan_redis_ssl_trusted_certificate is set    
 
 - **nchan_redis_ssl_verify_certificate** `[ on | off ]`  
   arguments: 1  
@@ -1578,7 +1578,7 @@ Additionally, `nchan_stub_status` data is also exposed as variables. These are a
   context: http, server, upstream, location  
   > The mode of operation of the Redis server. In `distributed` mode, messages are published directly to Redis, and retrieved in real-time. Any number of Nchan servers in distributed mode can share the Redis server (or cluster). Useful for horizontal scalability, but suffers the latency penalty of all message publishing going through Redis first.  
   >   
-  > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon chanel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.  
+  > In `backup` mode, messages are published locally first, then later forwarded to Redis, and are retrieved only upon channel initialization. Only one Nchan server should use a Redis server (or cluster) in this mode. Useful for data persistence without sacrificing response times to the latency of a round-trip to Redis.  
   >   
   > In `nostore` mode, messages are published as in `distributed` mode, but are not stored. Thus Redis is used to broadcast messages to many Nchan instances with no delivery guarantees during connection failure, and only local in-memory storage. This means that there are also no message delivery guarantees for subscribers switching from one Nchan instance to another connected to the same Redis server or cluster. Nostore mode increases Redis publishing capacity by an order of magnitude.    
 
