@@ -1163,28 +1163,28 @@ ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
 }
 
 void nchan_set_next_backoff(ngx_msec_t *backoff, nchan_backoff_settings_t *settings) {
-  double reconnect_delay = *backoff;
-  if(reconnect_delay == 0 || settings->backoff_multiplier == 0) {
-    reconnect_delay = settings->min;
+  double next_backoff = *backoff;
+  if(next_backoff == 0 || settings->backoff_multiplier == 0) {
+    next_backoff = settings->min;
   }
   else if(settings->backoff_multiplier > 0) {
-    reconnect_delay *= (settings->backoff_multiplier + 1.0);
+    next_backoff *= (settings->backoff_multiplier + 1.0);
   }
-  if(settings->max > 0 && reconnect_delay > settings->max) {
-    reconnect_delay = settings->max;
+  if(settings->max > 0 && next_backoff > settings->max) {
+    next_backoff = settings->max;
   }
   
   if(settings->jitter_multiplier > 0) {
-    double max_jitter = (double )reconnect_delay * settings->jitter_multiplier;
-    reconnect_delay = reconnect_delay - (ngx_msec_t)(max_jitter/2.0) + (ngx_random() % (ngx_msec_t )(max_jitter));
+    double max_jitter = (double )next_backoff * settings->jitter_multiplier;
+    next_backoff = next_backoff - (ngx_msec_t)(max_jitter/2.0) + (ngx_random() % (ngx_msec_t )(max_jitter));
   }
-  if(settings->max > 0 && reconnect_delay > settings->max) {
-    reconnect_delay = settings->max;
+  if(settings->max > 0 && next_backoff > settings->max) {
+    next_backoff = settings->max;
   }
-  if(reconnect_delay <= 0) { //maybe as the result of large jitter and floating point precision error?
-    reconnect_delay = 1; //1ms pls
+  if(next_backoff <= 0) { //maybe as the result of large jitter and floating point precision error?
+    next_backoff = 1; //1ms pls
   }
-  *backoff = reconnect_delay;
+  *backoff = next_backoff;
 }
 
 ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf, ngx_http_request_t *r, ngx_pool_t  *pool) {
