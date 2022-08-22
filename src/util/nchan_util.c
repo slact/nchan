@@ -1178,7 +1178,7 @@ static void nchan_conf_set_backoff_unsets(nchan_backoff_settings_t *cur, nchan_b
   }
 }
 
-void nchan_conf_merge_backoff_value(nchan_backoff_settings_t *cur, nchan_backoff_settings_t *prev, nchan_backoff_settings_t *defaults) {
+void nchan_conf_merge_backoff_value(nchan_backoff_settings_t *cur, const nchan_backoff_settings_t *prev, const nchan_backoff_settings_t *defaults) {
   if(prev) {
     nchan_conf_set_backoff_unsets(cur, prev);
   }
