@@ -15,10 +15,8 @@
 #include "redis_nodeset.h"
 #include "redis_lua_commands.h"
 
-#define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP 600 //10min
-#define REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX 2628000 //whole month
-
-#define REDIS_RECONNECT_TIME 5000
+#define REDIS_CHANNEL_KEEPALIVE_SAFETY_MARGIN_SEC 60
+#define REDIS_CHANNEL_KEEPALIVE_NOTREADY_RETRY_TIME 5000
 
 #define REDIS_STALL_CHECK_TIME 0 //disable for now
 
@@ -36,6 +34,12 @@ size_t            redis_subscriber_id_len;
 static rdstore_channel_head_t    *chanhead_hash = NULL;
 static size_t                     redis_publish_message_msgkey_size;
 
+static nchan_backoff_settings_t redis_channel_keepalive_interval_settings = {
+  .min = 10000,
+  .max = 604800000, //1 week
+  .jitter_multiplier = 0.7,
+  .backoff_multiplier = 1
+};
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, chanhead_hash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, chanhead_hash, (chanhead->id).data, (chanhead->id).len, chanhead)
@@ -356,12 +360,13 @@ static ngx_int_t nchan_store_init_worker(ngx_cycle_t *cycle) {
   u_char randstr[33];
   int use_randbytes = 0;
 #if (NGX_OPENSSL)
-    if (RAND_bytes(randbytes, 16) == 1) {
-      use_randbytes = 1;
-    }
+  if (RAND_bytes(randbytes, 16) == 1) {
+    use_randbytes = 1;
+  }
 #endif
   if(use_randbytes) {
     ngx_hex_dump(randstr, randbytes, 16);
+    randstr[32]='\0';
   }
   else {
     ngx_sprintf(randstr, "%xi%Z", ngx_random());
@@ -894,7 +899,7 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
                 cmp_read_uinteger(&cmp, (uint64_t *)&subscriber_id);
                 //TODO
               }
-              node_log_error(node, "unsub all except not yet  implemented");
+              node_log_error(node, "unsub all except not yet implemented");
             }
             else if(ngx_strmatch(&alerttype, "subscriber info")) {
               uint64_t request_id;
@@ -947,7 +952,6 @@ static void redis_subscriber_callback(redisAsyncContext *c, void *r, void *privd
             break;
           case READY:
             node_log_error(node, "REDIS: PUB/SUB already subscribed to %s, chanhead %p (id %V) already READY.", reply->element[1]->str, chanhead, &chanhead->id);
-            raise(SIGSTOP);
             break;
           case INACTIVE:
             // this is fine, inactive channels can be pubsubbed, they will be garbage collected
@@ -1051,6 +1055,24 @@ static ngx_int_t start_chanhead_spooler(rdstore_channel_head_t *head) {
   return NGX_OK;
 }
 
+static void redis_update_channel_keepalive_timer(rdstore_channel_head_t *ch, int keepalive_from_redis_sec) {
+  ngx_msec_t new_interval = keepalive_from_redis_sec * 1000;
+  
+  if(keepalive_from_redis_sec < 0) {
+    //timer doesn't need to be set
+    return;
+  }
+    
+  // use the TTL provided. it might be the one we gave it rounded to the second,
+  // or it might be longer
+  ch->keepalive_interval = new_interval;
+    
+  if(ch->keepalive_timer.timer_set) {
+    ngx_del_timer(&ch->keepalive_timer);
+  }
+  ngx_add_timer(&ch->keepalive_timer, ch->keepalive_interval);
+}
+
 static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *privdata);
 
 typedef struct {
@@ -1066,8 +1088,9 @@ static ngx_int_t redis_subscriber_register_send(redis_nodeset_t *nodeset, void *
     redis_node_t *node = nodeset_node_find_by_chanhead(d->chanhead);
     
     nchan_redis_script(subscriber_register, node, &redis_subscriber_register_cb, d, &d->chanhead->id,
-                       "- %i %i 1",
-                       REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP,
+                       "- %i %i %i 1",
+                       d->chanhead->keepalive_interval / 1000,
+                       REDIS_CHANNEL_KEEPALIVE_SAFETY_MARGIN_SEC,
                        ngx_time()
                       );
   }
@@ -1110,7 +1133,6 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
   redis_subscriber_register_t *sdata= (redis_subscriber_register_t *) privdata;
   redisReply                  *reply = (redisReply *)vr;
   redis_node_t                *node = c->data;
-  int                          keepalive_ttl;
   
   node_command_received(node);
   
@@ -1153,12 +1175,8 @@ static void redis_subscriber_register_cb(redisAsyncContext *c, void *vr, void *p
     return;
   }
   
-  keepalive_ttl = reply->element[2]->integer;
-  if(keepalive_ttl > 0) {
-    if(!sdata->chanhead->keepalive_timer.timer_set) {
-      ngx_add_timer(&sdata->chanhead->keepalive_timer, keepalive_ttl * 1000);
-    }
-  }
+  redis_update_channel_keepalive_timer(sdata->chanhead, reply->element[2]->integer);
+  
   ngx_free(sdata);
 }
 
@@ -1230,7 +1248,7 @@ static void redis_subscriber_unregister_cb(redisAsyncContext *c, void *r, void *
 }
 
 static ngx_int_t redis_subscriber_unregister(rdstore_channel_head_t *chanhead, subscriber_t *sub, uint8_t shutting_down) {
-  nchan_loc_conf_t  *cf = sub->cf;;
+  nchan_loc_conf_t  *cf = sub->cf;
   
   if(!shutting_down) {
     subscriber_unregister_data_t d;
@@ -1256,16 +1274,14 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
 
 static ngx_int_t redisChannelKeepaliveCallback_send(redis_nodeset_t *ns, void *pd) {
   rdstore_channel_head_t   *head = pd;
-  time_t                    ttl;
   //TODO: optimize this
   redis_node_t *node = nodeset_node_find_by_channel_id(head->redis.nodeset, &head->id);
   if(nodeset_ready(ns)) {
     head->reserved++;
-    ttl = REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_STEP * (1+head->keepalive_times_sent);
-    if(ttl > REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX) { //1 week at most
-      ttl = REDIS_CHANNEL_EMPTY_BUT_SUBSCRIBED_TTL_MAX;
-    }
-    nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i", ttl);
+    
+    nchan_set_next_backoff(&head->keepalive_interval, &redis_channel_keepalive_interval_settings);
+    
+    nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i %i", head->keepalive_interval/1000, REDIS_CHANNEL_KEEPALIVE_SAFETY_MARGIN_SEC);
   }
   return NGX_OK;
 }
@@ -1290,20 +1306,18 @@ static void redisChannelKeepaliveCallback(redisAsyncContext *c, void *vr, void *
     nodeset_callback_on_ready(node->nodeset, redisChannelKeepaliveCallback_retry_wrapper, head);
     return;
   }
-  else {
-    head->keepalive_times_sent++;
-  }
   
-  if(redisReplyOk(c, vr)) {
-    assert(CHECK_REPLY_INT(reply));
-    
-    //reply->integer == -1 means "let it disappear" (see channel_keepalive.lua)
-    
-    if(reply->integer != -1 && !head->keepalive_timer.timer_set) {
-      ngx_add_timer(&head->keepalive_timer, reply->integer * 1000);
+  if(!redisReplyOk(c, reply)) {
+    node_log_error(node, "bad channel keepalive reply for channel %V", &head->id);
+    if(!head->keepalive_timer.timer_set) {
+      ngx_add_timer(&head->keepalive_timer, head->keepalive_interval);
     }
+    return;
   }
+
+  assert(CHECK_REPLY_INT(reply));
   
+  redis_update_channel_keepalive_timer(head, reply->integer);
 }
 
 static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
@@ -1313,7 +1327,7 @@ static void redis_channel_keepalive_timer_handler(ngx_event_t *ev) {
     if(head->pubsub_status != REDIS_PUBSUB_SUBSCRIBED || head->status == NOTREADY) {
       //no use trying to keepalive a not-ready (possibly disconnected) chanhead
       DBG("Tried sending channel keepalive when channel is not ready");
-      ngx_add_timer(ev, REDIS_RECONNECT_TIME); //retry after reconnect timeout
+      ngx_add_timer(ev, REDIS_CHANNEL_KEEPALIVE_NOTREADY_RETRY_TIME); //retry after reconnect timeout
     }
     else {
       redisChannelKeepaliveCallback_send(head->redis.nodeset, head);
@@ -1366,7 +1380,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, redis_node
   head->last_msgid.tagactive = 0;
   head->shutting_down = 0;
   head->reserved = 0;
-  head->keepalive_times_sent = 0;
+  head->keepalive_interval = 0;
   
   head->gc.in_reaper = 0;
   head->gc.time = 0;
@@ -1382,6 +1396,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, redis_node
 
   ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
   nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
+  nchan_set_next_backoff(&head->keepalive_interval, &redis_channel_keepalive_interval_settings);
   
   if(channel_id->len > 2) { // absolutely no multiplexed channels allowed
     assert(ngx_strncmp(head->id.data, "m/", 2) != 0);

@@ -14,7 +14,7 @@ typedef struct {
   //output: -none-
   redis_lua_script_t add_fakesub;
 
-  //input:  keys: [], values: [namespace, channel_id, ttl]
+  //input:  keys: [], values: [namespace, channel_id, ttl, ttl_safety_margin_sec]
   // ttl is for when there are no messages but at least 1 subscriber.
   //output: seconds until next keepalive is expected, or -1 for "let it disappear"
   redis_lua_script_t channel_keepalive;
@@ -63,9 +63,10 @@ typedef struct {
   //redis-store consistency check
   redis_lua_script_t rsck;
 
-  //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, time, want_channel_settings]
+  //input: keys: [], values: [namespace, channel_id, subscriber_id, active_ttl, ttl_safety_margin_sec, time, want_channel_settings]
   //  'subscriber_id' can be '-' for new id, or an existing id
   //  'active_ttl' is channel ttl with non-zero subscribers. -1 to persist, >0 ttl in sec
+  //  'ttl_safety_margin_sec' is number of seconds before TTL that Nchan issues a keepalive recheck
   //output: subscriber_id, num_current_subscribers, next_keepalive_time, channel_buffer_length
   //  'channel_buffer_length' is returned only if want_channel_settings is 1
   redis_lua_script_t subscriber_register;
@@ -79,7 +80,7 @@ typedef struct {
 } redis_lua_scripts_t;
 extern redis_lua_scripts_t redis_lua_scripts;
 extern const int redis_lua_scripts_count;
-#define REDIS_LUA_SCRIPTS_ALL_HASHES "34fbc20c75d26c7d86121667599645cd915b64b7 2886b4810f90546193d270f60df26c090486ec03 a928e8b91abe4c7be327b4ed79a7e0b4a6a13236 5374a5617ddf97b47ded2fb47eeb1bf390a2a0b0 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 35696def4f2ec62f9b91a72fa17bba7a4e4cb6cf 1c68d9e05fe55e2992a917c41255f23e1330b255 868da11fde87043c24d82285d0b31adbbdcef406 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 94fe1e76b0a6c9aed3d5f17e6a03e01d621b9cef 51f4b6919ec97d42f5a9a7a10ee7742579b6a8f4"
+#define REDIS_LUA_SCRIPTS_ALL_HASHES "34fbc20c75d26c7d86121667599645cd915b64b7 beecbbfdeb8b1a5ee4fefff41dc9ed744eabc3e1 a928e8b91abe4c7be327b4ed79a7e0b4a6a13236 5374a5617ddf97b47ded2fb47eeb1bf390a2a0b0 fb9c46d33b3798a11d4eca6e0f7a3f92beba8685 304efcd42590f99e0016686572530defd3de1383 3490d5bc3fdc7ed065d9d54b4a0cb8ad6b62c180 35696def4f2ec62f9b91a72fa17bba7a4e4cb6cf 1c68d9e05fe55e2992a917c41255f23e1330b255 868da11fde87043c24d82285d0b31adbbdcef406 93c500e094dfc5364251854eeac8d4331a0223c0 2fca046fa783d6cc25e493c993c407e59998e6e8 29e00c2a21eb887ef44bd82ba6aaa25fb46433dd 51f4b6919ec97d42f5a9a7a10ee7742579b6a8f4"
 #define REDIS_LUA_SCRIPTS_COUNT 14
 #define REDIS_LUA_SCRIPTS_EACH(script) \
 for((script)=(redis_lua_script_t *)&redis_lua_scripts; (script) < (redis_lua_script_t *)(&redis_lua_scripts + 1); (script)++) 
