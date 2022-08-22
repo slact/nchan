@@ -933,7 +933,7 @@ static void node_command_timeout_check_event(ngx_event_t *ev) {
   if(cur_received < prev_sent) {
     //TIMED OUT!
     node_log_debug(node, "TIMED OUT!. sent: %d, received: %d, prev_sent: %d", node->timeout.sent, cur_received, prev_sent);
-    node_log_warning(node, "%d commands took longer than the timeout limit. Marking node as failed", prev_sent - cur_received);
+    node_log_warning(node, "%d command%s took longer than the timeout limit. Marking node as failed", prev_sent - cur_received, prev_sent - cur_received == 1 ? "" : "s");
     node_disconnect(node, REDIS_NODE_FAILED);
     nodeset_examine(node->nodeset);
     return;
