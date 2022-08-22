@@ -3,6 +3,10 @@
 
 #define NCHAN_REDIS_DEFAULT_PING_INTERVAL_TIME 4*60
 #define NCHAN_REDIS_DEFAULT_PUBSUB_MESSAGE_MSGKEY_SIZE 1024*5
+extern const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL;
+extern const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_RECONNECT_DELAY;
+extern const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY;
+extern const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL;
 
 extern nchan_store_t  nchan_store_redis;
 

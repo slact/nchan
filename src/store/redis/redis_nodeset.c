@@ -14,6 +14,27 @@
 #define DBG(fmt, args...) ngx_log_error(DEBUG_LEVEL, ngx_cycle->log, 0, "REDIS NODESET: " fmt, ##args)
 #define ERR(fmt, args...) ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0, "REDIS NODESET: " fmt, ##args)
 
+const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL = {
+  .min = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MIN_MSEC,
+  .backoff_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_BACKOFF_MULTIPLIER,
+  .jitter_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_JITTER_MULTIPLIER,
+  .max = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MAX_MSEC
+};
+
+const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_RECONNECT_DELAY = {
+  .min = NCHAN_REDIS_DEFAULT_RECONNECT_DELAY_MIN_MSEC,
+  .backoff_multiplier = NCHAN_REDIS_DEFAULT_RECONNECT_DELAY_BACKOFF_MULTIPLIER,
+  .jitter_multiplier = NCHAN_REDIS_DEFAULT_RECONNECT_DELAY_JITTER_MULTIPLIER,
+  .max = NCHAN_REDIS_DEFAULT_RECONNECT_DELAY_MAX_MSEC
+};
+
+const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY = {
+  .min = NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY_MIN_MSEC,
+  .backoff_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY_BACKOFF_MULTIPLIER,
+  .jitter_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY_JITTER_MULTIPLIER,
+  .max = NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY_MAX_MSEC
+};
+
 static redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
 static int              redis_nodeset_count = 0;
 static char            *redis_worker_id = NULL;
@@ -505,20 +526,15 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.cluster_max_failing_msec = scf->redis.cluster_max_failing_msec == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_MAX_FAILING_TIME_MSEC : scf->redis.cluster_max_failing_msec;
     ns->settings.load_scripts_unconditionally = scf->redis.load_scripts_unconditionally == NGX_CONF_UNSET ? 0 : scf->redis.load_scripts_unconditionally;
     
-    ns->settings.reconnect_delay.min = scf->redis.reconnect_delay.min == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MIN_MSEC : scf->redis.reconnect_delay.min;
-    ns->settings.reconnect_delay.jitter_multiplier = scf->redis.reconnect_delay.jitter_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_JITTER_MULTIPLIER : scf->redis.reconnect_delay.jitter_multiplier;
-    ns->settings.reconnect_delay.backoff_multiplier = scf->redis.reconnect_delay.backoff_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_BACKOFF_MULTIPLIER : scf->redis.reconnect_delay.backoff_multiplier;
-    ns->settings.reconnect_delay.max = scf->redis.reconnect_delay.max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MAX_MSEC : scf->redis.reconnect_delay.max;
+    ns->settings.reconnect_delay = NCHAN_CONF_UNSEC_BACKOFF;
+    nchan_conf_merge_backoff_value(&ns->settings.reconnect_delay, &scf->redis.reconnect_delay, &NCHAN_REDIS_DEFAULT_RECONNECT_DELAY);
     
-    ns->settings.cluster_recovery_delay.min = scf->redis.cluster_recovery_delay.min == NGX_CONF_UNSET_MSEC ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MIN_MSEC : scf->redis.cluster_recovery_delay.min;
-    ns->settings.cluster_recovery_delay.jitter_multiplier = scf->redis.cluster_recovery_delay.jitter_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_JITTER_MULTIPLIER : scf->redis.cluster_recovery_delay.jitter_multiplier;
-    ns->settings.cluster_recovery_delay.backoff_multiplier = scf->redis.cluster_recovery_delay.backoff_multiplier == NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_BACKOFF_MULTIPLIER : scf->redis.cluster_recovery_delay.backoff_multiplier;
-    ns->settings.cluster_recovery_delay.max = scf->redis.cluster_recovery_delay.max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MAX_MSEC : scf->redis.cluster_recovery_delay.max;
+    ns->settings.cluster_recovery_delay = NCHAN_CONF_UNSEC_BACKOFF;
+    nchan_conf_merge_backoff_value(&ns->settings.cluster_recovery_delay, &scf->redis.cluster_recovery_delay, &NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY);
     
-    ns->settings.cluster_check_interval.min = scf->redis.cluster_check_interval.min == NGX_CONF_UNSET_MSEC ? NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MIN_MSEC : scf->redis.cluster_check_interval.min;
-    ns->settings.cluster_check_interval.jitter_multiplier = scf->redis.cluster_check_interval.jitter_multiplier == NGX_CONF_UNSET ? NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_JITTER_MULTIPLIER : scf->redis.cluster_check_interval.jitter_multiplier;
-    ns->settings.cluster_check_interval.backoff_multiplier = scf->redis.cluster_check_interval.backoff_multiplier == NGX_CONF_UNSET ? NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_BACKOFF_MULTIPLIER : scf->redis.cluster_check_interval.backoff_multiplier;
-    ns->settings.cluster_check_interval.max = scf->redis.cluster_check_interval.max == (ngx_msec_t )NGX_CONF_UNSET ? NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MAX_MSEC : scf->redis.cluster_check_interval.max;
+    ns->settings.cluster_check_interval = NCHAN_CONF_UNSEC_BACKOFF;
+    nchan_conf_merge_backoff_value(&ns->settings.cluster_check_interval, &scf->redis.cluster_check_interval, &NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL);
+    
     
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;

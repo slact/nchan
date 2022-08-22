@@ -148,18 +148,10 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.retry_commands_max_wait = NGX_CONF_UNSET_MSEC;
   scf->redis.node_connect_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.cluster_connect_timeout = NGX_CONF_UNSET_MSEC;
-  scf->redis.reconnect_delay.min = NGX_CONF_UNSET_MSEC;
-  scf->redis.reconnect_delay.jitter_multiplier = NGX_CONF_UNSET;
-  scf->redis.reconnect_delay.backoff_multiplier = NGX_CONF_UNSET;
-  scf->redis.reconnect_delay.max = NGX_CONF_UNSET_MSEC;
-  scf->redis.cluster_recovery_delay.min = NGX_CONF_UNSET_MSEC;
-  scf->redis.cluster_recovery_delay.jitter_multiplier = NGX_CONF_UNSET;
-  scf->redis.cluster_recovery_delay.backoff_multiplier = NGX_CONF_UNSET;
-  scf->redis.cluster_recovery_delay.max = NGX_CONF_UNSET_MSEC;
-  scf->redis.cluster_check_interval.min = NGX_CONF_UNSET_MSEC;
-  scf->redis.cluster_check_interval.jitter_multiplier = NGX_CONF_UNSET;
-  scf->redis.cluster_check_interval.backoff_multiplier = NGX_CONF_UNSET;
-  scf->redis.cluster_check_interval.max = NGX_CONF_UNSET_MSEC;
+  
+  scf->redis.reconnect_delay = NCHAN_CONF_UNSEC_BACKOFF;
+  scf->redis.cluster_recovery_delay = NCHAN_CONF_UNSEC_BACKOFF;
+  scf->redis.cluster_check_interval = NCHAN_CONF_UNSEC_BACKOFF;
   scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
   scf->redis.command_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
@@ -188,51 +180,13 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   ngx_conf_merge_msec_value(conf->redis.command_timeout, prev->redis.command_timeout, NCHAN_DEFAULT_REDIS_COMMAND_TIMEOUT_MSEC);
   
-  ngx_conf_merge_msec_value(conf->redis.reconnect_delay.min, prev->redis.reconnect_delay.min, NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MIN_MSEC);
-  if(prev->redis.reconnect_delay.jitter_multiplier == NGX_CONF_UNSET) {
-    conf->redis.reconnect_delay.jitter_multiplier = NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_JITTER_MULTIPLIER;
-  }
-  else {
-    conf->redis.reconnect_delay.jitter_multiplier = prev->redis.reconnect_delay.jitter_multiplier;
-  }
-  if(prev->redis.reconnect_delay.backoff_multiplier == NGX_CONF_UNSET) {
-    conf->redis.reconnect_delay.backoff_multiplier = NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_BACKOFF_MULTIPLIER;
-  }
-  else {
-    conf->redis.reconnect_delay.backoff_multiplier = prev->redis.reconnect_delay.backoff_multiplier;
-  }
-  ngx_conf_merge_msec_value(conf->redis.reconnect_delay.max, prev->redis.reconnect_delay.max, NCHAN_DEFAULT_REDIS_RECONNECT_DELAY_MAX_MSEC);
+  nchan_conf_merge_backoff_value(&conf->redis.reconnect_delay, &prev->redis.reconnect_delay, &NCHAN_REDIS_DEFAULT_RECONNECT_DELAY);
   
-  ngx_conf_merge_msec_value(conf->redis.cluster_recovery_delay.min, prev->redis.cluster_recovery_delay.min, NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MIN_MSEC);
-  if(prev->redis.cluster_recovery_delay.jitter_multiplier == NGX_CONF_UNSET) {
-    conf->redis.cluster_recovery_delay.jitter_multiplier = NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_JITTER_MULTIPLIER;
-  }
-  else {
-    conf->redis.cluster_recovery_delay.jitter_multiplier = prev->redis.cluster_recovery_delay.jitter_multiplier;
-  }
-  if(prev->redis.cluster_recovery_delay.backoff_multiplier == NGX_CONF_UNSET) {
-    conf->redis.cluster_recovery_delay.backoff_multiplier = NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_BACKOFF_MULTIPLIER;
-  }
-  else {
-    conf->redis.cluster_recovery_delay.backoff_multiplier = prev->redis.cluster_recovery_delay.backoff_multiplier;
-  }
-  ngx_conf_merge_msec_value(conf->redis.cluster_recovery_delay.max, prev->redis.cluster_recovery_delay.max, NCHAN_DEFAULT_REDIS_CLUSTER_RECOVERY_DELAY_MAX_MSEC);
+  nchan_conf_merge_backoff_value(&conf->redis.cluster_recovery_delay, &prev->redis.cluster_recovery_delay, &NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY);
   
+  nchan_conf_merge_backoff_value(&conf->redis.cluster_check_interval, &prev->redis.cluster_check_interval, &NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL);
+
   
-  ngx_conf_merge_msec_value(conf->redis.cluster_check_interval.min, prev->redis.cluster_check_interval.min, NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MIN_MSEC);
-  if(prev->redis.cluster_check_interval.jitter_multiplier == NGX_CONF_UNSET) {
-    conf->redis.cluster_check_interval.jitter_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_JITTER_MULTIPLIER;
-  }
-  else {
-    conf->redis.cluster_check_interval.jitter_multiplier = prev->redis.cluster_check_interval.jitter_multiplier;
-  }
-  if(prev->redis.cluster_check_interval.backoff_multiplier == NGX_CONF_UNSET) {
-    conf->redis.cluster_check_interval.backoff_multiplier = NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_BACKOFF_MULTIPLIER;
-  }
-  else {
-    conf->redis.cluster_check_interval.backoff_multiplier = prev->redis.cluster_check_interval.backoff_multiplier;
-  }
-  ngx_conf_merge_msec_value(conf->redis.cluster_check_interval.max, prev->redis.cluster_check_interval.max, NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL_MAX_MSEC);
   
   ngx_conf_merge_value(conf->redis.load_scripts_unconditionally, prev->redis.load_scripts_unconditionally, 0);
   

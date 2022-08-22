@@ -24,7 +24,9 @@ int nchan_cstr_startswith(const char *cstr, const char *match);
 int nchan_str_startswith(ngx_str_t *str, const char *match);
 int nchan_str_after(ngx_str_t **str, const char *match);
 
-void nchan_set_next_backoff(ngx_msec_t *backoff, nchan_backoff_settings_t *settings);
+ngx_msec_t nchan_set_next_backoff(ngx_msec_t *backoff, nchan_backoff_settings_t *settings);
+void nchan_conf_merge_backoff_value(nchan_backoff_settings_t *cur, nchan_backoff_settings_t *prev, nchan_backoff_settings_t *defaults);
+extern const nchan_backoff_settings_t NCHAN_CONF_UNSEC_BACKOFF;
 
 double nchan_atof(u_char *line, ssize_t n);
 

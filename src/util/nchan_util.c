@@ -1162,7 +1162,39 @@ ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
 #endif
 }
 
-void nchan_set_next_backoff(ngx_msec_t *backoff, nchan_backoff_settings_t *settings) {
+
+static void nchan_conf_set_backoff_unsets(nchan_backoff_settings_t *cur, nchan_backoff_settings_t *prev) {
+  if(cur->min == NGX_CONF_UNSET_MSEC) {
+    cur->min = prev->min;
+  }
+  if(cur->jitter_multiplier == NGX_CONF_UNSET) {
+    cur->jitter_multiplier = prev->jitter_multiplier;
+  }
+  if(cur->backoff_multiplier == NGX_CONF_UNSET) {
+    cur->backoff_multiplier = prev->backoff_multiplier;
+  }
+  if(cur->max == NGX_CONF_UNSET_MSEC) {
+    cur->max = prev->max;
+  }
+}
+
+void nchan_conf_merge_backoff_value(nchan_backoff_settings_t *cur, nchan_backoff_settings_t *prev, nchan_backoff_settings_t *defaults) {
+  if(prev) {
+    nchan_conf_set_backoff_unsets(cur, prev);
+  }
+  if(defaults) {
+    nchan_conf_set_backoff_unsets(cur, defaults);
+  }
+}
+
+const nchan_backoff_settings_t NCHAN_CONF_UNSEC_BACKOFF = {
+  .min = NGX_CONF_UNSET_MSEC,
+  .backoff_multiplier = NGX_CONF_UNSET,
+  .jitter_multiplier = NGX_CONF_UNSET,
+  .max = NGX_CONF_UNSET_MSEC
+};
+
+ngx_msec_t nchan_set_next_backoff(ngx_msec_t *backoff, nchan_backoff_settings_t *settings) {
   double next_backoff = *backoff;
   if(next_backoff == 0 || settings->backoff_multiplier == 0) {
     next_backoff = settings->min;
@@ -1185,6 +1217,7 @@ void nchan_set_next_backoff(ngx_msec_t *backoff, nchan_backoff_settings_t *setti
     next_backoff = 1; //1ms pls
   }
   *backoff = next_backoff;
+  return next_backoff;
 }
 
 ngx_int_t nchan_deflate_message_if_needed(nchan_msg_t *msg, nchan_loc_conf_t *cf, ngx_http_request_t *r, ngx_pool_t  *pool) {
