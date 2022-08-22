@@ -566,7 +566,6 @@ static ngx_int_t initialize_shm(ngx_shm_zone_t *zone, void *data) {
     for(i=0; i< NGX_MAX_PROCESSES; i++) {
       shdata->procslot[i]=NCHAN_INVALID_SLOT;
     }
-    ngx_memzero(&d->stats, sizeof(d->stats));
     
 #if nginx_version <= 1011006
     shdata->shmem_pages_used=0;

@@ -160,21 +160,6 @@ typedef struct {
   ngx_rwlock_t                   lock;
 } nchan_worker_msg_sentinel_t;
 
-typedef struct {
-  ngx_atomic_uint_t      channels;
-  ngx_atomic_uint_t      subscribers;
-  ngx_atomic_uint_t      total_published_messages;
-  ngx_atomic_uint_t      messages;
-  ngx_atomic_uint_t      redis_pending_commands;
-  ngx_atomic_uint_t      redis_connected_servers;
-  ngx_atomic_uint_t      redis_unhealthy_upstreams;
-  ngx_atomic_uint_t      ipc_total_alerts_sent;
-  ngx_atomic_uint_t      ipc_total_alerts_received;
-  ngx_atomic_uint_t      ipc_queue_size;
-  ngx_atomic_uint_t      ipc_total_send_delay;
-  ngx_atomic_uint_t      ipc_total_receive_delay;
-} nchan_stub_status_t;
-
 typedef struct subscriber_s subscriber_t;
 
 typedef struct {
