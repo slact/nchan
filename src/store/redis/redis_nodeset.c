@@ -1048,11 +1048,12 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     goto error;
   }
   
-  int outdated_nodes = 0;
+  int outdated_nodes = 0, failed_nodes = 0;
   
   for(i=0; i<n; i++) {
     l = &lines[i];
     if(l->failed && nodeset_node_remove_failed(ns, &l->id)) {
+      failed_nodes++;
       continue;
     }
     if(node_skip_cluster_peer(node, l, 0, 0)) {
@@ -1080,6 +1081,17 @@ static void nodeset_cluster_check_event_callback(redisAsyncContext *ac, void *re
     else {
       nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, "Config epoch has changed and the keyslot space is incomplete");
       return;
+    }
+  }
+  
+  if(failed_nodes) {
+    if(nodeset_cluster_keyslot_space_complete(ns, REDIS_NODE_READY)) {
+      nodeset_log_warning(ns, "%d failed node%s removed, but the keyspace is still complete. The cluster is healthy.", failed_nodes, failed_nodes == 1 ? " was" : "s were");
+    }
+    else {
+      char errbuf[512];
+      ngx_snprintf((u_char *)errbuf, 512, "%d failed node%s removed, and the keyspace is now incomplete%Z", failed_nodes, failed_nodes == 1 ? " was" : "s were");
+      nodeset_set_status(node->nodeset, REDIS_NODESET_CLUSTER_FAILING, errbuf);
     }
   }
   
