@@ -15,7 +15,6 @@
 #include "redis_nodeset.h"
 #include "redis_lua_commands.h"
 
-#define REDIS_CHANNEL_KEEPALIVE_SAFETY_MARGIN_SEC 60
 #define REDIS_CHANNEL_KEEPALIVE_NOTREADY_RETRY_TIME 5000
 
 #define REDIS_STALL_CHECK_TIME 0 //disable for now
@@ -33,13 +32,6 @@ size_t            redis_subscriber_id_len;
 
 static rdstore_channel_head_t    *chanhead_hash = NULL;
 static size_t                     redis_publish_message_msgkey_size;
-
-static nchan_backoff_settings_t redis_channel_keepalive_interval_settings = {
-  .min = 10000,
-  .max = 604800000, //1 week
-  .jitter_multiplier = 0.7,
-  .backoff_multiplier = 1
-};
 
 #define CHANNEL_HASH_FIND(id_buf, p)    HASH_FIND( hh, chanhead_hash, (id_buf)->data, (id_buf)->len, p)
 #define CHANNEL_HASH_ADD(chanhead)      HASH_ADD_KEYPTR( hh, chanhead_hash, (chanhead->id).data, (chanhead->id).len, chanhead)
@@ -113,6 +105,13 @@ static nchan_backoff_settings_t redis_channel_keepalive_interval_settings = {
 static ngx_int_t nchan_store_publish_generic(ngx_str_t *, redis_nodeset_t *, nchan_msg_t *, ngx_int_t, const ngx_str_t *);
 
 static rdstore_channel_head_t * nchan_store_get_chanhead(ngx_str_t *channel_id, redis_nodeset_t *);
+
+const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL = {
+  .min = NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL_MIN_MSEC,
+  .backoff_multiplier = NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL_BACKOFF_MULTIPLIER,
+  .jitter_multiplier = NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL_JITTER_MULTIPLIER,
+  .max = NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL_MAX_MSEC
+};
 
 static ngx_buf_t *set_buf(ngx_buf_t *buf, u_char *start, off_t len){
   ngx_memzero(buf, sizeof(*buf));
@@ -1090,7 +1089,7 @@ static ngx_int_t redis_subscriber_register_send(redis_nodeset_t *nodeset, void *
     nchan_redis_script(subscriber_register, node, &redis_subscriber_register_cb, d, &d->chanhead->id,
                        "- %i %i %i 1",
                        d->chanhead->keepalive_interval / 1000,
-                       REDIS_CHANNEL_KEEPALIVE_SAFETY_MARGIN_SEC,
+                       nodeset->settings.idle_channel_ttl_safety_margin/1000,
                        ngx_time()
                       );
   }
@@ -1279,9 +1278,9 @@ static ngx_int_t redisChannelKeepaliveCallback_send(redis_nodeset_t *ns, void *p
   if(nodeset_ready(ns)) {
     head->reserved++;
     
-    nchan_set_next_backoff(&head->keepalive_interval, &redis_channel_keepalive_interval_settings);
+    nchan_set_next_backoff(&head->keepalive_interval, &ns->settings.idle_channel_ttl);
     
-    nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i %i", head->keepalive_interval/1000, REDIS_CHANNEL_KEEPALIVE_SAFETY_MARGIN_SEC);
+    nchan_redis_script(channel_keepalive, node, &redisChannelKeepaliveCallback, head, &head->id, "%i %i", head->keepalive_interval/1000, ns->settings.idle_channel_ttl_safety_margin/1000);
   }
   return NGX_OK;
 }
@@ -1396,8 +1395,7 @@ static rdstore_channel_head_t *create_chanhead(ngx_str_t *channel_id, redis_node
 
   ngx_memzero(&head->keepalive_timer, sizeof(head->keepalive_timer));
   nchan_init_timer(&head->keepalive_timer, redis_channel_keepalive_timer_handler, head);
-  nchan_set_next_backoff(&head->keepalive_interval, &redis_channel_keepalive_interval_settings);
-  
+  nchan_set_next_backoff(&head->keepalive_interval, &ns->settings.idle_channel_ttl);
   if(channel_id->len > 2) { // absolutely no multiplexed channels allowed
     assert(ngx_strncmp(head->id.data, "m/", 2) != 0);
   }

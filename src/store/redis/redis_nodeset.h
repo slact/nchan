@@ -172,6 +172,9 @@ struct redis_nodeset_s {
     nchan_backoff_settings_t    cluster_recovery_delay;
     nchan_backoff_settings_t    cluster_check_interval;
     
+    nchan_backoff_settings_t    idle_channel_ttl;
+    ngx_msec_t                  idle_channel_ttl_safety_margin;
+    
     ngx_msec_t                  cluster_max_failing_msec;
     ngx_int_t                   load_scripts_unconditionally;
     struct {

@@ -686,6 +686,51 @@ CfCmd.new do
       value: "<time> (0 to disable)",
       info: "Maximum Redis reconnection delay after backoff and jitter."
 
+  nchan_redis_idle_channel_keepalive_safety_margin [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.idle_channel_ttl_safety_margin"],
+      group: "storage",
+      tags: ['redis'],
+      value: "<time>",
+      default: "60s",
+      undocumented: true
+  
+  nchan_redis_idle_channel_keepalive_min [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.idle_channel_ttl.min"],
+      group: "storage",
+      tags: ['redis'],
+      value: "<time>",
+      default: "10m",
+      undocumented: true
+  
+  nchan_redis_idle_channel_keepalive_jitter [:upstream],
+      :ngx_conf_set_jitter,
+      [:srv_conf, :"redis.idle_channel_ttl.jitter_multiplier"],
+      group: "storage",
+      tags: ['redis'],
+      value: "<floating point> >= 0 (0 to disable)",
+      default: "0.7 (70% of delay value)",
+      undocumented: true
+    
+  nchan_redis_idle_channel_keepalive_backoff [:upstream],
+      :ngx_conf_set_exponential_backoff,
+      [:srv_conf, :"redis.idle_channel_ttl.backoff_multiplier"],
+      group: "storage",
+      tags: ['redis'],
+      value: "<floating point> >= 0 (0 to disable)",
+      default: "1 (increase by 100% each time)",
+      undocumented: true
+      
+  nchan_redis_idle_channel_keepalive_max [:upstream],
+      :ngx_conf_set_msec_slot,
+      [:srv_conf, :"redis.idle_channel_ttl.max"],
+      group: "storage",
+      tags: ['redis'],
+      default: "168h (1 week)",
+      value: "<time> (0 to disable)",
+      undocumented: true
+  
   nchan_redis_cluster_check_interval_min [:upstream],
       :ngx_conf_set_msec_slot,
       [:srv_conf, :"redis.cluster_check_interval.min"],

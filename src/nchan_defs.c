@@ -57,7 +57,6 @@ const  ngx_str_t NCHAN_ALLOW_GET_POST_PUT_DELETE= ngx_string("GET, POST, PUT, DE
 const  ngx_str_t NCHAN_ALLOW_GET= ngx_string("GET");
 const  ngx_str_t NCHAN_ALLOW_GET_POST_DELETE= ngx_string("GET, POST, DELETE");
 
-
 const  ngx_str_t NCHAN_VARY_HEADER_VALUE = ngx_string("If-None-Match, If-Modified-Since");
 const  ngx_str_t NCHAN_MSG_RESPONSE_ALLOWED_HEADERS = ngx_string("Last-Modified, Etag, Content-Type");
 const  char *NCHAN_MSG_RESPONSE_ALLOWED_CUSTOM_ETAG_HEADERS_STRF = "Last-Modified, %V, Content-Type";

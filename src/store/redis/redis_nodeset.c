@@ -35,6 +35,7 @@ const nchan_backoff_settings_t NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY = {
   .max = NCHAN_REDIS_DEFAULT_CLUSTER_RECOVERY_DELAY_MAX_MSEC
 };
 
+
 static redis_nodeset_t  redis_nodeset[NCHAN_MAX_NODESETS];
 static int              redis_nodeset_count = 0;
 static char            *redis_worker_id = NULL;
@@ -535,6 +536,10 @@ redis_nodeset_t *nodeset_create(nchan_loc_conf_t *lcf) {
     ns->settings.cluster_check_interval = NCHAN_CONF_UNSEC_BACKOFF;
     nchan_conf_merge_backoff_value(&ns->settings.cluster_check_interval, &scf->redis.cluster_check_interval, &NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL);
     
+    ns->settings.idle_channel_ttl = NCHAN_CONF_UNSEC_BACKOFF;
+    nchan_conf_merge_backoff_value(&ns->settings.idle_channel_ttl, &scf->redis.idle_channel_ttl, &NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL);
+  
+    ns->settings.idle_channel_ttl_safety_margin = scf->redis.idle_channel_ttl_safety_margin == NGX_CONF_UNSET_MSEC ? NCHAN_REDIS_IDLE_CHANNEL_TTL_SAFETY_MARGIN : scf->redis.idle_channel_ttl_safety_margin;
     
     ns->settings.node_weight.master = scf->redis.master_weight == NGX_CONF_UNSET ? 1 : scf->redis.master_weight;
     ns->settings.node_weight.slave = scf->redis.slave_weight == NGX_CONF_UNSET ? 1 : scf->redis.slave_weight;

@@ -152,6 +152,10 @@ static void *nchan_create_srv_conf(ngx_conf_t *cf) {
   scf->redis.reconnect_delay = NCHAN_CONF_UNSEC_BACKOFF;
   scf->redis.cluster_recovery_delay = NCHAN_CONF_UNSEC_BACKOFF;
   scf->redis.cluster_check_interval = NCHAN_CONF_UNSEC_BACKOFF;
+  scf->redis.idle_channel_ttl = NCHAN_CONF_UNSEC_BACKOFF;
+  
+  scf->redis.idle_channel_ttl_safety_margin = NGX_CONF_UNSET_MSEC;
+  
   scf->redis.cluster_max_failing_msec = NGX_CONF_UNSET_MSEC;
   scf->redis.command_timeout = NGX_CONF_UNSET_MSEC;
   scf->redis.load_scripts_unconditionally = NGX_CONF_UNSET;
@@ -186,7 +190,9 @@ static char *nchan_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child) {
   
   nchan_conf_merge_backoff_value(&conf->redis.cluster_check_interval, &prev->redis.cluster_check_interval, &NCHAN_REDIS_DEFAULT_CLUSTER_CHECK_INTERVAL);
 
+  nchan_conf_merge_backoff_value(&conf->redis.idle_channel_ttl, &prev->redis.idle_channel_ttl, &NCHAN_REDIS_DEFAULT_IDLE_CHANNEL_TTL);
   
+  ngx_conf_merge_msec_value(conf->redis.idle_channel_ttl_safety_margin, prev->redis.idle_channel_ttl_safety_margin, NCHAN_REDIS_IDLE_CHANNEL_TTL_SAFETY_MARGIN);
   
   ngx_conf_merge_value(conf->redis.load_scripts_unconditionally, prev->redis.load_scripts_unconditionally, 0);
   
