@@ -1163,7 +1163,7 @@ ngx_flag_t nchan_need_to_deflate_message(nchan_loc_conf_t *cf) {
 }
 
 
-static void nchan_conf_set_backoff_unsets(nchan_backoff_settings_t *cur, nchan_backoff_settings_t *prev) {
+static void nchan_conf_set_backoff_unsets(nchan_backoff_settings_t *cur, const nchan_backoff_settings_t *prev) {
   if(cur->min == NGX_CONF_UNSET_MSEC) {
     cur->min = prev->min;
   }
